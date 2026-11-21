@@ -984,7 +984,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   [§16.5](docs/architecture/engine.md#165-pve--the-typed-proxmox-client-and-the-one-table-of-privileges) first.
     - `lib/claude_vm/pve/client.py`'s `Proxmox` is the only place of the new engine that writes the `PVEAPIToken`
       header: the engine's one `Token`, its secret a `Secret`, handed to the transport as parts and revealed there. No
-      method returns it, and no error says it.
+      method returns it, and no error says it: Proxmox's words an error quotes have it struck first (`Secret.struck`),
+      before they are cut, so a peer that echoes it has none of it said.
     - It goes only on `lib/claude_vm/pve/pin.py`'s connection: the host's anchor alone where it keeps one, made by
       today's `trust.anchored_context` (strict, a partial chain, the name checked, on every Python), else the
       computer's one certificate file (`lib/claude_vm/vendors/trust.py`); and where the anchor is the node's own
@@ -995,6 +996,21 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       read for what the same run changed: `current` reads the VM.
     - `tests/unit/test_aw_pve_reads.py` holds it against the fake, with the rules that `PVEAPIToken` is named in one
       module of the new engine, that no method returns the token and that no error says it.
+- **Every write of a VM's configuration sends `digest`; no write is sent twice.** Read
+  [§16.5](docs/architecture/engine.md#165-pve--the-typed-proxmox-client-and-the-one-table-of-privileges) first.
+    - `write_config` is one synchronous `PUT` with the digest of the read its changes were made from, never a `POST`,
+      whose check at the call and write in a task leave a window; a stale digest is `DigestMismatch`, nothing written,
+      and `edit_config` reads and applies again, three times at most. It sends only `CONFIG_KEYS`, whose privileges are
+      the table's rows for it: a key of another group needs its row first.
+    - The transport sends no request but a `GET` twice: a write that left with no answer is `Unknown`, settled by
+      reading the VM again. A clone onto a VMID that is taken is `Exists`, at the call or in its task in any of
+      Proxmox's three sentences, and nothing is ever deleted at the VMID asked for, which on a host would be another
+      run's VM. A task is followed within a deadline of its kind and never longer.
+    - Proxmox answers every refusal of a write with a 500: `Locked`, `DigestMismatch` and `Exists` are told apart by its
+      words, each held equal to the fake's constant. Every route the client sends has its rows in `privileges.CALLS`,
+      which the fake enforces (a guest added to a pool held on its own path, a resize on its disk's storage).
+    - `tests/unit/test_aw_pve_writes.py` holds it against the fake under enforcement, with a syntax-tree test that every
+      method sending a `PUT` to a configuration's path sends `digest`.
 - **A job's state is derived from its record and its own kernel lock, never stored.** Read
   [§16.8](docs/architecture/engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run) first.
     - Every run of the new engine is a job, `jobs/<id>/` in the state folder (`lib/claude_vm/runs/job.py`). `create`

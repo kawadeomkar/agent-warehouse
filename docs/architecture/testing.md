@@ -941,7 +941,8 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
   made token is held to the engine's table, which the fake reads from the checkout's `lib/` and keeps no copy of. It
   is refused, a 403 with Proxmox's words, where the token lacks on its path the privilege a row of its call names - the
   path the request's path names, or its parameters (a clone's pool, or with none the new VM's own path, and its
-  storage, or with none its source's disk's; a pool's `poolid`) - decided by the same function that answers
+  storage, or with none its source's disk's; a pool's `poolid`, and each guest its `vms` names), or its VM's
+  configuration (the storage of the disk a resize grows) - decided by the same function that answers
   `GET /access/permissions`; a task's owner reads it with no privilege; a listing (the cluster's, a node's storages
   and bridges, the pools) shows each entry only where the token holds what its row names on it, and a node's figures
   only so. A call no row names is refused the same way and recorded in the state directory's `unmatched.log`, and
@@ -954,18 +955,21 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
   once: a client that followed it would carry the token to another address.
 - A VM's configuration is written as qemu-server's `PVE/API2/Qemu.pm` writes it. A `PUT` or `POST` of it that sends
   `digest` is refused, nothing written, unless that is the digest its `GET` gives now; one that sends none is taken, as
-  before, and `digest` is never kept. A `POST`'s task checks the digest and the lock again when it ends, as Proxmox's
-  worker does under the VM's lock, and fails, writing nothing, where a write made since changed the one or set the
-  other: the `PUT` made in between stands. A description is read back without its trailing white space, as Proxmox
-  reads one. A clone takes `description` over its source's, `pool`, which it joins when its task ends, `storage` (one
-  its node has) and `target` (another node, where the disk's storage is shared there: `PUT /api2/json/fake/storages`
-  marks one with `:shared`). It is refused, its 500 now with Proxmox's words, onto a VMID this node's VM holds; onto
-  one a container or another node's VM holds it passes the call, whose check reads this node's files alone, and fails
-  in its task. While a clone or a deletion runs, the VM's configuration holds `lock` (`clone`, `destroyed`) and a write
-  to it is refused as locked. `PUT /api2/json/fake/notes-limit?bytes=` bounds the description a configuration write
-  sends (a clone's has no limit), and `PUT /api2/json/fake/clone-inherits?tags=&description=` stops a clone taking its
-  source's tags and description. Each refusal's status and words are constants at the top of the fake, read from
-  Proxmox's source, for experiment 6 to correct.
+  before, and `digest` is never kept. Before anything else, as Proxmox's schema does, one whose `sshkeys` is not still
+  percent-encoded whole once the form is decoded - unreserved characters and `%XX` alone, what today's `proxmox_kvm`
+  sends (`quote(keys, safe="")`) - is refused, nothing written. A `POST`'s task checks the digest and the lock again
+  when it ends, as Proxmox's worker does under the VM's lock, and fails, writing nothing, where a write made since
+  changed the one or set the other: the `PUT` made in between stands. A description is read back without its trailing
+  white space, as Proxmox reads one. A clone takes `description` over its source's, `pool`, which it joins when its task
+  ends, `storage` (one its node has) and `target` (another node, where the disk's storage is shared there:
+  `PUT /api2/json/fake/storages` marks one with `:shared`). It is refused, its 500 now with Proxmox's words, onto a VMID
+  this node's VM holds; onto one a container or another node's VM holds it passes the call, whose check reads this
+  node's files alone, and fails in its task. While a clone or a deletion runs, the VM's configuration holds `lock`
+  (`clone`, `destroyed`) and a write to it is refused as locked. `PUT /api2/json/fake/notes-limit?bytes=` bounds the
+  description a configuration write sends (a clone's has no limit), and
+  `PUT /api2/json/fake/clone-inherits?tags=&description=` stops a clone taking its source's tags and description. Each
+  refusal's status and words are constants at the top of the fake, read from Proxmox's source, for experiment 6 to
+  correct.
 - Where Proxmox takes two calls and fails the loser in its worker, the fake can too: `PUT /api2/json/fake/clone-race`
   has the next clone onto a VMID this node's VM holds, and the next configuration `POST` with a stale digest, pass the
   call as a race's loser did, answer a UPID and fail in the task, changing nothing - the clone with the lock's timeout

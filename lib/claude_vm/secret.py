@@ -4,7 +4,8 @@ A token's secret, a key, a password: wrapped in a `Secret` as soon as it is read
 `repr`, `str`, an f-string, `%`, `format`, a log line, a traceback's locals - and it refuses to be pickled or turned
 into JSON, so it cannot travel by accident to a file, a child or a message. Its plain value is read only by
 `reveal()`, at the one place that sends it on: a request's header, a child's standard input. The modules that call
-`reveal()` are named in tests/unit/test_aw_guards.py's `REVEALS`, each with why, and no other may.
+`reveal()` are named in tests/unit/test_aw_guards.py's `REVEALS`, each with why, and no other may. `struck(text)` puts
+it as its mark wherever a text holds it, so that a peer's words that echo it can be said.
 
 Standard library only, and nothing at import.
 """
@@ -28,6 +29,13 @@ class Secret:
     def reveal(self) -> str:
         """The plain value, for the one place that sends it on."""
         return self.__value
+
+    def struck(self, text: str) -> str:
+        """text with every occurrence of the value put as MARK: for a peer's words, which may echo what it was sent,
+        before any of them is said. It says nothing of the value but where it was; an empty value strikes nothing."""
+        if not isinstance(text, str):
+            raise TypeError(f"a Secret strikes itself from a str, not a {type(text).__name__}")
+        return text.replace(self.__value, MARK) if self.__value else text
 
     def __repr__(self) -> str:
         return f"Secret({MARK!r})"

@@ -605,6 +605,17 @@ def test_a_secret_refuses_json_and_pickle_and_copies_as_itself() -> None:
         json.dumps(held)
 
 
+def test_a_secret_strikes_itself_from_a_text_and_says_nothing_else() -> None:
+    secret = Secret(SECRET)
+    assert secret.struck(f"echoed {SECRET} and {SECRET}!") == f"echoed {MARK} and {MARK}!"
+    assert secret.struck("nothing of it") == "nothing of it" and secret.struck("") == ""
+    assert Secret("").struck("anything") == "anything"
+    for value in (SECRET.encode(), None, Secret(SECRET)):
+        with pytest.raises(TypeError) as refused:
+            secret.struck(value)
+        assert SECRET not in str(refused.value)
+
+
 def test_a_secret_holds_a_string_and_reveal_alone_reads_it() -> None:
     assert Secret(SECRET).reveal() == SECRET
     for value in (SECRET.encode(), 42, None, Secret(SECRET)):
