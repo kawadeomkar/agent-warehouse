@@ -18,9 +18,10 @@ says where Proxmox checks it:
 
 A row with no privilege needs none (the version, the next free VMID, the token's own permissions). Where the call's
 path names the object a row is checked on, for_request gives the concrete ACL path; where it does not, the call names
-it in its parameters (a clone's pool and storage, GET /pools' poolid) or the call lists such objects, each listed
-only where the row's privilege is held on it (GET /cluster/resources, a node's storages and bridges): Proxmox's own
-code says which, and so does the fake's.
+it in its parameters (a clone's pool and storage, a pool's poolid and each guest of its vms) or its VM's
+configuration does (the storage of the disk a resize grows), or the call lists such objects, each listed only where
+the row's privilege is held on it (GET /cluster/resources, a node's storages and bridges): Proxmox's own code says
+which, and so does the fake's.
 
 Standard library only: the fake imports this module with nothing but the checkout's lib/ on its path.
 """
@@ -55,9 +56,8 @@ class Call:
     on: str | None
 
 
-# Filled from N-14's table of calls for Proxmox VE 9 (rows 1 to 16), with the calls the base makes once they are
-# built: the client's reads (card B2), and the clone and the configuration's write the fake's enforcement is tried
-# with; card B4 adds a row for each other route it sends, and card B6 the guest agent's.
+# Filled from N-14's table of calls for Proxmox VE 9, with the calls the base makes once they are built: the client's
+# reads (card B2) and its writes (card B4), each privilege read from Proxmox's source; card B6 adds the guest agent's.
 CALLS = (
     # The reads every workflow makes (client.py).
     Call("version", "GET", "/version", None, None),
@@ -92,8 +92,29 @@ CALLS = (
     Call("clone", "POST", "/nodes/{node}/qemu/{vmid}/clone", "VM.Clone", "vm"),
     Call("clone", "POST", "/nodes/{node}/qemu/{vmid}/clone", "VM.Allocate", "pool"),
     Call("clone", "POST", "/nodes/{node}/qemu/{vmid}/clone", "Datastore.AllocateSpace", "storage"),
-    # A VM's notes, where its record is: VM.Config.Options (N-14 row 9, the record's own key).
+    # A VM's configuration, written synchronously (N-14 row 9): Proxmox checks each key it is sent with the privilege of
+    # its group (qemu-server's check_vm_modify_config_perm), and the client sends the keys of four groups alone
+    # (client.CONFIG_KEYS): the record's notes, its tags and the general options; cloud-init's; the CPU's; the memory's.
     Call("write_config", "PUT", "/nodes/{node}/qemu/{vmid}/config", "VM.Config.Options", "vm"),
+    Call("write_config", "PUT", "/nodes/{node}/qemu/{vmid}/config", "VM.Config.Cloudinit", "vm"),
+    Call("write_config", "PUT", "/nodes/{node}/qemu/{vmid}/config", "VM.Config.CPU", "vm"),
+    Call("write_config", "PUT", "/nodes/{node}/qemu/{vmid}/config", "VM.Config.Memory", "vm"),
+    # A disk grown (N-14 row 10): VM.Config.Disk on the VM, and in its task Datastore.AllocateSpace on the storage the
+    # disk is on (qemu-server's resize_vm).
+    Call("resize", "PUT", "/nodes/{node}/qemu/{vmid}/resize", "VM.Config.Disk", "vm"),
+    Call("resize", "PUT", "/nodes/{node}/qemu/{vmid}/resize", "Datastore.AllocateSpace", "storage"),
+    # A VM started, shut down or stopped (N-14 rows 11 and 20): VM.PowerMgmt.
+    Call("start", "POST", "/nodes/{node}/qemu/{vmid}/status/start", "VM.PowerMgmt", "vm"),
+    Call("shutdown", "POST", "/nodes/{node}/qemu/{vmid}/status/shutdown", "VM.PowerMgmt", "vm"),
+    Call("stop", "POST", "/nodes/{node}/qemu/{vmid}/status/stop", "VM.PowerMgmt", "vm"),
+    # A VM made a template, and a VM deleted with its disks (N-14 rows 21 and 22): VM.Allocate.
+    Call("to_template", "POST", "/nodes/{node}/qemu/{vmid}/template", "VM.Allocate", "vm"),
+    Call("delete", "DELETE", "/nodes/{node}/qemu/{vmid}", "VM.Allocate", "vm"),
+    # Guests added to a pool (pve-manager's update_pool): Pool.Allocate on the pool, and on each guest named in vms
+    # check_perm_modify's VM.Allocate (or Permissions.Modify, which the engine is never granted), so that a token whose
+    # role is on its pool alone adds no guest it does not already hold.
+    Call("pool_add", "PUT", "/pools", "Pool.Allocate", "pool"),
+    Call("pool_add", "PUT", "/pools", "VM.Allocate", "vm"),
 )
 
 

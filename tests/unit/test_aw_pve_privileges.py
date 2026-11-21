@@ -191,14 +191,43 @@ def test_a_request_is_its_call_s_rows_each_with_the_acl_path_its_own_path_names(
     assert {call.on for call, _ in listed} == {"vm", "storage", "pool", "node"} and {at for _, at in listed} == {None}
     # A call that needs nothing is a row all the same.
     assert [(call.privilege, at) for call, at in for_request("GET", "/version")] == [(None, None)]
+    # The writes: a configuration's, with each group of the keys the client sends; a resize, on the VM and the storage
+    # its configuration names; a pool's guests, each named in its parameters.
+    write = for_request("PUT", "/nodes/pve/qemu/9010/config")
+    assert {call.privilege for call, _ in write} == {
+        "VM.Config.Options",
+        "VM.Config.Cloudinit",
+        "VM.Config.CPU",
+        "VM.Config.Memory",
+    }
+    assert {at for _, at in write} == {"/vms/9010"}
+    resize = for_request("PUT", "/nodes/pve/qemu/9010/resize")
+    assert [(call.privilege, at) for call, at in resize] == [
+        ("VM.Config.Disk", "/vms/9010"),
+        ("Datastore.AllocateSpace", None),
+    ]
+    for method, path, privilege in [
+        ("POST", "/nodes/pve/qemu/9010/status/start", "VM.PowerMgmt"),
+        ("POST", "/nodes/pve/qemu/9010/status/shutdown", "VM.PowerMgmt"),
+        ("POST", "/nodes/pve/qemu/9010/status/stop", "VM.PowerMgmt"),
+        ("POST", "/nodes/pve/qemu/9010/template", "VM.Allocate"),
+        ("DELETE", "/nodes/pve/qemu/9010", "VM.Allocate"),
+    ]:
+        assert [(call.privilege, at) for call, at in for_request(method, path)] == [(privilege, "/vms/9010")], path
+    assert [(call.privilege, call.on, at) for call, at in for_request("PUT", "/pools")] == [
+        ("Pool.Allocate", "pool", None),
+        ("VM.Allocate", "vm", None),
+    ]
 
 
 @pytest.mark.parametrize(
     ("method", "path"),
     [
         ("GET", "/nodes/pve/qemu/9010/agent/network-get-interfaces"),
-        ("DELETE", "/nodes/pve/qemu/9010"),
+        ("POST", "/nodes/pve/qemu/9010/status/reboot"),
+        ("DELETE", "/nodes/pve/qemu/9010/config"),
         ("POST", "/nodes/pve/qemu/9010/config"),
+        ("PUT", "/pools/aw-fleet"),
         ("GET", "/nodes/pve/qemu/9010/config/extra"),
         ("GET", "/nodes/../qemu/9010/config"),
         ("GET", "/nodes//qemu/9010/config"),

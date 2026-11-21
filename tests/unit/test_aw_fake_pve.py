@@ -1107,14 +1107,15 @@ def test_a_listing_shows_the_engine_s_token_only_what_its_rows_name_on_each_entr
 
 def test_a_call_no_row_names_is_refused_and_recorded(enforced, tmp_path: Path) -> None:
     base, token = enforced
-    for method, endpoint in [("GET", "nodes/pve/qemu/9010/agent/get-osinfo"), ("DELETE", "nodes/pve/qemu/9010")]:
+    suspend = "nodes/pve/qemu/9010/status/suspend"
+    for method, endpoint in [("GET", "nodes/pve/qemu/9010/agent/get-osinfo"), ("POST", suspend)]:
         said = SAID["NO_ROW"].format(method=method, path=f"/{endpoint}")
         assert _call(base, method, endpoint, token) == (SAID["PERMISSION_REFUSED_STATUS"], said)
-    assert 9010 in _vms(base)
+    assert _ok(base, "GET", "nodes/pve/qemu/9010/status/current")["status"] == "running"
     log = tmp_path / "pve" / "unmatched.log"
     assert [json.loads(line) for line in log.read_text().splitlines()] == [
         {"method": "GET", "path": "/nodes/pve/qemu/9010/agent/get-osinfo"},
-        {"method": "DELETE", "path": "/nodes/pve/qemu/9010"},
+        {"method": "POST", "path": f"/{suspend}"},
     ]
     # Read here: the fixture's end holds it empty, and that it fails on one is the next test's.
     log.unlink()
@@ -1126,6 +1127,51 @@ def test_a_fleet_whose_engine_token_sent_a_call_no_row_names_fails_at_its_end(tm
     assert _call(base, "GET", "nodes/pve/qemu/9010/agent/get-osinfo", engine_token(tmp_path))[0] == 403
     with pytest.raises(AssertionError, match="no row of privileges.CALLS names"):
         next(fleet)
+
+
+def test_a_pool_s_guests_are_each_held_to_their_own_path_and_a_resize_to_its_disk_s_storage(tmp_path: Path) -> None:
+    """A guest added to a pool needs VM.Allocate on its own path, each one the call names, beside Pool.Allocate on the
+    pool (pve-manager's update_pool, check_perm_modify); a disk grown needs Datastore.AllocateSpace on the storage its
+    configuration puts it on (qemu-server's resize_vm), as the engine's table says."""
+    for base, token in _enforced(tmp_path, storage=False):
+        engine_grant(base, "/vms/9011", "VM.Allocate,VM.Config.Disk")
+        _ok(base, "POST", "pools", poolid="other")
+        assert _call(base, "PUT", "pools", token, poolid=ENGINE_POOL, vms="9011,9012") == _refused(
+            "/vms/9012", "VM.Allocate"
+        )
+        assert _call(base, "PUT", "pools", token, poolid="other", vms="9011") == _refused(
+            "/pool/other", "Pool.Allocate"
+        )
+        assert _ok(base, "PUT", "pools", token, poolid=ENGINE_POOL, vms="9011") is None
+        assert {vm["vmid"] for vm in _ok(base, "GET", "pools", poolid=ENGINE_POOL)[0]["members"]} == {9000, 9010, 9011}
+        resize = "nodes/pve/qemu/9011/resize"
+        assert _call(base, "PUT", resize, token, disk="scsi0", size="+1G") == _refused(
+            "/storage/local-lvm", "Datastore.AllocateSpace"
+        )
+        engine_grant(base, "/storage/local-lvm", "Datastore.AllocateSpace")
+        assert _task(base, _ok(base, "PUT", resize, token, disk="scsi0", size="+1G"))["exitstatus"] == "OK"
+
+
+@pytest.mark.parametrize("method", ["PUT", "POST"])
+def test_a_configuration_s_sshkeys_is_taken_only_percent_encoded_whole_as_today_s_sends_it(fleet: str, method) -> None:
+    """As Proxmox's schema, before anything else: once the form is decoded, sshkeys is still percent-encoded, as
+    today's proxmox_kvm sends it (quote(keys, safe="")); a key sent as it is, or half encoded, is refused, nothing
+    written, the value said back under the parameter's name."""
+    keys = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyDoNotUse+/= dev@mac\nssh-ed25519 AAAAOther other"
+    before = _ok(fleet, "GET", CONFIG)
+    for sent in (keys, keys.replace(" ", "%20"), urllib.parse.quote(keys, safe="") + "%2", "a%zz", "a+b"):
+        answer = _answer(fleet, method, CONFIG, sshkeys=sent, cores=7)
+        assert (answer["status"], answer["reason"]) == (
+            SAID["SSHKEYS_REFUSED_STATUS"],
+            "Parameter verification failed.",
+        )
+        assert json.loads(answer["body"])["errors"] == {"sshkeys": SAID["SSHKEYS_REFUSED"].format(value=sent)}
+    assert _ok(fleet, "GET", CONFIG) == before
+    encoded = urllib.parse.quote(keys, safe="")
+    done = _ok(fleet, method, CONFIG, sshkeys=encoded, digest=before["digest"])
+    if method == "POST":
+        assert _task(fleet, done)["exitstatus"] == "OK"
+    assert _ok(fleet, "GET", CONFIG)["sshkeys"] == encoded and urllib.parse.unquote(encoded) == keys
 
 
 def test_today_s_tokens_and_a_made_token_with_enforcement_off_are_answered_as_before(enforced) -> None:

@@ -60,6 +60,8 @@ WIDER_THAN_A_TEST: dict[str, str] = {
     "test_aw_pve_reads.py::pki": "a certificate authority made in process with cryptography, for the fake Proxmox: it"
     " starts nothing and reaches nothing",
     "test_aw_pve_reads.py::other_pki": "another such authority, of another subject, made the same way",
+    "test_aw_pve_writes.py::pki": "a certificate authority made in process with cryptography, for the fake Proxmox: it"
+    " starts nothing and reaches nothing",
     "test_aw_transport.py::pki": "a certificate authority made in process with cryptography: it starts nothing and"
     " reaches nothing",
     "test_aw_transport.py::other_pki": "another such authority, made the same way",
@@ -789,6 +791,17 @@ def test_a_secret_refuses_json_and_pickle_and_copies_as_itself() -> None:
     assert held["token"] is secret
     with pytest.raises(TypeError):
         json.dumps(held)
+
+
+def test_a_secret_strikes_itself_from_a_text_and_says_nothing_else() -> None:
+    secret = Secret(SECRET)
+    assert secret.struck(f"echoed {SECRET} and {SECRET}!") == f"echoed {MARK} and {MARK}!"
+    assert secret.struck("nothing of it") == "nothing of it" and secret.struck("") == ""
+    assert Secret("").struck("anything") == "anything"
+    for value in (SECRET.encode(), None, Secret(SECRET)):
+        with pytest.raises(TypeError) as refused:
+            secret.struck(value)
+        assert SECRET not in str(refused.value)
 
 
 def test_a_secret_holds_a_string_and_reveal_alone_reads_it() -> None:

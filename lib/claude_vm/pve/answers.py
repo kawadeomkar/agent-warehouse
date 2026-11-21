@@ -1,5 +1,5 @@
-"""What Proxmox answers to the client's reads, as small frozen records, each built by a plain parsing function
-(docs/architecture/engine.md §16.5).
+"""What Proxmox answers to the client's reads, and to its writes that start a task, as small frozen records, each built
+by a plain parsing function (docs/architecture/engine.md §16.5).
 
 Proxmox's JSON is loose: 0 and 1 for booleans, numbers sent as strings, keys that come and go by version, and some
 values that a person typed into Proxmox's page. So each function here takes what it knows and keeps the rest as it was
@@ -345,6 +345,30 @@ def node_status(value: Any, node: str) -> NodeStatus:
 
 
 # ------------------------------------------------------------------------------------------------- tasks ----
+
+
+# The writes that answer a task, by the client's name for each.
+TASK_KINDS = frozenset({"clone", "resize", "start", "shutdown", "stop", "template", "delete"})
+
+
+@dataclasses.dataclass(frozen=True)
+class Task:
+    """A task a write started: the node it runs on, its UPID, the kind of write (TASK_KINDS) and the VM it is for - a
+    clone's, the new VM's VMID. The client's follow() polls it to its end."""
+
+    node: str
+    upid: str
+    kind: str
+    vmid: int
+
+
+def task(value: Any, node: str, kind: str, vmid: int) -> Task:
+    """A write's answer, a UPID, as the Task of kind for VM vmid on node; Malformed for anything else."""
+    if kind not in TASK_KINDS:
+        raise ValueError(f"a task's kind is one of {', '.join(sorted(TASK_KINDS))}")
+    if not isinstance(value, str) or not UPID.fullmatch(value):
+        raise Malformed(f"Proxmox answered the {kind} of VM {vmid} with no task's ID")
+    return Task(node, value, kind, vmid)
 
 
 @dataclasses.dataclass(frozen=True)

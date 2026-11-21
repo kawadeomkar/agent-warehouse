@@ -327,7 +327,9 @@ a socket. It reads no setting and no variable: the anchor's text, the fingerprin
 **The client: `client.py`.** `Proxmox(url, pin, token, proxy)` is the one class that sends the engine's token to
 Proxmox, and the only place the new engine writes the `PVEAPIToken` header. The `Token(id, secret)` is the engine's one
 token on the fleet's pool, `user@realm!name` and a `Secret`, handed to the transport as parts of the header's value and
-revealed there alone. No method returns it, and no error says it.
+revealed there alone. No method returns it, and no error says it: where an error quotes Proxmox's words, the token's
+secret is struck from them first (`Secret.struck`), as they came and again once made plain, and before they are cut,
+so that a host, or a proxy the computer's certificates trust, that echoes what it was sent has none of it said.
 
 - **The first request is `GET /version`**, asked once a client. A host below Proxmox VE 9 is refused, `TooOld`, with a
   sentence that names the version found, before any other request goes, and every later call says so again with
@@ -355,7 +357,41 @@ revealed there alone. No method returns it, and no error says it.
   as they come; what a record does not name is kept as it was sent, frozen, a mapping read-only and a list a tuple.
 - **Held before anything is sent.** Every name and ID that goes into a path is held to the form Proxmox gives it (a
   node, a pool, a VMID from 100, a UPID, an ACL path, a network card, a path below the API with no `.` or `..` part
-  and no query), so that none can reach another path or a query.
+  and no query), so that none can reach another path or a query; so is every value a write sends (a VM's name, a disk
+  and its size, a tag, a digest).
+- **The writes, each sent once.** The transport sends no request but a `GET` twice, and one that left with no answer is
+  its `Unknown`, passed as it is: a workflow settles it by reading the VM again, never by sending the write again.
+  `clone(node, source, newid, name, pool, full, storage, description)` clones into the pool, a full clone by default,
+  with the notes given; `resize(node, vmid, disk, size)` grows a disk, never shrinking one; `start`, `shutdown` (with
+  its `timeout` and `force_stop`), `stop`, `to_template` and `delete(node, vmid, purge=True)`, which takes the disks its
+  configuration no longer lists but that carry its VMID too, as today's role does (`destroy-unreferenced-disks`). Each
+  answers a `Task` (its node, UPID, kind and VM; a clone's, the new VM's). `pool_add(poolid, vmids)` answers nothing,
+  since `PUT /pools` makes the change in the call, and is refused a guest the token does not hold. The VMID to clone
+  onto, the record's text and any sequence of calls are the workflows' (16.4), not the client's.
+- **Every write of a VM's configuration sends `digest`.** `write_config(node, vmid, changes, digest)` is one `PUT`,
+  synchronous: Proxmox writes the changes only while the configuration is still the one whose digest the write sends,
+  in the call itself and under the VM's lock, so a `POST`'s window, a check at the call and the write in a task that a
+  write made between them fails, never opens. A stale digest is `DigestMismatch`, nothing written; `edit_config(node,
+  vmid, edit)` reads, applies `edit` to what it read, writes with that read's digest, and on a mismatch reads and
+  applies again, `EDITS` (three) times at most, then raises. `changes` holds only the keys of `CONFIG_KEYS`, each with
+  the privilege Proxmox checks it with (qemu-server's `check_vm_modify_config_perm`), which are the table's rows for the
+  write and no more: a key outside them, a network card's or `startup` above all, is refused before anything is sent,
+  and needs a row first. Tags are a list, sent comma-joined, and read back through `proxmox.proxmox_tags`, which takes
+  both spellings; `sshkeys` is the keys' text, sent percent-encoded whole, as Proxmox's format wants it, and read back
+  as Proxmox keeps it, encoded.
+- **Proxmox's refusals of a write, typed.** Proxmox answers each with a 500, so its words tell them apart, each held
+  equal to the fake's constant, which experiment 6 corrects: `DigestMismatch`; `Locked` (a clone, a deletion or a backup
+  holds the VM, with Proxmox's word for the lock), which a workflow may try again; and a clone's `Exists`, whose VMID is
+  taken, at the call or in its task in any of Proxmox's three sentences (the file exists; the new VM's lock timed out
+  while another run's clone holds it; a container or another node's VM holds it). On `Exists` the workflow asks for the
+  next free VMID again, and nothing is ever deleted at the VMID asked for, which on a host would be the VM of the run
+  that came first. The new VM is proved by reading its own configuration once its task has ended, never by an ID a call
+  returned. The engine's own clone joins the pool only when its task ends, so until then a write to it is `Denied`.
+- **A task followed to its end.** `follow(task, deadline)` polls the task's status in one loop, its pauses growing to a
+  second, within a deadline of its kind (`DEADLINES`: today's waits, 600 s for what `roles/proxmox_vm` follows, 300 for
+  a conversion, 120 for a resize) or the one given, and never longer: each poll is held to what is left of it. A task
+  still running then is `TaskTimedOut`; one that ended with anything but `OK` is `Exists` or `Locked` as above, else
+  `TaskFailed` with Proxmox's error and the last lines of its log, each one line of plain text.
 
 **The one table of privileges: `privileges.py`.** `CALLS` is a literal tuple of `Call(name, method, route, privilege,
 on)`: one row for each privilege of each call the engine makes, its route below `/api2/json` with each name in braces
@@ -363,7 +399,11 @@ on)`: one row for each privilege of each call the engine makes, its route below 
 member of a pool also takes from the pool's roles), `pool`, `storage`, `bridge` (`/sdn/zones/localnetwork/<bridge>`)
 or `node` - or no privilege and no kind for a call that needs none (the version, the next VMID, the token's own
 permissions). A call that needs several privileges has a row for each, and needs every one. The rows are Proxmox VE
-9's names alone, read for each call from Proxmox's source and API viewer, until a real host is read for them.
+9's names alone, read for each call from Proxmox's source and API viewer, until a real host is read for them. A
+configuration's write has a row for each group of the keys the client sends; a resize needs `Datastore.AllocateSpace`
+on the storage its disk is on, which its VM's configuration names; and a guest added to a pool needs `VM.Allocate` on
+its own path beside `Pool.Allocate` on the pool, so that a token whose role is on its pool alone takes no guest into it
+that it does not already hold.
 Two functions read it: `needed(on)`, the privileges the table needs on one kind of path, which `init` makes the
 engine's role of and grants, and the permission check compares with what the token holds (on a pool, with every
 privilege checked on a VM, which the pool's members take from it); and `for_request(method, path)`, the rows of one
@@ -374,15 +414,24 @@ that on, and keeps no table of its own, so a test proves what the token can and 
 grants. `tests/unit/test_aw_pve_privileges.py` holds every privilege to a list of Proxmox VE 9's, the module to the
 standard library, the rows' shape, and the fake and the harness to no privilege name of their own but today's.
 
-Reads only: the writes are card B4's, the guest agent's calls card B6's, and `status` moves onto the client in its own
-workstream. `tests/unit/test_aw_pve_reads.py` runs every read against the fake Proxmox, which serves a node's
+The guest agent's calls are card B6's, and `status` moves onto the client in its own workstream.
+`tests/unit/test_aw_pve_reads.py` runs every read against the fake Proxmox, which serves a node's
 certificate from `tests/unit/pki.py` (`harness.fake_fleet`'s `certificate`), with the engine's pool and token, granted
 as `init` grants them and held to the table, so every read is a call the table has a row for. For an
 anchor of another node's certificate, of another CA, the right certificate with another fingerprint recorded, and no
 anchor with a computer's file that holds no root of the fake's, the fake's request log holds no request of the client's,
 also with the fake answering no request without a token. It holds that `PVEAPIToken` is written in one module of the
 new engine, that no method returns the token, and that no error, its words, its arguments or the names of its
-traceback's frames, says the token's secret.
+traceback's frames, says the token's secret. `tests/unit/test_aw_pve_writes.py` runs every write against the fake in
+the same way, under enforcement, so a write the token may not make is `Denied` by the fake as Proxmox refuses it: a
+clone into the pool proved by its own configuration; `Exists` at the call and in each of the three sentences of a
+task, through the fake's `clone-race`, with no `DELETE` in its request log; two `edit_config` calls that both land, and
+a writer that always loses raising after three tries; `Locked` while a deletion or a clone holds the VM; a clone whose
+answer a tunnel of the test's own cuts, `Unknown` with one request in the fake's log; a failed task with its log, and
+one past its deadline. Its rules: every method that sends a `PUT` to a configuration's path sends `digest` (a
+syntax-tree test of the module); `CONFIG_KEYS`' privileges are the table's rows for the write; every row of the table
+names a method of the client; the words the client tells refusals apart by match the fake's constants; and no error of
+a write or a read says the token's secret where Proxmox's words echo it.
 
 ## 16.6 `ssh/` — the runner over OpenSSH
 

@@ -105,8 +105,10 @@ lib/claude_vm/pve/privileges.py, read from the checkout's lib/ beside this file,
 the fake keeping none of its own. A request is refused (403) where the token
 lacks, on its path, the privilege a row of its call names - the path the
 request's own path names, or its parameters (a clone's pool and storage, a
-pool's poolid; a clone with no pool on the new VM's path, with no storage on its
-source's disk's) - by the same function that answers GET /access/permissions;
+pool's poolid and each guest its vms names; a clone with no pool on the new VM's
+path, with no storage on its source's disk's), or its VM's configuration (the
+storage of the disk a resize grows) - by the same function that answers GET
+/access/permissions;
 a task's owner needs nothing to read it; a listing (/cluster/resources, a node's
 storages and bridges, the pools) shows each entry only where the token holds
 what its row names on it, and a node's figures only so; and a call no row names
@@ -138,12 +140,15 @@ has another, as Proxmox gives them: what the runs file a VM's SSH host key under
 
 A VM's configuration is written as qemu-server's PVE/API2/Qemu.pm writes it. A PUT or POST of it that sends digest is
 refused, nothing written, unless that is the digest its GET gives now; one that sends none is taken, and digest is never
-kept in the configuration. A POST's task checks the digest and the lock again when it ends, as Proxmox's worker does
-under the VM's lock, and fails, writing nothing, where a write made since changed the one or set the other. While a
-clone or a deletion runs, the VM's configuration holds lock ("clone", "destroyed"), and a write to it is refused as
-locked; a deletion of a VM whose configuration holds one starts a task that fails so. A description is kept as sent,
-but for its trailing white space, which Proxmox drops when it reads one back, and given back by GET; a configuration
-write's is refused past a limit a fixture sets with PUT /api2/json/fake/notes-limit?bytes=N, in bytes (none until then).
+kept in the configuration. Before anything else, as Proxmox's schema does, a PUT or POST whose sshkeys is not still
+percent-encoded whole once the form is decoded - unreserved characters and %XX alone, what today's proxmox_kvm sends
+(quote(keys, safe="")) - is refused, nothing written. A POST's task checks the digest and the lock again when it ends,
+as Proxmox's worker does under the VM's lock, and fails, writing nothing, where a write made since changed the one or
+set the other. While a clone or a deletion runs, the VM's configuration holds lock ("clone", "destroyed"), and a write
+to it is refused as locked; a deletion of a VM whose configuration holds one starts a task that fails so. A
+description is kept as sent, but for its trailing white space, which Proxmox drops when it reads one back, and given
+back by GET; a configuration write's is refused past a limit a fixture sets with PUT
+/api2/json/fake/notes-limit?bytes=N, in bytes (none until then).
 A clone takes description, over its source's and held to no limit, pool, which it joins when its task ends, target -
 another node, where the source's disk is on a storage shared there - and storage, its disk's storage, one the node has;
 it never lands on a VMID that is taken. One onto a VMID this node's VM holds is refused at the call; one onto a VMID a
@@ -226,6 +231,13 @@ NOTES_TRAILING = r"\s+\Z"
 # words in the answer's errors under the parameter's name.
 NOTES_REFUSED_STATUS = 400
 NOTES_REFUSED = "value may only be {limit} characters long"
+# A configuration write whose sshkeys, once the form is decoded, is not percent-encoded whole: a parameter the schema
+# refuses (its format urlencoded, pve-common's pve_verify_urlencoded), its words in the answer's errors under the
+# parameter's name, the value said. The fake takes what today's proxmox_kvm sends (quote(keys, safe="")), unreserved
+# characters and %XX alone: stricter than Proxmox's format, which also takes !*'() and a bare %.
+SSHKEYS_REFUSED_STATUS = 400
+SSHKEYS_REFUSED = "invalid format - invalid urlencoded string: {value}"
+URLENCODED = r"(?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2})*"
 # A clone's target or storage that will not do: each a 500.
 NO_SUCH_NODE = "no such cluster node '{node}'"
 NO_SUCH_STORAGE = "storage '{storage}' does not exist"
@@ -894,6 +906,11 @@ class Handler(BaseHTTPRequestHandler):
         """A description past the notes limit, refused as Proxmox's schema refuses a parameter."""
         return self._reply(NOTES_REFUSED_STATUS, None, "Parameter verification failed.", {"description": why})
 
+    def _sshkeys_refused(self, value):
+        """An sshkeys that is not percent-encoded whole, refused as Proxmox's schema refuses a parameter."""
+        why = SSHKEYS_REFUSED.format(value=value)
+        return self._reply(SSHKEYS_REFUSED_STATUS, None, "Parameter verification failed.", {"sshkeys": why})
+
     def _task(self, kind, vmid, change, check=None):
         """A task of kind for vmid, made by the token of this request, that makes change when it ends OK: when check()
         finds nothing to fail it, where there is one."""
@@ -915,28 +932,38 @@ class Handler(BaseHTTPRequestHandler):
         for call, at in rows:
             if call.privilege is None or task.get("owner") == self.owner:
                 continue
-            at = at or self._named(call.on, parts, params)
-            if at is None and method == "GET":
+            named = (at,) if at else self._named(call.on, parts, params)
+            if named is None and method == "GET":
                 self.entries[call.on] = call.privilege
                 continue
-            if at is None or call.privilege not in acl_privileges(self.owner, at):
-                return PERMISSION_REFUSED.format(path=at or call.on, privilege=call.privilege)
+            if named is None:
+                return PERMISSION_REFUSED.format(path=call.on, privilege=call.privilege)
+            for one in named:
+                if call.privilege not in acl_privileges(self.owner, one):
+                    return PERMISSION_REFUSED.format(path=one, privilege=call.privilege)
         return ""
 
     @staticmethod
     def _named(kind, parts, params):
-        """The ACL path a call names in its parameters for a row of kind that its path does not name: a pool by pool
-        or poolid, a storage by storage; a clone with no pool is checked on the new VM's own path, and with no storage
-        on its source's disk's (qemu-server's clone_vm, check_storage_access_clone). None for a listing."""
-        clone = len(parts) == 5 and parts[2] == "qemu" and parts[4] == "clone" and parts[3].isdigit()
+        """The ACL paths a call names in its parameters, or its VM's configuration does, for a row of kind that its
+        path does not name: a pool by pool or poolid, a storage by storage, and each guest a pool's vms names
+        (pve-manager's update_pool, check_perm_modify on each: none for none); a clone with no pool is checked on the
+        new VM's own path, and with no storage on its source's disk's (qemu-server's clone_vm,
+        check_storage_access_clone); a resize on the storage of the disk it grows (resize_vm). None for a listing."""
+        vmid = int(parts[3]) if len(parts) > 3 and parts[2] == "qemu" and parts[3].isdigit() else None
+        clone = vmid is not None and parts[4:] == ["clone"]
+        resize = vmid is not None and parts[4:] == ["resize"]
         if kind == "pool" and (params.get("pool") or params.get("poolid")):
-            return f"/pool/{params.get('pool') or params.get('poolid')}"
+            return (f"/pool/{params.get('pool') or params.get('poolid')}",)
         if kind == "pool" and clone and params.get("newid"):
-            return f"/vms/{params['newid']}"
+            return (f"/vms/{params['newid']}",)
+        if kind == "vm" and parts == ["pools"]:
+            return tuple(f"/vms/{guest}" for guest in split_list(params.get("vms")))
         if kind == "storage" and params.get("storage"):
-            return f"/storage/{params['storage']}"
-        if kind == "storage" and clone and int(parts[3]) in VMS:
-            return "/storage/" + str(VMS[int(parts[3])]["config"].get("scsi0", "")).split(":", 1)[0]
+            return (f"/storage/{params['storage']}",)
+        if kind == "storage" and (clone or resize) and vmid in VMS:
+            disk = "scsi0" if clone else params.get("disk", "")
+            return ("/storage/" + str(VMS[vmid]["config"].get(disk, "")).split(":", 1)[0],)
         return None
 
     def _sees(self, kind, path, today):
@@ -1508,6 +1535,9 @@ class Handler(BaseHTTPRequestHandler):
             # As Proxmox: the config's digest, which changes with any change to it.
             return self._reply(200, {**vm["config"], "digest": config_digest(vm["config"])})
         if sub == ["config"] and method in ("PUT", "POST"):
+            # As Proxmox's schema, before anything else: sshkeys still percent-encoded once the form is decoded.
+            if "sshkeys" in params and not re.fullmatch(URLENCODED, params["sshkeys"]):
+                return self._sshkeys_refused(params["sshkeys"])
             # As Proxmox: a digest sent is the one a GET gives now, or nothing is written; it is never kept. A POST
             # that lost a race (RACE) passed this check before the winner's write, and its task fails instead.
             digest = params.pop("digest", None)
