@@ -6,7 +6,8 @@ run's alone (0700 whatever the umask, of this account's, its name holding the jo
 it is never made inside XDG_RUNTIME_DIR, which a logout removes under a detached run, by the real paths of both; only
 the run that made a job makes its directory or names a file in it, and the module writes no file (a scan); `remove` is
 safe twice, still removes a dropped job's directory, and from another process removes only a directory of the form
-`make` gives, of this account's and not a link, and never while the run that made it lives.
+`make` gives, of this account's and not a link, and never while the run that made it lives, nor once that run has
+dropped the job since its record was read.
 """
 
 from __future__ import annotations
@@ -38,7 +39,8 @@ SECRET = "unit-test-aw-rundir-secret"
 GENERATED = ("layer1.cfg", "inventory.yml", "vars.json")
 
 # A run in a child process: it makes its job and its directory, says both, waits for the test's line, then ends: with
-# its directory removed and its outcome written, or with neither, as a run killed outright leaves them.
+# its directory removed and its outcome written, or with neither, as a run killed outright leaves them; or it drops its
+# job, says so, and ends on the test's next line with its directory left.
 CHILD = """
 import os, sys
 sys.path.insert(0, {lib!r})
@@ -47,6 +49,10 @@ from claude_vm.runs import job as jobs, rundir
 made = jobs.create(sys.argv[1], "deploy", "aw deploy alpha", "pve", ["alpha"], {{"kind": "terminal"}}, True)
 print(made.id, rundir.make(made), flush=True)
 sys.stdin.readline()
+if sys.argv[2] == "dropped":
+    jobs.drop(made)
+    print("dropped", flush=True)
+    sys.stdin.readline()
 if sys.argv[2] == "removed":
     rundir.remove(made)
     made.emit("end", None, "as asked", outcome="succeeded", exit=0)
@@ -121,6 +127,16 @@ def _go(process: subprocess.Popen) -> int:
     process.stdin.write("go\n")
     process.stdin.close()
     return process.wait(timeout=60)
+
+
+def _said(process: subprocess.Popen) -> str:
+    """The test's line to a run that goes on, and the next line it says."""
+    assert process.stdin is not None and process.stdout is not None
+    process.stdin.write("go\n")
+    process.stdin.flush()
+    if not select.select([process.stdout], [], [], 60)[0]:
+        pytest.fail("the run said nothing within a minute")
+    return process.stdout.readline().strip()
 
 
 def _runs(where: Path) -> list[str]:
@@ -305,6 +321,28 @@ def test_another_process_removes_a_dead_run_s_directory_and_nothing_but_what_mak
     found.update(directory=str(where))
     assert rundir.remove(found) is True and not os.path.lexists(where)
     assert rundir.remove(found) is True
+
+
+def test_another_process_removes_nothing_of_a_job_dropped_since_its_record_was_read(
+    jobs_dir, home, temporary, monkeypatch
+) -> None:
+    # The record names the directory when it is read, and the run drops its job before the job's state is asked: no
+    # such job, whatever its lock, and the directory is still its run's, which removes what it made once its job is
+    # dropped.
+    with _run(jobs_dir, "dropped", home) as (run, job_id, where):
+        found = jobs.find(jobs_dir, job_id)
+        recorded = rundir._recorded
+
+        def read_then_dropped(job: jobs.Job) -> Path | None:
+            named = recorded(job)
+            assert _said(run) == "dropped"
+            return named
+
+        monkeypatch.setattr(rundir, "_recorded", read_then_dropped)
+        with pytest.raises(RuntimeError, match="dropped by its run"):
+            rundir.remove(found)
+        assert jobs.state(found) is None and where.is_dir() and _runs(temporary) == [where.name]
+        assert _go(run) == 0
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root removes what a folder's mode forbids")

@@ -4,16 +4,20 @@
 Each state is made by a run of a child process of the test's, as a real run is a process of its own: the job's lock is
 held while that process lives and let go by the kernel when it ends, however it ends. The rules with a test of their
 own: a job's state is derived from its record and that lock alone, never from a pid, a process's start or the process
-table (a scan of runs/, and a record whose pid lies); the lock is asked before the record, so a run that ends just
-after its record is read reads running, never lost; a child that outlives its killed run holds no lock; a job dropped
-leaves no record, a writer racing the drop lands its change before it or is refused, and the drop never fails on what
-it cannot remove; and a reader never fails on a folder half removed.
+table (a scan of runs/, and a record whose pid lies, of another process's job); only create writes the pid and the
+start; the lock is asked before the record, so a run that ends just after its record is read reads running, never
+lost; a child that outlives its killed run holds no lock; a job dropped leaves no record, unlinked while the drop holds
+the folder's lock, a writer racing the drop lands its change before it or is refused, and the drop never fails on what
+it cannot remove and says where the record is left; a handle read across another process's drop is no such job,
+never running or lost; a change is refused as Gone only where the record is gone or is no record, any other error of
+the read raised as itself; and a reader never fails on a folder half removed.
 """
 
 from __future__ import annotations
 
 import ast
 import contextlib
+import errno
 import fcntl
 import json
 import os
@@ -55,7 +59,7 @@ NEVER_IMPORTED = ("claude_vm.mcp", "claude_vm.desktop")
 # A run in a child process: it makes its job, says the job's ID (and a child's pid of its own where asked), waits for
 # the test's line, then ends as asked: with an outcome, or with none.
 CHILD = """
-import subprocess, sys
+import os, subprocess, sys
 sys.path.insert(0, {lib!r})
 from pathlib import Path
 from claude_vm.runs import job as jobs
@@ -73,10 +77,24 @@ if then == "next":
     for i in range(100):
         made.emit("next", "alpha", f"line {{i}}", matter=f"m{{i}}")
     sys.exit(0)
+if then == "drop":
+    # The drop held at its close of the job's lock until the test's next line: the record unlinked, the lock held.
+    held, close, seen = made._held_here(), os.close, []
+    def closing(descriptor):
+        if descriptor == held and not seen:
+            seen.append(descriptor)
+            print("unlinked", flush=True)
+            sys.stdin.readline()
+        close(descriptor)
+    os.close = closing
 print(*said, flush=True)
 sys.stdin.readline()
 if then in jobs.OUTCOMES:
     made.emit("end", None, "as asked", outcome=then, exit=0 if then == "succeeded" else 1)
+if then == "drop":
+    jobs.drop(made)
+    print("dropped", flush=True)
+    sys.stdin.readline()
 """
 
 
@@ -121,6 +139,22 @@ def _go(process: subprocess.Popen) -> int:
     process.stdin.write("go\n")
     process.stdin.close()
     return process.wait(timeout=60)
+
+
+def _said(process: subprocess.Popen) -> str:
+    """The test's line to a run that goes on, and the next line it says."""
+    assert process.stdin is not None and process.stdout is not None
+    process.stdin.write("go\n")
+    process.stdin.flush()
+    if not select.select([process.stdout], [], [], 60)[0]:
+        pytest.fail("the run said nothing within a minute")
+    return process.stdout.readline().strip()
+
+
+def _rewritten(job: jobs.Job, **fields: object) -> None:
+    """fields written into a job's record by hand, as an outside hand would: `update` writes none of create's."""
+    record = json.loads(job.record.read_text())
+    job.record.write_text(json.dumps({**record, **fields}))
 
 
 def _made(jobs_dir: Path, **given) -> jobs.Job:
@@ -239,9 +273,13 @@ def test_the_record_holds_what_the_run_is(jobs_dir) -> None:
             "log": "/l/run.log",
             "deadline": 9.5,
         }
-        for field in ("outcomes", "id"):
-            with pytest.raises(ValueError, match="no field"):
-                job.update(**{field: "x"})
+        with pytest.raises(ValueError, match="no field"):
+            job.update(outcomes="x")
+        # The pid is what cancel signals while the job's lock is held: only create writes it, and the start with it.
+        for field in jobs.CREATED:
+            with pytest.raises(ValueError, match="create alone"):
+                job.update(**{field: 1})
+        assert (record["id"], record["pid"], record["started"]) == tuple(job.read()[n] for n in jobs.CREATED)
     finally:
         jobs.drop(job)
 
@@ -338,16 +376,16 @@ def test_a_run_that_ends_just_after_its_record_is_read_reads_running_never_lost(
     # exits just after its record was read meets a free lock and no outcome, and reads lost.
     with _run(jobs_dir, "succeeded", home) as (run, (job_id,)):
         found = jobs.find(jobs_dir, job_id)
-        read = jobs.Job.read
+        load = jobs.Job._load
 
         def read_then_let_it_end(job: jobs.Job) -> dict:
-            record = read(job)
+            record = load(job)
             if run.poll() is None:
                 # The run writes `succeeded` and exits: from here its lock is free.
                 assert _go(run) == 0
             return record
 
-        monkeypatch.setattr(jobs.Job, "read", read_then_let_it_end)
+        monkeypatch.setattr(jobs.Job, "_load", read_then_let_it_end)
         assert jobs.state(found) == "running" and run.poll() == 0
     assert jobs.state(found) == "succeeded"
 
@@ -367,24 +405,30 @@ def test_a_child_that_outlives_its_killed_run_holds_no_lock(jobs_dir, home) -> N
                 os.kill(int(sleeper), signal.SIGKILL)
 
 
-def test_the_pid_in_the_record_never_decides_a_state(jobs_dir, home, made) -> None:
+def test_the_pid_in_the_record_never_decides_a_state(jobs_dir, home) -> None:
     # A record naming a living process (this one) whose lock is free is lost; one naming a process long gone whose
-    # lock is held runs.
+    # lock is held runs. Both are another process's jobs, so that each state is asked of the lock by a probe; the record
+    # is rewritten by hand, as update writes no pid.
     with _run(jobs_dir, "exit", home) as (run, (job_id,)):
         assert _go(run) == 0
     found = jobs.find(jobs_dir, job_id)
-    found.update(pid=os.getpid(), started=time.time())
+    _rewritten(found, pid=os.getpid(), started=time.time())
     assert jobs.state(found) == "lost"
     gone = subprocess.Popen(["true"])
     gone.wait()
-    made.update(pid=gone.pid, started=0)
-    assert jobs.state(made) == "running" and jobs.state(jobs.find(jobs_dir, made.id)) == "running"
+    with _run(jobs_dir, "succeeded", home) as (run, (job_id,)):
+        living = jobs.find(jobs_dir, job_id)
+        _rewritten(living, pid=gone.pid, started=0)
+        assert living._held_here() is None and jobs.state(living) == "running"
+        assert _go(run) == 0
+    assert jobs.state(living) == "succeeded" and living.read()["pid"] == gone.pid
 
 
-def test_a_job_of_this_process_s_own_is_never_probed(made, monkeypatch) -> None:
-    # A shortcut: the run's own job is read from the descriptor it holds. A probe would be safe: a second descriptor of
-    # the lock file is refused the lock, and its close does not let the run's lock go, on NFSv3 and NFSv4.2 as on a
-    # local disk (experiment 40), since a flock belongs to its open file description.
+def test_a_probe_of_a_run_s_own_lock_reads_running_and_keeps_the_lock(made, monkeypatch) -> None:
+    # The run's own job is read from the descriptor it holds, a shortcut that saves a probe and no rule: a second
+    # descriptor of the lock file, in the same process, is refused the lock, and its close does not let the run's lock
+    # go, since a flock belongs to its open file description (experiment 40 measured it on Linux, on NFSv3 and NFSv4.2
+    # as on a local disk; here, the lane's disk).
     second = os.open(made.lock, os.O_RDONLY)
     try:
         with pytest.raises(BlockingIOError):
@@ -392,9 +436,12 @@ def test_a_job_of_this_process_s_own_is_never_probed(made, monkeypatch) -> None:
     finally:
         os.close(second)
     assert not _free(made.lock)
-    tried = []
-    monkeypatch.setattr(jobs.fcntl, "flock", lambda *given: tried.append(given))
-    assert jobs.state(jobs.find(made.folder.parent, made.id)) == "running" and tried == []
+    # Without the shortcut, state probes the run's own lock: running, and the lock still held after the probe's close.
+    held = made._held_here()
+    monkeypatch.delitem(jobs._HELD, jobs._key(made.folder))
+    assert jobs.state(made) == "running" and jobs.state(jobs.find(made.folder.parent, made.id)) == "running"
+    monkeypatch.undo()
+    assert made._held_here() == held and not _free(made.lock)
 
 
 def test_only_the_run_that_made_a_job_emits_listens_or_drops(jobs_dir, home) -> None:
@@ -544,7 +591,7 @@ def test_listed_is_newest_first_and_find_takes_only_sixteen_hex_digits(jobs_dir)
     made = [_made(jobs_dir) for _ in range(3)]
     try:
         for when, job in zip((20.0, 30.0, 10.0), made, strict=True):
-            job.update(started=when)
+            _rewritten(job, started=when)
         assert [job.id for job in jobs.listed(jobs_dir)] == [made[1].id, made[0].id, made[2].id]
         one = made[0].id
         for asked in (one.upper(), one[:15], one + "0", "../" + one[3:], "0123456789abcdeg", "", None, 7):
@@ -569,10 +616,32 @@ def test_drop_removes_the_record_then_closes_the_lock_then_the_folder(jobs_dir, 
         close(descriptor)
 
     monkeypatch.setattr(jobs.os, "close", closing)
-    jobs.drop(made)
+    assert jobs.drop(made) is None
     assert seen == [(False, True, True)]
     assert not made.folder.exists() and list(jobs_dir.iterdir()) == []
     assert made._held_here() is None
+
+
+def test_a_drop_unlinks_the_record_while_it_holds_the_folder_s_lock(made, monkeypatch) -> None:
+    # The lock every writer takes (store.locked, on the folder) is held across the unlink, not only asked before it: a
+    # writer that read the record between the two would land a job.json again in a folder being removed.
+    unlink, at_unlink = Path.unlink, []
+
+    def unlinking(path: Path, *given, **named) -> None:
+        if path == made.record:
+            folder = os.open(made.folder, os.O_RDONLY)
+            try:
+                fcntl.flock(folder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                at_unlink.append("free")
+            except BlockingIOError:
+                at_unlink.append("held")
+            finally:
+                os.close(folder)
+        unlink(path, *given, **named)
+
+    monkeypatch.setattr(Path, "unlink", unlinking)
+    assert jobs.drop(made) is None
+    assert at_unlink == ["held"] and not made.folder.exists()
 
 
 def test_a_drop_waits_for_a_writer_that_holds_the_record_and_leaves_no_job_json(jobs_dir, made, monkeypatch) -> None:
@@ -581,10 +650,10 @@ def test_a_drop_waits_for_a_writer_that_holds_the_record_and_leaves_no_job_json(
     # is left. Unlocked, the drop would take the folder from under the writer.
     found = jobs.find(jobs_dir, made.id)
     has_read, drop_waits = threading.Event(), threading.Event()
-    read, flock = jobs.Job.read, fcntl.flock
+    load, flock = jobs.Job._load, fcntl.flock
 
     def read_and_hold(job: jobs.Job) -> dict:
-        record = read(job)
+        record = load(job)
         if threading.current_thread().name == "writer":
             has_read.set()
             assert drop_waits.wait(30), "the drop never asked the record's lock"
@@ -595,7 +664,7 @@ def test_a_drop_waits_for_a_writer_that_holds_the_record_and_leaves_no_job_json(
             drop_waits.set()
         flock(descriptor, operation)
 
-    monkeypatch.setattr(jobs.Job, "read", read_and_hold)
+    monkeypatch.setattr(jobs.Job, "_load", read_and_hold)
     monkeypatch.setattr(fcntl, "flock", flock_seen)
     writer, wrote = _in_a_thread("writer", lambda: found.update(stop={"by": "cancel", "at": 1.0}))
     assert has_read.wait(30), "the writer never read the record"
@@ -640,12 +709,41 @@ def test_a_drop_never_fails_on_what_it_cannot_remove(jobs_dir, made) -> None:
     (stuck / "file").touch()
     stuck.chmod(0o500)
     try:
-        jobs.drop(made)
+        # The record is gone, though the folder is not: nothing of the job is left to say.
+        assert jobs.drop(made) is None
         assert sorted(path.name for path in made.folder.iterdir()) == ["stuck"]
         assert jobs.find(jobs_dir, made.id) is None and jobs.listed(jobs_dir) == []
         assert made._held_here() is None
     finally:
         stuck.chmod(0o700)
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root removes what a folder's mode forbids")
+def test_a_drop_that_cannot_remove_the_record_says_where_it_is_left_and_never_raises(jobs_dir, made) -> None:
+    # The record left whole (its folder at 0500, as a read-only or failing disk would leave it): a job that reads lost
+    # for good, a run that never ran, so the drop says so for the refusal to say, and still lets the job's lock go.
+    record = made.record.read_bytes()
+    made.folder.chmod(0o500)
+    try:
+        left = jobs.drop(made)
+        assert left is not None and left.startswith(f"job {made.id} could not be removed: {made.record} is left (")
+        assert made._held_here() is None and _free(made.lock) and made.record.read_bytes() == record
+        found = jobs.find(jobs_dir, made.id)
+        assert found is not None and jobs.state(found) == "lost"
+    finally:
+        made.folder.chmod(0o700)
+
+
+def test_a_drop_that_could_not_take_the_folder_s_lock_says_only_what_is_left(made, monkeypatch) -> None:
+    # The folder's lock refused (a descriptor limit): the record is not unlinked under it, but the folder's removal
+    # takes it, so nothing of the job is left, and the drop says nothing.
+    @contextlib.contextmanager
+    def refused(_: Path) -> Iterator[None]:
+        raise OSError(errno.EMFILE, "Too many open files")
+        yield
+
+    monkeypatch.setattr(jobs.store, "locked", refused)
+    assert jobs.drop(made) is None and not made.folder.exists() and made._held_here() is None
 
 
 def test_a_reader_passes_over_a_folder_half_made_or_half_removed(jobs_dir, made) -> None:
@@ -663,6 +761,21 @@ def test_a_reader_passes_over_a_folder_half_made_or_half_removed(jobs_dir, made)
     assert [job.id for job in jobs.listed(jobs_dir)] == [made.id, unlocked.name]
     assert [jobs.find(jobs_dir, folder.name) for folder in (empty, locked)] == [None, None]
     assert jobs.state(jobs.find(jobs_dir, unlocked.name)) == "lost"
+
+
+def test_a_handle_read_across_another_process_s_drop_is_no_such_job(jobs_dir, home) -> None:
+    # A reader that found the job a moment before (logs listing the jobs, then asking each one's state; cancel waiting
+    # on one) while the run that made it is refused at its locks and drops it: from the record's unlink on, the job is
+    # no job, as find says, whether its lock is still held or let go, never running with an empty record, then lost.
+    with _run(jobs_dir, "drop", home) as (run, (job_id,)):
+        found = jobs.find(jobs_dir, job_id)
+        assert jobs.state(found) == "running"
+        assert _said(run) == "unlinked"
+        assert not found.record.exists() and not _free(found.lock)
+        assert jobs.state(found) is None and jobs.find(jobs_dir, job_id) is None
+        assert _said(run) == "dropped"
+        assert not found.folder.exists() and jobs.state(found) is None
+        assert _go(run) == 0
 
 
 def test_a_reader_never_fails_while_jobs_are_made_and_dropped_beside_it(jobs_dir, home) -> None:
@@ -685,8 +798,51 @@ def test_a_reader_never_fails_while_jobs_are_made_and_dropped_beside_it(jobs_dir
     finally:
         if other.poll() is None:
             harness._end(other)
-    assert other.returncode == 0 and seen <= set(jobs.STATES)
+    # None: a job listed a moment before its drop, no job by the time its state is asked.
+    assert other.returncode == 0 and seen <= {*jobs.STATES, None}
     assert list(jobs_dir.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    ("error", "said"),
+    [
+        (FileNotFoundError(errno.ENOENT, "No such file or directory"), "dropped"),
+        (NotADirectoryError(errno.ENOTDIR, "Not a directory"), "dropped"),
+        (OSError(errno.EMFILE, "Too many open files"), None),
+        (OSError(errno.EIO, "Input/output error"), None),
+        (OSError(errno.ESTALE, "Stale file handle"), None),
+        (PermissionError(errno.EACCES, "Permission denied"), None),
+    ],
+)
+def test_a_change_is_refused_as_gone_only_where_the_record_is_gone(made, monkeypatch, error, said) -> None:
+    # Gone is a job dropped, which cancel says as "no such job": an error reading the record of a job that still runs
+    # is raised as itself, never said as a job that is gone. A reader is never refused, and state says no such job only
+    # where the record is gone.
+    before = _folder(made)
+
+    def refused(*given: object, **named: object) -> None:
+        raise error
+
+    monkeypatch.setattr(jobs, "open", refused, raising=False)
+    if said is None:
+        with pytest.raises(OSError) as raised:
+            made.update(deadline=1.0)
+        assert raised.value is error
+    else:
+        with pytest.raises(jobs.Gone, match=said):
+            made.update(deadline=1.0)
+    assert made.read() == {} and jobs.state(made) == ("running" if said is None else None)
+    monkeypatch.undo()
+    assert _folder(made) == before
+
+
+@pytest.mark.parametrize("written", [b"{", b"[]", b"\xff\xfe", b""])
+def test_a_record_that_is_no_record_is_refused_to_a_writer_as_one_that_cannot_be_read(made, written) -> None:
+    # Damaged by an outside hand, since a record is replaced whole: refused, and left as it is; a reader reads it as {}.
+    made.record.write_bytes(written)
+    with pytest.raises(jobs.Gone, match="cannot be read"):
+        made.update(deadline=1.0)
+    assert made.record.read_bytes() == written and made.read() == {} and jobs.state(made) == "running"
 
 
 # ---------------------------------------------------------------- the rules ----

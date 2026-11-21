@@ -1009,18 +1009,23 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       inherits, for the life of the process that made the job: the kernel lets the lock go when that process ends,
       however it ends, and nothing is ever left to clear.
     - `state` reads `running` while that lock is held (`cancelling` with a stop recorded), the outcome the record holds,
-      and `lost` where it holds none and the lock is free; `lost` is never written. It asks the lock before it reads
-      the record, since a run writes its outcome before it ends: asked the other way round, a run that ends just after
-      its record was read would read `lost`. A job the reading process made itself is read from what it holds, as a
-      shortcut, not a need: closing a second descriptor of a lock file does not let the first's lock go, on NFSv3 and
-      NFSv4.2 as on a local disk, since a `flock` belongs to its open file description. No module of `runs/` decides a
-      state from a pid, a process's start or the process table; the record's `pid` and `started` are information.
+      and `lost` where it holds none and the lock is free; `lost` is never written. Where the record is gone it is
+      `None`, no such job, as `find` says, whatever the lock: a handle taken before a drop never reads `running` or
+      `lost` after it. It asks the lock before it reads the record, since a run writes its outcome before it ends:
+      asked the other way round, a run that ends just after its record was read would read `lost`. A job the reading
+      process made itself is read from what it holds, a shortcut, not a need: closing a second descriptor of a lock
+      file does not let the first's lock go, since a `flock` belongs to its open file description, as experiment 40
+      measured on Linux, on NFSv3 and NFSv4.2 as on a local disk (macOS's half is not measured yet). No module of
+      `runs/` decides a state from a pid, a process's start or the process table; the record's `pid` and `started` are
+      information, written by `create` alone, so that a pid `cancel` signals is the one `create` recorded.
     - Every string the record and an event hold is made plain (`text.plain_text`), and a `Secret` is refused before
-      anything is written or heard. Only `create` writes a record from nothing: a change to a job whose record is gone
-      or cannot be read raises `Gone`. A job dropped goes `job.json` first, unlinked under `store.locked` as every
-      change is, so a writer lands before it or is refused; then its lock; then its folder, what cannot be removed
-      left as it is, so that a refused run's refusal is never lost to a traceback. Removed with the lock still open,
-      NFS keeps the folder.
+      anything is written or heard. Only `create` writes a record from nothing. A change reads it strictly: one whose
+      record is gone, or is no record, raises `Gone`, and any other error of the read is raised as itself, so that
+      `Gone` is never said of a run that runs; a reader is never refused. A job dropped goes `job.json` first, unlinked
+      under `store.locked` as every change is, so a writer lands before it or is refused; then its lock; then its
+      folder, what cannot be removed left as it is, so that a refused run's refusal is never lost to a traceback, and
+      `drop` returns the line that says where the record is left, if it is. Removed with the lock still open, NFS keeps
+      the folder.
     - `tests/unit/test_aw_job.py` holds it, each state made by a run in a child process, with a scan of `runs/`.
 - **Every process a run starts carries the job's marker, but a shared SSH master; no child is handed a lock.** Read
   [§16.8](docs/architecture/engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run) first.

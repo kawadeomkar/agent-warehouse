@@ -126,15 +126,21 @@ def remove(job: jobs.Job) -> bool:
     something in it could not be removed, which is left. Safe to call twice. The run that made the job removes the
     directory it made, even once the job is dropped; any other process removes only the one the record names, held to
     make's form - a real directory, not a link, of this account's - and never while the job's lock is held: a living
-    run's directory is its own."""
+    run's directory is its own. Nor where the job is no job by the time its state is asked (`state` is None): its run
+    dropped it since the record was read, and removes what it made itself."""
     key = jobs._key(job.folder)
     made = _MADE.pop(key, None)
     if made is None:
         made = _recorded(job)
         if made is None:
             return True
-        if job._held_here() is None and jobs.state(job) in ("running", "cancelling"):
-            raise RuntimeError(f"job {job.id} still runs: its directory is its run's to remove")
+        if job._held_here() is None:
+            now = jobs.state(job)
+            if now in ("running", "cancelling"):
+                raise RuntimeError(f"job {job.id} still runs: its directory is its run's to remove")
+            if now is None:
+                # The record read above is gone since: the run dropped its job, and removes the directory it made.
+                raise RuntimeError(f"job {job.id} was dropped by its run: its directory is its run's to remove")
         try:
             found = os.lstat(made)
         except FileNotFoundError:

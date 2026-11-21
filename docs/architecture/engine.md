@@ -573,21 +573,30 @@ anything is made, and the module is the standard library alone, with `store`, `t
 | `outcome`, `exit`, `ended`, `why` | At the end: `succeeded`, `failed` or `cancelled`, the exit status, when, and why |
 
 `update(**fields)` reads the record, merges the fields and replaces it whole with `store.replace` under
-`store.locked`, so the run and another process recording a stop lose neither change; a name `FIELDS` lacks, and `id`,
-are refused. Only `create` writes a record from nothing: a change to a job whose record is gone (the job dropped) or
-cannot be read raises `Gone`, and nothing is written. The record has no schema of its own and no event file beside it:
-`events.jsonl` is the add-on's.
+`store.locked`, so the run and another process recording a stop lose neither change. A name `FIELDS` lacks is refused,
+and so are `id`, `pid` and `started` (`CREATED`), which only `create` writes: `cancel` signals the recorded pid only
+while the job's lock is held, which holds only while nothing else writes it. Only `create` writes a record from
+nothing. A change reads the record strictly: where it is gone (the job dropped) or is no record (it does not parse, or
+is not a mapping), `Gone` is raised and nothing is written; any other error of the read (a descriptor limit, a disk's
+error, NFS's `ESTALE`) is raised as itself, so that `Gone`, which `cancel` says as "no such job", is never said of a run
+that runs. A reader is never refused: `read` gives `{}` for a record it cannot read. The record has no schema of its
+own and no event file beside it: `events.jsonl` is the add-on's.
 
 **The states are derived, never stored.** `state(job)` reads `running` while the job's lock is held, which a
 `LOCK_SH | LOCK_NB` attempt on the file finds (let go at once where it was taken), and `cancelling` while it is held
 and a stop is recorded; the outcome where the record has one; and `lost` where it has none and the lock is free: a run
-killed outright, or one that ended without saying how. It asks the lock before it reads the record: a run writes its
-outcome before it ends, so a lock found free means any outcome is already there, and a run that ends just after its
-record is read reads `running`, never `lost`, which a test holds. A job the reading process made itself is read from
-what it holds and never probed, as a shortcut. A probe would be safe: a `flock` belongs to its open file description,
-and closing a second descriptor of a lock file does not let the first's lock go, measured on NFSv3 and NFSv4.2, where
-Linux emulates `flock` with POSIX locks, as on a local disk. No module of `runs/` keeps a pid to decide a state, reads a
-process's start or reads the process table for one, which a scan in the test holds.
+killed outright, or one that ended without saying how. Where the record is gone (not written yet, or the job dropped)
+there is no state: `state` is `None`, no such job, as `find` says, whatever the lock, so a job read through a handle
+taken before its drop is, from the record's unlink on, neither `running` with an empty record nor `lost`, which a test
+holds with the drop made by another process. A record that is there and cannot be read is read as `{}`. It asks the
+lock before it reads the record: a run writes its outcome before it ends, so a lock found free means any outcome is
+already there, and a run that ends just after its record is read reads `running`, never `lost`, which a test holds. A
+job the reading process made itself is read from what it holds, a shortcut that saves a probe and no rule: a probe
+reads the same, since a `flock` belongs to its open file description and closing a second descriptor of a lock file
+does not let the first's lock go, as experiment 40 measured on Linux, on NFSv3 and NFSv4.2, where Linux emulates
+`flock` with POSIX locks, as on a local disk (macOS's half is not measured yet); a test probes the run's own lock from
+its own process. No module of `runs/` keeps a pid to decide a state, reads a process's start or reads the process table
+for one, which a scan in the test holds.
 
 **Events.** `emit(kind, machine, text, **data)` hands one event, with its time, to each listener the run registered
 with `listen` (the live view and the text log), in order and in the run's own process. The kinds are `stage`, `step`,
@@ -606,8 +615,12 @@ comes before: `drop(job)` removes `job.json` first, under `store.locked` as ever
 record (a `cancel` recording a stop) lands its change before it and one that comes after is refused, and readers pass
 over the folder from then on; then it closes the lock; then it removes the folder, leaving what it cannot remove, since
 a folder with no record is no job. Removed while the lock file is still open, the file would be renamed `.nfsXXXX` on
-NFS and the folder would stay. `tests/unit/test_aw_job.py` holds it all, each state made by a run in a child process: a
-SIGKILL reads `lost` with nothing written after it, and a child that outlives its killed run holds no lock.
+NFS and the folder would stay. `drop` returns `None` where no record of the job is left, and otherwise one line that
+says where the record is left and why, for the refusal to say: a record left whole is a job that reads `lost` for good,
+a run that never ran. Only a record already gone is no error of the unlink's, and whether one is left is read after the
+folder's removal. `tests/unit/test_aw_job.py` holds it all, each state made by a run in a child process: a SIGKILL
+reads `lost` with nothing written after it, a child that outlives its killed run holds no lock, and the record is
+unlinked while the drop holds the folder's lock.
 
 **A run's children: `children.py`.** Every process a run starts carries the job's marker, `AGENT_WAREHOUSE_JOB`, the
 name today's MCP jobs set, with the job's ID: whatever reads it matches the ID, never the name alone. `start` gives it
@@ -653,10 +666,12 @@ the directory and writes no file in it. Only the process that made a job makes i
 file in it. `remove(job)` deletes the directory with what it holds, says whether anything was left, and is safe to
 call twice: the run removes the one it made, even once its job is dropped; any other process removes only the one the
 record names, held to the form `make` gives it (absolute, the job's ID in its name, a real directory of this account's
-and not a link), and never while the job's lock is held, since a living run's directory is its own. No secret is ever
-written there: a secret travels on standard input or stays in memory, as today, and every workflow's tests search the
-directory for the secrets they gave (`aw_kit.searched_for`). No socket is made there either: a shared connection lives
-in the one control directory. `tests/unit/test_aw_rundir.py` holds it, with a scan that finds no write in the module.
+and not a link), and never while the job's lock is held, since a living run's directory is its own, nor where the job
+is no job by the time its state is asked (its run dropped it since the record was read, and removes what it made
+itself). No secret is ever written there: a secret travels on standard input or stays in memory, as today, and every
+workflow's tests search the directory for the secrets they gave (`aw_kit.searched_for`). No socket is made there
+either: a shared connection lives in the one control directory. `tests/unit/test_aw_rundir.py` holds it, with a scan
+that finds no write in the module.
 
 **A run, and its end: `run` and `attached.py`.** `runs.run(draft, body)` is the one entry a verb calls, at a terminal
 or detached: it makes the job its `Draft` describes (`create`'s arguments), which takes the job's own lock, makes the
