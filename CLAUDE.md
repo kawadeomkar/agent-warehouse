@@ -682,6 +682,12 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `PYTEST_CURRENT_TEST`, and `socket.getaddrinfo` and `connect` refused past loopback. A stand-in reached or a
       connection refused fails the test once it ends. It holds by `PATH`: a program started by its absolute path is
       not caught; and the network refusal is the test process's, so for a child it starts only the fakes hold it.
+    - The guard is a `MonkeyPatch` of its own, undone at its own teardown, and `aw_home` sets `AGENT_WAREHOUSE_HOME`
+      the same way, so a test's `monkeypatch.undo()` never lifts either. A test never sets `PATH`: as its call ends and
+      at its teardown, a `PATH` that finds this machine's own programs ahead of the stand-ins fails it. A stand-in of a
+      test's own goes first by `engine_guard.first_on_path(dir)` in its own process, or `first_on_path=` for a run, a
+      folder of the test's own directory either way. A fixture of a `test_aw_*.py` file wider than one test runs
+      outside the guard, so `WIDER_THAN_A_TEST` names each, with why.
     - Every run of `tools/aw` a test makes goes through the kit (`run_aw`, `aw_at_a_terminal`, `imports_of`, and
       `run_launcher` for the launcher at the checkout's top, `aw`): `python -I`, an environment built from
       `harness.PASSED_ON`'s names and the test's own home (the `home` fixture makes it), and the same stand-ins first
@@ -695,7 +701,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - `tests/unit/test_aw_guards.py` holds all of it: the marker and the home over every `test_aw_*.py` file, the
       guard of a test's own process (in a pytest of its own, so that the failure is the one asserted), a syntax-tree
       scan of every test file for a run of `tools/aw` outside the kit, the suite's own launchers among the starters,
-      the stand-ins, `env=` and `first_on_path`, and `REVEALS`.
+      the stand-ins, `env=` and `first_on_path`, the `PATH` a test sets and its own `monkeypatch` undone, the fixtures
+      wider than a test, and `REVEALS`.
 - **Every live output draws through one region and one way of drawing.** Read
   [§7.8](docs/architecture/custom-code.md#78-libclaude_vmtuilive_regionpy-and-screenpy--every-live-output)
   first.
@@ -1081,9 +1088,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - `tests/unit/test_aw_job.py` holds it, each state made by a run in a child process, with a scan of `runs/`.
 - **Every process a run starts carries the job's marker, but a shared SSH master; no child is handed a lock.** Read
   [§16.8](docs/architecture/engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run) first.
-    - A child of the new engine is started by `lib/claude_vm/runs/children.py`'s `start`, or by the SSH runner, which
-      marks its children with `children.env` and enters them with `register`: never another `Popen`,
-      `create_subprocess_exec` or any other of Python's ways. `start` gives the child `AGENT_WAREHOUSE_JOB`, the job's
+    - A child of the new engine is started by `lib/claude_vm/runs/children.py`'s `start`, the SSH runner's `ssh`
+      children too: never another `Popen`, `create_subprocess_exec` or any other of Python's ways, and no module but
+      `children.py` is a starter. `start` gives the child `AGENT_WAREHOUSE_JOB`, the job's
       ID, whatever environment it is handed, and takes it from a shared master, which other runs may ride after this
       one ends; a process group or a session of its own; SIGINT, SIGTERM, SIGHUP and SIGQUIT at their defaults and
       unblocked, since a run started under `nohup` ignores SIGINT; and standard input named, `/dev/null` in a session.
@@ -1095,6 +1102,28 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       until it execs. `pass_fds` and `set_inheritable(..., True)` appear only in `start`.
     - `tests/unit/test_aw_children.py` holds it, with real children that report what they were given, and scans of the
       new engine's code for each rule.
+- **Every `ssh` the new engine starts carries `BatchMode=yes` and names the machine by its identity.** Read
+  [§16.6](docs/architecture/engine.md#166-ssh--the-runner-over-openssh) first.
+    - `lib/claude_vm/ssh/runner.py` builds every command line from a `Target`, each value held before any child starts:
+      the identity to `checks.HOST_KEY_ALIAS_RE`, the address to one IPv4 address (the one value a machine supplies,
+      and the only one of a machine's that reaches the line), the account, the port and every path to plain words. The
+      product's options come first, since `ssh` keeps the first value: `checks.vm_ssh_args` as it stands, the shared
+      socket, `ControlMaster=no` (a child is never a master), `BatchMode=yes`, `StrictHostKeyChecking=yes` against the
+      product's own known-hosts file under `HostKeyAlias`, the limits on a connection, `LogLevel=ERROR`; then the
+      hop's; then the person's `vm_ssh_options`, which may not name a key the product writes (refused by name) and give
+      `StrictHostKeyChecking` only as `yes`; then `--`, the address and the command. No `-F`: the person's own
+      `~/.ssh/config` is read, as today.
+    - `accept-new` is written in `ssh/` only for a first use, into a fresh scratch file under the identity and never the
+      product's file or the person's, and for the Proxmox host, into the person's own `known_hosts` as today.
+    - A secret reaches a child only on its standard input, revealed in `_bytes` alone (`REVEALS`). Every child is
+      started through `children.start` in a group of its own, its output read under bounds for a line, the whole, a
+      deadline and a silence, its group killed on a breach, and every string it gave made plain. A held child (a
+      sign-in's) and a forward (`ssh -N`, `ControlPath=none`) are ended by their deadline, their caller or the run.
+      `ansible_vars` gives layer 1's Ansible child the same options in the same order.
+    - `tests/unit/test_aw_ssh_runner.py` holds it against a stand-in `ssh` that records its words, environment and
+      standard input, with this machine's `ssh -G -F /dev/null` for the values the options hold, and scans: a child
+      named `ssh` is started in the new subpackages only from `ssh/`; no option is made of a machine's value but its
+      address; `accept-new` only in its two forms; no `ControlMaster` but `no`.
 
 ## Architecture, and why it looks like this
 

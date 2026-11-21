@@ -1,12 +1,16 @@
 """The new engine's tests and what keeps them off this machine (docs/architecture/testing.md §11.1).
 
 Each test here is a rule a later change could break. Every test of a file tests/unit/test_aw_*.py is marked `engine`,
-which `just test engine` runs alone, and runs with AGENT_WAREHOUSE_HOME in its own directory (conftest.py's aw_home).
-In its own process, aw_kit's engine_guard keeps it as a run is kept: its home for HOME and the XDG folders, failing
-stand-ins first on PATH, a list of names for its environment, and loopback alone for its connections; a stand-in
-reached or a connection refused fails it. No test runs tools/aw but through tests/unit/aw_kit.py, whose runs inherit
-that list of names, start with the stand-ins first on PATH, and fail their test when one was reached; a test's env=
-never lifts one. A secret the engine holds is a `Secret`, never said, and only the modules REVEALS names read its value.
+which `just test engine` runs alone, and runs with AGENT_WAREHOUSE_HOME in its own directory (conftest.py's aw_home). In
+its own process, aw_kit's engine_guard keeps it as a run is kept, by a MonkeyPatch of its own that the test's
+monkeypatch.undo() never reaches: its home for HOME and the XDG folders, failing stand-ins first on PATH, a list of
+names for its environment, and loopback alone for its connections; a stand-in reached, a connection refused, or a PATH
+of the test's own that finds this machine's programs ahead of the stand-ins fails it. A folder of the test's own
+programs goes first only by first_on_path, held to the test's own directory, and a fixture of an engine file wider than
+one test, which runs outside the guard, is named in WIDER_THAN_A_TEST with why. No test runs tools/aw but through
+tests/unit/aw_kit.py, whose runs inherit that list of names, start with the stand-ins first on PATH, and fail their test
+when one was reached; a test's env= never lifts one. A secret the engine holds is a `Secret`, never said, and only the
+modules REVEALS names read its value.
 """
 
 from __future__ import annotations
@@ -43,6 +47,40 @@ SECRET = "unit-test-aw-secret-value"
 # The modules that read a Secret's value, each with why: the one place it is sent on.
 REVEALS: dict[str, str] = {
     "lib/claude_vm/vendors/transport.py": "a request's header or form value, a token's above all, read in _plain alone",
+    "lib/claude_vm/ssh/runner.py": "a child's standard input, a password or a sign-in's code above all, read in _bytes"
+    " alone and written to the child",
+}
+
+# The fixtures of the engine's test files whose scope is wider than one test, each with why it may be: pytest makes
+# such a fixture before the guard of a test's own process holds and ends it after the guard lets go, so it runs with the
+# developer's PATH, environment and home, and the network open (docs/architecture/testing.md §11.1).
+WIDER_THAN_A_TEST: dict[str, str] = {
+    "test_aw_fleet_paths.py::module_runs_environment": "harness._env of a directory of its own, what a module's run"
+    " made before its tests is given: it starts nothing and reaches nothing",
+    "test_aw_pve_agent.py::pki": "a certificate authority made in process with cryptography, for the fake Proxmox: it"
+    " starts nothing and reaches nothing",
+    "test_aw_pve_reads.py::pki": "a certificate authority made in process with cryptography, for the fake Proxmox: it"
+    " starts nothing and reaches nothing",
+    "test_aw_pve_reads.py::other_pki": "another such authority, of another subject, made the same way",
+    "test_aw_pve_reads.py::misnamed_pki": "another such authority, whose node's certificate names another address than"
+    " the fake's, made the same way",
+    "test_aw_pve_writes.py::pki": "a certificate authority made in process with cryptography, for the fake Proxmox: it"
+    " starts nothing and reaches nothing",
+    "test_aw_transport.py::pki": "a certificate authority made in process with cryptography: it starts nothing and"
+    " reaches nothing",
+    "test_aw_transport.py::other_pki": "another such authority, made the same way",
+    "test_aw_vendor_trust.py::pki": "a certificate authority made in process with cryptography: it starts nothing and"
+    " reaches nothing",
+    "test_aw_vendor_trust.py::other_pki": "another such authority, of another subject, made the same way",
+    "test_aw_downloads.py::pki": "a certificate authority made in process with cryptography, for the fake download"
+    " server's TLS: it starts nothing and reaches nothing",
+    "test_aw_downloads.py::other_pki": "another such authority, of another subject, made the same way",
+    "test_aw_downloads.py::signer": "an RSA key made in process with cryptography, the vendor's stand-in that signs a"
+    " test's manifests and lists: it starts nothing and reaches nothing",
+    "test_aw_downloads.py::stranger": "another such key, which is not the vendor's, made the same way",
+    "test_aw_tailscale_api.py::pki": "a certificate authority made in process with cryptography, for the fake"
+    " Tailscale's TLS: it starts nothing and reaches nothing",
+    "test_aw_tailscale_api.py::other_pki": "another such authority, of another subject, made the same way",
 }
 
 
@@ -102,6 +140,55 @@ def test_every_engine_test_is_marked_and_runs_in_its_own_home(tmp_path) -> None:
     # conftest.py's own aw_home, made for each test: never one a file defines over it, nor one shared by a module.
     homes = [item for item in engine if item["home"] != ["conftest", "function"]]
     assert homes == [], "use conftest.py's aw_home: never define one in a test file, nor give it another scope"
+
+
+def _wider_fixtures(source: str) -> list[str]:
+    """The fixtures source defines with a scope wider than one test's - module, class, package, session, or one a look
+    cannot tell - by the name a test asks for them by."""
+    found = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for decorator in node.decorator_list:
+            if not isinstance(decorator, ast.Call) or _callee(decorator) != "fixture":
+                continue
+            given = {keyword.arg: keyword.value for keyword in decorator.keywords}
+            scope = given.get("scope")
+            if scope is None or (isinstance(scope, ast.Constant) and scope.value == "function"):
+                continue
+            name = given.get("name")
+            found.append(name.value if isinstance(name, ast.Constant) and isinstance(name.value, str) else node.name)
+    return found
+
+
+def test_no_fixture_of_an_engine_file_outlives_the_guard_unnamed() -> None:
+    # A fixture of a wider scope is made before the guard of a test's own process holds and ended after it lets go:
+    # each is named, with why it may run with the developer's PATH, environment, home and network.
+    found = {f"{path.name}::{name}" for path in _engine_files() for name in _wider_fixtures(path.read_text())}
+    assert found == set(WIDER_THAN_A_TEST), "name a fixture wider than a test in WIDER_THAN_A_TEST, with why"
+    assert all(reason.strip() for reason in WIDER_THAN_A_TEST.values())
+
+
+@pytest.mark.parametrize(
+    ("source", "found"),
+    [
+        ('@pytest.fixture(scope="module")\ndef made(): pass', ["made"]),
+        ('@pytest.fixture(scope="session")\ndef made(): pass', ["made"]),
+        ('@pytest.fixture(scope="class")\ndef made(): pass', ["made"]),
+        ('@pytest.fixture(scope="package")\ndef made(): pass', ["made"]),
+        ("@pytest.fixture(scope=SCOPE)\ndef made(): pass", ["made"]),
+        ('@pytest.fixture(scope="module", name="asked")\ndef made(): pass', ["asked"]),
+        ('from pytest import fixture\n@fixture(scope="module")\ndef made(): pass', ["made"]),
+        ('@pytest.fixture(scope="module")\nasync def made(): pass', ["made"]),
+        ('class T:\n    @pytest.fixture(scope="module")\n    def made(self): pass', ["made"]),
+        ("@pytest.fixture\ndef made(): pass", []),
+        ('@pytest.fixture(scope="function")\ndef made(): pass', []),
+        ("@pytest.fixture(autouse=True)\ndef made(): pass", []),
+        ('@pytest.mark.parametrize("scope", ["module"])\ndef test_made(scope): pass', []),
+    ],
+)
+def test_the_scan_sees_each_fixture_wider_than_a_test(source, found) -> None:
+    assert _wider_fixtures(source) == found
 
 
 def test_the_home_is_the_tests_own_and_so_are_home_and_the_xdg_folders(home, aw_home, tmp_path) -> None:
@@ -170,12 +257,18 @@ def _said(output: str, kind: str) -> set[str]:
     return set(re.findall(rf"(?m)^{kind} \S+::(\w+)", output))
 
 
-def test_an_engine_test_s_own_process_meets_the_stand_ins_and_its_own_environment(tmp_path, engine_guard) -> None:
-    # The session's environment, as a developer's shell would hand it: a token among it, this process's stand-ins not.
+def _session_env(engine_guard) -> dict[str, str]:
+    """The session's environment, as a developer's shell would hand it: a token among it, this process's stand-ins
+    not."""
     path = [entry for entry in os.environ["PATH"].split(os.pathsep) if Path(entry).parent != engine_guard.stand_ins]
     env = {name: value for name, value in os.environ.items() if name in PASSED_ON or name.startswith("LC_")}
     env |= {"PATH": os.pathsep.join(path), "GH_TOKEN": "made-up-session-value"}
     env["PYTHONPATH"] = os.pathsep.join([str(REPO / "tests" / "unit"), str(REPO / "lib")])
+    return env
+
+
+def test_an_engine_test_s_own_process_meets_the_stand_ins_and_its_own_environment(tmp_path, engine_guard) -> None:
+    env = _session_env(engine_guard)
     ran = _child_pytest(tmp_path, {"test_aw_child.py": CHILD_ENGINE, "test_today_child.py": CHILD_TODAY}, env)
     said = ran.stdout + ran.stderr
     assert ran.returncode == 1, said
@@ -185,6 +278,102 @@ def test_an_engine_test_s_own_process_meets_the_stand_ins_and_its_own_environmen
     # The session's own variable is gone from an engine test, and a test of today's keeps it, its PATH untouched: each
     # test's call passed, and two failed once they had ended.
     assert _said(said, "FAILED") == set() and re.search(r"\b4 passed, 2 errors\b", said), said
+
+
+# An engine test's file whose tests take the stand-ins off their own PATH, each its own way, or keep the guard through
+# what a test may do: its own monkeypatch undone, a folder of its own put first.
+CHILD_PATH = """
+import os
+import shutil
+import socket
+
+import pytest
+
+
+def test_sets_its_path_by_monkeypatch(monkeypatch):
+    monkeypatch.setenv("PATH", os.defpath)
+
+
+def test_sets_its_path_by_hand():
+    os.environ["PATH"] = os.defpath
+
+
+def test_undoes_its_own_monkeypatch(monkeypatch, aw_home, engine_guard):
+    monkeypatch.setenv("AW_CHILD_OWN", "set")
+    monkeypatch.undo()
+    assert os.environ["HOME"] == os.environ["AGENT_WAREHOUSE_HOME"] == str(aw_home)
+    assert os.path.dirname(os.path.dirname(shutil.which("ssh"))) == str(engine_guard.stand_ins)
+    assert "GH_TOKEN" not in os.environ and os.environ["BROWSER"].startswith(str(engine_guard.stand_ins))
+    with pytest.raises(OSError, match="tests/molecule/"):
+        socket.getaddrinfo("example.com", 443)
+    engine_guard.refused.clear()
+
+
+def test_puts_a_folder_of_its_own_first(engine_guard, tmp_path):
+    mine = tmp_path / "mine"
+    mine.mkdir()
+    (mine / "ssh").write_text("#!/bin/sh\\n")
+    (mine / "ssh").chmod(0o755)
+    engine_guard.first_on_path(mine)
+    assert shutil.which("ssh") == str(mine / "ssh")
+"""
+
+
+def test_a_path_of_the_test_s_own_fails_it_and_its_own_monkeypatch_undone_keeps_the_guard(
+    tmp_path, engine_guard
+) -> None:
+    ran = _child_pytest(tmp_path, {"test_aw_child_path.py": CHILD_PATH}, _session_env(engine_guard))
+    said = ran.stdout + ran.stderr
+    assert ran.returncode == 1, said
+    # Each PATH set fails its test as its call ends, before its monkeypatch is undone; one set by hand, which no
+    # monkeypatch undoes, fails its teardown too. The guard is the guard's own: a test's monkeypatch undone leaves it.
+    assert _said(said, "FAILED") == {"test_sets_its_path_by_monkeypatch", "test_sets_its_path_by_hand"}, said
+    assert _said(said, "ERROR") == {"test_sets_its_path_by_hand"}, said
+    assert "engine_guard.first_on_path(dir)" in said and "ssh at /" in said, said
+    assert re.search(r"\b2 failed, 2 passed\b", said) and re.search(r"\b1 error\b", said), said
+
+
+def test_a_folder_of_the_test_s_own_goes_first_in_its_own_process_and_the_stand_ins_stay(
+    engine_guard, tmp_path
+) -> None:
+    mine = tmp_path / "mine"
+    mine.mkdir()
+    harness._executable(mine / "ssh", "#!/bin/sh\necho mine\n")
+    engine_guard.first_on_path(mine)
+    assert shutil.which("ssh") == str(mine / "ssh")
+    for tool in aw_kit.STOOD_IN:
+        if tool != "ssh":
+            assert Path(shutil.which(tool)).parent.parent == engine_guard.stand_ins, tool
+    engine_guard.held("now")
+
+
+def test_a_path_that_finds_this_machine_s_programs_first_fails_the_guard(engine_guard, monkeypatch) -> None:
+    monkeypatch.setenv("PATH", os.defpath)
+    with pytest.raises(pytest.fail.Exception, match=r"ahead of the stand-ins \(.*ssh at /"):
+        engine_guard.held("now")
+    # As the test's call would end: its monkeypatch undone first, which leaves the guard's PATH.
+    monkeypatch.undo()
+    engine_guard.held("now")
+
+
+@pytest.mark.parametrize("where", ["/usr/bin", "/bin", "relative/bin", "the test's parent", "a link to /usr/bin"])
+def test_first_on_path_takes_only_a_folder_of_the_test_s_own(engine_guard, home, tmp_path, where) -> None:
+    folder: str | Path = where
+    if where == "the test's parent":
+        folder = tmp_path.parent
+    elif where == "a link to /usr/bin":
+        folder = tmp_path / "linked"
+        folder.symlink_to("/usr/bin")
+    said = r"first_on_path takes a folder of the test's own directory"
+    with pytest.raises(pytest.fail.Exception, match=said):
+        engine_guard.first_on_path(folder)
+    for run in (
+        lambda: environment(home, first_on_path=(folder,)),
+        lambda: run_aw("--version", home=home, first_on_path=(folder,)),
+    ):
+        with pytest.raises(pytest.fail.Exception, match=said):
+            run()
+    assert engine_guard.first == []
 
 
 def test_path_home_is_the_test_s_own_without_asking_for_home(aw_home) -> None:
@@ -511,19 +700,31 @@ def test_imports_of_lists_what_importing_one_module_loaded(home) -> None:
 
 
 @pytest.mark.parametrize(
-    ("module", "words"),
+    ("module", "words", "said"),
     [
-        pytest.param("claude_vm.fleet; import os", (), id="code-after-the-name"),
-        pytest.param("claude_vm..fleet", (), id="an-empty-part"),
-        pytest.param("claude_vm.fleet\n", (), id="a-newline"),
-        pytest.param("", (), id="empty"),
-        pytest.param("claude_vm.fleet", ("--version",), id="words-beside-it"),
-        pytest.param("claude_vm.no_such_module", (), id="an-import-that-fails"),
+        pytest.param("claude_vm.fleet; import os", (), "by its dotted name", id="code-after-the-name"),
+        pytest.param("claude_vm..fleet", (), "by its dotted name", id="an-empty-part"),
+        pytest.param("claude_vm.fleet\n", (), "by its dotted name", id="a-newline"),
+        pytest.param("", (), "by its dotted name", id="empty"),
+        pytest.param("claude_vm.fleet", ("--version",), "by its dotted name", id="words-beside-it"),
+        pytest.param(
+            "claude_vm.no_such_module", (), "importing claude_vm.no_such_module failed", id="an-import-that-fails"
+        ),
     ],
 )
-def test_imports_of_fails_a_module_it_cannot_list(home, module: str, words: tuple[str, ...]) -> None:
-    with pytest.raises(pytest.fail.Exception):
+def test_imports_of_fails_a_module_it_cannot_list(home, module: str, words: tuple[str, ...], said: str) -> None:
+    # The guard's own sentence: without the guard, a name that is no dotted name still fails, for another reason, once
+    # it has run as code.
+    with pytest.raises(pytest.fail.Exception) as refused:
         imports_of(*words, module=module, home=home)
+    assert said in str(refused.value)
+
+
+def test_imports_of_runs_nothing_of_a_name_it_refuses(home, tmp_path) -> None:
+    made = tmp_path / "made-by-the-name"
+    with pytest.raises(pytest.fail.Exception, match="by its dotted name"):
+        imports_of(module=f"os; open({str(made)!r}, 'w').close()", home=home)
+    assert not made.exists()
 
 
 # ---------------------------------------------------------------- the canary search ----

@@ -49,7 +49,8 @@ Beside the subpackages, `lib/claude_vm/secret.py` holds what the engine wraps a 
 `Secret`, which `repr`, `str`, an f-string, `format` and a log line show as a mark, which refuses to be pickled or
 turned into JSON, and whose plain value only `reveal()` reads, at the one place that sends it on.
 `tests/unit/test_aw_guards.py` holds the modules that call `reveal()` to its `REVEALS`, each with the reason it sends
-the secret on; the list is empty until the first one does. The engine's tests, `tests/unit/test_aw_*.py`, run alone
+the secret on: the transport (16.7), for a request's header or form, and the SSH runner (16.6), for a child's standard
+input. The engine's tests, `tests/unit/test_aw_*.py`, run alone
 with `just test engine`, are kept off this machine in their own process as a run of `tools/aw` is, and reach `tools/aw`
 only through their kit ([§11.1](testing.md#111-unit--just-test-unit)).
 
@@ -594,7 +595,83 @@ call writes a pool and that the role on the pool holds no `Pool.*` privilege but
 
 `lib/claude_vm/ssh/` is where the runner over OpenSSH goes. It runs `ssh` as a child under hard limits, takes a
 machine's host key at first use and files it under the machine's identity, keeps one shared control directory, and holds
-the `ssh` children a run holds. It imports `schema/`, and nothing of `engine/`, `cli/` or `control/`, and no pydantic.
+the `ssh` children a run holds. It imports `schema/`, `runs/` for the one way a child is started, and `secret.py`; of
+today's modules what `REUSED` names (`checks`, `route` and `text`), and nothing of `status/`, which makes TLS contexts;
+nothing of `engine/`, `cli/` or `control/`, and no pydantic.
+
+**A target: `runner.py`'s `Target`.** A frozen record of everything a connection is made from, each value held before
+any child starts: the machine's identity (`checks.HOST_KEY_ALIAS_RE`, `agent-warehouse-<its SMBIOS UUID>`); the one IPv4
+address it is reached at, the one value a machine supplies, held with `ipaddress.IPv4Address` and never `0.0.0.0`,
+loopback, multicast, the reserved range or broadcast; the account and the port; the known-hosts file its key is checked
+against, the product's own `~/.ssh/agent-warehouse.known_hosts` (`KNOWN_HOSTS`) or a scratch file; the one shared
+control directory, plain characters short enough that a socket's path there stays within 86 bytes; an identity file or
+none (this computer's `claude_ssh_identity_file`); the hop through the Proxmox host or none (`Hop`, the route settles
+it: route.py's `ProxyCommand` to the machine's own address, and its connection's name); the person's own options for the
+machine (the setting `vm_ssh_options`); whether this is a first use; and the `ssh` program. `machine()` makes one. The
+Proxmox host is its second form, `proxmox_host()`, for root SSH and as the hop: no identity, its account, port and
+address from the host's file, its key from this computer's, and its settings held by `route.hop_settings`, the rules the
+hop is made by, whose socket's name it shares.
+
+- **A person's own options.** `vm_ssh_options` is a mapping of `ssh`'s option names to values, given as `-o Name=value`
+  after the product's options: `ssh` keeps the first value it is given, so a person's option changes whatever the
+  product leaves, a `ProxyJump` or a `ProxyCommand` among them, and never a value it pins. What the product writes
+  itself is refused by name - `HostKeyAlias`, `UserKnownHostsFile`, `CheckHostIP`, `UpdateHostKeys`, `BatchMode`,
+  `ControlPath`, `ControlMaster`, `ForwardAgent` (`claude_ssh_forward_agent`'s), `IdentityFile`
+  (`claude_ssh_identity_file`'s), and `HostName`, `User` and `Port`, where and as whom it connects - and
+  `StrictHostKeyChecking` may be given only as `yes`. A machine given a jump of its own takes no hop.
+- **A first use.** A machine's first connection - one the run created, one being adopted, or the first a changing verb
+  makes from a computer that has filed no key for it - takes the key with `StrictHostKeyChecking=accept-new` into a
+  fresh scratch file of its own, under the machine's identity as `HostKeyAlias` and never by its address, and never into
+  the product's file or the person's own; the caller files the key it took, and every later connection checks the
+  product's file with `yes`. The Proxmox host's key is taken at first use into the person's own `known_hosts`, as
+  `ansible.cfg`'s `ssh_args` take it today.
+
+**The command line.** `argv(target, command)` is `ssh`, then the product's options, then the hop's, then the person's,
+then `-l <account> -p <port> -- <address>` and the command joined with `shlex.join`; every value is one word and none
+passes a shell. No `-F`: the person's own `~/.ssh/config` is read, as today, where a key, an agent or a jump of theirs
+is named. The product's options, in order: `checks.vm_ssh_args` as it stands (the known-hosts file, `CheckHostIP=no`,
+`UpdateHostKeys=no`, `HostKeyAlias` the identity, `ForwardAgent=no`; for the Proxmox host `UpdateHostKeys=no` and
+`ForwardAgent=no` alone), `ControlPath=<the shared directory>/<checks.vm_control_name>-%r-%p`, `ControlMaster=no`,
+`BatchMode=yes`, `StrictHostKeyChecking=yes` (or `accept-new` for the two forms above), `ConnectTimeout=10`,
+`ServerAliveInterval=15`, `ServerAliveCountMax=3`, `PreferredAuthentications=publickey`, `ClearAllForwardings=yes`,
+`RequestTTY=no`, `LogLevel=ERROR`, and the identity file where there is one. `BatchMode=yes` on every `ssh` the engine
+starts means a key that wants a passphrase fails in one sentence and never waits at a terminal it cannot reach.
+`ControlMaster=no` means a child rides a master the engine opened in the shared directory, or connects alone where none
+lives, and is never a master itself. The hop's own `ssh` keeps `LogLevel=INFO`, which route.py pins because it reads
+`ssh`'s words. `ansible_vars(target)` gives layer 1's Ansible child the address, the port, the account, the program and
+`ansible_ssh_common_args` holding exactly the same options in the same order, so that its `ssh`, `sftp` and `scp` ride
+the same master and a jump of the person's reaches the file transfers too.
+
+**A bounded call.** `run(job, target, command, stdin, limits, env, started)` is a coroutine. The child is started
+through `children.start` as an `ssh` child of the job's run, in a process group of its own, with `env` and the job's
+marker, entered in the run's registry; `started` is handed asyncio's process object, never a bare pid. Its standard
+input is written, drained and closed: bytes, text, a `Secret` or a list of them, a `Secret` revealed in `_bytes` alone,
+so a password or a code is never in a word, a variable or a file. Its standard output is read a line at a time under
+`Limits`: a bound for one line, one for the whole, a deadline, and a time to say anything at all; its standard error is
+kept to a fixed size, and read to its end so the child never blocks on it. On a breach the child's group is killed, its
+`ProxyCommand` with it. The result is `Done(status, lines, said)`, or `Cut` (a line past its bound, more than the whole,
+a line with no end), `Silent`, `TimedOut` or `Unreachable` (status 255), each line and `said` made plain
+(`text.plain_text`). The default limits are today's, `status/reach.py`'s, held equal by the test: a line of 16 MiB, 45 s,
+20 s to say anything, 64 KiB of standard error, and four of the longest lines in all. A call cancelled by its run ends its child's group too.
+
+**A held child.** The sign-ins hold their own `ssh` children. `hold(job, target, command, env, started, deadline)`
+starts the same command line the same way and returns a `Held`: `send(line)` writes one line to the child's open
+standard input, a `Secret` revealed only there; `lines()` yields what the child prints while it runs, a line at a time
+under the same bounds; `close()` closes its standard input; `end()` ends its group, `SIGTERM` and then `SIGKILL`;
+`result()` reads what is left and says how it ended. Its deadline is the caller's; the run's end ends every held child
+through the registry of `children.py`. `forward(job, target, specs, env, started, deadline)` is a held `ssh -N` with
+each `-L` the caller gives, `ExitOnForwardFailure=yes`, `ClearAllForwardings=no` and `AddressFamily=any` (each loopback
+family bound, as today's forward does whatever a person's settings say), made as a connection of its own
+(`ControlPath=none`), since a forward asked of a shared master would outlive the run on it; its standard input is
+`/dev/null`.
+
+`tests/unit/test_aw_ssh_runner.py` holds it against a stand-in `ssh` that records its words, its environment and its
+standard input: the options and their order, word for word, for every form; the values they hold as this machine's own
+`ssh -G -F /dev/null` shows them, a person's options among them; no secret in a word or a variable; each bound's result,
+and nothing left in the process table; a held child's lines while it runs and a line sent later; and four rules by
+scans: a child named `ssh` is started in the new subpackages only from `ssh/`; no option is made of a value a machine
+supplied but its address; `accept-new` is written in `ssh/` only for a first use and the Proxmox host; and the runner
+carries no `ControlMaster` but `no`.
 
 ## 16.7 `vendors/` — one HTTPS transport, Tailscale's calls, verified downloads
 
@@ -965,7 +1042,7 @@ name today's MCP jobs set, with the job's ID: whatever reads it matches the ID, 
 whatever environment it is handed; `unmarked(env)` takes it away, for the one kind of child that must not carry it, a
 shared SSH master, which other runs may ride after this one ends. Only the process that made a job marks a child with
 it. `start(job, argv, own, env, stdin, stdout, stderr, kind, pass_fds=())`
-is the one way the engine starts a child, a coroutine over asyncio's own:
+is the one way the engine starts a child, the SSH runner's `ssh` children among them, a coroutine over asyncio's own:
 
 - `own` is `group`, a process group of its own, so that the terminal's Ctrl-C reaches the run alone; or `session`, a
   session of its own, its standard input `/dev/null`. Standard input is always named: a child in a group of its own
@@ -986,7 +1063,7 @@ The children a run started are kept by kind, in memory, for the run's end (`atta
 ends one.
 Nothing is written to a file, and nothing reads the process table. `tests/unit/test_aw_children.py` holds it, with real
 children that report what they were given, and holds four rules by scans of the new engine's code: a child process is
-started only through this module and the SSH runner, by any of Python's ways; `close_fds=False` appears nowhere; no
+started only through this module, by any of Python's ways; `close_fds=False` appears nowhere; no
 process is forked without an exec (`os.fork`, `os.forkpty`, `pty.fork`, a `fork` start method or context), since a
 forked child keeps every lock until it execs; and `pass_fds` and `set_inheritable(..., True)` appear only in `start`.
 

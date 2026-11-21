@@ -16,9 +16,9 @@ over on purpose. A descriptor that holds one of the run's locks, its number or a
 lock's name before anything starts: the kernel lets a lock go only when every descriptor of it is closed, so a child
 that held one would keep it past its run's end.
 
-The children a run started are kept, by kind, in memory for the run's end (runs/attached.py): `start` enters each,
-and `live` gives those still running. A shared master is entered nowhere, since no run ever ends one. Nothing here
-reads the process table, and nothing is written to a file.
+The children a run started are kept, by kind, in memory for the run's end (runs/attached.py): `start` enters each, the
+SSH runner's `ssh` children among them, and `live` gives those still running. A shared master is entered nowhere, since
+no run ever ends one. Nothing here reads the process table, and nothing is written to a file.
 
 Standard library only; asyncio and subprocess are imported inside the functions that start a child.
 """
