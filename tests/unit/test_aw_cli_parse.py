@@ -415,10 +415,9 @@ def _with_handler(name: str) -> Verb:
     return dataclasses.replace(VERBS[name], handler="engine.test:run")
 
 
-@pytest.mark.parametrize("verb", list(VERBS.values()), ids=lambda verb: verb.name)
+@pytest.mark.parametrize("verb", [verb for verb in VERBS.values() if verb.handler is None], ids=lambda verb: verb.name)
 def test_a_verb_no_card_has_built_names_its_card_and_just_only_where_today_has_it(monkeypatch, verb) -> None:
     monkeypatch.setattr(dispatch, "lacking", lambda: [])
-    assert verb.handler is None
     with pytest.raises(parse.Refused) as refused:
         dispatch.dispatch(REPO, verb, before.RunWords(), {})
     sentence = refused.value.sentence
@@ -478,16 +477,18 @@ def test_a_fleet_a_client_yml_points_at_is_said_and_the_default_is_not(monkeypat
     assert "".join(said) == f"aw drives the fleet in {elsewhere}, which fleet_home in {client} names\n"
 
 
-def test_an_environment_without_the_packages_names_aw_install_but_for_install_and_help(monkeypatch) -> None:
+def test_an_environment_without_the_packages_names_aw_install_but_for_install_and_help(monkeypatch, capsys) -> None:
     assert dispatch.lacking(("claude_vm", "no_such_module_of_aw")) == ["no_such_module_of_aw"]
     monkeypatch.setattr(dispatch, "lacking", lambda: ["ansible"])
     with pytest.raises(parse.Refused) as refused:
         dispatch.dispatch(REPO, VERBS["status"], before.RunWords(), {})
     assert refused.value.sentence.endswith("lacks ansible, which uv.lock pins: run aw install"), refused.value.sentence
-    for name in ("install", "help"):
-        with pytest.raises(parse.Refused) as refused:
-            dispatch.dispatch(REPO, VERBS[name], before.RunWords(), {})
-        assert refused.value.sentence == dispatch.not_built(VERBS[name])
+    with pytest.raises(parse.Refused) as refused:
+        dispatch.dispatch(REPO, VERBS["install"], before.RunWords(), {})
+    assert refused.value.sentence == dispatch.not_built(VERBS["install"])
+    # help, built (H6), prints the table without them.
+    assert dispatch.dispatch(REPO, VERBS["help"], before.RunWords(), {"recipe": "deploy"}) == EXITS["done"]
+    assert capsys.readouterr().out.startswith("Usage: aw deploy [<name>...]\n")
 
 
 def test_a_python_that_is_no_virtualenv_s_is_refused_for_every_verb_before_anything_else(monkeypatch) -> None:
