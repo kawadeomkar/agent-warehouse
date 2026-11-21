@@ -16,14 +16,16 @@ is kept in the record: what it waits for, NEXT STEPS, each machine's outcome, an
 the record and an event hold is made plain (`text.plain_text`), and a `Secret` is refused before anything is written.
 
 Standard library only; `store` replaces the record whole under a lock on its folder, so two writers (the run, and a
-`cancel` recording a stop) lose neither change. Only `create` writes a record from nothing: a change to a job whose
-record is gone (the job dropped) or cannot be read is refused with `Gone`, and `drop` unlinks the record under the same
-lock, so a writer either lands its change before the drop or is refused after it.
+`cancel` recording a stop) lose neither change. Only `create` writes a record from nothing, and only it writes the
+job's ID, its pid and its start. A change reads the record strictly: where it is gone (the job dropped) or is no
+record, the change is refused with `Gone`, and any other error of the read is raised as itself, never said as a job
+that is gone. `drop` unlinks the record under the same lock, so a writer either lands its change before the drop or is
+refused after it, and says what it could not remove. A reader is never refused: from the record's unlink on, `state`
+says there is no such job (None), as `find` and `listed` pass over it.
 """
 
 from __future__ import annotations
 
-import contextlib
 import fcntl
 import json
 import os
@@ -79,15 +81,20 @@ FIELDS = (
     "why",  # why it ended as it did
 )
 
+# What only `create` writes: the job's ID, and the run's process and start, which a person reads and `cancel` signals.
+CREATED = ("id", "pid", "started")
+
 # The jobs this process made, by their folder's real path, each with the descriptor that holds its lock: only the
-# process that made a job emits its events or drops it, and its own job is read from what it holds, as a shortcut, and
-# never probed. A probe would be safe: closing a second descriptor of a lock file does not let the first's lock go, on
-# NFSv3 and NFSv4.2 as on a local disk, since a flock belongs to its open file description (experiment 40).
+# process that made a job emits its events or drops it, and `state` reads its own job from what it holds, a shortcut
+# that saves a probe. A probe would read the same: closing a second descriptor of a lock file does not let the first's
+# lock go, since a flock belongs to its open file description, as experiment 40 measured on Linux, on NFSv3 and
+# NFSv4.2 as on a local disk (macOS's half is not measured yet).
 _HELD: dict[str, int] = {}
 
 
 class Gone(LookupError):
-    """A change asked of a job whose record is gone (the job dropped) or cannot be read: nothing was written."""
+    """A change asked of a job whose record is gone (the job dropped) or is no record (it does not parse as one):
+    nothing was written. Any other error reading the record is raised as itself."""
 
 
 @dataclass(frozen=True)
@@ -161,29 +168,45 @@ class Job:
         """The descriptor holding this job's lock, where this process made the job; else None."""
         return _HELD.get(_key(self.folder))
 
+    def _load(self) -> dict:
+        """The record as it is on disk, read strictly: FileNotFoundError or NotADirectoryError where there is none
+        (not yet written, or the job dropped), ValueError where what is there is no record (it does not parse, or is
+        not a mapping), and any other error of the read as itself. It is replaced whole, so it is never half of one."""
+        with open(self.record, encoding="utf-8") as stream:
+            record = json.load(stream)
+        if not isinstance(record, dict):
+            raise ValueError(f"job {self.id}'s record is not a mapping")
+        return record
+
     def read(self) -> dict:
         """The record as it is on disk; {} where there is none (not yet written, or the job dropped) or it cannot be
-        read. It is replaced whole, so a reader never sees half of one."""
+        read: a reader is never refused."""
         try:
-            with open(self.record, encoding="utf-8") as stream:
-                record = json.load(stream)
+            return self._load()
         except (OSError, ValueError):
             return {}
-        return record if isinstance(record, dict) else {}
 
     def _change(self, change: Callable[[dict], dict], *, first: bool = False) -> dict:
         """The record read, changed and replaced whole, under the lock on its folder: of two writers, neither loses
-        the other's change. Only `create` writes a record from nothing (`first`): where the record is gone or cannot
-        be read, `Gone` is raised and nothing is written, so a writer that comes after a drop's unlink, which takes the
-        same lock, lands no `job.json` in a folder being removed."""
+        the other's change. Only `create` writes a record from nothing (`first`). Any other change reads it strictly:
+        where it is gone, or is no record, `Gone` is raised and nothing is written, so a writer that comes after a
+        drop's unlink, which takes the same lock, lands no `job.json` in a folder being removed; any other error of the
+        read (a descriptor limit, a disk's error, NFS's ESTALE) is raised as itself, never said as a job that is
+        gone."""
         try:
             with store.locked(self.record):
-                record = {} if first else self.read()
-                if not (first or record):
-                    raise Gone(f"job {self.id} has no record to change: it was dropped, or its record cannot be read")
+                if first:
+                    record = {}
+                else:
+                    try:
+                        record = self._load()
+                    except (FileNotFoundError, NotADirectoryError):
+                        raise Gone(f"job {self.id} has no record to change: it was dropped") from None
+                    except ValueError:
+                        raise Gone(f"job {self.id}'s record cannot be read: nothing was written") from None
                 record = change(record)
                 store.replace(self.record, json.dumps(record, indent=2) + "\n", mode_if_new=paths.FILE_MODE)
-        except FileNotFoundError:
+        except (FileNotFoundError, NotADirectoryError):
             if first:
                 raise
             raise Gone(f"job {self.id} has no folder: it was dropped") from None
@@ -191,8 +214,12 @@ class Job:
 
     def update(self, **fields: object) -> dict:
         """fields written into the record, and the record as written. Every string is made plain, and a Secret is
-        refused before anything is written; a job whose record is gone or cannot be read raises `Gone`."""
-        unknown = sorted(name for name in fields if name not in FIELDS or name == "id")
+        refused before anything is written; the fields `create` alone writes are refused; a job whose record is gone
+        or is no record raises `Gone`, and any other error reading it is raised as itself."""
+        fixed = sorted(name for name in fields if name in CREATED)
+        if fixed:
+            raise ValueError(f"a job's {', '.join(fixed)} is written by create alone, never changed")
+        unknown = sorted(name for name in fields if name not in FIELDS)
         if unknown:
             raise ValueError(f"a job's record has no field {', '.join(unknown)} that may be written")
         given = _plain(fields)
@@ -395,8 +422,9 @@ def locks_held() -> dict[int, str]:
 
 
 def _lock_held(job: Job) -> bool:
-    """Whether the job's lock is held: by this process where it made the job, else as a shared lock tried without
-    waiting finds it, let go at once where it was taken. A lock file that is gone is free."""
+    """Whether the job's lock is held: by this process where it made the job (a shortcut: a probe would find the
+    same), else as a shared lock tried without waiting finds it, let go at once where it was taken. A lock file that
+    is gone is free."""
     if job._held_here() is not None:
         return True
     try:
@@ -414,11 +442,19 @@ def _lock_held(job: Job) -> bool:
         os.close(probe)
 
 
-def state(job: Job) -> str:
-    """One of STATES, derived from the record and the job's own lock alone. The lock is asked first: a run writes its
-    outcome before it ends, so a lock found free means any outcome is already in the record read after it."""
+def state(job: Job) -> str | None:
+    """One of STATES, derived from the record and the job's own lock alone; None, no such job, where the record is
+    gone (not yet written, or the job dropped), as `find` and `listed` pass over it, whatever the lock says: from a
+    drop's unlink on, a handle taken before it reads neither `running` nor `lost`. The lock is asked first: a run
+    writes its outcome before it ends, so a lock found free means any outcome is already in the record read after it.
+    A record that is there and cannot be read is read as {}, as `read` reads it."""
     held = _lock_held(job)
-    record = job.read()
+    try:
+        record = job._load()
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    except (OSError, ValueError):
+        record = {}
     if record.get("outcome") in OUTCOMES:
         return record["outcome"]
     if held:
@@ -457,19 +493,38 @@ def listed(jobs_dir: str | os.PathLike) -> list[Job]:
     return [job for _, _, job in found]
 
 
-def drop(job: Job) -> None:
+def drop(job: Job) -> str | None:
     """A job this process made removed, as a run refused at its locks leaves none, and never failing on what it cannot
     remove, since the run's refusal is still to be said. `job.json` first, unlinked under the lock `_change` takes, so
     that a writer holding the record lands its change before it and one after it is refused, and readers pass over the
     folder from then on; then its lock closed; then the folder, what cannot be removed left as it is (a folder with no
     record is no job). Removing the folder while the lock file is still open would make NFS rename that file
-    `.nfsXXXX`, and the folder would stay (experiment 40, item 3)."""
+    `.nfsXXXX`, and the folder would stay (experiment 40, item 3).
+
+    None where no record of the job is left; else one line that says the record is left and why, for the refusal to
+    say: a record left whole is a job that reads `lost` for good, a run that never ran. Only a record already gone is
+    no error of the unlink's."""
     key = _key(job.folder)
     held = _HELD.get(key)
     if held is None:
         raise RuntimeError(f"job {job.id} is not this process's: only the run that made a job drops it")
-    with contextlib.suppress(OSError), store.locked(job.record):
-        job.record.unlink(missing_ok=True)
+    kept: OSError | None = None
+    try:
+        with store.locked(job.record):
+            job.record.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        kept = error
     del _HELD[key]
     os.close(held)
     shutil.rmtree(job.folder, ignore_errors=True)
+    if kept is None:
+        return None
+    try:
+        os.lstat(job.record)
+    except (FileNotFoundError, NotADirectoryError):
+        return None  # what the unlink could not remove, the folder's removal did
+    except OSError:
+        pass  # whether it is left cannot be told: the unlink's error stands
+    return plain_text(f"job {job.id} could not be removed: {job.record} is left ({kept.strerror or kept})")
