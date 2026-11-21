@@ -795,6 +795,48 @@ one), set one of its checks (`CHECKS`: `check_hostname`, `verify_mode`, `verify_
 or import today's modules that do (`TODAYS_CONTEXTS`, `trust` and `status`, which a test holds to every reused module
 that makes a context or imports one that does).
 
+**Tailscale's calls: `tailscale.py`.** `Tailscale(base_url, tls_ca_file=None, proxy=None)` is the client of Tailscale's
+API at the address its caller gives (today's `tailscale_api_url`, `https://api.tailscale.com`), on the one transport,
+with the context `trust.context(tls_ca_file)` makes and the proxy `proxy.choose` gave. It makes the three calls today's
+release makes (`roles/tailscale/tasks/api_delete.yml`), and no other:
+
+- `access_token(client_id, client_secret)`: `POST /api/v2/oauth/token`, the OAuth client's ID and secret as form
+  fields with `grant_type=client_credentials`, OAuth's grant for a client's own credentials, which Tailscale's own Go
+  client sends too and today's release leaves out. The access token it answers, which lasts an hour, is a `Secret`
+  from the moment it is read. The client secret is a `Secret`, and so may the ID be, as the vault holds it: each is a
+  form's value the transport reveals, so this module adds no entry to `REVEALS`.
+- `device(token, node_id)`: `GET /api/v2/device/<node ID>`, the device as a `Device(node_id, name, hostname)`, its
+  MagicDNS name and its host name each made one line of plain text; `None` for a 404, a device that is not there.
+- `delete_device(token, node_id)`: `DELETE /api/v2/device/<node ID>`, sent once: `True` where it deleted the device
+  (200, 204), `False` for a 404, a device deleted already or in a tailnet the token does not reach.
+
+The token of the last two is the one an OAuth client was exchanged for, or an API access token held as it is, a
+`Secret` either way, sent as a Bearer token.
+
+- **The node's ID** is what a machine reported, and an access token may delete any device of the tailnet: it goes
+  into a path only once it is held whole, with `fullmatch`, to `NODE_ID`, letters and digits, the pattern of today's
+  `tailscale_node_id_pattern`, so that no `/` or `..` takes the token to another endpoint. One that is not is
+  `NotANodeId`, with nothing sent, whose sentence shows what was given as JSON, cut, so that a newline is seen.
+- **Refusals.** A 401 or a 403 is `Denied`, by its status alone; for a device, a 403 says why it may be: an access
+  token an OAuth client was exchanged for reaches only the devices with that client's tags. Any other answer but the
+  call's own is `Refused`, with Tailscale's words - its JSON's `message`, an OAuth error's `error_description` or
+  `error`, else its status line's - the secrets the call sent struck from them as they came and again once made plain,
+  before they are cut (`Secret.struck`), so that a peer that echoes one has none of it said. A 3xx is one, never
+  followed. A 200 that is not the answer asked for is `Malformed`, and never quoted: an exchange's body holds a token.
+  The transport's own errors pass as they are: a deletion that left with no answer is its `Unknown`, never sent again,
+  which the workflow settles by reading the device.
+- **Not here.** Which device a release may delete (today's rules of its name), which credential is used where none is
+  held (open, in the standalone resolutions' section 7), and what is said to a person are the release workflow's. No
+  key is minted for a join: a join takes the vault's `tailscale_auth_key`, as today.
+
+`tests/unit/test_aw_tailscale_api.py` runs each call against `tests/molecule/fake_tailscale_api.py`, which serves
+HTTPS when given a certificate and its key (`--tls`) and plain HTTP to today's tests as before, its certificate's CA
+standing in for one of `certifi`'s roots: the exchange, the read, the deletion and its 404, and each refusal. It holds
+that an ID with a slash, a newline or a dot never reaches the fake (its `/fake/asked` lists every request made of the
+API), that `NODE_ID` is the role's pattern by its text and by its answer for every ID tried, and that a certificate
+that does not verify sends nothing; and, through a stand-in transport, a redirect, a body that is no answer, and
+Tailscale's words echoing the client secret or a token, which no error says.
+
 **Verified downloads: `keys.py` and `downloads.py`.** What a machine installs that its vendor signs is held to the
 signature here, on the computer, before a digest from it goes anywhere, as today's roles hold it
 ([§7.15](custom-code.md#715-libclaude_vmopenpgppy--a-vendors-signature-checked-here)). Their two task files are the

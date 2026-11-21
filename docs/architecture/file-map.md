@@ -259,7 +259,9 @@ lib/claude_vm/vendors/            one HTTPS transport, Tailscale's calls, downlo
                                   from the environment it is given; trust.py, the computer's certificates,
                                   certifi's list with the file tls_ca_file names added, and the context made from them;
                                   keys.py, the vendored signing keys by their fingerprints; downloads.py, Claude Code's
-                                  release and an Ubuntu image's digest, each held to its vendor's signature
+                                  release and an Ubuntu image's digest, each held to its vendor's signature;
+                                  tailscale.py, Tailscale's API: an OAuth client exchanged for an access token, and a
+                                  device read and deleted by its node's ID
 lib/claude_vm/runs/               a run's record and text log, the kernel's file locks, a detached run
 lib/claude_vm/fleet/              a fleet's files: where they are, the hosts, the settings table, the secrets, its mark;
                                   paths.py, the one resolver of a fleet's home, its state folder and its key file
