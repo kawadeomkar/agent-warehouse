@@ -10,7 +10,8 @@ option's is a string, a flag's a boolean, a repeatable option's a list of string
 an optional value's true (given alone) or a string; a verb's words are a list of strings where it takes several and a
 string where it takes one, or a list where the parser was given more than one, which the rules see as given before the
 verb's one word is held to its number; and `detach` is a flag of every verb whose run is a job. A key the verb has no
-option for is refused, and one whose value is None is taken as not given.
+option for is refused, and one whose value is None is taken as not given. `formed(verb, values)` is the check but for
+the rules between options: what the printer of a command holds a line to (lib/claude_vm/cli/inverse.py).
 
 Standard library only: every command reads it, a refusal among them.
 """
@@ -184,6 +185,17 @@ def check(verb: str, values: Mapping[str, object]) -> str | None:
         or rules.run(row.rules, values)
         or _number(verb, row.words, values)
     )
+
+
+def formed(verb: str, values: Mapping[str, object]) -> str | None:
+    """check, but for the rules between options: None where every value of values is one an option of verb takes, of
+    its kind and held by its pattern, and its words are as many as it takes; else the sentence, which never says a
+    value. What the printer of a command holds a line to (lib/claude_vm/cli/inverse.py): a rule between options is the
+    run's to say, and a line may name a run that one refuses."""
+    row = VERBS.get(verb)
+    if row is None:
+        return NO_SUCH_COMMAND
+    return _hold(verb, options_of(row), row.words, values) or _number(verb, row.words, values)
 
 
 def check_before(values: Mapping[str, object]) -> str | None:

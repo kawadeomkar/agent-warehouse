@@ -34,7 +34,7 @@ from aw_kit import aw_at_a_terminal, run_aw, run_launcher
 from cli_contract_changes import BEHAVIOURS
 from harness import REPO
 
-from claude_vm.cli import before, dispatch, habits, parse
+from claude_vm.cli import before, dispatch, habits, inverse, parse
 from claude_vm.schema import check as checks
 from claude_vm.schema import rules
 from claude_vm.schema.patterns import PATTERNS, full
@@ -162,6 +162,9 @@ BEHAVIOURS_HELD = {
     "a VM name with _, beside a rule broken": "test_the_underscore_s_warning_is_not_said_where_a_rule_refuses",
     "init --token-secret-file: a relative file from a folder whose path has a space": (
         "test_a_token_file_relative_to_a_folder_whose_path_has_a_space_is_taken"
+    ),
+    "deploy <name>: a stage, the question's two command lines": (
+        "test_the_question_names_each_answer_s_command_line_as_the_printer_writes_it"
     ),
 }
 
@@ -462,14 +465,38 @@ def _refused(*words: str) -> str:
     return refused.value.sentence
 
 
-def test_the_question_typed_says_today_s_lines_with_aw() -> None:
-    _, said = _typed(["deploy", "alpha", "configure", "--tags", "claude_code"], "v\n")
+def test_the_question_names_each_answer_s_command_line_as_the_printer_writes_it() -> None:
+    # A deliberate difference (BEHAVIOURS): today's question writes --only configure, six of deploy's options and the
+    # names joined by commas; aw's two lines are the printer's (lib/claude_vm/cli/inverse.py), every option given as
+    # --long=value, the names as words after them, and a value of --set never said back, since nothing took it yet.
+    words = ["deploy", "alpha", "configure", "--tags", "claude_code", "--set", f"github_user={TYPED}", "-v"]
+    _, said = _typed(words, "v\n")
+    given = {"tags": "claude_code", "set": [f"github_user={TYPED}"], "verbosity": 1}
+    stage = inverse.line("deploy", {**given, "only": "configure", "names": ["alpha"]}, refused=True)
+    vms = inverse.line("deploy", {**given, "names": ["alpha", "configure"]}, refused=True)
     assert said.splitlines() == [
         "configure is a stage of aw deploy and also a name a VM could have. Did you mean",
-        "  s  the stage: aw deploy --only configure --tags claude_code alpha",
-        "  v  a VM named configure, created if there is none: aw deploy alpha,configure --tags claude_code",
+        f"  s  the stage: {stage}",
+        f"  v  a VM named configure, created if there is none: {vms}",
         "s or v, or Enter to run nothing: ",
     ]
+    metavar = "NAME=VALUE"
+    assert stage == f"aw deploy --only=configure --tags=claude_code --set={metavar} -v alpha"
+    assert vms == f"aw deploy --tags=claude_code --set={metavar} -v alpha configure"
+    assert TYPED not in said
+    # And with no --set: each answer's command line in full.
+    _, said = _typed(["deploy", "alpha", "configure", "--tags", "claude_code"], "v\n")
+    assert "  s  the stage: aw deploy --only=configure --tags=claude_code alpha" in said.splitlines()
+    assert "  v  a VM named configure, created if there is none: aw deploy --tags=claude_code alpha configure" in (
+        said.splitlines()
+    )
+
+
+def test_a_name_no_line_can_give_is_refused_at_the_question() -> None:
+    # The names habit splits alpha,-b into a piece that is no name: the question's lines cannot give it, so it is
+    # refused there in the check's sentence, saying nothing typed, and nothing is asked.
+    sentence, said = _typed(["deploy", "alpha,-b", "configure"], "v\n")
+    assert sentence == checks.check("deploy", {"names": ["-b"]}) and said == ""
 
 
 def test_the_answer_meets_the_rules_and_says_no_default_where_names_are_left() -> None:
@@ -535,8 +562,8 @@ def test_each_case_at_a_terminal_gives_today_s_status_and_sentence(home, code) -
 def test_deploy_asks_and_takes_a_stage_word_for_a_vm_name_when_that_was_meant(home) -> None:
     rc, said = _at_the_question(home, ["deploy", "alpha", "configure"], b"v\r")
     assert "configure is a stage of aw deploy and also a name a VM could have. Did you mean" in said
-    assert "s  the stage: aw deploy --only configure alpha" in said
-    assert "v  a VM named configure, created if there is none: aw deploy alpha,configure" in said
+    assert "s  the stage: aw deploy --only=configure alpha" in said
+    assert "v  a VM named configure, created if there is none: aw deploy alpha configure" in said
     # The names as given reach the dispatch, which says deploy is not built yet.
     assert rc == 1 and said.rstrip("\n").endswith(dispatch.not_built(DEPLOY)), said
     values = {"names": ["alpha", "configure"]}
@@ -558,7 +585,7 @@ def test_deploy_runs_the_stage_when_that_was_meant(words, taken) -> None:
 
 def test_the_stage_chosen_from_the_menu_reaches_the_dispatch(home) -> None:
     rc, said = _at_the_question(home, ["deploy", "alpha", "configure"], b"s\r")
-    assert "  s  the stage: aw deploy --only configure alpha" in said
+    assert "  s  the stage: aw deploy --only=configure alpha" in said
     assert rc == 1 and said.rstrip("\n").endswith(dispatch.not_built(DEPLOY)), said
 
 

@@ -89,6 +89,11 @@ BEHAVIOURS: dict[str, str] = {
     "space, or another character the file's pattern does not take, where today's init refuses it once made absolute "
     "(the contract's case init.4-1); the refusal held the JSON the justfile joins in bash, which aw has not, and its "
     "value is held to its pattern as typed",
+    "deploy <name>: a stage, the question's two command lines": "the coordinator's ruling on H9 (2026-11-20, the "
+    "plan's card): the question a stage given where the names go asks names each answer's command line as the printer "
+    "of a command writes it (lib/claude_vm/cli/inverse.py), every option given as --long=value in the table's order, "
+    "the names as words after them and a value of --set as its NAME=VALUE, since nothing has taken it yet; today's "
+    "writes --only configure, six of deploy's options with their values after a space, and the names joined by commas",
 }
 
 # The settings given before the recipe today that aw still takes from the environment, as today, and their source: the
