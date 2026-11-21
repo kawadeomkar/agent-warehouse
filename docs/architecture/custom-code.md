@@ -1560,6 +1560,11 @@ Never a `GET`: Proxmox holds the 401 of one with no token back three seconds, wh
   sent after the handshake: what answers sees which request carries no token, and could say nothing to this one. So
   where root SSH read the host's certificates and none verified, `just init` holds the token unless what is presented
   is the host's, a certificate read or not.
+- **`anchored_context(pem)`** is the one public way to the module's contexts, for the new engine's Proxmox client
+  (`lib/claude_vm/pve/pin.py`, [§16.5](engine.md#165-pve--the-typed-proxmox-client-and-the-one-table-of-privileges)),
+  so that there stays one way to make a context from a certificate the host gave: `_context` over the certificates of
+  `pem` alone, the name checked, with Python 3.13's flags forced on whatever the Python, and a `ValueError` where `pem`
+  holds none. Nothing of today's product calls it.
 
 Only `-----BEGIN CERTIFICATE-----` blocks of what was read from the host are ever kept or tried (`pem_certificates`),
 and a file larger than a certificate file is none. A trust file there turns checking on, whatever

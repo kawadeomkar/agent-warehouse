@@ -296,7 +296,74 @@ and only when it dispatches a verb that changes something. No client imports it.
 
 `lib/claude_vm/pve/` is where the typed client of the Proxmox VE API goes, with the one table that names each call's
 privilege, which `init` grants from and the permission check reads. It imports `vendors/` for its one HTTPS transport,
-and `schema/`. It imports nothing of `engine/`, `cli/` or `control/`, and no pydantic.
+`schema/`, `secret.py` and, of today's modules, what `REUSED` names: `trust` for the anchor's context, `proxmox` for
+its parsers as they stand, `checks` for the names Proxmox gives, and `text`. It imports nothing of `engine/`, `cli/` or
+`control/`, and no pydantic. It is Proxmox's own folder in `tests/unit/test_ratchets.py`'s `PROXMOX_OWN`, beside
+`lib/claude_vm/proxmox.py`: it may name the API's paths and a VM's ID, which a file outside it may not name more often
+than it does today.
+
+**The pinned connection: `pin.py`.** The token goes only on a connection whose certificate verified against what the
+host keeps, before a byte of the request is written. A host keeps one of two things, which `init` works out and keeps.
+
+- **An anchor file**, its node's own certificate or its CA, which is then the context's only source of roots.
+  `context(anchor_pem)` makes that context with today's `trust.anchored_context`, the one way a context is made from a
+  certificate the host gave: the name the API was reached at checked, and Python 3.13's flags (strict, and a partial
+  chain, so that the node's own certificate is an anchor of its own) on every Python. So a CA with no `keyUsage`, as
+  Proxmox VE 8 made one and VE 9 did before pve-cluster 9.1.8, is no anchor on any Python, and such a host's anchor is
+  its node's own certificate.
+- **No file**, where the host's certificate verifies against the computer's one certificate file, the vendors'
+  (16.7): `certifi`'s, unless the setting `tls_ca_file` names another.
+
+Where the anchor is the node's own certificate, its SHA-256 fingerprint as it was recorded is held too: `check(expected)`
+is the function the transport's `peer_check` calls with the certificate the server presented, and a certificate that is
+not the recorded one is refused there, with nothing sent. `kept(anchor_pem, fingerprint, tls_ca_file)` gives a `Pin` of
+the three, the context, whether it is an anchor's and the fingerprint, and refuses a fingerprint with no anchor beside
+it, or one that is not one as `openssl` prints it. `transport(url, pin, proxy)` makes the one connection a token goes
+on, so `pin.py` alone hands the transport a check of the peer (`PEER_CHECKS`), and it touches neither `http.client` nor
+a socket. It reads no setting and no variable: the anchor's text, the fingerprint, `tls_ca_file` and the proxy, which
+`proxy.choose` works out for the API's address as today's Proxmox calls take it, are its caller's.
+
+**The client: `client.py`.** `Proxmox(url, pin, token, proxy)` is the one class that sends the engine's token to
+Proxmox, and the only place the new engine writes the `PVEAPIToken` header. The `Token(id, secret)` is the engine's one
+token on the fleet's pool, `user@realm!name` and a `Secret`, handed to the transport as parts of the header's value and
+revealed there alone. No method returns it, and no error says it.
+
+- **The first request is `GET /version`**, asked once a client. A host below Proxmox VE 9 is refused, `TooOld`, with a
+  sentence that names the version found, before any other request goes, and every later call says so again with
+  nothing sent.
+- **What an answer is, by its status alone.** A 401 or a 403 is `Denied`, never by its words, since Proxmox names a VM
+  in its reasons ("VM 4013 is not running"); a workflow stops at it, since it holds for every VM. A 3xx is an answer,
+  never followed, and so is every other status but a 200: `Refused`, with its status and Proxmox's reason, the status
+  line's words that the transport's `Answer` carries, made one line of plain text. A 200 that is not Proxmox's JSON, or
+  lacks what its record cannot be without, is `Malformed`. The transport's own errors pass as they are.
+- **A certificate that is not what the host keeps.** Against an anchor, the transport's `Untrusted`, and the pin's
+  refusal of another fingerprint, are `Unverified`, whose sentence is `init`'s: if Proxmox renewed the certificate or
+  the host was reinstalled, `aw init` reads the host's own and asks before it trusts one in its place, and if not,
+  something else may answer at the address. With no anchor, `Untrusted` passes as it is, naming `tls_ca_file`. Either
+  way nothing was sent, and nothing is tried again without the check.
+- **The reads**, each returning a frozen record of `answers.py`, built by a plain parsing function there:
+  `resources(kind)` (`/cluster/resources` of a `vm`, `storage`, `node`, `pool` or `sdn`), `pool(poolid)` (its comment
+  and members), `config(node, vmid, nic)` (with its `digest`, its identity, the SMBIOS UUID, through
+  `proxmox.smbios_uuid`, and the MAC of `nic` through `proxmox.net_mac`), `current(node, vmid)` (the VM's own state
+  now), `next_id()`, `node_status(node)` (its CPU threads and memory, for a VM's size: `Sys.Audit` on the node),
+  `task_status(node, upid)` and `task_log(node, upid)`, `storages(node)` and `bridges(node)` (as `init` asks them
+  today), `permissions(path)` (the token's privileges at an ACL path), and `read(path, query)` for the reads `status`
+  adds. A listing's status is the one the cluster last polled, up to ten seconds old, and is never read for what the
+  same run changed: `resources`' docstring says so and names `current`.
+- **Proxmox's loose JSON.** 0 and 1 for booleans, numbers sent as strings and keys that come and go by version are read
+  as they come; what a record does not name is kept as it was sent, frozen, a mapping read-only and a list a tuple.
+- **Held before anything is sent.** Every name and ID that goes into a path is held to the form Proxmox gives it (a
+  node, a pool, a VMID from 100, a UPID, an ACL path, a network card, a path below the API with no `.` or `..` part
+  and no query), so that none can reach another path or a query.
+
+Reads only: the writes are card B4's, the guest agent's calls card B6's, and `status` moves onto the client in its own
+workstream. `tests/unit/test_aw_pve_reads.py` runs every read against the fake Proxmox, which serves a node's
+certificate from `tests/unit/pki.py` (`harness.fake_fleet`'s `certificate`), with the engine's pool and token. For an
+anchor of another node's certificate, of another CA, the right certificate with another fingerprint recorded, and no
+anchor with a computer's file that holds no root of the fake's, the fake's request log holds no request of the client's,
+also with the fake answering no request without a token. It holds that `PVEAPIToken` is written in one module of the
+new engine, that no method returns the token, and that no error, its words, its arguments or the names of its
+traceback's frames, says the token's secret.
 
 ## 16.6 `ssh/` — the runner over OpenSSH
 
@@ -314,7 +381,9 @@ pydantic.
 
 **One transport: `transport.py`.** Every HTTPS request the engine sends goes through
 `Transport(base_url, context, user_agent, connect=5, read=30, most=16 MiB, proxy=None, peer_check=None)`, and its
-`request(method, path, headers, query, form, json, stream, deadline)` returns an `Answer(status, headers, body)`. It
+`request(method, path, headers, query, form, json, stream, deadline)` returns an `Answer(status, headers, body,
+reason)`, the reason being the status line's words as the server sent them, which its caller makes plain before it says
+any of them (the Proxmox client's refusals quote Proxmox's, which is where Proxmox puts them). It
 is written over `http.client` and `ssl` alone, so three things hold by construction. It follows no redirect: a 3xx is
 an answer. It reads no certificate variable, no netrc and no proxy variable, because the caller builds the
 `ssl.SSLContext` its connections verify with and gives it the proxy too. And it takes an `https://` address only. It
@@ -410,7 +479,10 @@ Ansible's `uri`, verified against the system's own store of the machine that mak
 - **The proxy is not this module's.** `proxy.choose` gives it to the transport beside this context.
 - **The one context.** Of the new engine, only `trust.py` makes a TLS context, gives one roots or sets its checks:
   the transport takes any `ssl.SSLContext`, so a module that made its own could hand it one that checks nothing. The
-  Proxmox client's pin joins it, with its reason, when it is built.
+  Proxmox client's pin (16.5) is the other, with its reason: the host's anchor alone, made by today's
+  `lib/claude_vm/trust.py`'s `anchored_context`. Today's modules that make a context are a door the names cannot
+  see, so the rule holds imports too: of the new engine, only the modules `CONTEXTS` names import today's `trust` or
+  `status`, which make contexts, or any module the new engine may reuse that makes one or imports one that does.
 
 `tests/unit/test_aw_vendor_trust.py` reaches TLS servers on loopback through the transport with such a context. It
 puts a server's root in either half of the interpreter's own store, the file `SSL_CERT_FILE` names or the folder
@@ -422,7 +494,9 @@ show that neither the file chosen nor what it loads changes. It holds three rule
 standard library's ways to the interpreter's store or its paths (`create_default_context`, `load_default_certs`,
 `set_default_verify_paths`, `get_default_verify_paths`); of the new engine only `trust.py` imports `certifi`; and of
 the new engine only the modules `CONTEXTS` names, each with why, make a TLS context (`SSLContext`, the ready-made ones,
-`load_verify_locations`, by any spelling but as a type) or set its `check_hostname` or `verify_mode`.
+`load_verify_locations`, by any spelling but as a type), set its `check_hostname` or `verify_mode`, or import today's
+modules that do (`TODAYS_CONTEXTS`, `trust` and `status`, which a test holds to every reused module that makes a context
+or imports one that does).
 
 ## 16.8 `runs/` — a run's record and text log, the locks, a detached run
 

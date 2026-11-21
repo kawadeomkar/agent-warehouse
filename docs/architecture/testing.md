@@ -928,7 +928,13 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
   its pool without propagate, and with `privsep=1` the token's own entries are cut to what its user holds. Today's
   tokens are answered by the table and the whole role as above, and everything else a made token asks as theirs is:
   nothing is refused for lack of a privilege. `harness.fake_fleet(engine=True)` makes the new engine's pool, role,
-  user and its one token, and `harness.engine_token` gives the token's ID and secret.
+  user and its one token, and `harness.engine_token` gives the token's ID and secret; with `certificate`, a node's
+  certificate and key of `tests/unit/pki.py`'s, the fake serves that, which a client can verify, in place of one of its
+  own.
+- `GET /nodes/<node>/status` answers a node's CPU threads, memory and uptime as Proxmox VE 9 does, to a token
+  `PUT /api2/json/fake/privileges` granted `Sys.Audit` on the node, and 403 to any other.
+  `PUT /api2/json/fake/redirect?location=` has the next request that carries a token answered with a redirect there,
+  once: a client that followed it would carry the token to another address.
 - A VM's configuration is written as qemu-server's `PVE/API2/Qemu.pm` writes it. A `PUT` or `POST` of it that sends
   `digest` is refused, nothing written, unless that is the digest its `GET` gives now; one that sends none is taken, as
   before, and `digest` is never kept. A `POST`'s task checks the digest and the lock again when it ends, as Proxmox's

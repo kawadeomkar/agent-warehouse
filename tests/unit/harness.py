@@ -1232,11 +1232,14 @@ ENGINE_PRIVILEGES = (
 )
 
 
-def fake_fleet(directory: Path, version: str = "9.2.21", engine: bool = False):
+def fake_fleet(
+    directory: Path, version: str = "9.2.21", engine: bool = False, certificate: tuple[Path, Path] | None = None
+):
     """The fake Proxmox, on VE 9 unless told, with alpha and beta running and their agents up, and gamma stopped;
     its URL. With engine, also the new engine's pool, role, user and token, the role granted the user and the token on
-    the pool: engine_token(directory) gives the token's ID and secret."""
-    for base in _fake_pve(directory):
+    the pool: engine_token(directory) gives the token's ID and secret. It serves certificate, its file and its key's,
+    where given (a node's of tests/unit/pki.py, which a client can verify), else one of its own, self-signed."""
+    for base in _fake_pve(directory, certificate):
         _pve(base, "PUT", "fake/version", version=version)
         for vmid, name, running in [(9010, "alpha", True), (9011, "beta", True), (9012, "gamma", False)]:
             _pve_vm(base, vmid, name, running=running, tags="agent-warehouse", ciuser="dev", onboot="1")

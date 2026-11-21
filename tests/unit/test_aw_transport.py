@@ -62,9 +62,11 @@ PROXY = REPO / "lib" / "claude_vm" / "vendors" / "proxy.py"
 # own settings. Never getproxies or proxy_bypass themselves, which read os.environ, which choose never reads; never an
 # opener.
 URLLIB_READERS = frozenset({"proxy_bypass_environment", "getproxies_macosx_sysconf", "proxy_bypass_macosx_sysconf"})
-# The modules of the new engine that hand the transport a check of the peer's certificate, each with why: empty until
-# the Proxmox client's pin (B2).
-PEER_CHECKS: dict[str, str] = {}
+# The modules of the new engine that hand the transport a check of the peer's certificate, each with why.
+PEER_CHECKS: dict[str, str] = {
+    "lib/claude_vm/pve/pin.py": "the Proxmox client's pin: where the host's anchor is its node's own certificate,"
+    " pin.check refuses one whose SHA-256 fingerprint is not the one recorded, before the token is written",
+}
 CERTIFICATE_VARIABLES = re.compile(r"\b(SSL_CERT_FILE|SSL_CERT_DIR|REQUESTS_CA_BUNDLE|CURL_CA_BUNDLE|NETRC)\b")
 PROXY_VARIABLES = ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy")
 # proxy.py's own readers of the system's settings, before the fixture below stands in for them.
@@ -373,6 +375,13 @@ def test_a_get_with_no_body_sends_no_length_and_a_post_says_its_length_is_none(s
     assert (head.status, head.body, head.header("Content-Length")) == (200, b"", "2")
     get, post, _ = server.asked
     assert "content-length" not in get.headers and post.headers["content-length"] == "0"
+
+
+def test_an_answer_carries_the_reason_its_status_line_gave(serve, pki) -> None:
+    server = serve(answer(404, b""))
+    with _client(server, pki) as client:
+        got = client.request("GET", "version")
+    assert (got.status, got.reason) == (404, "Not Found")
 
 
 def test_a_redirect_is_an_answer_and_the_second_address_is_never_asked(serve, pki) -> None:

@@ -130,11 +130,13 @@ class Untrusted(Unreachable):
 
 @dataclasses.dataclass(frozen=True)
 class Answer:
-    """What the server answered: its status, a 3xx included, its headers as it sent them, and its body."""
+    """What the server answered: its status, a 3xx included, its headers as it sent them, its body, and the reason its
+    status line gave, as it sent it - the peer's words, which its caller makes plain before it says any of them."""
 
     status: int
     headers: tuple[tuple[str, str], ...]
     body: bytes
+    reason: str = ""
 
     def header(self, name: str) -> str | None:
         """The first value of the header name, in any case; None where there is none."""
@@ -526,7 +528,8 @@ class Transport:
             sent = True
             conn.endheaders(body.encoded() if isinstance(body, _Form) else body, encode_chunked=chunked)
             response = conn.getresponse()
-            answer = Answer(response.status, tuple(response.getheaders()), self._body(response, method))
+            headers = tuple(response.getheaders())
+            answer = Answer(response.status, headers, self._body(response, method), response.reason)
         except TooLarge as error:
             failure = error
         except TimeoutError:
