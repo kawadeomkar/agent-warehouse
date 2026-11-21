@@ -388,6 +388,12 @@ def create(
     return job
 
 
+def locks_held() -> dict[int, str]:
+    """The descriptors by which this process holds a job's lock, each with the lock's name: what a child of the run is
+    never handed (runs/children.py)."""
+    return {held: f"job {os.path.basename(key)}'s lock" for key, held in _HELD.items()}
+
+
 def _lock_held(job: Job) -> bool:
     """Whether the job's lock is held: by this process where it made the job, else as a shared lock tried without
     waiting finds it, let go at once where it was taken. A lock file that is gone is free."""
