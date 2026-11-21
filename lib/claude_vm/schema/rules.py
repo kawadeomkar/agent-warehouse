@@ -12,8 +12,11 @@ has already met its pattern: the check holds every value to its pattern first, a
 The values are the verb's as the check takes them: by the field the handler receives them by, only what was given, a
 value option's a string, a flag's a boolean, the words a list where the verb takes several and a string where it takes
 one, or a list where the parser was given more than one; an empty string is no value given, as today's empty
-parameter is. The rules are today's rules between options (the justfile's, said before any check or tool) and the
-argument checks of tools/check, word for word. What is not a rule between options is a habit
+parameter is. The rules are today's rules between options (the justfile's, said before any check or tool), word for
+word, and the three argument checks of tools/check that are more than one pattern: host --for's names, split at its
+commas; --repos' 2000 characters; and --project's . and .., which its pattern takes. tools/check's other checks hold
+one value to what its pattern already holds, behind just's pattern, for the JSON the justfile's scripts join: they
+are the pattern's alone here, and no rule repeats a value's own pattern. What is not a rule between options is a habit
 (lib/claude_vm/cli/habits.py); a check that reads the fleet's files, the environment, the file system or a terminal is
 its verb's own, made where the verb is built.
 
@@ -34,14 +37,10 @@ Filled = Mapping[str, str]
 # second layer out of Ansible they stay these six, as the parts of a configure (tests/unit/test_aw_cli_rules.py holds
 # them equal to the justfile's configure_roles until the cutover).
 CONFIGURE_ROLES = ("common", "vscode_server", "dev_tools", "claude_code", "github_projects", "tailscale")
-# The sections of status's report (status --only), as tools/check sections names them.
-SECTIONS = ("vms", "storage", "capacity", "access", "sign-ins", "system", "work")
-
 # The characters the checks spell out, as tools/check does, so no locale can widen them.
 _LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 _DIGITS = "0123456789"
 _LOWER = "abcdefghijklmnopqrstuvwxyz"
-_HEX = "0123456789abcdef"
 
 
 @dataclass(frozen=True)
@@ -83,104 +82,30 @@ def _only(value: str, allowed: str) -> bool:
     return all(character in allowed for character in value)
 
 
-def _whole(value: str, most: int) -> bool:
-    """A whole number of at most most digits that starts with no 0, as tools/check size's whole."""
-    return value != "" and value[0] != "0" and _only(value, _DIGITS) and len(value) <= most
-
-
 def _vm_name(name: str) -> bool:
     """tools/check names: from a letter or a digit, then letters, digits and . _ - , only."""
     return name != "" and name[0] in _LETTERS + _DIGITS and _only(name, _LETTERS + _DIGITS + "._,-")
-
-
-def _names(values: Values) -> list[str]:
-    """The VM names a verb's values give: each word as typed, whole (deploy, login, status, destroy, code; host's word
-    is a host's name, whose pattern every VM name's check takes); destroy's --confirm, whole; host's --for, split at
-    its commas, as just host splits it before the check."""
-    found = _words(values, "names") + _words(values, "name")
-    confirm = _text(values, "confirm")
-    found += [confirm] if confirm else []
-    found += [name for name in _text(values, "for_").split(",") if name]
-    return found
 
 
 # ---------------------------------------------------------------- tools/check's argument checks ----
 
 
 def _a_name(values: Values) -> Filled | None:
-    bad = next((name for name in _names(values) if not _vm_name(name)), None)
+    # host --for's names, split at its commas as just host splits them before the check, an empty one dropped as the
+    # shell's word splitting drops it: its pattern takes alpha,-b whole, and this refuses -b. Every other VM name a verb
+    # is given is held whole by its pattern, which this check would only repeat.
+    bad = next((name for name in _text(values, "for_").split(",") if name and not _vm_name(name)), None)
     return None if bad is None else {"name": bad}
 
 
-def _cores(values: Values) -> Filled | None:
-    cores = _text(values, "cores")
-    return {"value": cores} if cores and not _whole(cores, 3) else None
-
-
-def _memory(values: Values) -> Filled | None:
-    memory = _text(values, "memory")
-    number = memory[:-1] if memory[-1:] in ("M", "G") else memory
-    return {"value": memory} if memory and not _whole(number, 7) else None
-
-
-def _disk(values: Values) -> Filled | None:
-    disk = _text(values, "disk")
-    number = disk[:-1] if disk[-1:] in ("G", "T") else ""
-    return {"value": disk} if disk and not _whole(number, 6) else None
-
-
-def _repos_spelled(repos: str) -> bool:
-    return ",," not in f",{repos}," and _only(repos, _LETTERS + _DIGITS + "._,-")
-
-
-def _repos(values: Values) -> Filled | None:
-    # A repository that starts with . or - or runs past 100 characters is looked for only once the whole is within its
-    # 2000 characters, as tools/check repos does.
-    repos = _text(values, "repos")
-    if not repos:
-        return None
-    if not _repos_spelled(repos):
-        return {"value": repos}
-    if len(repos) <= 2000 and any(repo[:1] in (".", "-") or len(repo) > 100 for repo in repos.split(",")):
-        return {"value": repos}
-    return None
-
-
 def _repos_long(values: Values) -> Filled | None:
-    repos = _text(values, "repos")
-    return {} if repos and _repos_spelled(repos) and len(repos) > 2000 else None
-
-
-def _project_characters(values: Values) -> Filled | None:
-    project = _text(values, "project")
-    return {"value": project} if not _only(project, _LETTERS + _DIGITS + "._-") else None
+    # Its pattern holds each repository to its characters and its 100; the whole's 2000 is no pattern's.
+    return {} if len(_text(values, "repos")) > 2000 else None
 
 
 def _project_folder(values: Values) -> Filled | None:
     project = _text(values, "project")
     return {"value": project} if project in (".", "..") else None
-
-
-def _project_long(values: Values) -> Filled | None:
-    return {} if len(_text(values, "project")) > 100 else None
-
-
-def _session(values: Values) -> Filled | None:
-    session = _text(values, "session")
-    groups = session.split("-")
-    held = [len(group) for group in groups] == [8, 4, 4, 4, 12] and all(_only(group, _HEX) for group in groups)
-    return {"value": session} if session and not held else None
-
-
-def _sections_spelled(values: Values) -> Filled | None:
-    only = _text(values, "only")
-    spelled = ",," not in f",{only}," and _only(only, _LOWER + ",-")
-    return {"value": only} if only and not spelled else None
-
-
-def _sections_known(values: Values) -> Filled | None:
-    bad = next((section for section in _text(values, "only").split(",") if section and section not in SECTIONS), None)
-    return None if bad is None else {"section": bad}
 
 
 # ---------------------------------------------------------------- deploy ----
@@ -277,33 +202,6 @@ def _host_name(values: Values) -> Filled | None:
     return None if held else {"host": host}
 
 
-# init's values, each held to its characters again as the justfile's init does (each sits whole inside the JSON its
-# playbook is given): the option, its field, the characters it may contain, and how the sentence names them.
-_INIT_CHARACTERS = (
-    ("address", "address", _LETTERS + _DIGITS + ".:-", "letters, digits and . : -"),
-    ("token-user", "token_user", _LETTERS + _DIGITS + "._@-", "letters, digits and . _ - @"),
-    ("token-id", "token_id", _LETTERS + _DIGITS + "._-", "letters, digits and . _ -"),
-    (
-        "token-secret-file",
-        "token_secret_file",
-        _LETTERS + _DIGITS + "._/~+-",
-        "letters, digits and . _ - / ~ + (give an absolute path where the directory has others)",
-    ),
-    ("github-user", "github_user", _LETTERS + _DIGITS + "-", "letters, digits and -"),
-    ("storage", "storage", _LETTERS + _DIGITS + "._-", "letters, digits and . _ -"),
-    ("bridge", "bridge", _LETTERS + _DIGITS + "._-", "letters, digits and . _ -"),
-    ("certificate", "certificate", _LETTERS + _DIGITS + ":", "hex digits and :"),
-)
-
-
-def _init_characters(values: Values) -> Filled | None:
-    for option, field, allowed, said in _INIT_CHARACTERS:
-        value = _text(values, field)
-        if not _only(value, allowed):
-            return {"option": option, "allowed": said, "value": value}
-    return None
-
-
 def _count(field: str, most: int) -> Callable[[Values], Filled | None]:
     """A rule broken where more than most words are given, filling {words} with them as typed, space-separated."""
 
@@ -388,7 +286,6 @@ _ALL: tuple[Rule, ...] = (
         "error: a host's name is lowercase letters, digits and -, from a letter or a digit (got: [{host}])",
         _host_name,
     ),
-    Rule("init.4", ("init",), "error: --{option} may contain only {allowed} (got: [{value}])", _init_characters),
     Rule(
         "deploy.4",
         ("deploy",),
@@ -510,61 +407,13 @@ _ALL: tuple[Rule, ...] = (
     ),
     Rule(
         "check.names.1",
-        ("deploy", "code", "login", "status", "destroy", "host"),
+        ("host",),
         "error: VM names start with a letter or a digit and may contain only letters, digits and . _ - , "
         "(got: [{name}])",
         _a_name,
     ),
-    Rule("check.size.1", ("deploy",), "error: --cores is a number of cores, as 8 (got: [{value}])", _cores),
-    Rule(
-        "check.size.2",
-        ("deploy",),
-        "error: --memory is MiB, as 3072, or takes M or G, as 16G (got: [{value}])",
-        _memory,
-    ),
-    Rule("check.size.3", ("deploy",), "error: --disk takes G or T, as 64G (got: [{value}])", _disk),
-    Rule(
-        "check.repos.1",
-        ("deploy",),
-        "error: --repos names GitHub repositories, comma-separated: each starts with a letter, a digit or _, and has "
-        "at most 100 letters, digits, . _ and - (got: [{value}])",
-        _repos,
-    ),
     Rule("check.repos.2", ("deploy",), "error: --repos is longer than the 2000 characters it may be", _repos_long),
-    Rule(
-        "check.project.1",
-        ("code",),
-        "error: --project may contain only letters, digits and . _ - (got: [{value}])",
-        _project_characters,
-    ),
     Rule("check.project.2", ("code",), "error: --project names one project folder, not [{value}]", _project_folder),
-    Rule(
-        "check.project.3",
-        ("code",),
-        "error: --project is longer than the 100 characters a repository name can be",
-        _project_long,
-    ),
-    Rule(
-        "check.session.1",
-        ("code",),
-        "error: --session is a Claude Code session ID such as 0a608ad8-1b2c-4d3e-8f90-123456789abc, as /resume lists "
-        "it (got: [{value}])",
-        _session,
-    ),
-    Rule(
-        "check.sections.1",
-        ("status",),
-        "error: --only takes the report's sections, comma-separated: vms storage capacity access sign-ins system work "
-        "(got: [{value}])",
-        _sections_spelled,
-    ),
-    Rule(
-        "check.sections.2",
-        ("status",),
-        "error: the report has no section [{section}]: its sections are vms storage capacity access sign-ins system "
-        "work",
-        _sections_known,
-    ),
 )
 
 # Every rule, by its code.

@@ -138,8 +138,9 @@ def _flag(long: str, help: str | None, agent: Agent = PROPERTY) -> Option:
 
 # ---------------------------------------------------------------- the fates an agent's tool gives ----
 
-# Why no tool runs a verb: today's, word for word (lib/claude_vm/mcp/recipes.py's NO_TOOL).
-NO_TOOL_HELP = "the tools' own descriptions say what just help says"
+# Why no tool runs a verb: today's, word for word (lib/claude_vm/mcp/recipes.py's NO_TOOL), with aw where it said
+# just.
+NO_TOOL_HELP = "the tools' own descriptions say what aw help says"
 NO_TOOL_VAULT = "the vault is edited at a terminal, by the person: no tool takes or returns a secret"
 NO_TOOL_MCP = "it registers this server: the person's command"
 
@@ -350,7 +351,7 @@ _VERBS: tuple[Verb, ...] = (
             SET,
             VERBOSE,
         ),
-        rules=("init.1", "init.2", "init.3", "init.4"),
+        rules=("init.1", "init.2", "init.3"),
         handler=None,
         card="E4",
         locks="fleet",
@@ -515,11 +516,6 @@ _VERBS: tuple[Verb, ...] = (
             VERBOSE,
         ),
         rules=(
-            "check.names.1",
-            "check.size.1",
-            "check.size.2",
-            "check.size.3",
-            "check.repos.1",
             "check.repos.2",
             "deploy.4",
             "deploy.5",
@@ -567,15 +563,7 @@ _VERBS: tuple[Verb, ...] = (
             SET,
             VERBOSE,
         ),
-        rules=(
-            "code.1",
-            "check.names.1",
-            "code.2",
-            "check.project.1",
-            "check.project.2",
-            "check.project.3",
-            "check.session.1",
-        ),
+        rules=("code.1", "code.2", "check.project.2"),
         handler=None,
         card="G17",
         locks="machines",
@@ -606,7 +594,7 @@ _VERBS: tuple[Verb, ...] = (
             SET,
             VERBOSE,
         ),
-        rules=("check.names.1",),
+        rules=(),
         handler=None,
         card="G12",
         locks="machines",
@@ -637,7 +625,7 @@ _VERBS: tuple[Verb, ...] = (
             _flag("json", "The report as JSON, alone on standard output, with the same exit code", JSON),
             SET,
         ),
-        rules=("check.names.1", "check.sections.1", "check.sections.2"),
+        rules=(),
         handler=None,
         card="G16",
         locks="none",
@@ -717,7 +705,7 @@ _VERBS: tuple[Verb, ...] = (
             SET,
             VERBOSE,
         ),
-        rules=("check.names.1", "destroy.1", "destroy.2"),
+        rules=("destroy.1", "destroy.2"),
         handler=None,
         card="G5",
         locks="machines",

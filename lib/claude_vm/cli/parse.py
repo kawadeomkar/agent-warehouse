@@ -10,6 +10,9 @@ its own help off (aw help is H6's, from the table), errors raised rather than pr
 off from Python 3.14, where they would write escape codes into a file. An option is taken as `--long value` and as
 `--long=value`, which is how a value that starts with - is given; an option is given once, but `--set`, given once for
 each setting, and `-v`, counted. Every verb whose run is a job takes `--detach` (words.py's `changes`), and no other.
+`--`, which elsewhere ends the options, is refused wherever it stands, before argparse sees it: no verb takes a word
+that starts with -, a value that does is given as `--option=value`, and argparse's intermixed parse would drop it and
+read the words after it as options all the same.
 
 Standard library only: a refusal imports nothing the engine needs.
 """
@@ -34,6 +37,9 @@ _WORDS = "_words"
 _LACKS = "expected"
 _EXPLICIT = "ignored explicit argument"
 _TWICE = "_given twice"
+# The word that ends the options elsewhere, which aw refuses: argparse's intermixed parse takes it and drops it, and
+# reads the words after it as options all the same.
+END_OF_OPTIONS = "--"
 # Python 3.14's argparse colours its text unless told not to; earlier ones have no such switch.
 _PLAIN = {"color": False} if sys.version_info >= (3, 14) else {}
 
@@ -159,6 +165,11 @@ def _parse(verb: str, options: tuple[Option, ...], row: Verb | None, words: list
     return given
 
 
+def no_end_of_options(verb: str) -> str:
+    """The sentence of a -- given anywhere, before the verb (verb "") or after it."""
+    return f"error: {checks.command(verb)} takes no --: a value that starts with - is given as --option=value"
+
+
 def _split(words: list[str]) -> tuple[list[str], list[str]]:
     """The words before the verb, and the verb with what follows it. A word before the verb starts with -; a value
     option of those takes the next word as its value unless it is given with =."""
@@ -174,6 +185,8 @@ def _split(words: list[str]) -> tuple[list[str], list[str]]:
 def read(words: list[str]) -> Reading:
     """What the words typed after aw come to, held by the one check; raises Refused with the sentence otherwise."""
     before_words, rest = _split(words)
+    if END_OF_OPTIONS in before_words:
+        raise Refused(no_end_of_options(""))
     before = _parse("", BEFORE, None, before_words)
     refused = checks.check_before(before)
     if refused:
@@ -182,6 +195,8 @@ def read(words: list[str]) -> Reading:
     row = VERBS.get(verb)
     if row is None:
         raise Refused(checks.NO_SUCH_COMMAND)
+    if END_OF_OPTIONS in verb_words:
+        raise Refused(no_end_of_options(verb))
     values = _parse(verb, checks.options_of(row), row, verb_words)
     refused = checks.check(verb, values)
     if refused:

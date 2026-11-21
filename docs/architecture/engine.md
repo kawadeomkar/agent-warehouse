@@ -103,12 +103,17 @@ Today's verbs keep today's words and help, with `aw` where a sentence said `just
 anything ran, 130 cancelled) and `STATUS_EXITS` those of `status` (today's 0, 1, 2 and 3, and 3 for a read a person
 cancelled, as today's `status` gives it); within each, no meaning has two numbers and no number two meanings, but
 `status`'s 3, which today means a read that failed and one a person cancelled, and a script may read. The table holds no
-option whose value is a secret: a secret reaches a verb from a file it names or from the terminal. Nothing is generated
-from the table or into it, and it has no column for the migration: which words are new and which of today's it changes,
-each with its ruling, is `tests/unit/cli_contract_changes.py`'s, beside the contract (`tests/unit/cli_contract.json`),
-and goes with it at the cutover. `tests/unit/test_aw_cli_words.py` holds the table's rows, today's fates for today's
-words (against `lib/claude_vm/mcp/recipes.py`, until the cutover), the exit statuses and the module's imports;
-`tests/unit/test_aw_cli_contract_words.py` holds every word of the contract to the table or to the two maps.
+option whose value is a secret: a secret reaches a verb from a file it names or from the terminal. Two options take free
+text a person may type one into, `--set` and `settings --value`, and the run layer that reads them refuses a secret's
+name or value there and never says it back. Nothing is generated from the table or into it, and it has no column for
+the migration: which words are new and which of today's it changes, each with its ruling, is
+`tests/unit/cli_contract_changes.py`'s, beside the contract (`tests/unit/cli_contract.json`), and goes with it at the
+cutover, and so is `BEHAVIOURS`, what today's words do that `aw` does otherwise on purpose.
+`tests/unit/test_aw_cli_words.py` holds the table's rows, today's fates for today's words (against
+`lib/claude_vm/mcp/recipes.py`, until the cutover), every other option and word of a verb a tool runs a property of the
+tool's schema but where ruled otherwise, the two values of free text, the exit statuses and the module's imports;
+`tests/unit/test_aw_cli_contract_words.py` holds every word of the contract to the table or to the maps `CHANGED` and
+`KEPT`, every word the table adds to `NEW`, and each exit status `aw` gives otherwise to `CHANGED` or `BEHAVIOURS`.
 
 **The one check: `check.py`.** `check(verb, values)` is the check every entry runs on a verb's values: the parser of
 the command line, the agents' server through `aw`, and the add-on's broker on JSON. It holds each value to its kind and
@@ -127,13 +132,17 @@ with the code the contract of today's command line gives it (`deploy.4`, `check.
 for word, with `aw` where it said `just`: `Rule(code, verbs, sentence, breaks)`, where `breaks` takes a verb's values
 and returns nothing where they keep the rule, or what fills the sentence's values where they break it, and
 `Rule.check` gives nothing or the sentence. They are today's rules of `deploy`, `code`, `settings`, `destroy`, `host`,
-`help`, `init` and `mcp`, said before any check or tool, and `tools/check`'s argument checks of VM names, the size, the
-repositories, the project, the session and status's sections; `RULES` holds them by code, and `run` runs the codes a row
-names in order and stops at the first sentence. A sentence says a value back only where today's does, and then a value
-that has met its pattern first, as `just` holds a value to its pattern before a recipe's script runs; some of
-`tools/check`'s checks, as today's, refuse nothing their pattern has not refused first. What reads more than the values
-is no rule here but its verb's own: the fleet's files (`vault`'s, and `deploy`'s VM name another host's alias
-records), the file system, `claude` and the branch (`mcp`'s), and a terminal (`host --remove`'s question).
+`help`, `init` and `mcp`, said before any check or tool, and the three argument checks of `tools/check` that are more
+than one pattern: `host --for`'s VM names, split at its commas, the 2000 characters of `--repos`, and the `.` and `..`
+of `--project`; `RULES` holds them by code, and `run` runs the codes a row names in order and stops at the first
+sentence. No rule repeats a value's own pattern: `tools/check`'s other checks of one value (the size, the
+repositories' spelling, the project's characters and length, the session, status's sections, every other VM name) held
+the JSON the `justfile`'s scripts join, behind `just`'s pattern, and are the pattern's alone here; nor does `aw` keep
+`init`'s refusal of a token file named relative to a folder whose path has a space, which held that JSON too. A
+sentence says a value back only where today's does, and then a value that has met its pattern first, as `just` holds a
+value to its pattern before a recipe's script runs. What reads more than the values is no rule here but its verb's own:
+the fleet's files (`vault`'s, and `deploy`'s VM name another host's alias records), the file system, `claude` and the
+branch (`mcp`'s), and a terminal (`host --remove`'s question).
 
 ## 16.3 `cli/` — the `aw` program
 
@@ -151,7 +160,10 @@ once it is built; that server runs `aw` as a child for every run.
 `argparse` is set as the design requires: abbreviations off, so a prefix of an option is an option the verb has not
 got; its own help off; its errors raised rather than printed and exited on; and its colours off from Python 3.14. An
 option is taken as `--long value` and as `--long=value`, which is how a value that starts with `-` is given, and is
-given once, but for `--set`, given once for each setting, and `-v`, counted. Every verb whose run is a job gets
+given once, but for `--set`, given once for each setting, and `-v`, counted. `--`, which elsewhere ends the options, is
+refused wherever it stands, before `argparse` sees it, in a sentence that says how a value that starts with `-` is
+given: no verb takes a word that starts with `-`, and `argparse`'s intermixed parse would drop it and read the words
+after it as options all the same. Every verb whose run is a job gets
 `--detach`, from the table's column, and no other verb has it. The values, only those given, then go through the one
 check (16.2). Anything refused raises `Refused` with one sentence of the project's own, which names the option where
 one was wrong and never a value or a verb typed: no text of `argparse`'s, no usage block, no exit status of its own.
@@ -211,10 +223,12 @@ dispatch's refusals, what a refusal imports, and the launcher run in checkouts t
 through links, from folders whose version manager picks another Python or that hold a planted module, and with a
 `PYTHON` that is no virtualenv's or cannot be run. `tests/unit/test_aw_cli_rules.py` holds the rules and `deploy`'s
 question: every rule of the contract (`tests/unit/cli_contract.json`) is a rule or a habit with today's sentence, or
-named as another verb's own; each of the contract's cases of a rule or a habit is run against `aw` and gives today's
-status and sentence; the list of those not yet run only shrinks; the check answers alike as words and as JSON; the
-question is asked at a pseudo-terminal, typed and with none; and each test of today's options' rules in
-`tests/unit/test_justfile.py` has a twin there by its name.
+named as another verb's own, as a check whose value's pattern refuses first (on `aw`'s line as on `just`'s), or as a
+rule `aw` drops on purpose; each of the contract's cases of a rule or a habit is run against `aw` and gives today's
+status and sentence; the cases not yet run are named one by one, and a code comes out once its case runs; the check
+answers alike as words and as JSON; the question is asked at a pseudo-terminal, typed and with none; each behaviour of
+today's words that `aw` has otherwise on purpose, and that is no exit status, has a test of its own there; and each
+test of today's options' rules in `tests/unit/test_justfile.py` has a twin there by its name.
 
 ## 16.4 `engine/` — the workflows, one module a verb
 

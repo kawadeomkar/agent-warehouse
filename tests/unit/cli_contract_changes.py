@@ -20,7 +20,9 @@ A word is named as a person sees it:
 Beside them, BEHAVIOURS: what today's words do that aw does otherwise on purpose, not a word of the contract changed but
 what the same words do, each with the ruling that decided it; the parity suite (H7) lists each in its ROWS_CHANGED and
 measures it. One the check of the words finds is named as the check finds it: where today asks a question aw does not
-ask, so that no number of today's stands for aw's, `exit <its name in EXITS> at a prompt`.
+ask, so that no number of today's stands for aw's, `exit <its name in EXITS> at a prompt`. Any other is named by the
+word it concerns, as above, and what is given with it (`init <extra>: an empty word`), or by what is given alone where
+it concerns the words of several verbs; tests/unit/test_aw_cli_rules.py holds each such one to a test of its own.
 
 The sources name the rulings of the plan the new engine is built by: the owner's words and the trims and their
 verification (review/trim-rulings.md: T8, V2-5, V2-8), the rulings on words (N-23 section 4, N-22 section 4), the
@@ -61,12 +63,32 @@ CHANGED: dict[str, str] = {
     "prompts, BEHAVIOURS",
 }
 
+# The owner's answer 5 (2026-11-20; the plan's log), to review/code/SUMMARY-2.md: the three differences
+# review/code/H5.md item (2) found, and init.4's refusal dropped, are aw's behaviour, each held by a test now and
+# measured by H7.
+ANSWER_5 = "the owner's answer 5 (2026-11-20; the plan's log)"
+
 # Each behaviour of today's words that aw has otherwise on purpose, and the ruling that decided it.
 BEHAVIOURS: dict[str, str] = {
     "exit cancelled at a prompt": "the owner's answer 4 (2026-11-20; the plan's log): one Ctrl-C at a prompt ends the "
     "run, as it does anywhere else in aw, with a cancelled run's 130 (the report's run ladder, C4), where today "
     "Ansible asks Continue or Abort there, C going on with the run (the contract's case exit.ctrl-c-3) and A ending "
     "it as a failed task, 2 (exit.ctrl-c-4); an empty answer stays the way to skip a sign-in, as today",
+    "init <extra>: an empty word": f"{ANSWER_5}: an empty word after aw init's options is refused with init.1's "
+    "sentence, as any word there is, where today's just accepts one only by an accident of the join: init's words, "
+    "joined by spaces, come to nothing (two empty words are refused today)",
+    "deploy <name>: a stage, beside a rule broken": f"{ANSWER_5}: a stage of deploy given where the names go, on a "
+    "line that also breaks a rule between options, is refused at once with the rule's sentence, at a terminal or not; "
+    "today asks which was meant first at a terminal and refuses after any answer, and with no terminal says deploy.1's "
+    "sentence: refused either way, with another sentence",
+    "a VM name with _, beside a rule broken": f"{ANSWER_5}: where the line breaks a rule between options, aw says only "
+    "the rule's sentence, since the one check refuses before the name is taken with - and said; today's just says the "
+    "underscore's warning first, then the rule's (deploy, code and destroy alike): refused either way",
+    "init --token-secret-file: a relative file from a folder whose path has a space": f"{ANSWER_5}, on the "
+    "coordinator's ruling: init.4 is dropped, so aw takes a token file named relative to a folder whose path has a "
+    "space, or another character the file's pattern does not take, where today's init refuses it once made absolute "
+    "(the contract's case init.4-1); the refusal held the JSON the justfile joins in bash, which aw has not, and its "
+    "value is held to its pattern as typed",
 }
 
 # The settings given before the recipe today that aw still takes from the environment, as today, and their source: the
