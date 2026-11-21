@@ -48,7 +48,11 @@ machine's `tailscale`, `gh` or `claude`.
 The new engine's tests, `tests/unit/test_aw_*.py`, share `tests/unit/aw_kit.py` the same way, and `just test engine`
 runs them alone, in seconds: the `home` fixture for the test's own home, and `run_aw` or `aw_at_a_terminal` for
 `tools/aw`, whose run also fails its test if it calls this machine's `ssh`, `ansible-playbook` or login keychain.
-`tests/unit/test_aw_guards.py` refuses a test that runs `tools/aw` any other way.
+`tests/unit/test_aw_guards.py` refuses a test that runs `tools/aw` any other way. The test's own process is guarded too,
+whatever its `monkeypatch` undoes: never set `PATH` there, and put a stand-in of your own first with
+`engine_guard.first_on_path(dir)` (or `first_on_path=(dir, ...)` for a run), a folder of the test's own directory. A
+fixture wider than one test runs outside that guard and is refused unless `WIDER_THAN_A_TEST` names it with why, and an
+`aw` command a test names is held to the one table of verbs and options (`tests/unit/test_commands.py`).
 
 Tests never talk to a real Proxmox, a real GitHub, a real Tailscale or a real hypervisor:
 `tests/molecule/` holds a fake or a stand-in for each, listed in

@@ -37,6 +37,7 @@ import errno
 import ipaddress
 import os
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -99,6 +100,30 @@ def _path(root: Path, first: Iterable[str | Path], inherited: str) -> str:
     return os.pathsep.join([*map(str, first), *standing, *rest])
 
 
+def _own_folder(folder: str | Path, own: Path) -> Path:
+    """folder, a test's own folder of programs, held to the test's own directory own: a system folder put first would
+    give the test this machine's real ssh, security or browser opener ahead of the stand-ins."""
+    path = Path(folder)
+    if not path.is_absolute() or not path.resolve().is_relative_to(own.resolve()):
+        pytest.fail(
+            f"first_on_path takes a folder of the test's own directory, {own}: {folder} is not one, and a folder put"
+            " ahead of the stand-ins must never hold this machine's own programs"
+        )
+    return path
+
+
+# Every tool a stand-in stands in for, in a test's own process and in a run: the desktop's, the guarded and the refused.
+STOOD_IN = (*harness.DESKTOP_TOOLS, *harness.GUARDED_TOOLS, *harness.REFUSED_TOOLS)
+
+
+def off_path(path: str, root: Path, first: Iterable[Path] = ()) -> list[str]:
+    """Each tool a stand-in stands in for that path finds first in a folder that is neither a stand-in's under root nor
+    one of first, a test's own put first on purpose, where it was found: none, while the stand-ins hold."""
+    allowed = {root / ".refused", root / ".desktop", *map(Path, first)}
+    found = {tool: shutil.which(tool, path=path) for tool in STOOD_IN}
+    return [f"{tool} at {where}" for tool, where in found.items() if where and Path(where).parent not in allowed]
+
+
 # ---------------------------------------------------------------- the guard of an engine test's own process ----
 
 
@@ -108,10 +133,35 @@ class Offline(OSError):
 
 @dataclasses.dataclass
 class Guard:
-    """An engine test's guard: the folder of its stand-ins, and each lookup or connection it refused, said."""
+    """An engine test's guard: the folder of its stand-ins, and each lookup or connection it refused, said. Its changes
+    are a MonkeyPatch of its own, which a test's monkeypatch.undo() never reaches; own is the test's own directory, and
+    first the folders of its own programs a test put first on PATH (first_on_path)."""
 
     stand_ins: Path
     refused: list[str]
+    own: Path
+    patch: pytest.MonkeyPatch
+    first: list[Path] = dataclasses.field(default_factory=list)
+
+    def first_on_path(self, folder: str | Path) -> Path:
+        """A folder of the test's own programs - a stand-in ssh, say - first on PATH in the test's own process, ahead of
+        the stand-ins, which stay: held to the test's own directory, and undone with the guard."""
+        path = _own_folder(folder, self.own)
+        self.patch.setenv("PATH", os.pathsep.join([str(path), os.environ.get("PATH", os.defpath)]))
+        self.first.append(path)
+        return path
+
+    def held(self, when: str) -> None:
+        """Fail the test where its own process's PATH no longer finds every tool a stand-in stands in for at the
+        stand-in, or at a folder the test put first: a PATH of the test's own took the stand-ins away."""
+        found = off_path(os.environ.get("PATH", ""), self.stand_ins, self.first)
+        if found:
+            pytest.fail(
+                f"{when}, this test's own PATH found this machine's own programs ahead of the stand-ins ("
+                + ", ".join(found)
+                + "): never set PATH in an engine test - put a folder of its own first with"
+                " engine_guard.first_on_path(dir), or first_on_path=(dir, ...) for a run of the kit's"
+            )
 
 
 def _loopback(host: object) -> bool:
@@ -162,31 +212,55 @@ def _offline(monkeypatch: pytest.MonkeyPatch, guard: Guard) -> None:
     monkeypatch.setattr(socket.socket, "connect_ex", held(connect_ex))
 
 
+# Where an engine test's guard is kept on its item, for the check at the end of the test's call.
+GUARD = pytest.StashKey[Guard]()
+
+
 @pytest.fixture(autouse=True)
-def engine_guard(request, aw_home: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Guard | None]:
+def engine_guard(request, aw_home: Path) -> Iterator[Guard | None]:
     """An engine test's own process kept off this machine, as a run of tools/aw is: for every test the `engine` marker
     selects, and no other, so that no test asks for it. HOME and the XDG folders in aw_home; the stand-ins first on PATH
     and BROWSER one of them; every variable removed but harness.PASSED_ON's, the locale's, the kit's own and pytest's
-    PYTEST_CURRENT_TEST; no lookup or connection over IP but to loopback. Once the test ends, a stand-in that was
-    reached, or a connection that was refused, fails it. PATH is what holds a program here: one started by its absolute
-    path, /usr/bin/security say, is not caught."""
+    PYTEST_CURRENT_TEST; no lookup or connection over IP but to loopback. All of it is a MonkeyPatch of the guard's own,
+    undone at its own teardown, so a test's monkeypatch.undo() leaves it in place. Once the test's call ends, and again
+    at teardown, a PATH that finds this machine's own programs ahead of the stand-ins fails it; once the test ends, a
+    stand-in that was reached, or a connection that was refused, fails it. PATH is what holds a program here: one
+    started by its absolute path, /usr/bin/security say, is not caught. pytest makes a fixture of a wider scope before
+    this and ends it after: tests/unit/test_aw_guards.py holds every such fixture of an engine file to a list."""
     if request.node.get_closest_marker("engine") is None:
         yield None
         return
     root = stand_ins(aw_home)
     kept = {*home_variables(aw_home), "BROWSER", PYTEST_OWN}
-    for name in [name for name in os.environ if not _passed_on(name) and name not in kept]:
-        monkeypatch.delenv(name)
-    for name, value in home_variables(aw_home).items():
-        monkeypatch.setenv(name, value)
-    monkeypatch.setenv("PATH", _path(root, (), os.environ.get("PATH", os.defpath)))
-    monkeypatch.setenv("BROWSER", str(root / ".desktop" / "open"))
-    guard = Guard(root, [])
-    _offline(monkeypatch, guard)
-    yield guard
-    harness._fail_if_the_desktop_was_reached(root)
-    if guard.refused:
-        pytest.fail("this test reached past loopback:\n" + "\n".join(guard.refused))
+    patch = pytest.MonkeyPatch()
+    try:
+        for name in [name for name in os.environ if not _passed_on(name) and name not in kept]:
+            patch.delenv(name)
+        for name, value in home_variables(aw_home).items():
+            patch.setenv(name, value)
+        patch.setenv("PATH", _path(root, (), os.environ.get("PATH", os.defpath)))
+        patch.setenv("BROWSER", str(root / ".desktop" / "open"))
+        guard = Guard(root, [], aw_home.parent, patch)
+        _offline(patch, guard)
+        request.node.stash[GUARD] = guard
+        yield guard
+        guard.held("at its teardown")
+        harness._fail_if_the_desktop_was_reached(root)
+        if guard.refused:
+            pytest.fail("this test reached past loopback:\n" + "\n".join(guard.refused))
+    finally:
+        patch.undo()
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_call(item: pytest.Item):
+    """An engine test's own PATH checked as its call ends, before the test's own monkeypatch is undone: a PATH it set
+    there that finds this machine's own programs ahead of the stand-ins fails it."""
+    result = yield
+    guard = item.stash.get(GUARD, None)
+    if guard is not None:
+        guard.held("as its call ended")
+    return result
 
 
 @pytest.fixture
@@ -204,8 +278,10 @@ def environment(
     home: Path, env: Mapping[str, str] | None = None, first_on_path: Iterable[str | Path] = ()
 ) -> dict[str, str]:
     """The environment of a run of tools/aw from home: the names harness.PASSED_ON lists (and LC_*) from this process,
-    home's variables over them, first_on_path's folders first on PATH, the stand-ins next and BROWSER one of them; then
-    env, a test's own, which never sets what HELD names or an XDG_ variable: that would lift a guard unsaid."""
+    home's variables over them, first_on_path's folders first on PATH - each a folder of the test's own directory,
+    home's parent - the stand-ins next and BROWSER one of them; then env, a test's own, which never sets what HELD
+    names or an XDG_ variable: that would lift a guard unsaid."""
+    first_on_path = [_own_folder(folder, home.parent) for folder in first_on_path]
     given = dict(env or {})
     held = sorted(name for name in given if name in HELD or name.startswith("XDG_"))
     if held:

@@ -45,6 +45,14 @@ touches your login keychain, whose programs, `security` and `secret-tool`, are f
 the engine holds is a `Secret` (`lib/claude_vm/secret.py`), never shown, and `searched_for` looks for a canned one in
 what a run left ([§11.1](../architecture/testing.md#111-unit--just-test-unit)).
 
+The test's own process is guarded the same way, by changes of the guard's own that your test's `monkeypatch.undo()`
+leaves in place: `HOME` is the test's own without asking, and a test never sets `PATH`. A stand-in of its own, an `ssh`
+say, goes first with `engine_guard.first_on_path(dir)` in the test's own process, or `first_on_path=(dir, ...)` for a
+run, a folder of the test's own directory either way; a test whose `PATH` finds this machine's own programs ahead of
+the stand-ins fails. A fixture wider than one test is made before that guard holds, so `tests/unit/test_aw_guards.py`
+refuses one its `WIDER_THAN_A_TEST` does not name with why. And an `aw` command a test file names, in a NEXT STEPS line
+say, is held to the one table of verbs and options (`tests/unit/test_commands.py`): a made-up option fails the suite.
+
 At a terminal, `just lint` is drawn live, a row for each check, the running one's last line beside it and the
 ones to come listed; a check that fails prints its last lines above, and the summary names the checks it left
 unrun. Every line the checks print goes to `.logs/<stamp>-lint.log`. `just test` is drawn the same way, as one run:

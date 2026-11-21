@@ -3,7 +3,7 @@ signals at their defaults, handed no descriptor but those its caller names and n
 engine.md §16.8).
 
 `MARKER`, `AGENT_WAREHOUSE_JOB`, carries the job's ID into every process a run starts, as today's MCP jobs set it.
-`env(base, job)` is a copy of `base` with it, for a module that starts its children itself (the SSH runner); `unmarked`
+`env(base, job)` is a copy of `base` with it, for a caller that needs the environment a child is given; `unmarked`
 takes it out, for the one kind of child that must not carry it: a shared SSH master, which other runs may ride after
 this one ends. `start` gives each child the marker itself, or for a master takes it away, whatever environment it is
 handed, so no caller can forget it.
@@ -17,8 +17,8 @@ over on purpose. A descriptor that holds one of the run's locks, its number or a
 lock's name before anything starts: the kernel lets a lock go only when every descriptor of it is closed, so a child
 that held one would keep it past its run's end.
 
-The children a run started are kept, by kind, in memory for the run's end: `register` enters one a module started
-itself (the SSH runner's, through its `started` callback), and `live` gives those still running. A shared master is
+The children a run started are kept, by kind, in memory for the run's end: `start` enters each with `register`, the SSH
+runner's `ssh` children among them, and `live` gives those still running. A shared master is
 entered nowhere, since no run ever ends one. Nothing here reads the process table, and nothing is written to a file.
 
 Standard library only; asyncio and subprocess are imported inside the functions that start a child.
@@ -137,8 +137,8 @@ def _refuse_locks(handed: Sequence[int]) -> None:
 
 
 def register(job: jobs.Job, kind: str, process: Process) -> Child:
-    """process, a child of the job's run that a module started itself, entered under its kind for the run's end. A
-    shared master is never entered: no run ends one."""
+    """process, a child of the job's run, entered under its kind for the run's end: start enters each child it starts.
+    A shared master is never entered: no run ends one."""
     if kind not in KINDS:
         raise ValueError(f"{kind!r} is no kind of child: one of {', '.join(KINDS)}")
     if kind == MASTER:

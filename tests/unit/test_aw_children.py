@@ -2,9 +2,9 @@
 
 Each child here is a real process, a probe that reports what it was given: its environment's marker, its process group
 and session, the signals it ignores or blocks, and the descriptors it has open. The rules with a test of their own: in
-the new engine's code a child process is started only through children.py and the SSH runner, by a scan for every way
-Python starts one; close_fds=False appears nowhere there; no process is forked without an exec (a forked child keeps
-every lock the run holds, since a descriptor that is not inheritable is closed only at an exec); pass_fds and
+the new engine's code a child process is started only through children.py, the SSH runner's among them, by a scan for
+every way Python starts one; close_fds=False appears nowhere there; no process is forked without an exec (a forked child
+keeps every lock the run holds, since a descriptor that is not inheritable is closed only at an exec); pass_fds and
 set_inheritable(..., True) appear only in children.start; and every module of runs/ that takes a kernel lock is one
 children.HOLDERS reads, so that its locks are refused too.
 """
@@ -305,7 +305,7 @@ def test_the_registry_holds_the_run_s_live_children_by_kind_until_each_ends(made
         held = await children.start(
             made, waits, children.GROUP, dict(os.environ), PIPE, DEVNULL, DEVNULL, children.PROGRAM
         )
-        # One the SSH runner starts itself, entered through its started callback.
+        # One started another way, entered by hand.
         runner = await asyncio.create_subprocess_exec(
             sys.executable, "-I", "-c", WAITS, stdin=PIPE, env=children.env(os.environ, made), process_group=0
         )
@@ -342,12 +342,11 @@ def test_register_takes_only_a_kind_it_knows_and_a_job_of_this_process_s(made) -
 
 # ---------------------------------------------------------------- the rules ----
 
-# The modules of the new engine's code that start a child process, each with why. route.py, which opens and checks the
-# hop to a host's VMs, is today's and lies outside it.
+# The modules of the new engine's code that start a child process, each with why: the SSH runner starts its ssh
+# children through children.start too. route.py, which opens and checks the hop to a host's VMs, is today's and lies
+# outside it.
 STARTERS = {
     "lib/claude_vm/runs/children.py": "the one way a run starts a child",
-    "lib/claude_vm/ssh/runner.py": "the SSH runner: its bounded and held ssh children, entered in the registry through"
-    " its started callback",
 }
 # What starts a child process, by the name it is imported under: each of subprocess's and asyncio's ways, the os
 # module's, pty's spawn, and a pool of processes or multiprocessing's, which fork by default on Linux before 3.14.
@@ -488,11 +487,11 @@ def _rel(path: Path) -> str:
     return str(path.relative_to(REPO))
 
 
-def test_a_child_process_is_started_only_through_children_py_and_the_ssh_runner() -> None:
+def test_a_child_process_is_started_only_through_children_py() -> None:
     code = _code()
     assert REPO / "lib" / "claude_vm" / "runs" / "children.py" in code, code
     found = {_rel(path): where for path in code if _rel(path) not in STARTERS and (where := _starts(path.read_text()))}
-    assert found == {}, "a child of a run is started by runs/children.py's start, or by the SSH runner"
+    assert found == {}, "a child of a run is started by runs/children.py's start, the SSH runner's too"
     assert all(reason.strip() for reason in STARTERS.values())
 
 
