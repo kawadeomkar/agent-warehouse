@@ -466,6 +466,24 @@ started only through this module and the SSH runner, by any of Python's ways; `c
 process is forked without an exec (`os.fork`, `os.forkpty`, `pty.fork`, a `fork` start method or context), since a
 forked child keeps every lock until it execs; and `pass_fds` and `set_inheritable(..., True)` appear only in `start`.
 
+**A run's short-lived directory: `rundir.py`.** A run's generated files, the layer-1 child's configuration, its
+inventory and its variables, go in one directory of the run's own. `make(job)` makes it with `tempfile.mkdtemp` under
+the per-user temporary directory (`TMPDIR` where it is set, as on macOS, else `/tmp`), at mode 0700 whatever the umask,
+named `aw-run-`, the job's ID, a dash and mkdtemp's letters, and writes its path into the job's record as `directory`;
+where the record cannot take it, the job dropped, the directory is removed again. It is never made inside
+`XDG_RUNTIME_DIR`, compared by the real paths of both: systemd removes that directory at the person's last logout
+while a detached run may still live, so where the temporary directory lies inside it, the run's goes in `/tmp`. The ID
+in the name tells which job left a directory, and is in the command line of every child that reads a file there.
+`path_for(job, name)` gives the path of one plain file name there and writes nothing: the module makes and removes
+the directory and writes no file in it. Only the process that made a job makes its directory, one a run, or names a
+file in it. `remove(job)` deletes the directory with what it holds, says whether anything was left, and is safe to
+call twice: the run removes the one it made, even once its job is dropped; any other process removes only the one the
+record names, held to the form `make` gives it (absolute, the job's ID in its name, a real directory of this account's
+and not a link), and never while the job's lock is held, since a living run's directory is its own. No secret is ever
+written there: a secret travels on standard input or stays in memory, as today, and every workflow's tests search the
+directory for the secrets they gave (`aw_kit.searched_for`). No socket is made there either: a shared connection lives
+in the one control directory. `tests/unit/test_aw_rundir.py` holds it, with a scan that finds no write in the module.
+
 ## 16.9 `fleet/` — the fleet's files, the settings, the secrets and the fleet's mark
 
 `lib/claude_vm/fleet/` is where a fleet's files and its state go. `paths.py`, below, says where they are; the hosts as
