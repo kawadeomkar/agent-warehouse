@@ -443,7 +443,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `vm_control_name`; `just status`'s too), so a VM that reports a sibling's address is refused there, never
       riding the sibling's open connection; two VMs that report one address are both left out (`guest_addresses`).
       Deleting a VM keeps its key: under an identity no VM made later has, it can only match that VM again, and
-      refuses any other given it. `~/.ssh/known_hosts` is never edited.
+      refuses any other given it. `~/.ssh/known_hosts` is never edited. The new engine keeps the same file under the
+      same identities, and files a key there through `lib/claude_vm/ssh/hostkeys.py` alone
+      (`tests/unit/test_aw_hostkeys.py`).
     - A key kept there by address before 2.6 is copied in under the VM's identity once, before anything connects -
       in check mode too, whose connections take keys on first use - by `playbooks/tasks/host_keys.yml`, which every
       publisher and `just deploy --only ssh-config` import: then a comment, `# agent-warehouse carried <identity>`,
@@ -1056,6 +1058,12 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `~/.ssh/config` is read, as today.
     - `accept-new` is written in `ssh/` only for a first use, into a fresh scratch file under the identity and never the
       product's file or the person's, and for the Proxmox host, into the person's own `known_hosts` as today.
+    - A machine's key is filed only by `lib/claude_vm/ssh/hostkeys.py`, whose functions take no address: `taken` reads
+      the one line a first use's `ssh` wrote into its scratch file (`fresh`) under the identity, by name or hashed, and
+      `file` adds it to the product's file by name under `store.locked`, only where no key of its type is filed for the
+      identity, and raises `Changed` where another is. Nothing replaces or removes a line, and the person's own
+      known-hosts files are never read or written. `tests/unit/test_aw_hostkeys.py` holds it, with this machine's own
+      `ssh-keygen` for a name as `ssh` reads and hashes one.
     - A secret reaches a child only on its standard input, revealed in `_bytes` alone (`REVEALS`). Every child is
       started through `children.start` in a group of its own, its output read under bounds for a line, the whole, a
       deadline and a silence, its group killed on a breach, and every string it gave made plain. A held child (a
