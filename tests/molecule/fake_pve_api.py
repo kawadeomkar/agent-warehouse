@@ -30,7 +30,9 @@ ten seconds old. /nodes/<node>/qemu/<id>/status/current is never stale.
 
 A started VM's guest agent fails its first two polls, so every wait for it is
 exercised; a fixture that is not about that wait answers from the first with
-PUT /api2/json/fake/agent-ready-after?polls=0.
+PUT /api2/json/fake/agent-ready-after?polls=0. What a VM's agent reports of its
+network cards is the VM's to choose: PUT /api2/json/fake/agent-answer?vmid=
+&result=<JSON> plants it, in place of the usual lo, docker0 and eth0.
 
 GET /access/permissions answers each token's privileges by path, as Proxmox
 does - the privilege's name as the key, 1 or 0 its propagate flag - from a
@@ -255,6 +257,11 @@ NO_ROW = "Permission check failed (no row of the engine's table names {method} {
 NO_SUCH_POOL = "Permission check failed (pool '{pool}' does not exist)"
 # A role made with a privilege Proxmox VE 9 does not define: add_role_privs' words, after create_role's label.
 INVALID_PRIVILEGE = "invalid privilege '{privilege}'"
+# A guest agent's call, refused with a 500 before the agent is asked, as qemu-server's assert_agent_available refuses
+# it: the VM is not running; its agent does not answer yet.
+AGENT_REFUSED_STATUS = 500
+VM_NOT_RUNNING = "VM {vmid} is not running"
+AGENT_NOT_RUNNING = "QEMU guest agent is not running"
 
 PORT = int(sys.argv[1])
 CERT, KEY = sys.argv[2], sys.argv[3]
@@ -387,6 +394,9 @@ AGENT_CALLS = {}
 AGENT_READY_AFTER = 2
 # How many it fails now: AGENT_READY_AFTER until a fixture sets another.
 AGENT_READY = {"after": AGENT_READY_AFTER}
+# What a VM's agent reports of its network cards in place of agent_interfaces(), by VMID: the agent runs inside the VM,
+# so its root chooses what it says. PUT /api2/json/fake/agent-answer?vmid=&result=<JSON>, and with no result, as before.
+AGENT_ANSWER = {}
 # The listing's lag (see the docstring): how many listings after a status
 # change still report the old status, and per VM, that status and how many
 # listings it has left.
@@ -1292,6 +1302,14 @@ class Handler(BaseHTTPRequestHandler):
             # Not a PVE endpoint: how many polls of a started VM's agent fail, for a fixture not about the wait.
             AGENT_READY["after"] = int(params.get("polls", str(AGENT_READY_AFTER)))
             return self._reply(200, dict(AGENT_READY))
+        if parts[:2] == ["fake", "agent-answer"] and method == "PUT":
+            # Not a PVE endpoint: what a VM's agent reports of its network cards, as its root makes it say.
+            vmid = int(params["vmid"])
+            if "result" in params:
+                AGENT_ANSWER[vmid] = json.loads(params["result"])
+            else:
+                AGENT_ANSWER.pop(vmid, None)
+            return self._reply(200, sorted(AGENT_ANSWER))
         if parts[:2] == ["fake", "task-polls"] and method == "PUT":
             # Not a PVE endpoint: how many polls of its status each task made from now on answers running to.
             TASK_POLLS["polls"] = int(params.get("polls", "0"))
@@ -1680,11 +1698,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._reply(200, self._task("resize", vmid, resized))
         if sub == ["agent", "network-get-interfaces"] and method == "GET":
             if vm["status"] != "running":
-                return self._reply(500, None, f"VM {vmid} is not running")
+                return self._reply(AGENT_REFUSED_STATUS, None, VM_NOT_RUNNING.format(vmid=vmid))
             AGENT_CALLS[vmid] = AGENT_CALLS.get(vmid, 0) + 1
             if AGENT_CALLS[vmid] <= AGENT_READY["after"]:
-                return self._reply(500, None, "QEMU guest agent is not running")
-            return self._reply(200, {"result": agent_interfaces(vm)})
+                return self._reply(AGENT_REFUSED_STATUS, None, AGENT_NOT_RUNNING)
+            return self._reply(200, {"result": AGENT_ANSWER[vmid] if vmid in AGENT_ANSWER else agent_interfaces(vm)})
         if sub == ["status", "current"]:
             maxmem = int(vm["config"].get("memory", 512)) * 1024**2
             current = {
@@ -1723,9 +1741,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._reply(200, [{"key": k, "value": v} for k, v in sorted(vm["config"].items())])
         if sub[:1] == ["agent"] and sub[1:] in (["get-osinfo"], ["get-fsinfo"]) and method == "GET":
             if vm["status"] != "running":
-                return self._reply(500, None, f"VM {vmid} is not running")
+                return self._reply(AGENT_REFUSED_STATUS, None, VM_NOT_RUNNING.format(vmid=vmid))
             if AGENT_CALLS.get(vmid, 0) <= AGENT_READY["after"]:
-                return self._reply(500, None, "QEMU guest agent is not running")
+                return self._reply(AGENT_REFUSED_STATUS, None, AGENT_NOT_RUNNING)
             if sub[1] == "get-osinfo":
                 return self._reply(
                     200,

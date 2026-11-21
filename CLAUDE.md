@@ -1008,7 +1008,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       run's VM. A task is followed within a deadline of its kind and never longer.
     - Proxmox answers every refusal of a write with a 500: `Locked`, `DigestMismatch` and `Exists` are told apart by its
       words, each held equal to the fake's constant. Every route the client sends has its rows in `privileges.CALLS`,
-      which the fake enforces (a guest added to a pool held on its own path, a resize on its disk's storage).
+      which the fake enforces (a resize on its disk's storage). No route writes a pool, and the role on the pool holds
+      no `Pool.*` privilege but `Pool.Audit`: a new VM joins it through its clone's `pool`
+      (`tests/unit/test_aw_pve_privileges.py`).
     - `tests/unit/test_aw_pve_writes.py` holds it against the fake under enforcement, with a syntax-tree test that every
       method sending a `PUT` to a configuration's path sends `digest`.
 - **A job's state is derived from its record and its own kernel lock, never stored.** Read

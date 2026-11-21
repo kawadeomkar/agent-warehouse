@@ -887,10 +887,13 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
   (`verify_agent_delay`, and `claude_vm_release_agent_delay` passed to each `destroy.yml` run, whose
   play sets it to 5): 34 s of its time had been the clock's.
 - `agent_interfaces()` always reports `lo`, a `docker0` bridge the role must ignore, and the VM's own
-  `eth0` — which is what makes the "address came from the right NIC" assertion meaningful.
+  `eth0` — which is what makes the "address came from the right NIC" assertion meaningful. What an agent
+  reports is the VM's to choose, so a test plants it in its place with
+  `PUT /api2/json/fake/agent-answer?vmid=&result=<JSON>` (no `result`: as before), as the VM's root would make it say.
 - 401 replies have an empty body, as the real API does.
 - Failures carry Proxmox's reason phrase — `VM 4013 is not running` for a stopped VM's agent,
-  `QEMU guest agent is not running` while it boots — because proxmoxer copies it into the error
+  `QEMU guest agent is not running` while it boots (`VM_NOT_RUNNING` and `AGENT_NOT_RUNNING`, the first
+  of which the new engine's client tells a stopped VM by) — because proxmoxer copies it into the error
   message that callers pattern-match.
 - `/cluster/resources` leaves `tags` out for an untagged guest, as PVE does. Sending `tags: ""`
   hid that `claude_vm_tagged` needs `selectattr('tags', 'defined')`.

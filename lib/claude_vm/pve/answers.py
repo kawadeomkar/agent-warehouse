@@ -4,9 +4,10 @@ by a plain parsing function (docs/architecture/engine.md §16.5).
 Proxmox's JSON is loose: 0 and 1 for booleans, numbers sent as strings, keys that come and go by version, and some
 values that a person typed into Proxmox's page. So each function here takes what it knows and keeps the rest as it was
 sent, frozen (a mapping read-only, a list a tuple), never refusing an answer for a key it does not know; it refuses,
-as Malformed, only an answer without what the record cannot be without. A VM's MAC, its SMBIOS UUID and its tags are
-read by today's parsers in lib/claude_vm/proxmox.py, as they stand. No pydantic: an answer is the API's, the product's
-own records are another workstream's.
+as Malformed, only an answer without what the record cannot be without. A guest agent's answer is the one exception:
+the VM chose all of it, so of it only the plain values a network card and its addresses have are kept, and nothing the
+VM nests deeper. A VM's MAC, its SMBIOS UUID and its tags are read by today's parsers in lib/claude_vm/proxmox.py, as
+they stand. No pydantic: an answer is the API's, the product's own records are another workstream's.
 
 Standard library only, and nothing read or written.
 """
@@ -516,6 +517,50 @@ def permissions(value: Any, path: str) -> Permissions:
     held = entry.get(path, {})
     held = held if isinstance(held, Mapping) else {}
     return Permissions(path, types.MappingProxyType({str(name): _flag(flag) for name, flag in held.items()}))
+
+
+# ------------------------------------------------------------------------------------ the guest agent's cards ----
+
+
+@dataclasses.dataclass(frozen=True)
+class Interfaces:
+    """GET .../agent/network-get-interfaces: what a VM's guest agent reported of its network cards. The agent runs
+    inside the VM, so all of it is the VM's to choose: Proxmox's wrapper is held to its shape, and of the agent's answer
+    each card that is a mapping is kept with what a card has (CARD), its addresses each with what an address has
+    (ADDRESS), every value as it came where it is a plain one, and nothing else, none where the agent sent no list: what
+    a VM nests deeper never reaches a record. agent.address reads the VM's address from them."""
+
+    node: str
+    vmid: int
+    interfaces: tuple[Mapping[str, Any], ...]
+
+
+# What a network card of the agent's answer has (QEMU's GuestNetworkInterface), and each of its addresses
+# (GuestIpAddress): what Interfaces keeps of them.
+CARD = ("name", "hardware-address")
+ADDRESS = ("ip-address", "ip-address-type", "prefix")
+
+
+def _plain(entry: Mapping[Any, Any], keys: tuple[str, ...]) -> dict[str, Any]:
+    """Of entry, keys whose values are plain - a str, a number, a boolean or null - as they came."""
+    return {key: entry[key] for key in keys if key in entry and isinstance(entry[key], str | int | float | type(None))}
+
+
+def _card(card: Mapping[Any, Any]) -> Mapping[str, Any]:
+    kept = _plain(card, CARD)
+    addresses = card.get("ip-addresses")
+    if isinstance(addresses, list):
+        kept["ip-addresses"] = tuple(
+            types.MappingProxyType(_plain(one, ADDRESS)) for one in addresses if isinstance(one, Mapping)
+        )
+    return types.MappingProxyType(kept)
+
+
+def interfaces(value: Any, node: str, vmid: int) -> Interfaces:
+    entry = _mapping(value, "a guest agent's network cards")
+    found = entry.get("result")
+    cards = tuple(_card(card) for card in found if isinstance(card, Mapping)) if isinstance(found, list) else ()
+    return Interfaces(node=node, vmid=vmid, interfaces=cards)
 
 
 # ------------------------------------------------------------------------------------------- any other read ----

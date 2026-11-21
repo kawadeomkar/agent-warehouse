@@ -18,10 +18,14 @@ says where Proxmox checks it:
 
 A row with no privilege needs none (the version, the next free VMID, the token's own permissions). Where the call's
 path names the object a row is checked on, for_request gives the concrete ACL path; where it does not, the call names
-it in its parameters (a clone's pool and storage, a pool's poolid and each guest of its vms) or its VM's
-configuration does (the storage of the disk a resize grows), or the call lists such objects, each listed only where
-the row's privilege is held on it (GET /cluster/resources, a node's storages and bridges): Proxmox's own code says
-which, and so does the fake's.
+it in its parameters (a clone's pool and storage, a pool read by its poolid) or its VM's configuration does (the
+storage of the disk a resize grows), or the call lists such objects, each listed only where the row's privilege is held
+on it (GET /cluster/resources, a node's storages and bridges): Proxmox's own code says which, and so does the fake's.
+
+No call writes a pool, so of Pool.* the table names Pool.Audit alone: a new VM joins the fleet's pool through its
+clone's pool, which needs VM.Allocate on the pool and nothing of Pool.*, and the VMs a fleet already had join it over
+root SSH (card K5). A token whose role is on its pool alone could add no guest it did not already hold, and
+Pool.Allocate would let it rewrite its pool's comment, the fleet's mark, and delete the pool once empty.
 
 Standard library only: the fake imports this module with nothing but the checkout's lib/ on its path.
 """
@@ -57,7 +61,7 @@ class Call:
 
 
 # Filled from N-14's table of calls for Proxmox VE 9, with the calls the base makes once they are built: the client's
-# reads (card B2) and its writes (card B4), each privilege read from Proxmox's source; card B6 adds the guest agent's.
+# reads (card B2), its writes (card B4) and the guest agent's (card B6), each privilege read from Proxmox's source.
 CALLS = (
     # The reads every workflow makes (client.py).
     Call("version", "GET", "/version", None, None),
@@ -110,11 +114,11 @@ CALLS = (
     # A VM made a template, and a VM deleted with its disks (N-14 rows 21 and 22): VM.Allocate.
     Call("to_template", "POST", "/nodes/{node}/qemu/{vmid}/template", "VM.Allocate", "vm"),
     Call("delete", "DELETE", "/nodes/{node}/qemu/{vmid}", "VM.Allocate", "vm"),
-    # Guests added to a pool (pve-manager's update_pool): Pool.Allocate on the pool, and on each guest named in vms
-    # check_perm_modify's VM.Allocate (or Permissions.Modify, which the engine is never granted), so that a token whose
-    # role is on its pool alone adds no guest it does not already hold.
-    Call("pool_add", "PUT", "/pools", "Pool.Allocate", "pool"),
-    Call("pool_add", "PUT", "/pools", "VM.Allocate", "vm"),
+    # What a started VM's guest agent reports of its network cards, for its address (N-14 row 13): VM.GuestAgent.Audit,
+    # or VM.GuestAgent.Unrestricted, which the engine is never granted (qemu-server's PVE/API2/Qemu/Agent.pm).
+    Call(
+        "agent_interfaces", "GET", "/nodes/{node}/qemu/{vmid}/agent/network-get-interfaces", "VM.GuestAgent.Audit", "vm"
+    ),
 )
 
 
