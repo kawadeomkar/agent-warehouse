@@ -6,7 +6,9 @@ is the caller's too, an `http://` URL or none (`proxy.choose` works out today's)
 CONNECT tunnel, asked for and read here: TLS and the caller's check of the peer's certificate are end to end with the
 server, so a token never leaves the tunnel's TLS. `peer_check` is handed the peer's certificate, as DER, after each new
 connection's handshake and before anything is written on it; its raising ends the call as `PeerRefused`, with nothing
-sent. A certificate that does not verify against the context is `Untrusted`, an `Unreachable` of its own.
+sent. A certificate that does not verify against the context is `Untrusted`, an `Unreachable` of its own, whose
+sentence says how to add a root with the setting tls_ca_file only where OpenSSL found no issuer it trusts
+(UNKNOWN_ISSUER).
 
 Bounded: an answer's body is held to `most` bytes; every wait to `connect` or `read` seconds; and a whole call, its
 tries and their pauses included, to its deadline, which every step of making a connection (each of the name's
@@ -17,13 +19,16 @@ connection that could not be made or was dropped, or on 502, 503 or 504; any oth
 once it has left is `Unknown`, never a second send. A kept connection whose far end has closed it is put aside before
 a request is written on it, which costs no try.
 
-A header's value may be a `Secret`, or a tuple or list of `str` and `Secret` parts; a form's value may be a `Secret`, or
-a list or tuple of values that may be. A Secret is revealed in `_plain` alone, for `_put`, which puts a header, and
-`_Form`, which encodes a form, and the plain text is never held in a name of the frames an error is raised through. No
-error of this module says a header's value or a peer's words: a request http.client would refuse to make is said as
-NOT_MADE, since http.client's own words quote the header; what http.client raised of an answer is said by what it
-means, since its words quote the answer, which may echo a header; of a proxy's answer only its status is said; and
-every error is raised outside the handler that caught its cause, so it carries no cause either.
+A header's value may be a `Secret`, or a tuple or list of `str` and `Secret` parts; a form's value may be a `Secret`,
+or a list or tuple of values that may be; a `Secret` anywhere else in a form, or anywhere in a query, is refused, never
+sent as its mark. A proxy's user and password are a `Secret` from the moment the URL is read. A Secret is revealed in
+`_plain` alone, for `_put`, which puts a header, `_Form`, which encodes a form, and `_connect_head`, which writes a
+proxy's credentials into the CONNECT, and the plain text is never held in a name of the frames an error is raised
+through. No error of this module says a header's value or a peer's words: a request http.client would refuse to make
+is said as NOT_MADE, since http.client's own words quote the header; what http.client raised of an answer is said by
+what it means, since its words quote the answer, which may echo a header; of a proxy's answer only its status is said;
+and every error is raised outside the handler that caught its cause, so it carries no cause either. A socket made for
+a connection that is not kept is closed however the making ends, a Ctrl-C included.
 
 Blocking, and safe to call from several threads, with one connection a thread; a caller on an asyncio loop uses
 asyncio.to_thread. It builds no context and reads no setting and no variable.
@@ -43,7 +48,7 @@ import ssl
 import threading
 import time
 import urllib.parse
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from typing import Any, BinaryIO
 
 from ..secret import Secret
@@ -115,17 +120,39 @@ class NotMade(TransportError):
     """A request http.client would refuse to make, a header's, a path's or a method's: said as NOT_MADE."""
 
 
+# OpenSSL's verify codes for a certificate whose issuer it does not know: the one failure that a root of the person's
+# own, added with the setting tls_ca_file, mends. Never a wrong name, an expired certificate or any other.
+UNKNOWN_ISSUER = frozenset(
+    {
+        2,  # X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT
+        18,  # X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT
+        19,  # X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN
+        20,  # X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY
+        21,  # X509_V_ERR_UNABLE_TO_VERIFY_LEAF_SIGNATURE
+    }
+)
+
+
 class Untrusted(Unreachable):
     """The server's certificate does not verify against the context's roots: no connection was made, nothing was sent,
-    and it is not tried again. reason is what OpenSSL said of the certificate; the sentence says how a root of the
-    person's own is named, with the setting tls_ca_file."""
+    and it is not tried again. reason is what OpenSSL said of the certificate, and code its verify code; where the code
+    says the issuer is unknown (UNKNOWN_ISSUER), the sentence says how a root of the person's own is added, with the
+    setting tls_ca_file, and otherwise gives the reason alone. A copy or a pickle is made again from the two, so it
+    says the sentence once."""
 
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, code: int = 0) -> None:
         self.reason = reason
-        super().__init__(
-            f"its certificate does not verify ({reason}): where a root of your own signed it, such as your company's,"
-            f" set {SETTING} to a file of PEM certificates that holds that root"
-        )
+        self.code = code
+        said = f"its certificate does not verify ({reason})"
+        if code in UNKNOWN_ISSUER:
+            said += (
+                ": where a root of your own signed it, such as your company's, add that root to the file of PEM"
+                f" certificates the setting {SETTING} names, which is added to certifi's list"
+            )
+        super().__init__(said)
+
+    def __reduce__(self) -> tuple[type[Untrusted], tuple[str, int]]:
+        return type(self), (self.reason, self.code)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -242,15 +269,30 @@ class _Reader(io.RawIOBase):
 
 @dataclasses.dataclass(frozen=True)
 class _Proxy:
+    """A proxy's host and port, and the Basic credentials of its CONNECT: the user and password as base64, a Secret,
+    or None where the URL names no user."""
+
     host: str
     port: int
-    headers: tuple[tuple[str, str], ...]
+    credentials: Secret | None = dataclasses.field(default=None, repr=False)
+
+
+def _basic(user: str, password: str) -> Secret | None:
+    """The Basic credentials of user and password, their %-escapes undone, as base64 and a Secret; None where they
+    cannot be encoded, with nothing raised that could hold them."""
+    try:
+        return Secret(
+            base64.b64encode(f"{urllib.parse.unquote(user)}:{urllib.parse.unquote(password)}".encode()).decode()
+        )
+    except UnicodeError:
+        return None
 
 
 def _proxy(url: str | None) -> _Proxy | None:
     """The proxy url names: an http:// URL, its port 80 where it names none, and its user and password, where it has
-    them, sent to the proxy alone as Basic credentials of the CONNECT. Any other scheme is refused by name, socks5 as
-    requests refuses it with no SOCKS package; and no message quotes the URL, which may hold a password."""
+    them, held as a Secret and sent to the proxy alone as Basic credentials of the CONNECT. Any other scheme is refused
+    by name, socks5 as requests refuses it with no SOCKS package; and no message quotes the URL, which may hold a
+    password."""
     if url is None:
         return None
     parts = urllib.parse.urlsplit(url)
@@ -264,19 +306,29 @@ def _proxy(url: str | None) -> _Proxy | None:
         port = 0
     if not parts.hostname or not _HOST.fullmatch(parts.hostname) or not port:
         raise ValueError("the proxy is not an http://host:port URL")
-    headers: tuple[tuple[str, str], ...] = ()
+    credentials = None
     if parts.username is not None:
-        user = urllib.parse.unquote(parts.username)
-        password = urllib.parse.unquote(parts.password or "")
-        credentials = base64.b64encode(f"{user}:{password}".encode()).decode("ascii")
-        headers = (("Proxy-Authorization", f"Basic {credentials}"),)
-    return _Proxy(parts.hostname, port, headers)
+        credentials = _basic(parts.username, parts.password or "")
+        if credentials is None:
+            raise ValueError("the proxy's user and password cannot be sent as Basic credentials")
+    return _Proxy(parts.hostname, port, credentials)
 
 
 def _plain(value: str | Secret) -> str:
-    """value as it is sent: a Secret's own value, read here and nowhere else, or the str. Never raises; its two callers,
-    _put and _Form, hold what it returns only in frames of their own that have ended before any error is raised."""
+    """value as it is sent: a Secret's own value, read here and nowhere else, or the str. Never raises; its three
+    callers, _put, _Form and _connect_head, hold what it returns only in frames of their own that have ended before any
+    error is raised."""
     return value.reveal() if isinstance(value, Secret) else value
+
+
+def _connect_head(target: str, credentials: Secret | None) -> bytes:
+    """The head of a CONNECT to target, as http.client wrote one (HTTP/1.1, a Host header), with the proxy's Basic
+    credentials, read by _plain, where there are any. Handed on in one expression, so that the plain credentials are
+    held in this frame alone, which has ended before the head is sent."""
+    lines = [f"CONNECT {target} HTTP/1.1", f"Host: {target}"]
+    if credentials is not None:
+        lines.append(f"Proxy-Authorization: Basic {_plain(credentials)}")
+    return ("\r\n".join(lines) + "\r\n\r\n").encode("ascii")
 
 
 def _put(conn: http.client.HTTPSConnection | None, name: object, value: object) -> bool:
@@ -300,6 +352,13 @@ def _put(conn: http.client.HTTPSConnection | None, name: object, value: object) 
     return True
 
 
+def _close(*socks: socket.socket | None) -> None:
+    """Close each socket made, leaving none to the collector."""
+    for sock in socks:
+        if sock is not None:
+            sock.close()
+
+
 def _closed_by_peer(wire: _Wire) -> bool:
     """Whether a kept connection's far end has closed it, or sent what nobody asked for: readable while idle."""
     try:
@@ -310,11 +369,20 @@ def _closed_by_peer(wire: _Wire) -> bool:
         return True
 
 
-def _held(value: Any) -> bool:
-    """Whether value holds a Secret one level down, in a collection other than a str or bytes."""
-    if not isinstance(value, Iterable) or isinstance(value, str | bytes):
+def _holds_a_secret(value: Any, seen: set[int] | None = None) -> bool:
+    """Whether value is a Secret or holds one at any depth: among a mapping's keys and values, or in any collection
+    but a str or bytes, each walked once. An iterator is not walked, which would use it up: urlencode says it by its
+    str, never a Secret in it."""
+    if isinstance(value, Secret):
+        return True
+    if isinstance(value, str | bytes | bytearray) or not isinstance(value, Collection):
         return False
-    return any(isinstance(one, Secret) for one in value)
+    seen = set() if seen is None else seen
+    if id(value) in seen:
+        return False
+    seen.add(id(value))
+    items = [one for pair in value.items() for one in pair] if isinstance(value, Mapping) else value
+    return any(_holds_a_secret(one, seen) for one in items)
 
 
 def _pairs(values: Any) -> list[tuple[Any, Any]]:
@@ -323,11 +391,21 @@ def _pairs(values: Any) -> list[tuple[Any, Any]]:
 
 
 def _no_secret(query: list[tuple[Any, Any]]) -> None:
-    """Refuses a Secret among a query's values, which would be sent in the request's line, and as its mark: a secret
-    goes in a header or a form."""
-    for _, value in query:
-        if isinstance(value, Secret) or _held(value):
+    """Refuses a Secret anywhere in a query, a name or a value at any depth, which would be sent in the request's line,
+    and as its mark: a secret goes in a header or a form."""
+    for name, value in query:
+        if _holds_a_secret(name) or _holds_a_secret(value):
             raise TypeError("a Secret goes in a header or a form, never in a query")
+
+
+def _sent_whole(value: Any) -> bool:
+    """Whether a form's value holds a Secret only where it is sent whole: as the value itself, or as one of a list or
+    tuple of values; never as a name, nor deeper, where urlencode would send its mark."""
+    if isinstance(value, Secret):
+        return True
+    if isinstance(value, list | tuple):
+        return not any(_holds_a_secret(one) for one in value if not isinstance(one, Secret))
+    return not _holds_a_secret(value)
 
 
 class _Form:
@@ -336,8 +414,8 @@ class _Form:
 
     def __init__(self, form: Any) -> None:
         self.pairs = _pairs(form)
-        for _, value in self.pairs:
-            if not isinstance(value, Secret | list | tuple) and _held(value):
+        for name, value in self.pairs:
+            if _holds_a_secret(name) or not _sent_whole(value):
                 raise TypeError("a Secret in a form is one of its values, or one in a list or tuple of them")
 
     def encoded(self) -> bytes | None:
@@ -612,64 +690,74 @@ class Transport:
     def _new(self, clock: _Clock) -> http.client.HTTPSConnection:
         """A connection made and its peer's certificate checked, before anything is written on it, each step under the
         call's clock: the TCP connection, to the server or to the proxy and then its CONNECT tunnel, and the TLS
-        handshake with the server. http.client is handed the TLS socket, and never makes a connection itself."""
+        handshake with the server. http.client is handed the TLS socket, and never makes a connection itself. A socket
+        made for a connection that is not kept is closed however the making ends, a Ctrl-C included."""
         failure: TransportError | _Again | None = None
         raw: socket.socket | None = None
         tls: ssl.SSLSocket | None = None
+        kept = False
         try:
-            if self._proxy is None:
-                raw = self._dial(self._host, self._port, clock)
-            else:
-                raw = self._dial(self._proxy.host, self._proxy.port, clock)
-                self._tunnel(raw, clock)
-            raw.settimeout(clock.wait(self._connect))
-            tls = self._context.wrap_socket(raw, server_hostname=self._host)
-        except _Late:
-            failure = TimedOut(f"no connection within the call's deadline of {clock.seconds:g} s")
-        except _NoTunnel as error:
-            failure = _Again(Unreachable(f"the connection could not be made: {error}"))
-        except ssl.SSLCertVerificationError as error:
-            failure = Untrusted(one_line(str(error.verify_message or error), 160))
-        except TimeoutError:
-            failure = (
-                TimedOut(f"no connection within the call's deadline of {clock.seconds:g} s")
-                if clock.left() <= 0
-                else _Again(Unreachable(f"no connection within {self._connect:g} s"))
-            )
-        except ValueError:
-            failure = NotMade(NOT_MADE)
-        except OSError as error:
-            failure = _Again(Unreachable(self._why(error, "the connection could not be made")))
-        if failure is None and tls is not None:
-            refused = self._refused(tls)
-            if refused is None:
-                conn = http.client.HTTPSConnection(self._host, self._port, context=self._context, blocksize=CHUNK)
-                conn.auto_open = 0
-                conn.sock = _Wire(tls, self._read, clock)
-                return conn
-            failure = PeerRefused(f"the peer's certificate was refused: {refused}")
-        for sock in (tls, raw):
-            if sock is not None:
-                sock.close()
+            try:
+                if self._proxy is None:
+                    raw = self._dial(self._host, self._port, clock)
+                else:
+                    raw = self._dial(self._proxy.host, self._proxy.port, clock)
+                    self._tunnel(raw, clock)
+                raw.settimeout(clock.wait(self._connect))
+                tls = self._context.wrap_socket(raw, server_hostname=self._host)
+            except _Late:
+                failure = TimedOut(f"no connection within the call's deadline of {clock.seconds:g} s")
+            except _NoTunnel as error:
+                failure = _Again(Unreachable(f"the connection could not be made: {error}"))
+            except ssl.SSLCertVerificationError as error:
+                failure = Untrusted(one_line(str(error.verify_message or error), 160), error.verify_code or 0)
+            except TimeoutError:
+                failure = (
+                    TimedOut(f"no connection within the call's deadline of {clock.seconds:g} s")
+                    if clock.left() <= 0
+                    else _Again(Unreachable(f"no connection within {self._connect:g} s"))
+                )
+            except ValueError:
+                failure = NotMade(NOT_MADE)
+            except OSError as error:
+                failure = _Again(Unreachable(self._why(error, "the connection could not be made")))
+            if failure is None and tls is not None:
+                refused = self._refused(tls)
+                if refused is None:
+                    conn = http.client.HTTPSConnection(self._host, self._port, context=self._context, blocksize=CHUNK)
+                    conn.auto_open = 0
+                    conn.sock = _Wire(tls, self._read, clock)
+                    kept = True
+                    return conn
+                failure = PeerRefused(f"the peer's certificate was refused: {refused}")
+        finally:
+            if not kept:
+                _close(tls, raw)
         raise failure or Unreachable("the connection could not be made")
 
     def _dial(self, host: str, port: int, clock: _Clock) -> socket.socket:
         """A TCP connection to host's port: each of the name's addresses tried in turn, as socket.create_connection
-        tries them, but each for at most `connect` seconds and none past the call's deadline. The lookup itself is
-        bounded by the system's resolver alone. Raises what the first address failed with, or _Late."""
+        tries them, an address whose family the system cannot open passed over like one that does not answer, but each
+        for at most `connect` seconds and none past the call's deadline. The lookup itself is bounded by the system's
+        resolver alone. Raises what the first address failed with, or _Late; a socket made is closed however the try
+        ends."""
         first: OSError | None = None
         for family, kind, proto, _, address in socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM):
-            sock = socket.socket(family, kind, proto)
+            sock: socket.socket | None = None
             try:
+                sock = socket.socket(family, kind, proto)
                 sock.settimeout(clock.wait(self._connect))
                 sock.connect(address)
             except _Late:
-                sock.close()
+                _close(sock)
                 raise
             except OSError as error:
-                sock.close()
+                _close(sock)
                 first = first or error
                 continue
+            except BaseException:
+                _close(sock)
+                raise
             try:
                 sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             except OSError:
@@ -685,9 +773,8 @@ class Transport:
         assert self._proxy is not None
         name = f"[{self._host}]" if ":" in self._host else self._host
         target = f"{name}:{self._port}"
-        lines = [f"CONNECT {target} HTTP/1.1", f"Host: {target}", *(f"{k}: {v}" for k, v in self._proxy.headers)]
         sock.settimeout(clock.wait(self._connect))
-        sock.sendall(("\r\n".join(lines) + "\r\n\r\n").encode("ascii"))
+        sock.sendall(_connect_head(target, self._proxy.credentials))
         head = bytearray()
         while not head.endswith((b"\n\r\n", b"\n\n")):
             if len(head) >= TUNNEL_MOST:
