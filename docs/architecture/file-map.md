@@ -242,7 +242,8 @@ lib/claude_vm/cli/                aw, the program: the command line read against
                                   main.py, the entry tools/aw runs; parse.py, the words read with argparse; habits.py,
                                   today's habits, deploy's question among them; before.py, RunWords, the run's own
                                   words; dispatch.py, a verb handed to its handler or refused; inverse.py, the printer
-                                  of a command, the one way a line a person types is written
+                                  of a command, the one way a line a person types is written; help.py, aw help's two
+                                  levels from the table; reference.py, the command reference's tables from it
 lib/claude_vm/engine/             the workflows, one module a verb, in place of the playbooks
 lib/claude_vm/pve/                the typed Proxmox VE client, and the one table of each call's privilege
 lib/claude_vm/ssh/                the runner over OpenSSH: ssh as a child, host keys taken at first use, the control

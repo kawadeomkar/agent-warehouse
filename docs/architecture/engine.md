@@ -148,8 +148,8 @@ branch (`mcp`'s), and a terminal (`host --remove`'s question).
 ## 16.3 `cli/` — the `aw` program
 
 `lib/claude_vm/cli/` is the program: reading the command line against the table of `schema/`, the dispatch of a verb
-to its workflow and the printer of a command, below, and help, which goes here when it is built. `main.py` is the
-entry `tools/aw` runs, as 16.1 says.
+to its workflow, the printer of a command, help and the command reference's tables, below. `main.py` is the entry
+`tools/aw` runs, as 16.1 says.
 It imports `schema/` and what it needs to answer at once. It imports `engine/` only inside the function that dispatches
 a verb that changes something, so a refusal, help or a read never loads it. It never imports Ansible, which the engine
 only ever runs as a child, nor `control/` or pydantic. `tools/aw` imports it, and so does the agents' server's own entry
@@ -215,7 +215,28 @@ The table holds no option whose value is a secret, so nothing is masked but `--s
 two values of free text a person may paste one into: a line made from values no run has taken, a refused run's or a
 question's, prints each as the name help gives it. The one check's own refusals name the command refused and its help
 themselves, since `schema/` imports nothing of `cli/`, and are held equal to the printer's; no other module of the new
-engine builds a string that starts with a command. It imports the standard library and `schema/` alone.
+engine builds a string that starts with a command, but help's usage lines. It imports the standard library and
+`schema/` alone.
+
+**Help: `help.py`, and the command reference: `reference.py`.** `help` is a verb of the table whose handler is
+`help.py`'s `main`, so `aw help` runs as any verb does, and `aw` alone is `aw help`. It prints today's two levels of
+`just help` from the one table, whole from the first day: a verb no card has built yet is listed and helped as today,
+and refused only when it runs. `aw help` lists every verb in the table's order, `help` first and then each group under
+its name, each with the words it takes and its doc; then the options given before any verb, but the hidden
+`--detached-run`, since the one check's refusal of such an option sends a person there; then today's closing
+paragraph, with `aw` where it said `just`, and `-v` and `--set` where it named `ANSIBLE_ARGS`, each named on the verbs
+whose row has it. `aw help <verb>` prints the verb's usage line as today's command reference writes a recipe's
+(`aw deploy [<name>...]`), its doc, each option with the name of its value and its help as `just --usage` shows one
+today (`-t, --tags ROLES`), `--detach` last on a verb whose run is a job, and then its words with their help. A
+second word is refused by the one check in today's sentence, and a word that is no verb by help, in the check's
+sentence, which never says it. The usage lines are help's own; a whole command line it prints, for a person to paste (the closing
+paragraph's example, `aw host`), comes from the printer. A usage line shows a verb's word without brackets only where
+the verb needs one, `code` and `release`, which help names, since the table says how many words a verb takes and not
+whether it needs one. `reference.py`'s `commands()` writes the tables of the command reference from the same
+functions, in the form `tools/docs.py` writes them from the `justfile` today: a table for each group of verbs, `help`
+aside, with a row for each verb, each of its options and its words, and one of the options given before any verb, each
+cell escaped as `tools/docs.py` escapes one. Nothing calls it before the cutover, which points `tools/docs.py` at it.
+Both import the standard library, `schema/` and the printer alone, and `aw help` loads nothing of the engine.
 
 **The launcher: `aw`.** At the checkout's top, in POSIX `sh`, the launcher finds its checkout from its own path, every
 link to it followed and the folder made by its physical path (`cd -P`), so that a relative link in a folder that is
@@ -255,7 +276,13 @@ each pair of options the rules allow come back from the line through the parser 
 option lacks such a case; every example of the contract that `aw` takes comes back from its line, before today's habits
 and after; an awkward value, an empty one and a name that starts with a digit survive `/bin/sh`; a value of free text
 is never said back from values no run took; a value the check refuses is never printed; and, by a scan of their
-syntax, that no other module of the new engine's subpackages builds a command.
+syntax, that no other module of the new engine's subpackages builds a command. `tests/unit/test_aw_cli_help.py` holds
+help and the reference: for every verb of the contract, `aw help <verb>` holds each option and help sentence `just
+--usage` prints today, with `aw` where it said `just`, but a word the cutover's map records as changed, and every row
+today's page shows for it; every verb's help shows its options and words in the table's order; `aw help` lists every
+verb and no recipe of the repository's own, the options before a verb, and today's closing paragraph with `-v` and
+`--set`; through `tools/aw` and the launcher; what each imports; and that the reference gives a row for every verb but
+`help`, every option and the words, holds today's rows with `aw`, and escapes a cell as `tools/docs.py` does.
 
 ## 16.4 `engine/` — the workflows, one module a verb
 
