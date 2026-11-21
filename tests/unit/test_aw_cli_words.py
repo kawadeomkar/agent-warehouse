@@ -4,9 +4,11 @@ Every verb has its handler or the card that builds it, the locks a run of it tak
 the tools of the agents' server that run it or why none does; every option a kind, a pattern of schema/patterns.py
 unless it takes no value, and a fate for an agent's tool, by tool where two tools run its verb. Today's words keep
 today's fates (lib/claude_vm/mcp/recipes.py), held until the cutover. No verb of the add-on is a verb of the base's
-table. No option's value is a secret, no sentence says just, each meaning of an exit status has one number and each
-number one meaning but status's 3, which today gives a read that failed and one a person cancelled, and the module
-imports the standard library alone.
+table. Every option and word of a verb a tool runs that is new to the table is a property of the tool's schema, but
+those ruled otherwise. No option's value is a secret, but the two that take free text a person may type one into, which
+the run layer refuses and never says back; no sentence says just, a reason why an agent's tool does not take a word
+among them; each meaning of an exit status has one number and each number one meaning but status's 3, which today
+gives a read that failed and one a person cancelled; and the module imports the standard library alone.
 """
 
 from __future__ import annotations
@@ -85,6 +87,24 @@ NOT_SECRETS = {
     "token_id": "the API token's ID, a name",
     "remove_key": "a public key's fingerprint",
 }
+# The options whose value is free text, in which a person may type a secret, each by its verb and the name the handler
+# receives it by, and the rule that holds it: the run layer types the value and refuses a secret's name or value there,
+# never saying it back (D5's --set, D10's settings --value), and the printer of a command never prints one a person
+# typed in a refused run (H9).
+SECRET_TEXT = {
+    **{
+        (verb, "set"): "the run layer refuses a secret's name or value for one run, and never says it back (D5)"
+        for verb in ("init", "deploy", "code", "login", "status", "destroy", "release")
+    },
+    ("settings", "value"): "settings --value refuses a secret's name or value, and never says it back, as today (D10)",
+}
+# The other options whose value is free text, and what it is: a thing named, never a secret.
+NAMED_TEXT = {
+    ("init", "migrate"): "a 2.x checkout's folder",
+    ("mcp", "browser"): "the program that opens the sign-in pages",
+}
+# Patterns that take a line of any text.
+FREE_PATTERNS = {"text", "assignment"}
 CARD = re.compile(r"[A-Z][0-9]+[a-z]?")
 HANDLER = re.compile(r"[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)*:[a-z_][a-z0-9_]*")
 RULE = re.compile(r"([a-z]+|check\.[a-z]+)\.[0-9]+")
@@ -223,7 +243,8 @@ def test_the_verbs_and_tools_are_today_s_until_the_cutover() -> None:
         assert tool in VERBS[recipe.recipe].tools, tool
     for name, why in recipes.NO_TOOL.items():
         if name in VERBS:
-            assert VERBS[name].tools == why, name
+            # Today's reason, with aw where it said just (the owner's word 1).
+            assert VERBS[name].tools == re.sub(r"\bjust\b", "aw", why), name
         else:
             assert name in ("lint", "test", "docs", "vagrant", "clean"), name
     every = {recipe["name"] for recipe in CONTRACT["recipes"]}
@@ -282,6 +303,21 @@ def test_the_new_words_fates_are_those_ruled() -> None:
     ]
     assert DETACH_AGENT == words.fixed(True, DETACH_AGENT.why) and DETACH_AGENT.why
     assert VERBS["release"].words.agent == PROPERTY and VERBS["cancel"].words.agent == PROPERTY
+    # Every other option and word of a verb a tool runs is a property of each tool's schema: today's words keep today's
+    # fates (the test above), and a word new to the table is a property but where ruled otherwise here, so none is
+    # refused or given by the server by a slip. The agents' server (I1) reads this column as the whole truth.
+    today = {recipe["name"]: {recipes.prop(one) for one in recipe["options"]} for recipe in CONTRACT["recipes"]}
+    for name, verb in VERBS.items():
+        if not isinstance(verb.tools, tuple):
+            continue
+        for field, item in _received(verb).items():
+            # Today's tools name an option by its long (recipes.prop), where the handler takes for_ for host's --for.
+            named = recipes.prop({"long": item.long}) if isinstance(item, Option) and item.long else field
+            if named in today.get(name, set()):
+                continue
+            if isinstance(item, Option) and (item.long in refused or item.long == "confirm" or item.short == "v"):
+                continue
+            assert [fate(item.agent, tool) for tool in verb.tools] == [PROPERTY] * len(verb.tools), (name, field)
 
 
 def test_fate_reads_one_tool_s_fate_where_two_tools_run_a_verb() -> None:
@@ -291,15 +327,25 @@ def test_fate_reads_one_tool_s_fate_where_two_tools_run_a_verb() -> None:
     assert fate(PROPERTY, "deploy") == PROPERTY
 
 
-def test_no_option_takes_a_secret_as_its_value() -> None:
+def test_no_option_takes_a_secret_as_its_value_but_the_two_of_free_text() -> None:
     # A secret reaches a verb from a file it names or from the terminal, hidden, never on the command line: so nothing
-    # the printer of a command writes from the table need be masked.
+    # the printer of a command writes from the table need be masked, but the two values of free text a person may type
+    # one into, --set and settings --value, which the run layer refuses and never says back.
     speaks = re.compile(r"secret|password|passphrase|key|token")
     fields = {option.field for verb in VERBS.values() for option in verb.options + BEFORE if option.kind != "flag"}
     for field in fields:
         if speaks.search(field):
             assert field.endswith("_file") or field in NOT_SECRETS, field
     assert set(NOT_SECRETS) <= fields
+    free = {
+        (name, option.field)
+        for name, verb in VERBS.items()
+        for option in verb.options
+        if option.pattern in FREE_PATTERNS
+    }
+    assert free == set(SECRET_TEXT) | set(NAMED_TEXT), "a value of free text: say whether a secret may be typed there"
+    assert set(SECRET_TEXT) & set(NAMED_TEXT) == set() and all((*SECRET_TEXT.values(), *NAMED_TEXT.values()))
+    assert not any(option.pattern in FREE_PATTERNS for option in BEFORE)
 
 
 def test_every_sentence_is_one_line_and_says_aw_never_just() -> None:
@@ -313,6 +359,14 @@ def test_every_sentence_is_one_line_and_says_aw_never_just() -> None:
         assert sentence and not re.search(r"[\x00-\x1f\x7f]", sentence), sentence
         assert not re.search(r"\bjust\b", sentence), sentence
         assert not sentence.endswith("."), sentence
+    # The reasons an agent's tool is given for a word it does not take, or for a verb no tool runs, which I1 shows.
+    reasons = [verb.tools for verb in VERBS.values() if isinstance(verb.tools, str)]
+    for verb in VERBS.values():
+        for item in [*verb.options, *([verb.words] if verb.words else [])]:
+            agent = item.agent if isinstance(item.agent, dict) else {"": item.agent}
+            reasons += [one.why for one in agent.values() if one.why]
+    reasons += [one.why for option in BEFORE for one in [option.agent] if isinstance(one, Fate) and one.why]
+    assert reasons and [reason for reason in reasons if re.search(r"\bjust\b", reason)] == []
 
 
 def test_each_exit_status_has_one_meaning_and_each_meaning_one_status_but_the_one_pair_named() -> None:

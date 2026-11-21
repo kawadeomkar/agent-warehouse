@@ -256,6 +256,42 @@ def test_a_word_that_starts_with_a_dash_is_given_with_equals() -> None:
     assert "--value takes a value" in _refused(["settings", "vm_cores", "--value", "-1x"])
 
 
+@pytest.mark.parametrize(
+    ("words", "verb"),
+    [
+        (["deploy", "--", "--check"], "deploy"),
+        (["deploy", "--", "--cores", "9"], "deploy"),
+        (["deploy", "--cores", "8", "--", "--cores", "9"], "deploy"),
+        (["deploy", "--", "-alpha"], "deploy"),
+        (["deploy", "alpha", "--"], "deploy"),
+        (["settings", "vm_cores", "--value", "--"], "settings"),
+        (["--", "deploy"], ""),
+        (["--attended", "--", "status"], ""),
+        (["--"], ""),
+    ],
+)
+def test_an_end_of_options_is_refused_before_argparse_reads_it(monkeypatch, words: list[str], verb: str) -> None:
+    # argparse's intermixed parse would take -- and drop it, and read the words after it as options all the same
+    # (deploy -- --check was a dry run): no verb takes a word that starts with -, so -- is refused wherever it stands,
+    # and the sentence says how a value that starts with - is given.
+    read = parse.argparse.ArgumentParser.parse_known_intermixed_args
+
+    def watched(self, args=None, namespace=None):
+        assert "--" not in (args or []), "argparse was given --"
+        return read(self, args, namespace)
+
+    monkeypatch.setattr(parse.argparse.ArgumentParser, "parse_known_intermixed_args", watched)
+    sentence = _refused(words)
+    assert sentence == parse.no_end_of_options(verb)
+    assert "--option=value" in sentence
+    _said_nothing_typed(sentence)
+
+
+def test_a_value_of_two_dashes_is_given_with_equals() -> None:
+    assert parse.read(["settings", "vm_cores", "--value=--"]).values == {"name": "vm_cores", "value": "--"}
+    assert _refused(["bogus", "--"]) == checks.NO_SUCH_COMMAND
+
+
 def test_no_verb_is_help() -> None:
     assert parse.read([]).verb == parse.read(["--no-lock"]).verb == "help"
 

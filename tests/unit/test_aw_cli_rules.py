@@ -3,14 +3,18 @@
 §16.2 and §16.3).
 
 Every rule sentence of the contract of today's command line (tests/unit/cli_contract.json) has a rule, or a habit, with
-that sentence, aw where it said just, or is named below as another verb's own, the repository's own recipe's, or
-just's own; every rule of rules.py is named by a verb of the table, and every code a verb names is a rule. Every case of
-the contract whose check is a rule or a habit is run against aw - through the launcher, at a pseudo-terminal of its
-own where today's case had one, or, where its words run tools/check alone, against its rule - and gives today's status
-and sentence; the list of cases not yet run against aw, each with its reason, can only shrink. The check gives the same
-answer to the same values as words and as JSON, and refuses a JSON string where a number is wanted. deploy's question
-is asked as a menu at a pseudo-terminal opened through harness._at_a_pseudo_terminal, typed where the terminal cannot
-draw one, and refused with no terminal. No rule says a value back where today's does not.
+that sentence, aw where it said just, or is named below in one class with why: another verb's own, the repository's
+own recipe's, just's own, a check of tools/check that the value's pattern refuses first (PATTERN_FIRST), or a rule aw
+drops on purpose (DROPPED); every rule of rules.py is named by a verb of the table, and every code a verb names is a
+rule. Every case of the contract whose check is a rule or a habit is run against aw, through the launcher, at a
+pseudo-terminal of its own where today's case had one, and gives today's status and sentence; a case of a check whose
+pattern refuses first is refused by that pattern on aw's line, as on just's; a case of a rule dropped is taken by aw.
+The cases not yet run against aw are named one by one (NOT_YET), each with its reason, and a code comes out of the set
+once it runs. The check gives the same answer to the same values as words and as JSON, and refuses a JSON string where a
+number is wanted. deploy's question is asked as a menu at a pseudo-terminal opened through
+harness._at_a_pseudo_terminal, typed where the terminal cannot draw one, and refused with no terminal. No rule says a
+value back where today's does not. Each behaviour of today's words that aw has otherwise on purpose, and that is no exit
+status, is held here by a test of its own (BEHAVIOURS_HELD).
 
 Each test of today's options' rules in tests/unit/test_justfile.py has a twin here by its name (TWINS): what aw does
 with the same words, up to the dispatch, where today's ran a playbook.
@@ -27,12 +31,13 @@ from pathlib import Path
 
 import pytest
 from aw_kit import aw_at_a_terminal, run_aw, run_launcher
+from cli_contract_changes import BEHAVIOURS
 from harness import REPO
 
 from claude_vm.cli import before, dispatch, habits, parse
 from claude_vm.schema import check as checks
 from claude_vm.schema import rules
-from claude_vm.schema.patterns import PATTERNS
+from claude_vm.schema.patterns import PATTERNS, full
 from claude_vm.schema.words import VERBS
 
 CONTRACT = json.loads((Path(__file__).resolve().parent / "cli_contract.json").read_text())
@@ -78,9 +83,23 @@ SETTINGS_WHY = "a setting given before the recipe today, RUN_LOCK=, which aw spe
 # The habits' sentences of today's rules.
 HABITS = {"deploy.1": habits.NO_TERMINAL, "deploy.2": habits.ONE_STAGE, "deploy.3": habits.NOTHING_RUN}
 
-# The cases whose words run tools/check alone, since just's pattern refuses the value first: each is run against its
-# rule, given the value, and the same value on aw's command line is refused by its pattern first, as on just's. The
-# fields each tools/check label's arguments are, and the verb and words that give them on aw's command line.
+# The rules of the contract that are tools/check's checks of one value whose pattern refuses, on aw's line as on just's,
+# every value they would: the value meets its pattern first, so today's sentence never reaches a person, and the check
+# is the pattern's alone, by its name here. tools/check held the JSON the justfile's scripts join, whatever its
+# assignments were overridden to, which aw has neither of (review/code/H5.md item (1)).
+PATTERN_FIRST = {
+    "check.size.1": "cores",
+    "check.size.2": "memory",
+    "check.size.3": "disk",
+    "check.repos.1": "repos",
+    "check.project.1": "project",
+    "check.project.3": "project",
+    "check.session.1": "session",
+    "check.sections.1": "sections",
+    "check.sections.2": "sections",
+}
+# Their cases run tools/check alone, since just's pattern refuses the value first: the fields each tools/check label's
+# arguments are, and the verb and words that give them on aw's command line.
 TOOLS_CHECK = {
     "size": (("cores", "memory", "disk"), ("deploy", "alpha")),
     "repos": (("repos",), ("deploy", "alpha")),
@@ -88,15 +107,63 @@ TOOLS_CHECK = {
     "session": (("session",), ("code", "alpha")),
     "sections": (("only",), ("status",)),
 }
-# init.4's case, which only a relative --token-secret-file in a folder whose path has a space reaches: the justfile
-# makes the file absolute from the folder just was started in, as init's own handler will (E4). The rule is given that
-# path; the contract writes the test's folder as <tmp>, a value the rule refuses as it refused the real one.
-INIT_4 = {"init.4-1": {"token_secret_file": "<tmp>/a b/secret"}}
-# How many cases are not yet run against aw: lower it as each is run. It rises only by cases newly added to the
-# contract that no built verb can run, each with its reason, in the commit that adds them (plan.md section 4; the
-# coordinator's ruling of 2026-11-20): H5's 29, H19's exit.ctrl-c-2, setting.run-lock-1 and setting.run-lock-2, and
-# H23's exit.ctrl-c-3 and exit.ctrl-c-4, a Ctrl-C at one of the playbook's prompts, which a run's end (C4's) answers.
-NOT_YET_MOST = 34
+# The rules of the contract that aw drops on purpose, each by the behaviour of BEHAVIOURS that records it for H7.
+# init.4 held a relative --token-secret-file, made absolute from a folder whose path has a space, to the characters
+# the JSON the justfile joins in bash can take: aw joins no JSON, and holds the value to its pattern as typed.
+DROPPED = {"init.4": "init --token-secret-file: a relative file from a folder whose path has a space"}
+# Each case of the contract not yet run against aw, by its code: another verb's own (ELSEWHERE), a recipe of the
+# repository's own, a run's end, or a setting given before the recipe today, each with the reason _not_yet gives it. A
+# code comes out once its case runs; one goes in only for a case newly added to the contract that no built verb can
+# run, in the commit that adds it, with its reason (plan.md section 4, and the coordinator's ruling of 2026-11-20 on
+# H19), so a case moved here shows in the diff.
+NOT_YET = {
+    "clean.1-1",
+    "clean.2-1",
+    "clean.3-1",
+    "deploy.13-1",
+    "docs.1-1",
+    "exit.ctrl-c-1",
+    "exit.ctrl-c-2",
+    "exit.ctrl-c-3",
+    "exit.ctrl-c-4",
+    "exit.report-failed-1",
+    "exit.report-ok-1",
+    "exit.report-problem-1",
+    "exit.report-unread-1",
+    "host.5-1",
+    "host.6-1",
+    "mcp.10-1",
+    "mcp.3-1",
+    "mcp.4-1",
+    "mcp.5-1",
+    "mcp.6-1",
+    "mcp.7-1",
+    "mcp.8-1",
+    "mcp.9-1",
+    "setting.run-lock-1",
+    "setting.run-lock-2",
+    "test.1-1",
+    "test.2-1",
+    "test.3-1",
+    "test.4-1",
+    "test.5-1",
+    "test.6-1",
+    "test.7-1",
+    "vagrant.1-1",
+    "vault.1-1",
+}
+# Each behaviour of BEHAVIOURS (tests/unit/cli_contract_changes.py) that is no exit status, and the test here that
+# holds it: the owner's answer 5 of 2026-11-20 made each aw's behaviour, and H7 measures it against today's.
+BEHAVIOURS_HELD = {
+    "init <extra>: an empty word": "test_an_empty_word_after_init_s_options_is_refused_which_today_s_just_takes",
+    "deploy <name>: a stage, beside a rule broken": (
+        "test_a_stage_where_the_names_go_beside_a_rule_broken_says_the_rule"
+    ),
+    "a VM name with _, beside a rule broken": "test_the_underscore_s_warning_is_not_said_where_a_rule_refuses",
+    "init --token-secret-file: a relative file from a folder whose path has a space": (
+        "test_a_token_file_relative_to_a_folder_whose_path_has_a_space_is_taken"
+    ),
+}
 
 
 def _aw(sentence: str) -> str:
@@ -124,14 +191,18 @@ def _not_yet() -> dict[str, str]:
     return found
 
 
-def _in_process() -> list[str]:
-    return [code for code, case in CASES.items() if case["words"][0] == "tools/check"] + list(INIT_4)
+def _pattern_first() -> list[str]:
+    return [code for code in CASES if _rule_of(code) in PATTERN_FIRST]
+
+
+def _dropped() -> list[str]:
+    return [code for code in CASES if _rule_of(code) in DROPPED]
 
 
 def _launched(terminal: bool) -> list[str]:
     """The cases run through the launcher: their rule is a rule of rules.py or a habit, and today's case had a terminal
     on its standard input, or had none."""
-    skip = set(_not_yet()) | set(_in_process())
+    skip = set(_not_yet())
     return [
         code
         for code, case in CASES.items()
@@ -159,13 +230,26 @@ def test_every_rule_of_the_contract_is_a_rule_a_habit_or_another_s_own_with_why(
                 ("elsewhere", code in ELSEWHERE),
                 ("repository", rule["recipe"] in REPOSITORYS),
                 ("just", code in JUSTS),
+                ("pattern", code in PATTERN_FIRST),
+                ("dropped", code in DROPPED),
             )
             if holds
         ]
         placed[code] = where
     assert {code: where for code, where in placed.items() if len(where) != 1} == {}
-    assert set(ELSEWHERE) | set(JUSTS) <= set(TODAY_RULES)
+    assert set(ELSEWHERE) | set(JUSTS) | set(PATTERN_FIRST) | set(DROPPED) <= set(TODAY_RULES)
     assert all(why.strip() for why in (*ELSEWHERE.values(), *JUSTS.values()))
+    assert set(PATTERN_FIRST.values()) <= set(PATTERNS) and set(DROPPED.values()) <= set(BEHAVIOURS)
+
+
+def test_no_rule_repeats_a_value_s_own_pattern_and_the_names_check_is_host_for_s_alone() -> None:
+    # The nine checks of one value and init.4 left the rows and rules.py; check.names.1 holds host --for's names, split
+    # at its commas, where the pattern takes alpha,-b whole, and is named by no other row: every other VM name a verb
+    # takes is held whole by its pattern.
+    named = {code for verb in VERBS.values() for code in verb.rules}
+    assert sorted(named & (set(PATTERN_FIRST) | set(DROPPED))) == []
+    assert sorted(set(rules.RULES) & (set(PATTERN_FIRST) | set(DROPPED))) == []
+    assert [name for name, verb in VERBS.items() if "check.names.1" in verb.rules] == ["host"]
 
 
 @pytest.mark.parametrize("code", sorted(set(rules.RULES) | set(HABITS)))
@@ -210,10 +294,6 @@ def test_the_tags_are_configure_s_own() -> None:
     assert found and tuple(found[1].split()) == rules.CONFIGURE_ROLES
 
 
-def test_the_sections_are_status_s_own() -> None:
-    assert "|".join(rules.SECTIONS) in PATTERNS["sections"]
-
-
 # ---------------------------------------------------------------- the contract's cases, against aw ----
 
 
@@ -224,25 +304,37 @@ def test_each_case_of_a_rule_or_a_habit_gives_today_s_status_and_sentence_throug
     assert (result.returncode, result.stdout, result.stderr) == (case["status"], "", _aw(case["sentence"]) + "\n")
 
 
-@pytest.mark.parametrize("code", _in_process())
-def test_each_case_that_runs_tools_check_alone_gives_today_s_sentence_from_its_rule(code) -> None:
+@pytest.mark.parametrize("code", _pattern_first())
+def test_each_case_of_a_check_whose_pattern_refuses_first_is_refused_by_it_on_aw_s_line_as_on_just_s(code) -> None:
+    # Today's case runs tools/check alone, since just's pattern refuses the value first: on aw's command line the same
+    # value meets the same pattern first, whose sentence never says it.
     case = CASES[code]
-    if code in INIT_4:
-        assert rules.RULES["init.4"].check(INIT_4[code]) == _aw(case["sentence"])
-        return
     _, label, *given = case["words"]
+    assert case["words"][0] == "tools/check", code
     fields, words = TOOLS_CHECK[label]
-    values = dict(zip(fields, given, strict=True))
-    assert rules.RULES[_rule_of(code)].check(values) == _aw(case["sentence"])
-    # On aw's command line, as on just's, the same value meets its pattern first, whose sentence never says it.
+    values = {field: value for field, value in zip(fields, given, strict=True) if value}
     options = {option.field: option for option in VERBS[words[0]].options}
+    assert values, code
     for field, value in values.items():
-        if value:
-            with pytest.raises(parse.Refused) as refused:
-                parse.read([*words, f"--{options[field].long}={value}"])
-            assert refused.value.sentence == f"error: aw {words[0]} --{options[field].long} takes no such value: " + (
-                options[field].help or ""
-            )
+        option = options[field]
+        assert option.pattern == PATTERN_FIRST[_rule_of(code)] and not full(option.pattern, value), (code, field)
+        with pytest.raises(parse.Refused) as refused:
+            parse.read([*words, f"--{option.long}={value}"])
+        assert refused.value.sentence == f"error: aw {words[0]} --{option.long} takes no such value: " + (
+            option.help or ""
+        )
+
+
+@pytest.mark.parametrize("code", _dropped())
+def test_each_case_of_a_rule_aw_drops_on_purpose_is_taken_by_aw(home, code) -> None:
+    # init.4-1: the words reach the dispatch from a folder whose path has a space, where today's are refused.
+    case = CASES[code]
+    spaced = home / "a b"
+    spaced.mkdir()
+    result = run_launcher(*case["words"], home=home, cwd=spaced)
+    verb = VERBS[case["words"][0]]
+    assert (result.returncode, result.stdout, result.stderr) == (1, "", dispatch.not_built(verb) + "\n")
+    assert DROPPED[_rule_of(code)] in BEHAVIOURS
 
 
 @pytest.mark.parametrize("code", _justs())
@@ -256,13 +348,18 @@ def test_each_refusal_of_just_s_own_is_aw_s_in_its_own_words(home, code) -> None
     assert refused.value.sentence.startswith("error: aw ")
 
 
-def test_every_case_is_run_against_aw_or_named_with_why_and_the_list_not_run_only_shrinks() -> None:
-    run = [*_launched(terminal=False), *_launched(terminal=True), *_in_process(), *_justs()]
+def test_every_case_is_run_against_aw_or_named_with_why_and_those_not_run_are_named_one_by_one() -> None:
+    run = [*_launched(terminal=False), *_launched(terminal=True), *_pattern_first(), *_justs(), *_dropped()]
     not_yet = _not_yet()
     assert len(run) == len(set(run)) and set(run) & set(not_yet) == set()
     assert sorted(set(CASES) - set(run) - set(not_yet)) == [], "a case neither run against aw nor said why not"
     assert all(why.strip() for why in not_yet.values())
-    assert len(not_yet) <= NOT_YET_MOST, "a case that was run against aw no longer is: run it, never raise the count"
+    assert sorted(set(not_yet) - NOT_YET) == [], (
+        "a case not run against aw that NOT_YET does not name: run it; only a case newly added to the contract that no "
+        "built verb can run is named there, in the commit that adds it, with its reason"
+    )
+    assert sorted(NOT_YET - set(CASES)) == [], "NOT_YET names a code that is no case of the contract: take it out"
+    assert sorted(NOT_YET & set(run)) == [], "NOT_YET names a code that is run against aw now: take it out"
     # Each not run is another verb's own, a recipe of the repository's own, or a run's end: never a rule of this card's.
     assert [code for code in not_yet if _rule_of(code) in rules.RULES or _rule_of(code) in HABITS] == []
 
@@ -406,20 +503,21 @@ DRAWN = b"to choose"
 PROMPTED = b"Enter to run nothing: "
 
 
-def _at_the_question(home, words: list[str], typed: bytes, *, menu: bool = True) -> tuple[int, str]:
+def _at_the_question(home, words: list[str], typed: bytes, *, menu: bool = True, asked: bool = True) -> tuple[int, str]:
     """aw with words at a pseudo-terminal of its own, typed once the question is asked: as a menu with a terminal that
-    can draw one, typed with one that cannot (TERM=dumb). Its status and what it wrote, as text."""
-    asked = []
+    can draw one, typed with one that cannot (TERM=dumb). Its status and what it wrote, as text. With asked False, the
+    run is held to ask nothing, and nothing is typed."""
+    seen = []
 
     def act(chunk, output, master, process) -> None:
-        if not asked and (DRAWN if menu else PROMPTED) in output:
-            asked.append(True)
+        if not seen and (DRAWN if menu else PROMPTED) in output:
+            seen.append(True)
             os.write(master, typed)
 
     # A terminal the menu can draw on is one of a known type, and UTF-8 for its glyphs (live_region.can_draw).
     env = {"TERM": "xterm-256color" if menu else "dumb", "LC_ALL": "C.UTF-8"}
     rc, output = aw_at_a_terminal(*words, home=home, env=env, act=act, size=WINDOW, timeout=60)
-    assert asked, output
+    assert bool(seen) is asked, output
     return rc, output.decode(errors="replace").replace("\r\n", "\n")
 
 
@@ -537,6 +635,73 @@ def test_code_opens_exactly_one_vm() -> None:
     assert _refused("code", "alpha", "beta") == "error: code opens one VM at a time, not [alpha beta]"
     assert _refused("code", "alpha", "list") == "error: code opens one VM at a time, not [alpha list]"
     assert _refused("code", "alpha,beta") == "error: code opens one VM at a time, not [alpha,beta]"
+
+
+# ---------------------------------------------------------------- what aw does otherwise on purpose ----
+
+
+def test_each_behaviour_aw_has_otherwise_on_purpose_is_held_by_a_test_here() -> None:
+    # An exit status's is held where the contract's words are (tests/unit/test_aw_cli_contract_words.py); each other is
+    # held here, by a test of its own that fails with today's behaviour put back.
+    assert set(BEHAVIOURS_HELD) == {key for key in BEHAVIOURS if not key.startswith("exit ")}
+    assert sorted(set(BEHAVIOURS_HELD.values()) - set(_tests_of(Path(__file__)))) == []
+
+
+def test_an_empty_word_after_init_s_options_is_refused_which_today_s_just_takes(home) -> None:
+    # A deliberate difference: init takes nothing after its options, an empty word too. Today's init joins its words
+    # with spaces and finds nothing, so just init with one empty word runs; with two it is refused.
+    result = run_launcher("init", "", home=home, cwd=home)
+    assert (result.returncode, result.stdout, result.stderr) == (1, "", rules.RULES["init.1"].sentence + "\n")
+    assert _refused("init", "") == rules.RULES["init.1"].sentence
+
+
+def test_a_stage_where_the_names_go_beside_a_rule_broken_says_the_rule(home) -> None:
+    # A deliberate difference: the rules between options are held before anything is asked, so a stage given where the
+    # names go on a line that breaks one is refused by the rule, with no terminal as at one. Today's deploy asks first
+    # at a terminal, and with none says deploy.1's sentence: refused either way.
+    words = ("deploy", "configure", "--tags", "claude_code", "--start")
+    start = rules.RULES["deploy.10"].check({"names": ["configure"], "tags": "claude_code", "start": True})
+    result = run_launcher(*words, home=home, cwd=home)
+    assert (result.returncode, result.stdout, result.stderr) == (1, "", f"{start}\n")
+    # At a terminal too: nothing is asked, and the rule's sentence is the one said.
+    rc, said = _at_the_question(home, list(words), b"s\r", asked=False)
+    assert rc == 1 and "Did you mean" not in said and said.rstrip("\n").endswith(start), said
+
+
+@pytest.mark.parametrize(
+    ("words", "code", "values"),
+    [
+        (["deploy", "my_vm", "--tags", "common,,tailscale"], "deploy.4", {"tags": "common,,tailscale"}),
+        (["code", "my_vm,b"], "code.2", {"name": "my_vm,b"}),
+        (["destroy", "--confirm=x", "my_vm"], "destroy.2", {"confirm": "x", "names": ["my_vm"]}),
+    ],
+    ids=["deploy", "code", "destroy"],
+)
+def test_the_underscore_s_warning_is_not_said_where_a_rule_refuses(home, words, code, values) -> None:
+    # A deliberate difference: the one check refuses before the names are taken with - and said, so a line that breaks
+    # a rule says the rule's sentence alone, where today's just says the underscore's warning first.
+    result = run_launcher(*words, home=home, cwd=home)
+    assert (result.returncode, result.stdout, result.stderr) == (1, "", rules.RULES[code].check(values) + "\n")
+    # Where no rule is broken, the warning is said, as today.
+    kept = run_launcher("deploy", "my_vm", home=home, cwd=home)
+    assert kept.stderr.splitlines()[0] == habits.HYPHENATED.format(name="my_vm", changed="my-vm")
+
+
+def test_a_token_file_relative_to_a_folder_whose_path_has_a_space_is_taken() -> None:
+    # A deliberate difference: init.4 is dropped, and the file's name is held to its pattern as typed; making it
+    # absolute from the working folder is init's own (E4), and holds it to nothing more. Today's init refuses it there.
+    assert "init.4" not in VERBS["init"].rules and "init.4" not in rules.RULES
+    assert parse.read(["init", "--token-secret-file=secret"]).values == {"token_secret_file": "secret"}
+    assert checks.check("init", {"token_secret_file": "secret"}) is None
+
+
+def test_host_for_s_names_are_split_at_its_commas_and_an_empty_one_is_dropped() -> None:
+    # As today's just host splits --for before tools/check names, whose shell drops an empty word.
+    assert checks.check("host", {"json": True, "for_": "alpha,,beta"}) is None
+    assert checks.check("host", {"json": True, "for_": "alpha,-b"}) == rules.RULES["check.names.1"].check(
+        {"for_": "alpha,-b"}
+    )
+    assert rules.RULES["check.names.1"].check({"for_": "alpha,-b"}).endswith("(got: [-b])")
 
 
 # ---------------------------------------------------------------- the twins of today's options' rules ----
@@ -724,14 +889,16 @@ def test_code_refuses_a_bad_session_before_the_playbook(value: str) -> None:
 
 @pytest.mark.parametrize("value", BAD_SESSIONS)
 def test_the_session_check_holds_the_json_whatever_reaches_it(value: str) -> None:
-    # The rule's own check, behind the pattern, as tools/check session is behind just's.
-    said = rules.RULES["check.session.1"].check({"session": value})
-    assert said and said.startswith("error: --session is a Claude Code session ID"), value
+    # The session's pattern, which every entry's values meet first in the one check, as tools/check session was behind
+    # just's: the words of aw's line, and the JSON of the agents' server and the add-on's broker alike.
+    assert not full("session", value), value
+    assert checks.check("code", {"name": "alpha", "session": value}) == _outside("code", "session")
 
 
 @pytest.mark.parametrize("value", [SESSION_ID, ""])
 def test_the_session_check_takes_a_session_id_or_none(value: str) -> None:
-    assert rules.RULES["check.session.1"].check({"session": value}) is None
+    assert full("session", value)
+    assert checks.check("code", {"name": "alpha", "session": value}) is None
 
 
 @pytest.mark.parametrize(
