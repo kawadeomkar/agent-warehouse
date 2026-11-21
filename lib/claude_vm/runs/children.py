@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from claude_vm.runs import job as jobs
+from claude_vm.runs import locks
 from claude_vm.schema import patterns
 
 if TYPE_CHECKING:
@@ -60,7 +61,7 @@ SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT)
 
 # Where each lock the run holds is found: a function of the module that takes it, giving the descriptor that holds
 # each lock with its name. Every module of runs/ that takes a kernel lock has its function here, which a test holds.
-HOLDERS: tuple[Callable[[], dict[int, str]], ...] = (jobs.locks_held,)
+HOLDERS: tuple[Callable[[], dict[int, str]], ...] = (jobs.locks_held, locks.locks_held)
 
 
 class LockRefused(ValueError):

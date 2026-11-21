@@ -105,7 +105,17 @@ async def body(ctx):
     await asyncio.sleep(600)
 
 
-draft = runs.Draft(Path(jobs_dir), "deploy", "aw deploy alpha", "pve", ["alpha"], {"kind": "terminal"}, True)
+draft = runs.Draft(
+    Path(jobs_dir),
+    "deploy",
+    "aw deploy alpha",
+    "pve",
+    ["alpha"],
+    {"kind": "terminal"},
+    True,
+    lock_kind="machines",
+    lock_machines=[("pve", "alpha")],
+)
 status = runs.run(draft, body)
 print(json.dumps({"returned": status}), flush=True)
 sys.exit(status)

@@ -391,7 +391,7 @@ class _Ladder:
     async def _body(self, body: Body) -> int | None:
         return await body(self.ctx)
 
-    def run(self, body: Body) -> int:
+    def run(self, body: Body, mask: set[signal.Signals] | None) -> int:
         found = _terminal()
         # The body called inside its task: whatever it raises, even as it is called, is the run's to end on.
         self.task = self.loop.create_task(self._body(body))
@@ -402,6 +402,10 @@ class _Ladder:
                 # One ignored on the way in - nohup's SIGHUP, or SIGINT for a job a shell started with & - stays so.
                 if signal.getsignal(signum) != signal.SIG_IGN:
                     previous[signum] = signal.signal(signum, self.signalled)
+            if mask is not None:
+                # runs.run held the signals off from before the job was made: one that came meanwhile is the
+                # handler's now, and from here every one is.
+                signal.pthread_sigmask(signal.SIG_SETMASK, mask)
             self._drive(self.until_done)
             self._drive(self.settle)
         finally:
@@ -427,11 +431,13 @@ class _Ladder:
         return status
 
 
-def run(job: jobs.Job, body: Body) -> int:
+def run(job: jobs.Job, body: Body, *, mask: set[signal.Signals] | None = None) -> int:
     """body run in this process, on one asyncio loop, with a Context for job, which this process made; ended as the
     ladder says, and its exit status: 0, the status the body returned, or 130 for a run a person cancelled. A run ended
     by SIGHUP or SIGTERM dies of it, and an error the body did not handle is raised again, each once the record says
-    so. The run's thread is the main thread, the only one a signal's handler runs in."""
+    so. The run's thread is the main thread, the only one a signal's handler runs in. mask, where it is given, is the
+    signal mask put back once the ladder's handlers are set: runs.run's, which held TAKEN off from before the job was
+    made, so that a signal in between is the ladder's to take."""
     if job._held_here() is None:
         raise RuntimeError(f"job {job.id} is not this process's: only the run that made a job runs it")
-    return _Ladder(job).run(body)
+    return _Ladder(job).run(body, mask)

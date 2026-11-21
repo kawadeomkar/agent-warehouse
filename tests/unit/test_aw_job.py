@@ -41,6 +41,7 @@ from claude_vm.fleet import paths
 from claude_vm.runs import job as jobs
 from claude_vm.schema import patterns
 from claude_vm.secret import Secret
+from claude_vm.text import plain_text
 
 LIB = REPO / "lib"
 RUNS = LIB / "claude_vm" / "runs"
@@ -732,6 +733,38 @@ def test_a_drop_that_cannot_remove_the_record_says_where_it_is_left_and_never_ra
         assert found is not None and jobs.state(found) == "lost"
     finally:
         made.folder.chmod(0o700)
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root removes what a folder's mode forbids")
+def test_a_create_that_fails_once_its_record_is_written_says_where_the_record_is_left(jobs_dir, monkeypatch) -> None:
+    # The record written, and then an error (a disk's, or a Ctrl-C) before create returns: create drops the job, and
+    # where its drop leaves the record, the error it raises says where, as a refused run's refusal says it.
+    replace = jobs.store.replace
+
+    def written_then_failing(path: Path, text: str, mode_if_new: int | None = None) -> None:
+        replace(path, text, mode_if_new=mode_if_new)
+        Path(path).parent.chmod(0o500)
+        raise OSError(errno.EIO, "Input/output error")
+
+    monkeypatch.setattr(jobs.store, "replace", written_then_failing)
+    with pytest.raises(OSError) as raised:
+        jobs.create(jobs_dir, "deploy", "aw deploy alpha", "pve", ["alpha"], {"kind": "terminal"}, True)
+    monkeypatch.undo()
+    [folder] = [path for path in jobs_dir.iterdir() if path.is_dir()]
+    try:
+        assert raised.value.errno == errno.EIO
+        left = f"job {folder.name} could not be removed: {folder / 'job.json'} is left (Permission denied)"
+        assert raised.value.__notes__ == [plain_text(left)]
+        assert jobs._key(folder) not in jobs._HELD
+    finally:
+        folder.chmod(0o700)
+
+
+def test_a_job_is_dropped_once(made) -> None:
+    # A refused run drops its job once (runs.run, card C6): a second drop of it is the caller's mistake, said.
+    assert jobs.drop(made) is None
+    with pytest.raises(RuntimeError, match="only the run that made a job drops it"):
+        jobs.drop(made)
 
 
 def test_a_drop_that_could_not_take_the_folder_s_lock_says_only_what_is_left(made, monkeypatch) -> None:
