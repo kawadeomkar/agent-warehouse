@@ -191,6 +191,10 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       by its own packet's fingerprint, never revoked or expired by its own self-signature, a signature no later than a
       day ahead. `tests/unit/test_pins.py` holds every armored block of each vendored key file to its vendor's
       fingerprints; `test_signed_downloads.py` runs both task files against `fake_downloads.py` with keys of its own.
+    - The new engine verifies both in `lib/claude_vm/vendors/downloads.py` alone, which only returns a release's
+      version and digests, or an image's digest, once the signature verifies, with the caps and checks of the two task
+      files; it alone imports `openpgp`, and only `lib/claude_vm/vendors/keys.py` names a key file, which `test_pins.py`
+      holds to the same fingerprints (`tests/unit/test_aw_downloads.py`).
 - **Idempotence.** Molecule's idempotence stage re-runs converge and fails on any `changed` task.
 - **An API key and Remote Control are mutually exclusive.** `ANTHROPIC_API_KEY` outranks the
   claude.ai login in Claude Code's credential precedence, and only that login can establish a

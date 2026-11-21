@@ -587,9 +587,9 @@ a master, with the kind that carries no marker.
 
 `lib/claude_vm/vendors/` is where the vendors' side goes: one HTTPS transport, which the Proxmox client uses too,
 the computer's certificates, which it uses too where a host keeps no anchor, Tailscale's calls, and downloads held to
-their vendor's signature or digest. It
-imports `schema/`, `secret.py` and, of today's modules, what `REUSED` names (`text`, to make what a peer said one
-line); of other packages, `certifi`, in `trust.py` alone. It imports nothing of `engine/`, `cli/` or `control/`, and no
+their vendor's signature or digest. It imports `schema/`, `secret.py` and, of today's modules, what `REUSED` names
+(`text`, to make what a peer said one line, and `openpgp`, to check a vendor's signature, in `downloads.py` alone); of
+other packages, `certifi`, in `trust.py` alone. It imports nothing of `engine/`, `cli/` or `control/`, and no
 pydantic.
 
 **One transport: `transport.py`.** Every HTTPS request the engine sends goes through
@@ -730,6 +730,48 @@ ready-made and unverified ones, `get_server_certificate`, `load_verify_locations
 one), set one of its checks (`CHECKS`: `check_hostname`, `verify_mode`, `verify_flags`, `hostname_checks_common_name`),
 or import today's modules that do (`TODAYS_CONTEXTS`, `trust` and `status`, which a test holds to every reused module
 that makes a context or imports one that does).
+
+**Verified downloads: `keys.py` and `downloads.py`.** What a machine installs that its vendor signs is held to the
+signature here, on the computer, before a digest from it goes anywhere, as today's roles hold it
+([§7.15](custom-code.md#715-libclaude_vmopenpgppy--a-vendors-signature-checked-here)). Their two task files are the
+specification, `roles/claude_code/tasks/install_native.yml` and `roles/proxmox_template/tasks/image_signature.yml`:
+their URLs, caps, first signed release and order of checks are kept, and `lib/claude_vm/openpgp.py` is called
+directly, where they call it as a filter. Nothing is downloaded on a machine here, installed or imported: the steps
+that do call these two functions, and never `openpgp` themselves.
+
+- **The keys.** `keys.py` is a table of each vendored key file and the fingerprint its key is found by: Anthropic's
+  Claude Code release key and Ubuntu's cloud image key, read when a key is asked for from where today's roles keep
+  them, `roles/claude_code/files/claude-code.asc` and `roles/proxmox_template/files/ubuntu-cloudimage.asc`. The
+  cutover moves the files, and this table is the one place that changes; `tests/unit/test_pins.py` holds it to the
+  files and fingerprints it holds the vendors' to.
+- **Claude Code.** `claude_release(base, wanted, *, key, tls_ca_file, proxy)` takes a channel, `stable` or `latest`,
+  or a version, and returns a `Release(version, checksums)`: the SHA-256 of each platform's binary, by the manifest's
+  name for the platform, read-only. A version asked for is held to the release's pattern and to 2.1.89, the first
+  release whose manifest Anthropic signed, before anything is fetched. A channel's pointer, at most 255 bytes, names a
+  version held the same way: it is signed by nobody and needs no signature, since whatever it names must still verify.
+  Then the release's `manifest.json` and, once it is in hand, `manifest.json.sig`, each under 1 MiB; `openpgp.verify`
+  with the vendored key; and only then is the manifest read, which must name the version it was fetched as.
+- **Ubuntu.** `ubuntu_digest(base, release, file_name, *, key, tls_ca_file, proxy)` fetches `SHA256SUMS` in the
+  release's folder under `base` (`noble/release`, say) and then `SHA256SUMS.gpg` beside it, each under 1 MiB, where
+  today's list was read whole, and verifies them the same way. It returns the digest of the one line that names the
+  image, read as today's role reads it, or `NotListed` where no line or more than one does. A caller's own key is the
+  one an image of one's own is signed by, as today's image key setting names it.
+- **Bounded, and nothing unverified.** Every document is read on one transport whose `most` is 1 MiB, so none is read
+  past it, and an answer's status is read before the document's own cap, so that an error page, longer than a
+  channel's pointer, is said as the status it came with. A document one byte past its cap is `Oversized`, and nothing
+  after it is fetched. A 3xx is an answer, never followed (`NotServed`, as is any answer but 200), and the transport's
+  own errors pass as they are. Nothing is returned from a document whose signature has not verified (`Unverified`, with
+  `openpgp`'s reason), and of a document only its version and digests are. What a server named is said through
+  `plain_text`, cut, as JSON.
+
+`tests/unit/test_aw_downloads.py` serves every document from `tests/molecule/fake_downloads.py` over TLS, its root
+standing in for one of `certifi`'s, signed by keys `tests/unit/signing.py` makes or as the vendors published them
+(`tests/unit/openpgp/`). It holds each refusal, with the fake's log of requests showing nothing fetched after it: a
+document changed by one byte, a signature by another key or dated more than a day ahead, a version below the first
+signed release, a document one byte past its cap, a list with no line or two for the image, a redirect, a certificate
+that does not verify. It holds the release's pattern, the first signed release, the caps, the files' names and the line
+of a list equal to today's roles', and one rule: of the new engine, only `downloads.py` imports `openpgp`, and only
+`keys.py` names a vendored key file.
 
 ## 16.8 `runs/` — a run's record and text log, the locks, a detached run
 

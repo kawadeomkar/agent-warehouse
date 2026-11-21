@@ -68,6 +68,12 @@ WIDER_THAN_A_TEST: dict[str, str] = {
     "test_aw_vendor_trust.py::pki": "a certificate authority made in process with cryptography: it starts nothing and"
     " reaches nothing",
     "test_aw_vendor_trust.py::other_pki": "another such authority, of another subject, made the same way",
+    "test_aw_downloads.py::pki": "a certificate authority made in process with cryptography, for the fake download"
+    " server's TLS: it starts nothing and reaches nothing",
+    "test_aw_downloads.py::other_pki": "another such authority, of another subject, made the same way",
+    "test_aw_downloads.py::signer": "an RSA key made in process with cryptography, the vendor's stand-in that signs a"
+    " test's manifests and lists: it starts nothing and reaches nothing",
+    "test_aw_downloads.py::stranger": "another such key, which is not the vendor's, made the same way",
 }
 
 

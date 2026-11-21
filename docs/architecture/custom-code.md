@@ -1531,6 +1531,14 @@ the vendors' files (`tests/unit/openpgp/`) and signatures a key made for the tes
 one way at a time, and `tests/unit/test_signed_downloads.py`, which runs both task files against stand-in hosts and a
 stand-in for the download server (`tests/molecule/fake_downloads.py`).
 
+The new engine calls `verify` directly, where the roles call the filter: `lib/claude_vm/vendors/downloads.py` fetches
+the same two documents and their signatures on this machine, with the same caps and checks in the same order, verifies
+them with the same keys, which `lib/claude_vm/vendors/keys.py` reads from the roles' own `files/`, and returns only the
+version and the digests of a document that verified
+([§16.7](engine.md#167-vendors--one-https-transport-tailscales-calls-verified-downloads)). `test_pins.py` holds that
+table of keys to the same fingerprints, and `tests/unit/test_aw_downloads.py` covers the rest, against the same
+stand-in for the download server over TLS.
+
 ## 7.16 `lib/claude_vm/trust.py` — the certificate the Proxmox API is checked against
 
 `just init` keeps the certificate that makes the API's verify, before the token is sent anywhere

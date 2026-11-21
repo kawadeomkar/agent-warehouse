@@ -7,7 +7,8 @@ uv is held to be no older than the one the controller's lock pins.
 
 The vendored apt keys are what apt trusts a repository's packages by, as root on every VM. Nothing else holds a key file
 to its vendor's: a changed or added key would pass every other test. Each file's keys are held to the fingerprints the
-vendors publish, computed here from the file's own packets, with no gpg.
+vendors publish, computed here from the file's own packets, with no gpg. The new engine's table of the two signing keys
+it verifies a download by (lib/claude_vm/vendors/keys.py) is held to the same files and the same fingerprints.
 """
 
 from __future__ import annotations
@@ -21,6 +22,8 @@ from pathlib import Path
 import tomllib
 import yaml
 from harness import _version
+
+from claude_vm.vendors import keys
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -112,6 +115,19 @@ def test_the_release_keys_the_roles_verify_by_are_the_pinned_ones() -> None:
     assert {template["proxmox_template_image_fingerprint"]} == KEYS[
         "roles/proxmox_template/files/ubuntu-cloudimage.asc"
     ]
+
+
+def test_the_new_engine_verifies_by_the_pinned_files_and_fingerprints() -> None:
+    # lib/claude_vm/vendors/keys.py, the table the new engine's verified downloads find a key by, names the files the
+    # roles keep and the fingerprints held here, until the cutover moves the files and the table with them (K28).
+    table = {key.file.relative_to(REPO).as_posix(): {key.fingerprint} for key in keys.KEYS.values()}
+    assert set(table) == {
+        "roles/claude_code/files/claude-code.asc",
+        "roles/proxmox_template/files/ubuntu-cloudimage.asc",
+    }
+    for path, fingerprints in table.items():
+        assert fingerprints == KEYS[path], path
+        assert _primary_fingerprints(_dearmor((REPO / path).read_text())) == fingerprints, path
 
 
 def test_every_vendored_signing_key_is_its_vendor_s() -> None:
