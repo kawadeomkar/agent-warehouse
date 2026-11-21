@@ -623,8 +623,9 @@ hop is made by, whose socket's name it shares.
   makes from a computer that has filed no key for it - takes the key with `StrictHostKeyChecking=accept-new` into a
   fresh scratch file of its own, under the machine's identity as `HostKeyAlias` and never by its address, and never into
   the product's file or the person's own; the caller files the key it took, and every later connection checks the
-  product's file with `yes`. The Proxmox host's key is taken at first use into the person's own `known_hosts`, as
-  `ansible.cfg`'s `ssh_args` take it today.
+  product's file with `yes`. A first use is a connection of its own (`ControlPath=none`): a master of the identity and
+  the address that still lives would carry it, and `ssh` would write no key. The Proxmox host's key is taken at first
+  use into the person's own `known_hosts`, as `ansible.cfg`'s `ssh_args` take it today.
 
 **A host key: `hostkeys.py`.** A machine's key is filed under its identity in the product's own known-hosts file, and no
 function there takes an address. `parse` holds one line of a public key: its type one of `checks.KNOWN_KEY_TYPES`, its
@@ -649,16 +650,17 @@ then `-l <account> -p <port> -- <address>` and the command joined with `shlex.jo
 passes a shell. No `-F`: the person's own `~/.ssh/config` is read, as today, where a key, an agent or a jump of theirs
 is named. The product's options, in order: `checks.vm_ssh_args` as it stands (the known-hosts file, `CheckHostIP=no`,
 `UpdateHostKeys=no`, `HostKeyAlias` the identity, `ForwardAgent=no`; for the Proxmox host `UpdateHostKeys=no` and
-`ForwardAgent=no` alone), `ControlPath=<the shared directory>/<checks.vm_control_name>-%r-%p`, `ControlMaster=no`,
-`BatchMode=yes`, `StrictHostKeyChecking=yes` (or `accept-new` for the two forms above), `ConnectTimeout=10`,
-`ServerAliveInterval=15`, `ServerAliveCountMax=3`, `PreferredAuthentications=publickey`, `ClearAllForwardings=yes`,
-`RequestTTY=no`, `LogLevel=ERROR`, and the identity file where there is one. `BatchMode=yes` on every `ssh` the engine
-starts means a key that wants a passphrase fails in one sentence and never waits at a terminal it cannot reach.
-`ControlMaster=no` means a child rides a master the engine opened in the shared directory, or connects alone where none
-lives, and is never a master itself. The hop's own `ssh` keeps `LogLevel=INFO`, which route.py pins because it reads
-`ssh`'s words. `ansible_vars(target)` gives layer 1's Ansible child the address, the port, the account, the program and
-`ansible_ssh_common_args` holding exactly the same options in the same order, so that its `ssh`, `sftp` and `scp` ride
-the same master and a jump of the person's reaches the file transfers too.
+`ForwardAgent=no` alone), `ControlPath=<the shared directory>/<checks.vm_control_name>-%r-%p` (`none` for a first use),
+`ControlMaster=no`, `BatchMode=yes`, `StrictHostKeyChecking=yes` (or `accept-new` for the two forms above),
+`ConnectTimeout=10`, `ServerAliveInterval=15`, `ServerAliveCountMax=3`, `PreferredAuthentications=publickey`,
+`ClearAllForwardings=yes`, `RequestTTY=no`, `LogLevel=ERROR`, and the identity file where there is one. `BatchMode=yes`
+on every `ssh` the engine starts means a key that wants a passphrase fails in one sentence and never waits at a terminal
+it cannot reach. `ControlMaster=no` means a child rides a master the engine opened in the shared directory
+(`connections.py`'s `ensure`), or connects alone where none lives, and is never a master itself. The hop's own `ssh`
+keeps `LogLevel=INFO`, which route.py pins because it reads `ssh`'s words. `ansible_vars(target)` gives layer 1's
+Ansible child the address, the port, the account, the program and `ansible_ssh_common_args` holding exactly the same
+options in the same order, so that its `ssh`, `sftp` and `scp` ride the same master and a jump of the person's reaches
+the file transfers too.
 
 **A bounded call.** `run(job, target, command, stdin, limits, env, started)` is a coroutine. The child is started
 through `children.start` as an `ssh` child of the job's run, in a process group of its own, with `env` and the job's
@@ -683,6 +685,41 @@ family bound, as today's forward does whatever a person's settings say), made as
 (`ControlPath=none`), since a forward asked of a shared master would outlive the run on it; its standard input is
 `/dev/null`.
 
+**The one control directory and the route: `connections.py`.** Every shared connection, a machine's master and the
+hop's, lives in one control directory that every run on the computer shares: Ansible's own, `~/.ansible/cp`, which
+`fleet/paths.py`'s `control_dir()` names and today's hop and `just status` write already - short, the account's alone,
+outside every repository. `Connections(control_dir, env)` is made once a run and refuses a target or a hop whose socket
+is anywhere else; a machine's socket is `checks.vm_control_name` of its identity, its address and its hop, its path held
+to `route.SOCKET_MOST` by the `Target`. Three rules hold every master. A master is opened only by `ensure`, or by
+`route.py` for the hop, with the engine's own environment, which a run never marks; `ensure` starts it with
+`children.MASTER`, the one kind of child that carries no job's marker and is entered in no registry, in a session of its
+own. No run ever ends a master, the hop's or a machine's: it ends by itself, `ControlPersist` after its last client
+(`60s` for a machine, today's), and two runs never ride one machine's master at once, since each holds that machine's
+lock. And no `-O exit` is ever sent, which would cut another run's sessions, nor `-O stop` but where `route.py` sends it
+for the hop. The route is `route.py`'s, called as it stands. `route(setting, host)` settles it for the Proxmox host's
+own `Target` - its account, or `vm_ssh_jump`'s, its port, key and `ssh` - by `route.hop_settings` and
+`route.route_settle`, as `{route, setting, hop, policy, addresses}`, and raises `route.HopRefused` as it is, which names
+`vm_ssh_route: direct`; under `auto` only where the rule would go through the host.
+`target_for(job, machine, settled, given)` gives a machine's `Target` the person's own options for it and, where the
+route goes through the host, the hop's `ProxyCommand` to its own address (`route.vm_hop`, `-W <address>:%p`), unless it
+brings a jump of its own: a `ProxyJump`, a `-J` or a `ProxyCommand` other than `none` in `vm_ssh_options`, or in what
+`ssh -G` resolves for its address from the person's own `~/.ssh/config`, read once a run for each machine.
+`held(target, settled)` asks the machine's own `ssh` which proxy its whole line takes (`route.ssh_shown`,
+`-G -F /dev/null`) and refuses any other (`route.vm_route_refusal`) before anything connects; a jump only the person's
+configuration gives is the one the line cannot outrank. `ensure_hop(settled)` is `route.hop_held`, and a hop that cannot
+be used raises `Unusable` with `route.login_said`'s sentence, so the run stops and nothing dials a machine.
+`ensure(job, target)` makes sure of a machine's master before anything rides it: `-O check`; where nothing answers, a
+socket file nothing listens at removed (never one whose check ran out its time), and the master opened once, the
+runner's options with `ControlMaster=yes` and `ControlPersist` in place of `ControlMaster=no`, and `-N`, ended where
+`ssh` says the socket exists already; then checked once more. Never for a first use: a master opened before the key is
+filed would carry later runs with no key checked. `first_use(job, target)` makes a machine's `Target` one where the
+product's file holds no key under its identity (`hostkeys.kept`), its scratch file fresh in the run's own directory
+(`rundir.made`): a changing verb's first connection to a machine calls it, files the key it took, and only then asks
+`ensure`; `status`, which takes no key, never calls it. Nothing in `ssh/` tries a connection again. Until the engine
+settles its route once a run and holds every connection to it, `direct_only(settled)` refuses every settled route but
+`direct`, by name, with the sentence that names `vm_ssh_route: direct`: the workflows call it before their first
+connection to a machine, and it never dials one the rule would take through the host.
+
 `tests/unit/test_aw_ssh_runner.py` holds it against a stand-in `ssh` that records its words, its environment and its
 standard input: the options and their order, word for word, for every form; the values they hold as this machine's own
 `ssh -G -F /dev/null` shows them, a person's options among them; no secret in a word or a variable; each bound's result,
@@ -693,8 +730,16 @@ carries no `ControlMaster` but `no`. `tests/unit/test_aw_hostkeys.py` holds `hos
 files and real keys of this machine's own `ssh-keygen`, whose `-l` gives each fingerprint, `-F` a name as `ssh` reads
 one and `-H` one hashed: a key filed once and found, a second of its type refused with the file unchanged byte for byte,
 two writers at once, a deleted machine's line kept through every call, a first use's scratch file taken and filed or
-refused with nothing filed, the person's own files never read or written, and, by the signatures, no function that
-takes an address.
+refused with nothing filed, the person's own files never read or written, and, by the signatures, no function that takes
+an address. `tests/unit/test_aw_ssh_connections.py` holds `connections.py` against a stand-in `ssh` that plays OpenSSH's
+control commands and its master, as `tests/unit/test_route.py` does, every socket in a short directory of the test's
+own, and that runs this machine's own `ssh -G` given the test's own `~/.ssh/config`: each route settled, the hop's
+command word for word, a jump of a machine's own from its options and from its configuration, the held check, a first
+use decided by the key filed, its scratch file in the run's directory and no master opened for it, a master opened once
+and found again, unmarked and in a session of its own, a dead socket file removed and a busy one kept, a hop that cannot
+be used stopping the run with nothing dialled, and `direct_only`; and three rules by scans: no control command but
+`-O check` in the new subpackages, never `-O exit`; nothing in `ssh/` tries a connection again; and only `ensure` opens
+a master, with the kind that carries no marker.
 
 ## 16.7 `vendors/` — one HTTPS transport, Tailscale's calls, verified downloads
 

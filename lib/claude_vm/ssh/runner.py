@@ -13,9 +13,11 @@ first use as `ssh` reaches it today.
 command joined with `shlex.join`. No `-F`: the person's own `~/.ssh/config` is read, as today, where a key, an agent or
 a jump of theirs is named. Every `ssh` here carries `BatchMode=yes`, so a key that wants a passphrase fails in one
 sentence and never waits at a terminal it cannot reach, and `ControlMaster=no`: a child rides a master the engine opened
-in the shared directory, or connects alone where none lives, and is never a master itself. A machine is named by its
-identity alone, its key checked strictly in the product's own file, which `ssh` can neither add to nor replace; a first
-use takes the key into a scratch file instead, under the identity and never the address, for the caller to file.
+in the shared directory (`connections.py`'s `ensure`), or connects alone where none lives, and is never a master itself.
+A machine is named by its identity alone, its key checked strictly in the product's own file, which `ssh` can neither
+add to nor replace; a first use takes the key into a scratch file instead, under the identity and never the address, for
+the caller to file, on a connection of its own (`ControlPath=none`): a master of the identity and the address that still
+lives would carry it, and `ssh` would write no key.
 
 `run` starts the command line as a child of the run through `runs/children.py`'s `start`, in a process group of its
 own, hands it bytes on its standard input, and reads its standard output a line at a time under a bound for one line,
@@ -413,7 +415,8 @@ def _pinned(target: Target, forward: bool) -> list[str]:
 def options(target: Target, forward: bool = False) -> list[str]:
     """Every option of target's connection, in the order ssh is given them: the product's, then the hop's, then the
     person's. A forward's is a connection of its own (ControlPath=none) that fails where a port cannot be bound and
-    keeps its forwards whatever a person's ClearAllForwardings says."""
+    keeps its forwards whatever a person's ClearAllForwardings says; so is a first use's, which a master that still
+    lives for the identity and the address would otherwise carry, so that ssh wrote no key into its scratch file."""
     if target.is_host:
         socket = route.hop_settings(
             ssh=target.ssh,
@@ -427,7 +430,7 @@ def options(target: Target, forward: bool = False) -> list[str]:
     else:
         socket = f"{target.control_dir}/{_control_name(target)}-%r-%p"
         words = shlex.split(checks.vm_ssh_args(target.identity, target.known_hosts))
-    words += ["-o", "ControlPath=none" if forward else f"ControlPath={socket}"]
+    words += ["-o", "ControlPath=none" if forward or target.first_use else f"ControlPath={socket}"]
     words += _pinned(target, forward)
     if target.identity_file is not None:
         words += ["-o", f"IdentityFile={checks.vm_ssh_word(target.identity_file)}"]
