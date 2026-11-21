@@ -1129,21 +1129,22 @@ def test_a_fleet_whose_engine_token_sent_a_call_no_row_names_fails_at_its_end(tm
         next(fleet)
 
 
-def test_a_pool_s_guests_are_each_held_to_their_own_path_and_a_resize_to_its_disk_s_storage(tmp_path: Path) -> None:
-    """A guest added to a pool needs VM.Allocate on its own path, each one the call names, beside Pool.Allocate on the
-    pool (pve-manager's update_pool, check_perm_modify); a disk grown needs Datastore.AllocateSpace on the storage its
-    configuration puts it on (qemu-server's resize_vm), as the engine's table says."""
+def test_the_engine_s_token_adds_no_guest_to_a_pool_and_a_resize_is_held_to_its_disk_s_storage(
+    tmp_path: Path,
+) -> None:
+    """No row of the engine's table writes a pool, so a guest the engine's token holds is still refused it, as a call
+    no row names, and nothing changes; a disk grown needs Datastore.AllocateSpace on the storage its configuration
+    puts it on (qemu-server's resize_vm), as the engine's table says."""
     for base, token in _enforced(tmp_path, storage=False):
         engine_grant(base, "/vms/9011", "VM.Allocate,VM.Config.Disk")
-        _ok(base, "POST", "pools", poolid="other")
-        assert _call(base, "PUT", "pools", token, poolid=ENGINE_POOL, vms="9011,9012") == _refused(
-            "/vms/9012", "VM.Allocate"
+        said = SAID["NO_ROW"].format(method="PUT", path="/pools")
+        assert _call(base, "PUT", "pools", token, poolid=ENGINE_POOL, vms="9011") == (
+            SAID["PERMISSION_REFUSED_STATUS"],
+            said,
         )
-        assert _call(base, "PUT", "pools", token, poolid="other", vms="9011") == _refused(
-            "/pool/other", "Pool.Allocate"
-        )
-        assert _ok(base, "PUT", "pools", token, poolid=ENGINE_POOL, vms="9011") is None
-        assert {vm["vmid"] for vm in _ok(base, "GET", "pools", poolid=ENGINE_POOL)[0]["members"]} == {9000, 9010, 9011}
+        assert {vm["vmid"] for vm in _ok(base, "GET", "pools", poolid=ENGINE_POOL)[0]["members"]} == {9000, 9010}
+        # Read here: the fixture's end holds it empty.
+        (tmp_path / "pve" / "unmatched.log").unlink()
         resize = "nodes/pve/qemu/9011/resize"
         assert _call(base, "PUT", resize, token, disk="scsi0", size="+1G") == _refused(
             "/storage/local-lvm", "Datastore.AllocateSpace"

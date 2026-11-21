@@ -57,6 +57,8 @@ REVEALS: dict[str, str] = {
 WIDER_THAN_A_TEST: dict[str, str] = {
     "test_aw_fleet_paths.py::module_runs_environment": "harness._env of a directory of its own, what a module's run"
     " made before its tests is given: it starts nothing and reaches nothing",
+    "test_aw_pve_agent.py::pki": "a certificate authority made in process with cryptography, for the fake Proxmox: it"
+    " starts nothing and reaches nothing",
     "test_aw_pve_reads.py::pki": "a certificate authority made in process with cryptography, for the fake Proxmox: it"
     " starts nothing and reaches nothing",
     "test_aw_pve_reads.py::other_pki": "another such authority, of another subject, made the same way",

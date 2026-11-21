@@ -24,11 +24,16 @@ the VM locked is Locked. Proxmox answers every refusal of a write with a 500, so
 own to choose, the record's text is its own to write, and a sequence of calls is its own to make: none of them is this
 module's.
 
+The guest agent's one call, agent_interfaces, asks what a started VM's agent reports of its network cards, on a
+transport of its own whose read limit is AGENT_READ, shorter than every other read's, since Proxmox waits on the VM for
+the answer: agent.py reads the VM's address from it, and waits for one. A VM that is not running is NotRunning, told by
+Proxmox's words on its 500, as the writes' refusals are; what the agent reports is the VM's to choose, so of it only
+the plain values a network card and its addresses have are kept (answers.Interfaces).
+
 Each read and each write returns a frozen record of answers.py, built by a parsing function there, or nothing. Every
 name and ID that goes into a path or a write is held to the form Proxmox gives it first, so that none can reach another
 path or a query, and a configuration's write sends only the keys of CONFIG_KEYS, whose privileges are the engine's
-table's rows for it. The guest agent's calls are card B6's. Blocking, and safe to call from several threads, as the
-transport is.
+table's rows for it. Blocking, and safe to call from several threads, as the transport is.
 """
 
 from __future__ import annotations
@@ -51,6 +56,7 @@ from .answers import (
     UPID,
     Bridge,
     Current,
+    Interfaces,
     Malformed,
     NodeStatus,
     Permissions,
@@ -72,6 +78,7 @@ __all__ = [
     "Exists",
     "Locked",
     "Malformed",
+    "NotRunning",
     "Proxmox",
     "ProxmoxError",
     "Refused",
@@ -96,6 +103,12 @@ NIC = re.compile(r"net[0-9]{1,2}")
 ACL_PATH = re.compile(r"/|(?:/[A-Za-z0-9._@!:-]+)+")
 # A path read() takes: its parts below the API, each a name, an ID or a UPID, none . or .. and none empty.
 READ_PATH = re.compile(r"[A-Za-z0-9_@!:=-][A-Za-z0-9._@!:=-]*(?:/[A-Za-z0-9_@!:=-][A-Za-z0-9._@!:=-]*)*")
+# How long the guest agent's calls wait for each read, in seconds: N-14's 10 s, where every other read waits 30, since
+# Proxmox asks the VM's agent before it answers, and an agent still starting may not answer at all.
+AGENT_READ = 10.0
+# A VM that is not running, which Proxmox says of a guest agent's call with a 500 before it asks the agent
+# (qemu-server's PVE/QemuServer/Agent.pm, assert_agent_available): the VM's ID in its words.
+NOT_RUNNING = re.compile(r"VM ([0-9]+) is not running")
 
 # ------------------------------------------------------------------------------------------- the writes ----
 
@@ -250,6 +263,14 @@ class TaskTimedOut(ProxmoxError):
         )
 
 
+class NotRunning(ProxmoxError):
+    """The VM is not running, so its guest agent cannot answer: a stopped VM is left stopped, and not waited on."""
+
+    def __init__(self, vmid: int) -> None:
+        self.vmid = vmid
+        super().__init__(f"VM {vmid} is not running, so its guest agent cannot answer: it is not waited for")
+
+
 class TooOld(ProxmoxError):
     """The host's Proxmox VE is older than 9, which the engine does not speak to."""
 
@@ -371,6 +392,11 @@ def _taken(said: str, newid: int) -> bool:
     return any(int(found.group(1)) == newid for pattern in TAKEN for found in pattern.finditer(said))
 
 
+def _stopped(said: str, vmid: int) -> bool:
+    """Whether Proxmox's words said said that the VM vmid is not running."""
+    return any(int(found.group(1)) == vmid for found in NOT_RUNNING.finditer(said))
+
+
 class Proxmox:
     """The client of the API at url (https://host:port), its connections verified as pinned says (pin.kept), sending
     token, through proxy where there is one: an http:// URL, which proxy.choose works out for the API's address."""
@@ -387,6 +413,8 @@ class Proxmox:
         self._token = token
         self._said = f"Proxmox(token={token.id!r})"
         self._transport: Transport = pin.transport(f"{url.rstrip('/')}{API}", pinned, proxy)
+        # The guest agent's calls, on connections of their own that wait AGENT_READ for each read.
+        self._agent: Transport = pin.transport(f"{url.rstrip('/')}{API}", pinned, proxy, read=AGENT_READ)
         self._version: Version | None = None
         self._lock = threading.Lock()
 
@@ -399,6 +427,7 @@ class Proxmox:
     def close(self) -> None:
         """Close every connection kept: for when no request is in flight."""
         self._transport.close()
+        self._agent.close()
 
     def __repr__(self) -> str:
         return self._said
@@ -412,12 +441,14 @@ class Proxmox:
         query: Mapping[str, Any] | None = None,
         form: Mapping[str, Any] | None = None,
         deadline: float | None = None,
+        agent: bool = False,
     ) -> Answer:
-        """method path, carrying the token, with query and form: Proxmox's answer, whatever its status. Every refusal
-        is raised after the handler that caught its cause has ended, so it carries no cause."""
+        """method path, carrying the token, with query and form, on the guest agent's transport where agent says so:
+        Proxmox's answer, whatever its status. Every refusal is raised after the handler that caught its cause has
+        ended, so it carries no cause."""
         failure: ProxmoxError | None = None
         try:
-            answer = self._transport.request(
+            answer = (self._agent if agent else self._transport).request(
                 method,
                 path,
                 headers={"Authorization": (f"PVEAPIToken={self._token.id}=", self._token.secret)},
@@ -441,20 +472,25 @@ class Proxmox:
         secret = self._token.secret
         return one_line(secret.struck(one_line(secret.struck(text), None)), most)
 
-    def _ask(self, path: str, query: Mapping[str, str] | None = None, deadline: float | None = None) -> Any:
-        """GET path, carrying the token: the answer's data, or the client's refusal."""
+    def _ask(
+        self, path: str, query: Mapping[str, str] | None = None, deadline: float | None = None, agent: bool = False
+    ) -> Any:
+        """GET path, carrying the token, on the guest agent's transport where agent says so: the answer's data, or the
+        client's refusal."""
         asked = f"GET {path}"
-        answer = self._request("GET", path, query, deadline=deadline)
+        answer = self._request("GET", path, query, deadline=deadline, agent=agent)
         if answer.status in (401, 403):
             raise Denied(answer.status, asked)
         if answer.status != 200:
             raise Refused(answer.status, self._words(answer.reason, 200), asked)
         return answers.data(answer.body, asked)
 
-    def _get(self, path: str, query: Mapping[str, str] | None = None, deadline: float | None = None) -> Any:
+    def _get(
+        self, path: str, query: Mapping[str, str] | None = None, deadline: float | None = None, agent: bool = False
+    ) -> Any:
         """GET path once the host's version is known to be one the engine speaks to."""
         self.version()
-        return self._ask(path, query, deadline)
+        return self._ask(path, query, deadline, agent)
 
     def _send(
         self,
@@ -578,6 +614,28 @@ class Proxmox:
         if query is not None and not all(isinstance(k, str) and isinstance(v, str) for k, v in query.items()):
             raise TypeError("a read's query is names and values, each a str")
         return answers.read(self._get(path, query), path)
+
+    # ------------------------------------------------------------------------------------------- the guest agent ----
+
+    def agent_interfaces(self, node: str, vmid: int, deadline: float | None = None) -> Interfaces:
+        """GET what a VM's guest agent reports of its network cards (network-get-interfaces), on the agent's transport,
+        whose reads wait AGENT_READ, within deadline seconds where given: the Interfaces, each card's plain values as
+        the VM's agent reported them, which agent.address reads the VM's address from. Raises NotRunning for a VM that
+        is not running, Denied for a token without the agent's privilege, and Refused while the agent does not answer
+        yet (Proxmox's 500, "QEMU guest agent is not running")."""
+        node, vmid = _node(node), _vmid(vmid)
+        if deadline is not None:
+            deadline = _seconds(deadline)
+        stopped = False
+        try:
+            found = self._get(f"nodes/{node}/qemu/{vmid}/agent/network-get-interfaces", deadline=deadline, agent=True)
+        except Refused as refused:
+            if refused.status != REFUSED_STATUS or not _stopped(refused.reason, vmid):
+                raise
+            stopped = True
+        if stopped:
+            raise NotRunning(vmid)
+        return answers.interfaces(found, node, vmid)
 
     # ------------------------------------------------------------------------------------------------ writes ----
 
@@ -709,16 +767,6 @@ class Proxmox:
             raise TypeError("purge is True or False")
         query = {"destroy-unreferenced-disks": "1", **({"purge": "1"} if purge else {})}
         return answers.task(self._send("DELETE", f"nodes/{node}/qemu/{vmid}", vmid, query=query), node, "delete", vmid)
-
-    def pool_add(self, poolid: str, vmids: Collection[int]) -> None:
-        """PUT guests into a pool: Proxmox answers nothing and has made the change in the call, so there is no task.
-        Each guest is one the token holds VM.Allocate on, or Proxmox refuses the whole call, and one already in another
-        pool is refused, never moved."""
-        poolid = _pool(poolid)
-        if isinstance(vmids, str) or not isinstance(vmids, Collection) or not vmids:
-            raise ValueError("a pool is given one VMID or more")
-        listed = [_vmid(vmid) for vmid in vmids]
-        self._send("PUT", "pools", listed[0], form={"poolid": poolid, "vms": ",".join(map(str, listed))})
 
     # ----------------------------------------------------------------------------------------------- tasks ----
 

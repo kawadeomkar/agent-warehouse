@@ -192,7 +192,7 @@ def test_a_request_is_its_call_s_rows_each_with_the_acl_path_its_own_path_names(
     # A call that needs nothing is a row all the same.
     assert [(call.privilege, at) for call, at in for_request("GET", "/version")] == [(None, None)]
     # The writes: a configuration's, with each group of the keys the client sends; a resize, on the VM and the storage
-    # its configuration names; a pool's guests, each named in its parameters.
+    # its configuration names.
     write = for_request("PUT", "/nodes/pve/qemu/9010/config")
     assert {call.privilege for call, _ in write} == {
         "VM.Config.Options",
@@ -212,22 +212,24 @@ def test_a_request_is_its_call_s_rows_each_with_the_acl_path_its_own_path_names(
         ("POST", "/nodes/pve/qemu/9010/status/stop", "VM.PowerMgmt"),
         ("POST", "/nodes/pve/qemu/9010/template", "VM.Allocate"),
         ("DELETE", "/nodes/pve/qemu/9010", "VM.Allocate"),
+        # What a VM's guest agent reports of its network cards, for its address.
+        ("GET", "/nodes/pve/qemu/9010/agent/network-get-interfaces", "VM.GuestAgent.Audit"),
     ]:
         assert [(call.privilege, at) for call, at in for_request(method, path)] == [(privilege, "/vms/9010")], path
-    assert [(call.privilege, call.on, at) for call, at in for_request("PUT", "/pools")] == [
-        ("Pool.Allocate", "pool", None),
-        ("VM.Allocate", "vm", None),
-    ]
 
 
 @pytest.mark.parametrize(
     ("method", "path"),
     [
-        ("GET", "/nodes/pve/qemu/9010/agent/network-get-interfaces"),
+        ("GET", "/nodes/pve/qemu/9010/agent/get-osinfo"),
+        ("POST", "/nodes/pve/qemu/9010/agent/ping"),
         ("POST", "/nodes/pve/qemu/9010/status/reboot"),
         ("DELETE", "/nodes/pve/qemu/9010/config"),
         ("POST", "/nodes/pve/qemu/9010/config"),
+        ("PUT", "/pools"),
         ("PUT", "/pools/aw-fleet"),
+        ("POST", "/pools"),
+        ("DELETE", "/pools"),
         ("GET", "/nodes/pve/qemu/9010/config/extra"),
         ("GET", "/nodes/../qemu/9010/config"),
         ("GET", "/nodes//qemu/9010/config"),
@@ -247,3 +249,14 @@ def test_needed_is_what_the_rows_check_on_a_kind_and_on_a_pool_what_its_members_
     assert {"VM.Audit", "VM.Clone"} <= needed("vm") and {"Pool.Audit", "VM.Allocate"} <= needed("pool")
     with pytest.raises(ValueError):
         needed("access")
+
+
+def test_no_call_writes_a_pool_and_the_role_on_the_pool_holds_no_pool_privilege_but_pool_audit() -> None:
+    """A new VM joins the pool through its clone's pool, and the fleet's earlier VMs over root SSH (K5): the engine's
+    token adds no guest to a pool, and holds no Pool.Allocate, which would let it rewrite its pool's mark and delete the
+    pool once empty."""
+    writing = [call for call in CALLS if call.method != "GET" and call.route.strip("/").split("/")[0] == "pools"]
+    assert writing == []
+    named = {call.privilege for call in CALLS if call.privilege and call.privilege.startswith("Pool.")}
+    assert named == {"Pool.Audit"}
+    assert {privilege for privilege in needed("pool") if privilege.startswith("Pool.")} == {"Pool.Audit"}

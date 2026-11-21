@@ -464,22 +464,6 @@ def test_a_delete_of_a_vm_outside_the_pool_is_denied_and_it_stays(fleet) -> None
     assert fleet.raw(9012)["name"] == "gamma" and fleet.writes() == [("DELETE", "nodes/pve/qemu/9012")]
 
 
-def test_a_guest_goes_into_the_pool_only_where_the_token_holds_it_and_never_out_of_another_pool(fleet) -> None:
-    with fleet.client() as client:
-        with pytest.raises(Denied):
-            client.pool_add(ENGINE_POOL, [9011])
-        engine_grant(fleet.base, "/vms/9011", "VM.Allocate")
-        assert client.pool_add(ENGINE_POOL, [9011]) is None
-        assert {member.vmid for member in client.pool(ENGINE_POOL).members} == {9000, 9010, 9011}
-        _pve(fleet.base, "POST", "pools", poolid="other")
-        _pve(fleet.base, "PUT", "pools", poolid="other", vms="9012")
-        engine_grant(fleet.base, "/vms/9012", "VM.Allocate")
-        with pytest.raises(Refused) as refused:
-            client.pool_add(ENGINE_POOL, [9012])
-    assert refused.value.status == 500 and "belongs already to pool 'other'" in refused.value.reason
-    assert fleet.sent("PUT", "pools")[1] == {"poolid": ENGINE_POOL, "vms": "9011"}
-
-
 # --------------------------------------------------------------------------- held before anything is sent ----
 
 
@@ -508,9 +492,6 @@ def test_a_guest_goes_into_the_pool_only_where_the_token_holds_it_and_never_out_
         ("shutdown", ("pve", 9010, -1)),
         ("delete", ("pve/../x", 9010)),
         ("delete", ("pve", 9010, "yes")),
-        ("pool_add", (ENGINE_POOL, [])),
-        ("pool_add", (ENGINE_POOL, "9011")),
-        ("pool_add", ("", [9011])),
         ("follow", ("UPID:pve:00000001:00000000:00000000:qmstart:1:root@pam:",)),
     ],
 )
@@ -547,8 +528,8 @@ def test_a_configuration_s_keys_take_the_privileges_the_table_s_rows_hold_for_it
 def test_every_row_of_the_table_names_a_method_of_the_client() -> None:
     named = {call.name for call in privileges.CALLS}
     assert named <= {name for name in dir(Proxmox) if not name.startswith("_")}, named - set(dir(Proxmox))
-    writes = {"clone", "write_config", "resize", "start", "shutdown", "stop", "to_template", "delete", "pool_add"}
-    assert writes <= named
+    writes = {"clone", "write_config", "resize", "start", "shutdown", "stop", "to_template", "delete"}
+    assert writes <= named and not hasattr(Proxmox, "pool_add")
 
 
 def _sends(call: ast.Call) -> tuple[str, str] | None:

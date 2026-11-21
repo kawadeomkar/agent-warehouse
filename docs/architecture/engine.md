@@ -296,7 +296,7 @@ and only when it dispatches a verb that changes something. No client imports it.
 ## 16.5 `pve/` — the typed Proxmox client and the one table of privileges
 
 `lib/claude_vm/pve/` is where the typed client of the Proxmox VE API goes, with the one table that names each call's
-privilege, which `init` grants from and the permission check reads. It imports `vendors/` for its one HTTPS transport,
+privilege, which `init` grants from and the permission check reads, and the wait for a started VM's address. It imports `vendors/` for its one HTTPS transport,
 `schema/`, `secret.py` and, of today's modules, what `REUSED` names: `trust` for the anchor's context, `proxmox` for
 its parsers as they stand, `checks` for the names Proxmox gives, and `text`. It imports nothing of `engine/`, `cli/` or
 `control/`, and no pydantic. It is Proxmox's own folder in `tests/unit/test_ratchets.py`'s `PROXMOX_OWN`, beside
@@ -365,9 +365,9 @@ so that a host, or a proxy the computer's certificates trust, that echoes what i
   with the notes given; `resize(node, vmid, disk, size)` grows a disk, never shrinking one; `start`, `shutdown` (with
   its `timeout` and `force_stop`), `stop`, `to_template` and `delete(node, vmid, purge=True)`, which takes the disks its
   configuration no longer lists but that carry its VMID too, as today's role does (`destroy-unreferenced-disks`). Each
-  answers a `Task` (its node, UPID, kind and VM; a clone's, the new VM's). `pool_add(poolid, vmids)` answers nothing,
-  since `PUT /pools` makes the change in the call, and is refused a guest the token does not hold. The VMID to clone
-  onto, the record's text and any sequence of calls are the workflows' (16.4), not the client's.
+  answers a `Task` (its node, UPID, kind and VM; a clone's, the new VM's). No write changes a pool: a new VM joins the
+  fleet's pool through its clone's `pool`. The VMID to clone onto, the record's text and any sequence of calls are the
+  workflows' (16.4), not the client's.
 - **Every write of a VM's configuration sends `digest`.** `write_config(node, vmid, changes, digest)` is one `PUT`,
   synchronous: Proxmox writes the changes only while the configuration is still the one whose digest the write sends,
   in the call itself and under the VM's lock, so a `POST`'s window, a check at the call and the write in a task that a
@@ -401,9 +401,11 @@ or `node` - or no privilege and no kind for a call that needs none (the version,
 permissions). A call that needs several privileges has a row for each, and needs every one. The rows are Proxmox VE
 9's names alone, read for each call from Proxmox's source and API viewer, until a real host is read for them. A
 configuration's write has a row for each group of the keys the client sends; a resize needs `Datastore.AllocateSpace`
-on the storage its disk is on, which its VM's configuration names; and a guest added to a pool needs `VM.Allocate` on
-its own path beside `Pool.Allocate` on the pool, so that a token whose role is on its pool alone takes no guest into it
-that it does not already hold.
+on the storage its disk is on, which its VM's configuration names. No call writes a pool, so of `Pool.*` the table
+names `Pool.Audit` alone, and the role on the pool holds no other: a new VM joins the fleet's pool through its clone's
+`pool`, which needs `VM.Allocate` on the pool, and the VMs a fleet already had join it over root SSH, as `init
+--migrate` adds them. A token whose role is on its pool alone could add no guest it did not already hold, and
+`Pool.Allocate` would let it rewrite its pool's comment, the fleet's mark, and delete the pool once empty.
 Two functions read it: `needed(on)`, the privileges the table needs on one kind of path, which `init` makes the
 engine's role of and grants, and the permission check compares with what the token holds (on a pool, with every
 privilege checked on a VM, which the pool's members take from it); and `for_request(method, path)`, the rows of one
@@ -414,7 +416,28 @@ that on, and keeps no table of its own, so a test proves what the token can and 
 grants. `tests/unit/test_aw_pve_privileges.py` holds every privilege to a list of Proxmox VE 9's, the module to the
 standard library, the rows' shape, and the fake and the harness to no privilege name of their own but today's.
 
-The guest agent's calls are card B6's, and `status` moves onto the client in its own workstream.
+**A started VM's address: `agent.py`.** The client's one call to the guest agent, `agent_interfaces(node, vmid,
+deadline)`, asks what the VM's agent reports of its network cards (`network-get-interfaces`, `VM.GuestAgent.Audit`) on a
+transport of its own, whose reads wait `AGENT_READ` (10 s) where every other read waits 30, since Proxmox asks the VM
+before it answers. It answers an `Interfaces` record; a VM that is not running is `NotRunning`, told by Proxmox's words
+on its 500 as the writes' refusals are; an agent that does not answer yet is `Refused`. The agent runs inside the VM, so
+all it reports is the VM's to choose: of its answer the record keeps each card's name and MAC and each address's
+address, type and prefix where each is a plain value, and nothing the VM nests deeper.
+
+- `address(interfaces, mac)` is the VM's address: the IPv4 address today's `checks.guest_ipv4` takes, as it stands, on
+  the card whose MAC is `mac`, the one the VM's configuration gives - never a bridge the guest grows later - and only
+  what `ipaddress.IPv4Address` parses as one address a card answers at, never `0.0.0.0`, multicast, broadcast, the
+  reserved range, or an address with a newline and a `ProxyCommand` after it. Of two good addresses on the card it
+  takes the first, as today. An answer of any other shape is no address, never an error.
+- `wait_for_address(client, node, vmid, mac, deadline, cancelled)` is a coroutine that polls the agent, each poll the
+  blocking client in a thread and held to what is left of the deadline, with pauses growing to today's five seconds
+  (`PAUSES`; `DEADLINE`, 300 s, is today's 60 polls), until the card has an address. It stops at once where waiting
+  cannot help - `Denied` at the first 401 or 403, `NotRunning` for a VM that is not running, at the first poll or the
+  first after it stopped - and at the deadline raises `NoAddress`, which says what the last poll met. It ends with
+  `asyncio.CancelledError` once the run's `cancelled` is set, between polls or during one, whose thread ends by its own
+  limits and is not read.
+
+`status` moves onto the client in its own workstream.
 `tests/unit/test_aw_pve_reads.py` runs every read against the fake Proxmox, which serves a node's
 certificate from `tests/unit/pki.py` (`harness.fake_fleet`'s `certificate`), with the engine's pool and token, granted
 as `init` grants them and held to the table, so every read is a call the table has a row for. For an
@@ -431,7 +454,15 @@ answer a tunnel of the test's own cuts, `Unknown` with one request in the fake's
 one past its deadline. Its rules: every method that sends a `PUT` to a configuration's path sends `digest` (a
 syntax-tree test of the module); `CONFIG_KEYS`' privileges are the table's rows for the write; every row of the table
 names a method of the client; the words the client tells refusals apart by match the fake's constants; and no error of
-a write or a read says the token's secret where Proxmox's words echo it.
+a write or a read says the token's secret where Proxmox's words echo it. `tests/unit/test_aw_pve_agent.py` runs the
+wait against the fake in the same way, with what a VM's agent reports planted as its root would make it say: an agent
+that fails its first two polls; one that never answers, ended at the deadline and not later; a token without the
+agent's privilege, `Denied` with one request made; a stopped VM, and one that stops while it is waited for; `0.0.0.0`,
+a multicast address, two addresses in one, a `ProxyCommand` after an address, and an address on another card, each no
+address; shapes of an answer that raise nothing; and the run stopping between polls and during one. Its rules: the
+agent's calls go on connections whose reads wait less; the words that tell a stopped VM are the fake's; and no error
+of the wait says the token's secret. `tests/unit/test_aw_pve_privileges.py` holds that no call writes a pool and that
+the role on the pool holds no `Pool.*` privilege but `Pool.Audit`.
 
 ## 16.6 `ssh/` — the runner over OpenSSH
 
