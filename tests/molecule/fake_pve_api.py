@@ -84,12 +84,35 @@ the fake was started with, the noagent one among them - as above, from the
 table and the whole role. A token made through /access is answered from the
 ACL entries, as PVE/RPCEnvironment.pm computes them: down from / to the path,
 the deepest entries naming it win, an entry above the path only where it
-propagates; a guest or a storage that is a pool's member also takes each role
-held on /pool/<name> that its own path lacks, without propagate, whatever the
-pool's entry says; a token with privsep=0 holds its user's privileges, one with
-privsep=1 its own entries' cut to what its user holds, propagating where both
-do. Everything else a made token asks is answered as a today's token's is:
-nothing is refused for lack of a privilege.
+propagates, and NoAccess among them stands alone; a guest or a storage that is
+a pool's member (of each pool that holds it) also takes each role held on
+/pool/<name> that its own path lacks, without propagate, whatever the pool's
+entry says - but never over a NoAccess of its own path, and a pool's NoAccess
+leaves it NoAccess alone; a token with privsep=0 holds its user's privileges,
+one with privsep=1 its own entries' cut to what its user holds, propagating
+where both do. The roles Proxmox has from the start are there: NoAccess, with
+no privileges, and those of the stand-in pveum beside this file
+(fake_pve_cli.py: PVEAuditor), none of which can be made again; a role takes
+only the privileges Proxmox VE 9 defines, as that stand-in knows them. A clone
+a made token sends into a pool that does not exist is refused, as
+check_pool_exist refuses it.
+
+Everything else a made token asks is answered as a today's token's is, nothing
+refused for lack of a privilege, until a fixture turns enforcement on with PUT
+/api2/json/fake/enforce?on=1 (on=0 turns it off): then each request of a made
+token is held to the engine's one table of privileges,
+lib/claude_vm/pve/privileges.py, read from the checkout's lib/ beside this file,
+the fake keeping none of its own. A request is refused (403) where the token
+lacks, on its path, the privilege a row of its call names - the path the
+request's own path names, or its parameters (a clone's pool and storage, a
+pool's poolid; a clone with no pool on the new VM's path, with no storage on its
+source's disk's) - by the same function that answers GET /access/permissions;
+a task's owner needs nothing to read it; a listing (/cluster/resources, a node's
+storages and bridges, the pools) shows each entry only where the token holds
+what its row names on it, and a node's figures only so; and a call no row names
+is refused the same way and recorded in <state_dir>/unmatched.log. A request to
+a node that is down still gets its 595, as pveproxy answers it before the
+node's own check. Today's tokens are answered as now, enforcement or not.
 
 A second token id, "noagent", stands for a token created without the
 guest-agent privilege (VM.Monitor on PVE 8, VM.GuestAgent.Audit on 9): every
@@ -132,7 +155,9 @@ refusal's status and words are the constants below the imports, for experiment 6
 Where Proxmox takes two calls and fails the loser in its worker, PUT /api2/json/fake/clone-race has the next clone onto
 a VMID this node's VM holds, and the next configuration POST with a stale digest, each pass the call as the loser of a
 race did, answer a UPID and fail in its task, changing nothing: the clone with the words its worker finds, the lock's
-timeout while the winner's clone runs, else that the file exists; the POST with the digest's refusal.
+timeout while the winner's clone runs, else that the file exists; the POST with the digest's refusal. Each is armed
+unless the fixture gives it 0 (clone=0, config=0, which also disarms one armed before), and each is spent once it has
+changed an outcome.
 
 Every call that answers a UPID makes a task of it, recorded by its UPID in <state_dir>/tasks.json - its type, the
 token that made it, its VM - and what the call changes is changed when its task ends, but for a clone's VM, there
@@ -158,6 +183,7 @@ Usage: fake_pve_api.py <port> <certfile> <keyfile> <state_dir> <expected_token_s
 """
 
 import hashlib
+import importlib.util
 import json
 import re
 import ssl
@@ -206,6 +232,17 @@ NO_SUCH_STORAGE = "storage '{storage}' does not exist"
 STORAGE_NOT_ON_NODE = "storage '{storage}' is not available on node '{node}'"
 STORAGE_NOT_SHARED = "can't clone to non-shared storage '{storage}'"
 DISK_NOT_SHARED = "can't clone VM to node '{node}' (VM uses local storage)"
+# Under enforcement (PUT /api2/json/fake/enforce?on=1), a request of a token made through /access that lacks the
+# privilege a row of the engine's table names on its path: raise_perm_exc's words (PVE/RPCEnvironment.pm), the path and
+# the privilege.
+PERMISSION_REFUSED_STATUS = 403
+PERMISSION_REFUSED = "Permission check failed ({path}, {privilege})"
+# A call no row of the engine's table names, refused the same way: the fake's own words, since Proxmox keeps no table.
+NO_ROW = "Permission check failed (no row of the engine's table names {method} {path})"
+# A clone a token made through /access sends into a pool that does not exist: check_pool_exist's words, a 403.
+NO_SUCH_POOL = "Permission check failed (pool '{pool}' does not exist)"
+# A role made with a privilege Proxmox VE 9 does not define: add_role_privs' words, after create_role's label.
+INVALID_PRIVILEGE = "invalid privilege '{privilege}'"
 
 PORT = int(sys.argv[1])
 CERT, KEY = sys.argv[2], sys.argv[3]
@@ -326,7 +363,7 @@ TASK_FAIL = []
 CLONE_INHERITS = {"tags": 1, "description": 1}
 # Whether the next clone onto a VMID this node's VM holds, and the next configuration POST with a stale digest, each
 # lost a race: its call's checks passed before the winner's change landed, and its task fails.
-# PUT /api2/json/fake/clone-race
+# PUT /api2/json/fake/clone-race?clone=&config=, each 1 unless given 0
 RACE = {"clone": 0, "config": 0}
 # The most bytes a VM's description may hold, 0 for no limit: PUT /api2/json/fake/notes-limit?bytes=N.
 NOTES_LIMIT = {"bytes": 0}
@@ -362,13 +399,50 @@ POOL_SCOPE = {}
 # guest's pool is its own "pool", as before, so a pool a guest is a member of exists made or not: pool_names() is every
 # pool.
 POOLS = {}
-# What /access made, as Proxmox keeps it in user.cfg: each user's expire; each role's privileges; each ACL entry,
-# (path, "user" or "token", its ID, the role) to its propagate flag; each token by its full ID, user@realm!tokenid, with
-# its secret (value), privsep, expire and comment.
+# What /access made, as Proxmox keeps it in user.cfg: each user's expire; each ACL entry, (path, "user" or "token", its
+# ID, the role) to its propagate flag; each token by its full ID, user@realm!tokenid, with its secret (value), privsep,
+# expire and comment. Each role's privileges are ROLES, below.
 USERS = {}
-ROLES = {}
 ACL = {}
 TOKENS = {}
+
+
+def stand_in():
+    """The stand-in pveum beside this file (fake_pve_cli.py), whose lists of what Proxmox VE defines this fake reads
+    too; None for a copy of this file alone, as the Molecule scenarios install it, where nothing asks /access for
+    them."""
+    path = Path(__file__).with_name("fake_pve_cli.py")
+    if not path.exists():
+        return None
+    spec = importlib.util.spec_from_file_location("fake_pve_cli", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+CLI = stand_in()
+# The privileges Proxmox VE 9 defines, as the stand-in knows them: a role takes these alone.
+DEFINED = frozenset({*CLI.COMMON, *CLI.BY_MAJOR[9]}) if CLI else frozenset()
+# The roles Proxmox has from the start, which no POST /access/roles makes again: NoAccess, with no privileges, and the
+# stand-in's own (PVEAuditor). With them, each role /access made.
+ROLES = {"NoAccess": set(), **{name: set(privs) for name, privs in (CLI.DEFAULT["roles"] if CLI else {}).items()}}
+# Whether a made token's requests are held to the engine's table (PUT /api2/json/fake/enforce?on=1), and the table:
+# lib/claude_vm/pve/privileges.py, read from the checkout's lib/ beside this file when enforcement is first turned on.
+ENFORCE = {"on": 0}
+LIB = Path(__file__).resolve().parents[2] / "lib"
+TABLE = []
+
+
+def table():
+    """The engine's table of privileges, the one place this fake learns what a call needs."""
+    if not TABLE:
+        sys.path.insert(0, str(LIB))
+        from claude_vm.pve import privileges
+
+        TABLE.append(privileges)
+    return TABLE[0]
+
+
 # GET /access/permissions without a path, for a token made through /access: these paths, every path of an ACL entry and
 # its parents, and every pool member's, each where the token holds something (PVE/RPCEnvironment.pm).
 TOP_PATHS = ("/", "/access", "/access/groups", "/nodes", "/pool", "/sdn", "/storage", "/vms")
@@ -442,7 +516,8 @@ def pool_names():
 def acl_roles(kind, who, path):
     """The roles who holds at path from the ACL entries, each with its propagate flag, as Proxmox reads them
     (PVE::AccessControl::roles): from / down to path, the entries naming who at the deepest level that has any win, one
-    above path only where it propagates. A token's are its "token" entries, a user's its "user" entries."""
+    above path only where it propagates; where NoAccess is among them, NoAccess alone. A token's are its "token"
+    entries, a user's its "user" entries."""
     names = [part for part in path.split("/") if part]
     held = {}
     for depth in range(len(names) + 1):
@@ -452,13 +527,14 @@ def acl_roles(kind, who, path):
         }
         if found:
             held = found
-    return held
+    return {"NoAccess": held["NoAccess"]} if "NoAccess" in held else held
 
 
 def roles_at(kind, who, path):
-    """acl_roles, and where path is a pool member's - a guest's /vms/<id>, a storage's /storage/<id> - each role held on
-    the pool that path's own lack, without propagate and whatever the pool's entry says (PVE::RPCEnvironment,
-    compile_acl_path)."""
+    """acl_roles, and where path is a pool member's - a guest's /vms/<id>, a storage's /storage/<id> in each pool that
+    holds it - each role held on its pools that path's own lack, without propagate and whatever the pool's entry says;
+    but a NoAccess of the path's own is never trumped by a pool's, and a pool's NoAccess leaves NoAccess alone
+    (PVE::RPCEnvironment, compile_acl_path)."""
     held = dict(acl_roles(kind, who, path))
     guest = re.fullmatch(r"/vms/(\d+)", path)
     storage = re.fullmatch(r"/storage/([^/]+)", path)
@@ -467,9 +543,15 @@ def roles_at(kind, who, path):
         pools = [VMS[int(guest[1])]["pool"]]
     elif storage:
         pools = [name for name, pool in POOLS.items() if storage[1] in pool["storage"]]
+    pooled = {}
     for pool in pools:
-        for role in acl_roles(kind, who, f"/pool/{pool}"):
-            held.setdefault(role, 0)
+        pooled.update(acl_roles(kind, who, f"/pool/{pool}"))
+    if not pooled or "NoAccess" in held:
+        return held
+    if "NoAccess" in pooled:
+        return {"NoAccess": 0}
+    for role in pooled:
+        held.setdefault(role, 0)
     return held
 
 
@@ -616,11 +698,11 @@ def resource(vm):
     return entry
 
 
-def resource_for(vm, token_id):
+def resource_for(vm, pooled):
     """resource(vm) as the token sees it: as Proxmox (PVE/API2/Cluster.pm), the pool a guest is a member of only where
-    the token holds Pool.Audit on that pool, and no key for one that is in none."""
+    the token may audit that pool (pooled), and no key for one that is in none."""
     entry = resource(vm)
-    if vm.get("pool") and "Pool.Audit" in privileges(token_id, f"/pool/{vm['pool']}"):
+    if vm.get("pool") and pooled:
         entry["pool"] = vm["pool"]
     return entry
 
@@ -817,12 +899,69 @@ class Handler(BaseHTTPRequestHandler):
         finds nothing to fail it, where there is one."""
         return new_task(kind, vmid, self.owner, lambda ok: ok and change(), check=check)
 
+    def _refusal(self, method, parts, params):
+        """Under enforcement, why the engine's table refuses this request of a made token; "" where it may go on. Each
+        row of its call is held on the ACL path its path names, or its parameters, by acl_privileges, which answers GET
+        /access/permissions too; a row of neither is a listing's, whose entries are each shown only where it is held
+        (self.entries, _sees). A task's owner needs nothing to read it. A call no row names is refused, and recorded in
+        unmatched.log for harness.fake_fleet(enforce=True) to fail on."""
+        path = "/" + "/".join(parts)
+        rows = table().for_request(method, path)
+        if not rows:
+            with STATE_DIR.joinpath("unmatched.log").open("a") as log:
+                log.write(json.dumps({"method": method, "path": path}) + "\n")
+            return NO_ROW.format(method=method, path=path)
+        task = TASK_RECORDS.get(parts[3], {}) if parts[2:3] == ["tasks"] and len(parts) > 3 else {}
+        for call, at in rows:
+            if call.privilege is None or task.get("owner") == self.owner:
+                continue
+            at = at or self._named(call.on, parts, params)
+            if at is None and method == "GET":
+                self.entries[call.on] = call.privilege
+                continue
+            if at is None or call.privilege not in acl_privileges(self.owner, at):
+                return PERMISSION_REFUSED.format(path=at or call.on, privilege=call.privilege)
+        return ""
+
+    @staticmethod
+    def _named(kind, parts, params):
+        """The ACL path a call names in its parameters for a row of kind that its path does not name: a pool by pool
+        or poolid, a storage by storage; a clone with no pool is checked on the new VM's own path, and with no storage
+        on its source's disk's (qemu-server's clone_vm, check_storage_access_clone). None for a listing."""
+        clone = len(parts) == 5 and parts[2] == "qemu" and parts[4] == "clone" and parts[3].isdigit()
+        if kind == "pool" and (params.get("pool") or params.get("poolid")):
+            return f"/pool/{params.get('pool') or params.get('poolid')}"
+        if kind == "pool" and clone and params.get("newid"):
+            return f"/vms/{params['newid']}"
+        if kind == "storage" and params.get("storage"):
+            return f"/storage/{params['storage']}"
+        if kind == "storage" and clone and int(parts[3]) in VMS:
+            return "/storage/" + str(VMS[int(parts[3])]["config"].get("scsi0", "")).split(":", 1)[0]
+        return None
+
+    def _sees(self, kind, path, today):
+        """Whether this request's token sees the entry of kind at path in a listing: under enforcement, a made token
+        where it holds what its call's row names on that kind; any other, today's answer, today."""
+        if not self.enforced:
+            return today
+        privilege = self.entries.get(kind)
+        return privilege is not None and privilege in acl_privileges(self.owner, path)
+
+    def _pooled(self, vm, token_id):
+        """Whether the cluster's listing names vm's pool to this request's token: where it may audit that pool."""
+        if not vm.get("pool"):
+            return False
+        at = f"/pool/{vm['pool']}"
+        return self._sees("pool", at, "Pool.Audit" in privileges(token_id, at))
+
     def _pools(self, method, poolid, params, token, deprecated):
         """/pools, and the deprecated /pools/<poolid>, as pve-manager's PVE/API2/Pool.pm answers them."""
         if method == "GET" and not poolid:
             # The pools the token may read, as ?type=pool lists them.
             audited = [
-                name for name in sorted(pool_names()) if "Pool.Audit" in privileges(token.group(2), f"/pool/{name}")
+                name
+                for name in sorted(pool_names())
+                if self._sees("pool", f"/pool/{name}", "Pool.Audit" in privileges(token.group(2), f"/pool/{name}"))
             ]
             return self._reply(200, [{"poolid": name, **POOLS.get(name, {}).get("info", {})} for name in audited])
         if not poolid:
@@ -922,7 +1061,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._reply(400, None, "Parameter verification failed.")
             if roleid in ROLES:
                 return self._refused("create role failed", f"role '{roleid}' already exists")
-            ROLES[roleid] = set(split_list(params.get("privs")))
+            if not DEFINED:
+                return self._reply(501, None, "no list of Proxmox VE's privileges beside this copy of the fake")
+            privs = set(split_list(params.get("privs")))
+            unknown = sorted(privs - DEFINED)
+            if unknown:
+                return self._refused("create role failed", INVALID_PRIVILEGE.format(privilege=unknown[0]))
+            ROLES[roleid] = privs
             return self._reply(200, None)
         if rest == ["acl"] and method == "PUT":
             return self._acl(params)
@@ -1027,6 +1172,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._reply_empty(401, "authentication failure")
         # The token a task this request makes is recorded as made by.
         self.owner = f"{token.group(1)}!{token.group(2)}"
+        # Under enforcement a made token is held to the engine's table; what a listing shows it of each kind of entry is
+        # the privilege its call's row names (_refusal fills it).
+        self.made = bool(made)
+        self.enforced = self.made and bool(ENFORCE["on"])
+        self.entries = {}
 
         parts = [unquote(p) for p in path.removeprefix("/api2/json").strip("/").split("/")]
         if token.group(2) == NOAGENT_TOKEN_ID and "agent" in parts:
@@ -1046,6 +1196,21 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", "0")
             self.end_headers()
             return None
+        if parts[:2] == ["fake", "enforce"] and method == "PUT":
+            # Not a PVE endpoint: a made token's requests held to the engine's table, or no longer.
+            if truthy(params.get("on", "1")):
+                try:
+                    table()
+                except ImportError:
+                    return self._reply(501, None, f"no table of the engine's privileges under {LIB}")
+            ENFORCE["on"] = int(truthy(params.get("on", "1")))
+            return self._reply(200, dict(ENFORCE))
+        # A node that is down answers nothing: pveproxy says 595 before that node could check a privilege.
+        down = parts[:2] == ["nodes", DOWN_NODE] and not NODES_ONLINE[DOWN_NODE]
+        if self.enforced and parts[:1] != ["fake"] and not down:
+            refused = self._refusal(method, parts, params)
+            if refused:
+                return self._reply(PERMISSION_REFUSED_STATUS, None, refused)
         if parts[:2] == ["fake", "version"] and method == "PUT":
             # Not a PVE endpoint: a fixture's Proxmox version.
             VERSION["version"] = params["version"]
@@ -1122,8 +1287,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._reply(200, ended)
         if parts[:2] == ["fake", "clone-race"] and method == "PUT":
             # Not a PVE endpoint: the next clone onto a VMID this node's VM holds, and the next configuration POST with
-            # a stale digest, each lose a race in their tasks.
-            RACE.update(clone=1, config=1)
+            # a stale digest, each lose a race in their tasks; each armed unless given 0, which disarms it.
+            RACE.update({key: int(truthy(params.get(key, "1"))) for key in RACE})
             return self._reply(200, dict(RACE))
         if parts[:2] == ["fake", "clone-inherits"] and method == "PUT":
             # Not a PVE endpoint: whether a clone takes its source's tags and description.
@@ -1141,7 +1306,8 @@ class Handler(BaseHTTPRequestHandler):
                 if node == DOWN_NODE and not NODES_ONLINE[DOWN_NODE]:
                     continue
                 for entry in entries:
-                    if "Datastore.Audit" not in privileges(token.group(2), "/storage/" + entry["storage"]):
+                    at = "/storage/" + entry["storage"]
+                    if not self._sees("storage", at, "Datastore.Audit" in privileges(token.group(2), at)):
                         continue
                     listed.append(storage_resource(node, entry))
             return self._reply(200, listed)
@@ -1150,7 +1316,7 @@ class Handler(BaseHTTPRequestHandler):
             listed = [
                 {"id": f"/pool/{name}", "type": "pool", "pool": name}
                 for name in sorted(pool_names())
-                if "Pool.Audit" in privileges(token.group(2), f"/pool/{name}")
+                if self._sees("pool", f"/pool/{name}", "Pool.Audit" in privileges(token.group(2), f"/pool/{name}"))
             ]
             return self._reply(200, listed)
         if parts == ["cluster", "resources"] and params.get("type") == "node":
@@ -1160,7 +1326,8 @@ class Handler(BaseHTTPRequestHandler):
             for n, s in nodes:
                 entry = {"id": f"node/{n}", "type": "node", "node": n, "status": s, "level": ""}
                 audited = (token.group(2), f"/nodes/{n}") in PRIVILEGES
-                if s == "online" and audited and "Sys.Audit" in privileges(token.group(2), f"/nodes/{n}"):
+                today = audited and "Sys.Audit" in privileges(token.group(2), f"/nodes/{n}")
+                if s == "online" and self._sees("node", f"/nodes/{n}", today):
                     entry |= NODE_STATS
                 listed.append(entry)
             return self._reply(200, listed)
@@ -1192,7 +1359,9 @@ class Handler(BaseHTTPRequestHandler):
                     save_state()
             scope = POOL_SCOPE.get(token.group(2))
             entries = [
-                resource_for(vm, token.group(2)) for vm in VMS.values() if scope is None or vm.get("pool") == scope
+                resource_for(vm, self._pooled(vm, token.group(2)))
+                for vm in VMS.values()
+                if (scope is None or vm.get("pool") == scope) and self._sees("vm", f"/vms/{vm['vmid']}", True)
             ]
             for entry in entries:
                 stale = STALE.get(entry["vmid"])
@@ -1237,13 +1406,18 @@ class Handler(BaseHTTPRequestHandler):
             seen = [
                 {"active": 1, **entry, "content": "images,rootdir", "enabled": 1, "shared": entry.get("shared", 0)}
                 for entry in STORAGES.get(parts[1], [])
-                if sees & set(privileges(token.group(2), "/storage/" + entry["storage"]))
+                if self._sees(
+                    "storage",
+                    "/storage/" + entry["storage"],
+                    bool(sees & set(privileges(token.group(2), "/storage/" + entry["storage"]))),
+                )
             ]
             return self._reply(200, seen)
         if parts[:1] == ["nodes"] and parts[2:3] == ["storage"] and parts[4:] == ["content"]:
             # The disks on one storage, each VM's scsi0 that is on it; only with Datastore.Audit there.
             storage = parts[3]
-            if "Datastore.Audit" not in privileges(token.group(2), "/storage/" + storage):
+            # Under enforcement, the engine's table has held a made token to its row already.
+            if not self.enforced and "Datastore.Audit" not in privileges(token.group(2), "/storage/" + storage):
                 return self._reply(403, None, f"Permission check failed (/storage/{storage}, Datastore.Audit)")
             volumes = []
             for vm in VMS.values():
@@ -1264,7 +1438,13 @@ class Handler(BaseHTTPRequestHandler):
             seen = [
                 {"iface": bridge, "type": "bridge", "active": 1, "autostart": 1}
                 for bridge in BRIDGES.get(parts[1], [])
-                if {"SDN.Audit", "SDN.Use"} & set(privileges(token.group(2), "/sdn/zones/localnetwork/" + bridge))
+                if self._sees(
+                    "bridge",
+                    "/sdn/zones/localnetwork/" + bridge,
+                    bool(
+                        {"SDN.Audit", "SDN.Use"} & set(privileges(token.group(2), "/sdn/zones/localnetwork/" + bridge))
+                    ),
+                )
             ]
             return self._reply(200, seen)
         # Either node, once up: a VM is served on the node it is on.
@@ -1272,7 +1452,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._reply(404, None)
         node, rest = parts[1], parts[2:]
         if rest == ["status"] and method == "GET":
-            if "Sys.Audit" not in privileges(token.group(2), f"/nodes/{node}"):
+            if not self.enforced and "Sys.Audit" not in privileges(token.group(2), f"/nodes/{node}"):
                 return self._reply(403, None, f"Permission check failed (/nodes/{node}, Sys.Audit)")
             return self._reply(200, node_status())
         if rest == ["qemu"]:
@@ -1375,6 +1555,9 @@ class Handler(BaseHTTPRequestHandler):
             written()
             return self._reply(200, None)
         if sub == ["clone"] and method == "POST":
+            if self.made and params.get("pool") and params["pool"] not in pool_names():
+                # As Proxmox's check_pool_exist, for the tokens made through /access: today's keep today's answer.
+                return self._reply(PERMISSION_REFUSED_STATUS, None, NO_SUCH_POOL.format(pool=params["pool"]))
             newid = int(params["newid"])
             # As Proxmox: the call refuses a VMID whose configuration file this node holds; one a container or
             # another node's VM holds, and one a race's winner took after the loser's call was checked (RACE), pass it,
@@ -1583,7 +1766,8 @@ class Handler(BaseHTTPRequestHandler):
 
 save_state()
 # One request at a time, on purpose: each check and the write after it - a digest, a VMID, a lock - is atomic only so,
-# and a threaded server would make every one racy. tests/unit/test_aw_fake_pve.py sends requests at once to hold it.
+# and a threaded server would make every one racy. tests/unit/test_aw_fake_pve.py holds it with a request that stalls
+# half sent while another waits (test_the_fake_answers_one_request_at_a_time).
 server = HTTPServer(("0.0.0.0", PORT), Handler)
 ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 ctx.load_cert_chain(CERT, KEY)

@@ -1,10 +1,12 @@
 """The Proxmox client's reads (lib/claude_vm/pve/client.py, answers.py and pin.py; docs/architecture/engine.md §16.5).
 
 Every read goes to the fake Proxmox (tests/molecule/fake_pve_api.py) through harness.fake_fleet, serving a node's
-certificate that tests/unit/pki.py made, with the new engine's pool and its one token: the client sends nothing until
-the certificate verifies against what the host keeps - its anchor, the node's own certificate (with its fingerprint
-recorded) or its CA, or with no anchor the computer's one certificate file - and a certificate that is not what the
-host keeps leaves the fake's request log without one request of the client's. The first request is GET /version, and a
+certificate that tests/unit/pki.py made, with the new engine's pool and its one token, granted as init grants it and
+held to the engine's table of privileges (enforce): every request a read sends is a call the table has a row for,
+answered only where the token holds that row's privilege. The client sends nothing until the certificate verifies
+against what the host keeps - its anchor, the node's own certificate (with its fingerprint recorded) or its CA, or with
+no anchor the computer's one certificate file - and a certificate that is not what the host keeps leaves the fake's
+request log without one request of the client's. The first request is GET /version, and a
 host below 9 is refused before any other. A redirect is an answer; a 401 or a 403 is Denied by its status alone; a
 node that is down fails its own reads alone. The rules at the end hold the token to one class: PVEAPIToken is written
 in one module of the new engine, no method returns the token, and no error says it.
@@ -20,12 +22,12 @@ import types
 from pathlib import Path
 
 import pytest
-from harness import ENGINE_POOL, ENGINE_PRIVILEGES, ENGINE_TOKEN, REPO, _pve, _pve_requests, engine_token, fake_fleet
+from harness import ENGINE_POOL, ENGINE_TOKEN, REPO, _pve, _pve_requests, engine_grant, engine_token, fake_fleet
 from pki import proxmox_pki
 from test_aw_transport import _new_engine, _rel, _said, _Tunnel
 
 from claude_vm import proxmox, trust
-from claude_vm.pve import answers, pin
+from claude_vm.pve import answers, pin, privileges
 from claude_vm.pve.client import Denied, Malformed, Proxmox, Refused, Token, TooOld, Unverified
 from claude_vm.secret import Secret
 from claude_vm.vendors import proxy
@@ -71,7 +73,14 @@ class Fleet:
 
 
 def _fleet(directory: Path, served: dict, **kwargs):
-    for base in fake_fleet(directory, engine=True, certificate=(served["cert"], served["key"]), **kwargs):
+    """The fake with the engine's token held to its table, granted, beside the role on its pool, what init grants by
+    default (card E1): VM.Audit on /vms, and what the table needs on the storage and on the bridge. Sys.Audit on the
+    node is each test's to grant."""
+    certificate = (served["cert"], served["key"])
+    for base in fake_fleet(directory, engine=True, certificate=certificate, enforce=True, **kwargs):
+        engine_grant(base, "/vms", "VM.Audit")
+        engine_grant(base, "/storage/local-lvm", ",".join(sorted(privileges.needed("storage"))))
+        engine_grant(base, "/sdn/zones/localnetwork/vmbr0", ",".join(sorted(privileges.needed("bridge"))))
         token_id, secret = engine_token(directory)
         yield Fleet(base, directory, Token(token_id, Secret(secret)), served)
 
@@ -185,7 +194,7 @@ def test_a_node_s_status_with_sys_audit_and_denied_without(fleet) -> None:
         with pytest.raises(Denied) as denied:
             client.node_status("pve")
         assert denied.value.status == 403
-        _pve(fleet.base, "PUT", "fake/privileges", token=ENGINE_TOKEN, path="/nodes/pve", privs="Sys.Audit")
+        engine_grant(fleet.base, "/nodes/pve", "Sys.Audit")
         node = client.node_status("pve")
     assert (node.node, node.cpus, node.memory_total, node.memory_used, node.uptime) == (
         "pve",
@@ -197,6 +206,8 @@ def test_a_node_s_status_with_sys_audit_and_denied_without(fleet) -> None:
 
 
 def test_a_task_s_status_and_log_ended_running_and_failed(fleet) -> None:
+    # Tasks today's token made: another's task is read with Sys.Audit on its node, which init grants.
+    engine_grant(fleet.base, "/nodes/pve", "Sys.Audit")
     ended = _pve(fleet.base, "POST", "nodes/pve/qemu/9012/status/start")["data"]
     _pve(fleet.base, "PUT", "fake/task-polls", polls=1)
     running = _pve(fleet.base, "POST", "nodes/pve/qemu/9011/status/shutdown")["data"]
@@ -228,7 +239,7 @@ def test_a_node_s_storages_and_bridges_as_init_asks_them(fleet) -> None:
 def test_the_token_s_permissions_on_the_pool(fleet) -> None:
     with fleet.client() as client:
         held = client.permissions(f"/pool/{ENGINE_POOL}")
-    assert held.path == f"/pool/{ENGINE_POOL}" and set(held.privileges) == set(ENGINE_PRIVILEGES.split())
+    assert held.path == f"/pool/{ENGINE_POOL}" and set(held.privileges) == privileges.needed("pool")
     assert all(held.privileges.values())
 
 
@@ -436,9 +447,10 @@ def test_a_401_and_a_403_are_denied(fleet) -> None:
     with fleet.client(token=wrong) as client, pytest.raises(Denied) as unknown:
         client.version()
     assert unknown.value.status == 401
-    _pve(fleet.base, "PUT", "fake/privileges", token=ENGINE_TOKEN, path="/storage/local-lvm", privs="")
+    # A storage the token holds nothing on.
+    _pve(fleet.base, "PUT", "fake/storages", node="pve", storages="local-lvm:lvmthin,nas:nfs")
     with fleet.client() as client, pytest.raises(Denied) as refused:
-        client.read("nodes/pve/storage/local-lvm/content")
+        client.read("nodes/pve/storage/nas/content")
     assert refused.value.status == 403
 
 
@@ -569,7 +581,7 @@ def _holds_a_secret(value, seen=None) -> bool:
 def test_no_read_returns_the_token_or_its_secret(fleet) -> None:
     secret = fleet.token.secret.reveal()
     _members(fleet, 9010)
-    _pve(fleet.base, "PUT", "fake/privileges", token=ENGINE_TOKEN, path="/nodes/pve", privs="Sys.Audit")
+    engine_grant(fleet.base, "/nodes/pve", "Sys.Audit")
     upid = _pve(fleet.base, "POST", "nodes/pve/qemu/9012/status/start")["data"]
     with fleet.client() as client:
         got = [

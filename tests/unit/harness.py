@@ -1224,21 +1224,22 @@ ENGINE_POOL = "aw-fleet"
 ENGINE_ROLE = "AgentWarehouse"
 ENGINE_USER = "agent-warehouse@pve"
 ENGINE_TOKEN = "aw"
-# The role's privileges until the engine's own table of them names what it holds: what tools/proxmox-access.sh --pool
-# grants today's token on the pool, on Proxmox VE 9.
-ENGINE_PRIVILEGES = (
-    "VM.Allocate VM.Clone VM.Config.CPU VM.Config.Cloudinit VM.Config.Disk VM.Config.Memory VM.Config.Network"
-    " VM.Config.Options VM.PowerMgmt VM.Audit VM.GuestAgent.Audit Pool.Audit"
-)
 
 
 def fake_fleet(
-    directory: Path, version: str = "9.2.21", engine: bool = False, certificate: tuple[Path, Path] | None = None
+    directory: Path,
+    version: str = "9.2.21",
+    engine: bool = False,
+    certificate: tuple[Path, Path] | None = None,
+    enforce: bool = False,
 ):
     """The fake Proxmox, on VE 9 unless told, with alpha and beta running and their agents up, and gamma stopped;
     its URL. With engine, also the new engine's pool, role, user and token, the role granted the user and the token on
     the pool: engine_token(directory) gives the token's ID and secret. It serves certificate, its file and its key's,
-    where given (a node's of tests/unit/pki.py, which a client can verify), else one of its own, self-signed."""
+    where given (a node's of tests/unit/pki.py, which a client can verify), else one of its own, self-signed. With
+    enforce, the fake holds every request of a token made through /access to the engine's table of privileges
+    (lib/claude_vm/pve/privileges.py), and the test fails at its end where one of them named a call no row of the table
+    names."""
     for base in _fake_pve(directory, certificate):
         _pve(base, "PUT", "fake/version", version=version)
         for vmid, name, running in [(9010, "alpha", True), (9011, "beta", True), (9012, "gamma", False)]:
@@ -1248,21 +1249,39 @@ def fake_fleet(
                 _pve(base, "PUT", "fake/disk-ctime", vmid=vmid, ctime=int(time.time()) - 2 * 86400)
         if engine:
             _pve_engine(base, directory)
+        if enforce:
+            _pve(base, "PUT", "fake/enforce", on=1)
         yield base
+    if enforce:
+        unmatched = _json_lines(directory / "pve" / "unmatched.log")
+        assert unmatched == [], f"requests of the engine's token that no row of privileges.CALLS names: {unmatched}"
 
 
 def _pve_engine(base: str, directory: Path) -> None:
-    """The new engine's objects in the fake at base, made as an administrator makes them; the token's ID and secret,
-    which Proxmox says once, kept in directory/pve/engine-token.json for engine_token."""
+    """The new engine's objects in the fake at base, made as an administrator makes them, the role holding what the
+    engine's table needs on its pool (privileges.needed); the token's ID and secret, which Proxmox says once, kept in
+    directory/pve/engine-token.json for engine_token."""
+    from claude_vm.pve import privileges
+
     full_id = f"{ENGINE_USER}!{ENGINE_TOKEN}"
     _pve(base, "POST", "pools", poolid=ENGINE_POOL, comment="the fake fleet of the new engine")
-    _pve(base, "POST", "access/roles", roleid=ENGINE_ROLE, privs=ENGINE_PRIVILEGES.replace(" ", ","))
+    _pve(base, "POST", "access/roles", roleid=ENGINE_ROLE, privs=",".join(sorted(privileges.needed("pool"))))
     _pve(base, "POST", "access/users", userid=ENGINE_USER)
     made = _pve(base, "POST", f"access/users/{ENGINE_USER}/token/{ENGINE_TOKEN}", privsep=1)["data"]
     _pve(base, "PUT", "access/acl", path=f"/pool/{ENGINE_POOL}", roles=ENGINE_ROLE, users=ENGINE_USER, tokens=full_id)
     (directory / "pve" / "engine-token.json").write_text(
         json.dumps({"id": made["full-tokenid"], "secret": made["value"]})
     )
+
+
+def engine_grant(base: str, path: str, privileges: str, propagate: bool = True) -> None:
+    """A role of privileges (comma-separated) granted the engine's user and its token at path in the fake at base, as
+    init grants beside the role on the pool (card E1): VM.Audit on /vms, the role on a storage and a bridge, Sys.Audit
+    on the node. Each grant makes a role of its own."""
+    role = f"aw-grant-{os.urandom(6).hex()}"
+    _pve(base, "POST", "access/roles", roleid=role, privs=privileges)
+    full_id = f"{ENGINE_USER}!{ENGINE_TOKEN}"
+    _pve(base, "PUT", "access/acl", path=path, roles=role, users=ENGINE_USER, tokens=full_id, propagate=int(propagate))
 
 
 def engine_token(directory: Path) -> tuple[str, str]:

@@ -33,15 +33,18 @@ from pathlib import Path
 import pytest
 from harness import (
     ENGINE_POOL,
-    ENGINE_PRIVILEGES,
+    ENGINE_USER,
     FAKES,
     PVE_SECRET,
     _fake_pve,
     _pve,
     _pve_requests,
+    engine_grant,
     engine_token,
     fake_fleet,
 )
+
+from claude_vm.pve import privileges
 
 TODAYS = ("ansible@pve!ansible", PVE_SECRET)
 RECORDED = Path(__file__).with_name("fake_pve_requests.json")
@@ -138,9 +141,22 @@ def test_a_clone_given_a_pool_is_listed_as_its_member(fleet: str) -> None:
     (pool,) = _ok(fleet, "GET", "pools", poolid="fleet")
     assert [(m["vmid"], m["name"]) for m in pool["members"]] == [(9020, "pooled")]
     assert "comment" not in pool
-    # As before: a clone into a pool nobody made puts it in that pool, which then exists.
-    _ok(fleet, "POST", "nodes/pve/qemu/9000/clone", newid=9021, name="elsewhere", pool="unmade")
+    # Today's token, as before: a clone into a pool nobody made puts it in that pool, which then exists.
+    _ok(fleet, "POST", "nodes/pve/qemu/9000/clone", TODAYS, newid=9021, name="elsewhere", pool="unmade")
     assert [m["vmid"] for m in _ok(fleet, "GET", "pools/unmade")["members"]] == [9021]
+
+
+def test_a_made_token_s_clone_into_a_pool_that_does_not_exist_is_refused_as_check_pool_exist_refuses_it(
+    tmp_path: Path,
+) -> None:
+    for base in fake_fleet(tmp_path, engine=True):
+        token = engine_token(tmp_path)
+        said = (SAID["PERMISSION_REFUSED_STATUS"], SAID["NO_SUCH_POOL"].format(pool="unmade"))
+        assert _call(base, "POST", CLONE, token, newid=9021, name="elsewhere", pool="unmade") == said
+        assert _call(base, "GET", "nodes/pve/qemu/9021/config")[0] == 500
+        # Into the pool POST /pools made, it is made.
+        upid = _ok(base, "POST", CLONE, token, newid=9021, name="pooled", pool=ENGINE_POOL)
+        assert _task(base, upid)["exitstatus"] == "OK"
 
 
 def test_a_guest_of_another_pool_moves_only_with_allow_move_and_a_refusal_writes_nothing(fleet: str) -> None:
@@ -331,6 +347,122 @@ def test_a_pool_s_role_reaches_a_storage_the_pool_holds_without_propagate(fleet:
     assert _permissions(fleet, token, "/storage/local-lvm") == {"/storage/local-lvm": {}}
 
 
+# Five more cases of the same rules, each failing under its own mutation of review/code/A4-mutations.sh in the plan's
+# folder (M12, M13, M14, M15, M20): two of them the engine's own grant shape, which enforcement decides by.
+def test_a_level_whose_entries_do_not_reach_the_path_cuts_nothing_from_above(fleet: str) -> None:
+    _user(fleet, "engine@pve", "VM.Audit,VM.PowerMgmt", path="/")
+    _ok(fleet, "POST", "access/roles", roleid="Above", privs="VM.PowerMgmt")
+    _ok(fleet, "POST", "access/roles", roleid="Below", privs="VM.Audit")
+    token = _token(fleet, "engine@pve", "aw")
+    _ok(fleet, "PUT", "access/acl", path="/", roles="Above", tokens=token[0])
+    _ok(fleet, "PUT", "access/acl", path="/vms", roles="Below", tokens=token[0], propagate=0)
+    # /vms's entry propagates nothing, so below it no level applies but /'s.
+    assert _permissions(fleet, token, "/vms") == {"/vms": {"VM.Audit": 0}}
+    assert _permissions(fleet, token, "/vms/9010") == {"/vms/9010": {"VM.PowerMgmt": 1}}
+
+
+def _engine_shape(base: str, user: str, token: tuple[str, str], vms: bool) -> None:
+    """The engine's grant shape for user and its token: the role R on /pool/fleet (alpha its member), and with vms,
+    VM.Audit on /vms beside it."""
+    _ok(base, "POST", "pools", poolid="fleet")
+    _ok(base, "PUT", "pools", poolid="fleet", vms="9010")
+    _ok(base, "POST", "access/roles", roleid="R", privs="VM.PowerMgmt,VM.Config.Options")
+    _ok(base, "PUT", "access/acl", path="/pool/fleet", roles="R", users=user, tokens=token[0])
+    if vms:
+        _ok(base, "POST", "access/roles", roleid="Reader", privs="VM.Audit")
+        _ok(base, "PUT", "access/acl", path="/vms", roles="Reader", users=user, tokens=token[0])
+
+
+def test_the_engine_s_shape_vm_audit_on_vms_and_the_role_on_the_pool_gives_a_member_both(fleet: str) -> None:
+    _ok(fleet, "POST", "access/users", userid="engine@pve")
+    token = _token(fleet, "engine@pve", "aw")
+    _engine_shape(fleet, "engine@pve", token, vms=True)
+    # A member takes the pool's roles beside its own, at 0; a guest outside it holds VM.Audit alone.
+    held = {"VM.Audit": 1, "VM.PowerMgmt": 0, "VM.Config.Options": 0}
+    assert _permissions(fleet, token, "/vms/9010") == {"/vms/9010": held}
+    assert _permissions(fleet, token, "/vms/9011") == {"/vms/9011": {"VM.Audit": 1}}
+
+
+def test_a_separated_token_s_user_holding_the_role_on_the_pool_alone_gives_the_member_its_privileges(
+    fleet: str,
+) -> None:
+    _ok(fleet, "POST", "access/users", userid="engine@pve")
+    token = _token(fleet, "engine@pve", "aw", privsep=1)
+    _engine_shape(fleet, "engine@pve", token, vms=False)
+    # The user's privileges at the member come from the pool alone, and the token is cut to them.
+    assert _permissions(fleet, token, "/vms/9010") == {"/vms/9010": {"VM.PowerMgmt": 0, "VM.Config.Options": 0}}
+    assert _permissions(fleet, token, "/vms/9011") == {"/vms/9011": {}}
+
+
+def test_a_storage_in_two_pools_takes_both_pools_roles(fleet: str) -> None:
+    _user(fleet, "engine@pve", "Datastore.AllocateSpace,Datastore.Audit", path="/")
+    _ok(fleet, "POST", "access/roles", roleid="Space", privs="Datastore.AllocateSpace")
+    _ok(fleet, "POST", "access/roles", roleid="Seen", privs="Datastore.Audit")
+    token = _token(fleet, "engine@pve", "aw")
+    for pool, role in (("one", "Space"), ("two", "Seen")):
+        _ok(fleet, "POST", "pools", poolid=pool)
+        _ok(fleet, "PUT", "pools", poolid=pool, storage="local-lvm")
+        _ok(fleet, "PUT", "access/acl", path=f"/pool/{pool}", roles=role, tokens=token[0])
+    held = {"Datastore.AllocateSpace": 0, "Datastore.Audit": 0}
+    assert _permissions(fleet, token, "/storage/local-lvm") == {"/storage/local-lvm": held}
+
+
+def test_a_token_without_privilege_separation_holds_its_user_s_and_never_entries_of_its_own(fleet: str) -> None:
+    _user(fleet, "engine@pve", "VM.Audit")
+    _ok(fleet, "POST", "access/roles", roleid="More", privs="VM.PowerMgmt")
+    whole = _token(fleet, "engine@pve", "whole", privsep=0)
+    _ok(fleet, "PUT", "access/acl", path="/vms", roles="More", tokens=whole[0])
+    assert _permissions(fleet, whole, "/vms") == {"/vms": {"VM.Audit": 1}}
+
+
+# NoAccess and the roles Proxmox has from the start (PVE::AccessControl::roles, PVE::RPCEnvironment::compile_acl_path).
+def test_noaccess_beside_another_role_on_one_path_stands_alone(fleet: str) -> None:
+    _user(fleet, "engine@pve", "VM.Audit", path="/")
+    _ok(fleet, "POST", "access/roles", roleid="Reader", privs="VM.Audit")
+    token = _token(fleet, "engine@pve", "aw")
+    _ok(fleet, "PUT", "access/acl", path="/vms", roles="Reader,NoAccess", tokens=token[0])
+    assert _permissions(fleet, token, "/vms") == {"/vms": {}}
+    assert _permissions(fleet, token, "/vms/9010") == {"/vms/9010": {}}
+
+
+def test_a_member_s_own_noaccess_is_never_trumped_by_its_pool_and_a_pool_s_noaccess_trumps_the_member_s_roles(
+    fleet: str,
+) -> None:
+    _user(fleet, "engine@pve", "VM.Audit,VM.PowerMgmt", path="/")
+    _ok(fleet, "POST", "access/roles", roleid="Power", privs="VM.PowerMgmt")
+    _ok(fleet, "POST", "access/roles", roleid="Reader", privs="VM.Audit")
+    token = _token(fleet, "engine@pve", "aw")
+    _ok(fleet, "POST", "pools", poolid="fleet")
+    _ok(fleet, "PUT", "pools", poolid="fleet", vms="9010,9011")
+    _ok(fleet, "PUT", "access/acl", path="/pool/fleet", roles="Power", tokens=token[0])
+    _ok(fleet, "PUT", "access/acl", path="/vms/9010", roles="NoAccess", tokens=token[0])
+    assert _permissions(fleet, token, "/vms/9010") == {"/vms/9010": {}}
+    assert _permissions(fleet, token, "/vms/9011") == {"/vms/9011": {"VM.PowerMgmt": 0}}
+    # NoAccess on the pool: its member holds nothing, though / gives it VM.Audit.
+    _ok(fleet, "PUT", "access/acl", path="/", roles="Reader", tokens=token[0])
+    _ok(fleet, "PUT", "access/acl", path="/pool/fleet", roles="NoAccess", tokens=token[0])
+    assert _permissions(fleet, token, "/vms/9011") == {"/vms/9011": {}}
+    assert _permissions(fleet, token, "/vms/9012") == {"/vms/9012": {"VM.Audit": 1}}
+
+
+def test_the_built_in_roles_are_there_to_grant_and_never_made_again(fleet: str) -> None:
+    _ok(fleet, "POST", "access/users", userid="engine@pve")
+    _ok(fleet, "PUT", "access/acl", path="/", roles="PVEAuditor", users="engine@pve")
+    whole = _token(fleet, "engine@pve", "whole", privsep=0)
+    audited = {"VM.Audit", "Datastore.Audit", "SDN.Audit", "Sys.Audit"}
+    assert set(_permissions(fleet, whole, "/vms/9010")["/vms/9010"]) == audited
+    for built_in in ("NoAccess", "PVEAuditor"):
+        refused = _call(fleet, "POST", "access/roles", roleid=built_in, privs="VM.Audit")
+        assert refused == (500, f"create role failed: role '{built_in}' already exists")
+
+
+@pytest.mark.parametrize("privilege", ["VM.Monitor", "VM.Audt", "Everything"])
+def test_a_role_takes_only_the_privileges_proxmox_ve_9_defines(fleet: str, privilege: str) -> None:
+    refused = _call(fleet, "POST", "access/roles", roleid="Typo", privs=f"VM.Audit,{privilege}")
+    assert refused == (500, "create role failed: " + SAID["INVALID_PRIVILEGE"].format(privilege=privilege))
+    assert _call(fleet, "PUT", "access/acl", path="/vms", roles="Typo", users="root@pam")[1].endswith("does not exist")
+
+
 def test_a_regenerated_token_s_old_secret_is_refused(fleet: str) -> None:
     _user(fleet, "engine@pve", "VM.Audit")
     full_id, old = _token(fleet, "engine@pve", "aw", comment="the engine's")
@@ -374,7 +506,8 @@ def test_the_engine_s_pool_user_and_one_token_are_seeded_on_request(tmp_path: Pa
     for base in fake_fleet(tmp_path, engine=True):
         token = engine_token(tmp_path)
         assert token[0] == "agent-warehouse@pve!aw"
-        held = dict.fromkeys(ENGINE_PRIVILEGES.split(), 1)
+        # The role holds what the engine's table needs on its pool, which init grants (E1).
+        held = dict.fromkeys(privileges.needed("pool"), 1)
         assert _permissions(base, token, f"/pool/{ENGINE_POOL}") == {f"/pool/{ENGINE_POOL}": held}
         assert _permissions(base, token, "/vms") == {"/vms": {}}
         (pool,) = _ok(base, "GET", "pools", token, poolid=ENGINE_POOL)
@@ -566,6 +699,17 @@ def test_a_post_that_lost_a_race_is_answered_a_task_that_fails_and_writes_nothin
     assert _call(fleet, "PUT", CONFIG, digest=stale, cores=5) == refused
 
 
+def test_the_race_switch_arms_what_it_is_given_and_disarms_what_it_is_given_0(fleet: str) -> None:
+    assert _pve(fleet, "PUT", "fake/clone-race", config=0)["data"] == {"clone": 1, "config": 0}
+    stale = _ok(fleet, "GET", CONFIG)["digest"]
+    _ok(fleet, "PUT", CONFIG, cores=3)
+    refused = (SAID["DIGEST_REFUSED_STATUS"], SAID["DIGEST_REFUSED"])
+    assert _call(fleet, "POST", CONFIG, digest=stale, cores=5) == refused
+    # The armed clone disarmed, unspent: a clone onto a taken VMID is refused at the call again.
+    assert _pve(fleet, "PUT", "fake/clone-race", clone=0, config=0)["data"] == {"clone": 0, "config": 0}
+    assert _call(fleet, "POST", CLONE, newid=9010, name="raced") == (500, SAID["CLONE_EXISTS"].format(newid=9010))
+
+
 def test_a_post_s_task_checks_the_digest_and_the_lock_again_when_it_ends_so_a_write_made_since_stands(
     fleet: str,
 ) -> None:
@@ -586,6 +730,14 @@ def test_a_post_s_task_checks_the_digest_and_the_lock_again_when_it_ends_so_a_wr
     locked = SAID["LOCKED"].format(lock=SAID["DELETION_LOCK"])
     assert _task(fleet, unchecked) == {"status": "stopped", "exitstatus": locked, "upid": unchecked}
     assert _ok(fleet, "GET", CONFIG)["cores"] == cores
+    # One whose VM was deleted while it ran: Proxmox's worker finds no configuration file, and says so.
+    _pve(fleet, "PUT", "fake/task-polls", polls=1)
+    posted = _ok(fleet, "POST", "nodes/pve/qemu/9010/config", cores=8)
+    deletion = _ok(fleet, "DELETE", "nodes/pve/qemu/9010")
+    assert _pve(fleet, "PUT", "fake/task-end", upid=deletion)["data"] == [deletion]
+    gone = "Configuration file 'nodes/pve/qemu-server/9010.conf' does not exist"
+    assert [_task(fleet, posted)["status"] for _ in range(2)] == ["running", "stopped"]
+    assert _task(fleet, posted) == {"status": "stopped", "exitstatus": gone, "upid": posted}
     # With nothing in between, it writes when it ends, its digest still the configuration's.
     beta = "nodes/pve/qemu/9011/config"
     upid = _ok(fleet, "POST", beta, digest=_ok(fleet, "GET", beta)["digest"], cores=6)
@@ -681,9 +833,10 @@ def test_the_fake_answers_one_request_at_a_time(fleet: str) -> None:
     assert answered.is_set()
 
 
-def test_requests_sent_at_once_are_answered_one_at_a_time_so_each_race_has_one_winner(fleet: str) -> None:
-    """The fake serves one request at a time, which is what makes each check and the write after it atomic: four
-    clones onto one VMID, and four writes that read one digest, released together, have one winner each round."""
+def test_of_requests_sent_at_once_each_race_has_one_winner(fleet: str) -> None:
+    """Four clones onto one VMID, and four writes that read one digest, released together, have one winner each round:
+    each check and the write after it are atomic. That the fake serves one request at a time, which makes them so, is
+    test_the_fake_answers_one_request_at_a_time's: this test passes under a threaded server too."""
     for newid in range(9020, 9025):
         clones = _at_once(fleet, "POST", CLONE, [{"newid": newid, "name": f"racer-{i}"} for i in range(4)])
         refused = (500, SAID["CLONE_EXISTS"].format(newid=newid))
@@ -826,6 +979,169 @@ def test_a_clone_takes_a_storage_its_node_has_and_another_node_where_its_storage
     assert _call(fleet, "GET", "nodes/pve/qemu/9022/config")[0] == 500
 
 
+# ---------------------------------------------------------------------- the engine's table, enforced ---
+# With PUT /fake/enforce?on=1 the fake holds a made token's every request to lib/claude_vm/pve/privileges.py, deciding
+# each by acl_privileges, which answers GET /access/permissions too: so the rules the cases above hold, hold here.
+def _enforced(directory: Path, storage: bool = True):
+    """The fake with the engine's pool, role, user and token, that token held to the table, and the template and alpha
+    members of the pool; with storage, the engine's storage granted as init grants it. Its URL, and the token."""
+    for base in fake_fleet(directory, engine=True, enforce=True):
+        _ok(base, "PUT", "pools", poolid=ENGINE_POOL, vms="9000,9010")
+        if storage:
+            engine_grant(base, "/storage/local-lvm", ",".join(sorted(privileges.needed("storage"))))
+        yield base, engine_token(directory)
+
+
+@pytest.fixture
+def enforced(tmp_path: Path):
+    yield from _enforced(tmp_path)
+
+
+def _refused(path: str, privilege: str) -> tuple[int, str]:
+    return SAID["PERMISSION_REFUSED_STATUS"], SAID["PERMISSION_REFUSED"].format(path=path, privilege=privilege)
+
+
+def _listed(base: str, auth: tuple[str, str]) -> list[int]:
+    return sorted(vm["vmid"] for vm in _ok(base, "GET", "cluster/resources", auth, type="vm"))
+
+
+EVERY_GUEST = [8000, 8001, 9000, 9003, 9010, 9011, 9012]
+
+
+def test_the_engine_s_token_clones_into_its_pool_reads_and_writes_its_members_and_no_other_vm(enforced) -> None:
+    base, token = enforced
+    upid = _ok(base, "POST", CLONE, token, newid=9020, name="delta", pool=ENGINE_POOL, description="made")
+    # Its own task, which it reads with no privilege on the node.
+    assert _ok(base, "GET", f"nodes/pve/tasks/{upid}/status", token)["exitstatus"] == "OK"
+    for vmid in (9010, 9020):
+        config = f"nodes/pve/qemu/{vmid}/config"
+        _ok(base, "PUT", config, token, digest=_ok(base, "GET", config, token)["digest"], description="the record")
+        assert _ok(base, "GET", config, token)["description"] == "the record"
+    # A VM outside the pool: never listed, read or written.
+    assert _listed(base, token) == [9000, 9010, 9020]
+    other = "nodes/pve/qemu/9011/config"
+    before = _ok(base, "GET", other)
+    assert _call(base, "GET", other, token) == _refused("/vms/9011", "VM.Audit")
+    assert _call(base, "PUT", other, token, description="not ours") == _refused("/vms/9011", "VM.Config.Options")
+    assert _ok(base, "GET", other) == before
+
+
+def test_with_vm_audit_on_vms_the_engine_s_token_reads_the_node_s_other_vms_and_writes_none(enforced) -> None:
+    base, token = enforced
+    engine_grant(base, "/vms", "VM.Audit")
+    assert _listed(base, token) == EVERY_GUEST
+    other = "nodes/pve/qemu/9011/config"
+    assert _ok(base, "GET", other, token)["name"] == "beta"
+    assert _call(base, "PUT", other, token, description="not ours") == _refused("/vms/9011", "VM.Config.Options")
+    cloned = _call(base, "POST", "nodes/pve/qemu/9011/clone", token, newid=9020, name="beta-2", pool=ENGINE_POOL)
+    assert cloned == _refused("/vms/9011", "VM.Clone")
+
+
+def test_a_clone_is_refused_without_each_privilege_it_needs_and_nothing_is_made(tmp_path: Path) -> None:
+    for base, token in _enforced(tmp_path, storage=False):
+        _pve(base, "PUT", "fake/storages", node="pve", storages="local-lvm:lvmthin,nas:nfs")
+        for given, refused in [
+            # No pool named: VM.Allocate on the new VM's own path, which the role on the pool alone does not reach.
+            ({}, _refused("/vms/9020", "VM.Allocate")),
+            ({"pool": "unmade"}, _refused("/pool/unmade", "VM.Allocate")),
+            # The storage named, or with none its source's disk's.
+            ({"pool": ENGINE_POOL, "full": 1, "storage": "nas"}, _refused("/storage/nas", "Datastore.AllocateSpace")),
+            ({"pool": ENGINE_POOL}, _refused("/storage/local-lvm", "Datastore.AllocateSpace")),
+        ]:
+            assert _call(base, "POST", CLONE, token, newid=9020, name="refused", **given) == refused, given
+        assert 9020 not in _vms(base)
+        engine_grant(base, "/storage/local-lvm", "Datastore.AllocateSpace")
+        assert (
+            _task(base, _ok(base, "POST", CLONE, token, newid=9020, name="made", pool=ENGINE_POOL))["exitstatus"]
+            == "OK"
+        )
+        assert _vms(base)[9020] == ("qemu", "pve", "made")
+
+
+def test_a_grant_without_propagate_stops_at_its_path_but_a_pool_s_reaches_its_members(enforced) -> None:
+    base, token = enforced
+    engine_grant(base, "/vms", "VM.Audit", propagate=False)
+    # The role on the pool, again without propagate: it still reaches the pool's members.
+    whom = {"users": ENGINE_USER, "tokens": token[0]}
+    _ok(base, "PUT", "access/acl", path=f"/pool/{ENGINE_POOL}", roles="AgentWarehouse", propagate=0, **whom)
+    assert _ok(base, "GET", "nodes/pve/qemu/9010/config", token)["name"] == "alpha"
+    assert _call(base, "GET", "nodes/pve/qemu/9011/config", token) == _refused("/vms/9011", "VM.Audit")
+    assert _listed(base, token) == [9000, 9010]
+
+
+def test_a_role_on_a_member_s_own_path_wins_over_its_pool_s(enforced) -> None:
+    base, token = enforced
+    _ok(base, "PUT", "access/acl", path="/vms/9010", roles="NoAccess", tokens=token[0])
+    assert _call(base, "GET", "nodes/pve/qemu/9010/config", token) == _refused("/vms/9010", "VM.Audit")
+    assert _listed(base, token) == [9000]
+
+
+def test_a_task_is_read_by_its_owner_and_another_s_only_with_sys_audit_on_its_node(enforced) -> None:
+    base, token = enforced
+    upid = _ok(base, "POST", "nodes/pve/qemu/9012/status/start")
+    for part in ("status", "log"):
+        assert _call(base, "GET", f"nodes/pve/tasks/{upid}/{part}", token) == _refused("/nodes/pve", "Sys.Audit")
+    engine_grant(base, "/nodes/pve", "Sys.Audit")
+    assert _ok(base, "GET", f"nodes/pve/tasks/{upid}/status", token)["exitstatus"] == "OK"
+
+
+def test_a_listing_shows_the_engine_s_token_only_what_its_rows_name_on_each_entry(enforced) -> None:
+    base, token = enforced
+    _pve(base, "PUT", "fake/storages", node="pve", storages="local-lvm:lvmthin,nas:nfs")
+    _ok(base, "POST", "pools", poolid="other")
+    assert [s["storage"] for s in _ok(base, "GET", "nodes/pve/storage", token)] == ["local-lvm"]
+    assert [s["storage"] for s in _ok(base, "GET", "cluster/resources", token, type="storage")] == ["local-lvm"]
+    assert [p["poolid"] for p in _ok(base, "GET", "pools", token)] == [ENGINE_POOL]
+    assert [p["pool"] for p in _ok(base, "GET", "cluster/resources", token, type="pool")] == [ENGINE_POOL]
+    assert _call(base, "GET", "pools", token, poolid="other") == _refused("/pool/other", "Pool.Audit")
+    assert _ok(base, "GET", "nodes/pve/network", token) == []
+    assert not any("maxcpu" in node for node in _ok(base, "GET", "cluster/resources", token, type="node"))
+    engine_grant(base, "/sdn/zones/localnetwork/vmbr0", "SDN.Use")
+    engine_grant(base, "/nodes/pve", "Sys.Audit")
+    assert [bridge["iface"] for bridge in _ok(base, "GET", "nodes/pve/network", token)] == ["vmbr0"]
+    nodes = _ok(base, "GET", "cluster/resources", token, type="node")
+    assert [node["node"] for node in nodes if "maxcpu" in node] == ["pve"]
+    # A member's pool is named, as the token may audit it.
+    assert {vm["vmid"]: vm.get("pool") for vm in _ok(base, "GET", "cluster/resources", token)}[9010] == ENGINE_POOL
+
+
+def test_a_call_no_row_names_is_refused_and_recorded(enforced, tmp_path: Path) -> None:
+    base, token = enforced
+    for method, endpoint in [("GET", "nodes/pve/qemu/9010/agent/get-osinfo"), ("DELETE", "nodes/pve/qemu/9010")]:
+        said = SAID["NO_ROW"].format(method=method, path=f"/{endpoint}")
+        assert _call(base, method, endpoint, token) == (SAID["PERMISSION_REFUSED_STATUS"], said)
+    assert 9010 in _vms(base)
+    log = tmp_path / "pve" / "unmatched.log"
+    assert [json.loads(line) for line in log.read_text().splitlines()] == [
+        {"method": "GET", "path": "/nodes/pve/qemu/9010/agent/get-osinfo"},
+        {"method": "DELETE", "path": "/nodes/pve/qemu/9010"},
+    ]
+    # Read here: the fixture's end holds it empty, and that it fails on one is the next test's.
+    log.unlink()
+
+
+def test_a_fleet_whose_engine_token_sent_a_call_no_row_names_fails_at_its_end(tmp_path: Path) -> None:
+    fleet = fake_fleet(tmp_path, engine=True, enforce=True)
+    base = next(fleet)
+    assert _call(base, "GET", "nodes/pve/qemu/9010/agent/get-osinfo", engine_token(tmp_path))[0] == 403
+    with pytest.raises(AssertionError, match="no row of privileges.CALLS names"):
+        next(fleet)
+
+
+def test_today_s_tokens_and_a_made_token_with_enforcement_off_are_answered_as_before(enforced) -> None:
+    base, token = enforced
+    # Today's tokens, enforcement or not: every guest, the agent, and the noagent token refused it alone.
+    assert _listed(base, TODAYS) == EVERY_GUEST
+    agent = "nodes/pve/qemu/9010/agent/network-get-interfaces"
+    assert _call(base, "GET", agent, TODAYS)[0] in (200, 500)
+    assert _call(base, "GET", agent, ("ansible@pve!noagent", PVE_SECRET))[0] == 403
+    assert _ok(base, "GET", "nodes/pve/qemu/9011/config")["name"] == "beta"
+    # Turned off, the made token is answered as a today's token is again.
+    assert _pve(base, "PUT", "fake/enforce", on=0)["data"] == {"on": 0}
+    assert _listed(base, token) == EVERY_GUEST
+    assert _ok(base, "GET", "nodes/pve/qemu/9011/config", token)["name"] == "beta"
+
+
 # ---------------------------------------------------------------------------------- today's requests ---
 def _run_of_today_s(tmp_path: Path) -> list[dict]:
     """test_vm_size.py's test of a VM created with a size, run against the fake: every request it sent, fake_fleet's
@@ -892,11 +1208,13 @@ def _today_s_other_requests(base: str) -> list[dict]:
     written (the role's settings call, test_golden_play.py); a template made of a VM (test_vm_repos.py); a VM started
     and stopped again (destroy.yml, tasks/vm_stop.yml); a deletion refused for protection, then made (proxmox_kvm,
     test_golden_play.py); the listings after; a node's storages and the cluster's, before and after a fixture lists one
-    Proxmox cannot reach (init_check.yml, just status); and a VM started, then shut down as proxmox_kvm stops one
-    (the role's absent.yml)."""
+    Proxmox cannot reach (init_check.yml, just status); a VM started, then shut down as proxmox_kvm stops one (the
+    role's absent.yml); and the three reads of today's whose branches card A4 changed, their answers recorded from
+    main's fake (2e9f42d6): the token's permissions on /vms and on a path a fixture set (init_check.yml), and the pools
+    the cluster lists with a guest in one (just status)."""
     sent: list[dict] = []
 
-    def send(method: str, path: str, **params) -> object:
+    def send(method: str, path: str, /, **params) -> object:
         request = {"method": method, "path": f"/api2/json/{path}", "params": params, "token": "ansible"}
         sent.append({**request, "answer": _sent(base, request)})
         return json.loads(sent[-1]["answer"]["body"] or "{}").get("data")
@@ -931,6 +1249,10 @@ def _today_s_other_requests(base: str) -> list[dict]:
     waited("POST", "nodes/pve/qemu/9022/status/start")
     waited("POST", "nodes/pve/qemu/9022/status/shutdown", forceStop="1", timeout="30")
     send("GET", "nodes/pve/qemu/9022/status/current")
+    send("GET", "access/permissions", path="/vms")
+    send("PUT", "fake/privileges", token="ansible", path="/nodes/pve", privs="Sys.Audit")
+    send("GET", "access/permissions", path="/nodes/pve")
+    send("GET", "cluster/resources", type="pool")
     return sent
 
 
