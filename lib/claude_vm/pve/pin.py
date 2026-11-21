@@ -4,11 +4,11 @@ written (docs/architecture/engine.md §16.5).
 A host keeps one of two things (init's to work out, card E3). An anchor file, its node's own certificate or its CA,
 which is then the context's only source of roots: made by today's trust.anchored_context, the one way a context is
 made from a certificate the host gave, strict and with a partial chain on every Python, and the name the API was
-reached at checked. Or no file, where the host's certificate verifies against the computer's one certificate file, as
-the vendors' do: certifi's, or the one the setting tls_ca_file names (vendors/trust.py). Where the anchor is the node's
-own certificate, its SHA-256 fingerprint as it was recorded is held too: the transport hands this module's check the
-certificate the server presented, after the handshake and before the first byte of a request, and a certificate that
-is not the one recorded is refused there, nothing sent.
+reached at checked. Or no file, where the host's certificate verifies against the computer's certificates, as the
+vendors' do: certifi's list, with the file the setting tls_ca_file names added to it (vendors/trust.py). Where the
+anchor is the node's own certificate, its SHA-256 fingerprint as it was recorded is held too: the transport hands this
+module's check the certificate the server presented, after the handshake and before the first byte of a request, and
+a certificate that is not the one recorded is refused there, nothing sent.
 
 This module makes the client's transport, the one connection a Proxmox token goes on, so it alone hands the transport a
 check of the peer; it touches neither http.client nor a socket. It reads no setting and no variable: the anchor's text,
@@ -49,12 +49,12 @@ class Pin:
 
 def context(anchor_pem: str | None, tls_ca_file: str | os.PathLike[str] | None = None) -> ssl.SSLContext:
     """The context the client's connections verify with: the certificates of anchor_pem alone, the host's anchor
-    file's text, where it keeps one; else the computer's one certificate file, certifi's unless tls_ca_file names
-    another. Raises ValueError for an anchor that holds no certificate, and vendors.trust.Unusable for a file that
+    file's text, where it keeps one; else the computer's certificates, certifi's list with the file tls_ca_file names
+    added to it. Raises ValueError for an anchor that holds no certificate, and vendors.trust.Unusable for a file that
     cannot be used."""
     if anchor_pem is not None:
         return trust.anchored_context(anchor_pem)
-    return vendors_trust.context(vendors_trust.ca_file(tls_ca_file))
+    return vendors_trust.context(tls_ca_file)
 
 
 def _fingerprint(value: str) -> str:

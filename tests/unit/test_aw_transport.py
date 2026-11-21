@@ -15,10 +15,14 @@ from __future__ import annotations
 
 import ast
 import base64
+import copy
 import dataclasses
+import errno
 import http.server
 import io
 import logging
+import os
+import pickle
 import re
 import socket
 import ssl
@@ -26,6 +30,7 @@ import sys
 import threading
 import time
 import traceback
+import types
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
@@ -39,6 +44,7 @@ from claude_vm.secret import Secret
 from claude_vm.vendors import proxy, transport
 from claude_vm.vendors.transport import (
     NOT_MADE,
+    UNKNOWN_ISSUER,
     Answer,
     NotMade,
     PeerRefused,
@@ -460,6 +466,57 @@ def test_a_proxy_s_credentials_go_to_the_proxy_alone(serve, pki, tunnel) -> None
     assert "proxy-authorization" not in server.asked[0].headers
 
 
+def _canary_as_basic() -> str:
+    """The Basic credentials of the user aw and the canary as its password, as a CONNECT carries them."""
+    return base64.b64encode(f"aw:{CANARY}".encode()).decode()
+
+
+def test_the_proxy_s_password_is_a_secret_wherever_the_transport_holds_it(pki) -> None:
+    held = transport._proxy(f"http://aw:{CANARY}@127.0.0.1:3128")
+    assert held is not None and isinstance(held.credentials, Secret)
+    with Transport(URL, _context(pki["ca"]), AGENT, proxy=f"http://aw:{CANARY}@127.0.0.1:3128") as client:
+        shown = [repr(held), str(held), repr(vars(client)), repr(client)]
+    assert not [text for text in shown if CANARY in text or _canary_as_basic() in text]
+
+
+class _Interrupted:
+    """A connection to a proxy that takes the CONNECT and is interrupted, as by a Ctrl-C, while its answer is awaited:
+    what was sent on it, and whether it was closed."""
+
+    def __init__(self) -> None:
+        self.sent = b""
+        self.closed = False
+
+    def settimeout(self, seconds: float) -> None:
+        pass
+
+    def sendall(self, data: bytes) -> None:
+        self.sent += bytes(data)
+
+    def recv(self, size: int) -> bytes:
+        raise KeyboardInterrupt
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_a_ctrl_c_during_the_connect_closes_its_socket_and_no_frame_holds_the_password(
+    pki, monkeypatch, caplog, capsys
+) -> None:
+    """The credentials go whole to the proxy, revealed only in the call that writes the CONNECT's head, which has
+    ended by the time the answer is read: no frame the interrupt passes through holds them, and the socket is closed,
+    never left to the collector."""
+    caplog.set_level(logging.DEBUG)
+    interrupted = _Interrupted()
+    monkeypatch.setattr(Transport, "_dial", lambda self, host, port, clock: interrupted)
+    with Transport(URL, _context(pki["ca"]), AGENT, proxy=f"http://aw:{CANARY}@127.0.0.1:3128") as client:
+        with pytest.raises(KeyboardInterrupt) as stopped:
+            client.request("GET", "version")
+    assert interrupted.closed
+    assert f"Proxy-Authorization: Basic {_canary_as_basic()}\r\n".encode() in interrupted.sent
+    assert not [text for text in _said(stopped.value, caplog, capsys) if CANARY in text or _canary_as_basic() in text]
+
+
 @pytest.mark.parametrize("url", ["socks5://127.0.0.1:1080", f"socks5h://user:{CANARY}@127.0.0.1:1080", "https://p:443"])
 def test_a_proxy_of_another_scheme_is_refused_by_name(pki, url) -> None:
     with pytest.raises(ValueError) as refused:
@@ -485,10 +542,20 @@ def test_a_certificate_that_does_not_verify_is_untrusted_an_unreachable_that_nam
     with _client(server, pki, context=context, proxy=tunnel.url) as client, pytest.raises(Untrusted) as untrusted:
         client.request(method, "version", headers={"Authorization": Secret(CANARY)})
     assert isinstance(untrusted.value, Unreachable) and untrusted.value.reason
+    assert untrusted.value.code in UNKNOWN_ISSUER
     said = str(untrusted.value)
     assert said.startswith(f"its certificate does not verify ({untrusted.value.reason}): ")
-    assert "tls_ca_file" in said and "PEM" in said and CANARY not in said
+    assert "tls_ca_file" in said and "PEM" in said and "certifi's list" in said and CANARY not in said
     assert tunnel.connections == 1 and server.asked == []
+
+
+@pytest.mark.parametrize("code", [20, 64], ids=["an unknown issuer", "a wrong address"])
+def test_untrusted_survives_a_copy_and_a_pickle_with_its_sentence_once(code) -> None:
+    made = Untrusted("unable to get local issuer certificate", code)
+    assert str(made).count("does not verify") == 1
+    for again in (copy.copy(made), copy.deepcopy(made), pickle.loads(pickle.dumps(made))):
+        assert type(again) is Untrusted and str(again) == str(made) and again.args == made.args
+        assert (again.reason, again.code) == (made.reason, made.code)
 
 
 def test_a_peer_check_that_raises_sends_nothing(serve, pki) -> None:
@@ -574,6 +641,31 @@ def test_a_connection_nothing_answers_is_unreachable(pki, fast) -> None:
                 with pytest.raises(Unreachable) as unreachable:
                     client.request(method, "version")
             assert "could not be made" in str(unreachable.value) and not isinstance(unreachable.value, Untrusted)
+
+
+def test_an_address_whose_family_the_system_cannot_open_is_passed_over_for_the_next(serve, pki, monkeypatch) -> None:
+    """As socket.create_connection passes over it: the name's first address is IPv6, which the system refuses to open
+    (as a kernel booted with IPv6 off refuses it), and its second the server's. A POST, so that no second try hides a
+    first that failed."""
+    server = serve()
+    port = server.server_address[1]
+    addresses = [
+        (socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("::1", port, 0, 0)),
+        (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("127.0.0.1", port)),
+    ]
+    opened = []
+
+    def open_one(family=socket.AF_INET, kind=socket.SOCK_STREAM, proto=0):
+        opened.append(family)
+        if family == socket.AF_INET6:
+            raise OSError(errno.EAFNOSUPPORT, os.strerror(errno.EAFNOSUPPORT))
+        return socket.socket(family, kind, proto)
+
+    stand_in = {**vars(socket), "socket": open_one, "getaddrinfo": lambda *args, **kwargs: addresses}
+    monkeypatch.setattr(transport, "socket", types.SimpleNamespace(**stand_in))
+    with _client(server, pki) as client:
+        assert client.request("POST", "pools", form={"poolid": "aw"}).status == 200
+    assert opened == [socket.AF_INET6, socket.AF_INET] and [one.method for one in server.asked] == ["POST"]
 
 
 @pytest.mark.parametrize("method", ["GET", "POST"])
@@ -840,15 +932,44 @@ def test_a_server_that_echoes_the_secret_in_its_status_line_has_none_of_it_said(
     assert server.asked and all(_went_whole(one) for one in server.asked)
 
 
+def _holding_itself() -> list:
+    """A list that holds itself, and then a Secret: each collection is walked once, so the walk ends and finds it."""
+    held: list = []
+    held.append(held)
+    held.append(Secret(CANARY))
+    return held
+
+
 @pytest.mark.parametrize(
     "given",
     [
         {"query": {"t": Secret(CANARY)}},
         {"query": [("t", ["a", Secret(CANARY)])]},
+        {"query": {"t": [["a", Secret(CANARY)]]}},
+        {"query": {"t": {"k": Secret(CANARY)}}},
+        {"query": [(Secret(CANARY), "v")]},
+        {"query": {"t": _holding_itself()}},
         {"json": {"t": Secret(CANARY)}},
         {"form": {"t": {Secret(CANARY)}}},
+        {"form": {"t": [[Secret(CANARY)]]}},
+        {"form": {"t": {"k": Secret(CANARY)}}},
+        {"form": {"t": ("a", {"k": Secret(CANARY)})}},
+        {"form": [(Secret(CANARY), "v")]},
     ],
-    ids=["a query's value", "one of a query's list", "JSON", "a form's set"],
+    ids=[
+        "a query's value",
+        "one of a query's list",
+        "a list in a query's list",
+        "a query's mapping",
+        "a query's name",
+        "a list that holds itself",
+        "JSON",
+        "a form's set",
+        "a list in a form's list",
+        "a form's mapping",
+        "a mapping in a form's tuple",
+        "a form's name",
+    ],
 )
 def test_a_secret_never_goes_in_a_query_or_json_nor_in_a_form_but_as_a_value(serve, pki, given) -> None:
     server = serve()
@@ -1064,7 +1185,55 @@ def test_the_transport_reveals_a_secret_in_one_place() -> None:
     assert TRANSPORT.read_text().count("reveal(") == 1
 
 
+def _hands_a_check(tree: ast.AST) -> bool:
+    """Whether tree calls Transport, by its name, a name it is imported as or an attribute, and hands it a check of the
+    peer: peer_check by keyword, anything but None; a ** mapping or a * sequence, which may hold one; or more than
+    seven arguments by position, the eighth being peer_check."""
+    names = {"Transport"} | {
+        alias.asname
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+        if alias.name == "Transport" and alias.asname
+    }
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        called = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+        if called not in names:
+            continue
+        if len(node.args) > 7 or any(isinstance(arg, ast.Starred) for arg in node.args):
+            return True
+        for keyword in node.keywords:
+            given = keyword.value
+            if keyword.arg is None or (
+                keyword.arg == "peer_check" and not (isinstance(given, ast.Constant) and given.value is None)
+            ):
+                return True
+    return False
+
+
+@pytest.mark.parametrize(
+    ("source", "hands"),
+    [
+        ("Transport(url, context=made, user_agent=AGENT, peer_check=held)", True),
+        ("transport.Transport(url, made, AGENT, 5, 30, MOST, None, held)", True),
+        ("from ..vendors.transport import Transport as Made\nMade(url, made, AGENT, peer_check=held)", True),
+        ("Transport(url, made, AGENT, **given)", True),
+        ("Transport(*given)", True),
+        ("Transport(url, made, AGENT, peer_check=None)", False),
+        ("Transport(url, made, AGENT, 5, 30, MOST, proxy)", False),
+        ('"""This module hands the transport no peer_check."""', False),
+        ("peer_check = held", False),
+    ],
+)
+def test_a_check_handed_to_the_transport_is_found_by_the_call_that_hands_it(source, hands) -> None:
+    assert _hands_a_check(ast.parse(source)) is hands
+
+
 def test_only_the_modules_peer_checks_names_hand_the_transport_a_check() -> None:
-    handing = {_rel(path) for path in _new_engine() if path != TRANSPORT and "peer_check" in path.read_text()}
+    handing = {
+        _rel(path) for path in _new_engine() if path != TRANSPORT and _hands_a_check(ast.parse(path.read_text()))
+    }
     assert handing == set(PEER_CHECKS), "a module that hands the transport a check of the peer is in PEER_CHECKS"
     assert all(reason.strip() for reason in PEER_CHECKS.values())

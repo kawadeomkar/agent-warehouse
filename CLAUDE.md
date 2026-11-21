@@ -955,25 +955,31 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       socket. It builds no context and reads no variable or setting: the caller gives it the `ssl.SSLContext`, the
       proxy (an `http://` URL or none, through a CONNECT tunnel the transport asks for and reads itself) and
       `peer_check`, called with the peer's certificate before anything is written. A 3xx is an answer. A certificate
-      that does not verify is `Untrusted`, an `Unreachable`, never tried again, whose sentence names `tls_ca_file`.
+      that does not verify is `Untrusted`, an `Unreachable`, never tried again, whose sentence names `tls_ca_file` only
+      where OpenSSL's verify code says the issuer is unknown (`UNKNOWN_ISSUER`), never for a wrong name or an expiry.
     - A GET or HEAD is tried at most three times; any other method is sent once, and is `Unknown` once it has left.
       Every body is held to `most`, every wait to its limit and the whole call to its deadline, making the connection
       included - each address in turn, a proxy's CONNECT and its answer, the handshake - but the name's lookup, which
       the system's resolver alone bounds. `http.client` never makes a connection.
-    - A header's value, or a part of one, and a form's value may be a `Secret`, revealed in `_plain` alone, and no
-      error says a header's value or a peer's words: one `http.client` would refuse is `NotMade`, "the request could
-      not be made"; what `http.client` raised of an answer is said by what it means, never in its words, which quote
-      the answer; of a proxy's answer only its status.
+    - A header's value, or a part of one, and a form's value may be a `Secret`, and a proxy's credentials are one,
+      revealed in `_plain` alone; a `Secret` anywhere else in a form or a query, at any depth, is refused. No error
+      says a header's value or a peer's words: one `http.client` would refuse is `NotMade`, "the request could not be
+      made"; what `http.client` raised of an answer is said by what it means, never in its words, which quote the
+      answer; of a proxy's answer only its status.
     - The proxy is `lib/claude_vm/vendors/proxy.py`'s `choose`: today's, from the environment under `requests`' rule,
       at `network_proxy: environment`, with `none` the opt-in. It reads only the environment it is given, and of
       `urllib.request` only `proxy_bypass_environment` and macOS's two readers of the system's settings.
-    - The vendors' TLS context is `lib/claude_vm/vendors/trust.py`'s alone: `certifi`'s file by its path, or the file
-      the setting `tls_ca_file` names, and never the system's store or a certificate variable - a change from 2.x,
-      whose vendor calls trust the system's store. Of the new engine only the modules `CONTEXTS` names, each with why,
-      make an `ssl.SSLContext`, give one roots or set its `check_hostname` or `verify_mode`: the transport takes any
-      context, so one made elsewhere could check nothing.
+    - The vendors' TLS context, and the Proxmox client's where a host keeps no anchor, is
+      `lib/claude_vm/vendors/trust.py`'s alone: `certifi`'s file by its path, and then the file the setting
+      `tls_ca_file` names, which adds to `certifi`'s list and never replaces it; never the system's store or a
+      certificate variable - a change from 2.x, whose vendor calls trust the system's store.
+    - Of the new engine only the modules `CONTEXTS` names, each with why, name what makes a TLS context or gives one
+      roots (`MAKERS`, by any spelling but as a type, or a call's `ssl=True`), set one of its checks (`CHECKS`:
+      `check_hostname`, `verify_mode`, `verify_flags`, `hostname_checks_common_name`), or import one of today's modules
+      that does (`TODAYS_CONTEXTS`); and no module of the new engine names the interpreter's own store or its paths
+      (`DEFAULT_STORE`). The transport takes any context, so one made elsewhere could check nothing.
     - `tests/unit/test_aw_transport.py` holds the transport and the proxy, and `tests/unit/test_aw_vendor_trust.py`
-      the vendors' trust and `CONTEXTS`.
+      the computer's certificates, `CONTEXTS` and `DEFAULT_STORE`.
 - **One class sends the Proxmox token, on a connection whose certificate verified.** Read
   [§16.5](docs/architecture/engine.md#165-pve--the-typed-proxmox-client-and-the-one-table-of-privileges) first.
     - `lib/claude_vm/pve/client.py`'s `Proxmox` is the only place of the new engine that writes the `PVEAPIToken`
