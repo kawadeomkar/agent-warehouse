@@ -359,8 +359,11 @@ def test_direct_settles_with_no_hop_and_asks_nothing(short_dir, stand_in) -> Non
 
 def test_host_settles_the_hop_in_the_shared_directory_and_asks_nothing(short_dir, stand_in) -> None:
     settled = _settle(short_dir, "host", name="pve")
-    # The host's own Target's: its ssh, account, address and port, as root SSH to it rides the same master.
-    hop = route.hop_settings(ssh="ssh", user="root", host=HOST, port=22, control_dir=str(short_dir), name="pve")
+    # The host's own Target's: its ssh, account, address and port, as root SSH to it rides the same master; pinned, so
+    # that every line of its own ssh pins ForwardX11=no and PermitLocalCommand=no first.
+    hop = route.hop_settings(
+        ssh="ssh", user="root", host=HOST, port=22, control_dir=str(short_dir), name="pve", pinned=True
+    )
     assert settled == {"route": "host", "setting": "host", "hop": hop, "policy": "accept-new", "addresses": []}
     assert Path(hop["socket"]).parent == short_dir and hop["label"] == f"pve (root@{HOST})"
     assert _calls(stand_in) == []
@@ -390,6 +393,75 @@ def test_under_auto_an_ssh_g_ended_by_a_signal_settles_nothing(home, short_dir, 
     assert said.endswith("set vm_ssh_route: direct or host")
     hop = route.hop_settings(user="root", host=HOST, control_dir=str(short_dir))
     assert route.route_settle("auto", hop)["route"] == "direct"
+
+
+def test_under_auto_an_ssh_g_past_its_limit_settles_nothing(home, short_dir, stand_in, addresses, monkeypatch) -> None:
+    # Its kill at the limit is a signal too: read as no answer, it would settle from the address as written, direct,
+    # where the person's configuration sends the host to a tailnet, and the run would dial the VMs straight.
+    _config(home, f"Host {HOST}\n  HostName {TAILNET}\n")
+    (stand_in / "slow-G").write_text("30")
+    monkeypatch.setitem(route.LIMITS, "config", 0.5)
+    started = time.monotonic()
+    with pytest.raises(route.HopRefused) as refused:
+        _settle(short_dir, "auto")
+    assert time.monotonic() - started < 10
+    said = str(refused.value)
+    assert "said nothing of where ssh dials for it within 0.5 s" in said and "vm_ssh_route: auto is not settled" in said
+    assert said.endswith("set vm_ssh_route: direct or host")
+    # Ended at its limit and waited for: no stand-in is left sleeping (one that had not yet said it started neither).
+    for call in _calls(stand_in):
+        with pytest.raises(ProcessLookupError):
+            os.kill(call["pid"], 0)
+
+
+def test_every_line_of_the_hop_s_own_ssh_pins_the_display_and_local_commands_off_first(
+    home, tmp_path, short_dir, stand_in, made
+) -> None:
+    # The hop's own ssh reads the person's own config: a Host * of ForwardX11 yes, or PermitLocalCommand yes with a
+    # LocalCommand, would reach the open's master, and a ProxyCommand's ssh that finds none live and becomes one.
+    conns = connections.Connections(short_dir, dict(os.environ))
+    settled = _route(conns, "host", _host(short_dir))
+    assert settled["hop"]["pinned"] is True
+    pins = ["-o", "ForwardX11=no", "-o", "PermitLocalCommand=no"]
+    assert _ensure_hop(conns, settled) == connections.Master(ok=True, opened=True, said="")
+    assert _kinds(stand_in) == ["-O check", "open", "-O check"]
+    assert all(call["argv"][:4] == pins for call in _calls(stand_in))
+    # A machine's ProxyCommand is the same line, and its own ssh shows that line, which held takes.
+    target = _target(conns, made, _machine(tmp_path, short_dir), settled)
+    assert target.hop is not None and target.hop.proxy_command.split(" ")[1:5] == pins
+    _held(conns, target, settled)
+
+
+def test_a_long_home_settles_direct_and_refuses_the_route_through_the_host_in_this_engine_s_words(
+    home, stand_in, addresses
+) -> None:
+    # Past route.SOCKET_MOST the hop's socket cannot be bound, and the hop is one shared connection: the route through
+    # the host is refused, with the one way out it has, and direct settles. route.hop_settings' own sentence, which
+    # today's callers keep, names 2.x's ansible_control_path_dir.
+    long_dir = Path(tempfile.mkdtemp(prefix="aw-" + "c" * 60, dir="/tmp"))
+    try:
+        host = _host(long_dir)
+        conns = connections.Connections(long_dir, dict(os.environ))
+        assert _route(conns, "direct", host)["route"] == "direct"
+        _config(home, f"Host {HOST}\n  HostName {LAN}\n")
+        assert _route(conns, "auto", host)["route"] == "direct"
+        _config(home, f"Host {HOST}\n  HostName {TAILNET}\n")
+        for setting in ("host", "auto"):
+            with pytest.raises(route.HopRefused) as refused:
+                _route(conns, setting, host)
+            said = str(refused.value)
+            assert said.startswith(
+                f"VMs would be reached through root@{HOST}, on one shared connection whose socket, {long_dir}/awh-"
+            ), setting
+            assert f"longer than {route.SOCKET_MOST} bytes" in said and "ansible_" not in said
+            assert said.endswith(
+                "set vm_ssh_route: direct where this computer reaches the VMs' network, or run from an account whose"
+                " home is shorter"
+            )
+        # Nothing was opened, and the note of machines that log in alone is a machine's to bring.
+        assert _kinds(stand_in) == ["-G", "-G"] and conns.notes == []
+    finally:
+        shutil.rmtree(long_dir, ignore_errors=True)
 
 
 # A run's own process, as a terminal's foreground group: it settles the route under auto while the test sends its group

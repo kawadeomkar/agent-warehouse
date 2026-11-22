@@ -1633,8 +1633,9 @@ that takes, and runs nothing of Ansible's.
   where ssh says `Authenticated to` once its login is done). Each reads ssh's exit status and standard error, and of
   the forward's standard output only whether its first bytes are an SSH banner, read as it comes and dropped, kept as a
   yes or no: what a forward carries is the far end's to write. A caller ended meanwhile ends that ssh and waits for it,
-  and `end_all` ends every one still running, one being started too, and starts none after, for a caller about to end at
-  once (`just status`'s Ctrl-C): each is started and recorded in one step, under the lock `end_all` takes; a failure to
+  and `end_all` ends every one still running, the `ssh -G` of `route_settle` and `ssh_shown` among them, one being
+  started too, and starts none after, for a caller about to end at once (`just status`'s Ctrl-C), so that no `ssh -G`
+  is left to run a person's `Match exec`: each is started and recorded in one step, under the lock `end_all` takes; a failure to
   make the control directory is said, never raised. `forward_verdict` says the hop unusable only for `administratively
   prohibited` or ssh's own failure; a far end that refused or said nothing once the login was done is the far end's
   doing, and a forward ended before it, `stalled`, the login's: a second login that waits (a key touched once) beside a

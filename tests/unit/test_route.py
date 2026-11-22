@@ -156,6 +156,44 @@ def test_the_hop_s_command_word_for_word():
     assert unshared[-2:] == ["192.0.2.77:22", "forwarder@100.64.0.7"] and "StrictHostKeyChecking=yes" in unshared
 
 
+def test_the_new_engine_s_hop_pins_the_display_and_local_commands_off_first_on_every_line():
+    # A person's Host * of ForwardX11 yes, or PermitLocalCommand yes with a LocalCommand, reaches the hop's own ssh,
+    # which reads their config: the open's master, or a ProxyCommand's ssh that finds none live and becomes one, would
+    # run that command here. Today's callers pass no pinned, and their lines are as above.
+    settings = {"ssh": "/usr/bin/ssh", "user": "forwarder", "host": "100.64.0.7", "control_dir": "/tmp/cp"}
+    today, hop = route.hop_settings(**settings), route.hop_settings(**settings, pinned=True)
+    assert hop == {**today, "pinned": True} and "pinned" not in today
+    pins = ["-o", "ForwardX11=no", "-o", "PermitLocalCommand=no"]
+    for line in (
+        lambda one: route.hop_argv(one, "192.0.2.77", "accept-new"),
+        lambda one: route.hop_argv(one, "192.0.2.77", "yes", port=22, shared=False, level="VERBOSE"),
+        lambda one: route.hop_open_argv(one, "accept-new"),
+    ):
+        assert line(hop) == [line(today)[0], *pins, *line(today)[1:]]
+        assert "ForwardX11=no" not in line(today) and "PermitLocalCommand=no" not in line(today)
+    # A machine's ProxyCommand is that line, and so is the line ssh must show for it (vm_route_refusal).
+    settled = {"route": "host", "hop": hop, "policy": "accept-new"}
+    proxy = " ".join(route.hop_argv(hop, "192.0.2.77", "accept-new"))
+    assert route.vm_hop(settled, "192.0.2.77")["option"] == "-o " + shlex.quote(f"ProxyCommand={proxy}")
+    shown = {"ok": True, "proxycommand": proxy, "proxyjump": "", "said": ""}
+    assert route.vm_route_refusal(settled, "192.0.2.77", True, shown) == ""
+    unpinned = " ".join(route.hop_argv(today, "192.0.2.77", "accept-new"))
+    assert route.vm_route_refusal(settled, "192.0.2.77", True, {**shown, "proxycommand": unpinned}) != ""
+
+
+def test_a_socket_past_the_length_is_left_to_the_new_engine_where_it_asks():
+    # Today's callers are refused with today's sentence; the new engine says it in its own words (ssh/connections.py).
+    long = "/" + "d" * 80
+    with pytest.raises(route.HopRefused, match="set ansible_control_path_dir to a shorter directory"):
+        route.hop_settings(host="pve", control_dir=long)
+    hop = route.hop_settings(host="pve", control_dir=long, sized=False)
+    assert hop["socket"].startswith(f"{long}/awh-") and not route.socket_fits(hop["socket"])
+    assert route.socket_fits(route.hop_settings(host="pve", control_dir="/tmp/cp")["socket"])
+    # sized holds the length alone: a setting that is not one plain word is refused whatever it says.
+    with pytest.raises(route.HopRefused, match="control directory"):
+        route.hop_settings(host="pve", control_dir="/tmp/%C", sized=False)
+
+
 def test_the_hop_s_socket_is_named_by_the_hop_and_fits_macos():
     socket = HOP["socket"]
     assert socket.startswith("/tmp/cp/awh-") and len(socket) == len("/tmp/cp/awh-") + 12
@@ -553,6 +591,101 @@ def test_no_ssh_of_the_hop_s_is_started_once_the_run_has_ended(tmp_path, monkeyp
     said = f"{program}: not started, the run ended"
     assert route._run([program], 5) == {"rc": 255, "said": said, "killed": False, "banner": False}
     assert not ran.exists() and not route._LIVE
+
+
+@pytest.mark.parametrize("asked", ["route_settle", "route_settle, the new engine's", "ssh_shown"])
+def test_an_ssh_g_being_started_is_ended_by_end_all_with_the_rest(tmp_path, monkeypatch, asked):
+    # route_settle's ssh -G reads the person's own ssh config, whose Match exec may run anything: one that just status's
+    # Ctrl-C meets while it starts is ended with the hop's other ssh, never left to run on under init. Its start is held
+    # open here, the ssh -G running and Popen not yet returned, as the hop's login's is above.
+    monkeypatch.setattr(route, "_OVER", threading.Event())
+    pid_file = tmp_path / "pid"
+    ssh = _program(tmp_path / "ssh", f"#!/bin/sh\necho $$ > {pid_file}\nexec sleep 60\n")
+    started, go = threading.Event(), threading.Event()
+
+    class Held(subprocess.Popen):
+        def __init__(self, argv, *args, **kwargs):
+            super().__init__(argv, *args, **kwargs)
+            if argv[:1] == [ssh]:
+                started.set()
+                go.wait(10)
+
+    monkeypatch.setattr(subprocess, "Popen", Held)
+    hop = route.hop_settings(ssh=ssh, host="192.0.2.10", control_dir="/tmp/cp")
+    calls = {
+        "route_settle": lambda: route.route_settle("auto", hop),
+        "route_settle, the new engine's": lambda: route.route_settle("auto", hop, signalled_settles=False),
+        "ssh_shown": lambda: route.ssh_shown(ssh, [], "192.0.2.10"),
+    }
+    answered: list = []
+
+    def ask():
+        try:
+            answered.append(calls[asked]())
+        except route.HopRefused as refused:
+            answered.append(refused)
+
+    waiting = threading.Thread(target=ask, daemon=True)
+    waiting.start()
+    try:
+        deadline = time.monotonic() + 10
+        while not (started.is_set() and pid_file.exists() and pid_file.read_text().strip()):
+            assert time.monotonic() < deadline, "the stand-in ssh -G never started"
+            time.sleep(0.05)
+        ender = threading.Thread(target=route.end_all, daemon=True)
+        ender.start()
+        go.set()
+        let_go = time.monotonic()
+        waiting.join(10)
+        ender.join(10)
+        assert answered and time.monotonic() - let_go < 5
+        with pytest.raises(ProcessLookupError):
+            os.kill(int(pid_file.read_text()), 0)
+        assert not route._LIVE
+    finally:
+        go.set()
+        route.end_all()  # a run of this test that failed leaves no ssh behind it
+        waiting.join(10)
+    [answer] = answered
+    if asked == "route_settle":
+        # Today's callers: as an ssh -G that could not answer, the address as written.
+        assert answer == {"route": "direct", "addresses": ["192.0.2.10"], "dialled": "192.0.2.10"}
+    elif asked == "ssh_shown":
+        assert answer == {"ok": False, "proxycommand": "", "proxyjump": "", "said": f"{ssh} -G exited -9"}
+    else:
+        assert isinstance(answer, route.HopRefused) and "ended by a signal (9)" in str(answer)
+
+
+def test_no_ssh_g_is_started_once_the_run_has_ended(tmp_path, monkeypatch):
+    monkeypatch.setattr(route, "_OVER", threading.Event())
+    ran = tmp_path / "ran"
+    ssh = _program(tmp_path / "ssh", f"#!/bin/sh\ntouch {ran}\necho 'hostname 100.101.102.103'\n")
+    hop = route.hop_settings(ssh=ssh, host="192.0.2.10", control_dir="/tmp/cp")
+    route.end_all()
+    # Today's callers: as an ssh that cannot be run, the address as written; the new engine's settle nothing.
+    assert route.route_settle("auto", hop) == {"route": "direct", "addresses": ["192.0.2.10"], "dialled": "192.0.2.10"}
+    with pytest.raises(route.HopRefused, match="was not started, since the run is ending, so the route under"):
+        route.route_settle("auto", hop, signalled_settles=False)
+    said = f"{ssh}: not started, the run ended"
+    assert route.ssh_shown(ssh, [], "192.0.2.10") == {"ok": False, "proxycommand": "", "proxyjump": "", "said": said}
+    assert not ran.exists() and not route._LIVE
+
+
+def test_under_auto_an_ssh_g_past_its_limit_settles_nothing_for_the_new_engine(tmp_path):
+    # Its kill at the limit is a signal too: read as no answer, it would settle from the address as written, direct,
+    # where the person's own configuration may send the host to a tailnet. Today's callers settle as they did.
+    ssh = _program(tmp_path / "ssh", "#!/bin/sh\nexec sleep 30\n")
+    hop = route.hop_settings(ssh=ssh, host="192.0.2.10", control_dir="/tmp/cp")
+    started = time.monotonic()
+    with pytest.raises(route.HopRefused) as refused:
+        route.route_settle("auto", hop, limit=0.5, signalled_settles=False)
+    assert str(refused.value) == (
+        "ssh -G for the Proxmox host said nothing of where ssh dials for it within 0.5 s, so the route under"
+        " vm_ssh_route: auto is not settled: run it again, or set vm_ssh_route: direct or host"
+    )
+    today = route.route_settle("auto", hop, limit=0.5)
+    assert today == {"route": "direct", "addresses": ["192.0.2.10"], "dialled": "192.0.2.10"}
+    assert time.monotonic() - started < 10 and not route._LIVE
 
 
 def test_a_caller_ended_during_an_ssh_ends_it_and_waits_for_it(tmp_path, monkeypatch):

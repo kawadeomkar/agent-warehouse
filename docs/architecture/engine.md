@@ -615,7 +615,9 @@ it: route.py's `ProxyCommand` to the machine's own address, and its connection's
 machine (the setting `vm_ssh_options`); whether this is a first use; and the `ssh` program. `machine()` makes one. The
 Proxmox host is its second form, `proxmox_host()`, for root SSH and as the hop: no identity, its account, port and
 address from the host's file, its key from this computer's, and its settings held by `route.hop_settings`, the rules the
-hop is made by, whose socket's name it shares.
+hop is made by, whose socket's name it shares. From a home so long that the hop's socket would pass `route.SOCKET_MOST`
+it is still made, so that a route of `direct` can be settled for it, and a connection to it is refused before anything
+starts (`HOST_TOO_LONG`, naming a shorter home), since every one rides the hop's shared connection.
 
 - **A person's own options.** `vm_ssh_options` is a mapping of `ssh`'s option names to values, given as `-o Name=value`
   after the product's options: `ssh` keeps the first value it is given, so a person's option changes whatever the
@@ -670,7 +672,10 @@ authenticates by public key alone, the Proxmox host's too: today's Ansible conne
 authentication, and those are added only if someone asks. `ControlMaster=no` means a child rides a master the engine
 opened in the shared directory (`connections.py`'s `ensure`), or connects alone where none lives, and is never a master
 itself. The hop's own `ssh`
-keeps `LogLevel=INFO`, which route.py pins because it reads `ssh`'s words. `ansible_vars(target)` gives layer 1's
+keeps `LogLevel=INFO`, which route.py pins because it reads `ssh`'s words, and the new engine's pins `ForwardX11=no` and
+`PermitLocalCommand=no` first on every line it is run with, the `ProxyCommand` a machine is given among them
+(`route.hop_settings`' `pinned`, which today's callers do not pass): a master the hop's open makes, or a `ProxyCommand`'s
+`ssh` that finds none live and becomes one, would otherwise run a person's `LocalCommand` here. `ansible_vars(target)` gives layer 1's
 Ansible child the address, the port, the account, the program and `ansible_ssh_common_args` holding exactly the same
 options in the same order, so that its `ssh`, `sftp` and `scp` ride the same master and a jump of the person's reaches
 the file transfers too.
@@ -733,12 +738,19 @@ holds that machine's lock. And `-O exit` is never sent, which would cut another 
 `route.hop_stop`, for the hop. The route is `route.py`'s, called as it stands, its `ssh` children started in a process
 group of their own (`process_group=0`, which today's callers do not pass), so that a terminal's first Ctrl-C, which the
 run takes as "finish the step", never kills one and has its silence read as an answer, and `route`, `ensure_hop` and
-`held` are coroutines that run it off the event loop, so that the run takes the Ctrl-C at once. `route(setting, host)`
+`held` are coroutines that run it off the event loop, so that the run takes the Ctrl-C at once. Each `ssh` route.py
+starts, the `ssh -G` of `route_settle` and `ssh_shown` too, is started and recorded in one step under the lock
+`route.end_all` takes, and ended by the thread that waits for it, at its limit or when its caller ends; a run that is
+stopped ends them with the rest of its tree, and `end_all`, which ends every one still running and starts none after, so that no
+`ssh -G` goes on to run a person's `Match exec`, is for a caller about to end at once. `route(setting, host)`
 settles it for the Proxmox host's own `Target` - its account, or `vm_ssh_jump`'s, its port, key and `ssh` - by
 `route.hop_settings` and `route.route_settle`, as `{route, setting, hop, policy, addresses}`, and raises
 `route.HopRefused` as it is, which names `vm_ssh_route: direct`; under `auto` only where the rule would go through the
-host, and where the `ssh -G` that says where `ssh` dials for the host was ended by a signal, which settles nothing
-(`signalled_settles=False`, where today's callers settle from the address as written). `target_for(job, machine,
+host, and where the `ssh -G` that says where `ssh` dials for the host gave no answer - ended by a signal, or out of its
+time, whose kill is a signal too - which settles nothing (`signalled_settles=False`, where today's callers settle from
+the address as written). Where the route goes through the host and the hop's socket would pass `route.SOCKET_MOST` (a
+long home), `route` refuses it in this engine's words (`LONG_HOP`), naming `vm_ssh_route: direct` or a shorter home: the
+hop is one shared connection, and none can be bound there. `target_for(job, machine,
 settled, given)` gives a machine's `Target` the person's own options for it and, where the route goes through the host,
 the hop's `ProxyCommand` to its own address (`route.vm_hop`, `-W <address>:%p`), unless it brings a jump of its own: a
 `ProxyJump`, a `-J` or a `ProxyCommand` other than `none` in `vm_ssh_options`, or in what `ssh -G` resolves for its
@@ -780,8 +792,9 @@ use decided by the key filed, its scratch file in the run's directory and no mas
 and found again, unmarked and in a session of its own, a dead socket file removed and a busy one kept, a hop that cannot
 be used stopping the run with nothing dialled, a control directory that is a link, another's or writable by others
 refused, a long one connecting alone, a first Ctrl-C sent to the run's group while `ssh -G` settles the route killing
-no `ssh`, an `ssh -G` ended by a signal settling nothing, a master's open left out of what a run remembers, and
-`direct_only`; and three rules by scans: no control command but `-O check` in the new subpackages, never `-O exit`;
+no `ssh`, an `ssh -G` ended by a signal or out of its time settling nothing, the hop's lines holding the two pins first,
+the route through the host refused from a long home while `direct` settles there, a master's open left out of what a
+run remembers, and `direct_only`; and three rules by scans: no control command but `-O check` in the new subpackages, never `-O exit`;
 nothing in `ssh/` tries a connection again; and only `ensure` opens a master, with the kind that carries no marker,
 an f-string's `ControlMaster` and ssh's flags run together (`-NM`) read too.
 

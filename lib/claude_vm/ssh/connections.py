@@ -33,9 +33,11 @@ machine's own `ssh` which proxy it would take and refuses any other before anyth
 sure of the hop's shared connection. Those three run `route.py`'s `ssh` children in a process group of their own
 (`process_group=0`), so that a terminal's first Ctrl-C, which the run takes as "finish the step", never kills one and
 has its silence read as an answer, and off the event loop (`asyncio.to_thread`), so that the run takes the Ctrl-C at
-once; and `route` settles nothing where its `ssh -G` was ended by a signal. Nothing here ever dials a machine where the
-rule goes through the host. Until the engine settles its route once a run and holds every connection to it,
-`direct_only` refuses every settled route but `direct`.
+once; `route` settles nothing where its `ssh -G` gave no answer (ended by a signal, or out of its time), and refuses the
+route through the host from a home so long that the hop's socket could not be bound; and every line the hop's own `ssh`
+is run with pins `ForwardX11=no` and `PermitLocalCommand=no` first (`route.hop_settings`' `pinned`), as the runner pins
+them for a machine. Nothing here ever dials a machine where the rule goes through the host. Until the engine settles its
+route once a run and holds every connection to it, `direct_only` refuses every settled route but `direct`.
 
 Standard library only; asyncio is imported inside the coroutines that start a child.
 """
@@ -98,6 +100,12 @@ class Unsafe(runner.Refused):
 UNSHARED = (
     "the control directory {directory} is too long for a shared connection's socket there ({most} bytes at most, the"
     " most macOS binds a socket's path to): each connection to a machine logs in alone, which is slower"
+)
+# Why the route through the Proxmox host is refused from a long home, in the new engine's words: route.hop_settings'
+# own names a setting of 2.x's inventory.
+LONG_HOP = (
+    "VMs would be reached through {label}, on one shared connection whose socket, {socket}, would be longer than"
+    " {most} bytes, the most a shared connection's socket may be"
 )
 # How route.py's children are started: in a process group of their own (Popen's process_group).
 OWN_GROUP = 0
@@ -254,7 +262,7 @@ class Connections:
                 f"every shared connection lives in the run's one control directory, {self.control_dir}, and this"
                 f" target names {target.control_dir}"
             )
-        if not target.shared:
+        if not target.shared and not target.is_host:
             note = UNSHARED.format(directory=self.control_dir, most=route.SOCKET_MOST)
             if note not in self.notes:
                 self.notes.append(note)
@@ -265,10 +273,13 @@ class Connections:
         """The run's route to host's machines, `{route, setting, hop, policy, addresses}` as route.py's callers keep
         it: route.hop_settings of the Proxmox host's own Target - its account, or the account `jump` (vm_ssh_jump)
         names, its port, key and ssh, its socket in the shared directory, labelled with the host's `name` - and
-        route.route_settle's answer for `setting`, its ssh -G in a process group of its own and off the loop.
-        route.HopRefused, as it is, for a setting of the hop that is not one plain word, which names vm_ssh_route:
-        direct, under auto only where the rule would go through the host; and under auto where the ssh -G was ended by a
-        signal, which settles nothing."""
+        route.route_settle's answer for `setting`, its ssh -G in a process group of its own and off the loop. The hop
+        is pinned (route.hop_settings' `pinned`): its own ssh never hands the host this computer's display, nor runs a
+        program here. route.HopRefused, as it is, for a setting of the hop that is not one plain word, which names
+        vm_ssh_route: direct, under auto only where the rule would go through the host; under auto where the ssh -G
+        gave no answer (ended by a signal, or out of its time), which settles nothing; and where the route goes through
+        the host and the hop's socket would pass route.SOCKET_MOST (a long home), in this engine's words (LONG_HOP),
+        naming vm_ssh_route: direct or a shorter home."""
         import asyncio
 
         self._own(host)
@@ -294,6 +305,8 @@ class Connections:
                 key=str(host.identity_file or ""),
                 control_dir=str(self.control_dir),
                 name=name,
+                sized=False,
+                pinned=True,
             )
         except route.HopRefused:
             # Under auto, a hop that could not be made matters only where the rule would go through it.
@@ -303,6 +316,14 @@ class Connections:
         settled = route.route_settle(setting, hop, process_group=OWN_GROUP, signalled_settles=False)
         if settled["route"] != "host":
             return {**none, "addresses": settled["addresses"]}
+        if not route.socket_fits(hop["socket"]):
+            # The hop is one shared connection, its master and every machine's ProxyCommand on one socket: none can be
+            # bound past the length, so the route through the host is refused, never taken without one.
+            raise route.HopRefused(
+                LONG_HOP.format(label=hop["label"], socket=hop["socket"], most=route.SOCKET_MOST),
+                "set vm_ssh_route: direct where this computer reaches the VMs' network, or run from an account whose"
+                " home is shorter",
+            )
         return {**none, "route": "host", "hop": hop, "addresses": settled["addresses"]}
 
     async def ensure_hop(self, settled: Mapping[str, object]) -> Master:
