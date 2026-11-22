@@ -78,8 +78,6 @@ cat "$(dirname "$0")/hostname-is" 2>/dev/null || echo pve
 """
 LOCAL_EXAMPLE = REPO / "inventory" / "group_vars" / "all" / "local.yml.example"
 DEPLOY_NEXT = "Next: just deploy alpha, which creates a VM named alpha (any name will do)."
-# Python 3.13 and later verify strictly: a CA without keyUsage is refused, and the node's own certificate is an anchor.
-STRICT = sys.version_info >= (3, 13)
 
 
 @pytest.fixture
@@ -1040,8 +1038,9 @@ def test_the_certificate_that_verifies_is_kept_and_checked_from_then_on(tmp_path
     root = tmp_path / "run"
     report = _check(root, base, "local", extra={"init_ask": True}, trust=_host_files(pki))
     assert report["rc"] == 0, _failures(report)
-    # Where Python is strict, Proxmox VE 8's CA is refused and the node's own certificate is the one that verifies.
-    expected, kind = (pki["node"], "the node's own certificate") if STRICT else (pki["ca"], "its CA")
+    # Every Python the project runs on verifies strictly: Proxmox VE 8's CA, with no keyUsage, is refused and the node's
+    # own certificate is the one that verifies.
+    expected, kind = pki["node"], "the node's own certificate"
     assert (root / "proxmox-trust.pem").read_text() == expected
     # And the setting on, so that a copy of the checkout without the file refuses rather than sends the token.
     assert _local_settings(root)["proxmox_validate_certs"] is True
@@ -1093,13 +1092,7 @@ def test_a_custom_certificate_is_read_in_place_of_the_one_proxmox_made_and_kept_
     files = {"ca": other["ca"], "node": other["node"], "custom": pki["node"] + other["ca"]}
     report = _check(root, base, "local", extra={"init_ask": True}, trust=files)
     assert report["rc"] == 0, _failures(report)
-    if STRICT:
-        assert (root / "proxmox-trust.pem").read_text() == pki["node"]
-    else:
-        # Python 3.12 takes no certificate but a CA's as an anchor, and the custom certificate's CA is not the host's:
-        # what it presents is still the host's own, so it is said as a name or a chain to fix, and nothing is held.
-        assert not (root / "proxmox-trust.pem").exists()
-        assert "note Proxmox's certificate is not checked: what https://" in _said(report)
+    assert (root / "proxmox-trust.pem").read_text() == pki["node"]
 
 
 def test_without_a_terminal_the_certificate_is_said_and_nothing_written(tmp_path: Path, pve_9) -> None:

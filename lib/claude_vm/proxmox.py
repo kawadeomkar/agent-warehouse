@@ -191,10 +191,9 @@ def proxmox_untrusted_hint(msg, trust_file=""):
             " which MagicDNS resolves there (docs/guides/remote-access.md)"
         )
     return (
-        f"Proxmox presents a certificate that does not verify against {against}. If Proxmox renewed it, the host was"
-        " reinstalled, or this machine's Python changed (3.12 and 3.13 trust a Proxmox VE 8 certificate differently),"
-        " just init reads the host's own over root SSH and asks before it trusts one in its place; if not, something"
-        " else may answer at that address"
+        f"Proxmox presents a certificate that does not verify against {against}. If Proxmox renewed it or the host was"
+        " reinstalled, just init reads the host's own over root SSH and asks before it trusts one in its place; if"
+        " not, something else may answer at that address"
     )
 
 

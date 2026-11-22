@@ -156,8 +156,8 @@ The editor and the VPN are choices: a setting naming one row of a list in the in
 ## Pull requests
 
 CI runs lint, unit tests, every Molecule scenario and the integration scenario on your PR, the new
-engine's tests on Ubuntu and on macOS, plus a dependency review. No job uses a secret, so the full suite runs on pull requests from forks - please keep
-it that way and do not add a job that needs one.
+engine's tests on Ubuntu and on macOS, plus a dependency review. No job uses a secret, so the full suite runs on
+pull requests from forks - please keep it that way and do not add a job that needs one.
 
 Before opening a PR, run `just test` - in full on a throwaway VM rather than the machine that holds your vault,
 since its scenarios run what they download as root in privileged containers

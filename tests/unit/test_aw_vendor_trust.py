@@ -285,8 +285,8 @@ def test_the_context_checks_the_name_and_requires_a_certificate_strictly_on_ever
 
 
 def test_a_proxmox_ca_with_no_key_usage_is_refused_as_python_3_13_refuses_it(serve, tmp_path) -> None:
-    """The strict flags hold on every Python: a CA as Proxmox VE 8 makes one, with no keyUsage, does not verify, so an
-    interpreter before 3.13 is no looser than today's requests on 3.13."""
+    """The strict flags hold on a context made by hand: a CA as Proxmox VE 8 makes one, with no keyUsage, does not
+    verify, as it does not for today's requests."""
     old = proxmox_pki(tmp_path / "pki", key_usage=False)
     url = serve(old)
     with pytest.raises(Unreachable):

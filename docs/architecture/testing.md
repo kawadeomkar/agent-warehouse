@@ -593,14 +593,14 @@ pytest over `tests/unit/`, file by file:
   fleet `just status`'s tests read (`fake_fleet`) live in `tests/unit/harness.py`, shared by every module that
   runs against the fake; each file keeps its own `fake_pve` fixture.
 - **The Proxmox API's certificate** (`test_proxmox_trust.py`, and the certificate's step in `test_init_check.py`):
-  `lib/claude_vm/trust.py` against made-up PKIs served on loopback, Python's strict checking forced on and off
-  whatever this Python's own: the certificate that makes the API verify picked from this machine's store, the
-  host's CA and its node's own certificate, a CA without key usage refused where checking is strict, a key or a
-  block that is no certificate never kept, and what the address presents told from the host's own. The step at
-  a terminal and as given: the file kept and checking turned on, in another host's own folder for that host; a
-  changed certificate never trusted unasked, and its address sent no token. The HTTP client the modules use
-  verifying against the file kept, every API request that carries the token following no redirect, and `just
-  status` saying a certificate that changed, or a host whose certificate nothing checks.
+  `lib/claude_vm/trust.py` against made-up PKIs served on loopback, checked strictly, as every Python the project
+  runs on checks: the certificate that makes the API verify picked from this machine's store, the host's CA and its
+  node's own certificate, a CA without key usage refused, a key or a block that is no certificate never kept, and
+  what the address presents told from the host's own. The step at a terminal and as given: the file kept and
+  checking turned on, in another host's own folder for that host; a changed certificate never trusted unasked, and
+  its address sent no token. The HTTP client the modules use verifying against the file kept, every API request that
+  carries the token following no redirect, and `just status` saying a certificate that changed, or a host whose
+  certificate nothing checks.
 - **The managed SSH config** (`test_ssh_config.py`): `tasks/ssh_config.yml` for real against a
   temporary home, resolved with `ssh -G` - the refusal of a name or address that is not one plain word,
   the guard that every scenario and the Vagrantfile keep the managed file out of `~/.ssh`, that no

@@ -416,10 +416,10 @@ host keeps, before a byte of the request is written. A host keeps one of two thi
 
 - **An anchor file**, its node's own certificate or its CA, which is then the context's only source of roots.
   `context(anchor_pem)` makes that context with today's `trust.anchored_context`, the one way a context is made from a
-  certificate the host gave: the name the API was reached at checked, and Python 3.13's flags (strict, and a partial
-  chain, so that the node's own certificate is an anchor of its own) on every Python. So a CA with no `keyUsage`, as
-  Proxmox VE 8 made one and VE 9 did before pve-cluster 9.1.8, is no anchor on any Python, and such a host's anchor is
-  its node's own certificate.
+  certificate the host gave: the name the API was reached at checked, and the flags the standard library's ready-made
+  context has (strict, and a partial chain, so that the node's own certificate is an anchor of its own), set by hand.
+  So a CA with no `keyUsage`, as Proxmox VE 8 made one and VE 9 did before pve-cluster 9.1.8, is no anchor, and such a
+  host's anchor is its node's own certificate.
 - **No file**, where the host's certificate verifies against the computer's certificates, the vendors' (16.7):
   `certifi`'s list, with the file the setting `tls_ca_file` names added to it.
 
@@ -1068,10 +1068,10 @@ vendors' trust to roots of one's own.
   where it is given no file (a store the environment's variables change) and reads the environment for a file to log
   the session's keys to. Nothing of the environment is read, macOS's keychain is never asked, and there is no table of
   each system's paths.
-- **Checked as Python 3.13 checks.** The server's name is checked and a certificate required. The flags that Python
-  3.13's own context, and today's `requests` on it, set are set on every Python: strict checking, and a chain that may
-  end at an intermediate a file holds. So an interpreter before 3.13 is no looser, and a CA with no keyUsage, as
-  Proxmox VE 8 makes one, does not verify.
+- **Checked as Python's own context checks.** The server's name is checked and a certificate required. The flags
+  that the standard library's ready-made context, and today's `requests` on it, set are set by hand, since a context
+  made by hand has neither: strict checking, and a chain that may end at an intermediate a file holds. So a CA with no
+  keyUsage, as Proxmox VE 8 makes one, does not verify.
 - **A file that cannot be used** (not there, not readable, or holding no certificate, such as a revocation list alone,
   each file told by a context of its own, so that one holding only certificates `certifi`'s list already has is no
   fault) is `Unusable`: the setting's file with a sentence that names `tls_ca_file`, and `certifi`'s, or `certifi`
