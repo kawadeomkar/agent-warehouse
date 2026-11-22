@@ -22,11 +22,12 @@ import pytest
 from aw_kit import aw_at_a_terminal, on_path, run_aw, run_launcher
 from harness import REPO, repo_files, repo_texts
 
-from claude_vm.cli import before, dispatch, habits, inverse, parse
+from claude_vm.cli import before, dispatch, habits, parse
 from claude_vm.schema import check as checks
-from claude_vm.schema import rules
+from claude_vm.schema import printer, rules
 from claude_vm.schema.patterns import PATTERNS, full
-from claude_vm.schema.words import VERBS, said
+from claude_vm.schema.printer import said
+from claude_vm.schema.words import VERBS
 
 DEPLOY = VERBS["deploy"]
 # A value a person may have typed where it does not belong: no sentence that need not say a value may say it.
@@ -48,7 +49,7 @@ REFUSALS: dict[str, tuple[list[str], int, str]] = {
         1,
         "error: aw init takes only its options (aw help init), and nothing after them - never the token secret, which"
         " the command line would put in the shell's history and the process list: put it in a file only you can read,"
-        " aw init --token-secret-file TOKEN_SECRET_FILE, or export AGENT_WAREHOUSE_TOKEN_SECRET from wherever your"
+        " aw init --token-secret-file <file>, or export AGENT_WAREHOUSE_TOKEN_SECRET from wherever your"
         " secrets live - a CI secret, or read -rs at a prompt",
     ),
     "deploy.1-1": (
@@ -124,7 +125,7 @@ REFUSALS: dict[str, tuple[list[str], int, str]] = {
     "settings.3-1": (
         ["settings", "--value=4"],
         1,
-        "error: --value and --reset each change the one setting named beside it: aw settings <name> --value VALUE, or"
+        "error: --value and --reset each change the one setting named beside it: aw settings <name> --value <value>, or"
         " --reset",
     ),
     "settings.4-1": (
@@ -135,7 +136,7 @@ REFUSALS: dict[str, tuple[list[str], int, str]] = {
     "destroy.1-1": (
         ["destroy", "--confirm=alpha"],
         1,
-        "error: --confirm answers for the VMs named beside it: aw destroy <name>... --confirm CONFIRM",
+        "error: --confirm answers for the VMs named beside it: aw destroy <name>... --confirm <names>",
     ),
     "destroy.2-1": (
         ["destroy", "--confirm=alpha", "beta"],
@@ -377,22 +378,22 @@ def _refused(*words: str) -> str:
 
 
 def test_the_question_names_each_answer_s_command_line_as_the_printer_writes_it() -> None:
-    # The two lines are the printer's (lib/claude_vm/cli/inverse.py): the names as words straight after the verb, every
-    # option given after them as --long value, and a value of --set never said back, since nothing took it yet.
+    # The two lines are the printer's (lib/claude_vm/schema/printer.py): the names as words straight after the verb,
+    # every option given after them as --long value, and a value of --set never said back, since nothing took it yet.
     words = ["deploy", "alpha", "configure", "--tags", "claude_code", "--set", f"github_user={TYPED}", "-v"]
     _, said = _typed(words, "v\n")
     given = {"tags": "claude_code", "set": [f"github_user={TYPED}"], "verbosity": 1}
-    stage = inverse.line("deploy", {**given, "only": "configure", "names": ["alpha"]}, host_flag="", refused=True)
-    vms = inverse.line("deploy", {**given, "names": ["alpha", "configure"]}, host_flag="", refused=True)
+    stage = printer.line("deploy", {**given, "only": "configure", "names": ["alpha"]}, host_flag="", refused=True)
+    vms = printer.line("deploy", {**given, "names": ["alpha", "configure"]}, host_flag="", refused=True)
     assert said.splitlines() == [
         "configure is a stage of aw deploy and also a name a VM could have. Did you mean",
         f"  s  the stage: {stage}",
         f"  v  a VM named configure, created if there is none: {vms}",
         "s or v, or Enter to run nothing: ",
     ]
-    metavar = "NAME=VALUE"
-    assert stage == f"aw deploy alpha --only configure --tags claude_code --set {metavar} -v"
-    assert vms == f"aw deploy alpha configure --tags claude_code --set {metavar} -v"
+    masked = "<name>=<value>"
+    assert stage == f"aw deploy alpha --only configure --tags claude_code --set {masked} -v"
+    assert vms == f"aw deploy alpha configure --tags claude_code --set {masked} -v"
     assert TYPED not in said
     # And with no --set: each answer's command line in full.
     _, said = _typed(["deploy", "alpha", "configure", "--tags", "claude_code"], "v\n")

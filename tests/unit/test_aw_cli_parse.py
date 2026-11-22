@@ -44,7 +44,8 @@ from claude_vm.fleet import paths
 from claude_vm.schema import check as checks
 from claude_vm.schema import rules
 from claude_vm.schema.patterns import PATTERNS, full
-from claude_vm.schema.words import EXITS, VERBS, Verb, said
+from claude_vm.schema.printer import said
+from claude_vm.schema.words import EXITS, VERBS, Verb
 
 # Today's justfile's recipes a person runs, whose verb names just <verb> while no card has built it, until the flip.
 TODAYS = {
@@ -253,7 +254,7 @@ def test_each_refusal_says_what_was_wrong() -> None:
     assert _refused(["logs", "0123456789abcdef", "fedcba9876543210"]) == checks.one_word("logs", VERBS["logs"].words)
     assert "takes --cores once" in _refused(["deploy", "--cores=8", "--cores=9"])
     assert "--check takes no value" in _refused(["deploy", "--check=yes"])
-    assert "--cores takes a value: --cores CORES, or --cores=CORES" in _refused(["deploy", "--cores"])
+    assert "--cores takes a value: --cores <cores>, or --cores=<cores>" in _refused(["deploy", "--cores"])
     assert checks.no_option("", "--bogus").endswith("has no --bogus option before its command (aw help lists them)")
 
 
@@ -818,7 +819,12 @@ def test_with_no_environment_the_launcher_makes_the_checkout_s_own_then_the_hook
     assert (tmp_path / "uv.env").read_text().splitlines()[2] == f"PWD={checkout.resolve()}"
     hook = checkout / ".git" / "hooks" / "pre-commit"
     assert hook.read_bytes() == (REPO / "tools" / "git-hook").read_bytes() and os.access(hook, os.X_OK)
-    assert "This checkout has no Python environment yet" in result.stderr
+    # The program as it was started, by its path, with no aw on PATH that is it: quoted where a shell needs it.
+    program = shlex.quote(str(checkout / "aw"))
+    assert (
+        f"This checkout has no Python environment yet: it is made first, from uv.lock, as {program} install makes it."
+        in result.stderr.splitlines()
+    )
     assert "Installed git's pre-commit hook." in result.stderr
     # Then the program, with that environment's Python, and nothing of the install on standard output.
     assert _ran(result)["argv"][1:] == ["status", "--json"]
@@ -837,14 +843,31 @@ def test_install_lock_is_uv_lock_alone(home, tmp_path) -> None:
 
 
 def test_install_says_how_to_put_aw_on_path_where_aw_on_path_is_not_this_launcher(home, tmp_path) -> None:
-    # The owner's answer 4 of 2026-11-21: one sentence, and nothing written outside the checkout for it (H25).
-    checkout = _checkout(tmp_path, "hint")
+    # The owner's answer 4 of 2026-11-21: one sentence, and nothing written outside the checkout for it (H25); the
+    # folder made where it is missing, and said to be one PATH must name (review/code/H25.md 8). The checkout's folder
+    # holds a ' and a space, which the line quotes as a shell reads it back (H25.md 4).
+    checkout = _checkout(tmp_path, "it's a co")
     _uv(tmp_path)
     env = {"PYTHON": sys.executable, "UV": str(tmp_path / "uv-bin" / "uv"), "AGENT_WAREHOUSE_JOB": JOB, **NO_GIT_CONFIG}
     told = run_launcher("--install-env", home=home, launcher=checkout / "aw", env=env)
-    link = f"ln -s '{checkout.resolve() / 'aw'}' ~/.local/bin/aw"
+    target = str(checkout.resolve() / "aw")
+    hint = f"mkdir -p ~/.local/bin && ln -s {shlex.quote(target)} ~/.local/bin/aw"
     assert told.returncode == 0, told.stderr
-    assert f"To run aw from any folder, link it into a folder on your PATH: {link}" in told.stdout.splitlines()
+    said = "To run aw from any folder, link it into ~/.local/bin and have that folder on your PATH: "
+    assert f"{said}{hint}" in told.stdout.splitlines()
+    # Pasted where ~/.local/bin is missing, it makes the folder and the link, to that very launcher: run with /bin/sh,
+    # never the launcher, in a home of the test's own.
+    pasted = home / "pasted"
+    pasted.mkdir()
+    ran = subprocess.run(
+        ["/bin/sh", "-c", hint],
+        env={"HOME": str(pasted), "PATH": os.defpath},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert ran.returncode == 0, ran.stderr
+    assert os.readlink(pasted / ".local" / "bin" / "aw") == target
     linked = on_path(home, checkout / "aw")
     again = run_launcher("--install-env", home=home, launcher=checkout / "aw", env=env, first_on_path=(linked,))
     assert again.returncode == 0 and "To run aw from any folder" not in again.stdout + again.stderr
@@ -892,7 +915,11 @@ def test_install_env_is_refused_but_from_a_job(home, tmp_path, job) -> None:
     env = {"PYTHON": sys.executable, "UV": str(tmp_path / "uv-bin" / "uv"), "AGENT_WAREHOUSE_JOB": job}
     result = run_launcher("--install-env", home=home, launcher=checkout / "aw", env=env)
     assert (result.returncode, result.stdout) == (1, "")
-    assert result.stderr == "error: --install-env is aw install's own step, which its run starts: run aw install\n"
+    # The program as it was started, quoted where a shell needs it (review/code/H25.md 8).
+    program = shlex.quote(str(checkout / "aw"))
+    assert (
+        result.stderr == f"error: --install-env is a step that {program} install's run starts: run {program} install\n"
+    )
     assert _uv_runs(tmp_path) == []
 
 
@@ -970,7 +997,8 @@ def test_the_launcher_says_where_there_is_no_uv_and_where_uv_made_no_python(home
     result = run_launcher("status", home=home, launcher=checkout / "aw", **_managed(tmp_path, UV=str(makes_nothing)))
     assert (result.returncode, result.stdout) == (1, "")
     assert result.stderr.splitlines()[-1] == (
-        f"error: uv made no Python at {python}: run aw install again, and read what it says"
+        f"error: uv made no Python at {python}: run {shlex.quote(str(checkout / 'aw'))} install again, and read what it"
+        " says"
     )
 
 

@@ -26,7 +26,7 @@ import sys
 from dataclasses import dataclass, field
 
 from claude_vm.schema import check as checks
-from claude_vm.schema.words import BEFORE, VERBS, Option, Verb
+from claude_vm.schema.words import BEFORE, VERBS, Option, Verb, placeholder
 
 # The verb help prints with, where no verb is typed: aw alone is aw help, as just alone lists the recipes.
 NO_VERB = "help"
@@ -138,7 +138,7 @@ def _refusal(verb: str, error: argparse.ArgumentError, named: dict[str, Option])
     if error.message.startswith(_EXPLICIT):
         return f"error: {checks.command(verb)} {said} takes no value"
     if error.message.startswith(_LACKS):
-        value = option.metavar or "VALUE"
+        value = placeholder(option)
         return (
             f"error: {checks.command(verb)} {said} takes a value: {said} {value}, or {said}={value} where the value"
             " starts with -"

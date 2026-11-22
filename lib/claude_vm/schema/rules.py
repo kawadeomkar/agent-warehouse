@@ -6,9 +6,9 @@ A rule is `Rule(code, verbs, sentence, breaks, lines)`: its code (`deploy.4`, `c
 check, and a number), the verbs whose row of the table (words.py) names it, its sentence with `{name}` where it says a
 value or names a command, and `breaks`, which takes the verb's values and returns None where they keep the rule, or
 what fills the sentence where they break it; `lines` are the commands the sentence names whatever the values. A
-command is a `Line` (words.py), never text: `Rule.check(values)` gives nothing or the sentence said through words.py's
+command is a `Line` (words.py), never text: `Rule.check(values)` gives nothing or the sentence said through printer.py's
 `said`, so each command in it is the printer's line, the program as it was started, and a value or a verb's words it
-does not know is named by its help name (`aw code <name>`). A sentence says a value back only where today's does, and
+does not know is named by its placeholder (`aw code <name>`). A sentence says a value back only where today's does, and
 then a value that has already met its pattern: the check holds every value to its pattern first, as just does before a
 recipe's script.
 
@@ -23,7 +23,8 @@ are the pattern's alone here, and no rule repeats a value's own pattern. What is
 (lib/claude_vm/cli/habits.py); a check that reads the fleet's files, the environment, the file system or a terminal is
 its verb's own, made where the verb is built.
 
-Standard library only, and words.py: every command reads it, a refusal among them.
+Standard library only, words.py and the printer, imported as a module, since the printer holds a line to the check that
+runs these rules (schema/__init__.py): every command reads it, a refusal among them.
 """
 
 from __future__ import annotations
@@ -31,7 +32,8 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
-from claude_vm.schema.words import PLACEHOLDER, Line, said
+from claude_vm.schema import printer
+from claude_vm.schema.words import PLACEHOLDER, Line
 
 # A verb's values, by the field the handler receives each by.
 Values = Mapping[str, object]
@@ -60,7 +62,7 @@ class Rule:
     def check(self, values: Values) -> str | None:
         """None where values keep the rule, else its sentence filled in and said, each command the printer's."""
         filled = self.breaks(values)
-        return None if filled is None else said(self.sentence, {**self.lines, **filled})
+        return None if filled is None else printer.said(self.sentence, {**self.lines, **filled})
 
 
 def _text(values: Values, field: str) -> str:

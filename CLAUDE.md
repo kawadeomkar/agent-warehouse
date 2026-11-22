@@ -992,21 +992,31 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   down, is in `REUSED` or `REACHED`, with the reason it is brought in; never Ansible. `tests/unit/test_aw_layout.py`
   holds both.
 - **Every command line the new engine prints, and every command a sentence of it names, is the printer's.** Read
+  [§16.2](docs/architecture/engine.md#162-schema--the-command-lines-patterns-and-its-table-of-verbs-and-options) and
   [§16.3](docs/architecture/engine.md#163-cli--the-aw-program) first.
-    - `lib/claude_vm/cli/inverse.py`'s `line` and `argv` write it from the one table: the program as it was started
+    - `lib/claude_vm/schema/printer.py`'s `line` and `argv` write it from the one table: the program as it was started
       (`aw` where `aw` on `PATH` is the checkout's launcher, else what was typed, from `AGENT_WAREHOUSE_STARTED_AS`,
       which the launcher sets and `main.py` takes out of the environment at once), the verb, its words, its options
       (`--long value`, and `--long=value` only for a value that starts with `-` or is empty), the host's flag last;
-      quoted for a POSIX shell; a value or a word with a character of the categories Cc, Cf, Zl or Zp refused.
-    - A sentence names a command as a `Line`, said through `lib/claude_vm/schema/words.py`'s `said`, never as text:
-      `schema/` reaches the printer there alone, when a sentence is said, and imports nothing of `cli/` when it is
-      imported; `pve/` and `vendors/` say theirs through it.
+      each word quoted by `quoted` for a POSIX shell and zsh (`shlex.quote`, and a word that starts with `=`), the
+      program too; a value, a word or a program word with a character of the categories Cc, Cf, Cs, Zl or Zp refused,
+      the program then `aw`.
+    - A sentence names a command as a `Line`, said through the printer's `said`, never as text; the field `program`,
+      which `said` fills with the program quoted, is named only by the printer and `schema/check.py`'s `command`. The
+      printer is `schema/`'s, imported at the top of a file by every module that uses it, `pve/` and `vendors/` among
+      them; it, the check and the rules import one another as modules, never a name from one, so any may come first.
+    - A placeholder is `<name>`, from `lib/claude_vm/schema/words.py`'s `placeholder`, in a line's form, a masked
+      value and help's rows alike (`--cores <cores>`, `--set <name>=<value>`); a line with one is a form, never offered
+      as the command to run, and the one check refuses a placeholder given back as a word or as JSON.
     - `host_flag` is given by every caller of a verb whose row has the shared `--host` and whose values give none
       (`None` is a `ValueError` there), and taken only by a verb whose `--host` runs it against a host; `refused` is
       keyword-only with no default, so every caller says whether a value of free text may be said back.
-    - `tests/unit/test_aw_cli_inverse.py` holds it: a syntax-tree scan of every string of the new subpackages for a
-      command named anywhere in it, `dispatch.py`'s `not_built` (today's `just <verb>`, until the flip) its one
-      exception; the printer's `PROGRAM` named only by the printer and help; every call saying `refused`.
+    - `tests/unit/test_aw_cli_printer.py` holds it: a syntax-tree scan of every string of the new subpackages for a
+      command named anywhere in it (today's `just` only where it reads as a command), `dispatch.py`'s `not_built`
+      (today's `just <verb>`, until the flip) its one exception; the program, as started or as `PROGRAM`, named only by
+      the printer, by any name a module gives it; the field `program` only by the printer and the check; every use of
+      `line` or `argv`, through any name or a `functools.partial`, saying `refused`; each module of `schema/` imported
+      alone, first.
 - **One transport sends every HTTPS request of the engine, follows no redirect, reads no certificate variable, and
   takes a proxy only as an argument.** Read
   [§16.7](docs/architecture/engine.md#167-vendors--one-https-transport-tailscales-calls-verified-downloads) first.

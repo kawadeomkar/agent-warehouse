@@ -16,7 +16,7 @@ keyword arguments, and returns the exit status it returns. Before that, in this 
   for the two that come before any fleet, init and install; and says on standard error which fleet it drives where
   that is not the checkout's own or the installed program's, as fleet/paths.py's variable or a fleet_home line chose.
 
-Each command a sentence here names is the printer's (inverse.py), the program as it was started; but today's just
+Each command a sentence here names is the printer's (schema/printer.py), the program as it was started; but today's just
 <verb>, which is no command of aw's, and goes at the flip.
 
 Standard library only, the printer of a command, and fleet/paths.py, imported only to look for a fleet, which reads at
@@ -33,10 +33,10 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TextIO
 
-from claude_vm.cli import inverse
 from claude_vm.cli.before import RunWords
 from claude_vm.cli.parse import Refused
 from claude_vm.schema import check as checks
+from claude_vm.schema import printer
 from claude_vm.schema.words import EXITS, Verb
 
 # Today's justfile's recipes a person runs (tests/unit/test_aw_cli_parse.py holds them to a list of its own): a verb not
@@ -95,7 +95,7 @@ def _fleet(program_root: Path, verb: Verb, environ: Mapping[str, str], err: Text
     except paths.Refused as refused:
         raise Refused(f"error: {refused}") from None
     if verb.name not in BEFORE_A_FLEET and not paths.fleet_dir(home).is_dir():
-        raise Refused(f"error: {paths.fleet_dir(home)} missing. Run: {inverse.line('init', {}, refused=False)}")
+        raise Refused(f"error: {paths.fleet_dir(home)} missing. Run: {printer.line('init', {}, refused=False)}")
     if home.how == "variable":
         print(f"aw drives the fleet in {home.root}, which {paths.VARIABLE} names", file=err)
     elif home.pointer is not None:
@@ -117,7 +117,7 @@ def dispatch(
     if not in_a_virtualenv():
         raise Refused(NO_VIRTUALENV.format(python=sys.executable))
     if verb.name not in WITHOUT_PACKAGES and (missing := lacking()):
-        install = inverse.line("install", {}, refused=False)
+        install = printer.line("install", {}, refused=False)
         lacks = ", ".join(missing)
         raise Refused(f"error: the Python environment {sys.prefix} lacks {lacks}, which uv.lock pins: run {install}")
     if verb.handler is None:

@@ -10,7 +10,7 @@ Then a table of the options given before any verb, but the hidden one. The usage
 one, so a placeholder such as <name> reads as text on GitHub and on the site: tests/unit/test_aw_cli_help.py holds the
 two escapes equal.
 
-Standard library, schema/, help.py and the printer only.
+Standard library, schema/ (the printer among it) and help.py only.
 """
 
 from __future__ import annotations
@@ -19,7 +19,8 @@ import html
 import re
 
 from claude_vm.cli import help as helps
-from claude_vm.schema.words import BEFORE, VERBS, said
+from claude_vm.schema.printer import said
+from claude_vm.schema.words import BEFORE, VERBS, placeholder
 
 # Spans left as they are: Markdown code, an HTML code element, a Markdown link's target (tools/docs.py's CODE).
 CODE = re.compile(r"(`+)(?:.+?)\1|<code>.*?</code>|\]\([^)]*\)")
@@ -64,7 +65,7 @@ def commands() -> str:
         for option in helps.options(verb):
             rows.append(f"| {INDENT_CELL}`{helps.shown(option)}` | {cell(said(option.help or ''))} |")
         if verb.words is not None and verb.words.name != helps.REFUSED_WORDS:
-            rows.append(f"| {INDENT_CELL}`<{verb.words.name}>` | {cell(said(verb.words.help))} |")
+            rows.append(f"| {INDENT_CELL}`{placeholder(verb.words)}` | {cell(said(verb.words.help))} |")
     out = [line for group, rows in groups.items() for line in _table(group, VERB_HEAD, rows)]
     before = [
         f"| `{helps.shown(option)}` | {cell(said(option.help))} |" for option in BEFORE if option.help is not None

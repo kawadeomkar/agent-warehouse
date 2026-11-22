@@ -13,7 +13,7 @@ check, before anything is imported or sent (docs/architecture/engine.md §16.3).
   so named. Where neither --only nor --check is given, deploy asks at a terminal which was meant, as a menu
   (lib/claude_vm/tui/choose.py) where the terminal can draw one and as today's typed question where it cannot, read
   from the standard input the command was given; with no terminal it is refused. Its two answers each name the
-  command line it runs, as the printer of a command writes it (lib/claude_vm/cli/inverse.py), a value of --set never
+  command line it runs, as the printer of a command writes it (lib/claude_vm/schema/printer.py), a value of --set never
   said back, since nothing has taken it yet. The answer meets the rules between options as if typed: the one check
   runs again on what it comes to. The sentences of its three refusals are today's (deploy.1 to deploy.3), each command
   in them the printer's.
@@ -27,8 +27,8 @@ import os
 from collections.abc import Mapping
 from typing import TextIO
 
-from claude_vm.cli import inverse
 from claude_vm.cli.parse import Refused
+from claude_vm.schema import printer
 from claude_vm.schema.check import check, one_word
 from claude_vm.schema.words import Verb
 
@@ -109,7 +109,7 @@ def stages_given(verb: Verb, values: Mapping[str, object]) -> tuple[list[str], l
 def _deploy(values: Mapping[str, object]) -> str:
     """deploy's command line for values, as the printer writes it: a line that names no host, the run's own being the
     host the line reaches, and a value of --set never said back, since nothing has taken it yet."""
-    return inverse.line("deploy", values, host_flag="", refused=True)
+    return printer.line("deploy", values, host_flag="", refused=True)
 
 
 def _fills(stages: list[str]) -> dict[str, str]:
