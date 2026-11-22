@@ -66,7 +66,7 @@ if [ -z "$bin" ]; then
     # /usr/local/bin or the like, where a system-wide Ansible lives.
     echo "error: [$python] is not the Python of a virtualenv, and this project runs its tools only from" >&2
     echo "one of its own, never from a system-wide install. Leave PYTHON unset, and just install makes this" >&2
-    echo "checkout's own with uv; or make one of Python 3.12 or later with any tool, e.g." >&2
+    echo "checkout's own with uv; or make one of Python 3.13 or later with any tool, e.g." >&2
     echo "  python3 -m venv ~/.virtualenvs/agent-warehouse" >&2
     echo "then activate it, or export PYTHON=~/.virtualenvs/agent-warehouse/bin/python, and run just install." >&2
   else

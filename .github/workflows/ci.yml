@@ -139,6 +139,27 @@ jobs:
           # psutil is not installed, and physical cores once it is - two here.
           PYTEST_XDIST_AUTO_NUM_WORKERS: "4"
 
+  # Every other job runs on the setup action's Python, the checkout's own
+  # environment's (the justfile's managed_python); this one runs a shard of the
+  # unit suite again on the oldest the project takes, pyproject.toml's
+  # requires-python, so that what only a newer Python has fails here
+  # (tests/unit/test_ci.py holds the version to the floor).
+  unit-oldest:
+    name: Unit tests on Python 3.13 (1/6)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          python-version: "3.13"
+      - name: Unit tests
+        run: just test unit --shard 1/6
+        env:
+          PYTEST_XDIST_AUTO_NUM_WORKERS: "4"
+
   # Public repository: pull requests can add dependencies. This flags any new
   # one that carries a known advisory before it is merged. It reads the
   # dependency graph, which is enabled by default on public repositories.
@@ -269,7 +290,7 @@ jobs:
   # the canary, which may fail on purpose. A cancelled or failed job fails it.
   result:
     name: CI result
-    needs: [lint, unit, dependency-review, molecule, debian, playbooks]
+    needs: [lint, unit, unit-oldest, dependency-review, molecule, debian, playbooks]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10

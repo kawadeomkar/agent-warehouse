@@ -6,6 +6,14 @@ description: >-
   requirements.yml.
 
 inputs:
+  python-version:
+    # The Python of the job's virtualenv: by default the checkout's own
+    # environment's, the justfile's managed_python, which the launcher aw names
+    # too (tests/unit/test_justfile.py holds the three to one); the oldest the
+    # project takes, pyproject.toml's requires-python, for the one unit shard
+    # that runs on it (ci.yml's unit-oldest).
+    description: The Python version the job's virtualenv is made on.
+    default: "3.14"
   install:
     # docs.yml's: Python and uv as every other job has them, its pins written
     # only here, and then only the docs group, which that job installs itself.
@@ -17,20 +25,21 @@ inputs:
 runs:
   using: composite
   steps:
-    # The runner image already has this Python, so it is the fastest way to get
-    # one; uv uses it and never downloads its own (UV_PYTHON_DOWNLOADS in the justfile).
+    # The runner image's own Python where it has that version, else the one
+    # actions/setup-python keeps; uv uses it and never downloads its own
+    # (UV_PYTHON_DOWNLOADS in the justfile).
     - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
       with:
-        python-version: "3.12"
+        python-version: ${{ inputs.python-version }}
 
     # Installs the uv uv.lock pins (the dev group's uv==...), so Dependabot's uv
     # updates move CI's uv too, and caches what uv downloads, keyed on uv.lock.
-    # python-version only sets UV_PYTHON, so uv picks the 3.12 above even when
-    # the image has a newer Python earlier on PATH.
+    # python-version only sets UV_PYTHON, so uv picks the Python above even when
+    # the image has another earlier on PATH.
     - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       with:
         version-file: uv.lock
-        python-version: "3.12"
+        python-version: ${{ inputs.python-version }}
         # A virtualenv for the job, first on PATH for every step after this
         # one, so python3 is its Python: just install installs into the
         # environment python3 is, and refuses one that is not a virtualenv.

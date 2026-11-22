@@ -45,6 +45,7 @@ import time
 from pathlib import Path
 
 import pytest
+import tomllib
 import yaml
 from harness import GIT_ENV, _default_signals, _version, just_settings, load_module
 from harness import just_json as _json
@@ -256,6 +257,35 @@ def test_the_pinned_version_is_one_version() -> None:
         str(step["env"]["JUST_VERSION"]) for step in action["runs"]["steps"] if "JUST_VERSION" in step.get("env", {})
     )
     assert minimum == _pinned() == ci, (minimum, _pinned(), ci)
+
+
+def _floor() -> tuple[int, int]:
+    """pyproject.toml's requires-python, the oldest Python the project takes, as (major, minor)."""
+    requires = tomllib.loads((REPO / "pyproject.toml").read_text())["project"]["requires-python"]
+    floor = re.fullmatch(r">=([0-9]+)\.([0-9]+)", requires)
+    assert floor, requires
+    return int(floor[1]), int(floor[2])
+
+
+def test_the_managed_python_is_one_version() -> None:
+    # The Python the checkout's own environment is made on, written three times: the justfile's, which just install
+    # makes it with; the launcher's, which aw makes it with on first use; and CI's, the setup action's default.
+    justfile = re.search(r"(?m)^managed_python := '([0-9.]+)'$", JUSTFILE.read_text())
+    launcher = re.search(r"(?m)^managed_python=([0-9.]+)$", (REPO / "aw").read_text())
+    action = yaml.safe_load((REPO / ".github" / "actions" / "setup" / "action.yml").read_text())
+    ci = str(action["inputs"]["python-version"]["default"])
+    assert justfile and launcher and justfile[1] == launcher[1] == ci, (justfile, launcher, ci)
+    assert tuple(int(part) for part in ci.split(".")) >= _floor()
+
+
+def test_the_floor_is_one_version() -> None:
+    # requires-python, which uv holds the lock to, is what ruff checks lib/ against and what the sentences say:
+    # just install's refusal and tools/env-run's way to make a virtualenv.
+    major, minor = _floor()
+    ruff = tomllib.loads((REPO / "pyproject.toml").read_text())["tool"]["ruff"]
+    assert ruff["per-file-target-version"]["lib/**"] == f"py{major}{minor}"
+    assert JUSTFILE.read_text().count(f"needs Python {major}.{minor} or later") == 1
+    assert f"make one of Python {major}.{minor} or later" in (REPO / "tools" / "env-run").read_text()
 
 
 def test_no_recipe_has_a_dependency() -> None:
@@ -1421,6 +1451,59 @@ def test_install_refuses_the_base_python_of_the_tests_virtualenv() -> None:
     assert "is not the Python of a virtualenv" in _output(refused)
 
 
+def _python_reporting(tmp_path: Path, version: str, name: str = "python") -> Path:
+    """A Python that says it is `version` when asked as a person asks one (`python --version`), and is the tests' own,
+    a virtualenv's, for anything else."""
+    python = tmp_path / f"reports-{version}" / name
+    python.parent.mkdir()
+    python.write_text(
+        "#!/bin/sh\n"
+        f'if [ "$#" -eq 1 ] && [ "$1" = --version ]; then echo "Python {version}"; exit 0; fi\n'
+        f'exec "{sys.executable}" "$@"\n'
+    )
+    python.chmod(0o755)
+    return python
+
+
+# The floor's sentence: Python 3.13, which the program aw and ansible-core 2.22 need, and the two ways out.
+BELOW_THE_FLOOR = (
+    "error: [{named}] is Python {version}, and this project needs Python 3.13 or later, as its program aw and"
+    " ansible-core 2.22 do: make a virtualenv of Python 3.13 or later and activate it or name it with PYTHON, or bring"
+    " none - PYTHON unset and python3 no virtualenv's - and just install makes this checkout's own with uv."
+)
+
+
+@pytest.mark.parametrize("version", ["3.12.7", "3.10.14", "3.9.6"])
+@pytest.mark.parametrize("given", ["PYTHON", "python3"])
+def test_install_refuses_a_virtualenv_below_the_floor_before_uv_starts(tmp_path: Path, version, given) -> None:
+    # Named by PYTHON, or python3 as this directory's shell finds it when that is a virtualenv: said by what it was
+    # given as, in one sentence, and nothing synced or installed.
+    python = _python_reporting(tmp_path, version, "python" if given == "PYTHON" else "python3")
+    _stand_in(tmp_path / "bin", "ansible-galaxy", NOT_THE_PINS)
+    settings = [f"UV={_uv(tmp_path)}", f"BIN={tmp_path / 'bin'}"]
+    if given == "PYTHON":
+        result = _just("install", settings=[f"PYTHON={python}", *settings])
+    else:
+        first = {"PATH": f"{python.parent}{os.pathsep}{_env()['PATH']}"}
+        result = _just("install", settings=["PYTHON=", *settings], env=first)
+    assert result.returncode == 1, _output(result)
+    named = python if given == "PYTHON" else "python3"
+    assert result.stderr.splitlines()[-1] == BELOW_THE_FLOOR.format(named=named, version=version), _output(result)
+    assert "Installing" not in result.stdout
+    assert _runs(tmp_path, "uv") == [] and _runs(tmp_path, "ansible-galaxy") == []
+
+
+@pytest.mark.parametrize("version", ["3.13.0", "3.14.2", "3.15.1"])
+def test_install_takes_a_virtualenv_at_or_above_the_floor(tmp_path: Path, version: str) -> None:
+    python = _python_reporting(tmp_path, version)
+    _stand_in(tmp_path / "bin", "ansible-galaxy", NOT_THE_PINS)
+    result = _just("install", settings=[f"PYTHON={python}", f"UV={_uv(tmp_path)}", f"BIN={tmp_path / 'bin'}"])
+    assert result.returncode == 0, _output(result)
+    assert "needs Python" not in _output(result)
+    # The Python it named, as that Python says it is: the tests' own, behind the stand-in.
+    assert _runs(tmp_path, "uv")[0][:5] == ["sync", "--locked", "--inexact", "--python", sys.executable]
+
+
 @pytest.mark.parametrize(
     "args",
     [["status"], ["lint", "yaml"], ["docs"], ["vault"], ["test", "unit"], ["code", "alpha"], ["settings", "tailscale"]],
@@ -2142,7 +2225,7 @@ def test_install_makes_this_checkout_s_own_environment_with_uv_when_there_is_non
         "--locked",
         "--managed-python",
         "--python",
-        "3.13",
+        "3.14",
     ]
     assert (tmp_path / "uv-env").read_text().splitlines() == [f"{data}/venv", "automatic"]
     assert (tmp_path / "galaxy.args").read_text().split() == [

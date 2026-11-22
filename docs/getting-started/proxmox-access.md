@@ -264,10 +264,10 @@ without either it keeps nothing and says what it found, but still checks the res
 never goes out unchecked with a certificate that verifies in hand. A CA kept accepts any certificate it signs for the
 name: any node of the cluster, which is what a cluster's CA is for.
 
-It is tried rather than assumed because no one file works everywhere: Python 3.13 and later - the environment `just
-install` makes - check certificates strictly, and refuse Proxmox's CA where it has no `keyUsage`, as every Proxmox VE 8
-host's has none, and every 9 host's made before pve-cluster 9.1.2 and not issued again by 9.1.8; those versions take
-the node's own certificate as the anchor instead, which Python 3.12 - CI's, or a virtualenv of your own - does not.
+It is tried rather than assumed because no one file works everywhere: Python 3.13 and later - every Python the project
+takes - check certificates strictly, and refuse Proxmox's CA where it has no `keyUsage`, as every Proxmox VE 8 host's
+has none, and every 9 host's made before pve-cluster 9.1.2 and not issued again by 9.1.8; they take the node's own
+certificate as the anchor instead.
 
 **Where nothing verifies,** what the address presents is compared with the host's certificates read over root SSH.
 The host's own under another name - a certificate that does not name the address in `hosts.yml` - is a note: reach
@@ -287,7 +287,7 @@ presents, so compare the fingerprint with what the host prints before you say ye
 checking, and nothing asks you to turn checking off.
 
 **By hand.** With no root SSH to the host, copy one of the files above yourself to the trust file's place, after
-comparing its fingerprint with the one the host prints. On Python 3.13 or later take the node's certificate unless
-your CA has `keyUsage`; on 3.12, the CA. With `proxmox_validate_certs: true` and no trust file, the API is checked
+comparing its fingerprint with the one the host prints. Take the node's certificate unless your CA has `keyUsage`.
+With `proxmox_validate_certs: true` and no trust file, the API is checked
 against this machine's trust store, or the bundle `REQUESTS_CA_BUNDLE` names. To turn checking off again, delete the
 trust file and set `proxmox_validate_certs` back to false - and every recipe warns again.

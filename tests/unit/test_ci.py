@@ -22,6 +22,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import tomllib
 import yaml
 from harness import GIT_ENV
 from molecule.constants import DEFAULT_CONFIG
@@ -110,6 +111,28 @@ def test_the_debian_job_runs_the_vpn_and_editor_roles_on_debian_pinned_by_digest
     assert re.fullmatch(r"geerlingguy/docker-debian12-ansible@sha256:[0-9a-f]{64}", debian["env"]["MOLECULE_IMAGE"])
     assert debian["strategy"]["matrix"]["role"] == ["tailscale", "vscode_server"]
     assert [step["run"] for step in debian["steps"] if "run" in step] == ["just test --role ${{ matrix.role }}"]
+
+
+def test_one_unit_shard_runs_on_the_oldest_python_the_project_takes_and_every_other_job_on_the_actions():
+    # The setup action's default is the checkout's own environment's Python, the newest (test_justfile.py holds it
+    # to the justfile's managed_python); one shard of the unit suite runs again on requires-python's floor, so that
+    # what only a newer Python has fails there.
+    requires = tomllib.loads((REPO / "pyproject.toml").read_text())["project"]["requires-python"]
+    floor = re.fullmatch(r">=([0-9]+\.[0-9]+)", requires)
+    assert floor, requires
+    oldest = JOBS["unit-oldest"]
+    assert oldest["name"] == f"Unit tests on Python {floor[1]} (1/6)"
+    setups = [step for step in oldest["steps"] if step.get("uses") == "./.github/actions/setup"]
+    assert [step.get("with") for step in setups] == [{"python-version": floor[1]}]
+    shards = len(JOBS["unit"]["strategy"]["matrix"]["shard"])
+    assert [step["run"] for step in oldest["steps"] if "run" in step] == [f"just test unit --shard 1/{shards}"]
+    others = []
+    for workflow in sorted((REPO / ".github" / "workflows").glob("*.yml")):
+        for name, job in yaml.safe_load(workflow.read_text())["jobs"].items():
+            for step in job.get("steps", []):
+                if step.get("uses") == "./.github/actions/setup" and (workflow.name, name) != ("ci.yml", "unit-oldest"):
+                    others.append((workflow.name, name, (step.get("with") or {}).get("python-version")))
+    assert others and all(version is None for _, _, version in others), others
 
 
 def test_the_canary_runs_the_pinned_image_unpinned():
