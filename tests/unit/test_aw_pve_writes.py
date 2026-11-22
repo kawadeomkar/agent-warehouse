@@ -2,26 +2,28 @@
 
 Every write goes to the fake Proxmox (tests/molecule/fake_pve_api.py) through harness.fake_fleet with the engine's pool
 and its one token, granted as init grants them and held to the engine's table of privileges (enforce): every request a
-write sends is a call the table has a row for, answered only where the token holds that row's privilege, so a write
-the token may not make is Denied by the fake, as Proxmox refuses it, never by a refusal planted for the test. The
-template and alpha are the pool's members; beta and gamma are not.
+write sends is a call the table has a row for, answered only where the token holds that row's privilege, so a write the
+token may not make is Denied by the fake, as Proxmox refuses it, never by a refusal planted for the test. The template
+and alpha are the pool's members; beta and gamma are not.
 
-A clone into the pool with a description is proved by the new VM's own configuration. A clone onto a VMID that is
-taken is Exists, at the call or in its task in each of Proxmox's three sentences, and nothing is ever deleted at that
-VMID. A configuration's write sends the digest its read gave, and a stale one is DigestMismatch with nothing written;
+A clone into the pool with a description is proved by the new VM's own configuration. A clone onto a VMID that is taken
+is Exists, at the call or in its task in each of Proxmox's three sentences, and nothing is ever deleted at that VMID. A
+configuration's write sends the digest its read gave, and a stale one is DigestMismatch with nothing written;
 edit_config reads and applies again, three times at most. A write to a VM a clone or a deletion holds is Locked, and
 tried once; so is one that meets its configuration's file lock, and a clone's task that meets its source's lock names
 the source. A write whose answer is cut is the transport's Unknown, sent once. A task that fails raises with the last
-lines of its log, made plain; one that ends with warnings is a success, its warnings' lines kept; one that runs past
-its deadline raises then, and is not waited for longer, each poll held to what is left of it; one whose run stops is
-Stopped, between polls or during one, and goes on on Proxmox, unfollowed. A deletion sends destroy-unreferenced-disks
-alone, and purge only where it is asked for. The rules with a test of their own: a PUT or a POST to a configuration's
-path with no digest is refused before it is sent, every one the fake was sent carried it (harness.fake_fleet's end, for
-every test of the new engine), and every method that sends one sends digest (a syntax-tree test of the module); a
-configuration's write sends only the keys the table covers for it; both ways, every row of the table is a call the
-client makes and every call it makes has its rows, each method of the client driven against the fake under
-enforcement and its requests read from the fake's log; and no error of a write, nor of a read, says the token's secret,
-even where Proxmox's words echo it.
+lines of its log, made plain; one that ends with warnings is a success, its warnings' lines kept; one that runs past its
+deadline raises then, and is not waited for longer, each poll held to what is left of it; one whose run stops is
+Stopped, between polls or during one, and goes on on Proxmox, unfollowed. The log of a task that has ended is read
+within what is left of the same deadline and never decides the outcome: where it cannot be read, a success is a success
+with no lines and a failure TaskFailed with none, or Stopped once the run has stopped. A deletion sends
+destroy-unreferenced-disks alone, and purge only where it is asked for. The rules with a test of their own: a PUT or a
+POST to a configuration's path with no digest, or with one that is not a digest, is refused before it is sent, every one
+the fake was sent carried it (harness.fake_fleet's end, for every test of the new engine), and every method that sends
+one sends digest (a syntax-tree test of the module); a configuration's write sends only the keys the table covers for
+it; both ways, every row of the table is a call the client makes and every call it makes has its rows, each method of
+the client driven against the fake under enforcement and its requests read from the fake's log; and no error of a write,
+nor of a read, says the token's secret, even where Proxmox's words echo it.
 """
 
 from __future__ import annotations
@@ -83,7 +85,7 @@ from claude_vm.pve.client import (
     _taken,
 )
 from claude_vm.secret import MARK, Secret
-from claude_vm.vendors.transport import Answer, TimedOut, Unreachable
+from claude_vm.vendors.transport import CLOSED, Answer, Closed, TimedOut, Unreachable
 
 # The module's certificate authority, which signs the fake's certificate: cheap enough to make again on each worker
 # (tests/unit/conftest.py).
@@ -734,6 +736,139 @@ def test_a_poll_that_fails_with_time_left_raises_its_own_error_and_the_task_may_
     assert len(waits.deadlines) == 1
 
 
+class _Logged:
+    """A transport that answers the version, then the task's status as ended (status), and its log as log says: log is
+    called with the deadline its request was given and returns an Answer or raises; each request's path and deadline
+    kept. at_end, where given, is called as the status is answered, as a run that stops just then."""
+
+    def __init__(self, status: dict, log, at_end=None) -> None:
+        self.status, self.log, self.at_end = status, log, at_end
+        self.asked: list[tuple[str, float | None]] = []
+
+    def request(self, method, path, deadline=None, **kwargs) -> Answer:
+        self.asked.append((path, deadline))
+        if path == "version":
+            return VERSION
+        if path.endswith("/status"):
+            if self.at_end is not None:
+                self.at_end()
+            return _data(self.status)
+        return self.log(deadline)
+
+    def logs(self) -> list[float | None]:
+        return [deadline for path, deadline in self.asked if path.endswith("/log")]
+
+
+WARNED = {"status": "stopped", "exitstatus": "WARNINGS: 1"}
+FAILED = {"status": "stopped", "exitstatus": "start failed: no room"}
+
+
+def _raises(error: BaseException):
+    def log(deadline):
+        raise error
+
+    return log
+
+
+# How a log's read fails after the task has ended: each of the transport's errors a read may meet, and each of the
+# client's (a 403, an answer that is no JSON, a 500).
+LOG_FAILS = {
+    "Unreachable": _raises(Unreachable("the connection was dropped")),
+    "TimedOut": _raises(TimedOut("no answer within 30 s")),
+    "Closed": _raises(Closed(CLOSED)),
+    "Denied": lambda deadline: Answer(403, (), b"", "Forbidden"),
+    "Malformed": lambda deadline: Answer(200, (), b"no json", "OK"),
+    "Refused": lambda deadline: Answer(500, (), b'{"data": null}', "the node went away"),
+}
+
+
+def _logged(pki, logged: _Logged) -> Proxmox:
+    client = Proxmox("https://127.0.0.1:9", pin.kept(pki["ca"]), Token(f"{ENGINE_USER}!{ENGINE_TOKEN}", Secret(CANARY)))
+    client._transport = logged
+    return client
+
+
+@pytest.mark.parametrize("log", LOG_FAILS.values(), ids=LOG_FAILS.keys())
+def test_a_warned_task_whose_log_cannot_be_read_is_still_a_success_with_no_lines(pki, log) -> None:
+    """review/code/B22.md 2: the task's success is Proxmox's answer, already read; its log's lines are a courtesy, and
+    a read of them that fails never turns the success into an error - least of all one that says the task may still
+    run. The read is asked once."""
+    logged = _Logged(WARNED, log)
+    status = _logged(pki, logged).follow(answers.task(UPID, "pve", "start", 9010))
+    assert status.ok and (status.warnings, status.lines) == (1, ())
+    assert len(logged.logs()) == 1
+
+
+@pytest.mark.parametrize("log", LOG_FAILS.values(), ids=LOG_FAILS.keys())
+def test_a_failed_task_whose_log_cannot_be_read_is_task_failed_with_no_lines(pki, log) -> None:
+    logged = _Logged(FAILED, log)
+    task = answers.task(UPID, "pve", "start", 9010)
+    with pytest.raises(TaskFailed) as failed:
+        _logged(pki, logged).follow(task)
+    assert (failed.value.task, failed.value.error, failed.value.lines) == (task, "start failed: no room", ())
+    assert str(failed.value) == "Proxmox's start task for VM 9010 failed: start failed: no room"
+    assert len(logged.logs()) == 1
+
+
+@pytest.mark.parametrize("status", [WARNED, FAILED], ids=["warned", "failed"])
+def test_an_ended_task_s_log_is_read_within_what_is_left_of_follow_s_deadline(pki, status) -> None:
+    """A host that holds the log's read: it is given what is left of the deadline follow() was given, and follow()
+    ends within it, the task's end said with no lines."""
+
+    def held(deadline):
+        time.sleep(deadline if deadline is not None else 5.0)
+        raise TimedOut("no answer within the call's deadline")
+
+    logged = _Logged(status, held)
+    client = _logged(pki, logged)
+    began = time.monotonic()
+    if status is WARNED:
+        assert client.follow(answers.task(UPID, "pve", "start", 9010), deadline=0.5).lines == ()
+    else:
+        with pytest.raises(TaskFailed) as failed:
+            client.follow(answers.task(UPID, "pve", "start", 9010), deadline=0.5)
+        assert failed.value.lines == ()
+    took = time.monotonic() - began
+    assert took < 1.5, took
+    (given,) = logged.logs()
+    assert given is not None and 0 < given <= 0.5, given
+
+
+def test_an_ended_task_s_log_is_not_read_once_its_deadline_has_passed(pki) -> None:
+    """The last poll took what was left: no log is asked, and the success is said with no lines."""
+    task = answers.task(UPID, "pve", "start", 9010)
+    logged = _Logged(WARNED, LOG_FAILS["Unreachable"], at_end=lambda: time.sleep(0.6))
+    assert _logged(pki, logged).follow(task, deadline=0.5).lines == ()
+    assert logged.logs() == []
+
+
+@pytest.mark.parametrize("when", ["as the task ends", "during the log's read"])
+def test_a_run_that_stops_once_its_task_has_ended_has_a_success_with_no_lines_and_a_failure_stopped(pki, when) -> None:
+    """The run stops just as the task ends, before its log is read, or while it is read, closing its client under the
+    read: a success is still the success, with no lines, and a failure is Stopped, the TaskFailed its cause, as every
+    call of follow()'s that the run's stop ends is. Stopped before the read, nothing is asked."""
+    task = answers.task(UPID, "pve", "start", 9010)
+    for status in (WARNED, FAILED):
+        stop = threading.Event()
+
+        def closing(deadline, stop=stop):
+            stop.set()
+            raise Closed(CLOSED)
+
+        at_end = stop.set if when == "as the task ends" else None
+        logged = _Logged(status, closing, at_end=at_end)
+        client = _logged(pki, logged)
+        if status is WARNED:
+            ended = client.follow(task, stop=stop)
+            assert ended.ok and ended.lines == ()
+        else:
+            with pytest.raises(Stopped) as stopped:
+                client.follow(task, stop=stop)
+            assert stopped.value.task == task and isinstance(stopped.value.__cause__, TaskFailed)
+            assert stopped.value.__cause__.error == "start failed: no room" and stopped.value.__cause__.lines == ()
+        assert len(logged.logs()) == (0 if when == "as the task ends" else 1)
+
+
 def test_each_write_answers_a_task_of_its_kind_that_changes_the_vm_when_it_ends(fleet) -> None:
     with fleet.client() as client:
         _cloned(client)
@@ -1022,6 +1157,10 @@ def test_a_write_to_a_configuration_s_path_with_no_digest_is_refused_before_it_i
             client._send(method, path, 9010, form={"description": "late"})
         with pytest.raises(ValueError, match="sends the digest"):
             client._request(method, path, form=None)
+        # A digest that is not one, an empty one above all, which Proxmox reads as none (review/code/B22.md 7).
+        for digest in ("", " ", "0" * 39, "0" * 40 + "\n", "G" * 40, 0, None, Secret("0" * 40)):
+            with pytest.raises(ValueError, match="sends the digest"):
+                client._send(method, path, 9010, form={"description": "late", "digest": digest})
         assert client.config("pve", 9010).description != "late"
     assert fleet.writes() == []
 

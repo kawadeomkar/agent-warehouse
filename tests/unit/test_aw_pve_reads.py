@@ -5,39 +5,65 @@ certificate that tests/unit/pki.py made, with the new engine's pool and its one 
 held to the engine's table of privileges (enforce): every request a read sends is a call the table has a row for,
 answered only where the token holds that row's privilege. The client sends nothing until the certificate verifies
 against what the host keeps - its anchor, the node's own certificate (with its fingerprint recorded) or its CA, or with
-no anchor the computer's certificates - and a certificate that is not what the host keeps leaves the fake's request
-log without one request of the client's, with the remedy told by OpenSSL's verify code: a certificate that does not
-name the address it was reached at (one that names 127.0.0.2, the fake at 127.0.0.1) an address to change, or the
-node's own certificate to keep, which reaches the host there, held to its fingerprint and not to a name; any other, aw
-init, with tls_ca_file second where no anchor is kept and the issuer is unknown. No context logs its session's keys
-under SSLKEYLOGFILE. The first request is GET /version, and a host below 9 is refused before any other. A redirect is
-an answer; a 401 or a 403 is Denied by its status alone; a node that is down fails its own reads alone; an answer
-nested deeper than any of Proxmox's is Malformed. The rules at the end hold the token to one class: PVEAPIToken is
-written in one module of the new engine, no method returns the token, and no error says it.
+no anchor the computer's certificates - and a certificate that is not what the host keeps leaves the fake's request log
+without one request of the client's, with the remedy told by OpenSSL's verify code: a certificate that does not name the
+address it was reached at (one that names 127.0.0.2, the fake at 127.0.0.1) an address to change, or the node's own
+certificate to keep, which reaches the host there, held to its fingerprint and not to a name; any other, aw init, with
+tls_ca_file second where no anchor is kept and the issuer is unknown; one out of its dates, what to renew, or the clock.
+No context logs its session's keys under SSLKEYLOGFILE, or opens the file it names. The first request is GET /version,
+two first calls at once each within their own deadline, and a host below 9 is refused before any other. A redirect is an
+answer; a 401 or a 403 is Denied by its status alone; a node that is down fails its own reads alone; an answer nested
+deeper than any of Proxmox's is Malformed. The rules at the end hold the token to one class: PVEAPIToken is written in
+one module of the new engine, no method returns the token, and no error says it.
 """
 
 from __future__ import annotations
 
 import ast
+import calendar
 import copy
 import dataclasses
 import logging
 import pickle
+import re
 import ssl
+import threading
+import time
 import types
 from pathlib import Path
 
 import pytest
-from harness import ENGINE_POOL, ENGINE_TOKEN, REPO, _pve, _pve_requests, engine_grant, engine_token, fake_fleet
+from harness import (
+    ENGINE_POOL,
+    ENGINE_TOKEN,
+    ENGINE_USER,
+    REPO,
+    _pve,
+    _pve_requests,
+    engine_grant,
+    engine_token,
+    fake_fleet,
+)
 from pki import proxmox_pki
 from test_aw_transport import _new_engine, _rel, _said, _Tunnel
 
 from claude_vm import proxmox, trust
 from claude_vm.pve import answers, pin, privileges
-from claude_vm.pve.client import MISNAMED, Denied, Malformed, Proxmox, Refused, Token, TooOld, Unverified
+from claude_vm.pve.client import (
+    EXPIRED,
+    MISNAMED,
+    NOT_YET_VALID,
+    Denied,
+    Malformed,
+    Proxmox,
+    Refused,
+    Token,
+    TooOld,
+    Unverified,
+)
 from claude_vm.secret import Secret
 from claude_vm.vendors import proxy
-from claude_vm.vendors.transport import UNKNOWN_ISSUER, Answer, NotMade
+from claude_vm.vendors.transport import UNKNOWN_ISSUER, Answer, NotMade, TimedOut
 
 # The module's three certificate authorities: the fake's, one that signed nothing the fake shows, and one whose node's
 # certificate names another address than the fake's. Cheap enough to make again on each worker (tests/unit/conftest.py).
@@ -411,19 +437,58 @@ def test_a_certificate_that_is_not_what_the_host_keeps_has_nothing_sent(fleet, o
     [
         (64, True, "does not name the address"),
         (62, False, "does not name the address"),
-        (10, True, "not the one kept for it"),
-        (10, False, "does not verify against the computer's certificates"),
+        (10, True, "has expired"),
+        (10, False, "has expired"),
+        (9, True, "is not valid yet"),
+        (9, False, "is not valid yet"),
         (20, False, "tls_ca_file"),
         (0, True, "not the one kept for it"),
     ],
-    ids=["ip mismatch", "hostname mismatch", "expired", "expired, no anchor", "unknown issuer, no anchor", "the pin"],
+    ids=[
+        "ip mismatch",
+        "hostname mismatch",
+        "expired",
+        "expired, no anchor",
+        "not yet valid",
+        "not yet valid, no anchor",
+        "unknown issuer, no anchor",
+        "the pin",
+    ],
 )
 def test_the_remedy_is_told_by_the_verify_code_and_never_by_the_words(code, anchored, names) -> None:
     # The words of another case each time: only the code may decide.
     said = str(Unverified("IP address mismatch, unable to get local issuer certificate", code, anchored, "pve.lan"))
-    assert names in said and "aw init" in said
+    dated = code in (EXPIRED, NOT_YET_VALID)
+    assert names in said
+    # aw init reads the host's certificate wherever that is the remedy: never for a host that keeps no anchor and
+    # renews its certificate.
+    assert ("aw init" in said) is (anchored or not dated)
     assert ("tls_ca_file" in said) is (not anchored and code in UNKNOWN_ISSUER)
     assert ("the node's own name" in said) is (code in MISNAMED)
+    assert ("renew it" in said) is dated and ("not the one kept" in said) is (anchored and code == 0)
+    # Not valid yet: a clock is behind, and this computer's time now is said, to compare with the certificate's.
+    clock = re.search(r"this computer's clock says (\d{4}-\d\d-\d\d \d\d:\d\d:\d\d) UTC", said)
+    assert bool(clock) is (code == NOT_YET_VALID)
+    if clock:
+        now = time.time()
+        assert abs(calendar.timegm(time.strptime(clock.group(1), "%Y-%m-%d %H:%M:%S")) - now) < 5
+
+
+@pytest.mark.parametrize("dates", ["expired", "not yet valid"])
+@pytest.mark.parametrize("which", ["node", "ca"], ids=["the node's own certificate", "its CA"])
+def test_a_kept_certificate_out_of_its_dates_is_said_so_and_nothing_is_sent(tmp_path, dates, which) -> None:
+    """review/code/B22.md 4: a node's certificate that ended yesterday, or begins tomorrow, kept as the host's anchor
+    or under its CA: OpenSSL's code says which, and the sentence says the certificate's dates were passed and what to
+    renew, never that it is not the one kept."""
+    served = proxmox_pki(tmp_path / "pki", key_usage=True, expired=dates == "expired", not_yet=dates == "not yet valid")
+    for fleet in _fleet(tmp_path / "fleet", served):
+        with fleet.client(_anchored(fleet, which)) as client, pytest.raises(Unverified) as refused:
+            client.version()
+        assert fleet.asked() == []
+    said = str(refused.value)
+    assert refused.value.code == (EXPIRED if dates == "expired" else NOT_YET_VALID), refused.value.code
+    assert ("has expired" if dates == "expired" else "is not valid yet") in said
+    assert "renew it" in said and "aw init reads the host's new one" in said and "not the one kept" not in said
 
 
 @pytest.mark.parametrize("kept", WRONG)
@@ -470,9 +535,11 @@ def test_a_fingerprint_is_kept_only_beside_an_anchor_and_only_as_openssl_prints_
 def test_no_connection_of_the_client_logs_its_session_s_keys_whatever_sslkeylogfile_names(
     fleet, tmp_path, monkeypatch
 ) -> None:
-    """The standard library's ready-made context, which today's trust.anchored_context makes, names the file
-    SSLKEYLOGFILE gives unless Python ignores the environment: it opens that file, and writes its header there, as it
-    is made. pin.context names none, so that no key of the one connection that carries the token is ever written."""
+    """The standard library's ready-made context names the file SSLKEYLOGFILE gives unless Python ignores the
+    environment, as pytest does not: it opens that file, and writes its header there, as it is made. Each of pin's
+    contexts is made by hand, today's trust.anchored_context's too (review/code/B22.md 5), so that the file is never
+    opened - one that cannot be, or a FIFO nobody reads, would refuse or hold the client - and no key of the one
+    connection that carries the token is ever written."""
     keys = tmp_path / "keys.log"
     monkeypatch.setenv("SSLKEYLOGFILE", str(keys))
     computer = _file(tmp_path, "computer.pem", fleet.pki["ca"])
@@ -480,8 +547,10 @@ def test_no_connection_of_the_client_logs_its_session_s_keys_whatever_sslkeylogf
         assert pinned.context.keylog_filename is None
         with fleet.client(pinned) as client:
             assert client.next_id() == 9001
-    written = keys.read_text().splitlines() if keys.exists() else []
-    assert [line for line in written if line and not line.startswith("#")] == [], written
+    assert not keys.exists()
+    # Named in a folder that is not there, it changes nothing either: the file is never opened.
+    monkeypatch.setenv("SSLKEYLOGFILE", str(tmp_path / "no-such-folder" / "keys.log"))
+    assert pin.context(fleet.pki["node"]).keylog_filename is None and trust.anchored_context(fleet.pki["ca"])
 
 
 def test_through_the_proxy_today_s_rule_chooses_the_token_stays_in_the_tunnel(fleet) -> None:
@@ -511,6 +580,45 @@ def test_a_redirect_is_an_answer_and_its_address_is_never_asked(fleet) -> None:
     assert refused.value.status == 302 and "never followed" in str(refused.value)
     assert fleet.paths() == ["version"]
     assert [entry for entry in _pve_requests(fleet.directory) if entry["path"].endswith("/elsewhere")] == []
+
+
+class _SlowVersion:
+    """A transport that answers /version only once its call's deadline has passed: the transport's TimedOut, as it ends
+    a GET with no answer in time. Each request's path kept."""
+
+    def __init__(self) -> None:
+        self.asked: list[str] = []
+        self.lock = threading.Lock()
+
+    def request(self, method, path, deadline=None, **kwargs) -> Answer:
+        with self.lock:
+            self.asked.append(path)
+        time.sleep(deadline if deadline is not None else 5.0)
+        raise TimedOut("no answer within the call's deadline")
+
+
+def test_two_first_calls_at_once_each_ask_the_version_within_their_own_deadline(pki) -> None:
+    """review/code/B22.md 6: a new client's first two calls at once, two VMs' first polls, each held to a second. Each
+    ends within its own second, never waiting for the other's request first, and each asks the version itself."""
+    client = Proxmox("https://127.0.0.1:9", pin.kept(pki["ca"]), Token(f"{ENGINE_USER}!{ENGINE_TOKEN}", Secret(CANARY)))
+    client._transport = slow = _SlowVersion()
+    took: dict[str, float] = {}
+    began = threading.Barrier(2)
+
+    def first(name: str) -> None:
+        began.wait(5)
+        start = time.monotonic()
+        with pytest.raises(TimedOut):
+            client.version(1.0)
+        took[name] = time.monotonic() - start
+
+    threads = [threading.Thread(target=first, args=(name,), daemon=True) for name in ("first", "second")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(10)
+    assert set(took) == {"first", "second"} and all(1.0 <= seconds < 1.5 for seconds in took.values()), took
+    assert slow.asked == ["version", "version"]
 
 
 def test_a_host_below_9_is_refused_before_any_other_request(tmp_path, pki) -> None:

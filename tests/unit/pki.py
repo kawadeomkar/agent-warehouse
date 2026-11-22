@@ -30,11 +30,12 @@ def proxmox_pki(
     address: str = "127.0.0.1",
     name: str = "Proxmox Virtual Environment",
     expired: bool = False,
+    not_yet: bool = False,
 ) -> dict:
     """A CA and a node certificate signed by it, naming ``address``: {"ca", "node"} as PEM text, and "cert" and "key",
     the files a TLS server serves the node's certificate alone from, as pveproxy does. ``name`` is the CA's common name,
     Proxmox's own unless a test wants a CA of another subject; with ``expired``, the node's certificate ended yesterday,
-    else it holds for 700 days."""
+    with ``not_yet`` it begins tomorrow, else it holds for 700 days."""
     now = datetime.datetime.now(datetime.UTC)
     ca_key, node_key = _key(), _key()
     ca_name = x509.Name(
@@ -82,7 +83,9 @@ def proxmox_pki(
         .issuer_name(ca_name)
         .public_key(node_key.public_key())
         .serial_number(x509.random_serial_number())
-        .not_valid_before(now - datetime.timedelta(days=30 if expired else 1))
+        .not_valid_before(
+            now + datetime.timedelta(days=1) if not_yet else now - datetime.timedelta(days=30 if expired else 1)
+        )
         .not_valid_after(now + datetime.timedelta(days=-1 if expired else 700))
         .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=False)
         .add_extension(
