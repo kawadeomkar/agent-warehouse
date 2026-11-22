@@ -15,8 +15,8 @@ check, before anything is imported or sent (docs/architecture/engine.md §16.3).
   from the standard input the command was given; with no terminal it is refused. Its two answers each name the
   command line it runs, as the printer of a command writes it (lib/claude_vm/cli/inverse.py), a value of --set never
   said back, since nothing has taken it yet. The answer meets the rules between options as if typed: the one check
-  runs again on what it comes to. The sentences of its three refusals are today's, the contract's deploy.1 to
-  deploy.3, each command in them the printer's.
+  runs again on what it comes to. The sentences of its three refusals are today's (deploy.1 to deploy.3), each command
+  in them the printer's.
 
 Standard library only, the printer of a command, and the menu's modules of lib/claude_vm/tui/, imported only to ask.
 """
@@ -78,7 +78,7 @@ def names(verb: Verb, values: dict[str, object]) -> tuple[dict[str, object], lis
 
 # deploy's stages, as the justfile's stages names them: check is the dry run's flag, the rest --only's values.
 STAGES = ("template", "provision", "configure", "check", "ssh-config")
-# Today's sentences (the contract's deploy.1 to deploy.3), each command the printer's: no terminal to ask at; the stage
+# Today's sentences (deploy.1 to deploy.3), each command the printer's: no terminal to ask at; the stage
 # answered where two were given; and any other answer, Enter, the end of the input or Esc.
 NO_TERMINAL = (
     "error: {words} {what}, and there is no terminal to ask which was meant: give a stage as {as_stage}, or a VM so "

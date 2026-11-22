@@ -8,10 +8,8 @@ since an empty value is no value given. A rule that is more than one pattern is 
 values together, a word that starts with -, a length beside a list (--repos' 2000 characters), a value the pattern
 takes and a rule refuses (--project's . and ..), a list of names held to the roles there are (--tags).
 
-Until the cutover every pattern of a person's recipe in the justfile is here under a name with the same text, and
-tests/unit/test_aw_schema.py holds the two equal: the justfile holds a value to a pattern before its script runs, and
-the new engine holds the same value to the same pattern here. A pattern of the developer's recipes (lint, test, docs,
-vagrant, clean) is not the command line's, and stays the justfile's.
+A pattern of the developer's recipes (lint, test, docs, vagrant, clean) is not the command line's, and stays the
+justfile's.
 
 `form(name)` is how help and a refusal say the form a value may take: the pattern's text, as `[pattern: '...']`,
 after the option's or the words' help, so a person learns it from aw help <verb> and from the refusal of a value

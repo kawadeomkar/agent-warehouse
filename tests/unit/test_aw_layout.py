@@ -53,7 +53,6 @@ REUSED = {
     "wire": "the one JSON form a reused record of today's leaves in",
     "claude_config": "what of this machine's Claude Code the verb code carries beside the sessions",
     "sessions": "which session the verb code carries to a machine, and which destroy saves",
-    "vault": "today's vault read without Ansible, for the migration",
     "desktop": "the sign-ins' steps on this machine: its browser, and the run waiting for a sign-in",
     "run.next_steps": "NEXT STEPS by machine and matter, as today's runs say them",
     "status": "status's engine, its model and its lines, which aw status keeps",
@@ -72,6 +71,7 @@ REACHED = {
     "refs": "a VM's name and reference and a NEXT STEPS line, which editors, status, vpn and run.model take from it",
     "run.model": "the run as a person reads it, which tui.run draws: reused only for the live drawing it serves",
     "run.recipes": "each drawn recipe's declaration, which tui.run and run.model read",
+    "vault": "an ansible-vault file read without Ansible, and its lenient YAML, which hosts and status.settings read",
 }
 
 # Files of today's product that may name the new engine, each with why: empty until the cutover's changes fill it.

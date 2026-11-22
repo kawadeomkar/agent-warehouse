@@ -2,19 +2,17 @@
 
 Every verb has its handler or the card that builds it, the locks a run of it takes, whether a run of it is a job, and
 the tools of the agents' server that run it or why none does; every option a kind, a pattern of schema/patterns.py
-unless it takes no value, and a fate for an agent's tool, by tool where two tools run its verb. Today's words keep
-today's fates (lib/claude_vm/mcp/recipes.py), held until the cutover. No verb of the add-on is a verb of the base's
-table. Every option and word of a verb a tool runs that is new to the table is a property of the tool's schema, but
-those ruled otherwise. No option's value is a secret, but the two that take free text a person may type one into, which
-the run layer refuses and never says back; no sentence says just, a reason why an agent's tool does not take a word
-among them; each meaning of an exit status has one number and each number one meaning but status's 3, which today
-gives a read that failed and one a person cancelled; and the module imports the standard library alone.
+unless it takes no value, and a fate for an agent's tool, by tool where two tools run its verb. No verb of the add-on is
+a verb of the base's table. Every option and word of a verb a tool runs is a property of the tool's schema, but those
+ruled otherwise, each named here. No option's value is a secret, but the two that take free text a person may type one
+into, which the run layer refuses and never says back; no sentence says just, a reason why an agent's tool does not
+take a word among them; each meaning of an exit status has one number and each number one meaning but status's 3,
+which today gives a read that failed and one a person cancelled; and the module imports the standard library alone.
 """
 
 from __future__ import annotations
 
 import ast
-import json
 import keyword
 import re
 import sys
@@ -23,7 +21,6 @@ from pathlib import Path
 import pytest
 from aw_kit import imports_of
 
-from claude_vm.mcp import recipes
 from claude_vm.schema import words
 from claude_vm.schema.patterns import PATTERNS
 from claude_vm.schema.words import (
@@ -43,11 +40,26 @@ from claude_vm.schema.words import (
 )
 
 MODULE = "claude_vm.schema.words"
-CONTRACT = json.loads((Path(__file__).resolve().parent / "cli_contract.json").read_text())
 # Today's status, whose end on a Ctrl-C the table keeps.
 STATUS_ENGINE = Path(__file__).resolve().parents[2] / "lib" / "claude_vm" / "status" / "engine.py"
 # The verbs whose run is a job, with its own record, text log and locks.
 JOBS = {"deploy", "login", "code", "destroy", "release", "init", "install"}
+# The tools of the agents' server that run each verb, and the verbs no tool runs.
+TOOLS_OF = {
+    "init": ("init",),
+    "install": ("install",),
+    "deploy": ("deploy",),
+    "code": ("code",),
+    "login": ("login",),
+    "status": ("status",),
+    "settings": ("settings", "settings_set"),
+    "destroy": ("destroy",),
+    "release": ("release",),
+    "host": ("hosts",),
+    "logs": ("logs",),
+    "cancel": ("cancel",),
+}
+NO_TOOL = {"help", "vault", "mcp"}
 # The add-on's verbs, which the base's table never has, and why: the add-on adds each row when it is built.
 ADD_ON = {
     "control": "the owner's answer 3 of 2026-11-20 (the plan's log): control is the add-on's, out of the base's table; "
@@ -114,26 +126,12 @@ def _spelled(option: Option) -> str:
     return f"--{option.long}" if option.long else f"-{option.short}"
 
 
-def _today(recipe: str) -> set[str]:
-    """The names today's agents' tools give the options and the words of one of today's recipes (recipes.prop)."""
-    [found] = [one for one in CONTRACT["recipes"] if one["name"] == recipe]
-    return {recipes.prop(parameter) for parameter in found["options"]}
-
-
 def _received(verb: words.Verb) -> dict[str, Option | words.Words]:
     """Each option and the verb's words, by the name the handler receives it by."""
     received: dict[str, Option | words.Words] = {option.field: option for option in verb.options}
     if verb.words is not None:
         received[verb.words.field] = verb.words
     return received
-
-
-def _named(verb: words.Verb, name: str) -> Option | words.Words:
-    """The option, or the verb's words, that today's agents' tools name so (recipes.prop): an option by its long."""
-    if verb.words is not None and verb.words.field == name:
-        return verb.words
-    [option] = [option for option in verb.options if option.long and recipes.prop({"long": option.long}) == name]
-    return option
 
 
 @pytest.mark.parametrize("verb", list(VERBS.values()), ids=list(VERBS))
@@ -176,12 +174,13 @@ def test_the_table_has_no_word_for_a_migration_and_init_s_host_is_a_host_s_name(
 
 
 @pytest.mark.parametrize("verb", list(VERBS.values()), ids=list(VERBS))
-def test_every_option_is_received_by_its_long_name_as_today_s_tools_name_it(verb: words.Verb) -> None:
+def test_every_option_is_received_by_its_long_name(verb: words.Verb) -> None:
     for option in verb.options + BEFORE:
         if option.long is None:
             assert (option.short, option.field) == ("v", "verbosity"), option
             continue
-        name = recipes.prop({"long": option.long})
+        # In lowercase, with _ for -.
+        name = option.long.lower().replace("-", "_")
         # A word Python keeps for itself (host's --for) gets an _ after it, as a keyword argument must.
         assert option.field == (f"{name}_" if keyword.iskeyword(name) else name), option
 
@@ -248,39 +247,35 @@ def test_set_is_on_the_verbs_that_read_the_settings_and_v_on_those_that_run_the_
     assert {name for name, verb in VERBS.items() if any(option.short == "v" for option in verb.options)} == VERBOSE
 
 
-def test_the_verbs_and_tools_are_today_s_until_the_cutover() -> None:
-    for tool, recipe in recipes.TOOLS.items():
-        assert tool in VERBS[recipe.recipe].tools, tool
-    for name, why in recipes.NO_TOOL.items():
-        if name in VERBS:
-            # Today's reason, with aw where it said just (the owner's word 1), its command the printer's (H25).
-            assert words.said(VERBS[name].tools) == re.sub(r"\bjust\b", "aw", why), name
-        else:
-            assert name in ("lint", "test", "docs", "vagrant", "clean"), name
-    every = {recipe["name"] for recipe in CONTRACT["recipes"]}
-    assert every <= set(VERBS)
-    assert {tool for verb in VERBS.values() if isinstance(verb.tools, tuple) for tool in verb.tools} == set(
-        recipes.TOOLS
-    ) | {"cancel", "release"}
+def test_the_tools_that_run_each_verb_are_those_ruled() -> None:
+    assert {name: verb.tools for name, verb in VERBS.items() if isinstance(verb.tools, tuple)} == TOOLS_OF
+    assert {name for name, verb in VERBS.items() if isinstance(verb.tools, str)} == NO_TOOL
 
 
-@pytest.mark.parametrize("tool", sorted(recipes.TOOLS))
-def test_today_s_words_keep_today_s_fates_until_the_cutover(tool: str) -> None:
-    recipe = recipes.TOOLS[tool]
-    verb = VERBS[recipe.recipe]
-    for name in _today(recipe.recipe):
-        given = fate(_named(verb, name).agent, tool)
-        if name in recipe.fixed:
-            assert given == words.fixed(recipe.fixed[name]), (tool, name)
-        elif (tool, name) in recipes.LEFT_OUT:
-            # Left out of the schema: refused, or, as destroy's --confirm, given by the server from its dialog.
-            assert given.kind in ("refused", "fixed") and given.why == recipes.LEFT_OUT[tool, name], (tool, name)
-        else:
-            assert given == PROPERTY, (tool, name)
-    assert {name for one, name in recipes.LEFT_OUT if one == tool} | set(recipe.fixed) <= _today(recipe.recipe)
+# Each fate for an agent's tool that is no property of the tool's schema, by the verb, the name the handler receives the
+# option or the words by, and the tool: a value the server always gives, or refused with why. A word of several verbs
+# whose fate is ruled once (--set, -v, --confirm and the rest the test below names) is not repeated here.
+OTHER_FATES = {
+    ("init", "token_secret_file", "init"): words.refused(words.TOKEN_SECRET_FILE_LEFT_OUT),
+    ("init", "no_prompt", "init"): words.fixed(True),
+    ("init", "extra", "init"): words.refused(words.INIT_EXTRA_LEFT_OUT),
+    ("install", "lock", "install"): words.refused(words.LOCK_LEFT_OUT),
+    ("status", "json", "status"): words.JSON,
+    ("settings", "all", "settings_set"): words.refused(words.ONE_SETTING),
+    ("settings", "changed", "settings_set"): words.refused(words.ONE_SETTING),
+    ("settings", "json", "settings"): words.JSON,
+    ("settings", "json", "settings_set"): words.JSON,
+    ("settings", "reset", "settings"): words.refused(words.VALUE_LEFT_OUT),
+    ("settings", "value", "settings"): words.refused(words.VALUE_LEFT_OUT),
+    ("host", "json", "hosts"): words.JSON,
+    ("host", "remove", "hosts"): words.refused(words.HOST_REMOVE_LEFT_OUT),
+    ("host", "for_", "hosts"): words.refused(words.HOST_ASKED),
+    ("host", "host", "hosts"): words.refused(words.HOST_ASKED),
+    ("host", "name", "hosts"): words.refused(words.HOST_NAME_LEFT_OUT),
+}
 
 
-def test_the_new_words_fates_are_those_ruled() -> None:
+def test_every_fate_is_a_property_but_those_ruled() -> None:
     refused = {
         "set": words.SET_REFUSED,
         "adopt": words.ADOPT_REFUSED,
@@ -310,21 +305,20 @@ def test_the_new_words_fates_are_those_ruled() -> None:
     ]
     assert DETACH_AGENT == words.fixed(True, DETACH_AGENT.why) and DETACH_AGENT.why
     assert VERBS["release"].words.agent == PROPERTY and VERBS["cancel"].words.agent == PROPERTY
-    # Every other option and word of a verb a tool runs is a property of each tool's schema: today's words keep today's
-    # fates (the test above), and a word new to the table is a property but where ruled otherwise here, so none is
-    # refused or given by the server by a slip. The agents' server (I1) reads this column as the whole truth.
-    today = {recipe["name"]: {recipes.prop(one) for one in recipe["options"]} for recipe in CONTRACT["recipes"]}
+    # Every other option and word of a verb a tool runs is a property of each tool's schema, but where OTHER_FATES names
+    # it, so none is refused or given by the server by a slip. The agents' server (I1) reads this column as the whole
+    # truth.
+    seen = set()
     for name, verb in VERBS.items():
         if not isinstance(verb.tools, tuple):
             continue
         for field, item in _received(verb).items():
-            # Today's tools name an option by its long (recipes.prop), where the handler takes for_ for host's --for.
-            named = recipes.prop({"long": item.long}) if isinstance(item, Option) and item.long else field
-            if named in today.get(name, set()):
-                continue
             if isinstance(item, Option) and (item.long in refused or item.long == "confirm" or item.short == "v"):
                 continue
-            assert [fate(item.agent, tool) for tool in verb.tools] == [PROPERTY] * len(verb.tools), (name, field)
+            for tool in verb.tools:
+                seen.add((name, field, tool))
+                assert fate(item.agent, tool) == OTHER_FATES.get((name, field, tool), PROPERTY), (name, field, tool)
+    assert sorted(set(OTHER_FATES) - seen) == [], "OTHER_FATES names a word no tool runs"
 
 
 def test_fate_reads_one_tool_s_fate_where_two_tools_run_a_verb() -> None:
