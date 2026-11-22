@@ -17,12 +17,12 @@ answer is its Unknown, which a workflow settles by reading the VM again. Every w
 PUT that sends the digest of the read it was made from, so that Proxmox writes it only while the configuration is
 still that, in the call itself, under the VM's lock: a stale digest is DigestMismatch, and edit_config reads and
 applies again, EDITS times at most. A clone, a resize, a start, a shutdown, a stop, a conversion to a template and a
-deletion each answer a Task, which follow() polls to its end within a deadline of its kind; a task that ends with
-anything but OK is TaskFailed with the last lines of its log, one whose VMID another took is Exists, one that found
-the VM locked is Locked. Proxmox answers every refusal of a write with a 500, so its words tell them apart: a lock
-(Locked, which a workflow may try again), a stale digest, a clone's VMID taken. The VMID a workflow asks for is its
-own to choose, the record's text is its own to write, and a sequence of calls is its own to make: none of them is this
-module's.
+deletion each answer a Task, which follow() polls to its end within a deadline of its kind, or until the run that
+follows it stops (Stopped, the task going on on Proxmox); a task that ends with anything but OK is TaskFailed with the
+last lines of its log, one whose VMID another took is Exists, one that found the VM locked is Locked. Proxmox
+answers every refusal of a write with a 500, so its words tell them apart: a lock (Locked, which a workflow may try
+again), a stale digest, a clone's VMID taken. The VMID a workflow asks for is its own to choose, the record's text is
+its own to write, and a sequence of calls is its own to make: none of them is this module's.
 
 The guest agent's one call, agent_interfaces, asks what a started VM's agent reports of its network cards, on a
 transport of its own whose read limit is AGENT_READ, shorter than every other read's, since Proxmox waits on the VM for
@@ -82,6 +82,7 @@ __all__ = [
     "Proxmox",
     "ProxmoxError",
     "Refused",
+    "Stopped",
     "Task",
     "TaskFailed",
     "TaskTimedOut",
@@ -260,6 +261,18 @@ class TaskTimedOut(ProxmoxError):
         super().__init__(
             f"Proxmox's {task.kind} task for VM {task.vmid} still ran after {seconds:g} s, and was not waited for"
             " longer: it may yet end, so read the VM to know"
+        )
+
+
+class Stopped(ProxmoxError):
+    """The run stopped while a task was followed: follow() returned before the task's end, which Proxmox goes on with,
+    so the workflow reads the VM to know where it was left."""
+
+    def __init__(self, task: Task) -> None:
+        self.task = task
+        super().__init__(
+            f"Proxmox's {task.kind} task for VM {task.vmid} still runs on Proxmox: the run stopped following it, so"
+            " read the VM to know where it was left"
         )
 
 
@@ -770,17 +783,25 @@ class Proxmox:
 
     # ----------------------------------------------------------------------------------------------- tasks ----
 
-    def follow(self, task: Task, deadline: float | None = None) -> TaskStatus:
+    def follow(self, task: Task, deadline: float | None = None, stop: threading.Event | None = None) -> TaskStatus:
         """Poll task's status until it ends, within deadline seconds (DEADLINES' for its kind where None), and never
-        longer: each poll is held to what is left of it. Returns the status of a task that ended OK. Raises
-        TaskTimedOut where it still runs at the deadline; for one that ended otherwise, Exists for a clone whose VMID
-        was taken, Locked for one that found its VM locked, else TaskFailed with the last lines of its log."""
+        longer: each poll is held to what is left of it. stop, the run's Context.stopping where it is given, is read
+        before each poll and waited on between them: once it is set, Stopped is raised and the task goes on on Proxmox,
+        unfollowed; a poll already sent is never cut, and ends within its own limit; one that fails once it is set (its
+        client closed under it) is Stopped too. A phase that must finish, a deletion inside a shield, passes none.
+        Returns the status of a task that ended OK. Raises TaskTimedOut where it still runs at the deadline; for one
+        that ended otherwise, Exists for a clone whose VMID was taken, Locked for one that found its VM locked, else
+        TaskFailed with the last lines of its log."""
         if not isinstance(task, Task):
             raise TypeError("follow() follows a Task a write answered")
+        if stop is not None and not isinstance(stop, threading.Event):
+            raise TypeError("stop is the run's threading.Event, Context.stopping, or None")
         seconds = DEADLINES[task.kind] if deadline is None else _seconds(deadline)
         end = time.monotonic() + seconds
         pauses = iter(POLLS)
         while True:
+            if stop is not None and stop.is_set():
+                raise Stopped(task)
             left = end - time.monotonic()
             if left <= 0:
                 raise TaskTimedOut(task, seconds)
@@ -789,7 +810,13 @@ class Proxmox:
                 status = answers.task_status(
                     self._get(f"nodes/{task.node}/tasks/{task.upid}/status", deadline=left), task.node, task.upid
                 )
-            except TimedOut as error:
+            except Exception as error:
+                # A poll that failed once the run stopped - its client closed under it, as a run's end may - is the
+                # stop, never the poll's own error: the task goes on on Proxmox either way.
+                if stop is not None and stop.is_set():
+                    raise Stopped(task) from error
+                if not isinstance(error, TimedOut):
+                    raise
                 late = error
             if late is not None:
                 if end - time.monotonic() > 0:
@@ -797,7 +824,11 @@ class Proxmox:
                 raise TaskTimedOut(task, seconds)
             if not status.running:
                 break
-            time.sleep(max(0.0, min(next(pauses, POLLS[-1]), end - time.monotonic())))
+            pause = max(0.0, min(next(pauses, POLLS[-1]), end - time.monotonic()))
+            if stop is None:
+                time.sleep(pause)
+            elif stop.wait(pause):
+                raise Stopped(task)
         if status.ok:
             return status
         error = status.entry.get("exitstatus")

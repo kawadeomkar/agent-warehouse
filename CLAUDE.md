@@ -1263,8 +1263,13 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   `proc.end_under`, which signals everything under a process and what was remembered of it, and never the process, its
   group or the caller's: `lib/claude_vm/runs/attached.py`'s ladder, on Ctrl-C, a hangup, a kill and an error, before
   its loop closes, since asyncio kills an `ansible-playbook` it still holds and leaves its task workers
-  ([§16.8](docs/architecture/engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run));
-  `tests/unit/test_aw_attached.py` holds it.
+  ([§16.8](docs/architecture/engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run)). Then nothing
+  holds the process: the engine's blocking calls run on daemon threads of the ladder's own, the loop's default
+  executor, each started with the signals the ladder takes blocked and never joined, and where one is still in a call
+  once the record is written the process ends by `os._exit`, since Python joins a `ThreadPoolExecutor`'s threads at
+  exit; a call in a thread that waits is handed the run's `Context.stopping` (the Proxmox client's `follow`), never a
+  phase inside a shield; a question reads on the loop (`Context.typed`), never in a thread, and one Ctrl-C there ends
+  the run. `tests/unit/test_aw_attached.py` holds it, each rule by a test that fails without it.
 - **A scenario's container is still booting when Molecule's create returns.** The boot empties `/tmp`
   (`systemd-tmpfiles-setup.service`, from `D /tmp` in the image's `tmp.conf`), where a module's payload is unpacked
   and read from while it runs: on a busy CI round five scenarios failed at their first fact gathering,
