@@ -387,11 +387,17 @@ so that a host, or a proxy the computer's certificates trust, that echoes what i
   next free VMID again, and nothing is ever deleted at the VMID asked for, which on a host would be the VM of the run
   that came first. The new VM is proved by reading its own configuration once its task has ended, never by an ID a call
   returned. The engine's own clone joins the pool only when its task ends, so until then a write to it is `Denied`.
-- **A task followed to its end.** `follow(task, deadline)` polls the task's status in one loop, its pauses growing to a
-  second, within a deadline of its kind (`DEADLINES`: today's waits, 600 s for what `roles/proxmox_vm` follows, 300 for
-  a conversion, 120 for a resize) or the one given, and never longer: each poll is held to what is left of it. A task
-  still running then is `TaskTimedOut`; one that ended with anything but `OK` is `Exists` or `Locked` as above, else
-  `TaskFailed` with Proxmox's error and the last lines of its log, each one line of plain text.
+- **A task followed to its end.** `follow(task, deadline, stop)` polls the task's status in one loop, its pauses
+  growing to a second, within a deadline of its kind (`DEADLINES`: today's waits, 600 s for what `roles/proxmox_vm`
+  follows, 300 for a conversion, 120 for a resize) or the one given, and never longer: each poll is held to what is left
+  of it. A task still running then is `TaskTimedOut`; one that ended with anything but `OK` is `Exists` or `Locked` as
+  above, else `TaskFailed` with Proxmox's error and the last lines of its log, each one line of plain text. `stop` is
+  the run's `Context.stopping` (§16.8), a `threading.Event`, since a workflow calls the client in a thread: it is read
+  before each poll and waited on in place of each pause, so once the run stops, at a Ctrl-C or wherever it is to end,
+  `follow` raises `Stopped` within a pause's first moment, never asking again, and the task goes on on Proxmox,
+  which `Stopped`'s sentence says with the task's kind and VM; a poll already sent is never cut, and ends within its own
+  limit, and one that fails once the run has stopped (its client closed under it) is `Stopped` too, never the poll's
+  own error. A phase that must finish, a deletion inside a shield, passes no `stop`, and is followed to its end.
 
 **The one table of privileges: `privileges.py`.** `CALLS` is a literal tuple of `Call(name, method, route, privilege,
 on)`: one row for each privilege of each call the engine makes, its route below `/api2/json` with each name in braces
@@ -437,32 +443,33 @@ address, type and prefix where each is a plain value, and nothing the VM nests d
   `asyncio.CancelledError` once the run's `cancelled` is set, between polls or during one, whose thread ends by its own
   limits and is not read.
 
-`status` moves onto the client in its own workstream.
-`tests/unit/test_aw_pve_reads.py` runs every read against the fake Proxmox, which serves a node's
-certificate from `tests/unit/pki.py` (`harness.fake_fleet`'s `certificate`), with the engine's pool and token, granted
-as `init` grants them and held to the table, so every read is a call the table has a row for. For an
-anchor of another node's certificate, of another CA, the right certificate with another fingerprint recorded, and no
-anchor with a computer's file that holds no root of the fake's, the fake's request log holds no request of the client's,
-also with the fake answering no request without a token. It holds that `PVEAPIToken` is written in one module of the
-new engine, that no method returns the token, and that no error, its words, its arguments or the names of its
-traceback's frames, says the token's secret. `tests/unit/test_aw_pve_writes.py` runs every write against the fake in
+`status` moves onto the client in its own workstream. `tests/unit/test_aw_pve_reads.py` runs every read against the fake
+Proxmox, which serves a node's certificate from `tests/unit/pki.py` (`harness.fake_fleet`'s `certificate`), with the
+engine's pool and token, granted as `init` grants them and held to the table, so every read is a call the table has a
+row for. For an anchor of another node's certificate, of another CA, the right certificate with another fingerprint
+recorded, and no anchor with a computer's file that holds no root of the fake's, the fake's request log holds no request
+of the client's, also with the fake answering no request without a token. It holds that `PVEAPIToken` is written in one
+module of the new engine, that no method returns the token, and that no error, its words, its arguments or the names of
+its traceback's frames, says the token's secret. `tests/unit/test_aw_pve_writes.py` runs every write against the fake in
 the same way, under enforcement, so a write the token may not make is `Denied` by the fake as Proxmox refuses it: a
-clone into the pool proved by its own configuration; `Exists` at the call and in each of the three sentences of a
-task, through the fake's `clone-race`, with no `DELETE` in its request log; two `edit_config` calls that both land, and
-a writer that always loses raising after three tries; `Locked` while a deletion or a clone holds the VM; a clone whose
+clone into the pool proved by its own configuration; `Exists` at the call and in each of the three sentences of a task,
+through the fake's `clone-race`, with no `DELETE` in its request log; two `edit_config` calls that both land, and a
+writer that always loses raising after three tries; `Locked` while a deletion or a clone holds the VM; a clone whose
 answer a tunnel of the test's own cuts, `Unknown` with one request in the fake's log; a failed task with its log, and
-one past its deadline. Its rules: every method that sends a `PUT` to a configuration's path sends `digest` (a
-syntax-tree test of the module); `CONFIG_KEYS`' privileges are the table's rows for the write; every row of the table
-names a method of the client; the words the client tells refusals apart by match the fake's constants; and no error of
-a write or a read says the token's secret where Proxmox's words echo it. `tests/unit/test_aw_pve_agent.py` runs the
-wait against the fake in the same way, with what a VM's agent reports planted as its root would make it say: an agent
-that fails its first two polls; one that never answers, ended at the deadline and not later; a token without the
-agent's privilege, `Denied` with one request made; a stopped VM, and one that stops while it is waited for; `0.0.0.0`,
-a multicast address, two addresses in one, a `ProxyCommand` after an address, and an address on another card, each no
-address; shapes of an answer that raise nothing; and the run stopping between polls and during one. Its rules: the
-agent's calls go on connections whose reads wait less; the words that tell a stopped VM are the fake's; and no error
-of the wait says the token's secret. `tests/unit/test_aw_pve_privileges.py` holds that no call writes a pool and that
-the role on the pool holds no `Pool.*` privilege but `Pool.Audit`.
+one past its deadline; a follow whose run stops between polls, during one, and before the first, each `Stopped` with no
+poll after it and the task still running on the fake, and a poll that fails once the run has stopped. Its rules: every
+method that sends a `PUT` to a configuration's path sends `digest` (a syntax-tree test of the module); `CONFIG_KEYS`'
+privileges are the table's rows for the write; every row of the table names a method of the client; the words the client
+tells refusals apart by match the fake's constants; and no error of a write or a read says the token's secret where
+Proxmox's words echo it. `tests/unit/test_aw_pve_agent.py` runs the wait against the fake in the same way, with what a
+VM's agent reports planted as its root would make it say: an agent that fails its first two polls; one that never
+answers, ended at the deadline and not later; a token without the agent's privilege, `Denied` with one request made; a
+stopped VM, and one that stops while it is waited for; `0.0.0.0`, a multicast address, two addresses in one, a
+`ProxyCommand` after an address, and an address on another card, each no address; shapes of an answer that raise
+nothing; and the run stopping between polls and during one. Its rules: the agent's calls go on connections whose reads
+wait less; the words that tell a stopped VM are the fake's; and no error of the wait says the token's secret.
+`tests/unit/test_aw_pve_privileges.py` holds that no call writes a pool and that the role on the pool holds no `Pool.*`
+privilege but `Pool.Audit`.
 
 ## 16.6 `ssh/` — the runner over OpenSSH
 
@@ -1039,17 +1046,21 @@ run's directory, takes the locks the draft names (`lock_kind`, which is always g
 be made, drops its job, as a run that never began, and where the drop leaves the record the refusal's sentence, or the
 error's note, says where. From before the job is made until the ladder's handlers are set, the signals the ladder takes
 are held off and then given to it, so that a Ctrl-C, a hangup or a kill in that window ends the run as the ladder says,
-never leaving a job that reads `lost`. `attached.run` runs the body, a coroutine function, in the command's own process on one `asyncio` loop, and
-gives it a `Context`: the job, for the SSH runner and `children.start`; `cancelled`, an event a workflow checks
-between its steps or waits on; `shield(reason)`, for a phase that cannot be cancelled, such as a deletion already
-sent; `emit`; `live(kind)`, the children it still holds; and the run's directory. Its handlers take SIGINT, SIGTERM
-and SIGHUP, but one ignored on the way in, as `nohup` or a shell's `&` leaves one, which stays ignored. The ladder:
+never leaving a job that reads `lost`; a ladder that cannot be built (its loop not made) drops its job and removes its
+directory the same way. `attached.run` runs the body, a coroutine function, in the command's own process on one
+`asyncio` loop, and gives it a `Context`: the job, for the SSH runner and `children.start`; `cancelled`, an event a
+workflow checks between its steps or waits on; `stopping`, a `threading.Event` set with it and whenever the run is to
+end, which a blocking call in a thread is handed to stop on (the Proxmox client's `follow`, §16.5), and a phase in a
+shield is not; `shield(reason)`, for a phase that cannot be cancelled, such as a deletion already sent; `typed(fd)`, a
+question's read; `emit`; `live(kind)`, the children it still holds; and the run's directory. Its handlers take SIGINT,
+SIGTERM and SIGHUP, but one ignored on the way in, as `nohup` or a shell's `&` leaves one, which stays ignored. The
+ladder:
 
 | The end | What happens | The record | The process |
 |---|---|---|---|
-| Ctrl-C, once | `cancelled` set; the tree under the run remembered with `proc.snapshot`, the interrupts held off while the table is read; SIGINT to each Ansible child's group; a line on standard error that the run is stopping, or that it stops once the shielded phase is finished. Once the body and every child it started have ended, what is left is ended at once; 30 seconds after the Ctrl-C (`STOP_GRACE`, today's MCP jobs' grace) whatever still runs is ended and the body cancelled, but a shielded phase is waited for | `cancelled`, `Ctrl-C` | exits 130 |
+| Ctrl-C, once | `cancelled` and `stopping` set; the tree under the run remembered with `proc.snapshot`, the interrupts held off while the table is read; the stop recorded, `{"by": "terminal", "at": …}`, so the job reads `cancelling` through its grace (one a `cancel` recorded is kept); SIGINT to each Ansible child's group, but one started inside a shield still up, which gets it once that shield is done, since the line says the phase finishes first; a line on standard error that the run is stopping, or that it stops once the shielded phase is finished; a question up ended there. Once the body and every child it started have ended, what is left is ended at once; 30 seconds after the Ctrl-C (`STOP_GRACE`, today's MCP jobs' grace) whatever still runs is ended and the body cancelled, but a shielded phase is waited for | `cancelled`, `Ctrl-C` | exits 130 |
 | Ctrl-C, twice | the tree ended at once from the signal's handler itself, then `Abandoned`, a `KeyboardInterrupt`, raised there while the loop runs, so that a step stuck in it cannot hold the end | `cancelled`, `Ctrl-C twice` | exits 130 |
-| SIGHUP or SIGTERM | the tree ended with that signal from the handler, as above; what ignores it is killed after five seconds | `cancelled`, the signal's name, exit 128 and its number | its handler put back to the default, and dies of it |
+| SIGHUP or SIGTERM | the tree ended with that signal from the handler, as above; what ignores it is killed after five seconds (`SETTLE`), after a Ctrl-C too, never at the Ctrl-C's grace | `cancelled`, the signal's name, exit 128 and its number, over a Ctrl-C that came first | its handler put back to the default, and dies of it |
 | An error the body did not handle | the tree ended | `failed`, the error | the error raised again |
 | The body returns | what it still holds of its children ended | `succeeded` for 0, `cancelled` for 130, else `failed` with the status | exits with the status |
 | SIGKILL | nothing | none: the job reads `lost` once its lock is free | killed |
@@ -1065,10 +1076,46 @@ caller's: today's `end` signals the root too, which here is the run. A shared SS
 no end reaches it; no child subreaper and no systemd scope are adopted, since under a subreaper one run's end would cut
 another run's connection through the host. The ladder is built against stand-ins; experiment 37 tries it with real
 children, and if a foreground run cannot end its tree by itself, `runs.run` is where a small watcher would go.
-`tests/unit/test_aw_attached.py` holds it, with runs in child processes whose bodies start three stand-in Ansible
-children (one that ends on SIGINT, one that ignores it, one with a grandchild in a session of its own): every way out but
-SIGKILL leaves its exit record, its status and nothing running, and the ways walk every signal the run takes and every
-outcome; the grace, a shielded phase, a signal ignored on the way in, and the echo at a pseudo-terminal after each end.
+
+**Nothing holds the process once its record is written.** The engine's blocking calls (`asyncio.to_thread`, a
+`run_in_executor` of the default) run on the ladder's own executor, the loop's default: each call on a daemon thread of
+its own, started with the signals the ladder takes blocked (a thread starts with its maker's mask), and never joined,
+nor known to the interpreter's exit, which joins a `ThreadPoolExecutor`'s threads and would hold a cancelled run's
+process for the rest of a call, up to `follow`'s ten minutes. Where one of them is still in a call once the record is
+written and the terminal put back, or any thread Python would wait for at its exit, the process ends at once: its
+streams flushed, an error the body did not handle said as Python says one it ends on, then `os._exit` with the status.
+With the signals blocked in every thread of its own, the kernel hands a signal to the run's thread alone, so holding the
+interrupts off while the table is read holds them for real; on macOS asyncio waits for each child in a thread of its
+own, which the ladder does not start, and there the handler's taking notes once the run is closing is what keeps the end
+right.
+
+**A question.** `typed(fd)` reads what the person types on the loop (`add_reader`), never in a thread, which would hold
+the process as above: a line in a terminal's cooked mode, a key in raw mode. While it waits a question is up, and the
+first Ctrl-C ends the run there, its read raising `asyncio.CancelledError` as the run stops, so one Ctrl-C at a prompt
+ends the run with 130 rather than leaving it to wait for an answer through the grace; the line that the run is stopping
+then begins on a line of its own. A prompt that reads the terminal raw, where Ctrl-C is a byte, sends the run SIGINT for
+it. No question is begun once the run is stopping, and one descriptor is read for one question at a time. The run's
+questions, a line, a menu or a hidden answer, are built on it.
+
+**What Python and asyncio say.** While the ladder runs, an `Abandoned` that Python drops where it cannot raise one (a
+fork's hook) is dropped unsaid (`sys.unraisablehook`), since the run's end is taken by its wake, and the loop's
+exception handler keeps asyncio's own reports, a callback's error or a task destroyed pending, off the person's terminal
+(the run's text log takes them once there is one). Work that will not take its cancel, still pending once the run has
+settled, gets one line of `aw`'s own and is kept until the process ends.
+
+`tests/unit/test_aw_attached.py` holds it, with runs in child processes whose bodies start four stand-in Ansible
+children (one that ends on SIGINT, one that ignores it, one with a grandchild in a session of its own, one that records
+each signal it gets, with when, and ends on none): every way out but SIGKILL, a body's own `KeyboardInterrupt`,
+`SystemExit` and `CancelledError` among them, leaves its exit record, its status, the signals each child got, and
+nothing running, read once the run has ended and before the test's own cleanup; the ways walk every signal whose
+handler is the ladder's as a running body finds them and every outcome. Ctrl-C twice ends the tree from the handler
+while the body holds the loop; a call in a thread holds the process no longer than the ladder takes, on a daemon thread
+that blocks the signals, and (on Linux) a SIGTERM while the table is read waits for the read; an Ansible child started
+in a shield has its SIGINT once the shield is done; a SIGTERM after a Ctrl-C whose body returned ends the run within
+`SETTLE`, recorded as itself; one Ctrl-C at a question ends the run at a pseudo-terminal, cooked or raw; a ladder that
+cannot be built leaves no job; a record that cannot be written is said; asyncio's reports stay off the terminal; the
+grace, the stop recorded, a shielded phase, a signal ignored on the way in, and the echo at a pseudo-terminal after
+each end.
 
 ## 16.9 `fleet/` — the fleet's files, the settings, the secrets and the fleet's mark
 

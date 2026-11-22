@@ -4,11 +4,11 @@ session of its own (docs/architecture/engine.md §16.8).
 
 `run(draft, body)` is the one entry a verb calls: it makes the job the draft describes (job.py), which takes the job's
 own lock, makes the run's directory (rundir.py), takes the locks the draft names (locks.py), and runs the body in this
-process to its stated end (attached.py). A run refused at its locks, or whose directory cannot be made, leaves no job,
-and what its drop left is said with the refusal or the error. From before the job is made until the ladder's handlers
-are set, the signals the ladder takes are held off, so that a Ctrl-C, a hangup or a kill in between reaches the ladder
-once it can take it, never leaving a job that reads lost. Its modules are imported only when it is called, so that what
-reads a job (logs, cancel) loads none of them.
+process to its stated end (attached.py). A run refused at its locks, or whose directory or ladder cannot be made,
+leaves no job, and what its drop left is said with the refusal or the error. From before the job is made until the
+ladder's handlers are set, the signals the ladder takes are held off, so that a Ctrl-C, a hangup or a kill in between
+reaches the ladder once it can take it, never leaving a job that reads lost. Its modules are imported only when it is
+called, so that what reads a job (logs, cancel) loads none of them.
 
 It imports schema/ and fleet/, of cli/ only the printer of a command (cli/inverse.py) for the line that cancels a run,
 and of today's lib/claude_vm/ only what tests/unit/test_aw_layout.py's REUSED names; nothing of engine/ or control/, no
@@ -50,8 +50,9 @@ class Draft:
 
 def run(draft: Draft, body: Body) -> int:
     """The verb's body run as the draft's job, in this process, to its stated end; its exit status. Where the run's
-    directory cannot be made, or its locks are refused (locks.Held), the job is dropped, as a run that never began, and
-    the error raised, with the line that says what the drop left where it left anything."""
+    directory cannot be made, its locks are refused (locks.Held), or its ladder cannot be built (attached.run), the job
+    is dropped, as a run that never began, and the error raised, with the line that says what the drop left where it
+    left anything."""
     import contextlib
     import signal
 

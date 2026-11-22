@@ -3,16 +3,19 @@ and a kill (docs/architecture/engine.md §16.8).
 
 `run(job, body)` gives the body, a coroutine function, a `Context`, and ends the run as the ladder says:
 
-- Ctrl-C, once: the run's `cancelled` is set, which a workflow checks between its steps; the tree under this process is
+- Ctrl-C, once: the run's `cancelled` and `stopping` are set, which a workflow checks between its steps and a blocking
+  call in a thread is handed; the stop is recorded, so the job reads `cancelling`; the tree under this process is
   remembered, each process with its start, before anything is signalled; each Ansible child's process group gets
-  SIGINT; and a line says the run is stopping. A phase in `shield(reason)`, one that cannot be cancelled, is finished
-  first, and the line says so. Once the body has ended and every child it started with it, what is left is ended at
-  once; STOP_GRACE seconds after the Ctrl-C, whatever still runs is ended, and the body with it. The record says
-  `cancelled`, and the process exits 130.
+  SIGINT, but one started inside a shield, which gets it once that shield is done; and a line says the run is stopping.
+  A phase in `shield(reason)`, one that cannot be cancelled, is finished first, and the line says so. A question up
+  (`typed`) ends there: the first Ctrl-C at a prompt ends the run, never left waiting for an answer. Once the body has
+  ended and every child it started with it, what is left is ended at once; STOP_GRACE seconds after the Ctrl-C,
+  whatever still runs is ended, and the body with it. The record says `cancelled`, and the process exits 130.
 - Ctrl-C, twice: the tree is ended at once, from the signal's handler itself, so that a step stuck in the loop cannot
   hold it.
 - SIGHUP or SIGTERM, a closed window or a kill: the tree is ended with that signal, the record says `cancelled` with
-  the signal as its reason, and the process puts the signal back to its default and dies of it.
+  the signal as its reason, and the process puts the signal back to its default and dies of it. After a Ctrl-C, the
+  signal is what the record says, and what ignores it is killed SETTLE seconds after it, not at the Ctrl-C's grace.
 - An error the body did not handle: the tree is ended, the record says `failed`, and the error is raised again.
 - A body that returns: what it still holds of its children is ended, and the record says `succeeded` for 0, `failed`
   for any other status, and `cancelled` for 130.
@@ -21,22 +24,33 @@ and a kill (docs/architecture/engine.md §16.8).
 On every path but SIGKILL the terminal is put back as it was found, its echo with it; every child of the registry has
 ended or been ended before the loop closes, since asyncio kills an `ansible-playbook` it still holds when its loop
 closes and leaves the playbook's detached task workers running; the run's directory is removed; and the exit record is
-written last. A signal ignored on the way in, as `nohup` or a shell's `&` leaves one, stays ignored. No child subreaper
-and no systemd scope: a shared connection's master daemonises out of the tree, so no end here reaches it, where under
-a subreaper one run's end would cut another run's connection.
+written last. Then nothing holds the process: the engine's blocking calls (asyncio.to_thread) run on daemon threads of
+the ladder's own, the loop's default executor, which are never joined, and where one is still in a call the process
+ends at once (os._exit) once its streams are flushed, an error first said as Python says one. A signal ignored on the
+way in, as `nohup` or a shell's `&` leaves one, stays ignored. No child subreaper and no systemd scope: a shared
+connection's master daemonises out of the tree, so no end here reaches it, where under a subreaper one run's end
+would cut another run's connection.
 
 The tree is the process table's (claude_vm.proc), read with the interrupts held off, and only to end it: nothing here
-decides a job's state from it. Standard library only; asyncio, termios and claude_vm.proc are imported inside the
-functions that use them.
+decides a job's state from it. Every thread of the ladder's own starts with the signals it takes blocked, so that they
+reach the run's thread alone and the hold is real; asyncio's own thread for each child on macOS is not the ladder's.
+While the ladder runs, Python's and asyncio's own messages stay off the person's terminal: an end Python drops (an
+Abandoned raised in a fork's hook) and asyncio's reports of a callback's error or a task left pending. Standard library
+only; asyncio, termios and claude_vm.proc are imported inside the functions that use them.
 """
 
 from __future__ import annotations
 
 import contextlib
+import itertools
 import os
 import signal
 import sys
+import threading
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
+from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -58,16 +72,28 @@ TAKEN = (signal.SIGINT, *OUTSIDE)
 SETTLE = 5
 # How often what is left of the run's children is looked at while the run waits for them.
 POLL = 0.05
+# The name each thread of the ladder's own carries, with its number.
+THREADS = "aw-run"
+# How much a question's read takes at once: a line in a terminal's cooked mode, a key or a few in raw mode.
+TYPED = 4096
 
 # The lines a Ctrl-C says, on standard error.
 STOPPING = "aw: stopping: what the run started has {grace} s to end, then it is ended; Ctrl-C again ends it now"
 FINISHING = "aw: stopping once {reason} is finished: Ctrl-C again ends it now"
+# What is said where the run's work did not end once it was cancelled, and is left as it is.
+LEFT = "aw: the run's work did not end within {settle} s of being stopped, and is left unfinished"
 # Why a run ended as it did, in its record.
 BY_CTRL_C = "Ctrl-C"
 BY_CTRL_C_TWICE = "Ctrl-C twice"
 DONE = "done"
+# Who stopped a run, in its record's stop.
+BY_TERMINAL = "terminal"
 
 Body = Callable[["Context"], Awaitable["int | None"]]
+
+# A body's work still pending when its run ended, kept until the process ends: asyncio reports a task it destroys
+# pending, and the run has said its own line for it.
+_LEFT: list[asyncio.Task] = []
 
 
 class Abandoned(KeyboardInterrupt):
@@ -80,9 +106,77 @@ class Abandoned(KeyboardInterrupt):
         self.signum = signum
 
 
+class _Threads(ThreadPoolExecutor):
+    """The loop's default executor, where asyncio.to_thread runs the engine's blocking calls: each call on a daemon
+    thread of its own, started with the signals the ladder takes blocked, so they reach the run's thread alone and the
+    interrupts held off while the table is read stay held; never joined, so a call still running when the run has
+    ended holds nothing. A ThreadPoolExecutor by kind alone, as asyncio's set_default_executor asks: none of its pool
+    is used, and nothing of it is registered with the interpreter's exit, which joins a pool's threads."""
+
+    def __init__(self) -> None:
+        super().__init__(thread_name_prefix=THREADS)
+        self._calling: set[threading.Thread] = set()
+        self._guard = threading.Lock()
+        self._numbers = itertools.count(1)
+        self._shut = False
+
+    def submit(self, fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Future:
+        future: Future = Future()
+        with self._guard:
+            if self._shut:
+                raise RuntimeError("cannot schedule new futures after shutdown")
+            thread = threading.Thread(
+                target=self._call, args=(future, fn, args, kwargs), name=f"{THREADS}-{next(self._numbers)}", daemon=True
+            )
+            self._calling.add(thread)
+        # A thread starts with its maker's signal mask: blocked from its first instruction, with no window.
+        held = signal.pthread_sigmask(signal.SIG_BLOCK, TAKEN)
+        try:
+            thread.start()
+        except BaseException:
+            with self._guard:
+                self._calling.discard(thread)
+            raise
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, held)
+        return future
+
+    def _call(self, future: Future, fn: Callable[..., Any], args: tuple, kwargs: dict) -> None:
+        signal.pthread_sigmask(signal.SIG_BLOCK, TAKEN)
+        try:
+            if future.set_running_or_notify_cancel():
+                try:
+                    result = fn(*args, **kwargs)
+                except BaseException as error:
+                    future.set_exception(error)
+                else:
+                    future.set_result(result)
+        finally:
+            with self._guard:
+                self._calling.discard(threading.current_thread())
+
+    def calling(self) -> int:
+        """How many of its threads are still in a call."""
+        with self._guard:
+            return len(self._calling)
+
+    def shutdown(self, wait: bool = True, *, cancel_futures: bool = False) -> None:
+        """No call is taken from now on; none still running is waited for, whatever wait says."""
+        with self._guard:
+            self._shut = True
+
+
+@dataclass(eq=False)
+class _Up:
+    """A shield up: why, and the run's children already running when it began, which it does not hold."""
+
+    reason: str
+    before: tuple[children.Child, ...]
+
+
 class Context:
-    """What a verb's body is given: its job (for the SSH runner and children.start), `cancelled`, `shield`, `emit`, the
-    children the run still holds, and the run's directory."""
+    """What a verb's body is given: its job (for the SSH runner and children.start), `cancelled` and `stopping`,
+    `shield`, `typed`, `emit`, the children the run still holds, and the run's directory."""
 
     def __init__(self, job: jobs.Job, directory: Path | None, ladder: _Ladder) -> None:
         import asyncio
@@ -91,6 +185,9 @@ class Context:
         self.directory = directory
         # Set by the first Ctrl-C: a workflow checks it between its steps, or waits on it.
         self.cancelled = asyncio.Event()
+        # Set with cancelled, and whenever the run is to end: what a blocking call in a thread is handed to stop on,
+        # such as the Proxmox client's follow; never handed to one inside a shield, which finishes.
+        self.stopping = threading.Event()
         self._ladder = ladder
 
     def emit(self, kind: str, machine: str | None, text: str, **data: object) -> jobs.Event:
@@ -104,20 +201,61 @@ class Context:
     @contextlib.asynccontextmanager
     async def shield(self, reason: str) -> AsyncIterator[None]:
         """A phase that cannot be cancelled, such as a deletion already sent: a Ctrl-C that comes during it lets it
-        finish first and says so, and the grace's end waits for it; only a second Ctrl-C or a signal from outside ends
-        it. Never begun once the run is stopping: that raises asyncio.CancelledError."""
+        finish first and says so, an Ansible child started inside it has the Ctrl-C's SIGINT only once it is done, and
+        the grace's end waits for it; only a second Ctrl-C or a signal from outside ends it. Never begun once the run is
+        stopping: that raises asyncio.CancelledError."""
         if self.cancelled.is_set():
             import asyncio
 
             raise asyncio.CancelledError(f"the run is stopping: {plain_text(reason)} is not begun")
         ladder = self._ladder
-        ladder.shields.append(reason)
+        up = _Up(reason, tuple(children.live(self.job)))
+        ladder.shields.append(up)
         try:
             yield
         finally:
-            ladder.shields.remove(reason)
-            if ladder.overdue and not ladder.shields:
-                ladder.grace_over()
+            ladder.shields.remove(up)
+            ladder.shield_done()
+
+    async def typed(self, fd: int = 0, most: int = TYPED) -> bytes:
+        """What the person types on fd, read on the loop, never in a thread: the bytes there once fd can be read - a
+        line in a terminal's cooked mode, a key in raw mode - or b"" at its end. A question is up while it waits: the
+        first Ctrl-C ends the run there, as the owner's answer 4 says, the read raising asyncio.CancelledError and the
+        run stopping, rather than waiting on for an answer. A prompt that reads the terminal raw, where Ctrl-C is a
+        byte, sends this process SIGINT for it. Never begun once the run is stopping: asyncio.CancelledError."""
+        import asyncio
+
+        if isinstance(fd, bool) or not isinstance(fd, int) or fd < 0:
+            raise TypeError("a question is read from a descriptor, by its number")
+        if isinstance(most, bool) or not isinstance(most, int) or most < 1:
+            raise ValueError("a question's read takes at least one byte")
+        if self.cancelled.is_set():
+            raise asyncio.CancelledError("the run is stopping: no question is asked")
+        reading = self._ladder.reading
+        if fd in reading:
+            raise RuntimeError(f"descriptor {fd} is already read for a question: one question at a time")
+        loop = asyncio.get_running_loop()
+        waiting: asyncio.Future[bytes] = loop.create_future()
+
+        def readable() -> None:
+            if waiting.done():
+                return
+            try:
+                got = os.read(fd, most)
+            except BlockingIOError:
+                return
+            except OSError as error:
+                waiting.set_exception(error)
+            else:
+                waiting.set_result(got)
+
+        loop.add_reader(fd, readable)
+        reading[fd] = waiting
+        try:
+            return await waiting
+        finally:
+            reading.pop(fd, None)
+            loop.remove_reader(fd)
 
 
 def _say(line: str) -> None:
@@ -160,14 +298,52 @@ def _put_back(found: tuple[int, list] | None) -> None:
         pass
 
 
-def _die_of(signum: int) -> None:
-    """The process ended by signum, at its default, as a shell expects to see a kill or a hangup end it."""
+def _flush() -> None:
     for stream in (sys.stdout, sys.stderr):
         with contextlib.suppress(Exception):
             stream.flush()
+
+
+def _die_of(signum: int) -> None:
+    """The process ended by signum, at its default, as a shell expects to see a kill or a hangup end it."""
+    _flush()
     signal.signal(signum, signal.SIG_DFL)
     signal.pthread_sigmask(signal.SIG_UNBLOCK, {signum})
     os.kill(os.getpid(), signum)
+
+
+def _joined_at_exit() -> bool:
+    """Whether a thread Python would wait for at its exit still runs: any but this one that is no daemon."""
+    me = threading.current_thread()
+    return any(each is not me and not each.daemon and each.is_alive() for each in threading.enumerate())
+
+
+def _end_now(status: int, error: BaseException | None) -> None:
+    """The process ended at once with status, a thread still in a call left as it is: an error the body did not
+    handle is said first, as Python says one it ends on, and the status is then 1."""
+    if error is not None:
+        with contextlib.suppress(Exception):
+            sys.excepthook(type(error), error, error.__traceback__)
+        status = 1
+    _flush()
+    os._exit(status)
+
+
+def _unsaid(_loop: asyncio.AbstractEventLoop, _context: dict[str, Any]) -> None:
+    """The loop's exception handler: asyncio's own reports - a callback's error, a task destroyed pending - kept off the
+    person's terminal while the run is on; the run's text log (card C12) takes them."""
+
+
+def _dropping(previous: Callable[[Any], object]) -> Callable[[Any], object]:
+    """sys.unraisablehook while the ladder runs: an Abandoned that Python drops where it cannot raise one (a fork's
+    hook) is dropped unsaid, the run's end being taken by its wake; anything else goes to the hook there was."""
+
+    def hook(unraisable: Any) -> object:
+        if isinstance(getattr(unraisable, "exc_value", None), Abandoned):
+            return None
+        return previous(unraisable)
+
+    return hook
 
 
 class _Ladder:
@@ -177,25 +353,37 @@ class _Ladder:
         import asyncio
 
         self.job = job
+        self.threads = _Threads()
         self.loop = asyncio.new_event_loop()
-        # Done when the run is to end at once: the grace over, Ctrl-C twice, SIGHUP or SIGTERM.
-        self.now: asyncio.Future[None] = self.loop.create_future()
-        self.ctx = Context(job, rundir.made(job), self)
+        try:
+            self.loop.set_default_executor(self.threads)
+            self.loop.set_exception_handler(_unsaid)
+            # Done when the run is to end at once: the grace over, Ctrl-C twice, SIGHUP or SIGTERM.
+            self.now: asyncio.Future[None] = self.loop.create_future()
+            self.ctx = Context(job, rundir.made(job), self)
+        except BaseException:
+            self.loop.close()
+            raise
         self.task: asyncio.Task | None = None
         self.interrupts = 0
         # The signal that ended the run at once while its body ran: SIGINT for a second Ctrl-C, SIGTERM or SIGHUP.
         self.cut: int | None = None
-        # SIGTERM or SIGHUP, whenever it came: what the process dies of once its record is written.
+        # SIGTERM or SIGHUP, whenever it came, and when: what the process dies of once its record is written.
         self.dies_of: int | None = None
+        self.dies_at: float | None = None
         # Every process found under the run, with its start: a child that ends leaves its own under PID 1.
         self.remembered: dict[int, str] = {}
         self.deadline: float | None = None
-        self.shields: list[str] = []
+        self.shields: list[_Up] = []
         # The grace ended inside a shield: the stop goes on once the shield is done.
         self.overdue = False
+        # The Ansible children that have had the first Ctrl-C's SIGINT.
+        self.interrupted: set[children.Child] = set()
+        # The questions up, each read's future by its descriptor.
+        self.reading: dict[int, asyncio.Future[bytes]] = {}
         # From the first moment of its close, a run's handler only takes note.
         self.closing = False
-        # What could not read the process table, said at the end.
+        # What could not read the process table, or record the stop, said at the end.
         self.blind: list[str] = []
 
     # ---------------------------------------------------------------- the handler, and what it starts ----
@@ -217,6 +405,7 @@ class _Ladder:
             if self.dies_of is not None:
                 return
             self.dies_of = signum
+            self.dies_at = self.loop.time()
             self.end_tree(signum)
         if ending:
             return
@@ -232,7 +421,8 @@ class _Ladder:
             self.loop.call_soon_threadsafe(callback)
 
     def remember(self) -> None:
-        """The tree under this process added to what is remembered of it, read with the interrupts held off."""
+        """The tree under this process added to what is remembered of it, read with the interrupts held off: blocked
+        in this thread, and in every thread of the ladder's own from its start, so none of them takes one meanwhile."""
         from claude_vm import proc
 
         held = signal.pthread_sigmask(signal.SIG_BLOCK, proc.HELD)
@@ -250,21 +440,65 @@ class _Ladder:
         self.remember()
         proc.end_under(os.getpid(), self.remembered, signum, blind=self.blind.append)
 
+    def _shielded(self, child: children.Child) -> bool:
+        """Whether child began inside a shield still up."""
+        return any(child not in up.before for up in self.shields)
+
+    def _due(self) -> list[children.Child]:
+        """The Ansible children owed the first Ctrl-C's SIGINT now: those that have not had it, but one started inside
+        a shield still up."""
+        return [
+            child
+            for child in children.live(self.job, children.ANSIBLE)
+            if child not in self.interrupted and not self._shielded(child)
+        ]
+
+    def _interrupt(self, due: list[children.Child]) -> None:
+        for child in due:
+            self.interrupted.add(child)
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(child.pid, signal.SIGINT)
+
+    def _record_stop(self) -> None:
+        """The stop in the job's record, so it reads `cancelling` through the grace; a stop already recorded (a
+        cancel's) is kept."""
+        stop = {"by": BY_TERMINAL, "at": time.time()}
+        try:
+            self.job._change(lambda record: record if record.get("stop") else {**record, "stop": stop})
+        except Exception as error:
+            self.blind.append(f"the stop could not be recorded in job {self.job.id}'s record: {plain_text(str(error))}")
+
     def stop(self) -> None:
-        """Ctrl-C, once: cancelled set, the tree remembered, SIGINT to each Ansible child's group, a line, the grace."""
+        """Ctrl-C, once: cancelled and stopping set, the tree remembered, the stop recorded, SIGINT to each Ansible
+        child's group that is not inside a shield, a line, the grace; and a question up ended."""
         if self.ctx.cancelled.is_set() or self.cut is not None or self.task is None or self.task.done():
             return
         self.ctx.cancelled.set()
+        self.ctx.stopping.set()
         self.remember()
-        for child in children.live(self.job, children.ANSIBLE):
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(child.pid, signal.SIGINT)
+        self._record_stop()
+        self._interrupt(self._due())
+        # At a question the line begins on a line of its own, below what the person was typing.
+        at = "\n" if self.reading else ""
         if self.shields:
-            _say(FINISHING.format(reason=plain_text(self.shields[0])))
+            _say(at + FINISHING.format(reason=plain_text(self.shields[0].reason)))
         else:
-            _say(STOPPING.format(grace=STOP_GRACE))
+            _say(at + STOPPING.format(grace=STOP_GRACE))
         self.deadline = self.loop.time() + STOP_GRACE
         self.loop.call_at(self.deadline, self.grace_over)
+        for waiting in list(self.reading.values()):
+            # The first Ctrl-C at a prompt ends the run there (the owner's answer 4): no answer is waited for.
+            waiting.cancel("the run was stopped at its question")
+
+    def shield_done(self) -> None:
+        """A shield ended: the Ansible children it held have the Ctrl-C's SIGINT now, and an overdue grace ends."""
+        if self.ctx.cancelled.is_set() and self.cut is None:
+            due = self._due()
+            if due:
+                self.remember()
+                self._interrupt(due)
+        if self.overdue and not self.shields:
+            self.grace_over()
 
     def grace_over(self) -> None:
         """The grace's end: what is left is ended, and the body with it; inside a shield, once the shield is done."""
@@ -276,6 +510,7 @@ class _Ladder:
         self.wake()
 
     def wake(self) -> None:
+        self.ctx.stopping.set()
         if not self.now.done():
             self.now.set_result(None)
 
@@ -291,11 +526,15 @@ class _Ladder:
             self.task.cancel()
             await asyncio.wait({self.task}, timeout=SETTLE)
 
-    async def _while_live(self, until: float) -> None:
+    async def _while_live(self, until: Callable[[], float]) -> None:
         import asyncio
 
-        while children.live(self.job) and self.loop.time() < until:
+        while children.live(self.job) and self.loop.time() < until():
             await asyncio.sleep(POLL)
+
+    def _by(self, deadline: float) -> float:
+        """deadline, or SETTLE seconds after a SIGTERM or SIGHUP that came since the Ctrl-C, whichever is sooner."""
+        return deadline if self.dies_at is None else min(deadline, self.dies_at + SETTLE)
 
     async def settle(self) -> None:
         """What is left of the run's children ended, as the way it ended says, and none of the registry left running."""
@@ -303,18 +542,20 @@ class _Ladder:
 
         raised = self._raised()
         if self.cut is None and self.ctx.cancelled.is_set():
-            assert self.deadline is not None
-            await self._while_live(self.deadline)
+            deadline = self.deadline if self.deadline is not None else self.loop.time()
+            await self._while_live(lambda: self._by(deadline))
             self.end_tree(signal.SIGKILL)
         elif self.cut in OUTSIDE:
             # Each was given the signal that ended the run: what ignores it is killed after a moment.
-            await self._while_live(self.loop.time() + SETTLE)
+            moment = self.loop.time() + SETTLE
+            await self._while_live(lambda: moment)
             self.end_tree(signal.SIGKILL)
         elif self.cut is None and raised is not None and not isinstance(raised, SystemExit):
             self.end_tree(signal.SIGKILL)
         for child in children.live(self.job):
             proc.end(child.pid, remembered=self.remembered, signum=signal.SIGKILL, blind=self.blind.append)
-        await self._while_live(self.loop.time() + SETTLE)
+        moment = self.loop.time() + SETTLE
+        await self._while_live(lambda: moment)
 
     def _drive(self, make: Callable[[], Coroutine[Any, Any, None]]) -> None:
         """make()'s coroutine run on the loop to its end. An Abandoned from a handler, or the body's own
@@ -329,6 +570,13 @@ class _Ladder:
                 if task.done():
                     task = self.loop.create_task(make())
 
+    def _left(self) -> None:
+        """The body's work still pending once settled - one that would not take its cancel - said in a line of aw's
+        own, and kept until the process ends."""
+        if self.task is not None and not self.task.done():
+            _LEFT.append(self.task)
+            _say(LEFT.format(settle=SETTLE))
+
     def _raised(self) -> BaseException | None:
         """What the body raised, read so that asyncio never says it went unread; None where it raised nothing."""
         task = self.task
@@ -336,8 +584,7 @@ class _Ladder:
             return None
         return task.exception()
 
-    def outcome(self) -> tuple[str, int, str, BaseException | None]:
-        """The run's outcome, its exit status, why, and the error to raise again."""
+    def _outcome(self) -> tuple[str, int, str, BaseException | None]:
         cancelled = EXITS["cancelled"]
         raised = self._raised()
         if self.cut == signal.SIGINT:
@@ -369,6 +616,14 @@ class _Ladder:
             return "cancelled", cancelled, BY_CTRL_C, None
         return "failed", status, f"exit {status}", None
 
+    def outcome(self) -> tuple[str, int, str, BaseException | None]:
+        """The run's outcome, its exit status, why, and the error to raise again. A SIGTERM or SIGHUP after a Ctrl-C,
+        which the process dies of, is what the record says over the Ctrl-C."""
+        found = self._outcome()
+        if self.dies_of is not None and found[0] == "cancelled" and found[2] in (BY_CTRL_C, BY_CTRL_C_TWICE):
+            return "cancelled", 128 + self.dies_of, signal.Signals(self.dies_of).name, None
+        return found
+
     def _close_loop(self) -> None:
         with contextlib.suppress(Exception):
             self.loop.run_until_complete(self.loop.shutdown_asyncgens())
@@ -397,6 +652,8 @@ class _Ladder:
         self.task = self.loop.create_task(self._body(body))
         previous = {}
         error: BaseException | None = None
+        unraisable = sys.unraisablehook
+        sys.unraisablehook = _dropping(unraisable)
         try:
             for signum in TAKEN:
                 # One ignored on the way in - nohup's SIGHUP, or SIGINT for a job a shell started with & - stays so.
@@ -408,10 +665,13 @@ class _Ladder:
                 signal.pthread_sigmask(signal.SIG_SETMASK, mask)
             self._drive(self.until_done)
             self._drive(self.settle)
+            self._left()
         finally:
             self.closing = True
             held = signal.pthread_sigmask(signal.SIG_BLOCK, TAKEN)
             try:
+                # A call in a thread still waiting stops at its next look.
+                self.ctx.stopping.set()
                 self._close_loop()
                 outcome, status, why, error = self.outcome()
                 _put_back(found)
@@ -423,21 +683,42 @@ class _Ladder:
                 for signum, handler in previous.items():
                     # None: a handler no Python installed, which leaves its default to put back.
                     signal.signal(signum, signal.SIG_DFL if handler is None else handler)
+                sys.unraisablehook = unraisable
         if self.dies_of is not None:
             _die_of(self.dies_of)
             return 128 + self.dies_of
+        if self.threads.calling() or _joined_at_exit():
+            # Python would wait for the thread at its exit: up to a call's whole deadline, or for good.
+            _end_now(status, error)
         if error is not None:
             raise error
         return status
+
+
+def _never_began(job: jobs.Job, error: BaseException) -> None:
+    """A run whose ladder could not be built: its directory removed and its job dropped, as a run that never began,
+    with what the drop left said beside the error."""
+    with contextlib.suppress(Exception):
+        rundir.remove(job)
+    left = jobs.drop(job)
+    if left is not None:
+        error.add_note(left)
 
 
 def run(job: jobs.Job, body: Body, *, mask: set[signal.Signals] | None = None) -> int:
     """body run in this process, on one asyncio loop, with a Context for job, which this process made; ended as the
     ladder says, and its exit status: 0, the status the body returned, or 130 for a run a person cancelled. A run ended
     by SIGHUP or SIGTERM dies of it, and an error the body did not handle is raised again, each once the record says
-    so. The run's thread is the main thread, the only one a signal's handler runs in. mask, where it is given, is the
-    signal mask put back once the ladder's handlers are set: runs.run's, which held TAKEN off from before the job was
-    made, so that a signal in between is the ladder's to take."""
+    so; where a call is still running in a thread then, the process ends at once with the status, the error said. A
+    ladder that cannot be built leaves no job and no directory. The run's thread is the main thread, the only one a
+    signal's handler runs in. mask, where it is given, is the signal mask put back once the ladder's handlers are set:
+    runs.run's, which held TAKEN off from before the job was made, so that a signal in between is the ladder's to
+    take."""
     if job._held_here() is None:
         raise RuntimeError(f"job {job.id} is not this process's: only the run that made a job runs it")
-    return _Ladder(job).run(body, mask)
+    try:
+        ladder = _Ladder(job)
+    except BaseException as error:
+        _never_began(job, error)
+        raise
+    return ladder.run(body, mask)

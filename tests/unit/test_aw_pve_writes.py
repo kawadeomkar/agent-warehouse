@@ -11,20 +11,23 @@ taken is Exists, at the call or in its task in each of Proxmox's three sentences
 VMID. A configuration's write sends the digest its read gave, and a stale one is DigestMismatch with nothing written;
 edit_config reads and applies again, three times at most. A write to a VM a clone or a deletion holds is Locked, and
 tried once. A write whose answer is cut is the transport's Unknown, sent once. A task that fails raises with the last
-lines of its log, made plain; one that runs past its deadline raises then, and is not waited for longer. The rules with
-a test of their own: every method that sends a PUT to a configuration's path sends digest (a syntax-tree test of the
-module); a configuration's write sends only the keys whose privileges are the table's rows for it; every row of the
-table names a method of the client; and no error of a write, nor of a read, says the token's secret, even where
-Proxmox's words echo it.
+lines of its log, made plain; one that runs past its deadline raises then, and is not waited for longer; one whose run
+stops is Stopped, between polls or during one, and goes on on Proxmox, unfollowed. The rules with a test of their own:
+every method that sends a PUT to a configuration's path sends digest (a syntax-tree test of the module); a
+configuration's write sends only the keys whose privileges are the table's rows for it; every row of the table names a
+method of the client; and no error of a write, nor of a read, says the token's secret, even where Proxmox's words echo
+it.
 """
 
 from __future__ import annotations
 
 import ast
+import asyncio
 import dataclasses
 import json
 import logging
 import socket
+import threading
 import time
 import urllib.parse
 from pathlib import Path
@@ -59,6 +62,7 @@ from claude_vm.pve.client import (
     Locked,
     Proxmox,
     Refused,
+    Stopped,
     Task,
     TaskFailed,
     TaskTimedOut,
@@ -67,7 +71,7 @@ from claude_vm.pve.client import (
     _taken,
 )
 from claude_vm.secret import MARK, Secret
-from claude_vm.vendors.transport import Answer
+from claude_vm.vendors.transport import Answer, Unreachable
 
 # The module's certificate authority, which signs the fake's certificate: cheap enough to make again on each worker
 # (tests/unit/conftest.py).
@@ -423,6 +427,136 @@ def test_a_task_past_its_deadline_raises_and_is_not_waited_for_longer(fleet) -> 
     assert DEADLINES["clone"] == 600.0 and set(DEADLINES) == answers.TASK_KINDS
 
 
+def _following(client: Proxmox, task: Task, stop: threading.Event) -> tuple[threading.Thread, dict]:
+    """follow() in a thread of its own, as a workflow runs it through asyncio.to_thread: what it raised or returned, and
+    when, once the thread ends."""
+    ended: dict = {}
+
+    def follow() -> None:
+        try:
+            ended["returned"] = client.follow(task, stop=stop)
+        except Exception as error:
+            ended["raised"] = error
+        ended["at"] = time.monotonic()
+
+    thread = threading.Thread(target=follow, daemon=True)
+    thread.start()
+    return thread, ended
+
+
+def _still_runs(fleet: Fleet, task: Task) -> bool:
+    """Whether the fake still runs task, as its record of tasks says, asking nothing that would count as a poll."""
+    return fleet.tasks()[task.upid]["status"] == "running"
+
+
+def test_a_follow_whose_run_stops_between_polls_is_stopped_at_once_and_the_task_goes_on(fleet) -> None:
+    _pve(fleet.base, "PUT", "fake/task-polls", polls=100_000)
+    with fleet.client() as client:
+        task = client.start("pve", 9010)
+        stop = threading.Event()
+        thread, ended = _following(client, task, stop)
+        status = f"nodes/pve/tasks/{task.upid}/status"
+        deadline = time.monotonic() + 30
+        # Past the pauses that grow: from the fifth poll on each pause is a second long; stopped just after a poll.
+        while len(fleet.sent("GET", status)) < 5 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        seen = len(fleet.sent("GET", status))
+        while len(fleet.sent("GET", status)) == seen and time.monotonic() < deadline:
+            time.sleep(0.01)
+        stopped = time.monotonic()
+        stop.set()
+        thread.join(timeout=10)
+        polls = len(fleet.sent("GET", status))
+        time.sleep(1.5)
+    assert not thread.is_alive()
+    # Within a pause, never the whole of one: the wait is the event's, not a sleep.
+    assert ended["at"] - stopped < 0.5, ended["at"] - stopped
+    raised = ended.get("raised")
+    assert isinstance(raised, Stopped) and raised.task == task, ended
+    assert str(raised) == (
+        "Proxmox's start task for VM 9010 still runs on Proxmox: the run stopped following it, so read the VM to know"
+        " where it was left"
+    )
+    # Nothing more is asked once it is stopped, and the task goes on on Proxmox.
+    assert len(fleet.sent("GET", status)) == polls >= 6
+    assert _still_runs(fleet, task)
+
+
+def test_a_follow_whose_run_stops_during_a_poll_lets_the_poll_end_and_asks_no_other(fleet) -> None:
+    _pve(fleet.base, "PUT", "fake/task-polls", polls=100_000)
+    with fleet.client() as client:
+        task = client.start("pve", 9010)
+        asked, release = threading.Event(), threading.Event()
+        polled = client._get
+
+        def held(path: str, *args, **kwargs):
+            if path.endswith("/status"):
+                asked.set()
+                release.wait(20)
+            return polled(path, *args, **kwargs)
+
+        client._get = held
+        stop = threading.Event()
+        thread, ended = _following(client, task, stop)
+        assert asked.wait(20)
+        stop.set()
+        time.sleep(0.3)
+        # The poll in flight is never cut: follow() waits for its answer, then asks nothing more.
+        assert thread.is_alive()
+        release.set()
+        thread.join(timeout=10)
+    assert isinstance(ended.get("raised"), Stopped), ended
+    assert len(fleet.sent("GET", f"nodes/pve/tasks/{task.upid}/status")) == 1
+    assert _still_runs(fleet, task)
+
+
+def test_a_poll_that_fails_once_the_run_has_stopped_is_the_stop_and_one_that_fails_before_is_its_own(fleet) -> None:
+    _pve(fleet.base, "PUT", "fake/task-polls", polls=100_000)
+    with fleet.client() as client:
+        task = client.start("pve", 9010)
+        polled = client._get
+        stop = threading.Event()
+
+        def closed(path: str, *args, **kwargs):
+            # The run stops while the poll is under way, and its client is closed under it, as a run's end may.
+            if path.endswith("/status"):
+                stop.set()
+                raise Unreachable("the connection was closed under the poll")
+            return polled(path, *args, **kwargs)
+
+        client._get = closed
+        with pytest.raises(Stopped) as stopped:
+            client.follow(task, stop=stop)
+        assert stopped.value.task == task and isinstance(stopped.value.__cause__, Unreachable)
+
+        def cut(path: str, *args, **kwargs):
+            raise Unreachable("the connection was cut")
+
+        # The same failure while the run goes on is the poll's own.
+        client._get = cut
+        with pytest.raises(Unreachable):
+            client.follow(task, stop=threading.Event())
+
+
+def test_a_follow_whose_run_is_already_stopping_asks_nothing(fleet) -> None:
+    _pve(fleet.base, "PUT", "fake/task-polls", polls=100_000)
+    with fleet.client() as client:
+        task = client.start("pve", 9010)
+        stop = threading.Event()
+        stop.set()
+        with pytest.raises(Stopped):
+            client.follow(task, stop=stop)
+    assert fleet.sent("GET", f"nodes/pve/tasks/{task.upid}/status") == []
+
+
+def test_a_follow_not_stopped_follows_its_task_to_its_end(fleet) -> None:
+    _pve(fleet.base, "PUT", "fake/task-polls", polls=3)
+    with fleet.client() as client:
+        task = client.start("pve", 9010)
+        status = client.follow(task, stop=threading.Event())
+    assert status.ok and not status.running
+
+
 def test_each_write_answers_a_task_of_its_kind_that_changes_the_vm_when_it_ends(fleet) -> None:
     with fleet.client() as client:
         _cloned(client)
@@ -509,6 +643,11 @@ def test_a_deadline_is_a_number_of_seconds_above_0(fleet) -> None:
         for deadline in (0, -1, True, "5"):
             with pytest.raises(ValueError):
                 client.follow(task, deadline=deadline)
+        # What stops a follow is the run's threading.Event, Context.stopping: an asyncio.Event is never set from a
+        # thread, and a flag is never waited on.
+        for stop in (asyncio.Event(), True, "stop"):
+            with pytest.raises(TypeError):
+                client.follow(task, stop=stop)
     assert fleet.asked() == []
     with pytest.raises(answers.Malformed):
         answers.task(None, "pve", "start", 9010)
