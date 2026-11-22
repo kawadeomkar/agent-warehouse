@@ -734,7 +734,12 @@ not answer (`settle_route`, `hop_login`, `through`, `held_to_route`, `recheck`;
 [§4.6](lifecycle.md#46-toolsstatus--read-only-drawn-live)). The login's line, which a pool thread writes into the
 settings, may land after the fleet first does: the fleet is landed again on the main thread once the probes are
 joined. A VM's options that cannot be split into words are its own line, never the run's end, and a Ctrl-C ends every
-ssh of the hop's (`route.end_all`) before the run ends at once. `Display` is the three things the region asks of Ansible's: a lock, `display()`, and the
+probe (`reach.end_all`) and every ssh of the hop's (`route.end_all`) before the run ends at once. Nothing that starts
+an ssh runs on the main thread, where Python raises a Ctrl-C's `KeyboardInterrupt` and could raise it between an ssh's
+start and its record: the route's settling and `recheck`'s calls of the hop are asked of the pool, the main thread
+waiting a tenth of a second at a time (`_off_main`), since where Python's locks are a mutex and a condition (macOS) a
+signal wakes no wait without a limit.
+`Display` is the three things the region asks of Ansible's: a lock, `display()`, and the
 run's log in Ansible's own format, so `just logs` reads it as any other; a warning Ansible gives while it reads the
 settings goes through it too, or it would land inside the frame. When the run ends the region is erased and the
 finished report printed once - in colour on the screen, plain in the log - or, under `--json`, the JSON alone on
@@ -748,7 +753,9 @@ VM with a file in `inventory/host_vars/` is rendered as itself.
 
 **`status/reach.py`** — one connection per VM: `ssh` with `status_ssh_args` first, then the inventory's own ssh
 options, port and key, BatchMode, the same ControlPersist, or `docker exec` or the local interpreter for a host of the
-inventory that says so. Once a run has ended (`end_all`), every connection still open is killed and none is made. The script sent is
+inventory that says so. Once a run has ended (`end_all`), every connection still open is killed and none is made:
+each is started and recorded in one step under the lock `end_all` takes, as `route.py`'s ssh is, so that one being
+started as the run ends is waited for and killed with the rest. The script sent is
 the probe and the two files of `playbooks/module_utils/` it imports, held in memory under their own names. Root
 through `ansible_become_exe` by its path: `sudo -n`, and only where that is refused the VM user's password on stdin.
 The first line of what is sent after a password is a mark the bootstrap looks for, so a `sudo` that asks for none,

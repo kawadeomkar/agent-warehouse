@@ -1254,18 +1254,26 @@ AllowTcpForwarding yes
 
 
 def _port() -> int:
+    """A port for the sshd, which binds it later itself: one another binder may take first, which real_sshd chooses
+    again for. Every other port of a test is one it holds from its choosing on (_listening)."""
     with socket.socket() as one:
         one.bind(("127.0.0.1", 0))
         return one.getsockname()[1]
 
 
-def _listening(port: int, kind: str) -> socket.socket:
-    """A listener on the loopback that takes each connection and, by ``kind``, says nothing (mute), closes it at once
-    without a word (wordless), or sends an SSH server's banner and then nothing (banner): a hop whose login stalls."""
+def _listening(kind: str) -> tuple[socket.socket, int]:
+    """(a socket on the loopback, its port), bound to a port of the kernel's choosing and held from then on, so that no
+    other test, worker or port of this test's takes it between its choosing and its binding. By ``kind``: closed, bound
+    and never listening, so that a connection to it is refused; or a listener that takes each connection and says
+    nothing (mute), closes it at once without a word (wordless), or sends an SSH server's banner and then nothing
+    (banner): a hop whose login stalls."""
     import threading
 
     server = socket.socket()
-    server.bind(("127.0.0.1", port))
+    server.bind(("127.0.0.1", 0))
+    port = server.getsockname()[1]
+    if kind == "closed":
+        return server, port
     server.listen(8)
     held = []
 
@@ -1283,7 +1291,35 @@ def _listening(port: int, kind: str) -> socket.socket:
             held.append(connection)
 
     threading.Thread(target=serve, daemon=True).start()
-    return server
+    return server, port
+
+
+def _sshd_listening(sshd: str, here: Path) -> tuple[subprocess.Popen, int]:
+    """real_sshd's sshd started and listening: (it, its port). It binds its port itself, after _port chose it, so that
+    another binder may take the port first: the port is then chosen again, never read as an sshd that cannot start
+    here. It listens once it says so at its own port, since a connection answered there could be another's."""
+    host_key = (here / "host.pub").read_text().strip()
+    log = here / "sshd.log"
+    for _ in range(5):
+        port = _port()
+        (here / "known_hosts").write_text(f"[127.0.0.1]:{port} {host_key}\n")
+        (here / "sshd_config").write_text(SSHD.format(port=port, here=here))
+        with log.open("w") as written:
+            argv = [sshd, "-D", "-e", "-f", str(here / "sshd_config")]
+            daemon = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=written, stderr=written)
+        deadline = time.monotonic() + 10
+        while daemon.poll() is None:
+            if f"Server listening on 127.0.0.1 port {port}." in log.read_text():
+                return daemon, port
+            if time.monotonic() > deadline:
+                daemon.kill()
+                daemon.wait()
+                pytest.skip("sshd did not listen within 10 s")
+            time.sleep(0.1)
+        said = log.read_text()
+        if "Address already in use" not in said:
+            pytest.skip(f"sshd would not start here as this user: {said[-300:]}")
+    pytest.fail("five ports in a row were taken between their choosing and sshd's bind")
 
 
 @pytest.fixture
@@ -1300,25 +1336,8 @@ def real_sshd(tmp_path, short_dir):
         subprocess.run([keygen, "-q", "-t", "ed25519", "-N", "", "-f", str(here / key)], check=True, timeout=30)
     ok, restricted = ((here / f"{key}.pub").read_text().strip() for key in ("ok", "restricted"))
     (here / "authorized_keys").write_text(f"{ok}\nrestrict {restricted}\n")
-    port = _port()
-    (here / "known_hosts").write_text(f"[127.0.0.1]:{port} {(here / 'host.pub').read_text().strip()}\n")
-    (here / "sshd_config").write_text(SSHD.format(port=port, here=here))
-    log = here / "sshd.log"
-    with log.open("w") as written:
-        argv = [sshd, "-D", "-e", "-f", str(here / "sshd_config")]
-        daemon = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=written, stderr=written)
+    daemon, port = _sshd_listening(sshd, here)
     try:
-        deadline = time.monotonic() + 10
-        while True:
-            if daemon.poll() is not None:
-                pytest.skip(f"sshd would not start here as this user: {log.read_text()[-300:]}")
-            try:
-                socket.create_connection(("127.0.0.1", port), timeout=1).close()
-                break
-            except OSError:
-                if time.monotonic() > deadline:
-                    pytest.skip("sshd did not listen within 10 s")
-                time.sleep(0.1)
 
         def hop(key: str, at: int) -> dict:
             ssh = _program(
@@ -1351,9 +1370,11 @@ def test_each_verdict_of_the_real_ssh_says_at_verbose_what_it_says_at_info(
     real_sshd, case, key, hop_is, target, why, banner
 ):
     hop, port = real_sshd
-    others = {kind: _port() for kind in ("closed", "mute", "wordless", "banner")}
-    servers = [_listening(others[kind], kind) for kind in ("mute", "wordless", "banner")]
+    servers: dict = {}
     try:
+        for kind in ("closed", "mute", "wordless", "banner"):
+            servers[kind] = _listening(kind)
+        others = {kind: at for kind, (_, at) in servers.items()}
         settings = hop(key, port if hop_is == "sshd" else others[hop_is])
         at = port if target == "sshd" else others[target]
         verdict = route.hop_forward(settings, "127.0.0.1", "yes", port=at, limit=2)
@@ -1362,7 +1383,7 @@ def test_each_verdict_of_the_real_ssh_says_at_verbose_what_it_says_at_info(
         assert route.forward_verdict(info["rc"], info["said"], info["killed"])["said"] == verdict["said"], case
         assert "Authenticated" not in verdict["said"]
     finally:
-        for server in servers:
+        for server, _ in servers.values():
             server.close()
 
 

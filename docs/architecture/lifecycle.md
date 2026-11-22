@@ -427,7 +427,9 @@ connection, and stops none. Otherwise what the hop said is each one's line (refu
 closed without a word, a login to the host for the forward that never finished, or forbidden for that address), and
 the rest are said as not having answered through it. Lines that say `ssh` to a VM gain its `-J`. The hop's line is in
 the report however late its login fails: the fleet is landed again once the probes are joined. A VM whose options
-cannot be split into words is that VM's line alone, and a Ctrl-C ends the hop's login with every other ssh.
+cannot be split into words is that VM's line alone, and a Ctrl-C ends the hop's login with every other ssh: none is
+started on the main thread, which Python raises the Ctrl-C in, and each is recorded as it starts, so that none is left
+to run on by itself once the run has ended.
 
 **The order of a run.**
 

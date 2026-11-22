@@ -24,6 +24,7 @@ import pytest
 import yaml
 from ansible.parsing.vault import VaultLib, VaultSecret
 from harness import PVE_SECRET, REPO, _env, _executable, _inventory, ansible_config, fake_fleet, load_module
+from test_route import _end, _until_gone
 from test_status import STATUS, status_command, status_root
 
 from claude_vm import wiring
@@ -595,6 +596,59 @@ def test_no_connection_is_made_once_the_run_has_ended(tmp_path, monkeypatch) -> 
     reach.end_all()
     read = reach.read(_how(become=False, python=str(interpreter)), {"user": "dev"}, lambda _: None, lambda: "")
     assert read == {"failed": True, "msg": "the run ended before it was reached"} and not ran.exists()
+
+
+# A run that ends at once (os._exit, which runs no thread's finally) right after end_all, while a probe's connection is
+# still being started on a thread of its pool: the connection running, and Popen held for a second before it returns.
+ENDS_AT_ONCE = r"""
+import os, subprocess, sys, threading, time
+lib, program, pid_file = sys.argv[1:4]
+sys.path.insert(0, lib)
+from claude_vm.status import reach
+started = threading.Event()
+
+
+class Held(subprocess.Popen):
+    def __init__(self, argv, *args, **kwargs):
+        super().__init__(argv, *args, **kwargs)
+        if argv[:1] == [program]:
+            with open(pid_file + ".part", "w") as written:
+                written.write(str(self.pid))
+            os.rename(pid_file + ".part", pid_file)
+            started.set()
+            time.sleep(1)
+
+
+subprocess.Popen = Held
+how = {"connection": "local", "become": False, "python": program}
+threading.Thread(target=reach.read, args=(how, {"user": "dev"}, lambda _: None, lambda: ""), daemon=True).start()
+if not started.wait(10):
+    sys.exit("the stand-in connection never started")
+reach.end_all()
+os._exit(0)
+"""
+
+
+def test_a_connection_being_started_is_ended_by_end_all_before_the_run_ends_at_once(tmp_path) -> None:
+    # just status's Ctrl-C ends every probe, then its process at once: a connection whose start was still under way
+    # when end_all ran is waited for and ended with the rest, never left to run on by itself under init.
+    program = _executable(tmp_path / "python", "#!/bin/sh\nexec sleep 60\n")
+    pid_file = tmp_path / "pid"
+    pids: tuple[int, ...] = ()
+    try:
+        ran = subprocess.run(
+            [sys.executable, "-I", "-c", ENDS_AT_ONCE, str(REPO / "lib"), str(program), str(pid_file)],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if pid_file.exists():
+            pids = (int(pid_file.read_text()),)
+        assert ran.returncode == 0 and pids, ran.stderr
+        assert _until_gone(*pids), "the probe's connection was left running after its run had ended"
+    finally:
+        _end(*pids)
 
 
 def test_a_vm_that_sends_too_much_is_cut_off(tmp_path, monkeypatch) -> None:

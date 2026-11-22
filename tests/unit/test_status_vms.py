@@ -21,13 +21,28 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
 import pytest
 import yaml
-from harness import FAKES, GETENT, REPO, _local_hosts, _pve_vars, _pve_vm, _run, fake_fleet, load_module
-from test_status import PROMISED_KEYS, S, T, _status_run, status_root
+from harness import (
+    FAKES,
+    GETENT,
+    REPO,
+    _env,
+    _executable,
+    _fail_if_the_desktop_was_reached,
+    _local_hosts,
+    _pve_vars,
+    _pve_vm,
+    _run,
+    fake_fleet,
+    load_module,
+)
+from test_route import _end, _until_gone
+from test_status import PROMISED_KEYS, S, T, _status_run, status_command, status_root
 from test_status_work import _commit, _git
 from test_tailscale import DPKG_QUERY, NODE, _joined
 
@@ -1228,3 +1243,197 @@ def test_an_interrupt_ends_every_ssh_of_the_hop_s_before_the_run_ends_at_once(mo
     with pytest.raises(SystemExit) as stopped:
         engine._end_for_an_interrupt(None)
     assert stopped.value.code == 3 and ended == ["reach", "route"]
+
+
+# A run's ssh of the hop's, started where a Ctrl-C meets it: the route settled under auto (its ssh -G), or after the
+# probes, a forward of a VM's own, the stop of a stale connection and the check that makes sure of it again. The ssh
+# the Ctrl-C meets runs on; a forward answers as an SSH server does; every other call ends at once, a check finding
+# the shared connection.
+MEETS = """#!/bin/sh
+meets=$(cat "$(dirname "$0")/meets")
+for word in "$@"; do [ "$word" = "$meets" ] && exec sleep 60; done
+case " $* " in *" -W "*) echo "SSH-2.0-OpenSSH_9.6" ;; esac
+exit 0
+"""
+
+# The status engine's run up to that ssh, in a process of its own: the ssh started, then a Ctrl-C at the main thread, as
+# a terminal's lands, while its start is still under way (Popen held half a second before it returns, the ssh not yet
+# recorded); the run then ends at once, as tools/status ends one at a Ctrl-C.
+CTRL_C_AT_A_START = r"""
+import os, signal, subprocess, sys, threading, time
+from concurrent.futures import ThreadPoolExecutor
+lib, ssh, meets, pid_file, sockets = sys.argv[1:6]
+sys.path.insert(0, lib)
+from claude_vm import route
+from claude_vm.status import engine
+
+signal.signal(signal.SIGINT, signal.default_int_handler)
+signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGINT})
+
+
+class Held(subprocess.Popen):
+    def __init__(self, argv, *args, **kwargs):
+        super().__init__(argv, *args, **kwargs)
+        if argv[:1] == [ssh] and meets in argv:
+            with open(pid_file + ".part", "w") as written:
+                written.write(str(self.pid))
+            os.rename(pid_file + ".part", pid_file)
+            signal.pthread_kill(threading.main_thread().ident, signal.SIGINT)
+            time.sleep(0.5)
+
+
+subprocess.Popen = Held
+run = engine.Run.__new__(engine.Run)
+run.over_ssh, run.settings, run.lock = True, {}, threading.Lock()
+run.fleet = {"route": "auto"}
+run.config = {"hop": {"ssh_executable": ssh, "host": "100.64.0.7", "user": "root", "control_dir": sockets}}
+hop = route.hop_settings(ssh=ssh, user="root", host="100.64.0.7", control_dir=sockets)
+run.route = {"route": "host", "setting": "host", "hop": hop, "policy": "yes", "label": hop["label"]}
+run.unanswered = {"alpha": ({"host": "192.0.2.60"}, {}, False, "alpha/9010")}
+run.probe = lambda *args: None
+run.unread_through = lambda *args, **kwargs: None
+pool = ThreadPoolExecutor(max_workers=1)
+try:
+    if meets == "-G":
+        run.reach_each([], [], [], [], pool)
+    else:
+        run.recheck(pool)
+except KeyboardInterrupt:
+    engine._end_for_an_interrupt(None)
+sys.exit("the Ctrl-C never landed")
+"""
+
+
+@pytest.mark.parametrize(
+    "meets",
+    [
+        pytest.param("-G", id="the route's ssh -G"),
+        pytest.param("-W", id="a forward of a VM's own"),
+        pytest.param("stop", id="the stop of a stale connection"),
+        pytest.param("check", id="the check that makes sure of it again"),
+    ],
+)
+def test_a_ctrl_c_as_an_ssh_of_the_hop_s_starts_ends_it_before_the_run_ends_at_once(tmp_path, meets):
+    # Python raises a Ctrl-C's KeyboardInterrupt in the main thread alone: an ssh started there could take it between
+    # its start and its record, and be left to run on by itself under init after os._exit. Each is started off the main
+    # thread, and end_all, waiting for the start, ends it with the rest.
+    hop = tmp_path / "hop"
+    hop.mkdir()
+    ssh = _executable(hop / "ssh", MEETS)
+    (hop / "meets").write_text(meets)
+    pid_file = tmp_path / "pid"
+    sockets = tempfile.mkdtemp(prefix="aw-", dir="/tmp")
+    pids: tuple[int, ...] = ()
+    try:
+        ran = subprocess.run(
+            [sys.executable, "-I", "-c", CTRL_C_AT_A_START, str(REPO / "lib"), str(ssh), meets, str(pid_file), sockets],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if pid_file.exists():
+            pids = (int(pid_file.read_text()),)
+        assert pids, ran.stderr
+        assert ran.returncode == 3 and "just status: interrupted" in ran.stderr, ran.stderr
+        assert _until_gone(*pids), f"the hop's ssh the Ctrl-C met ({meets}) was left running after the run had ended"
+    finally:
+        _end(*pids)
+        shutil.rmtree(sockets, ignore_errors=True)
+
+
+# A Ctrl-C that wakes no wait: _thread.interrupt_main sets the interrupt as a signal's handler does and sends no signal,
+# as where Python's locks are a mutex and a condition (macOS) a signal wakes no wait without a limit.
+WAKES_NO_WAIT = r"""
+import _thread, os, signal, sys, threading, time
+from concurrent.futures import ThreadPoolExecutor
+sys.path.insert(0, sys.argv[1])
+from claude_vm.status import engine
+
+signal.signal(signal.SIGINT, signal.default_int_handler)
+pool = ThreadPoolExecutor(max_workers=1)
+threading.Timer(0.3, _thread.interrupt_main).start()
+started = time.monotonic()
+try:
+    engine._off_main(pool, time.sleep, 10)
+except KeyboardInterrupt:
+    print(f"{time.monotonic() - started:.2f}", flush=True)
+    os._exit(0)
+sys.exit("the Ctrl-C never landed")
+"""
+
+
+def test_a_ctrl_c_lands_at_once_while_the_main_thread_waits_on_what_it_asked_of_the_pool():
+    # Waited for a slice at a time, never once without a limit: the Ctrl-C lands within a slice, not once the call
+    # (here ten seconds) has returned.
+    ran = subprocess.run(
+        [sys.executable, "-I", "-c", WAKES_NO_WAIT, str(REPO / "lib")],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert ran.returncode == 0, ran.stderr
+    assert float(ran.stdout) < 3, ran.stdout
+
+
+# tools/status, each start of route.py's ssh and of a probe recorded with whether the main thread, which a Ctrl-C lands
+# in, made it.
+THREADS_OF_STARTS = r"""
+import runpy, sys, threading
+from pathlib import Path
+record, status, *rest = sys.argv[1:]
+sys.path.insert(0, str(Path(status).resolve().parent.parent / "lib"))
+from claude_vm import route
+from claude_vm.status import reach
+
+real_started, real_attempt = route._started, reach._attempt
+
+
+def noted(kind):
+    with open(record, "a") as written:
+        written.write(f"{kind} {'main' if threading.current_thread() is threading.main_thread() else 'pool'}\n")
+
+
+def started(argv, **popen):
+    noted("route")
+    return real_started(argv, **popen)
+
+
+def attempt(argv, stdin, early):
+    noted("reach")
+    return real_attempt(argv, stdin, early)
+
+
+route._started, reach._attempt = started, attempt
+sys.argv = [status, *rest]
+runpy.run_path(status, run_name="__main__")
+"""
+
+
+def test_no_ssh_of_a_status_run_is_started_on_the_main_thread(tmp_path, fleet, through):
+    # Under auto, through the host, with a stale connection: every road a status run's ssh takes - the route's ssh -G,
+    # the hop's login, each VM's line asked of its ssh, the probes, a forward of its own, the stop, the login again.
+    hop, named = through
+    root = status_root(tmp_path, fleet)
+    (root / "ssh-says").write_text(CLOSED + "\n")
+    root = status_root(tmp_path, fleet, {"vm_ssh_route": "auto"})
+    argv = status_command(root, None, "--json", *named, "-e", json.dumps({"vm_name": "alpha"}))
+    record = tmp_path / "starts"
+    done = subprocess.run(
+        [sys.executable, "-c", THREADS_OF_STARTS, str(record), *argv[1:]],
+        cwd=root,
+        env=_env(root),
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=180,
+        check=False,
+    )
+    _fail_if_the_desktop_was_reached(root)
+    assert done.returncode in (0, 1, 2), done.stderr[-2000:]
+    calls = [line.split() for line in (hop / "calls").read_text().splitlines()]
+    assert any("-G" in words for words in calls) and any("stop" in words for words in calls), calls
+    assert any("-W" in words and "192.0.2.60:22" in words for words in calls), calls
+    starts = record.read_text().splitlines()
+    assert sorted(set(starts)) == ["reach pool", "route pool"], starts
