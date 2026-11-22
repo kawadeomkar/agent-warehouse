@@ -1551,11 +1551,11 @@ stand-in for the download server over TLS.
 `just init` keeps the certificate that makes the API's verify, before the token is sent anywhere
 (`playbooks/init_check.yml`, [§4.13](lifecycle.md#413-playbooksinit_checkyml)), and every request reads it after
 (`proxmox_api_validate` and `proxmox_api_ca_path` in the inventory defaults). Which certificate that is depends on
-this machine's Python as much as on the host, so it is tried, never assumed: Python 3.13 and later verify with
+the host, so it is tried, never assumed: every Python the project runs on (3.13 or later) verifies with
 `VERIFY_X509_STRICT`, which refuses a CA without `keyUsage` - every Proxmox VE 8 host's, and every 9 host's made before
 pve-cluster 9.1.2 and not issued again by 9.1.8 - and with `VERIFY_X509_PARTIAL_CHAIN`, which takes the node's own
-certificate as an anchor; 3.12 does neither. No probe here sends the token: each that asks whether a certificate
-verifies is a `HEAD /version`, which Proxmox answers 501 at once, and any HTTP answer means the certificate verified.
+certificate as an anchor. No probe here sends the token: each that asks whether a certificate verifies is a `HEAD
+/version`, which Proxmox answers 501 at once, and any HTTP answer means the certificate verified.
 Never a `GET`: Proxmox holds the 401 of one with no token back three seconds, which made the certificate's step of
 `just init` take nine.
 
@@ -1567,7 +1567,7 @@ Never a `GET`: Proxmox holds the 401 of one with no token back three seconds, wh
   `REQUESTS_CA_BUNDLE` names, which both are handed), then the host's CA, then the node's own certificate without its
   chain (`pem_first`) - and hands back the first that verifies, with its SHA-256 fingerprint as `openssl x509
   -fingerprint -sha256` prints it, and why each before it did not, which `proxmox_trust_said` makes one line of plain
-  text. `strict` forces Python 3.13's flags on or off, so that the tests run both on either Python.
+  text.
 - **`proxmox_trust_presented(candidates, url)`** reads what the address presents with a context that checks nothing,
   and says whether it is the host's: the node's certificate itself, or one that chains to the host's CA or node
   certificate whatever name it holds. The store proves no host, since any public CA signs anyone's. The step tells a
@@ -1578,10 +1578,11 @@ Never a `GET`: Proxmox holds the 401 of one with no token back three seconds, wh
 - **`anchored_context(pem)`** is the one public way to a context of the module's, for the new engine's Proxmox client
   (`lib/claude_vm/pve/pin.py`, [§16.5](engine.md#165-pve--the-typed-proxmox-client-and-the-one-table-of-privileges)),
   so that there stays one way to make a context from a certificate the host gave: a client context over the
-  certificates of `pem` alone, a certificate required and the name checked, with Python 3.13's flags forced on whatever
-  the Python, and a `ValueError` where `pem` holds none. It is made by hand, not by `_context`: the standard library's
-  ready-made context, which `_context` makes, opens the file `SSLKEYLOGFILE` names as it is made, unless Python ignores
-  the environment, and the client that carries the token logs no session's keys. Nothing of today's product calls it.
+  certificates of `pem` alone, a certificate required and the name checked, with the two flags the standard library's
+  ready-made context has set by hand, and a `ValueError` where `pem` holds none. It is made by hand, not by
+  `_context`: the standard library's ready-made context, which `_context` makes, opens the file `SSLKEYLOGFILE` names
+  as it is made, unless Python ignores the environment, and the client that carries the token logs no session's keys.
+  Nothing of today's product calls it.
 
 Only `-----BEGIN CERTIFICATE-----` blocks of what was read from the host are ever kept or tried (`pem_certificates`),
 and a file larger than a certificate file is none. A trust file there turns checking on, whatever

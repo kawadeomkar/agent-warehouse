@@ -3,14 +3,13 @@ docs/architecture/lifecycle.md §4.13): which of what this machine could trust m
 the run's own clients verify it, and whether what the address presents is the host's at all. Stdlib only, but for
 certifi's bundle where it is there; the filters of filter_plugins/settings.py. No probe here sends the token.
 
-No single file works everywhere. Python 3.13 and later verify strictly (ssl's VERIFY_X509_STRICT, which Ansible's uri
-and urllib3 from 2.4, so requests and every community.proxmox module, use), and strict verification refuses Proxmox's
-own CA as every Proxmox VE 8 host has it, and every 9 host's made before pve-cluster 9.1.2 and not issued again by
-9.1.8: it has no keyUsage extension. Those versions also set VERIFY_X509_PARTIAL_CHAIN, so the node's own certificate
-in the trust file is an anchor of its own; Python 3.12 does neither. So each candidate is tried as the run's clients
-will try it - this machine's trust store, the host's CA, the node's certificate - and the first that verifies is the
-one kept. A file kept fits this machine's Python: one the other kind of Python refuses is worked out again by the next
-just init.
+No single file works for every host. On every Python the project runs on (3.13 or later) the standard library's client
+context verifies strictly - ssl's VERIFY_X509_STRICT, which Ansible's uri and urllib3 from 2.4, so requests and every
+community.proxmox module, use - and strict verification refuses Proxmox's own CA as every Proxmox VE 8 host has it,
+and every 9 host's made before pve-cluster 9.1.2 and not issued again by 9.1.8: it has no keyUsage extension. That
+context also sets VERIFY_X509_PARTIAL_CHAIN, so the node's own certificate in the trust file is an anchor of its own.
+So each candidate is tried as the run's clients will try it - this machine's trust store, the host's CA, the node's
+certificate - and the first that verifies is the one kept.
 """
 
 from __future__ import annotations
@@ -90,14 +89,10 @@ def _store_files() -> list[str | None]:
     return [None, certifi.where()]
 
 
-def _context(pem: str | None, cafile: str | None, strict: bool | None, check_hostname: bool = True) -> ssl.SSLContext:
+def _context(pem: str | None, cafile: str | None, check_hostname: bool = True) -> ssl.SSLContext:
     """A client context as the run's clients make one, against ``pem`` (PEM text) or ``cafile`` (None: the standard
-    library's store); ``strict`` forces Python 3.13's flags on or off, None leaves this Python's own."""
+    library's store): the standard library's ready-made one, its flags its own, strict and a partial chain."""
     context = ssl.create_default_context(cadata=pem) if pem else ssl.create_default_context(cafile=cafile)
-    if strict is True:
-        context.verify_flags |= _STRICT
-    elif strict is False:
-        context.verify_flags &= ~_STRICT
     if not check_hostname:
         context.check_hostname = False
     return context
@@ -105,12 +100,12 @@ def _context(pem: str | None, cafile: str | None, strict: bool | None, check_hos
 
 def anchored_context(pem) -> ssl.SSLContext:
     """A client context that verifies the API's certificate against the certificates of ``pem`` alone - the anchor a
-    host keeps, its node's own certificate or its CA - and checks the name it was reached at, with Python 3.13's flags
-    on every Python: strict, and a partial chain, so that the node's own certificate is an anchor of its own. For the
-    Proxmox client of the engine that replaces the playbooks at 3.0 (docs/architecture/custom-code.md §7.16), and made
-    by hand, not by _context: the standard library's ready-made context opens the file SSLKEYLOGFILE names, as it is
-    made, unless Python ignores the environment, and that client logs no session's keys. Raises ValueError where
-    ``pem`` holds no certificate."""
+    host keeps, its node's own certificate or its CA - and checks the name it was reached at, with the flags the
+    standard library's ready-made context has, which one made by hand lacks: strict, and a partial chain, so that the
+    node's own certificate is an anchor of its own. For the Proxmox client of the engine that replaces the playbooks
+    at 3.0 (docs/architecture/custom-code.md §7.16), and made by hand, not by _context: the standard library's
+    ready-made context opens the file SSLKEYLOGFILE names, as it is made, unless Python ignores the environment, and
+    that client logs no session's keys. Raises ValueError where ``pem`` holds no certificate."""
     ders = _ders(pem)
     if not ders:
         raise ValueError("the anchor holds no certificate")
@@ -144,7 +139,6 @@ def _probe(
     url: str,
     pem: str | None,
     timeout: float,
-    strict: bool | None = None,
     check_hostname: bool = True,
     http: bool = True,
 ) -> str:
@@ -152,7 +146,7 @@ def _probe(
     has it, for None) and, with ``http``, it answers HTTP; else why not, in the SSL library's own words."""
     for cafile in [None] if pem else _store_files():
         try:
-            _hello(url, _context(pem, cafile, strict, check_hostname), timeout, http)
+            _hello(url, _context(pem, cafile, check_hostname), timeout, http)
         except ssl.SSLCertVerificationError as error:
             return str(error.verify_message or error)
         except (OSError, ssl.SSLError, ValueError) as error:
@@ -160,7 +154,7 @@ def _probe(
     return ""
 
 
-def proxmox_trust_pick(candidates, url, timeout=10, strict=None) -> dict:
+def proxmox_trust_pick(candidates, url, timeout=10) -> dict:
     """Which of ``candidates`` - ({"name", "pem"}, the pem None for this machine's trust store) - makes the API at
     ``url`` verify: {"name", "pem", "fingerprint"} of the first that does, "" for each where none does, with
     "refusals": [{"name", "why"}] of those tried before it. Of the node's certificate file only the first certificate
@@ -172,7 +166,7 @@ def proxmox_trust_pick(candidates, url, timeout=10, strict=None) -> dict:
             pem = pem_first(pem) if candidate.get("name") == "node" else pem_certificates(pem)
             if pem == "":
                 continue
-        why = _probe(str(url), pem, float(timeout), strict)
+        why = _probe(str(url), pem, float(timeout))
         if not why:
             return {
                 "name": candidate.get("name", ""),
@@ -184,17 +178,17 @@ def proxmox_trust_pick(candidates, url, timeout=10, strict=None) -> dict:
     return {"name": "", "pem": "", "fingerprint": "", "refusals": refusals}
 
 
-def proxmox_trust_holds(pem, url, timeout=10, strict=None) -> dict:
+def proxmox_trust_holds(pem, url, timeout=10) -> dict:
     """Whether the API at ``url`` verifies against what checking uses now: ``pem``, the trust file's text, or this
     machine's trust store for "" - {"verified", "why", "fingerprint"}, the last the kept file's own."""
     pem = pem_certificates(pem) if pem else None
     if pem == "":
         return {"verified": False, "why": "the trust file holds no certificate", "fingerprint": ""}
-    why = _probe(str(url), pem, float(timeout), strict)
+    why = _probe(str(url), pem, float(timeout))
     return {"verified": not why, "why": why, "fingerprint": pem_fingerprint(pem) if pem else ""}
 
 
-def proxmox_trust_presented(candidates, url, timeout=10, strict=None) -> dict:
+def proxmox_trust_presented(candidates, url, timeout=10) -> dict:
     """What the API at ``url`` presents, read with no check and no token, and whether it is the host's own, as the
     host's files read over root SSH say (``candidates``, the store's left out: a certificate any public CA signed proves
     no host): the node's certificate itself, or one that chains to the host's CA or its node's certificate whatever
@@ -216,9 +210,7 @@ def proxmox_trust_presented(candidates, url, timeout=10, strict=None) -> dict:
         pem = pem_certificates(candidate.get("pem")) if candidate.get("name") != "store" else ""
         if not pem:
             continue
-        if presented in _ders(pem) or not _probe(
-            str(url), pem, float(timeout), strict, check_hostname=False, http=False
-        ):
+        if presented in _ders(pem) or not _probe(str(url), pem, float(timeout), check_hostname=False, http=False):
             host = True
             break
     return {"fingerprint": _fingerprint(presented), "host": host, "why": ""}
