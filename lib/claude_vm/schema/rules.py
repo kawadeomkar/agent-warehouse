@@ -8,8 +8,8 @@ value or names a command, and `breaks`, which takes the verb's values and return
 what fills the sentence where they break it; `lines` are the commands the sentence names whatever the values. A
 command is a `Line` (words.py), never text: `Rule.check(values)` gives nothing or the sentence said through printer.py's
 `said`, so each command in it is the printer's line, the program as it was started, and a value or a verb's words it
-does not know is named by its placeholder (`aw code <name>`). A sentence says a value back only where today's does, and
-then a value that has already met its pattern: the check holds every value to its pattern first, as just does before a
+does not know is named by its placeholder (`aw code <name>`). A sentence says back no value that may be a secret, and
+only a value that has already met its pattern: the check holds every value to its pattern first, as just does before a
 recipe's script.
 
 The values are the verb's as the check takes them: by the field the handler receives them by, only what was given, a
