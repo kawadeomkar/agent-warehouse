@@ -1028,19 +1028,46 @@ def _names_ssh(source: str, kind_named: bool = False) -> list[str]:
     return found
 
 
+# The modules that name ssh as a value of their own, never the program, each with why. There the bare word alone
+# passes: a path to ssh, a command line that starts with it, and a start of the ssh kind are found as anywhere else.
+SSH_AS_A_VALUE = {
+    "lib/claude_vm/fleet/registry.py": "the settings table: ssh is github_projects_clone_protocol's choice, as the "
+    "github_projects role's argument spec gives it",
+}
+BARE = ": 'ssh'"
+
+
 def test_a_child_named_ssh_is_started_only_in_ssh() -> None:
     code = [
         path for path in repo_files(*(f"lib/claude_vm/{name}" for name in NEW), untracked=True) if path.suffix == ".py"
     ]
     code.append(REPO / "tools" / "aw")
     assert RUNNER in code and REPO / "lib" / "claude_vm" / "runs" / "children.py" in code, code
-    found = {
-        str(path.relative_to(REPO)): where
-        for path in code
-        if not path.is_relative_to(RUNNER.parent)
-        and (where := _names_ssh(path.read_text(), kind_named=path.name == "children.py"))
-    }
+    found = {}
+    for path in code:
+        if path.is_relative_to(RUNNER.parent):
+            continue
+        rel = str(path.relative_to(REPO))
+        where = _names_ssh(path.read_text(), kind_named=path.name == "children.py")
+        if rel in SSH_AS_A_VALUE:
+            where = [each for each in where if not each.endswith(BARE)]
+        if where:
+            found[rel] = where
     assert found == {}, "an ssh child is the SSH runner's: start it through lib/claude_vm/ssh/"
+
+
+@pytest.mark.parametrize("rel", sorted(SSH_AS_A_VALUE))
+def test_a_module_that_names_ssh_as_a_value_still_does_and_starts_nothing(rel: str) -> None:
+    # An entry no longer needed goes: the word is still there, as a value, and the module imports nothing that starts
+    # a child.
+    found = _names_ssh((REPO / rel).read_text())
+    assert found and all(each.endswith(BARE) for each in found), found
+    tree = ast.parse((REPO / rel).read_text())
+    imported = {
+        alias.name.split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names
+    }
+    imported |= {(node.module or "").split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
+    assert not imported & {"subprocess", "asyncio", "os", "pty"}, imported
 
 
 @pytest.mark.parametrize(

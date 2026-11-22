@@ -1663,6 +1663,26 @@ its jobs there while a suite runs, and state can be made again. No file there is
 followed. `tests/unit/test_aw_fleet_paths.py` holds the homes, the pointer, the key's place, the names,
 the scans for who names the folders and the key, and the guard, a child `pytest` among its tests.
 
+**The settings table: `registry.py`.** One typed row for every setting a person may write, written by hand as
+literals, standard library only: `ROWS`, the 97 settings today's `local.yml.example` documents but its five older
+names (the four 1.0 names of the editor's settings, and `tailscale_enabled`, the old form of `vpn`), and `CONNECTION`,
+counted apart, this computer's own SSH that today's guides document outside it (`ssh_identity_file`, `ssh_executable`,
+`vm_ssh_options`). A `Row` is the setting's name; its type (`TYPES`: `bool`, `int`, `str`, `path`, `list[str]`,
+`dict`) and choices, the argument spec's of the role variable it feeds, or for one that feeds none its literal
+default's type and the choices today's checks hold it to; its default, a literal, or where today's is an expression one
+of the module's named functions (`COMPUTED`), whose keyword-only parameters name what it reads, each a row or one of
+`GIVEN`, the machine's name and this computer's user home; its scope (`SCOPES`: `global`, `host`, `machine`); its home
+(`HOMES`: the fleet's `settings.yml`, a host's, or `client.yml`, which holds a row of scope `host` in its map `hosts`
+and one of scope `machine` in its map `machines`); its group, the role today's `just settings` lists it with, `common`
+for a setting that reaches no role's variable; and its description, today's comment above it, which names a verb alone
+and says nothing of an older version. A setting each host sets for itself today, or that the shared files may never
+supply, is each host's own. A list's default is a tuple and a mapping's read-only, so no reader changes the table.
+`rows()`, `row(name)` and `group(name)` read it. Nothing generates it, and nothing is generated from it into a tracked
+file. `tests/unit/test_aw_fleet_registry.py` holds the table; `tests/unit/test_aw_fleet_registry_today.py`, the
+cutover's check, which goes with today's files, holds it to them: every documented setting has exactly one row but the
+five, each type, choice, literal default and group as today's, and a setting added to the example without a row fails
+by its name.
+
 ## 16.10 `guest/` — the helper, the system layer's inputs, layer 2
 
 `lib/claude_vm/guest/` is where what the engine does inside a machine goes: the helper, which is sent to the machine
