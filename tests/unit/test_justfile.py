@@ -285,14 +285,52 @@ def test_every_sha256_of_the_setup_action_is_beside_the_one_just_version() -> No
     assert set(re.findall(r"\b[0-9a-f]{64}\b", SETUP.read_text())) == set(pins.values())
 
 
+# The archive the stand-in curl writes, and a SHA256 of something else.
+ARCHIVE = hashlib.sha256(b"an archive of the test's own\n").hexdigest()
+OTHER = hashlib.sha256(b"another archive\n").hexdigest()
+# Apple's sha256sum, as macOS 26 has it in /sbin (one of /sbin/md5's links: md5(1) in its coreutils mode), first on the
+# macOS runner's PATH. Read with -c, it checks a line it can read, and passes one it cannot - an empty digest, or one a
+# digit short - with a warning and exit 0, or exit 1 under --strict, and no line at all with exit 0 even then; without
+# -c it prints the digest of what it reads (macOS 26.7.3's own tool on a scratch file, 2026-11-22). @SHASUM@ is this
+# machine's shasum, which computes the digests.
+APPLE_SHA256SUM = r"""#!/bin/sh
+printf 'sha256sum %s\n' "$*" >> "$CALLS"
+case " $* " in *" -c "*) ;; *) exec @SHASUM@ -a 256 "$@" ;; esac
+strict=
+for word in "$@"; do [ "$word" != --strict ] || strict=1; done
+bad=0
+while IFS= read -r line; do
+  digest=${line%%  *} file=${line#*  }
+  case $digest in *[!0-9a-f]* | '') bad=$((bad + 1)); continue ;; esac
+  [ "${#digest}" -eq 64 ] || { bad=$((bad + 1)); continue; }
+  got=$(@SHASUM@ -a 256 < "$file")
+  [ "${got%% *}" = "$digest" ] || { echo "$file: FAILED"; exit 1; }
+  echo "$file: OK"
+done
+[ "$bad" -eq 0 ] && exit 0
+echo "sha256sum: WARNING: $bad line is improperly formatted" >&2
+[ -z "$strict" ]
+"""
+
+
+def _checker_recording(name: str, real: str) -> str:
+    """A stand-in that records its words and runs this machine's program."""
+    return f'#!/bin/sh\nprintf "{name} %s\\n" "$*" >> "$CALLS"\nexec {real} "$@"\n'
+
+
+def _pins(right: str, value: str) -> dict[str, str]:
+    """The setup action's pins: the variable right holds value, every other the SHA256 of something else."""
+    return {name: value if name == right else OTHER for name in JUST_ARCHIVES}
+
+
 def _install_just(
-    tmp_path: Path, system: str, arch: str, checker: str, right: str
+    tmp_path: Path, system: str, arch: str, pins: dict[str, str]
 ) -> tuple[subprocess.CompletedProcess, list[str]]:
     """The setup action's just step as GitHub runs a composite step's (bash, -e and pipefail) on a runner of that system
-    and arch, with nothing on PATH but a stand-in curl that writes an archive of the test's own and records the URL, a
-    stand-in tar that records its words, mkdir, and the one checker named (this machine's sha256sum or shasum, recording
-    its words): the variable right holds that archive's SHA256 and every other pin a SHA256 of something else. The
-    run, and the calls the stand-ins recorded."""
+    and arch, its JUST_SHA256* variables the pins given. On PATH nothing but a stand-in curl that writes an archive of
+    the test's own and records the URL, a stand-in tar that records its words, mkdir, and the two checkers the runner
+    has, each recording its words: this machine's shasum, and a sha256sum - on macOS Apple's (APPLE_SHA256SUM), on any
+    other system this machine's own where it has one. The run, and the calls the stand-ins recorded."""
     bin_dir, calls = tmp_path / "bin", tmp_path / "calls"
     bin_dir.mkdir()
     (bin_dir / "curl").write_text(
@@ -300,13 +338,15 @@ def _install_just(
         'printf "curl %s\\n" "$1" >> "$CALLS"\nprintf "an archive of the test\'s own\\n" > "$out"\n'
     )
     (bin_dir / "tar").write_text('#!/bin/sh\nprintf "tar %s\\n" "$*" >> "$CALLS"\n')
-    real = shutil.which(checker)
-    (bin_dir / checker).write_text(f'#!/bin/sh\nprintf "{checker} %s\\n" "$*" >> "$CALLS"\nexec {real} "$@"\n')
+    shasum = shutil.which("shasum")
+    (bin_dir / "shasum").write_text(_checker_recording("shasum", shasum))
+    if system == "macOS":
+        (bin_dir / "sha256sum").write_text(APPLE_SHA256SUM.replace("@SHASUM@", shasum))
+    elif shutil.which("sha256sum"):
+        (bin_dir / "sha256sum").write_text(_checker_recording("sha256sum", shutil.which("sha256sum")))
     for tool in bin_dir.iterdir():
         tool.chmod(0o755)
     (bin_dir / "mkdir").symlink_to(shutil.which("mkdir"))
-    archive = hashlib.sha256(b"an archive of the test's own\n").hexdigest()
-    other = hashlib.sha256(b"another archive\n").hexdigest()
     step = _just_step()
     env = {
         "PATH": str(bin_dir),
@@ -316,7 +356,7 @@ def _install_just(
         "RUNNER_TEMP": str(tmp_path / "temp"),
         "GITHUB_PATH": str(tmp_path / "github-path"),
         "JUST_VERSION": str(step["env"]["JUST_VERSION"]),
-        **{name: archive if name == right else other for name in JUST_ARCHIVES},
+        **pins,
     }
     run = subprocess.run(
         ["/bin/bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step["run"]],
@@ -329,54 +369,103 @@ def _install_just(
     return run, calls.read_text().splitlines() if calls.exists() else []
 
 
-NEEDS_SHA256SUM = pytest.mark.skipif(shutil.which("sha256sum") is None, reason="this machine has no sha256sum")
+def _archive_refused(archive: str, pin: str) -> str:
+    """What the step says of an archive whose SHA256 is not its pin."""
+    return (
+        f"::error::the SHA256 of {archive} is {ARCHIVE}, where its pin is '{pin}' (.github/actions/setup/action.yml)\n"
+    )
+
+
 NEEDS_SHASUM = pytest.mark.skipif(shutil.which("shasum") is None, reason="this machine has no shasum")
+# Each hosted runner, with the variable that pins its archive's SHA256.
+RUNNERS = [
+    pytest.param("Linux", "X64", "JUST_SHA256", id="linux"),
+    pytest.param("macOS", "ARM64", "JUST_SHA256_MACOS", id="macos"),
+]
 
 
-@pytest.mark.parametrize(
-    ("system", "arch", "checker", "pin", "words"),
-    [
-        pytest.param("Linux", "X64", "sha256sum", "JUST_SHA256", "-c -", marks=NEEDS_SHA256SUM, id="linux"),
-        # macOS has shasum, and sha256sum only where something put it there.
-        pytest.param("macOS", "ARM64", "shasum", "JUST_SHA256_MACOS", "-a 256 -c -", marks=NEEDS_SHASUM, id="macos"),
-    ],
-)
+@NEEDS_SHASUM
+@pytest.mark.parametrize(("system", "arch", "pin"), RUNNERS)
 def test_the_setup_action_installs_the_just_archive_of_the_runner_s_system_held_to_its_own_sha256(
-    tmp_path, system, arch, checker, pin, words
+    tmp_path, system, arch, pin
 ) -> None:
     version = str(_just_step()["env"]["JUST_VERSION"])
     archive = f"just-{version}-{JUST_ARCHIVES[pin]}.tar.gz"
-    run, calls = _install_just(tmp_path, system, arch, checker, pin)
+    run, calls = _install_just(tmp_path, system, arch, _pins(pin, ARCHIVE))
     assert run.returncode == 0, (run.stdout, run.stderr)
     folder = tmp_path / "temp" / "just"
+    # The digest is shasum's of the archive on its standard input, on both runners: never the sha256sum each has.
     assert calls == [
         f"curl https://github.com/casey/just/releases/download/{version}/{archive}",
-        f"{checker} {words}",
+        "shasum -a 256",
         f"tar -xzf {folder / archive} -C {folder} just",
     ]
     assert (tmp_path / "github-path").read_text() == f"{folder}\n"
 
 
-@pytest.mark.parametrize(
-    ("system", "arch", "checker", "pin"),
-    [
-        pytest.param("Linux", "X64", "sha256sum", "JUST_SHA256_MACOS", marks=NEEDS_SHA256SUM, id="linux"),
-        pytest.param("macOS", "ARM64", "shasum", "JUST_SHA256", marks=NEEDS_SHASUM, id="macos"),
-    ],
-)
+@NEEDS_SHASUM
+@pytest.mark.parametrize(("system", "arch", "pin"), RUNNERS)
 def test_an_archive_that_is_not_the_one_its_system_s_sha256_names_is_never_unpacked(
-    tmp_path, system, arch, checker, pin
+    tmp_path, system, arch, pin
 ) -> None:
     # The archive is the other system's pin's: each system is held to its own.
-    run, calls = _install_just(tmp_path, system, arch, checker, pin)
-    assert run.returncode != 0, (run.stdout, run.stderr)
-    assert [call.split()[0] for call in calls] == ["curl", checker], calls
+    (elsewhere,) = set(JUST_ARCHIVES) - {pin}
+    archive = f"just-{_just_step()['env']['JUST_VERSION']}-{JUST_ARCHIVES[pin]}.tar.gz"
+    run, calls = _install_just(tmp_path, system, arch, _pins(elsewhere, ARCHIVE))
+    assert run.returncode == 1, (run.stdout, run.stderr)
+    assert run.stdout == _archive_refused(archive, OTHER)
+    assert [call.split()[0] for call in calls] == ["curl", "shasum"], calls
     assert not (tmp_path / "github-path").exists()
 
 
+@NEEDS_SHASUM
+@pytest.mark.parametrize(("system", "arch", "pin"), RUNNERS)
+@pytest.mark.parametrize("malformed", ["", ARCHIVE[:-1]], ids=["empty", "a-digit-short"])
+def test_a_pin_that_is_no_sha256_is_refused_on_each_runner_whatever_its_sha256sum_passes(
+    tmp_path, system, arch, pin, malformed
+) -> None:
+    # macOS's own sha256sum, first on that runner's PATH, passes a line with either pin and exits 0 (the test below):
+    # the step compares the digest itself, so each is refused as a wrong one is, on both runners, and tar never runs.
+    archive = f"just-{_just_step()['env']['JUST_VERSION']}-{JUST_ARCHIVES[pin]}.tar.gz"
+    run, calls = _install_just(tmp_path, system, arch, _pins(pin, malformed))
+    assert run.returncode == 1, (run.stdout, run.stderr)
+    assert run.stdout == _archive_refused(archive, malformed)
+    assert [call.split()[0] for call in calls] == ["curl", "shasum"], calls
+    assert not (tmp_path / "github-path").exists()
+
+
+@NEEDS_SHASUM
+def test_the_stand_in_for_macos_s_sha256sum_passes_a_line_it_cannot_read_as_macos_26_s_own_does(tmp_path) -> None:
+    # Held to what macOS 26's /sbin/sha256sum did, so that the test above meets a checker that fails open where
+    # Apple's does: were the stand-in stricter than Apple's, that test would hold nothing on macOS's road.
+    tool, calls, archive = tmp_path / "sha256sum", tmp_path / "calls", tmp_path / "archive"
+    tool.write_text(APPLE_SHA256SUM.replace("@SHASUM@", shutil.which("shasum")))
+    tool.chmod(0o755)
+    archive.write_bytes(b"an archive of the test's own\n")
+
+    def check(lines: str, *words: str) -> int:
+        env = {"PATH": "/usr/bin:/bin", "CALLS": str(calls)}
+        run = subprocess.run(
+            [tool, *words, "-c", "-"], input=lines, env=env, capture_output=True, text=True, timeout=60, check=False
+        )
+        return run.returncode
+
+    # Each line's digest, and the exit status with -c alone and with --strict as well.
+    for digest, alone, strict in [(ARCHIVE, 0, 0), (OTHER, 1, 1), ("", 0, 1), (ARCHIVE[:-1], 0, 1)]:
+        line = f"{digest}  {archive}\n"
+        assert (check(line), check(line, "--strict")) == (alone, strict), digest
+    assert (check(""), check("", "--strict")) == (0, 0)
+    env = {"PATH": "/usr/bin:/bin", "CALLS": str(calls)}
+    printed = subprocess.run(
+        [tool], input=archive.read_bytes(), env=env, capture_output=True, timeout=60, check=True
+    ).stdout
+    assert printed == f"{ARCHIVE}  -\n".encode()
+
+
+@NEEDS_SHASUM
 @pytest.mark.parametrize(("system", "arch"), [("Linux", "ARM64"), ("macOS", "X64"), ("Windows", "X64")])
 def test_a_runner_with_no_just_archive_pinned_fails_before_anything_is_downloaded(tmp_path, system, arch) -> None:
-    run, calls = _install_just(tmp_path, system, arch, "shasum" if shutil.which("shasum") else "sha256sum", "")
+    run, calls = _install_just(tmp_path, system, arch, dict.fromkeys(JUST_ARCHIVES, ARCHIVE))
     assert run.returncode == 1, (run.stdout, run.stderr)
     said = f"::error::no just archive is pinned for {system} on {arch} (.github/actions/setup/action.yml)\n"
     assert run.stdout == said
