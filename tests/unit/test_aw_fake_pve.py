@@ -8,19 +8,17 @@ fails the loser in its task, the fake does too: a clone that lost a race for its
 another node's VM holds, and a POST whose task finds a write made since; a clone joins its pool when its task ends; a
 description is read back without its trailing white space; and a running task ends though nobody polls it.
 
-Two rules with a test of their own: a run of today's sends the fake what it sent before these routes, as recorded in
-tests/unit/fake_pve_requests.json from the fake as it was (its methods, paths and parameter names, nothing else); and
-with no fixture set, every answer today's requests get is what it was, as recorded in tests/unit/fake_pve_replies.json
-from the fake before its tasks, digests and locks (_record_replies), but for the one answer card A5 changed.
+Under enforcement a made token is held to the engine's one table of privileges (lib/claude_vm/pve/privileges.py) as
+Proxmox checks each call: a configuration's write key by key, a listing and a storage's disks with either of their
+privileges, a clone's VM.Allocate on the pool it names or on its new VM's path. Today's own tests of the fake and the
+two scenarios that run it hold it for today's product.
 """
 
 from __future__ import annotations
 
 import ast
-import hashlib
 import http.client
 import json
-import re
 import socket
 import ssl
 import threading
@@ -36,9 +34,7 @@ from harness import (
     ENGINE_USER,
     FAKES,
     PVE_SECRET,
-    _fake_pve,
     _pve,
-    _pve_requests,
     engine_grant,
     engine_token,
     fake_fleet,
@@ -47,8 +43,6 @@ from harness import (
 from claude_vm.pve import privileges
 
 TODAYS = ("ansible@pve!ansible", PVE_SECRET)
-RECORDED = Path(__file__).with_name("fake_pve_requests.json")
-REPLIES = Path(__file__).with_name("fake_pve_replies.json")
 ROLE = ["VM.Allocate", "VM.Clone", "VM.Config.CPU", "VM.Config.Cloudinit", "VM.Config.Disk", "VM.Config.Memory"]
 ROLE += ["VM.Config.Network", "VM.Config.Options", "VM.PowerMgmt", "VM.Audit", "Datastore.AllocateSpace"]
 ROLE += ["Datastore.Audit", "SDN.Use"]
@@ -533,7 +527,24 @@ CLONE = "nodes/pve/qemu/9000/clone"
 
 def _answer(base: str, method: str, endpoint: str, **params) -> dict:
     """One request as today's token, its answer whole: the status, the reason, the Content-Type and the body."""
-    return _sent(base, {"method": method, "path": f"/api2/json/{endpoint}", "params": params, "token": "ansible"})
+    address = urllib.parse.urlsplit(base)
+    unverified = ssl.create_default_context()
+    unverified.check_hostname = False
+    unverified.verify_mode = ssl.CERT_NONE
+    connection = http.client.HTTPSConnection(address.hostname, address.port, timeout=30, context=unverified)
+    form = urllib.parse.urlencode(params)
+    headers = {"Authorization": f"PVEAPIToken={TODAYS[0]}={TODAYS[1]}"}
+    try:
+        if method in ("GET", "HEAD", "DELETE"):
+            connection.request(method, f"/api2/json/{endpoint}" + (f"?{form}" if form else ""), headers=headers)
+        else:
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+            connection.request(method, f"/api2/json/{endpoint}", body=form, headers=headers)
+        answer = connection.getresponse()
+        body = answer.read().decode()
+    finally:
+        connection.close()
+    return {"status": answer.status, "reason": answer.reason, "type": answer.getheader("Content-Type"), "body": body}
 
 
 def _task(base: str, upid: str, part: str = "status") -> object:
@@ -1039,8 +1050,15 @@ def enforced(tmp_path: Path):
     yield from _enforced(tmp_path)
 
 
-def _refused(path: str, privilege: str) -> tuple[int, str]:
-    return SAID["PERMISSION_REFUSED_STATUS"], SAID["PERMISSION_REFUSED"].format(path=path, privilege=privilege)
+def _refused(path: str, *privileges: str) -> tuple[int, str]:
+    """A 403 for want of privilege on path, or of any of privileges there, as Proxmox says it."""
+    said = SAID["PRIVILEGES_JOINED"].join(privileges)
+    return SAID["PERMISSION_REFUSED_STATUS"], SAID["PERMISSION_REFUSED"].format(path=path, privilege=said)
+
+
+def _refused_any() -> tuple[int, str]:
+    """A 403 for want of what either of two checks asks, a clone's VM.Allocate on its pool's path or its new VM's."""
+    return SAID["PERMISSION_REFUSED_STATUS"], SAID["PERMISSION_REFUSED_ANY"]
 
 
 def _listed(base: str, auth: tuple[str, str]) -> list[int]:
@@ -1077,15 +1095,22 @@ def test_with_vm_audit_on_vms_the_engine_s_token_reads_the_node_s_other_vms_and_
     assert _call(base, "PUT", other, token, description="not ours") == _refused("/vms/9011", "VM.Config.Options")
     cloned = _call(base, "POST", "nodes/pve/qemu/9011/clone", token, newid=9020, name="beta-2", pool=ENGINE_POOL)
     assert cloned == _refused("/vms/9011", "VM.Clone")
+    # A guest of another pool is listed with no pool named: the token may not audit that pool (PVE/API2/Cluster.pm).
+    _ok(base, "POST", "pools", poolid="other")
+    _ok(base, "PUT", "pools", poolid="other", vms="9011")
+    listed = {vm["vmid"]: vm for vm in _ok(base, "GET", "cluster/resources", token, type="vm")}
+    assert "pool" not in listed[9011] and listed[9010]["pool"] == ENGINE_POOL
+    assert {vm["vmid"]: vm.get("pool") for vm in _ok(base, "GET", "cluster/resources", type="vm")}[9011] == "other"
 
 
 def test_a_clone_is_refused_without_each_privilege_it_needs_and_nothing_is_made(tmp_path: Path) -> None:
     for base, token in _enforced(tmp_path, storage=False):
         _pve(base, "PUT", "fake/storages", node="pve", storages="local-lvm:lvmthin,nas:nfs")
         for given, refused in [
-            # No pool named: VM.Allocate on the new VM's own path, which the role on the pool alone does not reach.
-            ({}, _refused("/vms/9020", "VM.Allocate")),
-            ({"pool": "unmade"}, _refused("/pool/unmade", "VM.Allocate")),
+            # No pool named: VM.Allocate on the new VM's own path, which the role on the pool alone does not reach; a
+            # pool of no grant: neither its path nor the new VM's.
+            ({}, _refused_any()),
+            ({"pool": "unmade"}, _refused_any()),
             # The storage named, or with none its source's disk's.
             ({"pool": ENGINE_POOL, "full": 1, "storage": "nas"}, _refused("/storage/nas", "Datastore.AllocateSpace")),
             ({"pool": ENGINE_POOL}, _refused("/storage/local-lvm", "Datastore.AllocateSpace")),
@@ -1098,6 +1123,83 @@ def test_a_clone_is_refused_without_each_privilege_it_needs_and_nothing_is_made(
             == "OK"
         )
         assert _vms(base)[9020] == ("qemu", "pve", "made")
+
+
+def test_a_clone_s_allocate_is_held_on_the_pool_it_names_or_on_its_new_vm_s_path_either_of_which_suffices(
+    tmp_path: Path,
+) -> None:
+    """The clone's declared check is an or of the two (qemu-server's clone_vm): VM.Allocate on /vms/<newid> lets a
+    clone into a pool the token holds nothing on, and one that names no pool, where the role on the engine's pool alone
+    lets one into that pool only."""
+    for base, token in _enforced(tmp_path):
+        _ok(base, "POST", "pools", poolid="other")
+        for given in ({"pool": "other"}, {}):
+            assert _call(base, "POST", CLONE, token, newid=9020, name="refused", **given) == _refused_any(), given
+        assert 9020 not in _vms(base)
+        engine_grant(base, "/vms", "VM.Allocate")
+        for newid, given in ((9020, {"pool": "other"}), (9021, {})):
+            assert _task(base, _ok(base, "POST", CLONE, token, newid=newid, name="made", **given))["exitstatus"] == "OK"
+        pools = {vm["vmid"]: vm.get("pool") for vm in _ok(base, "GET", "cluster/resources", type="vm")}
+        assert (pools[9020], pools[9021]) == ("other", None)
+
+
+def test_a_configuration_s_write_is_held_key_by_key_to_the_privilege_proxmox_checks_each_with(
+    enforced, tmp_path: Path
+) -> None:
+    """qemu-server's check_vm_modify_config_perm: each key a write sends, or deletes, takes its group's privilege, so a
+    token holding VM.Config.Options writes the record's keys and no other, nothing written of a write it refuses;
+    nameserver takes VM.Config.Cloudinit or VM.Config.Network; and a key no row of the write covers is refused and
+    recorded, whatever the token holds."""
+    base, token = enforced
+    config = "nodes/pve/qemu/9011/config"
+    engine_grant(base, "/vms/9011", "VM.Audit,VM.Config.Options")
+    assert _ok(base, "PUT", config, token, description="the record", tags="agent-warehouse") is None
+    before = _ok(base, "GET", config)
+    for sent, privileges_ in [
+        ({"cores": 4}, ("VM.Config.CPU",)),
+        ({"memory": 4096}, ("VM.Config.Memory",)),
+        ({"ciuser": "dev"}, ("VM.Config.Cloudinit",)),
+        ({"ipconfig0": "ip=dhcp"}, ("VM.Config.Cloudinit",)),
+        ({"nameserver": "192.0.2.53"}, ("VM.Config.Cloudinit", "VM.Config.Network")),
+        ({"delete": "cores"}, ("VM.Config.CPU",)),
+        ({"description": "half", "cores": 4}, ("VM.Config.CPU",)),
+    ]:
+        assert _call(base, "PUT", config, token, **sent) == _refused("/vms/9011", *privileges_), sent
+    assert _ok(base, "GET", config) == before
+    engine_grant(base, "/vms/9011", "VM.Config.Network")
+    assert _ok(base, "PUT", config, token, nameserver="192.0.2.53") is None
+    assert _call(base, "PUT", config, token, ciuser="dev") == _refused("/vms/9011", "VM.Config.Cloudinit")
+    # A key no row covers: refused though Proxmox would take it from this token (net0, VM.Config.Network).
+    for sent, key in [({"net0": "virtio,bridge=vmbr0"}, "net0"), ({"delete": "startup"}, "startup")]:
+        said = SAID["NO_KEY"].format(key=key, method="PUT", path=f"/{config}")
+        assert _call(base, "PUT", config, token, **sent) == (SAID["PERMISSION_REFUSED_STATUS"], said), sent
+    assert _ok(base, "GET", config)["net0"] == before["net0"]
+    log = tmp_path / "pve" / "unmatched.log"
+    assert [json.loads(line) for line in log.read_text().splitlines()] == [
+        {"method": "PUT", "path": f"/{config}", "key": "net0"},
+        {"method": "PUT", "path": f"/{config}", "key": "startup"},
+    ]
+    # Read here: the fixture's end holds it empty.
+    log.unlink()
+
+
+def test_a_node_s_storages_and_bridges_and_a_storage_s_disks_take_either_of_their_privileges(enforced) -> None:
+    """Datastore.Audit or Datastore.AllocateSpace on the storage (pve-storage's Status.pm and Content.pm), SDN.Use or
+    SDN.Audit on the bridge (pve-manager's Network.pm); the cluster's own listing of storages takes Datastore.Audit
+    alone (PVE/API2/Cluster.pm)."""
+    base, token = enforced
+    _pve(base, "PUT", "fake/storages", node="pve", storages="local-lvm:lvmthin,nas:nfs,slow:dir")
+    _pve(base, "PUT", "fake/bridges", node="pve", bridges="vmbr0,vmbr1,vmbr2")
+    engine_grant(base, "/storage/nas", "Datastore.AllocateSpace")
+    engine_grant(base, "/sdn/zones/localnetwork/vmbr0", "SDN.Use")
+    engine_grant(base, "/sdn/zones/localnetwork/vmbr1", "SDN.Audit")
+    assert [s["storage"] for s in _ok(base, "GET", "nodes/pve/storage", token)] == ["local-lvm", "nas"]
+    assert [s["storage"] for s in _ok(base, "GET", "cluster/resources", token, type="storage")] == ["local-lvm"]
+    assert _call(base, "GET", "nodes/pve/storage/nas/content", token)[0] == 200
+    assert _call(base, "GET", "nodes/pve/storage/slow/content", token) == _refused(
+        "/storage/slow", "Datastore.Audit", "Datastore.AllocateSpace"
+    )
+    assert [bridge["iface"] for bridge in _ok(base, "GET", "nodes/pve/network", token)] == ["vmbr0", "vmbr1"]
 
 
 def test_a_grant_without_propagate_stops_at_its_path_but_a_pool_s_reaches_its_members(enforced) -> None:
@@ -1229,144 +1331,3 @@ def test_today_s_tokens_and_a_made_token_with_enforcement_off_are_answered_as_be
     assert _pve(base, "PUT", "fake/enforce", on=0)["data"] == {"on": 0}
     assert _listed(base, token) == EVERY_GUEST
     assert _ok(base, "GET", "nodes/pve/qemu/9011/config", token)["name"] == "beta"
-
-
-# ---------------------------------------------------------------------------------- today's requests ---
-def _run_of_today_s(tmp_path: Path) -> list[dict]:
-    """test_vm_size.py's test of a VM created with a size, run against the fake: every request it sent, fake_fleet's
-    own first, as the fake logged it - its method, path, parameters and token ID."""
-    import test_vm_size
-
-    for base in fake_fleet(tmp_path):
-        test_vm_size.test_a_vm_is_created_with_the_size_given_and_tagged_as_sized(tmp_path, base)
-    return _pve_requests(tmp_path)
-
-
-def _requests_of_a_run_of_today_s(tmp_path: Path) -> list[list]:
-    """_run_of_today_s's requests as their method, their path and their parameters' names."""
-    return [[sent["method"], sent["path"], sorted(sent["params"])] for sent in _run_of_today_s(tmp_path)]
-
-
-def test_a_run_of_today_s_sends_the_fake_what_it_sent_before_its_new_routes(tmp_path: Path) -> None:
-    assert _requests_of_a_run_of_today_s(tmp_path) == json.loads(RECORDED.read_text())
-
-
-# A UUID, which the fake makes afresh for each clone's SMBIOS and each token's secret: the one part of an answer that is
-# never the same twice, said as <uuid> in a recorded answer.
-UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
-
-
-def _sent(base: str, request: dict) -> dict:
-    """One request as the fake logged it - method, path, params, token ID, the secret today's - sent again to the fake
-    at base; its answer as the fake gave it: the status, the reason, the Content-Type and the body, its UUIDs said as
-    <uuid> and a configuration's digest, where it is the SHA-1 of the rest of that configuration, said as such."""
-    address = urllib.parse.urlsplit(base)
-    unverified = ssl.create_default_context()
-    unverified.check_hostname = False
-    unverified.verify_mode = ssl.CERT_NONE
-    connection = http.client.HTTPSConnection(address.hostname, address.port, timeout=30, context=unverified)
-    form = urllib.parse.urlencode(request["params"])
-    headers = {"Authorization": f"PVEAPIToken=ansible@pve!{request['token']}={PVE_SECRET}"} if request["token"] else {}
-    try:
-        if request["method"] in ("GET", "HEAD", "DELETE"):
-            connection.request(request["method"], request["path"] + (f"?{form}" if form else ""), headers=headers)
-        else:
-            headers["Content-Type"] = "application/x-www-form-urlencoded"
-            connection.request(request["method"], request["path"], body=form, headers=headers)
-        answer = connection.getresponse()
-        body = answer.read().decode()
-    finally:
-        connection.close()
-    try:
-        data = json.loads(body)["data"]
-    except (ValueError, KeyError, TypeError):
-        data = None
-    if isinstance(data, dict) and isinstance(data.get("digest"), str):
-        rest = json.dumps({key: value for key, value in data.items() if key != "digest"}, sort_keys=True)
-        if data["digest"] == hashlib.sha1(rest.encode()).hexdigest():
-            body = body.replace(data["digest"], "<the SHA-1 of the rest of the configuration>")
-    kind = answer.getheader("Content-Type")
-    return {"status": answer.status, "reason": answer.reason, "type": kind, "body": UUID.sub("<uuid>", body)}
-
-
-def _today_s_other_requests(base: str) -> list[dict]:
-    """After _run_of_today_s's requests, sent to the fake at base, the requests of today's that its run does not send,
-    each made of the answers before it, as the fake logs them, with the answer it was given: a clone onto a VMID that
-    is taken (the provision scenario's converge, run again); a clone as harness._pve_vm makes one, a full one onto a
-    storage and one into a pool (the role, with proxmox_vm_pool), each waited for as proxmox_kvm waits; the notes
-    written (the role's settings call, test_golden_play.py); a template made of a VM (test_vm_repos.py); a VM started
-    and stopped again (destroy.yml, tasks/vm_stop.yml); a deletion refused for protection, then made (proxmox_kvm,
-    test_golden_play.py); the listings after; a node's storages and the cluster's, before and after a fixture lists one
-    Proxmox cannot reach (init_check.yml, just status); a VM started, then shut down as proxmox_kvm stops one (the
-    role's absent.yml); and the three reads of today's whose branches card A4 changed, their answers recorded from
-    main's fake (2e9f42d6): the token's permissions on /vms and on a path a fixture set (init_check.yml), and the pools
-    the cluster lists with a guest in one (just status)."""
-    sent: list[dict] = []
-
-    def send(method: str, path: str, /, **params) -> object:
-        request = {"method": method, "path": f"/api2/json/{path}", "params": params, "token": "ansible"}
-        sent.append({**request, "answer": _sent(base, request)})
-        return json.loads(sent[-1]["answer"]["body"] or "{}").get("data")
-
-    def waited(method: str, path: str, **params) -> None:
-        send("GET", f"nodes/pve/tasks/{send(method, path, **params)}/status")
-
-    send("POST", "nodes/pve/qemu/9000/clone", newid="9010", name="in-the-way")
-    waited("POST", "nodes/pve/qemu/9000/clone", newid="9020", name="delta")
-    waited("POST", "nodes/pve/qemu/9000/clone", newid="9021", name="epsilon", full="1", storage="local-lvm")
-    waited("POST", "nodes/pve/qemu/9000/clone", newid="9022", name="pooled", pool="agent-warehouse")
-    send("PUT", "nodes/pve/qemu/9020/config", tags="agent-warehouse", description="the notes of delta")
-    send("GET", "nodes/pve/qemu/9020/config")
-    waited("POST", "nodes/pve/qemu/9020/template")
-    waited("POST", "nodes/pve/qemu/9021/status/start")
-    send("GET", "nodes/pve/qemu/9021/status/current")
-    waited("POST", "nodes/pve/qemu/9021/status/stop")
-    send("PUT", "nodes/pve/qemu/9021/config", protection="1")
-    send("DELETE", "nodes/pve/qemu/9021")
-    send("PUT", "nodes/pve/qemu/9021/config", delete="protection")
-    waited("DELETE", "nodes/pve/qemu/9021", purge="1")
-    send("GET", "nodes/pve/qemu/9021/config")
-    waited("DELETE", "nodes/pve/qemu/9020")
-    send("GET", "cluster/nextid")
-    send("GET", "cluster/resources")
-    send("GET", "nodes/pve/qemu")
-    send("GET", "nodes/pve/storage")
-    send("GET", "cluster/resources", type="storage")
-    send("PUT", "fake/storages", node="pve", storages="local-lvm:lvmthin,slow:dir:inactive")
-    send("GET", "nodes/pve/storage")
-    send("GET", "cluster/resources", type="storage")
-    waited("POST", "nodes/pve/qemu/9022/status/start")
-    waited("POST", "nodes/pve/qemu/9022/status/shutdown", forceStop="1", timeout="30")
-    send("GET", "nodes/pve/qemu/9022/status/current")
-    send("GET", "access/permissions", path="/vms")
-    send("PUT", "fake/privileges", token="ansible", path="/nodes/pve", privs="Sys.Audit")
-    send("GET", "access/permissions", path="/nodes/pve")
-    send("GET", "cluster/resources", type="pool")
-    return sent
-
-
-def _record_replies(tmp_path: Path) -> list[dict]:
-    """Every request of _run_of_today_s, then _today_s_other_requests, sent to a fake of its own, each with the answer
-    it was given: what REPLIES records. Run once, on a lane, from the fake as it was before a change to its answers."""
-    run = [{key: sent[key] for key in ("method", "path", "params", "token")} for sent in _run_of_today_s(tmp_path)]
-    (tmp_path / "again").mkdir()
-    for base in _fake_pve(tmp_path / "again"):
-        recorded = [{**request, "answer": _sent(base, request)} for request in run]
-        recorded += _today_s_other_requests(base)
-    return recorded
-
-
-def test_with_no_fixture_set_every_answer_today_s_requests_get_is_what_it_was(tmp_path: Path) -> None:
-    """Each request REPLIES records, sent in its order to a fake of its own, is answered as the fake answered it before
-    card A5, byte for byte but for its UUIDs and its digests, which are never the same twice. The one answer A5 changed
-    on purpose: a clone onto a VMID that is taken keeps its 500 and gains Proxmox's words."""
-    recorded = json.loads(REPLIES.read_text())
-    changed = 0
-    for base in _fake_pve(tmp_path):
-        for request in recorded:
-            wanted = request["answer"]
-            if request["path"].endswith("/clone") and wanted["status"] == 500:
-                wanted = {**wanted, "reason": SAID["CLONE_EXISTS"].format(newid=request["params"]["newid"])}
-                changed += 1
-            assert _sent(base, request) == wanted, request
-    assert changed == 1

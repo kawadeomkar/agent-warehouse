@@ -943,16 +943,25 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
   that, which a client can verify, in place of one of its own.
 - Everything a made token asks is answered as a today's token's is, nothing refused for lack of a privilege, until
   `PUT /api2/json/fake/enforce?on=1` (`fake_fleet(enforce=True)`; no scenario turns it on): then each request of a
-  made token is held to the engine's table, which the fake reads from the checkout's `lib/` and keeps no copy of. It
-  is refused, a 403 with Proxmox's words, where the token lacks on its path the privilege a row of its call names - the
-  path the request's path names, or its parameters (a clone's pool, or with none the new VM's own path, and its
-  storage, or with none its source's disk's; a pool's `poolid`, and each guest its `vms` names), or its VM's
-  configuration (the storage of the disk a resize grows) - decided by the same function that answers
-  `GET /access/permissions`; a task's owner reads it with no privilege; a listing (the cluster's, a node's storages
-  and bridges, the pools) shows each entry only where the token holds what its row names on it, and a node's figures
-  only so. A call no row names is refused the same way and recorded in the state directory's `unmatched.log`, and
-  `fake_fleet(enforce=True)` fails the test at its end on one: so a call the client adds without its row fails its own
-  test. A request to a node that is down still gets its 595, as pveproxy answers it before that node's own check.
+  made token is held to the engine's table, which the fake reads from the checkout's `lib/` and keeps no copy of, as
+  Proxmox checks each call. It is refused, a 403 with Proxmox's words, where the token lacks on its path the privilege
+  a row of its call names - the path the request's path names, or its parameters (a clone's pool, its new VM's own path
+  by its `newid`, and its storage, or with none its source's disk's; a pool's `poolid`), or its VM's configuration (the
+  storage of the disk a resize grows) - decided by the same function that answers `GET /access/permissions`. Where a
+  row names either of two privileges, any held lets it through, and the words name both, `|` between them, as
+  Proxmox's `check_any` says them (a node's storages and a storage's disks, `Datastore.Audit` or
+  `Datastore.AllocateSpace`; a node's bridges, `SDN.Use` or `SDN.Audit`); where it names either of two paths, a
+  clone's `VM.Allocate` on the pool it names or on its new VM's, either lets it through, and the words are Proxmox's
+  bare `Permission check failed`, as the `or` of two declared checks raises it. A configuration's write is held key by
+  key: each key it sends or deletes to the privilege of the row that covers it, so a token holding
+  `VM.Config.Options` writes the record's keys and no other, and a key no row covers is refused. A task's owner reads
+  it with no privilege; a listing (the cluster's, a node's storages and bridges, the pools) shows each entry only where
+  the token holds what its row names on it, and a node's figures only so. A call no row names, or a key, is refused
+  the same way and recorded in the state directory's `unmatched.log`, and `fake_fleet(enforce=True)` fails the test at
+  its end on one: so a call the client adds without its row fails its own test. Enforcement answers before a call's
+  own checks: a request whose parameters Proxmox would refuse to verify (a 400), or of an object that does not exist,
+  is a 403 first where the token lacks the privilege; the client refuses a malformed name before sending it. A request
+  to a node that is down still gets its 595, as pveproxy answers it before that node's own check.
 - `GET /nodes/<node>/status` answers a node's CPU threads, memory and uptime as Proxmox VE 9 does, to a token
   `PUT /api2/json/fake/privileges` granted `Sys.Audit` on the node (under enforcement, a made token holding it there),
   and 403 to any other.
@@ -993,11 +1002,7 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
   error; `PUT /api2/json/fake/task-warn?warning=&type=` has the next task log those warnings, one a line, and end a
   success, as Proxmox counts it, its change made: its exit status `WARNINGS: <n>`, its log each as `WARN:` and then
   `TASK WARNINGS: <n>` (`TASK_WARNINGS_STATUS`, `TASK_WARN`, `TASK_WARNINGS`, from Proxmox's source, for experiment 6 to
-  confirm). With no fixture set, every answer today's requests get is what it was before the tasks and digests, byte for
-  byte but for the clone onto a taken VMID: `tests/unit/test_aw_fake_pve.py` sends the requests
-  `tests/unit/fake_pve_replies.json` recorded from the fake before then, and compares; among them the reads of today's
-  whose branches the pools and tokens changed (`GET /access/permissions`, the pools and storages the cluster lists),
-  recorded from the fake before those.
+  confirm). Today's own tests of the fake and the scenarios that run it hold it for today's product.
 - What `just status` reads is shaped by that version, as Proxmox VE's own: from 9 the listing carries
   `memhost` and `rrddata` the `pressure*` fields, and a day is 1440 points; on 8 it is 70. A clone's config
   carries the template's meta `ctime`, as a real one does; its disk's `ctime` in the storage's content is when it

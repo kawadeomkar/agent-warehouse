@@ -737,7 +737,7 @@ def test_the_words_the_client_tells_a_stopped_vm_by_are_the_fake_s() -> None:
 def test_the_agent_s_call_is_one_row_of_the_table_on_the_vm() -> None:
     rows = privileges.for_request("GET", f"/{AGENT}")
     assert [(call.name, call.privilege, at) for call, at in rows] == [
-        ("agent_interfaces", "VM.GuestAgent.Audit", "/vms/9010")
+        ("agent_interfaces", "VM.GuestAgent.Audit", ("/vms/9010",))
     ]
     assert "VM.GuestAgent.Audit" in privileges.needed("pool")
 

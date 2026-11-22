@@ -38,8 +38,9 @@ agent reports is the VM's to choose, so of it only the plain values a network ca
 
 Each read and each write returns a frozen record of answers.py, built by a parsing function there, or nothing. Every
 name and ID that goes into a path or a write is held to the form Proxmox gives it first, so that none can reach another
-path or a query, and a configuration's write sends only the keys of CONFIG_KEYS, whose privileges are the engine's
-table's rows for it. Blocking, and safe to call from several threads, as the transport is.
+path or a query, and a configuration's write sends only the keys the engine's table covers for it (privileges.keys),
+each under the row of the privilege Proxmox checks it with. Blocking, and safe to call from several threads, as the
+transport is.
 """
 
 from __future__ import annotations
@@ -57,7 +58,7 @@ from ..schema.patterns import full
 from ..secret import Secret
 from ..text import one_line
 from ..vendors.transport import UNKNOWN_ISSUER, Answer, PeerRefused, TimedOut, Transport, Unknown, Untrusted
-from . import answers, pin
+from . import answers, pin, privileges
 from .answers import (
     UPID,
     Bridge,
@@ -129,29 +130,6 @@ MISNAMED = frozenset({62, 64})
 
 # ------------------------------------------------------------------------------------------- the writes ----
 
-# The keys write_config sends, each with the privilege Proxmox checks it with on the VM (qemu-server's
-# check_vm_modify_config_perm), which are the engine's table's rows for a configuration's write, no more
-# (tests/unit/test_aw_pve_writes.py holds them equal): a key outside them is refused before anything is sent, so that
-# the role init grants from the table holds what the writes need. ipconfig0 to ipconfig31 are cloud-init's too. tags
-# are checked by a rule of their own (assert_tag_permissions, not read from its source here), which under the
-# datacenter's default, free tags, asks VM.Config.Options; nameserver and searchdomain take VM.Config.Network instead.
-CONFIG_KEYS = {
-    "description": "VM.Config.Options",
-    "tags": "VM.Config.Options",
-    "name": "VM.Config.Options",
-    "onboot": "VM.Config.Options",
-    "agent": "VM.Config.Options",
-    "ciuser": "VM.Config.Cloudinit",
-    "cipassword": "VM.Config.Cloudinit",
-    "sshkeys": "VM.Config.Cloudinit",
-    "ciupgrade": "VM.Config.Cloudinit",
-    "nameserver": "VM.Config.Cloudinit",
-    "searchdomain": "VM.Config.Cloudinit",
-    "cores": "VM.Config.CPU",
-    "memory": "VM.Config.Memory",
-    "balloon": "VM.Config.Memory",
-}
-IPCONFIG = re.compile(r"ipconfig(?:[0-9]|[12][0-9]|3[01])")
 # A configuration's digest, as Proxmox gives one: SHA-1, hex.
 DIGEST = re.compile(r"[0-9a-f]{40,64}")
 # A tag, as Proxmox takes one (pve-common's pve-tag format, letters of either case).
@@ -423,10 +401,13 @@ def _seconds(value: float) -> float:
 
 
 def _key(key: str) -> str:
-    if not isinstance(key, str) or not (key in CONFIG_KEYS or IPCONFIG.fullmatch(key)):
+    """key, where it is one the engine's table covers for a configuration's write (privileges.keys): each such key has
+    the row of the privilege Proxmox checks it with, which init grants, so a key outside them is refused before anything
+    is sent."""
+    if not isinstance(key, str) or key not in privileges.keys("write_config"):
         raise ValueError(
-            "a configuration's write sends the keys whose privileges the engine's table holds:"
-            f" {', '.join(CONFIG_KEYS)} and ipconfig0 to ipconfig31; a key outside them needs a row of its own first"
+            "a configuration's write sends only the keys the engine's table covers for it, each under the privilege"
+            " Proxmox checks it with (privileges.keys); a key outside them needs its row first"
         )
     return key
 
@@ -453,8 +434,9 @@ def _value(key: str, value: Any) -> str | int | Secret:
 
 
 def _changes(changes: Mapping[str, Any]) -> dict[str, str | int | Secret]:
-    """changes as write_config's form: each key one of CONFIG_KEYS, its value as _value makes it; delete, the keys to
-    remove, each one of CONFIG_KEYS too, comma-joined. digest is the write's own, never one of them."""
+    """changes as write_config's form: each key one the table covers for the write (privileges.keys), its value as
+    _value makes it; delete, the keys to remove, each one of them too, comma-joined. digest is the write's own, never
+    one of them."""
     if not isinstance(changes, Mapping) or not changes:
         raise ValueError("a configuration's write is a mapping of the keys it changes, at least one")
     form: dict[str, str | int | Secret] = {}
@@ -799,12 +781,12 @@ class Proxmox:
 
     def write_config(self, node: str, vmid: int, changes: Mapping[str, Any], digest: str) -> None:
         """PUT changes to a VM's configuration with digest, the one the read they were made from gave, in one call:
-        Proxmox writes them only while the configuration is still that, under the VM's lock. changes' keys are
-        CONFIG_KEYS' (delete, a list of them, removes those); tags are a list of tags, sent comma-joined; sshkeys is the
-        keys' text, one a line, sent percent-encoded whole, and read back as Proxmox keeps it, encoded. Raises
-        DigestMismatch where another writer changed it since, nothing written; Locked where a clone, a deletion or a
-        backup holds the VM; and the transport's Unknown where the call left and no answer came: read the configuration
-        to know, since it is never sent again."""
+        Proxmox writes them only while the configuration is still that, under the VM's lock. changes' keys are those
+        privileges.keys gives the write (delete, a list of them, removes those); tags are a list of tags, sent
+        comma-joined; sshkeys is the keys' text, one a line, sent percent-encoded whole, and read back as Proxmox keeps
+        it, encoded. Raises DigestMismatch where another writer changed it since, nothing written; Locked where a clone,
+        a deletion or a backup holds the VM; and the transport's Unknown where the call left and no answer came: read
+        the configuration to know, since it is never sent again."""
         node, vmid = _node(node), _vmid(vmid)
         form = _changes(changes)
         if not isinstance(digest, str) or not DIGEST.fullmatch(digest):

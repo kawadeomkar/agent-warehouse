@@ -1238,9 +1238,10 @@ def fake_fleet(
     the pool: engine_token(directory) gives the token's ID and secret. It serves certificate, its file and its key's,
     where given (a node's of tests/unit/pki.py, which a client can verify), else one of its own, self-signed. With
     enforce, the fake holds every request of a token made through /access to the engine's table of privileges
-    (lib/claude_vm/pve/privileges.py), and the test fails at its end where one of them named a call no row of the table
-    names. With engine, the test also fails at its end where the new engine's client sent a PUT or a POST to a VM's
-    configuration with no digest: read from what the fake was sent, it holds for every method a test reaches."""
+    (lib/claude_vm/pve/privileges.py), and the test fails at its end where one of them named a call, or sent a
+    configuration's key, that no row of the table names. With engine, the test also fails at its end where the new
+    engine's client sent a PUT or a POST to a VM's configuration with no digest: read from what the fake was sent, it
+    holds for every method a test reaches."""
     for base in _fake_pve(directory, certificate):
         _pve(base, "PUT", "fake/version", version=version)
         for vmid, name, running in [(9010, "alpha", True), (9011, "beta", True), (9012, "gamma", False)]:

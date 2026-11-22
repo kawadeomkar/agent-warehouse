@@ -109,17 +109,25 @@ token is held to the engine's one table of privileges,
 lib/claude_vm/pve/privileges.py, read from the checkout's lib/ beside this file,
 the fake keeping none of its own. A request is refused (403) where the token
 lacks, on its path, the privilege a row of its call names - the path the
-request's own path names, or its parameters (a clone's pool and storage, a
-pool's poolid and each guest its vms names; a clone with no pool on the new VM's
-path, with no storage on its source's disk's), or its VM's configuration (the
-storage of the disk a resize grows) - by the same function that answers GET
-/access/permissions;
-a task's owner needs nothing to read it; a listing (/cluster/resources, a node's
-storages and bridges, the pools) shows each entry only where the token holds
-what its row names on it, and a node's figures only so; and a call no row names
-is refused the same way and recorded in <state_dir>/unmatched.log. A request to
-a node that is down still gets its 595, as pveproxy answers it before the
-node's own check. Today's tokens are answered as now, enforcement or not.
+request's own path names, or its parameters (a clone's pool, its new VM and its
+storage, a pool's poolid; a clone with no storage on its source's disk's), or
+its VM's configuration (the storage of the disk a resize grows) - by the same
+function that answers GET /access/permissions. Where a row names either of two
+privileges, or either of two paths (a node's storages and a storage's disks,
+Datastore.Audit or Datastore.AllocateSpace; a node's bridges, SDN.Use or
+SDN.Audit; a clone's VM.Allocate, on the pool it names or on its new VM's path),
+any of them held lets it through. A configuration's write is held key by key:
+each key it sends or deletes to the privilege of the row that covers it, and a
+key no row covers is refused. A task's owner needs nothing to read it; a listing
+(/cluster/resources, a node's storages and bridges, the pools) shows each entry
+only where the token holds what its row names on it, and a node's figures only
+so; and a call no row names, or a key, is refused the same way and recorded in
+<state_dir>/unmatched.log. Enforcement answers before a call's own checks: a
+request Proxmox would refuse for a parameter it cannot verify (400), or for an
+object that does not exist, is answered 403 first where the token lacks the
+privilege. A request to a node that is down still gets its 595, as pveproxy
+answers it before the node's own check. Today's tokens are answered as now,
+enforcement or not.
 
 A second token id, "noagent", stands for a token created without the
 guest-agent privilege (VM.Monitor on PVE 8, VM.GuestAgent.Audit on 9): every
@@ -257,8 +265,15 @@ DISK_NOT_SHARED = "can't clone VM to node '{node}' (VM uses local storage)"
 # the privilege.
 PERMISSION_REFUSED_STATUS = 403
 PERMISSION_REFUSED = "Permission check failed ({path}, {privilege})"
-# A call no row of the engine's table names, refused the same way: the fake's own words, since Proxmox keeps no table.
+# Where either of two privileges would do, the privilege is each of them, "|" between them (check_any's words); where
+# either of two paths would, as a clone's VM.Allocate on its pool's path or its new VM's, the words are these alone, as
+# the or of two declared checks raises them.
+PRIVILEGES_JOINED = "|"
+PERMISSION_REFUSED_ANY = "Permission check failed"
+# A call no row of the engine's table names, refused the same way: the fake's own words, since Proxmox keeps no table;
+# and a configuration's key that no row of its call covers.
 NO_ROW = "Permission check failed (no row of the engine's table names {method} {path})"
+NO_KEY = "Permission check failed (no row of the engine's table covers the key {key} of {method} {path})"
 # A clone a token made through /access sends into a pool that does not exist: check_pool_exist's words, a 403.
 NO_SUCH_POOL = "Permission check failed (pool '{pool}' does not exist)"
 # A role made with a privilege Proxmox VE 9 does not define: add_role_privs' words, after create_role's label.
@@ -972,61 +987,81 @@ class Handler(BaseHTTPRequestHandler):
 
     def _refusal(self, method, parts, params):
         """Under enforcement, why the engine's table refuses this request of a made token; "" where it may go on. Each
-        row of its call is held on the ACL path its path names, or its parameters, by acl_privileges, which answers GET
-        /access/permissions too; a row of neither is a listing's, whose entries are each shown only where it is held
-        (self.entries, _sees). A task's owner needs nothing to read it. A call no row names is refused, and recorded in
-        unmatched.log for harness.fake_fleet(enforce=True) to fail on."""
+        row of its call is held on the ACL paths its path names, or its parameters, by acl_privileges, which answers GET
+        /access/permissions too: any of its privileges held on any of its paths lets it through. A row of neither is a
+        listing's, whose entries are each shown only where it is held (self.entries, _sees). A row with keys, of a
+        configuration's write, is held only where the request sends or deletes one of them, and a key no row of the
+        call covers is refused. A task's owner needs nothing to read it. A call no row names, or a key, is refused, and
+        recorded in unmatched.log for harness.fake_fleet(enforce=True) to fail on."""
         path = "/" + "/".join(parts)
         rows = table().for_request(method, path)
         if not rows:
-            with STATE_DIR.joinpath("unmatched.log").open("a") as log:
-                log.write(json.dumps({"method": method, "path": path}) + "\n")
+            self._unmatched({"method": method, "path": path})
             return NO_ROW.format(method=method, path=path)
+        sent = self._keys(params) if any(call.keys for call, _ in rows) else set()
+        uncovered = sorted(sent - {key for call, _ in rows for key in call.keys})
+        if uncovered:
+            self._unmatched({"method": method, "path": path, "key": uncovered[0]})
+            return NO_KEY.format(key=uncovered[0], method=method, path=path)
         task = TASK_RECORDS.get(parts[3], {}) if parts[2:3] == ["tasks"] and len(parts) > 3 else {}
         for call, at in rows:
-            if call.privilege is None or task.get("owner") == self.owner:
+            if not call.privileges or task.get("owner") == self.owner:
                 continue
-            named = (at,) if at else self._named(call.on, parts, params)
-            if named is None and method == "GET":
-                self.entries[call.on] = call.privilege
+            if call.keys and not sent & set(call.keys):
                 continue
-            if named is None:
-                return PERMISSION_REFUSED.format(path=call.on, privilege=call.privilege)
-            for one in named:
-                if call.privilege not in acl_privileges(self.owner, one):
-                    return PERMISSION_REFUSED.format(path=one, privilege=call.privilege)
+            named = [one or self._named(kind, parts, params) for kind, one in zip(call.kinds, at, strict=True)]
+            named = [one for one in named if one]
+            if not named and method == "GET":
+                self.entries[call.kinds[0]] = call.privileges
+                continue
+            said = PRIVILEGES_JOINED.join(call.privileges)
+            if not named:
+                return PERMISSION_REFUSED.format(path=call.kinds[0], privilege=said)
+            if not any(set(call.privileges) & set(acl_privileges(self.owner, one)) for one in named):
+                if len(call.kinds) > 1:
+                    return PERMISSION_REFUSED_ANY
+                return PERMISSION_REFUSED.format(path=named[0], privilege=said)
         return ""
 
     @staticmethod
+    def _unmatched(entry):
+        """A request of a made token the engine's table has no row for, recorded for harness.fake_fleet."""
+        with STATE_DIR.joinpath("unmatched.log").open("a") as log:
+            log.write(json.dumps(entry) + "\n")
+
+    @staticmethod
+    def _keys(params):
+        """The configuration's keys a write sends or deletes, as Proxmox checks them: every parameter but digest and
+        delete, and each key delete names (qemu-server's update_vm_api)."""
+        return {key for key in params if key not in ("digest", "delete")} | set(split_list(params.get("delete")))
+
+    @staticmethod
     def _named(kind, parts, params):
-        """The ACL paths a call names in its parameters, or its VM's configuration does, for a row of kind that its
-        path does not name: a pool by pool or poolid, a storage by storage, and each guest a pool's vms names
-        (pve-manager's update_pool, check_perm_modify on each: none for none); a clone with no pool is checked on the
-        new VM's own path, and with no storage on its source's disk's (qemu-server's clone_vm,
-        check_storage_access_clone); a resize on the storage of the disk it grows (resize_vm). None for a listing."""
+        """The ACL path a call names in its parameters, or its VM's configuration does, for a row of kind that its path
+        does not name: a pool by pool or poolid, a clone's new VM by newid, a storage by storage, and with no storage a
+        clone's on its source's disk's (qemu-server's clone_vm, check_storage_access_clone) and a resize's on the
+        storage of the disk it grows (resize_vm). None for a listing, and for a pool a clone does not name: the new VM's
+        path is then the clone's one way through the or of its declared check."""
         vmid = int(parts[3]) if len(parts) > 3 and parts[2] == "qemu" and parts[3].isdigit() else None
         clone = vmid is not None and parts[4:] == ["clone"]
         resize = vmid is not None and parts[4:] == ["resize"]
         if kind == "pool" and (params.get("pool") or params.get("poolid")):
-            return (f"/pool/{params.get('pool') or params.get('poolid')}",)
-        if kind == "pool" and clone and params.get("newid"):
-            return (f"/vms/{params['newid']}",)
-        if kind == "vm" and parts == ["pools"]:
-            return tuple(f"/vms/{guest}" for guest in split_list(params.get("vms")))
+            return f"/pool/{params.get('pool') or params.get('poolid')}"
+        if kind == "new" and clone and params.get("newid"):
+            return f"/vms/{params['newid']}"
         if kind == "storage" and params.get("storage"):
-            return (f"/storage/{params['storage']}",)
+            return f"/storage/{params['storage']}"
         if kind == "storage" and (clone or resize) and vmid in VMS:
             disk = "scsi0" if clone else params.get("disk", "")
-            return ("/storage/" + str(VMS[vmid]["config"].get(disk, "")).split(":", 1)[0],)
+            return "/storage/" + str(VMS[vmid]["config"].get(disk, "")).split(":", 1)[0]
         return None
 
     def _sees(self, kind, path, today):
         """Whether this request's token sees the entry of kind at path in a listing: under enforcement, a made token
-        where it holds what its call's row names on that kind; any other, today's answer, today."""
+        where it holds any of the privileges its call's row names on that kind; any other, today's answer, today."""
         if not self.enforced:
             return today
-        privilege = self.entries.get(kind)
-        return privilege is not None and privilege in acl_privileges(self.owner, path)
+        return bool(set(self.entries.get(kind, ())) & set(acl_privileges(self.owner, path)))
 
     def _pooled(self, vm, token_id):
         """Whether the cluster's listing names vm's pool to this request's token: where it may audit that pool."""

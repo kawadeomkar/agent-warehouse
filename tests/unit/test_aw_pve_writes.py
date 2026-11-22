@@ -18,9 +18,10 @@ Stopped, between polls or during one, and goes on on Proxmox, unfollowed. A dele
 alone, and purge only where it is asked for. The rules with a test of their own: a PUT or a POST to a configuration's
 path with no digest is refused before it is sent, every one the fake was sent carried it (harness.fake_fleet's end, for
 every test of the new engine), and every method that sends one sends digest (a syntax-tree test of the module); a
-configuration's write sends only the keys whose privileges are the table's rows for it; every row of the table names a
-method of the client; and no error of a write, nor of a read, says the token's secret, even where Proxmox's words echo
-it.
+configuration's write sends only the keys the table covers for it; both ways, every row of the table is a call the
+client makes and every call it makes has its rows, each method of the client driven against the fake under
+enforcement and its requests read from the fake's log; and no error of a write, nor of a read, says the token's secret,
+even where Proxmox's words echo it.
 """
 
 from __future__ import annotations
@@ -56,7 +57,6 @@ from test_aw_transport import _said, _Tunnel
 
 from claude_vm.pve import answers, pin, privileges
 from claude_vm.pve.client import (
-    CONFIG_KEYS,
     DEADLINES,
     EDITS,
     FILE,
@@ -870,17 +870,97 @@ def test_a_write_answered_with_a_upid_that_holds_a_slash_is_malformed(pki, upid)
 # ------------------------------------------------------------------------------------------------- the rules ----
 
 
-def test_a_configuration_s_keys_take_the_privileges_the_table_s_rows_hold_for_its_write_and_no_more() -> None:
-    rows = {call.privilege for call in privileges.CALLS if call.name == "write_config"}
-    assert set(CONFIG_KEYS.values()) == rows
-    assert all(call.on == "vm" for call in privileges.CALLS if call.name == "write_config")
+# The client's public methods that send no request of rows named for them: follow polls a task through task_status and
+# task_log, edit_config reads and writes through config and write_config, and close sends nothing.
+APART = {"follow", "edit_config", "close"}
 
 
-def test_every_row_of_the_table_names_a_method_of_the_client() -> None:
+def _keys(params: dict) -> set[str]:
+    """The configuration's keys a request sent or deleted: its parameters but digest and delete, and those delete
+    names."""
+    return {key for key in params if key not in ("digest", "delete")} | set(
+        filter(None, params.get("delete", "").split(","))
+    )
+
+
+def _sent_by_each_method(fleet: Fleet) -> dict[str, list[dict]]:
+    """Each method of the client that has rows, called against the fake under enforcement as a workflow calls it, the
+    version first and every write of a configuration with the keys of one of the write's rows: what each sent, as the
+    fake logged it, by the method's name."""
+    engine_grant(fleet.base, "/nodes/pve", "Sys.Audit")
+    engine_grant(fleet.base, "/sdn/zones/localnetwork/vmbr0", ",".join(sorted(privileges.needed("bridge"))))
+    _pve(fleet.base, "PUT", "fake/agent-ready-after", polls=0)
+    sent: dict[str, list[dict]] = {}
+    with fleet.client() as client:
+        made: list[Task] = []
+        steps = [
+            ("version", lambda: client.version()),
+            ("resources", lambda: [client.resources(kind) for kind in ("vm", "storage", "node", "pool")]),
+            ("pool", lambda: client.pool(ENGINE_POOL)),
+            ("config", lambda: client.config("pve", 9010)),
+            ("current", lambda: client.current("pve", 9010)),
+            ("next_id", lambda: client.next_id()),
+            ("node_status", lambda: client.node_status("pve")),
+            ("storages", lambda: client.storages("pve")),
+            ("bridges", lambda: client.bridges("pve")),
+            ("permissions", lambda: client.permissions(f"/pool/{ENGINE_POOL}")),
+            ("read", lambda: client.read("nodes/pve/qemu/9010/rrddata", {"timeframe": "day"})),
+            ("read", lambda: client.read("nodes/pve/qemu/9010/pending")),
+            ("read", lambda: client.read("nodes/pve/storage/local-lvm/content")),
+            ("agent_interfaces", lambda: client.agent_interfaces("pve", 9010)),
+            ("clone", lambda: made.append(client.clone("pve", 9000, 9020, "delta", ENGINE_POOL))),
+            ("task_status", lambda: client.task_status("pve", made[0].upid)),
+            ("task_log", lambda: client.task_log("pve", made[0].upid)),
+            *[
+                (
+                    "write_config",
+                    lambda changes=changes: client.write_config("pve", 9020, changes, fleet.raw(9020)["digest"]),
+                )
+                for changes in (
+                    {"description": "the record", "tags": ["agent-warehouse"]},
+                    {"ciuser": "dev", "sshkeys": KEYS},
+                    {"nameserver": "192.0.2.53"},
+                    {"cores": 2},
+                    {"memory": 2048, "delete": ["balloon"]},
+                )
+            ],
+            ("resize", lambda: client.resize("pve", 9020, "scsi0", "+1G")),
+            ("start", lambda: client.start("pve", 9020)),
+            ("shutdown", lambda: client.shutdown("pve", 9020, timeout=30, force_stop=True)),
+            ("start", lambda: client.start("pve", 9020)),
+            ("stop", lambda: client.stop("pve", 9020)),
+            ("to_template", lambda: client.to_template("pve", 9020)),
+            ("delete", lambda: client.delete("pve", 9020)),
+        ]
+        for name, step in steps:
+            before = len(fleet.asked())
+            step()
+            sent.setdefault(name, []).extend(fleet.asked()[before:])
+    return sent
+
+
+def test_every_row_is_a_call_the_client_makes_and_every_call_it_makes_has_its_rows(fleet) -> None:
+    """Both ways: the rows' names are the public methods of the client that send a request, those named apart aside;
+    every request each method sent under enforcement is a call whose rows bear its name; and each row's route is one
+    its method sent, a configuration's row with one of its keys. A row no call uses would widen the role init grants
+    from the table, unseen; a call with no row fails its own test at the fleet's end."""
+    methods = {name for name, member in vars(Proxmox).items() if callable(member) and not name.startswith("_")}
     named = {call.name for call in privileges.CALLS}
-    assert named <= {name for name in dir(Proxmox) if not name.startswith("_")}, named - set(dir(Proxmox))
-    writes = {"clone", "write_config", "resize", "start", "shutdown", "stop", "to_template", "delete"}
-    assert writes <= named and not hasattr(Proxmox, "pool_add")
+    assert APART <= methods and named == methods - APART, named ^ (methods - APART)
+    sent = _sent_by_each_method(fleet)
+    assert set(sent) == named
+    rows_of = {}
+    for name, requests in sent.items():
+        assert requests, name
+        for request in requests:
+            rows = privileges.for_request(request["method"], request["path"].removeprefix("/api2/json"))
+            assert rows and {call.name for call, _ in rows} == {name}, (name, request["method"], request["path"])
+            for call, _ in rows:
+                rows_of.setdefault(call, []).append(request)
+    for call in privileges.CALLS:
+        assert call in rows_of, call
+        if call.keys:
+            assert any(set(call.keys) & _keys(request["params"]) for request in rows_of[call]), call
 
 
 def _sends(call: ast.Call) -> tuple[str, str] | None:
