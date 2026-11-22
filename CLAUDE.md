@@ -527,12 +527,16 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - The new engine calls `route.py` as it stands (`lib/claude_vm/ssh/connections.py`), its `ssh` children in a
       process group of their own (`process_group=0`, which today's callers do not pass) and `route`, `ensure_hop` and
       `held` off the event loop, so that a terminal's first Ctrl-C kills none and has its silence read as an answer;
-      `route` settles nothing where its `ssh -G` was ended by a signal (`signalled_settles=False`). It keeps every
+      `route` settles nothing where its `ssh -G` gave no answer, ended by a signal or out of its time
+      (`signalled_settles=False`), and refuses the route through the host where the hop's socket would pass
+      `route.SOCKET_MOST`, naming `vm_ssh_route: direct` or a shorter home; every line of the hop's own `ssh` pins
+      `ForwardX11=no` and `PermitLocalCommand=no` first (`route.hop_settings`' `pinned`). It keeps every
       shared master, a machine's and the hop's, in the one control directory every run shares (`fleet/paths.py`'s
       `control_dir()`, `~/.ansible/cp`: short, the account's alone, and the one layer 1's Ansible and the status probe
       use), which `Connections` refuses where it is a link, another account's, or writable by its group or others
       (`Unsafe`, with the `chmod 700` to run); a machine whose socket's path there would pass `route.SOCKET_MOST`
-      connects alone (`runner.Target.shared`), said once a run (`notes`). A machine's master is opened only by
+      connects alone (`runner.Target.shared`), said once a run (`notes`), and the Proxmox host's `Target` is made but a
+      connection to it refused (`runner.HOST_TOO_LONG`), since every one rides the hop's. A machine's master is opened only by
       `ensure`, as `children.MASTER` in a session of its own, which carries no job's marker, never for a first use
       (`first_use`: no key filed under the identity), which is a connection of its own (`ControlPath=none`) until its
       key is filed, and while its open runs a run remembers nothing of its tree (`children.opening`). The hop's master

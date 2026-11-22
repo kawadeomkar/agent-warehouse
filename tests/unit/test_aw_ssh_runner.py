@@ -717,6 +717,28 @@ def test_a_machine_whose_socket_s_path_would_be_too_long_connects_alone(tmp_path
     assert runner.proxmox_host("pve.example.test", "root", CONTROL).shared
 
 
+def test_the_proxmox_host_from_a_long_home_is_made_and_a_connection_to_it_refused(stand_in, made) -> None:
+    # A home so long that the hop's socket would pass what macOS binds: the host's Target is still made, so that a route
+    # of direct can be settled for it (ssh/connections.py), and every connection to it, which rides the hop's shared
+    # connection, is refused before anything starts, in this engine's words: no setting of 2.x's inventory.
+    fits = "/" + "c" * (route.SOCKET_MOST - len("/awh-") - 12 - 1)
+    for control, shared in ((fits, True), (fits + "c", False)):
+        assert runner.proxmox_host("pve.example.test", "root", control).shared is shared, control
+    control = "/" + "c" * 80
+    host = runner.proxmox_host("pve.example.test", "root", control)
+    socket = route.hop_settings(user="root", host="pve.example.test", port=22, control_dir=control, sized=False)
+    for refused_by in (
+        lambda: runner.argv(host, ["hostname", "-s"]),
+        lambda: runner.ansible_vars(host),
+        lambda: _run(made, host, ["hostname", "-s"]),
+    ):
+        with pytest.raises(runner.Refused) as refused:
+            refused_by()
+        assert str(refused.value) == runner.HOST_TOO_LONG.format(socket=socket["socket"], most=route.SOCKET_MOST)
+        assert "home is shorter" in str(refused.value) and "ansible_" not in str(refused.value)
+    assert _calls(stand_in) == []
+
+
 def test_a_command_that_is_not_a_list_of_words_starts_nothing(tmp_path, stand_in, made) -> None:
     for command in ("echo hi", [], ["echo", "a\0b"], [b"echo"]):
         with pytest.raises(runner.Refused):

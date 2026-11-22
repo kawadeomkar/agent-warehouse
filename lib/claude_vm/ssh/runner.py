@@ -20,7 +20,10 @@ strictly in the product's own file, which `ssh` can neither add to nor replace; 
 scratch file instead, under the identity and never the address, for the caller to file, on a connection of its own
 (`ControlPath=none`): a master of the identity and the address that still lives would carry it, and `ssh` would write no
 key. A machine whose socket's path in the shared directory would pass `route.SOCKET_MOST` bytes (a long home) takes no
-shared connection either (`Target.shared`): each of its connections logs in alone.
+shared connection either (`Target.shared`): each of its connections logs in alone. Every connection to the Proxmox
+host rides the hop's shared connection: from a home so long that the hop's socket would pass the length, its `Target` is
+still made, so that a route of `direct` can be settled for it, and a connection to it is refused, with the way out,
+before anything starts (`HOST_TOO_LONG`).
 
 `run` starts the command line as a child of the run through `runs/children.py`'s `start`, in a process group of its
 own, hands it bytes on its standard input, and reads its standard output a line at a time under a bound for one line,
@@ -165,6 +168,13 @@ HOST_WAY_OUT = (
 )
 
 
+# Why a connection to the Proxmox host is refused from a long home: every one rides the hop's shared connection.
+HOST_TOO_LONG = (
+    "every connection to the Proxmox host rides its shared connection, whose socket, {socket}, would be longer than"
+    " {most} bytes, the most a shared connection's socket may be: run from an account whose home is shorter"
+)
+
+
 class Refused(ValueError):
     """A target, a command or an option the runner does not take, said by name: nothing was started."""
 
@@ -255,12 +265,12 @@ class Target:
     def shared(self) -> bool:
         """Whether a machine's connections ride a shared one: its socket's path in the control directory is at most
         route.SOCKET_MOST bytes, the most macOS binds. Past it (a long home), each connection logs in alone
-        (ControlPath=none), and no master is opened for it. The Proxmox host's, the hop's, is route.hop_settings' to
-        hold."""
+        (ControlPath=none), and no master is opened for it. The Proxmox host's is whether the hop's socket fits: its
+        connections ride the hop's, and past it none is made (options)."""
         if self.is_host:
-            return True
+            return route.socket_fits(_host_socket(self))
         socket = f"{self.control_dir}/{_control_name(self)}-{self.account}-{self.port}"
-        return len(socket.encode()) <= route.SOCKET_MOST
+        return route.socket_fits(socket)
 
     def _as_the_host(self) -> None:
         if self.known_hosts is not None or self.hop is not None or self.given or self.first_use:
@@ -269,6 +279,7 @@ class Target:
                 " hop and no vm_ssh_options"
             )
         try:
+            # A socket past the length is no refusal of a setting: shared and options say it (route.socket_fits).
             settled = route.hop_settings(
                 ssh=self.ssh,
                 user=self.account,
@@ -276,6 +287,7 @@ class Target:
                 port=self.port,
                 key=str(self.identity_file or ""),
                 control_dir=str(_directory(self.control_dir)),
+                sized=False,
             )
         except route.HopRefused as refused:
             raise Refused(f"{refused.reason}: {HOST_WAY_OUT}") from None
@@ -433,6 +445,19 @@ def _control_name(target: Target) -> str:
     return checks.vm_control_name(target.identity, target.address, target.hop.name if target.hop else "")
 
 
+def _host_socket(target: Target) -> str:
+    """The Proxmox host's socket: the hop's, as route.hop_settings names it, whatever its length."""
+    return route.hop_settings(
+        ssh=target.ssh,
+        user=target.account,
+        host=target.address,
+        port=target.port,
+        key=str(target.identity_file or ""),
+        control_dir=str(target.control_dir),
+        sized=False,
+    )["socket"]
+
+
 def _policy(target: Target) -> str:
     """How the host key is checked: taken at first use for a machine's first connection, into its scratch file, and
     for the Proxmox host, into the person's own file; strictly against the product's own file for every other."""
@@ -464,16 +489,12 @@ def options(target: Target, forward: bool = False) -> list[str]:
     person's. A forward's is a connection of its own (ControlPath=none) that fails where a port cannot be bound and
     keeps its forwards whatever a person's ClearAllForwardings says; so is a first use's, which a master that still
     lives for the identity and the address would otherwise carry, so that ssh wrote no key into its scratch file; and
-    so is every connection of a machine whose socket's path would be too long (Target.shared)."""
+    so is every connection of a machine whose socket's path would be too long (Target.shared). The Proxmox host's
+    connections ride the hop's: Refused (HOST_TOO_LONG) where its socket would be too long."""
     if target.is_host:
-        socket = route.hop_settings(
-            ssh=target.ssh,
-            user=target.account,
-            host=target.address,
-            port=target.port,
-            key=str(target.identity_file or ""),
-            control_dir=str(target.control_dir),
-        )["socket"]
+        socket = _host_socket(target)
+        if not route.socket_fits(socket):
+            raise Refused(HOST_TOO_LONG.format(socket=socket, most=route.SOCKET_MOST))
         words = ["-o", "UpdateHostKeys=no", "-o", "ForwardAgent=no"]
     else:
         socket = f"{target.control_dir}/{_control_name(target)}-%r-%p"
