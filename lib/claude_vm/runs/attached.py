@@ -92,7 +92,7 @@ LEFT = "aw: the run's work did not end within {settle} s of being stopped, and i
 # How often the run looks for a child the terminal has stopped, and what it says of one.
 ASKING_POLL = 0.2
 ASKED = (
-    "aw: {program} stopped at the terminal to ask a question there (a key's passphrase, a second factor), which a run"
+    "aw: {child} stopped at the terminal to ask a question there (a key's passphrase, a second factor), which a run"
     " never answers: it is ended, and its machine fails. Hold the key in an agent (ssh-add), or give a ProxyJump of"
     " yours what it asks for in its own settings, then run it again"
 )
@@ -550,7 +550,7 @@ class _Ladder:
                     if child in self.asked:
                         continue
                     self.asked.add(child)
-                    _say(ASKED.format(program=plain_text(child.program)))
+                    _say(ASKED.format(child=plain_text(child.program)))
                     proc.end(child.pid, signum=signal.SIGKILL, blind=self.blind.append)
             except Exception as error:
                 self.blind.append(f"a child stopped at the terminal could not be looked for: {plain_text(str(error))}")

@@ -12,10 +12,11 @@ Today's verbs keep today's words and help, with aw where they said just. The rul
 check.names.1): the sentence is the rule's own, written where the rule is (rules.py).
 
 A sentence of the table, of the rules or of any part of the new engine that names a command names it as a `Line` in a
-field of the sentence, never as text: `said` fills it with the line the printer of a command writes
-(lib/claude_vm/cli/inverse.py), so that every command a person reads is the program as it was started, spelled as the
-printer spells one. `LINES` holds the commands the table's own sentences name. Standard library only: every command
-reads it, a refusal and help among them; the printer is imported by `said` alone, when a sentence is said.
+field of the sentence, never as text: the printer of a command's `said` (printer.py) fills it with the line the printer
+writes, so that every command a person reads is the program as it was started, spelled as the printer spells one.
+`LINES` holds the commands the table's own sentences name. `placeholder` is the name help gives a value or a verb's
+words, which a line that shows a command's form writes in its place (<cores>, <name>). Standard library only, and
+nothing else of schema/: every command reads it, a refusal and help among them.
 """
 
 from __future__ import annotations
@@ -76,7 +77,8 @@ class Option:
     pattern names the pattern of schema/patterns.py that its value is held to, None for a flag and a count. field is
     the name the handler receives it by: the long option in lowercase with _ for -, with _ after a word Python keeps
     for itself (for_). help is its sentence, None for the one hidden word, which no person types. agent is its fate for
-    an agent's tool. metavar is the name help gives its value (--host ON). until is None, or the card that builds what
+    an agent's tool. metavar names what its value is, in lower case, as placeholder writes it (host, for --host <host>;
+    name=value, for --set <name>=<value>), None for a flag and a count. until is None, or the card that builds what
     the option does: help and the command reference leave the option out until then, and the parser and the check take
     it all the same, its verb refusing it (install's options of the installed program, H14's and H15's, which a
     checkout refuses)."""
@@ -154,9 +156,10 @@ def _flag(long: str, help: str | None, agent: Agent = PROPERTY, until: str | Non
 
 
 class Placeholder:
-    """What a line gives a value or a verb's words in place of one, so that it names them by the name help gives them:
-    <name> for the words, <name>... for several, and the option's VALUE for a value (aw destroy <name>...). Never a
-    value: the one check refuses it as one, since it is no string."""
+    """What a line gives a value or a verb's words in place of one, so that it names them by the name help gives them
+    (placeholder): <name> for the words, <name>... for several, and <value> for a value (aw destroy <name>... --confirm
+    <names>). Never a value: the one check refuses it as one, since it is no string, and refuses the text the printer
+    writes for it as well."""
 
     def __repr__(self) -> str:
         return "PLACEHOLDER"
@@ -189,14 +192,14 @@ LINES: dict[str, Line] = {
 }
 
 
-def said(sentence: str, filled: Mapping[str, object] | None = None) -> str:
-    """sentence as a person reads it: each field filled, a Line with the command line the printer of a command writes
-    for it (lib/claude_vm/cli/inverse.py), LINES' among them, and anything else as given. The one way a sentence of the
-    new engine names a command. schema/ imports the printer here, when a sentence is said, and never when schema/ is
-    imported, which every command does; pve/ and vendors/, which import nothing of cli/, say theirs through it too."""
-    from claude_vm.cli import inverse
-
-    return inverse.said(sentence, {**LINES, **(filled or {})})
+def placeholder(item: Option | Words) -> str:
+    """The name help gives an option's value or a verb's words, as help's rows, the command reference and a line that
+    shows a command's form write it: lower case, in angle brackets, never quoted (<cores>, <name>=<value>; <name> for
+    the words, which a line writes <name>... where the verb takes several). The one check refuses a value or a word that
+    is exactly it: a placeholder given back to aw stands for a value, and is never taken for one."""
+    if isinstance(item, Words):
+        return f"<{item.name}>"
+    return "=".join(f"<{part}>" for part in (item.metavar or "value").split("="))
 
 
 # ---------------------------------------------------------------- the fates an agent's tool gives ----
@@ -253,7 +256,7 @@ DETACH_AGENT = fixed(True, "the server starts every run that is a job detached, 
 # ---------------------------------------------------------------- the words several verbs share ----
 
 # --host on deploy, code, login, status and destroy.
-HOST = _value("host", "host_name", "ON", "Run against this host rather than the current one ({hosts} lists them)")
+HOST = _value("host", "host_name", "host", "Run against this host rather than the current one ({hosts} lists them)")
 # A setting's value for one run, on every verb that reads the fleet's settings to do its work.
 SET = Option(
     "set",
@@ -264,7 +267,7 @@ SET = Option(
     "One setting's value for this run alone, never a secret, held to its type as settings --value holds it: "
     "--set name=value, once for each",
     refused(SET_REFUSED),
-    "NAME=VALUE",
+    "name=value",
 )
 # The system layer's verbosity, on the same verbs but status, which runs no system layer.
 VERBOSE = Option(
@@ -283,7 +286,7 @@ BEFORE: tuple[Option, ...] = (
     _value(
         "attended",
         "attended",
-        "SCREEN",
+        "attended",
         "Someone is at this computer's screen with no terminal: 1, the sign-ins run and open their pages here and "
         "nothing asks; the agents' server gives it",
         ATTENDED,
@@ -321,47 +324,49 @@ _VERBS: tuple[Verb, ...] = (
             refused(INIT_EXTRA_LEFT_OUT),
         ),
         options=(
-            _value("address", "address", "ADDRESS", "The Proxmox host's address, for its hosts.yml"),
-            _value("host", "host_name", "ON", "Set up another host of this checkout, by its name ({hosts} lists them)"),
-            _value("token-user", "token_user", "TOKEN_USER", "The API token's user, when it is not ansible@pve"),
+            _value("address", "address", "address", "The Proxmox host's address, for its hosts.yml"),
+            _value(
+                "host", "host_name", "host", "Set up another host of this checkout, by its name ({hosts} lists them)"
+            ),
+            _value("token-user", "token_user", "user", "The API token's user, when it is not ansible@pve"),
             _value(
                 "token-id",
                 "proxmox_id",
-                "TOKEN_ID",
+                "id",
                 "The API token's ID, the part after its user's !, when it is not ansible",
             ),
             _value(
                 "token-secret-file",
                 "secret_file",
-                "TOKEN_SECRET_FILE",
+                "file",
                 "A file holding the token's secret (or AGENT_WAREHOUSE_TOKEN_SECRET in the environment; never on the "
                 "command line)",
                 refused(TOKEN_SECRET_FILE_LEFT_OUT),
             ),
-            _value("github-user", "github_user", "GITHUB_USER", "The GitHub account whose repositories are cloned"),
+            _value("github-user", "github_user", "account", "The GitHub account whose repositories are cloned"),
             _value(
                 "storage",
                 "proxmox_id",
-                "STORAGE",
+                "storage",
                 "The storage for VM disks, for local.yml: written when the token can use it there",
             ),
             _value(
                 "bridge",
                 "proxmox_id",
-                "BRIDGE",
+                "bridge",
                 "The bridge the template is built on, for local.yml (before the template exists)",
             ),
             _value(
                 "tailscale",
                 "on_off",
-                "TAILSCALE",
+                "answer",
                 "Answers init's VPN question: on, each VM joins your tailnet; off, none - a VPN of yours that routes "
                 "the LAN, or none at all (vpn in local.yml)",
             ),
             _value(
                 "certificate",
                 "fingerprint",
-                "CERTIFICATE",
+                "fingerprint",
                 "The SHA-256 fingerprint of the certificate to check the API against, as the host prints it (openssl "
                 "x509 -noout -fingerprint -sha256): kept, or put in place of one that changed, only when it is that "
                 "one",
@@ -375,7 +380,7 @@ _VERBS: tuple[Verb, ...] = (
                 refused(PRINT_COMMANDS_REFUSED),
             ),
             _value(
-                "pool", "proxmox_id", "POOL", "The Proxmox pool that holds the fleet's VMs, when it is not the default"
+                "pool", "proxmox_id", "pool", "The Proxmox pool that holds the fleet's VMs, when it is not the default"
             ),
             _flag(
                 "machines",
@@ -407,7 +412,7 @@ _VERBS: tuple[Verb, ...] = (
             _value(
                 "version",
                 "release",
-                "VERSION",
+                "version",
                 "Bring the installed program to this release rather than the newest; refused in a checkout",
                 refused(INSTALLED_REFUSED),
                 until="H14",
@@ -428,7 +433,7 @@ _VERBS: tuple[Verb, ...] = (
             _value(
                 "without",
                 "dependency_group",
-                "GROUP",
+                "group",
                 "Install the release without this optional part: mcp, the agents' server; refused in a checkout",
                 refused(INSTALLED_REFUSED),
                 until="H14",
@@ -458,7 +463,7 @@ _VERBS: tuple[Verb, ...] = (
             _value(
                 "host",
                 "host_name",
-                "ON",
+                "host",
                 "That host's own vault, which holds its token, rather than the shared one ({hosts} lists them)",
                 refused(NO_TOOL_VAULT),
             ),
@@ -466,7 +471,7 @@ _VERBS: tuple[Verb, ...] = (
             _value(
                 "file",
                 "secret_file",
-                "FILE",
+                "file",
                 "With a name: the file that holds the secret's value, read once; never the value on the command line",
                 refused(NO_TOOL_VAULT),
             ),
@@ -501,7 +506,7 @@ _VERBS: tuple[Verb, ...] = (
             _value(
                 "only",
                 "stage",
-                "STAGE",
+                "stage",
                 "Run one stage and nothing after it: template (the cloud-init template, if missing), provision (create "
                 "and start), configure (every tagged VM, unless named) or ssh-config (refresh the SSH aliases; without "
                 "names, also prune those of VMs that are gone)",
@@ -511,23 +516,23 @@ _VERBS: tuple[Verb, ...] = (
             _value(
                 "tags",
                 "roles",
-                "ROLES",
+                "roles",
                 "Configure only these roles, comma-separated: beside VM names it means --only configure "
                 "({tags_beside_names})",
                 short="t",
             ),
             _flag("start", "Start a VM this run would leave stopped (proxmox_vm_start_existing)"),
-            _value("cores", "cores", "CORES", "Each new VM's vCPU cores, in place of the vm_cores setting"),
+            _value("cores", "cores", "cores", "Each new VM's vCPU cores, in place of the vm_cores setting"),
             _value(
-                "memory", "memory", "MEMORY", "Each new VM's memory: MiB, or 16G, in place of the vm_memory_mb setting"
+                "memory", "memory", "memory", "Each new VM's memory: MiB, or 16G, in place of the vm_memory_mb setting"
             ),
             _value(
-                "disk", "disk", "DISK", "Each new VM's root disk, as 64G or 1T, in place of the vm_disk_size setting"
+                "disk", "disk", "disk", "Each new VM's root disk, as 64G or 1T, in place of the vm_disk_size setting"
             ),
             _value(
                 "repos",
                 "repos",
-                "REPOS",
+                "repos",
                 "Only these of your GitHub repositories on each VM named, comma-separated, in place of the "
                 "github_projects setting: kept for that VM, and added to by a later --repos",
             ),
@@ -539,7 +544,7 @@ _VERBS: tuple[Verb, ...] = (
             _value(
                 "remove-key",
                 "ssh_fingerprint",
-                "FINGERPRINT",
+                "fingerprint",
                 "With --only configure: take the key of this SHA256 fingerprint, as ssh-keygen -l prints it, off each "
                 "VM's account",
                 refused(REMOVE_KEY_REFUSED),
@@ -581,20 +586,20 @@ _VERBS: tuple[Verb, ...] = (
             _value(
                 "project",
                 "project",
-                "PROJECT",
+                "project",
                 "Open one project folder on the VM rather than the whole projects directory",
             ),
             _value(
                 "editor",
                 "editor",
-                "IDE",
+                "editor",
                 "Open it in this editor for this run, rather than the one the editor setting names: vscode or zed",
             ),
             HOST,
             _value(
                 "session",
                 "session",
-                "SESSION",
+                "session",
                 "Continue one of this machine's Claude Code sessions there, by its ID as /resume lists it: its "
                 "checkout brought to the session's pushed commit, ready for claude --resume",
             ),
@@ -625,7 +630,7 @@ _VERBS: tuple[Verb, ...] = (
             _value(
                 "only",
                 "sign_in",
-                "SIGN_IN",
+                "sign-in",
                 "One sign-in: claude (by the browser, then Remote Control), github (the device flow, then the private "
                 "repositories) or tailscale (its web login)",
             ),
@@ -656,7 +661,7 @@ _VERBS: tuple[Verb, ...] = (
             _value(
                 "only",
                 "sections",
-                "ONLY",
+                "sections",
                 "Only these sections, comma-separated: vms storage capacity access sign-ins system work; vms, storage "
                 "and capacity read only the Proxmox API, never a VM",
             ),
@@ -699,7 +704,7 @@ _VERBS: tuple[Verb, ...] = (
             _value(
                 "host",
                 "host_name",
-                "ON",
+                "host",
                 "That host's values rather than the current host's; beside --value or --reset, its own local.yml is "
                 "the one changed",
                 {"settings": PROPERTY, "settings_set": PROPERTY},
@@ -712,7 +717,7 @@ _VERBS: tuple[Verb, ...] = (
             _value(
                 "value",
                 "text",
-                "VALUE",
+                "value",
                 "Set the one setting named to this value, in local.yml (never a secret: {vault}; an empty value is "
                 "none: --reset)",
                 {"settings": refused(VALUE_LEFT_OUT), "settings_set": PROPERTY},
@@ -735,7 +740,7 @@ _VERBS: tuple[Verb, ...] = (
             _value(
                 "confirm",
                 "vm_names",
-                "CONFIRM",
+                "names",
                 "Delete without asking, these VMs only: the same names as given, comma-separated",
                 fixed(None, CONFIRMED),
             ),
@@ -760,7 +765,7 @@ _VERBS: tuple[Verb, ...] = (
             _value(
                 "confirm",
                 "vm_names",
-                "CONFIRM",
+                "name",
                 "Release without asking, this machine only: the same name as given",
                 fixed(None, CONFIRMED),
             ),
@@ -797,14 +802,14 @@ _VERBS: tuple[Verb, ...] = (
             _value(
                 "for",
                 "vm_names",
-                "VMS",
+                "names",
                 "With --json: the VMs a run would name, comma-separated, to say which host it would reach",
                 refused(HOST_ASKED),
             ),
             _value(
                 "host",
                 "host_name",
-                "ON",
+                "host",
                 "With --json: the host a run would be given, to say which host it would reach",
                 refused(HOST_ASKED),
             ),
@@ -881,7 +886,7 @@ _VERBS: tuple[Verb, ...] = (
             _value(
                 "attended",
                 "attended",
-                "SCREEN",
+                "attended",
                 "Whether someone is at this machine's screen for the sign-ins: 1, as for Claude Desktop, or 0; unset, "
                 "the server decides per session",
                 refused(NO_TOOL_MCP),
@@ -889,14 +894,14 @@ _VERBS: tuple[Verb, ...] = (
             _value(
                 "browser",
                 "text",
-                "BROWSER",
+                "browser",
                 "What opens the sign-in pages for the runs it starts, when the default does not (BROWSER)",
                 refused(NO_TOOL_MCP),
             ),
             _value(
                 "project-dir",
                 "path",
-                "PROJECT_DIR",
+                "folder",
                 "Register it for this one project's folder only (Claude Code's local scope), not for every project",
                 refused(NO_TOOL_MCP),
             ),
@@ -909,7 +914,7 @@ _VERBS: tuple[Verb, ...] = (
             _value(
                 "vault-key-file",
                 "path",
-                "VAULT_KEY_FILE",
+                "file",
                 "The file that holds the vault's key, for the runs the server starts with no terminal",
                 refused(NO_TOOL_MCP),
             ),

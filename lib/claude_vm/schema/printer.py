@@ -1,34 +1,39 @@
 """The printer of a command: the one way the new engine writes the command line a person types, from a verb and its
-values (docs/architecture/engine.md §16.3). NEXT STEPS, status's repair lines, a refusal's way out, the lines a
-detached run's start prints and the session notes on a machine all print through it, and every sentence of the new
-engine that names a command names it as a Line, said through `said` (schema/words.py's `said` hands it here).
+values, and the one way a sentence names a command (docs/architecture/engine.md §16.2). NEXT STEPS, status's repair
+lines, a refusal's way out, the lines a detached run's start prints and the session notes on a machine all print
+through it, and every sentence of the new engine that names a command names it as a Line, said through `said`.
 
 `argv(verb, values, ...)` is the line as its words, and `line(verb, values, ...)` the same line as one string a person
-pastes, quoted for a POSIX shell, sh, bash or dash (shlex.quote), wherever such a shell would read a word otherwise.
-Both read the one table (lib/claude_vm/schema/words.py) and nothing else, in this order: the program as it was started
-(`program`); the words given before the verb (`before`: --attended 1, --detached-run), in the table's order; the verb,
-deploy's whole chain as its one verb; the verb's words as given, straight after it; its options in the table's order,
---detach last as the parser gives it: a value as --long value, and as --long=value only where it starts with - or is
-empty, so that the parser reads it as a value; a flag bare; a counted option in one word, -v repeated (-vvv); a
-repeatable one once for each value; and last the host's flag, --host <name>. So a line reads as a person types it, and
-parsing it (lib/claude_vm/cli/parse.py) gives the same values back.
+pastes, quoted for a POSIX shell, sh, bash or dash, and for zsh (`quoted`): shlex.quote wherever such a shell would
+read a word otherwise, and a word that starts with =, which zsh expands to a command's path, quoted too. Both read the
+one table (words.py) and nothing else, in this order: the program as it was started; the words given before the verb
+(`before`: --attended 1, --detached-run), in the table's order; the verb, deploy's whole chain as its one verb; the
+verb's words as given, straight after it; its options in the table's order, --detach last as the parser gives it: a
+value as --long value, and as --long=value only where it starts with - or is empty, so that the parser reads it as a
+value; a flag bare; a counted option in one word, -v repeated (-vvv); a repeatable one once for each value; and last
+the host's flag, --host <name>. So a line reads as a person types it, and parsing it (lib/claude_vm/cli/parse.py) gives
+the same values back.
 
 The program is aw where aw on PATH is this checkout's launcher, else what the person typed to start it (./aw), as the
-launcher at the checkout's top says and main.py hands on (`started_as`); aw where nothing says otherwise, as for
+launcher at the checkout's top says and cli/main.py hands on (`started_as`); aw where nothing says otherwise, as for
 tools/aw run directly and the runs of the agents' server. A program word no line could print as it is, one with a
-character a terminal would not show or one that starts with -, is aw.
+character a terminal would not show, a byte that is no UTF-8 among them, or one that starts with -, is aw. Every line
+and every sentence says it quoted, as `quoted` quotes any word: a line's first word, and the field program of a
+sentence, which only this module and check.py's `command` name.
 
 The values are a verb's as the parser gives them, or as its handler receives them: `default_vm`, which the habits add
 where a verb that takes several names was given none, is said by naming none, and a value that is off (None, a flag
 not given, a count of 0, an empty list) is not said. Each is held as the one check holds it, but for the rules between
-options (lib/claude_vm/schema/check.py's `formed`): of its option's kind, held by its pattern, and the verb's words as
-many as it takes. A value that is not raises ValueError with the check's sentence, which never says the value, and so
-does a word that starts with -, which the parser would read as an option, and a value or a word that holds a character
-of Unicode's categories Cc, Cf, Zl or Zp, which a terminal would act on or not show as it is (a C1 control, a bidi
-override, a line separator). A rule between options is the run's to say, so a line may name a run that a rule
-refuses: deploy's question names the stage before its answer meets the rules. A value or a verb's words given as
-`PLACEHOLDER` are named by the name help gives them, <name>, <name>... for several and an option's VALUE, never quoted:
-such a line shows a command's form (aw destroy <name>... --confirm CONFIRM).
+options (check.py's `formed`): of its option's kind, held by its pattern, not the placeholder the printer writes for
+it, and the verb's words as many as it takes. A value that is not raises ValueError with the check's sentence, which
+never says the value, and so does a word that starts with -, which the parser would read as an option, and a value or
+a word that holds a character of Unicode's categories Cc, Cf, Cs, Zl or Zp, which a terminal would act on or not show as
+it is (a C1 control, a bidi override, a lone surrogate, a line separator). A rule between options is the run's to say,
+so a line may name a run that a rule refuses: deploy's question names the stage before its answer meets the rules. A
+value or a verb's words given as `PLACEHOLDER` are named by the name help gives them (words.py's `placeholder`): <name>,
+<name>... for several, and an option's value as <cores>, never quoted. Such a line is a form, which shows a command's
+shape (aw destroy <name>... --confirm <names>): a line offered as the command to run holds none, and the one check
+refuses a placeholder given back to aw.
 
 `host_flag` is the host a line names. Every caller of a verb whose row has the shared --host (deploy, code, login,
 status, destroy) gives it where the values give no --host: a host's name, or "" where the fleet has one host or the
@@ -37,9 +42,11 @@ line reaches the host its own command does; None is a ValueError there, so no ca
 
 `refused`, which every caller says: a line made from the values of a run that was refused, or that nothing has taken
 yet, prints each value of free text a person may paste a secret into by mistake, --set's and settings --value's, as
-the name help gives it, so a secret pasted there is never said back. The table holds no option whose value is a secret.
+its placeholder, so a secret pasted there is never said back. The table holds no option whose value is a secret.
 
-Standard library only, and schema/.
+The printer holds a line to the one check, and the check's sentences, and the rules', name their commands through the
+printer: each of the three imports the others as a module, never a name from one, so any of them may be imported first
+(schema/__init__.py). Standard library only, and schema/.
 """
 
 from __future__ import annotations
@@ -50,7 +57,7 @@ from collections.abc import Mapping
 
 from claude_vm.schema import check as checks
 from claude_vm.schema.patterns import full
-from claude_vm.schema.words import BEFORE, PLACEHOLDER, VERBS, Line, Option, Verb
+from claude_vm.schema.words import BEFORE, LINES, PLACEHOLDER, VERBS, Line, Option, Verb, placeholder
 from claude_vm.schema.words import HOST as SHARED_HOST
 
 # The program a line names where nothing says otherwise: the product's command line is aw alone (the owner's word 1).
@@ -60,17 +67,18 @@ PROGRAM = "aw"
 HABITS_OWN = ("default_vm",)
 # The fields of the options whose value is free text a person may paste a secret into by mistake: --set, on every verb
 # that takes it, whose run layer refuses a secret's name there (D5), and settings --value, which refuses a secret's
-# value (D10). A line made from values no run has taken prints each as its option's metavar.
+# value (D10). A line made from values no run has taken prints each as its placeholder.
 FREE_TEXT = ("set", "value")
 # The option a host's flag gives; and the verbs beside those whose row has the shared --host whose --host means "run
 # against this host", as host's does not (it says which host a run would reach, with --json).
 HOST = "host"
 HOSTS_OWN = ("settings", "vault", "init")
-# The field a sentence names the program by.
+# The field a sentence names the program by, which only this module fills and only check.py's command names.
 PROGRAM_FIELD = "program"
-# The categories of a character no printed word holds: the controls, the formats (a bidi override among them) and the
-# line and paragraph separators, each of which a terminal acts on or does not show as it is.
-UNSHOWN = ("Cc", "Cf", "Zl", "Zp")
+# The categories of a character no printed word holds: the controls, the formats (a bidi override among them), the
+# surrogates (a byte of a folder's name that is no UTF-8, as Python decodes one, which no UTF-8 output can write) and
+# the line and paragraph separators, each of which a terminal acts on, does not show as it is, or cannot be given.
+UNSHOWN = ("Cc", "Cf", "Cs", "Zl", "Zp")
 
 # The program as it was started, which started_as sets once, from what the launcher says.
 _program = PROGRAM
@@ -81,6 +89,13 @@ def _shown(text: str) -> bool:
     return all(unicodedata.category(character) not in UNSHOWN for character in text)
 
 
+def quoted(word: str) -> str:
+    """word as one word of a pasted line, which every POSIX shell and zsh read back as it is: shlex.quote's, and a word
+    that starts with = quoted too, which shlex takes as safe and zsh expands to the path of the command it names."""
+    said = shlex.quote(word)
+    return f"'{word}'" if said == word and word.startswith("=") else said
+
+
 def started_as(said: str | None) -> None:
     """Make the program every line starts with what the launcher said: aw where aw on PATH is this launcher, else what
     the person typed to start it; aw where it said nothing, or a word no line could print as it is."""
@@ -89,7 +104,8 @@ def started_as(said: str | None) -> None:
 
 
 def program() -> str:
-    """The program every line starts with, as it was started."""
+    """The program every line starts with, as it was started, as one word: unquoted, for a child's environment, never
+    for a line (line and said quote it)."""
     return _program
 
 
@@ -116,19 +132,18 @@ def _unshown(verb: str, option: Option) -> str:
 def _option(verb: str, option: Option, value: object, masked: bool) -> list[tuple[str, bool]]:
     """The words that give option its value, each with whether a shell must have it quoted, held by the one check
     before: a value as --long value, or --long=value where it starts with - or is empty; masked or a placeholder, the
-    value is the name help gives it."""
+    value is its placeholder (<value>)."""
     spelled = checks.spelled(option)
     if option.kind == "flag":
         return [(spelled, False)]
     if option.kind == "counted":
         times = value if type(value) is int else 0
         return [(f"-{option.short * times}", False)] if option.short else [(spelled, False)] * times
-    named = option.metavar or "VALUE"
     items = value if option.kind == "repeatable" and isinstance(value, list) else [value]
     words: list[tuple[str, bool]] = []
     for item in items:
         if item is PLACEHOLDER or masked:
-            words += [(spelled, False), (named, False)]
+            words += [(spelled, False), (placeholder(option), False)]
         elif not isinstance(item, str):
             raise ValueError(checks.formed(verb, {option.field: value}) or _unshown(verb, option))
         elif not _shown(item):
@@ -212,7 +227,7 @@ def _verb_words(verb: str, row: Verb, typed: object) -> list[tuple[str, bool]]:
     words = row.words
     assert words is not None
     if typed is PLACEHOLDER:
-        return [(f"<{words.name}>..." if words.plural else f"<{words.name}>", False)]
+        return [(f"{placeholder(words)}..." if words.plural else placeholder(words), False)]
     given = [typed] if isinstance(typed, str) else list(typed) if isinstance(typed, list) else []
     if any(word.startswith("-") for word in given):
         raise ValueError(f"error: {checks.command(verb)} takes no {words.name} that starts with -")
@@ -233,10 +248,10 @@ def argv(
     before: Mapping[str, object] | None = None,
 ) -> list[str]:
     """The command line a person types for verb with values, as its words, the program first. refused says whether no
-    run has taken the values (one was refused, or none has started yet), and then a value of free text is its metavar;
-    host_flag the host the line reaches, where the verb takes the shared --host and the values give none; before the
-    words given before the verb, by their fields. ValueError where a value is not one the one check takes, its rules
-    between options aside, or the host's flag is not one the verb takes."""
+    run has taken the values (one was refused, or none has started yet), and then a value of free text is its
+    placeholder; host_flag the host the line reaches, where the verb takes the shared --host and the values give none;
+    before the words given before the verb, by their fields. ValueError where a value is not one the one check takes,
+    its rules between options aside, or the host's flag is not one the verb takes."""
     return [word for word, _ in _words(verb, values, host_flag, before, refused)]
 
 
@@ -248,24 +263,25 @@ def line(
     host_flag: str | None = None,
     before: Mapping[str, object] | None = None,
 ) -> str:
-    """argv's line as one string a person pastes into a POSIX shell: each word a shell would read otherwise quoted with
-    shlex.quote, a value given as --long=value quoted after its =, and a placeholder as it is."""
+    """argv's line as one string a person pastes into a POSIX shell or zsh: each word a shell would read otherwise
+    quoted (`quoted`), the program among them, a value given as --long=value quoted after its =, and a placeholder as it
+    is."""
     out = []
-    for word, quoted in _words(verb, values, host_flag, before, refused):
-        if not quoted:
+    for word, quote in _words(verb, values, host_flag, before, refused):
+        if not quote:
             out.append(word)
         elif word.startswith("-") and "=" in word:
             spelled, _, value = word.partition("=")
-            out.append(f"{spelled}={shlex.quote(value) if value else ''}")
+            out.append(f"{spelled}={quoted(value) if value else ''}")
         else:
-            out.append(shlex.quote(word))
+            out.append(quoted(word))
     return " ".join(out)
 
 
 class _Fields(dict):
     """A sentence's fields, each filled when the sentence names it: a Line with the line printed for it, refused, since
-    a sentence's lines are made from the values of a refused run or from none; the program with the program; anything
-    else as given."""
+    a sentence's lines are made from the values of a refused run or from none; the program with the program, quoted
+    as a line's first word is; anything else as given."""
 
     def __init__(self, filled: Mapping[str, object]) -> None:
         super().__init__()
@@ -273,14 +289,15 @@ class _Fields(dict):
 
     def __missing__(self, name: str) -> object:
         if name == PROGRAM_FIELD and name not in self._filled:
-            return _program
+            return quoted(_program)
         value = self._filled[name]
         if isinstance(value, Line):
             return line(value.verb, value.values, host_flag=value.host_flag, refused=True)
         return value
 
 
-def said(sentence: str, filled: Mapping[str, object]) -> str:
-    """sentence with each of its fields filled: a Line as this printer writes it, the field program as the program,
-    and anything else as given (schema/words.py's said, the one way a sentence names a command, hands it here)."""
-    return sentence.format_map(_Fields(filled))
+def said(sentence: str, filled: Mapping[str, object] | None = None) -> str:
+    """sentence as a person reads it: each field filled, a Line with the command line this printer writes for it, the
+    table's LINES among them, the field program with the program, quoted, and anything else as given. The one way a
+    sentence of the new engine names a command."""
+    return sentence.format_map(_Fields({**LINES, **(filled or {})}))

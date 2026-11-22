@@ -12,8 +12,8 @@ off, so that a Ctrl-C, a hangup or a kill in between reaches the ladder once it 
 reads lost. Its modules are imported only when it is called, so that what reads a job (logs, cancel) loads none of
 them.
 
-It imports schema/ and fleet/, of cli/ only the printer of a command (cli/inverse.py) for the line that cancels a run,
-and of today's lib/claude_vm/ only what tests/unit/test_aw_layout.py's REUSED names; nothing of engine/ or control/, no
+It imports schema/, the printer of a command among it for the line that cancels a run, and fleet/, and of today's
+lib/claude_vm/ only what tests/unit/test_aw_layout.py's REUSED names; nothing of cli/, engine/ or control/, no
 pydantic, and never today's claude_vm.ansible. Imported by cli/ and engine/; nothing of today's product imports it.
 """
 

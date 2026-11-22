@@ -53,7 +53,7 @@ sections' shortness makes acceptable. The writes of the managed SSH config, the 
 vault are short sections too, under store.locked, which their owners take.
 
 Standard library only, with job.py, lock_sets.py, fleet/paths.py, the patterns, text.py and the printer of a command
-(cli/inverse.py); asyncio is imported inside `section`.
+(schema/printer.py); asyncio is imported inside `section`.
 """
 
 from __future__ import annotations
@@ -69,11 +69,10 @@ from collections.abc import AsyncIterator, Iterator, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from claude_vm.cli import inverse
 from claude_vm.fleet import paths
 from claude_vm.runs import job as jobs
 from claude_vm.runs import lock_sets
-from claude_vm.schema import patterns
+from claude_vm.schema import patterns, printer
 from claude_vm.text import plain_text
 
 if TYPE_CHECKING:
@@ -282,7 +281,7 @@ def _refusal(state: Path, name: str, how: int, who: str) -> Held:
     what = described(name)
     path = state / paths.LOCKS / name
     if name == FLEET and how == fcntl.LOCK_EX and not _held_exclusively(path):
-        listing = inverse.line("logs", {}, refused=False)
+        listing = printer.line("logs", {}, refused=False)
         return Held(
             f"error: runs on machines of this fleet are under way, and {who} needs the whole fleet: `{listing}` lists"
             " them",
@@ -300,7 +299,7 @@ def _refusal(state: Path, name: str, how: int, who: str) -> Held:
     if running is None:
         return Held(f"error: {what} is held by a run that is starting or ending: try again", name)
     job_id, command, when = running
-    cancel = inverse.line("cancel", {"job": job_id}, refused=False)
+    cancel = printer.line("cancel", {"job": job_id}, refused=False)
     return Held(
         f"error: {what} is held by job {job_id}, `{_one_line(command)}`, started {when}: `{cancel}` stops it",
         name,

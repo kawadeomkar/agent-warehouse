@@ -19,7 +19,8 @@ from __future__ import annotations
 import os
 import ssl
 
-from ..schema.words import Line, said
+from ..schema.printer import said
+from ..schema.words import Line
 
 # The computer's setting that names a file of certificates added to certifi's: every refusal of a file names it.
 SETTING = "tls_ca_file"

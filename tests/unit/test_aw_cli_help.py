@@ -9,9 +9,9 @@ card. aw help lists every verb of the table in its order, each with its doc and 
 recipe of the repository's own; the options given before a verb, but the hidden one, with their form; and its closing
 paragraph, with -v and --set each named on the verbs whose row has it, its commands written by the printer. Through
 tools/aw and the launcher, aw alone is aw help, a word that is no verb is refused unsaid, control among them, and a
-second word in help.1's sentence. help and the reference import the standard library, schema/ and the printer alone,
-and aw help loads nothing of the engine. The reference gives a row for every verb but help, every option but a later
-card's and the words of each, and every option given before a verb but the hidden one; and escapes a cell as
+second word in help.1's sentence. help and the reference import the standard library and schema/ alone, the printer
+among it, and aw help loads nothing of the engine. The reference gives a row for every verb but help, every option but
+a later card's and the words of each, and every option given before a verb but the hidden one; and escapes a cell as
 tools/docs.py does.
 """
 
@@ -28,14 +28,16 @@ from aw_kit import imports_of, on_path, run_aw, run_launcher
 from harness import REPO
 
 from claude_vm.cli import help as helps
-from claude_vm.cli import inverse, parse, reference
+from claude_vm.cli import parse, reference
 from claude_vm.schema import check as checks
+from claude_vm.schema import printer
 from claude_vm.schema.patterns import PATTERNS
-from claude_vm.schema.words import BEFORE, EXITS, SET, VERBOSE, VERBS, Option, said
+from claude_vm.schema.printer import said
+from claude_vm.schema.words import BEFORE, EXITS, SET, VERBOSE, VERBS, Option, placeholder
 
 MODULES = ("claude_vm.cli.help", "claude_vm.cli.reference")
 # Of the new engine's own, what help and the reference may load: schema/, and these.
-OURS = {"claude_vm.cli.help", "claude_vm.cli.inverse", "claude_vm.cli.reference"}
+OURS = {"claude_vm.cli.help", "claude_vm.cli.reference"}
 # What aw help never loads: the engine's packages and its workflows.
 HEAVY = ("pydantic", "ansible", "yaml", "asyncio", "claude_vm.engine")
 
@@ -66,7 +68,7 @@ def test_help_of_a_verb_shows_its_usage_doc_options_and_words_in_the_table_s_ord
     words = []
     if verb.words is not None:
         formed = verb.words.name != helps.REFUSED_WORDS
-        words = [(f"<{verb.words.name}>", said(verb.words.help) + _form(verb.words.pattern if formed else None))]
+        words = [(placeholder(verb.words), said(verb.words.help) + _form(verb.words.pattern if formed else None))]
     rows = [line for line in lines if line.startswith("  ")]
     assert len(rows) == len(shown) + len(words), name
     for row, (left, text) in zip(rows, shown + words, strict=True):
@@ -123,19 +125,32 @@ def test_a_usage_line_needs_a_word_only_where_its_verb_needs_one() -> None:
     for name in helps.NEEDS_ITS_WORD:
         verb = VERBS[name]
         assert verb.words is not None and not verb.words.plural, name
-        assert helps.usage(verb).split()[2:] == [f"<{verb.words.name}>"], name
+        assert helps.usage(verb).split()[2:] == [placeholder(verb.words)], name
     # code's is today's (rules.py's code.1 refuses none), as today's page shows it.
     assert "code" in helps.NEEDS_ITS_WORD and checks.check("code", {}) is not None
 
 
-def test_an_option_is_shown_with_its_short_form_and_the_name_of_its_value() -> None:
+def test_an_option_is_shown_with_its_short_form_and_its_value_s_placeholder() -> None:
+    # The owner's ruling of 2026-11-22 (review/code/OWNER-9.md 1): a value's placeholder is <name>, lower case in angle
+    # brackets, the same in help's rows, the reference and a line that shows a command's form, from words.py's
+    # placeholder; and the name says what the value is (--host <host>, never today's parameter name, ON).
     deploy = {option.field: option for option in checks.options_of(VERBS["deploy"])}
-    assert helps.shown(deploy["tags"]) == "-t, --tags ROLES"
-    assert helps.shown(deploy["only"]) == "--only STAGE"
+    assert helps.shown(deploy["tags"]) == "-t, --tags <roles>"
+    assert helps.shown(deploy["only"]) == "--only <stage>"
+    assert helps.shown(deploy["cores"]) == "--cores <cores>"
+    assert helps.shown(deploy["host"]) == "--host <host>"
     assert helps.shown(deploy["check"]) == "--check"
     assert helps.shown(deploy["detach"]) == "--detach"
     assert helps.shown(VERBOSE) == "-v"
-    assert helps.shown(SET) == "--set NAME=VALUE"
+    assert helps.shown(SET) == "--set <name>=<value>"
+    init = {option.field: option for option in VERBS["init"].options}
+    assert helps.shown(init["token_secret_file"]) == "--token-secret-file <file>"
+    for verb in VERBS.values():
+        for option in (*checks.options_of(verb), *BEFORE):
+            if option.kind in ("value", "repeatable"):
+                assert helps.shown(option).endswith(f" {placeholder(option)}"), option
+            else:
+                assert "<" not in helps.shown(option), option
 
 
 # ---------------------------------------------------------------- the listing ----
@@ -172,7 +187,7 @@ def test_aw_help_lists_the_options_given_before_a_verb_but_the_hidden_one() -> N
     hidden = [option for option in BEFORE if option.help is None]
     assert hidden and not [option for option in hidden if f"--{option.long}" in helps.listing()]
     # The one check's refusal of such an option sends a person here.
-    assert checks.no_option("", "--bogus").endswith(f"({inverse.line('help', {}, refused=False)} lists them)")
+    assert checks.no_option("", "--bogus").endswith(f"({printer.line('help', {}, refused=False)} lists them)")
 
 
 def test_aw_help_ends_in_its_closing_paragraph_with_v_and_set_on_the_verbs_that_have_them() -> None:
@@ -191,13 +206,13 @@ def test_aw_help_ends_in_its_closing_paragraph_with_v_and_set_on_the_verbs_that_
         having = [name for name, verb in VERBS.items() if option in verb.options]
         named = ", ".join(having[:-1]) + " and " + having[-1]
         assert f"{helps.shown(option)} " in ours[1] and f" in {named}" in ours[1], (option.field, ours[1])
-    assert "LOG_DIR=<dir>" in ours[1]
+    assert "LOG_DIR=<dir>, exported or before aw, moves the run logs" in ours[1]
     # Its example is the printer's, and runs: deploy alpha, saying the most of the system layer.
-    example = inverse.line(*helps.EXAMPLE, host_flag="", refused=False)
+    example = printer.line(*helps.EXAMPLE, host_flag="", refused=False)
     assert ours[1].endswith(f": {example}.")
     reading = parse.read(shlex.split(example)[1:])
     assert (reading.verb, reading.values) == ("deploy", {"names": ["alpha"], "verbosity": 3})
-    hosts = inverse.line("host", {}, refused=False)
+    hosts = printer.line("host", {}, refused=False)
     assert ours[2] == (
         f"With more than one Proxmox host, every command runs against the current one ({hosts} lists them), or the one "
         "--host names."

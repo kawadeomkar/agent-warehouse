@@ -16,10 +16,11 @@
 # launcher's own, which aw install's run passes it as a child that carries its job's marker (AGENT_WAREHOUSE_JOB). It
 # never installs into a virtualenv of your own unasked: where one lacks the packages, the program names aw install.
 # No Galaxy collection is installed (the engine needs none). Where aw on PATH is not this launcher, it says in one line
-# how to put it there, and writes nothing outside the checkout.
+# how to put it there, making the folder ~/.local/bin where it is missing, and writes nothing outside the checkout.
 #
 # The program is told how a person runs it again, AGENT_WAREHOUSE_STARTED_AS, for every command line it prints: aw where
-# aw on PATH is this launcher, else what was typed to start it (./aw). It is never handed a job's marker it inherited:
+# aw on PATH is this launcher, else what was typed to start it (./aw); and the launcher's own sentences that say what to
+# run say it the same way, quoted as the program's printer quotes a word. It is never handed a job's marker it inherited:
 # AGENT_WAREHOUSE_JOB is unset before anything but --install-env, which reads it, so the program's own environment, as
 # the system shows it, carries none, and nor does anything it starts.
 set -eu
@@ -65,9 +66,25 @@ started_as() {
   printf '%s\n' "$started"
 }
 
-# A word quoted for a POSIX shell, as the program quotes a line it prints.
+# A word quoted for a POSIX shell and zsh as shlex.quote quotes one: between single quotes, each ' of its own written
+# '"'"'.
 quoted() {
-  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\"'\"'/g")"
+}
+
+# A word as one word of a line a person pastes, as the program's printer writes one (schema/printer.py's quoted): bare
+# where every POSIX shell and zsh read it back as it is - shlex.quote's safe characters, spelled out so that no locale
+# widens them, and not = first, which zsh expands to a command's path - and quoted otherwise.
+word() {
+  case $1 in
+  '' | =* | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@%+=:,./_-]*) quoted "$1" ;;
+  *) printf '%s' "$1" ;;
+  esac
+}
+
+# The program as a person runs it again, as one word of a line: aw, or what was typed, as the program says it.
+program() {
+  word "$(started_as)"
 }
 
 # Which environment the checkout runs, asked from the checkout's own folder - a version manager picks python3 by the
@@ -142,9 +159,10 @@ install_env() {
       echo "$said"
     fi
   fi
-  # How to run aw from any folder, where aw on PATH is not this launcher: said, and nothing written outside the checkout.
+  # How to run aw from any folder, where aw on PATH is not this launcher: said, the folder made where it is missing, and
+  # nothing written outside the checkout.
   if [ "$(started_as)" != aw ]; then
-    echo "To run aw from any folder, link it into a folder on your PATH: ln -s $(quoted "$launcher") ~/.local/bin/aw"
+    echo "To run aw from any folder, link it into ~/.local/bin and have that folder on your PATH: mkdir -p ~/.local/bin && ln -s $(word "$launcher") ~/.local/bin/aw"
   fi
 }
 
@@ -155,7 +173,7 @@ if [ "${1:-}" = --install-env ]; then
   '' | *[!0123456789abcdef]*) job= ;;
   esac
   if [ "${#job}" -ne 16 ] || [ "$#" -gt 2 ] || { [ "$#" -eq 2 ] && [ "$2" != --lock ]; }; then
-    echo "error: --install-env is aw install's own step, which its run starts: run aw install" >&2
+    echo "error: --install-env is a step that $(program) install's run starts: run $(program) install" >&2
     exit 1
   fi
   shift
@@ -174,10 +192,10 @@ pick
 case $kind in
 managed)
   if ! [ -x "$python" ]; then
-    echo "This checkout has no Python environment yet: aw makes it first, from uv.lock, as aw install does." >&2
+    echo "This checkout has no Python environment yet: it is made first, from uv.lock, as $(program) install makes it." >&2
     (install_env) >&2
     if ! [ -x "$python" ]; then
-      echo "error: uv made no Python at $python: run aw install again, and read what it says" >&2
+      echo "error: uv made no Python at $python: run $(program) install again, and read what it says" >&2
       exit 1
     fi
   fi

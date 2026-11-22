@@ -57,11 +57,16 @@ only through their kit ([§11.1](testing.md#111-unit--just-test-unit)).
 
 ## 16.2 `schema/` — the command line's patterns and its table of verbs and options
 
-`lib/claude_vm/schema/` is where the command line goes as data. That is the patterns a typed value is held to, and the
+`lib/claude_vm/schema/` is where the command line goes as data. That is the patterns a typed value is held to, the
 one table of verbs and options that the parser, help, the reference page, the printer of a command and the agents'
-schemas all read. They are literals written by hand, and no code is generated from them into another file. It imports
-the standard library and its own modules and nothing else, because every command reads it, a refusal and help among
-them. Any part of the new engine may import it.
+schemas all read, the rules between options, the one check, and the printer of a command itself. The patterns, the table
+and the rules are literals written by hand, and no code is generated from them into another file. It imports the
+standard library and its own modules and nothing else, because every command reads it, a refusal and help among them.
+`patterns.py` and `words.py` import no other module of it. The check, the rules and the printer call one another, since
+the printer holds a line to the check and every sentence of the check and the rules names its commands through the
+printer: each of the three imports the others as a module (`from claude_vm.schema import check`), never a name from
+one, so that any of them may be imported first. Any part of the new engine may import it, and does so plainly, at the
+top of a file.
 
 **The patterns: `patterns.py`.** `PATTERNS` is the one home of every pattern the command line holds a value to: one
 literal mapping from a name (`vm_name`, `host_name`, `cores`, `repos`, `session`, `job_id` and the rest) to the
@@ -89,7 +94,8 @@ takes, one of `machines`, `fleet`, `none` or `words`, where the kind depends on 
 whether a run of it is a job, with its own record, text log and locks; and the tools of the agents' server that run it,
 or why none does. An option has its spellings, its kind (`value`, `flag`, `repeatable` for `--set`, `counted` for `-v`),
 the name of its pattern, the name the handler receives it by (the long option in lowercase with `_` for `-`, and `for_`
-for `host --for`), its help, the name help gives its value (`--host ON`), its fate for an agent's tool: a property of
+for `host --for`), its help, the name of what its value is, in lower case (`host`, and `name=value` for `--set`), which
+`placeholder` writes as `<host>` and `<name>=<value>`, its fate for an agent's tool: a property of
 the tool's schema, a value the server always gives, or refused with the reason; where two tools run one verb (`settings`
 and `settings_set`), a fate for each; and `until`, the card that builds what it does, which help and the command
 reference leave it out until (`install`'s options of the installed program, H14's and H15's). `BEFORE` holds the words
@@ -99,13 +105,14 @@ such run detached.
 
 **A command a sentence names: `Line` and `said`.** Every sentence of the new engine that names a command, the table's
 help, a rule's refusal, the check's own and the Proxmox client's and the vendors' errors among them, names it as a
-`Line`, a verb and its values (any of them `PLACEHOLDER`, which the printer writes as the name help gives it), in a
-field of the sentence, and never as text. `said(sentence, filled)` fills each field, a `Line` with the line the printer
-of a command writes for it (16.3), so that every command a person reads is the program as it was started, spelled as the
-printer spells one; `LINES` holds the commands the table's own sentences name (`aw host`, `aw help <recipe>`,
-`aw deploy alpha --tags claude_code`). `said` imports the printer when a sentence is said, and `schema/` imports nothing
-of `cli/` when it is imported, which every command does; `pve/` and `vendors/`, which import nothing of `cli/`, say
-theirs through it too.
+`Line`, a verb and its values (any of them `PLACEHOLDER`, which the printer writes as its placeholder), in a field of
+the sentence, and never as text. The printer's `said(sentence, filled)` fills each field, a `Line` with the line the
+printer writes for it (below), so that every command a person reads is the program as it was started, spelled as the
+printer spells one; `LINES`, in the table, holds the commands the table's own sentences name (`aw host`,
+`aw help <recipe>`, `aw deploy alpha --tags claude_code`). `pve/` and `vendors/` say theirs through it too, importing
+the printer as every module does. `placeholder` gives the name help gives a value or a verb's words, as help's rows, the
+command reference and a line that shows a command's form write it: lower case, in angle brackets, never quoted
+(`--cores <cores>`, `--set <name>=<value>`, `aw code <name>`, `<name>...` for several).
 
 Today's verbs keep today's words and help, with `aw` where a sentence said `just`; `mcp` takes the vault's key file as
 `--vault-key-file`, and `init --host` names a host of the fleet alone, held to the pattern of a host's name. Beside the
@@ -116,18 +123,23 @@ read that failed and one a person cancelled, and a script may read. The table ho
 secret reaches a verb from a file it names or from the terminal. Two options take free text a person may type one into,
 `--set` and `settings --value`, and the run layer that reads them refuses a secret's name or value there and never says
 it back. Nothing is generated from the table or into it. `tests/unit/test_aw_cli_words.py` holds the table's rows, the
-tools that run each verb, every option and word of a verb a tool runs a property of the tool's schema but where a ruling
-the test names says otherwise, the two values of free text, the exit statuses and the module's imports.
+tools that run each verb, each reason why no tool runs one said with its commands the printer's, every option and word
+of a verb a tool runs a property of the tool's schema but where a ruling the test names says otherwise, each value's
+name as its placeholder writes it, the two values of free text, the exit statuses and the module's imports.
 
 **The one check: `check.py`.** `check(verb, values)` is the check every entry runs on a verb's values: the parser of the
 command line, the agents' server through `aw`, and the add-on's broker on JSON. It holds each value to its kind and to
 the pattern the table names, with `full`; then runs the rules between options the verb's row names, in that order; then
 holds the verb's words to their number. It returns nothing or the one sentence of the first refusal: an option the verb
-has not got, a value of the wrong type, or one outside its pattern, each naming the option and its help and never the
-value, and the form a value may take after the help (`patterns.py`'s `form`, as `[pattern: '...']`, which help prints
-too); then a rule's sentence; then a second word where the verb takes one, or any word where it takes none. Each command
-a sentence names, the verb refused (`command`), where its options are listed (`help_of`) and those of the rules, is the
-printer's, through `said`. It takes values as the parser gives them and as JSON with exact types, and coerces nothing: a
+has not got, a value of the wrong type, the placeholder a line that shows a command's form writes for it, or one outside
+its pattern, each naming the option and never the value, a pattern's with its help and the form a value may take after
+it (`patterns.py`'s `form`, as `[pattern: '...']`, which help prints too); then a rule's sentence; then a second word
+where the verb takes one, or any word where it takes none. A placeholder given back to `aw`, pasted from a form or sent
+by an agent, is refused before its pattern is read, since a value of free text takes one (`error: aw settings --value:
+<value> stands for the value: put yours in its place`, or `... <name> stands for the name ...` for a verb's words): its
+sentence says `aw`'s own text, so no value is said back. Each command a sentence names, the verb refused (`command`, the
+program alone for the words before any verb, which is the one name outside the printer that fills a sentence's program
+field), where its options are listed (`help_of`) and those of the rules, is the printer's, through `said`. It takes values as the parser gives them and as JSON with exact types, and coerces nothing: a
 value option's is a string, a flag's a boolean, `--set`'s a list of strings, `-v`'s a whole number, the words a list
 where the verb takes several and a string where it takes one, or a list where the parser was given more than one, which
 the rules see before the number is held; `detach` is a flag of every verb whose run is a job. `check_before` holds the
@@ -151,11 +163,87 @@ value that has met its pattern first, as `just` holds a value to its pattern bef
 more than the values is no rule here but its verb's own: the fleet's files (`vault`'s, and `deploy`'s VM name another
 host's alias records), the file system, `claude` and the branch (`mcp`'s), and a terminal (`host --remove`'s question).
 
+**The printer of a command: `printer.py`.** The one way the new engine writes a command line a person types, for NEXT
+STEPS, `status`'s repair lines, a refusal's way out, the lines a detached run's start prints and the session notes on a
+machine, and for every command a sentence names (`said`, above): `argv(verb, values, ...)` gives its words and
+`line(verb, values, ...)` the one string a person pastes, each word quoted by `quoted` wherever a shell would read it
+otherwise: `shlex.quote`, for a POSIX shell, `sh`, `bash` or `dash`, and a word that starts with `=` too, which
+`shlex.quote` leaves bare and zsh, macOS's shell, expands to the path of the command it names. Both read the one table
+and nothing else, and write a line as a person types one: the program as it was started; the words given before the
+verb, in the table's order; the verb, `deploy`'s whole chain as its one verb; the verb's words straight after it; its
+options in the table's order, `--detach` last as the parser gives it, a value after a space (`--only configure`) and as
+`--long=value` only where it starts with `-` or is empty, so the parser reads it as a value, a flag bare, `-v` repeated
+in one word, `--set` once for each value; and last the host's flag, `--host <name>`. Parsing the line gives the same
+values back.
+
+The program is `aw` where `aw` on `PATH` is the checkout's launcher, else what the person typed to start it (`./aw`):
+the launcher says which in `AGENT_WAREHOUSE_STARTED_AS`, which `cli/main.py` takes out of its environment at once and
+hands to `started_as` (16.3); with nothing said, as for `tools/aw` run directly and the agents' server's runs, it is
+`aw`, and so is a word no line could print as it is (a character of the categories below, a byte of a folder's name
+that is no UTF-8 among them, or a leading `-`). Every line and every sentence says it quoted, as one word a shell reads
+back: a line's first word, the field `program` of a sentence, which only the printer fills and only the check's `command`
+names, and the program help's usage lines and closing paragraph name, which they take from `command`. `program()` gives
+it unquoted, for a child's environment, never for a line.
+
+A line that gives a value or a verb's words as `PLACEHOLDER` is a form: it shows a command's shape, each placeholder
+written as `placeholder` writes it and never quoted (`aw destroy <name>... --confirm <names>`), and so is a line made
+from values no run has taken, whose free text is masked (below). A form is shown, never offered as the command to run:
+a line a person is told to run, NEXT STEPS' and the session notes' (16.4), holds none. Pasted at a shell, a form stops
+at its first `<`, a redirection, or is no line at all where it ends in `>`; given back to `aw` as a word or as JSON,
+each placeholder is refused by the one check, in `aw`'s own words. The values are the parser's or a handler's:
+`default_vm` is said by naming no VM, and a value that is off (a flag not given, a count of 0, an empty list) is not
+said. Each is held as the one check holds it but for the rules between options (`formed`), and one it refuses, a word
+that starts with `-`, or a value or word that holds a character of Unicode's categories Cc, Cf, Cs, Zl or Zp (a C1
+control, a bidi override, a lone surrogate, a line separator), which a terminal would act on, not show as it is, or
+which no UTF-8 output can write, raises `ValueError` with the check's kind of sentence, which never says the value; a
+rule is the run's to say, so a line may name a run that one refuses, as `deploy`'s question names the stage before its
+answer meets the rules.
+
+`host_flag` is the host a line names. Every caller of a verb whose row has the shared `--host` (`deploy`, `code`,
+`login`, `status`, `destroy`) gives it where the values give no `--host`: a host's name, or `""` where the fleet has
+one host or the line names none, as a command's form said before any fleet is read does; `None` there is a
+`ValueError`, so no caller forgets it. Only the verbs whose `--host` runs them against a host take one: those, and
+`settings`, `vault` and `init`. `refused`, keyword-only with no default, is said by every caller: where no run has taken
+the values, a refused run's or a question's, the two values of free text a person may paste a secret into, `--set`'s
+and `settings --value`'s, are printed as their placeholders; the table holds no option whose value is a secret.
+
+It imports the standard library and `schema/` alone. No module of the new engine's subpackages builds a string that
+names a command outside it: a syntax-tree scan reads the whole text of every string, constants and f-strings alike,
+for `aw`, as a word of its own and from `./` too, followed by a verb of the table, a recipe of the repository's own, a
+formatted value, a field of `str.format` or of a `%` template, a `Template`'s `$`, an option or a space that ends the
+string; and for today's `just` where it reads as a command, not as prose (`just deploy it`): before a value, a field or
+an option, after `run`, a backtick or a quote, or with no word of prose before it and a recipe that ends the string or
+that a value, an option or a closing mark follows. Its one exception is `cli/dispatch.py`'s `not_built`, whose
+`just <verb>` is today's program, which the flip takes out. Only the printer names the program, as started or as its
+constant (`program`, `_program`, `PROGRAM`), by any name a module binds to the printer or imports from it; only the
+printer and the check name a sentence's field `program`; and every use of `line` or `argv`, through any name or a
+`functools.partial`, says `refused`. What the scan cannot see is a command joined at run time from pieces that name
+none (`'aw' + ' cancel '`, a list joined), a path to the program other than `./aw` (`../aw deploy`), another case, or
+a call through `getattr`: only the printer's names of the program make the program, and only the printer reads them,
+which is how such a line is made. `tests/unit/test_aw_cli_printer.py` holds the printer: for every verb, its words,
+each option alone and beside them and each pair of options the rules allow come back from the line through the parser
+and the one check, and no verb or option lacks such a case; every example line the test gives, of every verb, comes
+back from its line, before the habits and after; a line's form; an awkward value, each character a POSIX shell reads
+otherwise, a backslash and a trailing one, two values of free text on one line, an empty value and a name that starts
+with a digit survive `/bin/sh` and `bash`, and a value that starts with `=` is quoted; a value a terminal would not show
+as it is is never printed; a value that is off is not said, a placeholder is the one `placeholder` writes, in a form
+line and a masked one alike, and each placeholder given back, as a word and as JSON, is refused; the host's flag; a
+value of free text is never said back from values no run took, and every call says `refused`; a value the check
+refuses is never printed; the program as it was started, quoted, in this process, from a path a shell would split and
+through the launcher, the check's sentences and help's among them; by scans of their syntax, the three guards above,
+which a module planted with all three roads fails; that no sentence of the rules or the table holds a command as text; and that
+each module of `schema/` imports alone and first and nothing outside `schema/`, and `pve/` and `vendors/` import the
+printer when they are imported, none of them inside a function.
+
 ## 16.3 `cli/` — the `aw` program
 
 `lib/claude_vm/cli/` is the program: reading the command line against the table of `schema/`, the dispatch of a verb
-to its workflow, the printer of a command, help and the command reference's tables, below. `main.py` is the entry
-`tools/aw` runs, as 16.1 says.
+to its workflow, help and the command reference's tables, below. `main.py` is the entry `tools/aw` runs, as 16.1 says:
+it takes the program as it was started out of its environment at once, as the launcher says it in
+`AGENT_WAREHOUSE_STARTED_AS`, so that nothing a run starts inherits it, and hands it to the printer of a command, which is
+`schema/`'s (16.2). Every command the program prints, and every command a sentence names, is the printer's, the program
+quoted as one word a shell reads back. A line with a placeholder (`aw code <name>`) is a form, which help, a refusal and
+a question show; a line offered as the command to run holds none.
 It imports `schema/` and what it needs to answer at once. It imports `engine/` only inside the function that dispatches
 a verb that changes something, so a refusal, help or a read never loads it. It never imports Ansible, which the engine
 only ever runs as a child, nor `control/` or pydantic. `tools/aw` imports it, and so does the agents' server's own entry
@@ -205,47 +293,6 @@ is a job, but `init` and `install`, which come before any fleet, is refused wher
 `aw init`, and says on standard error which fleet it drives where `AGENT_WAREHOUSE_HOME` or a `fleet_home` line chose
 it. A refusal is one line on standard error and exit status 1.
 
-**The printer of a command: `inverse.py`.** The one way the new engine writes a command line a person types, for NEXT
-STEPS, `status`'s repair lines, a refusal's way out, the lines a detached run's start prints and the session notes on a
-machine, and for every command a sentence names (16.2's `said`): `argv(verb, values, ...)` gives its words and
-`line(verb, values, ...)` the one string a person pastes, quoted for a POSIX shell, `sh`, `bash` or `dash`, with
-`shlex.quote` wherever such a shell would read a word otherwise. Both read the one table and nothing else, and write a
-line as a person types one: the program as it was started; the words given before the verb, in the table's order; the
-verb, `deploy`'s whole chain as its one verb; the verb's words straight after it; its options in the table's order,
-`--detach` last as the parser gives it, a value after a space (`--only configure`) and as `--long=value` only where it
-starts with `-` or is empty, so the parser reads it as a value, a flag bare, `-v` repeated in one word, `--set` once
-for each value; and last the host's flag, `--host <name>`. Parsing the line gives the same values back.
-
-The program is `aw` where `aw` on `PATH` is the checkout's launcher, else what the person typed to start it (`./aw`):
-the launcher says which in `AGENT_WAREHOUSE_STARTED_AS`, which `main.py` takes out of its environment at once, so that
-nothing a run starts inherits it, and hands to `started_as`; with nothing said, as for `tools/aw` run directly and the
-agents' server's runs, it is `aw`, and so is a word no line could print as it is. A line that shows a command's form
-gives a value or a verb's words as `PLACEHOLDER`, written as the name help gives it and never quoted
-(`aw destroy <name>... --confirm CONFIRM`). The values are the parser's or a handler's: `default_vm` is said by naming
-no VM, and a value that is off (a flag not given, a count of 0, an empty list) is not said. Each is held as the one
-check holds it but for the rules between options (`formed`), and one it refuses, a word that starts with `-`, or a value
-or word that holds a character of Unicode's categories Cc, Cf, Zl or Zp (a C1 control, a bidi override, a line
-separator), which a terminal would act on or not show as it is, raises `ValueError` with the check's kind of sentence,
-which never says the value; a rule is the run's to say, so a line may name a run that one refuses, as `deploy`'s
-question names the stage before its answer meets the rules.
-
-`host_flag` is the host a line names. Every caller of a verb whose row has the shared `--host` (`deploy`, `code`,
-`login`, `status`, `destroy`) gives it where the values give no `--host`: a host's name, or `""` where the fleet has
-one host or the line names none, as a command's form said before any fleet is read does; `None` there is a
-`ValueError`, so no caller forgets it. Only the verbs whose `--host` runs them against a host take one: those, and
-`settings`, `vault` and `init`. `refused`, keyword-only with no default, is said by every caller: where no run has taken
-the values, a refused run's or a question's, the two values of free text a person may paste a secret into, `--set`'s
-and `settings --value`'s, are printed as the name help gives them; the table holds no option whose value is a secret.
-
-It imports the standard library and `schema/` alone. No module of the new engine's subpackages builds a string that
-names a command outside it: a syntax-tree scan reads the whole text of every string, constants and f-strings alike,
-for `aw` or `just`, as a word of its own and from `./` too, followed by a verb of the table, a recipe of the
-repository's own, a formatted value, a field of `str.format`, an option or a space that ends the string; but
-`dispatch.py`'s `not_built`, whose `just <verb>` is today's program, which the flip takes out. Only the printer and help
-name its `PROGRAM`, and every call of `line` or `argv` says `refused`. What the scan cannot see is a command joined at
-run time from pieces that name none (`'aw' + ' cancel '`, a list joined): only the printer writes the program's name,
-which is how such a line is made.
-
 **Help: `help.py`, and the command reference: `reference.py`.** `help` is a verb of the table whose handler is
 `help.py`'s `main`, so `aw help` runs as any verb does, and `aw` alone is `aw help`. It prints two levels, as
 `just help` does, from the one table, whole from the first day: a verb no card has built yet is listed and helped as
@@ -253,22 +300,25 @@ today, and refused only when it runs. `aw help` lists every verb in the table's 
 under its name, each with the words it takes and its doc; then the options given before any verb, but the hidden
 `--detached-run`, since the one check's refusal of such an option sends a person there; then a closing paragraph, with
 `-v` and `--set`, each named on the verbs whose row has it, and `LOG_DIR`. `aw help <verb>` prints the verb's usage line
-as today's command reference writes a recipe's (`aw deploy [<name>...]`), its doc, each option with the name of its
-value and its help (`-t, --tags ROLES`), `--detach` last on a verb whose run is a job, and then its words with their
-help. After the help of each option and of the words the table holds to a pattern comes the form a value may take,
-`[pattern: '...']`, as the refusal of a value outside it says it, but for the words of a verb that refuses any; an empty
-default, which says nothing, is not printed. An option the table marks with `until` is left out of help and the
+as today's command reference writes a recipe's (`aw deploy [<name>...]`), its doc, each option with its value's
+placeholder and its help (`-t, --tags <roles>`, the same `placeholder` a line's form writes, as the reference's rows
+do), `--detach` last on a verb whose run is a job, and then its words with their help. After the help of each option
+and of the words the table holds to a pattern comes the form a value may take, `[pattern: '...']`, as the refusal of a
+value outside it says it, but for the words of a verb that refuses any; an empty default, which says nothing, is not
+printed. An option the table marks with `until` is left out of help and the
 reference until that card. The listing shows `[options]` after a verb that has any. A second word is refused by the one
 check (`help.1`), and a word that is no verb by help, in the check's sentence, which never says it. The usage lines are
-help's own, the program as it was started first; a whole command line it prints, for a person to paste (the closing
-paragraph's example, `aw host`, the table's sentences' commands), comes from the printer. A usage line shows a verb's
+help's own, after the check's `command`, the program as it was started and the verb as the printer writes them; the
+closing paragraph names the program the same way, never cut where it is wrapped; a whole command line it prints, for a
+person to paste (the closing paragraph's example, `aw host`, the table's sentences' commands), comes from the printer.
+Help names no part of the program itself. A usage line shows a verb's
 word without brackets only where the verb needs one, `code` and `release`, which help names, since the table says how
 many words a verb takes and not whether it needs one. `reference.py`'s `commands()` writes the tables of the command
 reference from the same functions, in the form `tools/docs.py` writes them from the `justfile` today: a table for each
 group of verbs, `help` aside, with a row for each verb, each of its options and its words, and one of the options given
 before any verb, each cell escaped as `tools/docs.py` escapes one. Nothing calls it before the cutover, which points
-`tools/docs.py` at it. `help.py` imports the standard library, `schema/` and the printer; `reference.py` those and
-`help.py`; and `aw help` loads nothing of the engine.
+`tools/docs.py` at it. `help.py` imports the standard library and `schema/`, the printer among it; `reference.py` those
+and `help.py`; and `aw help` loads nothing of the engine.
 
 **The launcher: `aw`.** At the checkout's top, in POSIX `sh`, the launcher finds its checkout from its own path, every
 link to it followed and the folder made by its physical path (`cd -P`), so that a relative link in a folder that is
@@ -290,12 +340,17 @@ writes `uv.lock` and needs no environment; and for its one word of its own, `--i
 passes it as a child carrying the job's marker, `AGENT_WAREHOUSE_JOB`, and which is refused, naming `aw install`,
 without it. It never installs into a virtualenv of the person's own unasked: the program names `aw install` where one
 lacks the packages. It tells the program how a person runs it again, in `AGENT_WAREHOUSE_STARTED_AS`: `aw` where
-`command -v aw` is this launcher by its physical path, else what was typed to start it. It hands the program no job's
+`command -v aw` is this launcher by its physical path, else what was typed to start it; and its own sentences that say
+what to run (`--install-env`'s refusal, the environment it makes first, a uv that made none) say the program the same
+way, each word as the printer's `quoted` writes it (`word`: bare where every POSIX shell and zsh read it back as it is,
+else quoted as `shlex.quote` quotes it). It does not hold the word to the printer's categories of characters, which
+POSIX `sh` cannot read. It hands the program no job's
 marker it inherited: past `--install-env`, which reads it, `AGENT_WAREHOUSE_JOB` is unset, so the program's own
 environment, as the system shows it, carries none; and `main.py` takes one out of its environment at its start too,
 for `tools/aw` run directly, so that a child a run starts outside `children.start` (16.8) carries no other job's ID.
-`install_env` ends, where `aw` on `PATH` is not this launcher, with one sentence of how to put it there
-(`ln -s <checkout>/aw ~/.local/bin/aw`), and writes nothing outside the checkout for it.
+`install_env` ends, where `aw` on `PATH` is not this launcher, with one sentence of how to put it there, that folder
+being one `PATH` must name (`mkdir -p ~/.local/bin && ln -s <checkout>/aw ~/.local/bin/aw`, the checkout's path quoted
+as a shell reads it back), and writes nothing outside the checkout for it.
 
 `tests/unit/test_aw_cli_parse.py` holds all of it: every option of every verb in both spellings, the refusals and that
 none says a value or has a usage block, `--detach`, `default_vm`, `RunWords`, in `run_words` and in the program, the
@@ -306,21 +361,11 @@ question: every rule is named by the verbs whose rows run it; each refusal of a 
 parser's own, is run through the launcher, the words, status and sentence of each written there; the check answers
 alike as words and as JSON; the question is asked at a pseudo-terminal, typed and with none; and no file of the tree
 names the recorded command line of v2.7.0, which no test holds `aw` or the `justfile` to.
-`tests/unit/test_aw_cli_inverse.py` holds the printer: for every verb, its words, each option alone and beside them and
-each pair of options the rules allow come back from the line through the parser and the one check, and no verb or option
-lacks such a case; every example line the test gives, of every verb, comes back from its line, before the habits and
-after; a line's form; an awkward value, each character a POSIX shell reads otherwise, a backslash and a trailing one,
-two values of free text on one line, an empty value and a name that starts with a digit survive `/bin/sh` and `bash`; a
-value a terminal would not show as it is is never printed; a value that is off is not said, and a placeholder is the
-name help gives it; the host's flag; a value of free text is never said back from values no run took, and every call
-says `refused`; a value the check refuses is never printed; the program as it was started, in this process and through
-the launcher; and, by scans of their syntax, that no other module of the new engine's subpackages names a command
-anywhere in a string, that no sentence of the rules or the table holds one as text, that only the printer and help name
-its `PROGRAM`, and that `schema/`, `pve/` and `vendors/` import nothing of `cli/` when imported.
+The printer's own test is 16.2's.
 `tests/unit/test_aw_cli_help.py` holds help and the reference: every verb's help shows its options and words in the
 table's order; `aw help` lists every verb and no recipe of the repository's own, the options before a verb, and its
-closing paragraph with `-v` and `--set`; the form of every value the table holds to a pattern, and no empty default; an
-option of a later card's left out; `[options]` in the listing; through `tools/aw` and the launcher, `control` refused as
+closing paragraph with `-v` and `--set`; each option with its value's placeholder; the form of every value the table
+holds to a pattern, and no empty default; an option of a later card's left out; `[options]` in the listing; through `tools/aw` and the launcher, `control` refused as
 no verb; what each imports; and that the reference gives a row for every verb but `help`, every option but a later
 card's and the words, and escapes a cell as `tools/docs.py` does.
 
@@ -1126,8 +1171,8 @@ equal to today's roles', and one rule: of the new engine, only `downloads.py` re
 
 `lib/claude_vm/runs/` is where a run goes: its one record and its text log, the kernel's file locks the run holds, the
 run's end on a signal, and a run detached as the same program in a session of its own. It imports
-`schema/` and `fleet/`, of `cli/` only the printer of a command (`cli/inverse.py`) for the line that cancels a run, and
-nothing of `engine/` or `control/`, and no pydantic.
+`schema/`, the printer of a command among it for the line that cancels a run, and `fleet/`, and nothing of `cli/`,
+`engine/` or `control/`, and no pydantic.
 
 **A job: `job.py`.** Every run is a job, at a terminal or detached. `create(jobs_dir, verb, command, host, machines,
 starter, attached)` makes `jobs/<id>/` in the state folder (`paths.jobs_dir`), with any folder above it that is

@@ -56,7 +56,8 @@ from typing import Any
 
 from ..checks import proxmox_name
 from ..schema.patterns import full
-from ..schema.words import Line, said
+from ..schema.printer import said
+from ..schema.words import Line
 from ..secret import Secret
 from ..text import one_line
 from ..vendors.transport import (
@@ -356,7 +357,7 @@ class Unverified(ProxmoxError):
         self.reason = one_line(reason, 200)
         self.code = code
         self.anchored = anchored
-        # Each command it names is the printer's (words.py's said): the program as it was started.
+        # Each command it names is the printer's (schema/printer.py's said): the program as it was started.
         filled = {"reason": self.reason, "address": one_line(address, 100), "init": Line("init")}
         renewed = (
             ", then {init} reads the host's new one and asks before it keeps it in the old one's place"

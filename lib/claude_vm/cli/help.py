@@ -5,32 +5,35 @@ it has any, and its doc, as `just` alone lists the recipes: help first, then eac
 options given before any verb, but the hidden one, which the one check's refusal of such an option sends a person here
 for; then today's closing paragraph, with aw where it said just, and -v and --set where it named ANSIBLE_ARGS, each
 named on the verbs the table gives it. `aw help <verb>` prints one verb: its usage line as today's command reference
-writes a recipe's (`aw deploy [<name>...]`) and its doc, each option with the name of its value and its help, `--detach`
-last on a verb whose run is a job, then the words it takes with theirs. After the help of each option and of the words
+writes a recipe's (`aw deploy [<name>...]`) and its doc, each option with its value's placeholder (`--cores <cores>`,
+words.py's `placeholder`) and its help, `--detach` last on a verb whose run is a job, then the words it takes with
+theirs. After the help of each option and of the words
 that the table holds to a pattern comes the form a value may take (patterns.py's `form`), as the refusal of a value
 outside it says it too, but for the words of a verb that refuses any. An option the table marks as a later card's
 (`until`) is left out until that card. A verb no card has built yet is listed and helped as today: it is refused only
 when it runs. A second word after the verb is refused before this runs, in today's sentence (rules.py's help.1); a
 word that is no verb is refused here in the one check's sentence, which never says it.
 
-Every command help prints is the program as it was started (inverse.py's `program`): the usage lines, whose words and
-options' spellings are help's own and the command reference's tables are written from (reference.py), and every whole
-command line, for a person to paste, which the printer writes, the table's sentences' among them (words.py's `said`).
+Every command help prints is the program as it was started, quoted, as the printer writes it: the usage lines, which
+begin with the check's `command` (the program and the verb) and whose words and options' spellings are help's own and
+the command reference's tables are written from (reference.py), the program the closing paragraph names, and every
+whole command line, for a person to paste, which the printer writes, the table's sentences' among them (printer.py's
+`said`). Help names no part of the program itself.
 
-Standard library, schema/ and the printer only: nothing of the engine, no argparse and no child.
+Standard library and schema/, the printer among it, only: nothing of the engine, no argparse and no child.
 """
 
 from __future__ import annotations
 
-import shlex
 import sys
 import textwrap
 from typing import TextIO
 
-from claude_vm.cli import inverse
 from claude_vm.schema import check as checks
+from claude_vm.schema import printer
 from claude_vm.schema.patterns import form
-from claude_vm.schema.words import BEFORE, EXITS, SET, VERBOSE, VERBS, Option, Verb, said
+from claude_vm.schema.printer import said
+from claude_vm.schema.words import BEFORE, EXITS, SET, VERBOSE, VERBS, Option, Verb, placeholder
 
 # The words a verb takes that are no word to give: init's and mcp's, which each refuse any, as today's EXTRA does. A
 # usage line leaves them out, as today's command reference does; aw help <verb> says them with why, as just --usage
@@ -57,8 +60,8 @@ CLOSING = (
     "Without names, deploy and destroy act on agent-warehouse-default; status, login and deploy --only configure, "
     "--check or --only ssh-config act on every VM this project created.",
     "Options go after the recipe's name: {verbose} says more of what the system layer does in {verbose_verbs}, {set} "
-    "gives one setting a value for one run in {set_verbs}, and LOG_DIR=<dir>, exported or before {program}, moves the "
-    "run logs: {example}.",
+    "gives one setting a value for one run in {set_verbs}, and LOG_DIR=<dir>, exported or before {aw}, moves the run "
+    "logs: {example}.",
     "With more than one Proxmox host, every command runs against the current one ({hosts} lists them), or the one "
     "--host names.",
 )
@@ -76,23 +79,24 @@ def _taken(verb: Verb) -> list[str]:
     if words is None or words.name == REFUSED_WORDS:
         return []
     if verb.name in NEEDS_ITS_WORD:
-        return [f"<{words.name}>"]
-    return [f"[<{words.name}>...]" if words.plural else f"[<{words.name}>]"]
+        return [placeholder(words)]
+    return [f"[{placeholder(words)}...]" if words.plural else f"[{placeholder(words)}]"]
 
 
 def usage(verb: Verb) -> str:
-    """A verb's usage line, as today's command reference writes a recipe's: the program as it was started, quoted as
-    the printer quotes it, the verb and the words it takes, its options in the rows below it (aw deploy [<name>...])."""
-    return " ".join([shlex.quote(inverse.program()), verb.name, *_taken(verb)])
+    """A verb's usage line, as today's command reference writes a recipe's: the program as it was started and the verb,
+    as the printer writes them (the check's command), and the words it takes, its options in the rows below it
+    (aw deploy [<name>...])."""
+    return " ".join([checks.command(verb.name), *_taken(verb)])
 
 
 def shown(option: Option) -> str:
-    """An option as help and the command reference show it, as just --usage shows today's: -t, --tags ROLES; --check
-    for a flag; -v for a count; --set NAME=VALUE, given once for each."""
+    """An option as help and the command reference show it: -t, --tags <roles>; --check for a flag; -v for a count;
+    --set <name>=<value>, given once for each; its value's placeholder, from words.py's placeholder."""
     names = ", ".join([f"-{option.short}"] * bool(option.short) + [f"--{option.long}"] * bool(option.long))
     if option.kind in ("flag", "counted"):
         return names
-    return f"{names} {option.metavar or 'VALUE'}"
+    return f"{names} {placeholder(option)}"
 
 
 def options(verb: Verb) -> list[Option]:
@@ -118,18 +122,18 @@ def _having(option: Option) -> list[str]:
 
 
 def closing() -> list[str]:
-    """Today's closing paragraph, as aw says it: each sentence wrapped at WIDTH, never inside an option and its value or
-    a command a person pastes."""
+    """Today's closing paragraph, as aw says it: each sentence wrapped at WIDTH, never inside an option and its value,
+    the program or a command a person pastes."""
     whole = {
         "set": shown(SET),
-        "example": inverse.line(*EXAMPLE, host_flag="", refused=False),
-        "hosts": inverse.line("host", {}, refused=False),
+        "aw": checks.command(""),
+        "example": printer.line(*EXAMPLE, host_flag="", refused=False),
+        "hosts": printer.line("host", {}, refused=False),
     }
     filled = {
         "verbose": shown(VERBOSE),
         "verbose_verbs": _named(_having(VERBOSE)),
         "set_verbs": _named(_having(SET)),
-        "program": shlex.quote(inverse.program()),
         **{name: text.replace(" ", _GLUE) for name, text in whole.items()},
     }
     return [
@@ -184,7 +188,7 @@ def of(name: str) -> str:
         words = said(verb.words.help)
         if verb.words.pattern is not None and verb.words.name != REFUSED_WORDS:
             words = f"{words} {form(verb.words.pattern)}"
-        lines += ["", WORDS, *_rows([(f"<{verb.words.name}>", words)], "  ", "  ")]
+        lines += ["", WORDS, *_rows([(placeholder(verb.words), words)], "  ", "  ")]
     return "\n".join(lines) + "\n"
 
 

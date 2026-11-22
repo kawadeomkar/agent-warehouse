@@ -2,12 +2,14 @@
 
 Every verb has its handler or the card that builds it, the locks a run of it takes, whether a run of it is a job, and
 the tools of the agents' server that run it or why none does; every option a kind, a pattern of schema/patterns.py
-unless it takes no value, and a fate for an agent's tool, by tool where two tools run its verb. No verb of the add-on is
-a verb of the base's table. Every option and word of a verb a tool runs is a property of the tool's schema, but those
-ruled otherwise, each named here. No option's value is a secret, but the two that take free text a person may type one
-into, which the run layer refuses and never says back; no sentence says just, a reason why an agent's tool does not
-take a word among them; each meaning of an exit status has one number and each number one meaning but status's 3,
-which today gives a read that failed and one a person cancelled; and the module imports the standard library alone.
+unless it takes no value, a name of what its value is, which help and a line's form write as its placeholder (<cores>),
+and a fate for an agent's tool, by tool where two tools run its verb. No verb of the add-on is a verb of the base's
+table. Each reason a verb no tool runs gives is said with its commands the printer's. Every option and word of a verb a
+tool runs is a property of the tool's schema, but those ruled otherwise, each named here. No option's value is a secret,
+but the two that take free text a person may type one into, which the run layer refuses and never says back; no sentence
+says just, a reason why an agent's tool does not take a word among them; each meaning of an exit status has one number
+and each number one meaning but status's 3, which today gives a read that failed and one a person cancelled; and the
+module imports the standard library alone.
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ from pathlib import Path
 import pytest
 from aw_kit import imports_of
 
-from claude_vm.schema import words
+from claude_vm.schema import printer, words
 from claude_vm.schema.patterns import PATTERNS
 from claude_vm.schema.words import (
     BEFORE,
@@ -116,6 +118,9 @@ NAMED_TEXT = {
 }
 # Patterns that take a line of any text.
 FREE_PATTERNS = {"text", "assignment"}
+# What a value's name is, as its placeholder writes it in angle brackets: lower-case words joined by -, two of them
+# joined by = for --set's <name>=<value> (the owner's ruling of 2026-11-22, review/code/OWNER-9.md 1).
+METAVAR = re.compile(r"[a-z]+(-[a-z]+)*(=[a-z]+(-[a-z]+)*)?")
 CARD = re.compile(r"[A-Z][0-9]+[a-z]?")
 HANDLER = re.compile(r"[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)*:[a-z_][a-z0-9_]*")
 RULE = re.compile(r"([a-z]+|check\.[a-z]+)\.[0-9]+")
@@ -158,7 +163,8 @@ def test_every_option_names_a_pattern_or_takes_no_value(verb: words.Verb) -> Non
         if option.kind in ("flag", "counted"):
             assert option.pattern is None and option.metavar is None, option
         else:
-            assert option.pattern in PATTERNS and option.metavar, option
+            assert option.pattern in PATTERNS and option.metavar and METAVAR.fullmatch(option.metavar), option
+            assert words.placeholder(option) == "=".join(f"<{part}>" for part in option.metavar.split("=")), option
     if verb.words is not None:
         assert verb.words.pattern is None or verb.words.pattern in PATTERNS
 
@@ -250,6 +256,26 @@ def test_set_is_on_the_verbs_that_read_the_settings_and_v_on_those_that_run_the_
 def test_the_tools_that_run_each_verb_are_those_ruled() -> None:
     assert {name: verb.tools for name, verb in VERBS.items() if isinstance(verb.tools, tuple)} == TOOLS_OF
     assert {name for name, verb in VERBS.items() if isinstance(verb.tools, str)} == NO_TOOL
+
+
+# Why no tool runs each verb, as said: each command in it the printer's, the program as it was started.
+NO_TOOL_SAID = {
+    "help": "the tools' own descriptions say what {program} help says",
+    "vault": "the vault is edited at a terminal, by the person: no tool takes or returns a secret",
+    "mcp": "it registers this server: the person's command",
+}
+
+
+@pytest.mark.parametrize("started", [None, "./aw", "/opt/my checkout/aw"])
+def test_the_reason_no_tool_runs_a_verb_is_said_with_the_printer_s_commands(started, monkeypatch) -> None:
+    # The hold H26's cut took (review/code/H26.md, its earlier findings): the reasons I1's schemas say, each command in
+    # them through said, so the program as it was started, quoted, and never a field left unfilled.
+    monkeypatch.setattr(printer, "_program", printer.PROGRAM)
+    printer.started_as(started)
+    program = printer.said("{line}", {"line": words.Line("help")}).removesuffix(" help")
+    said = {name: printer.said(verb.tools) for name, verb in VERBS.items() if isinstance(verb.tools, str)}
+    assert said == {name: why.replace("{program}", program) for name, why in NO_TOOL_SAID.items()}
+    assert program == (printer.quoted(started) if started else "aw")
 
 
 # Each fate for an agent's tool that is no property of the tool's schema, by the verb, the name the handler receives the
