@@ -6,18 +6,22 @@ Each run here is a child process of the test's, made by runs.run as a verb makes
 test's own home: two runs on two machines go side by side; a second on one machine is refused at once, naming the
 first's job, its command, its start and the line that cancels it as the printer writes it, and leaves no job; a run that
 makes alpha and one that configures it take one lock; a VM, an adopted machine and one name on two hosts take
-different locks; a run that names no machine and the runs that name one refuse each other; the sections wait, a build
-for the clones and the clones for it, two creates one after the other, and a wait ends at the run's stop; a holder
-killed with SIGKILL holds nothing and nothing is cleared; twenty runs at once on one machine let exactly one through;
-run_lock: fleet refuses any second run, --no-lock none, and the sections still wait; exclusive and the runs refuse each
-other, and nothing is left held after its block. A refusal never fails on what it reads. A signal between the job and
-the ladder's handlers ends the run as the ladder says, and what a refused run's drop left is said.
+different locks, and Alpha and alpha one; a run that names no machine and the runs that name one refuse each other;
+two runs over the same two machines in opposite orders never both refuse; the sections wait, a build for the clones and
+the clones for it, two creates one after the other, a wait ends at the run's stop, a section's clear clears its own wait
+alone, and a section is let go when its block raises; a holder killed with SIGKILL holds nothing and nothing is
+cleared; twenty runs at once on one machine let exactly one through; run_lock: fleet refuses any second run; exclusive
+and the runs refuse each other, and nothing is left held after its block. A refusal never fails on what it reads, a
+holder's start no clock can say among it, and names no exclusive's command, which its record may hold after it. A signal
+between the job and the ladder's handlers ends the run as the ladder says, and what a refused run's drop left is said.
 
 The rules with a test of their own: no child of a run holds a lock (the child of a killed run, and C2's refusal of each
 lock's descriptor); no module of runs/ keeps a pid or reads a process to decide a lock; only this module and job.py
-take a flock or name the locks' folder; a machine's lock is named from its host and name alone; nothing asks F_GETLK;
-the holder's record is never truncated; take of twenty machines beside 400 lock files and 400 ended jobs stays under a
-tenth of a second; and no module but cli/before.py and schema/words.py names RUN_LOCK or ATTENDED in code.
+take a flock, by any import of it, or a POSIX lock, and only this module names the locks' folder, by paths' names or
+the literal; this module removes no file; a machine's lock is named from its host and name alone; nothing asks F_GETLK;
+the holder's record is never truncated, in any spelling; take of twenty machines beside 400 lock files and 400 ended
+jobs stays under a tenth of a second; and no module but cli/before.py and schema/words.py names RUN_LOCK or ATTENDED in
+code.
 """
 
 from __future__ import annotations
@@ -52,7 +56,7 @@ from claude_vm import runs
 from claude_vm.cli import inverse
 from claude_vm.fleet import paths
 from claude_vm.hosts import model as hosts
-from claude_vm.runs import children, locks
+from claude_vm.runs import children, lock_sets, locks
 from claude_vm.runs import job as jobs
 from claude_vm.schema import patterns
 
@@ -61,7 +65,8 @@ LOCKS_PY = LIB / "claude_vm" / "runs" / "locks.py"
 DEVNULL = subprocess.DEVNULL
 
 # A run in a child process, as a verb makes one through runs.run, from a spec in JSON: the test's folder and the run's
-# tag there, the jobs folder, the command, the kind, the machines and the policy of its locks. Its body says what it
+# tag there, the jobs folder, the verb and its values (from which runs.run works out the kind of its locks), the
+# command, the machines and the policy of its locks. Its body says what it
 # took and goes through its steps: a section (shared or not, with a counter of the next number inside it, held until the
 # test's word), a child of its own in a session of its own, or a hold until the test's word. Each thing it says is one
 # line of JSON in <tag>.out; a refusal says its sentence, the lock and the holder's job, and exits 1.
@@ -146,6 +151,9 @@ elif spec.get("signal_at") == "ladder":
 
     attached._terminal = signalled_then_terminal
 after(jobs, "drop", lambda left, job: say(dropped=job.id, left=left))
+if spec.get("pause_after_write"):
+    # A pause after each lock held exclusively and its record written, so that two runs started together interleave.
+    after(locks, "_write", lambda *_: time.sleep(spec["pause_after_write"]))
 if spec.get("stuck") == "refused":
     # The job's folder read-only once its directory is made: the drop of a refused run cannot unlink its record.
     after(rundir, "make", lambda made, job: os.chmod(job.folder, 0o500))
@@ -171,7 +179,7 @@ draft = runs.Draft(
     [],
     {"kind": "terminal"},
     True,
-    lock_kind=spec["kind"],
+    values=spec.get("values", {}),
     lock_machines=[tuple(pair) for pair in spec.get("machines", [])],
     lock_policy=spec.get("policy", "machine"),
 )
@@ -215,7 +223,25 @@ taken = locks.take(made, "machines", machines, "machine")
 print(json.dumps({"seconds": time.perf_counter() - began, "taken": len(taken)}), flush=True)
 """
 
+# A lock tried without waiting by a process of the test's that is no run: whether it is free, let go at once.
+TRY = r"""
+import fcntl, os, sys
+held = os.open(sys.argv[1], os.O_RDWR)
+try:
+    fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    print("held")
+else:
+    print("free")
+"""
+
 STARTING_OR_ENDING = "error: alpha on pve is held by a run that is starting or ending: try again"
+# The fleet's lock held exclusively with no running job named: an exclusive's write, or a holder that writes no record.
+FLEET_HELD = "error: the fleet is held for one write, or by a run that is starting or ending: try again"
+# A verb and its values that come to each kind of lock, as runs.run works it out (runs/lock_sets.py).
+KIND_WORDS = {"machines": ("deploy", {}), "fleet": ("init", {}), "none": ("deploy", {"check": True})}
+NEXTID = lock_sets.section_name(lock_sets.NEXTID, "pve")
+TEMPLATE = lock_sets.section_name(lock_sets.TEMPLATE, "pve")
 
 
 @pytest.fixture
@@ -261,10 +287,12 @@ class Run:
         return (self.folder / f"{self.tag}.err").read_text()
 
 
-@pytest.fixture
-def start(home: Path, state: Path, tmp_path: Path) -> Iterator[Callable[..., Run]]:
-    """Starts a run in a child process: start(tag, kind=..., machines=[(host, name)], command=..., **spec). Every run
-    still going at the end is ended whole, and every child one said it started."""
+@contextlib.contextmanager
+def runs_started(home: Path, state: Path, tmp_path: Path) -> Iterator[Callable[..., Run]]:
+    """What starts a run in a child process: starting(tag, kind=..., machines=[(host, name)], command=..., **spec), the
+    kind given as a verb and values that come to it (KIND_WORDS), or as verb= and values= in spec. Every run still
+    going at the end is ended whole, and every child one said it started. The start fixture's, and
+    test_aw_lock_sets.py's."""
     started: list[Run] = []
     temporary = tmp_path / "tmp"
     temporary.mkdir()
@@ -272,11 +300,13 @@ def start(home: Path, state: Path, tmp_path: Path) -> Iterator[Callable[..., Run
     def starting(
         tag: str, kind: str = "machines", machines: tuple | list = (), command: str = "aw deploy alpha", **spec: object
     ) -> Run:
+        verb, values = KIND_WORDS[kind]
         given = {
             "folder": str(tmp_path),
             "tag": tag,
             "jobs": str(state / paths.JOBS),
-            "kind": kind,
+            "verb": verb,
+            "values": values,
             "machines": [list(pair) for pair in machines],
             "command": command,
             **spec,
@@ -305,6 +335,13 @@ def start(home: Path, state: Path, tmp_path: Path) -> Iterator[Callable[..., Run
                 if "child" in said:
                     with contextlib.suppress(ProcessLookupError, PermissionError):
                         os.kill(said["child"], signal.SIGKILL)
+
+
+@pytest.fixture
+def start(home: Path, state: Path, tmp_path: Path) -> Iterator[Callable[..., Run]]:
+    """Starts a run in a child process (runs_started)."""
+    with runs_started(home, state, tmp_path) as starting:
+        yield starting
 
 
 @pytest.fixture
@@ -426,7 +463,7 @@ def test_a_second_run_on_one_machine_is_refused_at_once_naming_the_first_and_lea
 
 def test_a_run_that_makes_a_machine_and_one_that_configures_it_take_one_lock(start, state) -> None:
     # The first is inside the next VM ID's section: the VM does not exist yet, and its lock is its host's and name's.
-    making = start("making", machines=[("pve", "alpha")], steps=[{"section": "vmid-pve", "hold": True}])
+    making = start("making", machines=[("pve", "alpha")], steps=[{"section": NEXTID, "hold": True}])
     making.first("entered")
     holder = making.first("taken")["taken"]
     configuring = start("configuring", machines=[("pve", "alpha")], command="aw deploy --only=configure alpha")
@@ -486,6 +523,26 @@ def test_a_machine_s_lock_takes_one_host_and_one_name(host, name) -> None:
         locks.machine_lock(host, name)
 
 
+def test_a_machine_s_name_is_one_lock_in_either_case(start, state) -> None:
+    # Folded to lower case, so that Alpha and alpha are one lock on every disk, as on macOS's: it only refuses more
+    # (C6.md 7).
+    assert locks.machine_lock("pve", "Alpha") == locks.machine_lock("pve", "alpha") == "machine-pve@alpha"
+    first = start("first", machines=[("pve", "alpha")], steps=[{}])
+    holder = first.first("taken")["taken"]
+    again = start("again", machines=[("pve", "Alpha")], command="aw deploy Alpha")
+    assert again.first("refused")["refused"] == f"error: alpha on pve is {_named(holder, 'aw deploy alpha', state)}"
+    assert again.wait() == 1
+    first.go(0)
+    assert first.wait() == 0
+    assert sorted(path.name for path in (state / paths.LOCKS).iterdir()) == ["fleet", "machine-pve@alpha"]
+
+
+def test_a_machine_named_twice_is_one_lock_taken_once(own_job, state) -> None:
+    # A run never refuses itself, its own first descriptor refusing its second (C6.md 3).
+    taken = locks.take(own_job, "machines", [("pve", "alpha"), ("pve", "Alpha"), ("pve", "alpha")], "machine")
+    assert taken == ["fleet:shared", "machine-pve@alpha:exclusive"]
+
+
 def test_a_run_naming_no_machine_is_refused_while_either_runs_and_refuses_both_while_it_runs(start, state) -> None:
     alpha = start("alpha", machines=[("pve", "alpha")], steps=[{}])
     beta = start("beta", machines=[("pve", "beta")], command="aw deploy beta", steps=[{}])
@@ -520,14 +577,14 @@ def test_a_run_naming_no_machine_is_refused_while_either_runs_and_refuses_both_w
 
 
 def test_clones_share_the_template_s_section_and_a_build_waits_for_them_and_they_for_it(start, state) -> None:
-    clone = {"section": "template-pve", "shared": True, "hold": True}
+    clone = {"section": TEMPLATE, "shared": True, "hold": True}
     first = start("first", machines=[("pve", "a")], steps=[clone])
     second = start("second", machines=[("pve", "b")], steps=[clone])
     first.first("entered")
     second.first("entered")
-    build = start("build", machines=[("pve", "c")], steps=[{"section": "template-pve", "hold": True}])
+    build = start("build", machines=[("pve", "c")], steps=[{"section": TEMPLATE, "hold": True}])
     built = build.first("taken")["taken"]
-    _until(lambda: _waiting_for(state, built) == "template-pve", "the build waiting for the clones")
+    _until(lambda: _waiting_for(state, built) == TEMPLATE, "the build waiting for the clones")
     assert _record(state, built)["waiting"]["text"] == "waiting for another run to leave the section template-pve"
     first.go(0)
     assert first.wait() == 0
@@ -539,7 +596,7 @@ def test_clones_share_the_template_s_section_and_a_build_waits_for_them_and_they
     # A clone that comes while the template is built waits for the build.
     later = start("later", machines=[("pve", "d")], steps=[clone])
     waits = later.first("taken")["taken"]
-    _until(lambda: _waiting_for(state, waits) == "template-pve", "the clone waiting for the build")
+    _until(lambda: _waiting_for(state, waits) == TEMPLATE, "the clone waiting for the build")
     assert not later.entered()
     build.go(0)
     later.first("entered")
@@ -549,18 +606,18 @@ def test_clones_share_the_template_s_section_and_a_build_waits_for_them_and_they
 
 def test_two_creates_take_the_next_vm_id_one_after_the_other(start, state, tmp_path) -> None:
     # One holds the section with its number taken: the other waits, says so, and takes the next.
-    held = start("held", machines=[("pve", "x1")], steps=[{"section": "vmid-pve", "counter": True, "hold": True}])
+    held = start("held", machines=[("pve", "x1")], steps=[{"section": NEXTID, "counter": True, "hold": True}])
     assert held.first("entered")["next"] == 100
-    waits = start("waits", machines=[("pve", "x2")], steps=[{"section": "vmid-pve", "counter": True}])
+    waits = start("waits", machines=[("pve", "x2")], steps=[{"section": NEXTID, "counter": True}])
     waiting = waits.first("taken")["taken"]
-    _until(lambda: _waiting_for(state, waiting) == "vmid-pve", "the second create waiting")
+    _until(lambda: _waiting_for(state, waiting) == NEXTID, "the second create waiting")
     held.go(0)
     assert waits.first("entered")["next"] == 101
     assert held.wait() == 0 and waits.wait() == 0
     # Two started at once: each reads the next number and writes it back, inside the section, never both at once.
     go = tmp_path / "start"
     together = [
-        start(tag, machines=[("pve", tag)], start_at=str(go), steps=[{"section": "vmid-pve", "counter": True}])
+        start(tag, machines=[("pve", tag)], start_at=str(go), steps=[{"section": NEXTID, "counter": True}])
         for tag in ("y1", "y2")
     ]
     for run in together:
@@ -571,11 +628,11 @@ def test_two_creates_take_the_next_vm_id_one_after_the_other(start, state, tmp_p
 
 
 def test_a_wait_for_a_section_ends_once_the_run_is_stopped(start, state) -> None:
-    holder = start("holder", machines=[("pve", "x1")], steps=[{"section": "vmid-pve", "hold": True}])
+    holder = start("holder", machines=[("pve", "x1")], steps=[{"section": NEXTID, "hold": True}])
     holder.first("entered")
-    waiter = start("waiter", machines=[("pve", "x2")], steps=[{"section": "vmid-pve"}])
+    waiter = start("waiter", machines=[("pve", "x2")], steps=[{"section": NEXTID}])
     waiting = waiter.first("taken")["taken"]
-    _until(lambda: _waiting_for(state, waiting) == "vmid-pve", "the run waiting for the section")
+    _until(lambda: _waiting_for(state, waiting) == NEXTID, "the run waiting for the section")
     # Sent while it waits on something held and nothing forks.
     os.kill(waiter.process.pid, signal.SIGINT)
     # Well inside the stop's grace: the wait ended at the stop, and the section was never entered.
@@ -585,6 +642,70 @@ def test_a_wait_for_a_section_ends_once_the_run_is_stopped(start, state) -> None
     assert not waiter.entered()
     holder.go(0)
     assert holder.wait() == 0
+
+
+async def _until_waiting(state: Path, job_id: str, section: str) -> None:
+    while _waiting_for(state, job_id) != section:
+        await asyncio.sleep(0.01)
+
+
+def test_a_section_s_clear_clears_its_own_wait_alone(own_job, home, state) -> None:
+    # A run keeps one wait in its record: one machine leaving a section never clears another machine's wait, a
+    # sign-in's among them, which an agent reads to know that a person is wanted (C6.md 8).
+    ctx = SimpleNamespace(job=own_job, emit=own_job.emit, cancelled=asyncio.Event())
+    sign_in = "Approve the sign-in in your browser"
+    with contextlib.ExitStack() as holding:
+        holding.enter_context(_held_by_hand(home, state / paths.LOCKS / TEMPLATE, b"{}\n"))
+
+        async def enter() -> None:
+            async with locks.section(ctx, TEMPLATE, machine="a"):  # type: ignore[arg-type]
+                pass
+
+        async def scenario() -> None:
+            entering = asyncio.ensure_future(enter())
+            await asyncio.wait_for(_until_waiting(state, own_job.id, TEMPLATE), 30)
+            assert own_job.read()["waiting"]["machine"] == "a"
+            own_job.emit("waiting", "b", sign_in)
+            holding.close()
+            await asyncio.wait_for(entering, 30)
+
+        asyncio.run(scenario())
+    assert {name: own_job.read()["waiting"][name] for name in ("machine", "text")} == {"machine": "b", "text": sign_in}
+    # In the record: a clear that names a section clears only that section's wait of its machine; one that names none
+    # clears whatever waits.
+    own_job.emit("waiting", "a", "waiting for another run to leave the section template-pve", section=TEMPLATE)
+    for machine, section in (("b", TEMPLATE), ("a", NEXTID), (None, TEMPLATE)):
+        own_job.emit("waiting", machine, "", section=section)
+        assert own_job.read()["waiting"]["machine"] == "a", (machine, section)
+    own_job.emit("waiting", "a", "", section=TEMPLATE)
+    assert own_job.read()["waiting"] is None
+    own_job.emit("waiting", "b", sign_in)
+    own_job.emit("waiting", None, "")
+    assert own_job.read()["waiting"] is None
+
+
+def test_a_section_is_let_go_when_its_block_raises(own_job, home, state) -> None:
+    # One machine's failed clone, caught by a run that goes on with its others, must not keep the template's section
+    # from every other run until the run ends (C6.md 3).
+    ctx = SimpleNamespace(job=own_job, emit=own_job.emit, cancelled=asyncio.Event())
+    before = dict(locks.locks_held())
+
+    async def failing() -> None:
+        async with locks.section(ctx, TEMPLATE):  # type: ignore[arg-type]
+            raise RuntimeError("the clone failed")
+
+    with pytest.raises(RuntimeError, match="the clone failed"):
+        asyncio.run(failing())
+    assert locks.locks_held() == before
+    tried = subprocess.run(
+        [sys.executable, "-I", "-c", TRY, str(state / paths.LOCKS / TEMPLATE)],
+        capture_output=True,
+        text=True,
+        env=environment(home),
+        timeout=30,
+        check=True,
+    )
+    assert tried.stdout.strip() == "free"
 
 
 # ---------------------------------------------------------------- a holder that dies, and many at once ----
@@ -641,6 +762,31 @@ def test_twenty_runs_at_once_on_one_machine_let_exactly_one_through(start, state
     assert through[0].wait() == 0
 
 
+def test_two_runs_over_the_same_machines_in_opposite_orders_never_both_refuse(start, state, tmp_path) -> None:
+    # Taken in the order of the files' names, whatever order they were given in, so that of two runs over overlapping
+    # machines one always goes on (C6.md 2). A pause after each lock held lets the two interleave: taken in the order
+    # given, each would take its first machine and both be refused at their second.
+    for at in range(5):
+        go = tmp_path / f"start{at}"
+        pair = [
+            start(f"{tag}{at}", machines=given, start_at=str(go), pause_after_write=0.3, steps=[{}], command=command)
+            for tag, given, command in (
+                ("ab", [("pve", "a"), ("pve", "b")], "aw deploy a b"),
+                ("ba", [("pve", "b"), ("pve", "a")], "aw deploy b a"),
+            )
+        ]
+        for run in pair:
+            run.first("ready")
+        go.touch()
+        answers = [run.first("taken", "refused") for run in pair]
+        assert sorted("taken" in answer for answer in answers) == [False, True], answers
+        for run, answer in zip(pair, answers, strict=True):
+            if "taken" in answer:
+                assert answer["locks"] == ["fleet:shared", "machine-pve@a:exclusive", "machine-pve@b:exclusive"]
+                run.go(0)
+        assert sorted(run.wait() for run in pair) == [0, 1]
+
+
 # ---------------------------------------------------------------- the policies ----
 
 
@@ -655,36 +801,33 @@ def test_under_run_lock_fleet_any_second_run_is_refused(start, state) -> None:
     assert first.wait() == 0
 
 
-def test_under_no_lock_no_run_is_refused_and_the_sections_still_wait(start, state) -> None:
-    one = start("one", machines=[("pve", "alpha")], policy="none", steps=[{"section": "vmid-pve", "hold": True}])
-    assert one.first("taken")["locks"] == []
-    one.first("entered")
-    two = start("two", machines=[("pve", "alpha")], policy="none", steps=[{"section": "vmid-pve"}])
-    waiting = two.first("taken")["taken"]
-    _until(lambda: _waiting_for(state, waiting) == "vmid-pve", "the second run waiting for the section")
-    assert not two.entered()
-    # A run that takes its locks goes on beside them: they hold none.
-    beside = start("beside", machines=[("pve", "alpha")], steps=[{}])
-    assert beside.first("taken")["locks"] == ["fleet:shared", "machine-pve@alpha:exclusive"]
-    one.go(0)
-    two.first("entered")
-    beside.go(0)
-    assert [run.wait() for run in (one, two, beside)] == [0, 0, 0]
-
-
-def test_the_policy_is_none_for_no_lock_else_run_lock_s() -> None:
-    assert [locks.policy_of(run_lock, False) for run_lock in ("machine", "fleet")] == ["machine", "fleet"]
-    assert [locks.policy_of(run_lock, True) for run_lock in ("machine", "fleet")] == ["none", "none"]
+def test_the_policy_is_run_lock_s_and_no_policy_takes_no_lock() -> None:
+    # No word makes a run take no lock (the clean slate's decision 8): the policy is the setting run_lock's alone.
+    assert locks.POLICIES == ("machine", "fleet")
+    assert [locks.policy_of(run_lock) for run_lock in ("machine", "fleet")] == ["machine", "fleet"]
     for wrong in ("none", "machines", ""):
         with pytest.raises(ValueError):
-            locks.policy_of(wrong, False)
+            locks.policy_of(wrong)
 
 
-def test_a_draft_always_names_its_kind_of_lock() -> None:
+def test_a_run_whose_kind_is_none_takes_no_lock_whatever_the_policy(start, state) -> None:
+    whole = start("whole", command="aw deploy", steps=[{}])
+    assert whole.first("taken")["locks"] == ["fleet:exclusive"]
+    for policy in locks.POLICIES:
+        machines = [("pve", "alpha")]
+        dry = start(f"dry-{policy}", kind="none", machines=machines, policy=policy, command="aw deploy --check")
+        said = dry.first("taken", "refused")
+        assert said.get("locks") == [] and dry.wait() == 0, said
+    whole.go(0)
+    assert whole.wait() == 0
+
+
+def test_a_draft_always_carries_its_verb_s_values() -> None:
     with pytest.raises(TypeError):
         runs.Draft(Path("jobs"), "deploy", "aw deploy", None, [], {"kind": "terminal"}, True)  # type: ignore[call-arg]
-    draft = runs.Draft(Path("jobs"), "deploy", "aw deploy", None, [], {"kind": "terminal"}, True, lock_kind="none")
+    draft = runs.Draft(Path("jobs"), "deploy", "aw deploy", None, [], {"kind": "terminal"}, True, values={})
     assert (draft.lock_machines, draft.lock_policy) == ((), "machine")
+    assert not hasattr(draft, "lock_kind"), "the kind is the table's, worked out by runs.run: never a verb's own"
 
 
 # ---------------------------------------------------------------- exclusive, and whether a run lives ----
@@ -712,11 +855,13 @@ def test_exclusive_and_the_runs_refuse_each_other_and_nothing_is_left_held_after
     before = dict(locks.locks_held())
     with locks.exclusive(state, "aw host nuc"):
         assert locks.changing_run_lives(state)
+        # Its command is the record, for a person who reads the file; a refusal never names it (C6.md 5).
+        assert json.loads((state / paths.LOCKS / "fleet").read_bytes().split(b"\n")[0]) == {"command": "aw host nuc"}
         for tag, kind, machines in (("named", "machines", [("pve", "alpha")]), ("fleetwide", "fleet", [])):
             run = start(tag, kind=kind, machines=machines)
             said = run.first("refused")
-            assert said["refused"] == "error: `aw host nuc` holds the fleet for one write: try again when it ends"
-            assert said["job"] is None and "cancel" not in said["refused"]
+            assert said["refused"] == FLEET_HELD
+            assert said["job"] is None and "cancel" not in said["refused"] and "host" not in said["refused"]
             assert run.wait() == 1
     # Let go at the block's end, in this process that still runs: a run of the whole fleet goes on.
     assert locks.locks_held() == before and not locks.changing_run_lives(state)
@@ -741,9 +886,9 @@ def test_whether_a_changing_run_lives_is_asked_of_the_fleet_s_lock_and_the_probe
     assert whole.first("taken")["locks"] == ["fleet:exclusive"]
     whole.go(0)
     assert whole.wait() == 0
-    # A run under --no-lock holds none, and is not seen.
-    unlocked = start("unlocked", machines=[("pve", "alpha")], policy="none", steps=[{}])
-    unlocked.first("taken")
+    # A run whose kind is none (deploy --check) holds none, and is not seen.
+    unlocked = start("unlocked", kind="none", machines=[("pve", "alpha")], command="aw deploy --check", steps=[{}])
+    assert unlocked.first("taken")["locks"] == []
     assert not locks.changing_run_lives(state)
     unlocked.go(0)
     assert unlocked.wait() == 0
@@ -774,6 +919,36 @@ def test_a_refusal_whose_holder_cannot_be_told_says_so_and_never_fails(start, ho
     if other is not None:
         other.go(0)
         assert other.wait() == 0
+
+
+def test_a_refusal_whose_holder_s_start_no_clock_can_say_names_no_one(start, state) -> None:
+    # A record someone edited: a start that is not finite, or out of the platform's range, never fails the refusal
+    # (C6.md 4).
+    holder = start("holder", machines=[("pve", "alpha")], steps=[{}])
+    held = holder.first("taken")["taken"]
+    written = state / paths.JOBS / held / "job.json"
+    record = json.loads(written.read_text())
+    for at, started in enumerate((1e20, float("nan"), -1e20, float("inf"))):
+        written.write_text(json.dumps({**record, "started": started}))
+        refused = start(f"refused{at}", machines=[("pve", "alpha")])
+        said = refused.first("refused")
+        assert (said["refused"], said["job"]) == (STARTING_OR_ENDING, None), started
+        assert refused.wait() == 1 and "Traceback" not in refused.err
+    written.write_text(json.dumps(record))
+    holder.go(0)
+    assert holder.wait() == 0
+
+
+@pytest.mark.parametrize("record", [b'{"command": "aw host nuc"}', b'{"job": "0123456789abcdef"}', b"{}"])
+def test_the_fleet_held_with_no_running_job_named_is_said_so_naming_no_command(start, home, state, record) -> None:
+    # An exclusive's record stays after its write ends, and the fleet's lock is also held by holders that write none,
+    # so a refusal never names a command it cannot tell is the holder's (C6.md 5).
+    with _held_by_hand(home, state / paths.LOCKS / "fleet", record + b"\n"):
+        for tag, kind, machines in (("named", "machines", [("pve", "alpha")]), ("whole", "fleet", [])):
+            run = start(tag, kind=kind, machines=machines)
+            said = run.first("refused")
+            assert (said["refused"], said["job"]) == (FLEET_HELD, None)
+            assert run.wait() == 1 and "Traceback" not in run.err
 
 
 def test_a_refusal_whose_holder_s_record_vanishes_while_it_is_read_names_no_one(start, state) -> None:
@@ -879,7 +1054,7 @@ def test_a_child_is_never_handed_one_of_the_run_s_locks(own_job, state) -> None:
     async def handed_each() -> set[str]:
         ctx = SimpleNamespace(job=own_job, emit=own_job.emit, cancelled=asyncio.Event())
         refused = set()
-        async with locks.section(ctx, "template-pve", shared=True):  # type: ignore[arg-type]
+        async with locks.section(ctx, TEMPLATE, shared=True):  # type: ignore[arg-type]
             for descriptor, name in locks.locks_held().items():
                 with pytest.raises(children.LockRefused) as raised:
                     await children.start(
@@ -1018,28 +1193,56 @@ def test_the_locks_keep_no_pid_and_read_no_process() -> None:
 
 # What names the locks' folder in fleet/paths.py: the name beneath the state folder, and the function that joins it.
 FOLDER_NAMES = ("LOCKS", "locks_dir")
+# The folder's own name, as a path's text would spell it.
+FOLDER = "locks"
+# What joins a path from its parts, of which the folder's literal name may be one.
+JOINS = ("join", "joinpath", "Path", "PurePath", "PosixPath")
+# What takes a POSIX lock, which nothing of the new engine takes: every lock is a flock.
+POSIX_LOCKS = re.compile(r"F_(OFD_)?SETLKW?(64)?|lockf")
+
+
+def _the_folder(node: ast.AST) -> bool:
+    return isinstance(node, ast.Constant) and node.value == FOLDER
 
 
 def _flocks_and_lock_folders(rel: str, source: str) -> set[str]:
-    """What a module does that only the locks may: a flock taken, the locks' folder named, by paths.py's names (an
-    attribute of the module, however it is imported, or a name imported from it). paths.py itself names its own."""
+    """What a module does that only the locks may: a flock taken, by any import of it, or a POSIX lock; the locks'
+    folder named, by paths.py's names (an attribute of the module, however it is imported, or a name imported from
+    it), or by its literal name in a path (an operand of /, a part a join takes, or a path's text). paths.py itself
+    names its own. A docstring is no path."""
     tree = ast.parse(source)
-    modules, names = set(), set()
+    modules, names, flocks = set(), set(), {"flock"}
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module == "claude_vm.fleet":
             modules |= {alias.asname or alias.name for alias in node.names if alias.name == "paths"}
         if isinstance(node, ast.ImportFrom) and node.module == "claude_vm.fleet.paths":
             names |= {alias.asname or alias.name for alias in node.names if alias.name in FOLDER_NAMES}
+        if isinstance(node, ast.ImportFrom) and node.module == "fcntl":
+            flocks |= {alias.asname or alias.name for alias in node.names if alias.name == "flock"}
         if isinstance(node, ast.Import):
             modules |= {alias.asname or alias.name for alias in node.names if alias.name == "claude_vm.fleet.paths"}
+    skipped = _docstrings(tree)
     found = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and getattr(node.func, "attr", getattr(node.func, "id", "")) == "flock":
+        if isinstance(node, ast.Call) and getattr(node.func, "attr", getattr(node.func, "id", "")) in flocks:
             found.add("a flock")
+        named = node.attr if isinstance(node, ast.Attribute) else getattr(node, "id", getattr(node, "name", None))
+        if isinstance(node, (ast.Attribute, ast.Name, ast.alias)) and POSIX_LOCKS.fullmatch(named or ""):
+            found.add("a POSIX lock")
         if isinstance(node, ast.Attribute) and node.attr in FOLDER_NAMES and ast.unparse(node.value) in modules:
             found.add("the locks' folder")
         if isinstance(node, ast.Name) and (node.id in names or (rel.endswith("fleet/paths.py") and node.id == "LOCKS")):
             found.add("the locks' folder")
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+            if _the_folder(node.left) or _the_folder(node.right):
+                found.add("the locks' folder")
+        joined = getattr(node, "func", None)
+        if isinstance(node, ast.Call) and getattr(joined, "attr", getattr(joined, "id", "")) in JOINS:
+            if any(_the_folder(arg) for arg in node.args):
+                found.add("the locks' folder")
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in skipped:
+            if re.search(rf"(^|/){FOLDER}(/|\Z)", node.value) and "/" in node.value:
+                found.add("the locks' folder")
     return found
 
 
@@ -1056,6 +1259,19 @@ def _flocks_and_lock_folders(rel: str, source: str) -> set[str]:
         # The table's column of the locks a verb takes is no folder.
         ("LOCKS = ('machines', 'fleet', 'none', 'words')\nx = words.LOCKS", set()),
         ("store.locked(path)", set()),
+        # A flock by another name, a POSIX lock, and the folder by its literal name (C6.md 6).
+        ("from fcntl import flock as hold\nhold(fd, 2)", {"a flock"}),
+        ("fcntl.fcntl(fd, fcntl.F_SETLKW, data)", {"a POSIX lock"}),
+        ("fcntl.fcntl(fd, fcntl.F_OFD_SETLK, data)", {"a POSIX lock"}),
+        ("from fcntl import lockf\nlockf(fd, 2)", {"a POSIX lock"}),
+        ("os.open(state / 'locks' / 'machine-pve@alpha', os.O_RDWR)", {"the locks' folder"}),
+        ("folder = paths.state(home) / 'locks'", {"the locks' folder"}),
+        ("os.path.join(state, 'locks')", {"the locks' folder"}),
+        ("Path(state, 'locks', 'fleet')", {"the locks' folder"}),
+        ("path = f'{state}/locks/fleet'", {"the locks' folder"}),
+        # A record's field and a docstring are no folder.
+        ("held = record.get('locks')", set()),
+        ('"""The state folder\'s locks/ holds them."""', set()),
     ],
 )
 def test_the_scan_sees_a_flock_and_the_locks_folder(source, found) -> None:
@@ -1063,7 +1279,7 @@ def test_the_scan_sees_a_flock_and_the_locks_folder(source, found) -> None:
 
 
 def test_only_the_locks_and_the_job_take_a_flock_and_only_the_locks_name_their_folder() -> None:
-    flocks, folders = set(), set()
+    flocks, folders, posix = set(), set(), set()
     for path in _new_modules():
         rel = path.relative_to(REPO).as_posix()
         found = _flocks_and_lock_folders(rel, path.read_text())
@@ -1071,8 +1287,26 @@ def test_only_the_locks_and_the_job_take_a_flock_and_only_the_locks_name_their_f
             flocks.add(rel)
         if "the locks' folder" in found:
             folders.add(rel)
+        if "a POSIX lock" in found:
+            posix.add(rel)
     assert flocks == {"lib/claude_vm/runs/job.py", "lib/claude_vm/runs/locks.py"}
     assert folders == {"lib/claude_vm/fleet/paths.py", "lib/claude_vm/runs/locks.py"}
+    assert posix == set(), "every lock is a flock: a POSIX lock is the process's, and a close of any descriptor ends it"
+
+
+# What removes a file or a folder, or puts another file at a name: a lock file is never removed (C6.md 1).
+REMOVES = {"unlink", "remove", "rmtree", "rmdir", "removedirs", "rename", "renames", "replace"}
+
+
+def test_the_locks_remove_no_file() -> None:
+    # A flock is held on the file, not on its name: a file unlinked under its holder lets the next run create one
+    # and take the same lock beside the first. Only this module names the locks' folder, so nothing else reaches one.
+    removing = [
+        (node.lineno, ast.unparse(node.func))
+        for node in ast.walk(ast.parse(LOCKS_PY.read_text()))
+        if isinstance(node, ast.Call) and getattr(node.func, "attr", getattr(node.func, "id", "")) in REMOVES
+    ]
+    assert removing == []
 
 
 def test_a_machine_s_lock_is_named_from_its_host_and_its_name_alone() -> None:
@@ -1097,21 +1331,54 @@ def test_nothing_of_the_new_engine_asks_whether_a_lock_is_held_with_f_getlk() ->
     assert asking == set()
 
 
-def test_the_holder_s_record_is_written_without_a_truncate(state) -> None:
-    source = LOCKS_PY.read_text()
-    assert not [word for _, word in _code_words(source) if re.search(r"truncate|O_TRUNC", word)]
-    opened = [
-        node.lineno
-        for node in ast.walk(ast.parse(source))
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "open"
-    ]
-    assert opened == [], "a lock file is opened with os.open alone, which truncates nothing"
-    # A longer record, then a shorter one: the first line is the shorter, and the longer's tail is left after it.
+def _truncating(source: str) -> list[int]:
+    """The lines of source that could truncate a file, in any spelling: a truncate or O_TRUNC named, Path's
+    write_text and write_bytes, and every open but os.open (the builtin's and Path's mode "w" truncates)."""
+    words = r"f?truncate|O_TRUNC|write_text|write_bytes"
+    found = {line for line, word in _code_words(source) if re.fullmatch(words, word)}
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "open":
+            found.add(node.lineno)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "open":
+            if ast.unparse(node.func.value) != "os":
+                found.add(node.lineno)
+    return sorted(found)
+
+
+@pytest.mark.parametrize(
+    ("source", "found"),
+    [
+        ('path.write_text("x")', [1]),
+        ('Path(p).write_bytes(b"x")', [1]),
+        ('path.open("w")', [1]),
+        ('open(p, "w")', [1]),
+        ("os.ftruncate(fd, 0)", [1]),
+        ("os.open(p, os.O_RDWR | os.O_TRUNC)", [1]),
+        ("os.open(p, os.O_RDWR | os.O_CREAT)", []),
+        ("os.pwrite(fd, line, 0)", []),
+    ],
+)
+def test_the_scan_sees_a_truncate_in_any_spelling(source, found) -> None:
+    assert _truncating(source) == found
+
+
+def test_the_holder_s_record_is_written_without_a_truncate(own_job, state) -> None:
+    assert _truncating(LOCKS_PY.read_text()) == [], "a lock file is opened with os.open alone, which truncates nothing"
+    # A machine's lock over a longer record: its first line is the run's, and the longer's tail is left after it, so
+    # that a reader of the first line never reads what the longer left (C6.md 3).
+    # The fleet's, by an exclusive's write: a longer record, then a shorter one.
     with locks.exclusive(state, "aw vault --rotate"):
         pass
     with locks.exclusive(state, "aw host a"):
         written = (state / paths.LOCKS / "fleet").read_bytes()
     assert written.startswith(b'{"command": "aw host a"}\n') and len(written) > len(b'{"command": "aw host a"}\n')
+    # And a machine's, by a run's take, over a longer record left there.
+    folder = state / paths.LOCKS
+    longer = json.dumps({"job": "f" * 16, "left": "x" * 200}).encode() + b"\n"
+    (folder / "machine-pve@alpha").write_bytes(longer)
+    locks.take(own_job, "machines", [("pve", "alpha")], "machine")
+    written = (folder / "machine-pve@alpha").read_bytes()
+    assert written.startswith(json.dumps({"job": own_job.id}).encode() + b"\n") and len(written) == len(longer)
 
 
 # The modules that name RUN_LOCK or ATTENDED in code, each with why; and mcp/, the 2.x agents' server, which sets both
@@ -1130,7 +1397,7 @@ def _names_the_two(source: str) -> list[int]:
     ("source", "found"),
     [
         ('os.environ.get("RUN_LOCK")', [1]),
-        ('no_lock = environ.get("ATTENDED") == "1"', [1]),
+        ('attended = environ.get("ATTENDED") == "1"', [1]),
         ("ATTENDED = fixed(None)", [1]),
         ("x = run.attended", []),
         ('"""An exported RUN_LOCK or ATTENDED changes nothing."""', []),
@@ -1161,11 +1428,14 @@ def test_the_sections_are_their_owners_and_a_section_s_name_is_a_word_and_a_host
         async with locks.section(ctx, name):  # type: ignore[arg-type]
             pass
 
-    for wrong in ("fleet", "machine-pve@alpha", "template-", "-pve", "template-PVE", "template-pve\n", "a/b-pve"):
+    wrong = ("fleet", "machine-pve@alpha", "template-", "-pve", "template-PVE", "template-pve\n", "a/b-pve")
+    # A section's word is one runs/lock_sets.py names: never one a card makes up, as the desk was.
+    for name in (*wrong, "vmid-pve", "desk-pve", "nextids-pve"):
         with pytest.raises(ValueError):
-            asyncio.run(enter(wrong))
-    asyncio.run(enter("template-pve"))
-    assert oct((own_job.folder.parent.parent / paths.LOCKS / "template-pve").stat().st_mode & 0o777) == oct(0o600)
+            asyncio.run(enter(name))
+    assert [lock_sets.section_name(word, "pve") for word in lock_sets.SECTIONS] == [NEXTID, TEMPLATE]
+    asyncio.run(enter(TEMPLATE))
+    assert oct((own_job.folder.parent.parent / paths.LOCKS / TEMPLATE).stat().st_mode & 0o777) == oct(0o600)
 
 
 def test_a_flock_refusal_is_the_only_error_read_as_held(tmp_path) -> None:

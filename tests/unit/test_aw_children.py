@@ -24,6 +24,7 @@ from pathlib import Path
 import pytest
 from harness import REPO, repo_files
 from test_aw_layout import NEW
+from test_aw_locks import _flocks_and_lock_folders
 
 from claude_vm.fleet import paths
 from claude_vm.runs import children
@@ -505,13 +506,14 @@ def test_pass_fds_and_set_inheritable_appear_only_in_children_start() -> None:
 
 
 def test_every_module_of_runs_that_takes_a_lock_is_one_holders_reads() -> None:
-    # A lock taken in a module whose locks the refusal never reads could be handed to a child.
+    # A lock taken in a module whose locks the refusal never reads could be handed to a child. A flock is found as the
+    # locks' own scan finds one, by any import of it (review/code/C6.md 6).
     taking = set()
     for path in repo_files("lib/claude_vm/runs", untracked=True):
         if path.suffix != ".py":
             continue
-        tree = ast.parse(path.read_text())
-        if any(isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "flock" for node in ast.walk(tree)):
+        rel = path.relative_to(REPO).as_posix()
+        if "a flock" in _flocks_and_lock_folders(rel, path.read_text()):
             taking.add(".".join(path.relative_to(REPO / "lib").with_suffix("").parts))
     assert "claude_vm.runs.job" in taking
     assert {holder.__module__ for holder in children.HOLDERS} == taking

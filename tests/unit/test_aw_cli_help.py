@@ -288,7 +288,7 @@ def test_aw_help_ends_in_today_s_closing_paragraph_with_aw_and_v_and_set_for_ans
 # ---------------------------------------------------------------- through tools/aw ----
 
 
-@pytest.mark.parametrize("words", [(), ("help",), ("--no-lock",)])
+@pytest.mark.parametrize("words", [(), ("help",), ("--attended=1",)])
 def test_aw_alone_is_aw_help(home, words) -> None:
     result = run_aw(*words, home=home)
     assert (result.returncode, result.stdout, result.stderr) == (EXITS["done"], helps.listing(), "")

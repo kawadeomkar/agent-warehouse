@@ -265,7 +265,7 @@ draft = runs.Draft(
     ["alpha"],
     {"kind": "terminal"},
     True,
-    lock_kind="machines",
+    values={"names": ["alpha"]},
     lock_machines=[("pve", "alpha")],
 )
 status = runs.run(draft, body)

@@ -142,12 +142,12 @@ def test_no_verb_option_or_word_of_the_table_lacks_a_round_trip_case() -> None:
 
 
 def test_the_words_before_the_verb_come_back_from_the_line() -> None:
-    for before in [{"no_lock": True}, {"attended": "1"}, {"detached_run": True}]:
+    for before in [{"attended": "1"}, {"detached_run": True}]:
         printed = inverse.argv("deploy", {"names": ["alpha"]}, before=before)
         assert parse.read(printed[1:]) == parse.Reading("deploy", before, {"names": ["alpha"]})
     everything = {option.field: SAMPLES.get(option.pattern or "", True) for option in BEFORE}
     printed = inverse.argv("status", {}, before=everything)
-    assert printed == ["aw", "--no-lock", "--attended=1", "--detached-run", "status"]
+    assert printed == ["aw", "--attended=1", "--detached-run", "status"]
     assert parse.read(printed[1:]).before == everything
 
 
@@ -406,7 +406,7 @@ def test_no_module_of_the_new_engine_builds_a_command_outside_the_printer() -> N
         ('x = f"aw {verb}"', [(1, "")]),
         ('x = "aw deploy alpha"', [(1, "")]),
         ('x = "aw " + verb', [(1, "")]),
-        ('x = f"aw --no-lock {verb}"', [(1, "")]),
+        ('x = f"aw --attended=1 {verb}"', [(1, "")]),
         ('def f(recipe):\n    return f"just {recipe} --help"', [(2, "f")]),
         ('def g():\n    return ("aw help", "x")', [(2, "g")]),
         ('x = "aw from the checkout " + path', []),
