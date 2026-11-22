@@ -321,15 +321,19 @@ the three, the context, whether it is an anchor's and the fingerprint, and refus
 it, or one that is not one as `openssl` prints it.
 
 - **The certificate is always checked**: no context checks nothing, and none can be asked for. **Its name is checked
-  but where the fingerprint names the certificate.** With a fingerprint recorded, `kept`'s context has
-  `check_hostname` off: the anchor still verifies the certificate, and the peer check holds it to the one certificate
-  recorded, which says more than a name could, so a host reached at an address its certificate does not name, a
-  tailnet's or a forwarded port's, is reached through its node's own certificate. A CA's anchor and no anchor keep the
-  name checked, since each verifies any certificate it signed.
-- **No session's keys are logged.** `context` sets `keylog_filename` to none on both kinds: the standard library's
-  ready-made context, which today's `trust.anchored_context` makes, names the file `SSLKEYLOGFILE` gives unless Python
-  ignores the environment, and opens it, with its header, as it is made; no key of the one connection that carries the
-  token is ever written there, however Python was started. `transport(url, pin, proxy)` makes the one connection a token goes
+  but where a fingerprint names the certificate.** With a fingerprint recorded, `kept`'s context has `check_hostname`
+  off, whatever the anchor, a CA's included: the anchor still verifies the certificate, and the peer check holds it to
+  the one certificate recorded, which says more than a name could, so a host reached at an address its certificate
+  does not name, a tailnet's or a forwarded port's, is reached through its node's own certificate. With none, an
+  anchor and no anchor keep the name checked, since each verifies any certificate it signed. So a `Pin`'s context,
+  where a fingerprint is recorded, checks no name of itself: the fingerprint's check is `transport`'s, handed beside
+  it, and nothing but `pin.py` reads a `Pin`'s context (`tests/unit/test_aw_vendor_trust.py`).
+- **No session's keys are logged.** Each kind of context is made by hand - today's `trust.anchored_context` as the
+  vendors' `context` is - so that neither opens the file `SSLKEYLOGFILE` names, as the standard library's ready-made
+  context does as it is made, with OpenSSL's header, unless Python ignores the environment: a path that cannot be
+  opened would refuse the client, and a FIFO nobody reads would hold it. `context` sets `keylog_filename` to none on
+  both kinds too, so no key of the one connection that carries the token is ever written, however Python was started.
+  `transport(url, pin, proxy)` makes the one connection a token goes
 on, so `pin.py` alone hands the transport a check of the peer (`PEER_CHECKS`), and it touches neither `http.client` nor
 a socket. It reads no setting and no variable: the anchor's text, the fingerprint, `tls_ca_file` and the proxy, which
 `proxy.choose` works out for the API's address as today's Proxmox calls take it, are its caller's.
@@ -341,9 +345,10 @@ revealed there alone. No method returns it, and no error says it: where an error
 secret is struck from them first (`Secret.struck`), as they came and again once made plain, and before they are cut,
 so that a host, or a proxy the computer's certificates trust, that echoes what it was sent has none of it said.
 
-- **The first request is `GET /version`**, asked once a client. A host below Proxmox VE 9 is refused, `TooOld`, with a
-  sentence that names the version found, before any other request goes, and every later call says so again with
-  nothing sent.
+- **The first request is `GET /version`**, asked until a client has it. A host below Proxmox VE 9 is refused, `TooOld`,
+  with a sentence that names the version found, before any other request goes, and every later call says so again
+  with nothing sent. No lock is held across the request, so a call made while another asks it waits for nothing but
+  its own request, within its own deadline: two first calls at once, two VMs' first polls, may each ask it.
 - **What an answer is, by its status alone.** A 401 or a 403 is `Denied`, never by its words, since Proxmox names a VM
   in its reasons ("VM 4013 is not running"); a workflow stops at it, since it holds for every VM. A 3xx is an answer,
   never followed, and so is every other status but a 200: `Refused`, with its status and Proxmox's reason, the status
@@ -354,8 +359,13 @@ so that a host, or a proxy the computer's certificates trust, that echoes what i
   remedy is told by OpenSSL's verify code (`Untrusted.code`, kept as its `code`), never by its words. A certificate that
   does not name the address it was reached at (`MISNAMED`, codes 62 and 64) is an address to change: the sentence
   names the address the host's record gives, and the node's own name on a tailnet, or the node's own certificate kept
-  by `aw init`, held to its fingerprint and not to a name. Any other refusal names `aw init`, which reads the host's
-  own certificate and asks before it keeps one as the host's anchor; where the host keeps none and the issuer is
+  by `aw init`, held to its fingerprint and not to a name. A certificate out of its dates is said so: one that has
+  expired (`EXPIRED`, code 10), or one that issued it, is renewed on the host, and where the host keeps an anchor `aw
+  init` then reads the new one and asks before it keeps it; one not valid yet (`NOT_YET_VALID`, code 9) means a clock
+  is behind, this computer's, whose time now the sentence says, or the host's when the certificate was made. The
+  client cannot say the certificate's own dates: a refused handshake hands it none. Any other refusal names `aw
+  init`, which reads the host's own certificate and asks before it keeps one as the host's anchor; where the host
+  keeps none and the issuer is
   unknown (`UNKNOWN_ISSUER`), a root of the person's own in `tls_ca_file` comes second, never alone: the root of a
   Proxmox host's certificate is almost always the host's own CA, whose key is on the host, and a root added there is
   trusted for every vendor too.
@@ -403,8 +413,9 @@ so that a host, or a proxy the computer's certificates trust, that echoes what i
   anything is sent, and needs its row first. Tags are a list, sent comma-joined, and read back through `proxmox.proxmox_tags`, which takes
   both spellings; `sshkeys` is the keys' text, sent percent-encoded whole, as Proxmox's format wants it, and read back
   as Proxmox keeps it, encoded. The rule is held where every write passes and by what was sent: the client's
-  `_request`, which every request goes through, refuses a `PUT` or a `POST` to a configuration's path with no `digest`
-  in its form before anything is sent, and every test of the new engine that runs the fake
+  `_request`, which every request goes through, refuses a `PUT` or a `POST` to a configuration's path whose form holds
+  no `digest` of the form Proxmox gives one (`DIGEST`) before anything is sent - an empty one among them, which
+  Proxmox reads as none - and every test of the new engine that runs the fake
   (`harness.fake_fleet(engine=True)`) ends by reading the fake's request log, failing where a `PUT` or a `POST` of the
   client's user agent to a configuration's path carried none.
 - **Proxmox's refusals of a write, typed.** Proxmox answers each with a 500, so its words tell them apart, each held
@@ -425,9 +436,14 @@ so that a host, or a proxy the computer's certificates trust, that echoes what i
   controller logs one at its start). Its status then holds how many (`warnings`) and the last lines of its log
   (`lines`), for the workflow to say. A task still running at the deadline is `TaskTimedOut`; one that ended otherwise
   is `Exists` or `Locked` as above, else `TaskFailed` with Proxmox's error and the last lines of its log, each one line
-  of plain text. A poll that fails while the run goes on raises its own error - the transport's `TimedOut`, where one
-  poll had no answer within its read's wait with time still left, its `Unreachable`, or the client's - and the task may
-  then still run on Proxmox: the workflow follows it again by the `Task` it holds, or reads the VM. `stop` is the run's
+  of plain text. The log is read once the task has ended, each page held to what is left of the same deadline and
+  `stop` read before it, and it never decides the outcome: the task's end is Proxmox's answer, already read, and its
+  lines a courtesy. Where they cannot be read in that time, a read of them fails, or the run stops, a success is
+  returned with no lines, and a failure is `TaskFailed` with none, or `Stopped` once the run has stopped, the
+  `TaskFailed` its cause; lines read before then are not the last, and none is kept. A poll that fails while the run
+  goes on raises its own error - the transport's `TimedOut`, where one poll had no answer within its read's wait with
+  time still left, its `Unreachable`, or the client's - and the task may then still run on Proxmox: the workflow
+  follows it again by the `Task` it holds, or reads the VM. `stop` is the run's
   `Context.stopping` (§16.8), a `threading.Event`, since a workflow calls the client in a thread: it is read before each
   poll and waited on in place of each pause, so once the run stops, at a Ctrl-C or wherever it is to end, `follow`
   raises `Stopped` within a pause's first moment, never asking again, and the task goes on on Proxmox, which
@@ -513,8 +529,10 @@ recorded, and no anchor with a computer's file that holds no root of the fake's,
 of the client's, also with the fake answering no request without a token, and each refusal names `aw init`,
 `tls_ca_file` second with no anchor. A certificate that names `127.0.0.2`, the fake at `127.0.0.1`, is reached through
 its node's certificate with its fingerprint, and refused, with the address to change and nothing sent, through that
-certificate with none, its CA and no anchor; each sentence is told by its verify code alone. No connection logs a key
-under `SSLKEYLOGFILE`. It holds that `PVEAPIToken` is written in one module of the new engine, that no method returns
+certificate with none, its CA and no anchor; a node's certificate that ended yesterday or begins tomorrow, kept or
+under its CA, is said to be out of its dates; each sentence is told by its verify code alone. No connection logs a
+key under `SSLKEYLOGFILE`, and the file it names is never opened. Two first calls at once each ask the version within
+their own deadline. It holds that `PVEAPIToken` is written in one module of the new engine, that no method returns
 the token, and that no error, its words, its arguments or the names of its traceback's frames, says the token's secret.
 `tests/unit/test_aw_pve_writes.py` runs every write against the fake in the same way, under enforcement, so a write the
 token may not make is `Denied` by the fake as Proxmox refuses it: a clone into the pool proved by its own configuration;
@@ -523,11 +541,15 @@ its request log; two `edit_config` calls that both land, and a writer that alway
 `Locked` while a deletion or a clone holds the VM, by a configuration's file lock, and from a clone's task its
 source's; a clone whose answer a tunnel of the test's own cuts, `Unknown` with one request in the fake's log; a failed
 task with its log, one that ended with warnings a success with its warnings' lines (the fake's `task-warn`), one past
-its deadline, each poll held to what is left of it; a follow whose run stops between polls, during one, and before the
-first, each `Stopped` with no poll after it and the task still running on the fake, and a poll that fails once the run
+its deadline, each poll held to what is left of it; a log that cannot be read once its task ended - each of the
+transport's errors and the client's, a host that holds it past the deadline, no deadline left, and the run stopping as
+the task ends or during the read - a success with no lines and a failure `TaskFailed` with none, or `Stopped`; a
+follow whose run stops between polls, during one, and before the first, each `Stopped` with no poll after it and the
+task still running on the fake, and a poll that fails once the run
 has stopped; a deletion's parameters, `destroy-unreferenced-disks` alone and `purge` only where asked for, read from the
 fake's log; and a UPID with a `/` in a part of its own `Malformed`. Its rules: a `PUT` or a `POST` to a configuration's
-path with no `digest` is refused before it is sent, `harness.fake_fleet`'s end fails a test where the fake was sent one,
+path with no `digest`, or an empty one, is refused before it is sent, `harness.fake_fleet`'s end fails a test where
+the fake was sent one,
 and every method that sends one sends `digest` (a syntax-tree test of the module); a configuration's write sends only
 the keys the table covers for it; both ways, every row of the table is a call the client makes and every call it makes
 has its rows, each method of the client driven against the fake under enforcement and what it sent read from the
@@ -604,11 +626,21 @@ builds no context and reads no setting.
   connection could not be made or was dropped, or when the answer is 502, 503 or 504. Any other method is sent once.
   A failure once its request has left is `Unknown`, never a second send, and its caller reads the state to know.
   Before a request is written on a kept connection, one whose far end has closed it is put aside, which costs no try.
-- **Closed, it sends nothing more.** `close()` closes every connection kept and marks the transport closed, never to
-  open again: a request started after it is `Closed`, nothing sent, and one still under way on another thread - a call
-  its caller let go, as a stopping run leaves a poll's thread - ends at its first error, never tried again and never
-  given a new connection. Without it, the closed connection's error read as a dropped one, and a `GET` that carries a
-  token went out again after its caller had stopped.
+- **Closed, it sends nothing more.** `close()` marks the transport closed, never to open again: a request started
+  after it is `Closed`, nothing sent, and one still under way on another thread - a call its caller let go, as a
+  stopping run leaves a poll's thread - ends at its first error, never tried again and never given a new connection.
+  Without the mark, the closed connection's error read as a dropped one, and a `GET` that carries a token went out
+  again after its caller had stopped. `close()` closes only a connection no request is under way on. One that a
+  request is being written on, or its answer read from, it **shuts down** (the system's shutdown of both ways under the
+  TLS socket, never `SSLSocket.shutdown`, which takes the TLS state from under the read using it), which wakes that
+  thread's read or send at once, and leaves the socket for that thread to close once its request has ended. A socket
+  closed under a wait frees its number while the wait goes on: on Linux, nothing wakes a read blocked on a socket
+  another thread closes, and at its limit the read takes the bytes of whatever socket or pipe took the number next and
+  writes a TLS alert onto its connection. The decision is made under the lock a request takes its connection under, so
+  a connection is either found in use and shut down, or found idle and closed before any request can take it; a
+  connection still being made is refused as `Closed` once made. An answer read on a socket `close()` shut down is
+  never handed back, since one that ends with its connection would seem to end there: a `GET`'s is `Unreachable`,
+  "the transport was closed while its answer was read" (`CUT`), and any other method's `Unknown`.
 - **A secret is never said.** A header's value may be a `Secret`, or a tuple or list of `str` and `Secret` parts, as
   the Proxmox client's `PVEAPIToken=<id>=<secret>` is; and a form's value may be a `Secret`, or a list or tuple of
   values that may be, as Tailscale's `client_secret` is. A `Secret` is revealed in `_plain` and nowhere else, for the
@@ -647,7 +679,10 @@ environment, and it never uses an opener.
 `tests/unit/test_aw_transport.py` runs the transport against TLS servers it starts on loopback, with the certificates
 `tests/unit/pki.py` makes, and against a stand-in CONNECT proxy, which also refuses a tunnel, or drips its answer to the
 CONNECT a byte at a time. A server that echoes the token in a status line `http.client` cannot read shows no error
-saying it. It holds four rules over the new engine's modules.
+saying it. A read another thread left on a server that holds what it would send next - its answer, a body sent with its
+length, a body that ends with its connection - ends at once when the transport is closed, well inside its limit, and
+the socket pairs the process opens meanwhile, the first of which takes the number of a socket closed under the read,
+keep every byte sent to them and are sent none. It holds four rules over the new engine's modules.
 Only `transport.py` imports `http.client` or wraps a socket. Only `proxy.py` imports `urllib.request`, and only for
 those readers. No module names a certificate variable. And `reveal(` appears once in the transport. It also holds the
 modules that hand the transport a `peer_check` to a list, `PEER_CHECKS`, each with why, found by the calls of

@@ -57,7 +57,16 @@ from ..checks import proxmox_name
 from ..schema.patterns import full
 from ..secret import Secret
 from ..text import one_line
-from ..vendors.transport import UNKNOWN_ISSUER, Answer, PeerRefused, TimedOut, Transport, Unknown, Untrusted
+from ..vendors.transport import (
+    UNKNOWN_ISSUER,
+    Answer,
+    PeerRefused,
+    TimedOut,
+    Transport,
+    TransportError,
+    Unknown,
+    Untrusted,
+)
 from . import answers, pin, privileges
 from .answers import (
     UPID,
@@ -127,6 +136,9 @@ NO_AGENT = re.compile(r"No QEMU guest agent configured")
 # X509_V_ERR_HOSTNAME_MISMATCH and X509_V_ERR_IP_ADDRESS_MISMATCH. What to change is the address, or what the host
 # keeps: never the certificate's roots.
 MISNAMED = frozenset({62, 64})
+# OpenSSL's verify codes for a certificate out of its dates: X509_V_ERR_CERT_NOT_YET_VALID and
+# X509_V_ERR_CERT_HAS_EXPIRED. What to change is the certificate on the host, or a clock: never what the host keeps.
+NOT_YET_VALID, EXPIRED = 9, 10
 
 # ------------------------------------------------------------------------------------------- the writes ----
 
@@ -319,6 +331,9 @@ class Unverified(ProxmoxError):
     - a certificate that does not name the address it was reached at (MISNAMED): the address is what to change, to one
       the certificate holds, or the node's own certificate is what to keep, which is held to its fingerprint and not to
       a name, so that a host reached at a tailnet's address or through a forwarded port is reached;
+    - one that has expired (EXPIRED), or one that issued it: it is renewed on the host, and where the host keeps an
+      anchor, aw init then reads the new one and asks before it keeps it; one not valid yet (NOT_YET_VALID): a clock
+      is behind, this computer's, whose time now the sentence says, or the host's when the certificate was made;
     - any other refusal, with an anchor or with none: aw init, which reads the host's own certificate and asks before
       it keeps one as the host's anchor; and where no anchor is kept and the issuer is unknown, a root of the person's
       own, added with tls_ca_file, comes second, never alone - the root of a Proxmox host's certificate is almost
@@ -328,12 +343,29 @@ class Unverified(ProxmoxError):
         self.reason = one_line(reason, 200)
         self.code = code
         self.anchored = anchored
+        renewed = (
+            ", then aw init reads the host's new one and asks before it keeps it in the old one's place"
+            if anchored
+            else ""
+        )
         if code in MISNAMED:
             said = (
                 f"the Proxmox host's certificate does not name the address it was reached at, {one_line(address, 100)},"
                 f" the one the host's record gives ({self.reason}): give the host a name or address its certificate"
                 " holds - on a tailnet, the node's own name, which MagicDNS resolves there - or have aw init keep the"
                 " node's own certificate as the host's anchor, which is held to its fingerprint and not to a name"
+            )
+        elif code == EXPIRED:
+            said = (
+                f"the Proxmox host's certificate, or one that issued it, has expired ({self.reason}): renew it on the"
+                " host" + renewed
+            )
+        elif code == NOT_YET_VALID:
+            now = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+            said = (
+                f"the Proxmox host's certificate, or one that issued it, is not valid yet ({self.reason}), and this"
+                f" computer's clock says {now}: if that is behind, set this computer's clock right; if not, the host's"
+                " clock was ahead when the certificate was made: renew it there" + renewed
             )
         elif anchored:
             said = (
@@ -450,6 +482,14 @@ def _changes(changes: Mapping[str, Any]) -> dict[str, str | int | Secret]:
     return form
 
 
+def _digest_in(form: Mapping[str, Any] | None) -> bool:
+    """Whether form carries a configuration's digest, as Proxmox gives one (DIGEST): an empty one, or any other value,
+    Proxmox would read as none (update_vm_api compares only a digest it was given), writing the changes whatever the
+    configuration had become."""
+    digest = form.get("digest") if isinstance(form, Mapping) else None
+    return isinstance(digest, str) and DIGEST.fullmatch(digest) is not None
+
+
 def _taken(said: str, newid: int) -> bool:
     """Whether Proxmox's words said said that the VMID newid is taken."""
     return any(int(found.group(1)) == newid for pattern in TAKEN for found in pattern.finditer(said))
@@ -500,7 +540,8 @@ class Proxmox:
     def close(self) -> None:
         """Close every connection kept, and both transports: nothing more is sent. A request started after is the
         transport's Closed; one still under way on another thread, as a cancelled wait leaves its poll, ends at its
-        first error, never tried again and never on a new connection."""
+        first error, at once - its socket shut down under it and closed by that thread, never closed under its read -
+        never tried again and never on a new connection."""
         self._transport.close()
         self._agent.close()
 
@@ -524,7 +565,7 @@ class Proxmox:
         configuration had become since it was read. A certificate that is not what the host keeps is Unverified, told
         by OpenSSL's verify code. Every refusal is raised after the handler that caught its cause has ended, so it
         carries no cause."""
-        if method in ("PUT", "POST") and path.rstrip("/").endswith("/config") and not (form and "digest" in form):
+        if method in ("PUT", "POST") and path.rstrip("/").endswith("/config") and not _digest_in(form):
             raise ValueError(
                 "a write of a VM's configuration sends the digest of the read it was made from, and this one had none:"
                 " nothing was sent"
@@ -616,12 +657,18 @@ class Proxmox:
     # ------------------------------------------------------------------------------------------------- reads ----
 
     def version(self, deadline: float | None = None) -> Version:
-        """GET /version, asked once a client, within deadline seconds where given: the first request it sends. Raises
-        TooOld for a host below Proxmox VE 9, each time it is asked, with nothing more sent."""
+        """GET /version, asked until a client has it, within deadline seconds where given: the first request it sends.
+        No lock is held across the request, so that a call made while another asks waits for none but its own, within
+        its own deadline: two first calls may each ask it, and the first answer kept is the one every later call reads.
+        Raises TooOld for a host below Proxmox VE 9, each time it is asked, with nothing more sent."""
         with self._lock:
-            if self._version is None:
-                self._version = answers.version(self._ask("version", deadline=deadline))
             found = self._version
+        if found is None:
+            asked = answers.version(self._ask("version", deadline=deadline))
+            with self._lock:
+                if self._version is None:
+                    self._version = asked
+                found = self._version
         if found.major < LEAST_MAJOR:
             raise TooOld(self._words(found.version, 40))
         return found
@@ -668,15 +715,20 @@ class Proxmox:
         node, upid = _node(node), _upid(upid)
         return answers.task_status(self._get(f"nodes/{node}/tasks/{upid}/status"), node, upid)
 
-    def task_log(self, node: str, upid: str, start: int = 0, limit: int = 50) -> TaskLog:
-        """GET a task's log, limit lines from line start (0, the first), each made plain."""
+    def task_log(self, node: str, upid: str, start: int = 0, limit: int = 50, deadline: float | None = None) -> TaskLog:
+        """GET a task's log, limit lines from line start (0, the first), each made plain, within deadline seconds where
+        given."""
         node, upid = _node(node), _upid(upid)
         if isinstance(start, bool) or not isinstance(start, int) or start < 0:
             raise ValueError("a log is read from a line number of 0 or more")
         if isinstance(limit, bool) or not isinstance(limit, int) or not 0 < limit <= 10000:
             raise ValueError("a log is read 1 to 10000 lines at a time")
+        if deadline is not None:
+            deadline = _seconds(deadline)
         query = {"start": str(start), "limit": str(limit)}
-        return answers.task_log(self._get(f"nodes/{node}/tasks/{upid}/log", query), node, upid, start)
+        return answers.task_log(
+            self._get(f"nodes/{node}/tasks/{upid}/log", query, deadline=deadline), node, upid, start
+        )
 
     def storages(self, node: str, content: str = "images") -> tuple[Storage, ...]:
         """GET the node's enabled storages that hold content (images, a VM's disks, unless told), those the token may
@@ -887,7 +939,10 @@ class Proxmox:
         file lock, else TaskFailed with the last lines of its log. A poll that fails while the run goes on raises its
         own error - the transport's TimedOut, where one poll had no answer within its read's wait with time still left,
         its Unreachable, or the client's - and the task may then still run on Proxmox: the workflow follows it again by
-        the Task it holds, or reads the VM."""
+        the Task it holds, or reads the VM. The log, read once the task has ended, is held to what is left of the same
+        deadline and to stop, and never decides the outcome: where it cannot be read in that time, its read fails or
+        the run stops, a success is returned with no lines, and a failure is TaskFailed with none - or Stopped where the
+        run stopped, the TaskFailed its cause."""
         if not isinstance(task, Task):
             raise TypeError("follow() follows a Task a write answered")
         if stop is not None and not isinstance(stop, threading.Event):
@@ -926,7 +981,10 @@ class Proxmox:
             elif stop.wait(pause):
                 raise Stopped(task)
         if status.ok:
-            return dataclasses.replace(status, lines=self._last_lines(task)) if status.warnings else status
+            if not status.warnings:
+                return status
+            # The task's success is Proxmox's answer, read; its lines are a courtesy, never a reason to fail it.
+            return dataclasses.replace(status, lines=self._last_lines(task, end, stop) or ())
         error = status.entry.get("exitstatus")
         said = self._words(error if isinstance(error, str) else "", 400)
         if task.kind == "clone" and _taken(said, task.vmid):
@@ -937,14 +995,26 @@ class Proxmox:
             raise Locked(held, locked.group(1), f"its {task.kind} task")
         if _file_locked(said, held):
             raise Locked(held, FILE, f"its {task.kind} task")
-        raise TaskFailed(task, said, self._last_lines(task))
+        lines = self._last_lines(task, end, stop)
+        if lines is None and stop is not None and stop.is_set():
+            raise Stopped(task) from TaskFailed(task, said, ())
+        raise TaskFailed(task, said, lines or ())
 
-    def _last_lines(self, task: Task) -> tuple[str, ...]:
-        """The last LOG_LAST lines of task's log, read LOG_PAGE lines a request and LOG_PAGES requests at most, each
-        one line of plain text with the token's secret struck."""
+    def _last_lines(self, task: Task, end: float, stop: threading.Event | None) -> tuple[str, ...] | None:
+        """The last LOG_LAST lines of an ended task's log, read LOG_PAGE lines a request and LOG_PAGES requests at
+        most, each one line of plain text with the token's secret struck; each request held to what is left of
+        follow()'s deadline, which ends at end (time.monotonic()'s), and stop read before it. None, and no line, where
+        a request failed, none of the deadline was left, or the run stopped: lines read before then are not the last
+        ones."""
         kept: list[str] = []
         for page in range(LOG_PAGES):
-            read = self.task_log(task.node, task.upid, page * LOG_PAGE, LOG_PAGE)
+            left = end - time.monotonic()
+            if left <= 0 or (stop is not None and stop.is_set()):
+                return None
+            try:
+                read = self.task_log(task.node, task.upid, page * LOG_PAGE, LOG_PAGE, deadline=left)
+            except (TransportError, ProxmoxError):
+                return None
             kept = (kept + list(read.lines))[-LOG_LAST:]
             if len(read.lines) < LOG_PAGE:
                 break

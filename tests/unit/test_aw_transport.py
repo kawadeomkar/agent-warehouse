@@ -8,8 +8,9 @@ stand-in CONNECT proxy, on loopback too, which keeps what it was asked and every
 itself, dripping. The transport follows no redirect, reads no certificate variable, netrc or proxy variable, takes a
 proxy only as an argument, sends a write once, bounds every body and wait and the whole call, making its connection
 included, and never says a header's value or a peer's words. Closed, it sends nothing more: a request started after
-is Closed, and one under way ends at its first error, never asked again. proxy.choose works out today's proxy from the
-environment it is given, as requests does. The rules at the end hold the new engine's modules to one transport.
+is Closed, and one under way ends at its first error, never asked again - at once, with no socket closed under its
+read, so that none that takes the socket's number is read or written by it. proxy.choose works out today's proxy from
+the environment it is given, as requests does. The rules at the end hold the new engine's modules to one transport.
 """
 
 from __future__ import annotations
@@ -653,6 +654,192 @@ def test_a_get_under_way_when_the_transport_is_closed_ends_at_its_first_error_an
     finally:
         release.set()
     assert len(server.asked) == 1
+
+
+def _waiting(sock: socket.socket) -> bytes:
+    """What has been sent to sock and not read yet, read without waiting."""
+    sock.setblocking(False)
+    got = b""
+    while True:
+        try:
+            chunk = sock.recv(4096)
+        except BlockingIOError:
+            return got
+        if not chunk:
+            return got
+        got += chunk
+
+
+# Where a read waits when its transport is closed: for the answer itself; in a body sent with its length, whose answer
+# the connection keeps; and in a body that ends with the connection, which http.client hands the socket to.
+HELD_AT = {
+    "for its answer": None,
+    "in a body sent with its length": ("Content-Length", "100"),
+    "in a body that ends with the connection": ("Connection", "close"),
+}
+
+
+@pytest.mark.parametrize("header", HELD_AT.values(), ids=HELD_AT.keys())
+def test_a_read_left_on_a_closed_transport_ends_at_once_and_touches_no_socket_that_takes_its_number(
+    serve, pki, header
+) -> None:
+    """review/code/B22.md 1. Another thread's read waits on a server that holds what it would send next when the
+    transport is closed: close() returns at once, the read ends at once, well inside its three-second limit, and is not
+    asked again; and the sockets the process opens meanwhile - the first of which takes the number of the socket closed
+    under the read, wherever that was closed - keep every byte sent to them and are sent none. A socket closed while the
+    read still waits on it would leave that read, at its limit, to take another socket's bytes and write a TLS alert
+    onto its connection."""
+    asked, release = threading.Event(), threading.Event()
+
+    def held(handler, one, nth) -> None:
+        if header is not None:
+            handler.send_response(200)
+            handler.send_header(*header)
+            handler.end_headers()
+            handler.wfile.write(b"x" * 10)
+            handler.wfile.flush()
+        asked.set()
+        release.wait(30)
+        handler.close_connection = True
+
+    server = serve(held)
+    client = _client(server, pki, read=3.0)
+    ended: dict = {}
+
+    def get() -> None:
+        try:
+            client.request("GET", "version")
+        except (TimedOut, Unreachable) as error:
+            ended["raised"] = error
+        ended["at"] = time.monotonic()
+
+    thread = threading.Thread(target=get, daemon=True)
+    thread.start()
+    pairs: list[tuple[socket.socket, socket.socket]] = []
+    try:
+        assert asked.wait(10)
+        time.sleep(0.3)  # the read waits on its socket by now
+        closing = time.monotonic()
+        client.close()
+        closed = time.monotonic()
+        # The lowest number free goes first, so the first of these takes the number of a socket closed under the read.
+        for _ in range(8):
+            near, far = socket.socketpair()
+            pairs.append((near, far))
+            near.sendall(b"N" * 37)
+            far.sendall(b"F" * 37)
+        thread.join(10)
+        assert not thread.is_alive()
+        left = [(_waiting(near), _waiting(far)) for near, far in pairs]
+    finally:
+        release.set()
+        for near, far in pairs:
+            near.close()
+            far.close()
+    assert closed - closing < 1.0, closed - closing
+    assert ended["at"] - closed < 1.0, (ended["at"] - closed, ended)
+    assert isinstance(ended.get("raised"), Unreachable), ended
+    assert left == [(b"F" * 37, b"N" * 37)] * len(pairs)
+    assert len(server.asked) == 1
+
+
+def test_an_answer_read_on_a_socket_close_shut_down_is_never_handed_back_though_it_seemed_to_end(
+    serve, pki, monkeypatch
+) -> None:
+    """A body that ends with its connection ends where the connection does, so a read whose socket close() shut down
+    could take the shutdown for the body's end, where a system reads it as an end rather than an error (Linux's says an
+    error): such an answer is never handed back, but said as cut (CUT). The shutdown is stood in for by its mark alone,
+    and the server then ends the connection, so that the read ends as a whole body would."""
+    asked, release = threading.Event(), threading.Event()
+
+    def held(handler, one, nth) -> None:
+        handler.send_response(200)
+        handler.send_header("Connection", "close")
+        handler.end_headers()
+        handler.wfile.write(b"x" * 10)
+        handler.wfile.flush()
+        asked.set()
+        release.wait(30)
+        handler.close_connection = True
+
+    monkeypatch.setattr(transport._Wire, "shut", lambda wire: setattr(wire, "cut", True))
+    server = serve(held)
+    client = _client(server, pki, read=3.0)
+    ended: dict = {}
+
+    def get() -> None:
+        try:
+            ended["answer"] = client.request("GET", "version")
+        except (TimedOut, Unreachable) as error:
+            ended["raised"] = error
+
+    thread = threading.Thread(target=get, daemon=True)
+    thread.start()
+    try:
+        assert asked.wait(10)
+        time.sleep(0.3)
+        client.close()
+    finally:
+        release.set()
+    thread.join(10)
+    assert not thread.is_alive()
+    assert "answer" not in ended and isinstance(ended.get("raised"), Unreachable), ended
+    assert str(ended["raised"]) == transport.CUT
+    assert len(server.asked) == 1
+
+
+def test_a_send_left_on_a_closed_transport_ends_at_once_and_touches_no_socket_that_takes_its_number(pki) -> None:
+    """The same for a request still being written: a POST whose body a server reads none of, its send waiting on full
+    buffers when the transport is closed. The send ends at once, Unknown, and no socket the process opens meanwhile is
+    written to or read from: a socket closed under the send would leave it, at its limit, writing TLS records onto
+    whatever took its number."""
+    listener = socket.create_server(("127.0.0.1", 0))
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(pki["cert"], pki["key"])
+    accepted, release = threading.Event(), threading.Event()
+
+    def silent() -> None:
+        raw, _ = listener.accept()
+        with context.wrap_socket(raw, server_side=True):
+            accepted.set()
+            release.wait(30)
+
+    threading.Thread(target=silent, daemon=True).start()
+    client = Transport(f"https://127.0.0.1:{listener.getsockname()[1]}/api2/json", _context(pki["ca"]), AGENT, read=3.0)
+    ended: dict = {}
+
+    def post() -> None:
+        try:
+            client.request("POST", "pools", form={"blob": "x" * (32 << 20)})
+        except (TimedOut, Unreachable, Unknown) as error:
+            ended["raised"] = error
+        ended["at"] = time.monotonic()
+
+    thread = threading.Thread(target=post, daemon=True)
+    thread.start()
+    pairs: list[tuple[socket.socket, socket.socket]] = []
+    try:
+        assert accepted.wait(10)
+        time.sleep(1.0)  # the send waits on full buffers by now
+        client.close()
+        closed = time.monotonic()
+        for _ in range(8):
+            near, far = socket.socketpair()
+            pairs.append((near, far))
+            near.sendall(b"N" * 37)
+            far.sendall(b"F" * 37)
+        thread.join(10)
+        assert not thread.is_alive()
+        left = [(_waiting(near), _waiting(far)) for near, far in pairs]
+    finally:
+        release.set()
+        listener.close()
+        for near, far in pairs:
+            near.close()
+            far.close()
+    assert ended["at"] - closed < 1.0, (ended["at"] - closed, ended)
+    assert isinstance(ended.get("raised"), Unknown), ended
+    assert left == [(b"F" * 37, b"N" * 37)] * len(pairs)
 
 
 def test_a_get_dropped_once_is_asked_again_on_a_new_connection(serve, pki, fast) -> None:

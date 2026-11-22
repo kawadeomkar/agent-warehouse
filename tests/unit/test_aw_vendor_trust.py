@@ -57,7 +57,8 @@ CONTEXTS: dict[str, str] = {
     " name checked and a certificate required",
     "lib/claude_vm/pve/pin.py": "the Proxmox client's context: the host's anchor alone, made by today's trust.py"
     " (anchored_context), the one way a context is made from a certificate the host gave; else the vendors' one;"
-    " its name check off only where a recorded fingerprint names the one certificate, which the peer check holds",
+    " its name check off only where a recorded fingerprint names the one certificate, which the peer check holds:"
+    " so a Pin's context is read by pin.py alone (test_a_pin_s_context_is_read_by_pin_py_alone)",
 }
 # What makes a TLS context or gives one roots, by any spelling but as a type: the class, the standard library's
 # ready-made contexts and its unverified ones (_create_stdlib_context is another name of one), get_server_certificate,
@@ -559,6 +560,56 @@ def test_only_the_modules_contexts_names_make_a_tls_context() -> None:
         f"{ {rel: found for rel, found in making.items() if found and rel not in CONTEXTS} }"
     )
     assert all(reason.strip() for reason in CONTEXTS.values())
+
+
+def _context_reads(source: str) -> list[str]:
+    """Where source reads an attribute named context off anything but a name an import binds there - a module, as the
+    vendors' modules call trust.context, or pin.context, which makes a context - or names it as a string (getattr,
+    attrgetter): the written spellings a read of a Pin's context could take. Past the scan, a reviewer looks for
+    vars(), __dict__ and dataclasses.astuple of a Pin."""
+    tree = ast.parse(source)
+    bound: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            bound |= {alias.asname or alias.name.partition(".")[0] for alias in node.names}
+        elif isinstance(node, ast.ImportFrom):
+            bound |= {alias.asname or alias.name for alias in node.names}
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr == "context":
+            if not (isinstance(node.value, ast.Name) and node.value.id in bound):
+                found.append(f"line {node.lineno}: {ast.unparse(node)}")
+        elif isinstance(node, ast.Constant) and node.value == "context":
+            found.append(f"line {node.lineno}: {node.value!r}")
+    return found
+
+
+def test_a_pin_s_context_is_read_by_pin_py_alone() -> None:
+    """review/code/B22.md 3: where a fingerprint is recorded, a Pin's context checks no name of itself, whatever the
+    anchor: pin.transport hands the fingerprint's check beside it. A connection made from that context anywhere else
+    would check neither the name nor the fingerprint - with a CA's anchor, any certificate that CA signed - so no module
+    of the new engine but pin.py reads a context off anything but a module it imports."""
+    pin_py = REPO / "lib" / "claude_vm" / "pve" / "pin.py"
+    reading = {_rel(path): _context_reads(path.read_text()) for path in _new_engine() if path != pin_py}
+    assert {rel: found for rel, found in reading.items() if found} == {}
+
+
+@pytest.mark.parametrize(
+    ("source", "reads"),
+    [
+        ("pinned.context", True),
+        ("self._pin.context.wrap_socket(raw)", True),
+        ("from ..pve import pin\npin.kept(anchor).context", True),
+        ("getattr(pinned, 'context')", True),
+        ("operator.attrgetter('context')(pinned)", True),
+        ("from . import trust\ntrust.context(None)", False),
+        ("from ..vendors import trust as vendors_trust\nvendors_trust.context(None)", False),
+        ("from ..pve import pin\npin.context(anchor)", False),
+        ("Transport(url, context=made, user_agent=AGENT)", False),
+    ],
+)
+def test_the_scan_of_a_context_read_sees_each_way(source, reads) -> None:
+    assert bool(_context_reads(source)) is reads
 
 
 def test_certifi_is_imported_by_vendors_trust_alone() -> None:
