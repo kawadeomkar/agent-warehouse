@@ -265,8 +265,23 @@ class Job:
         nothing of."""
         machine, text, data = event.machine, event.text, dict(event.data)
         if event.kind == "waiting":
-            waiting = {**data, "machine": machine, "text": text, "since": event.time} if text else None
-            return lambda record: {**record, "waiting": waiting}
+            if text:
+                waiting = {**data, "machine": machine, "text": text, "since": event.time}
+                return lambda record: {**record, "waiting": waiting}
+            # An empty one clears the wait; one that names a section clears only that section's wait of its machine,
+            # which a wait of another machine's, or another of its own since, has not replaced (runs/locks.py's
+            # section).
+            if "section" not in data:
+                return lambda record: {**record, "waiting": None}
+            mine = (data["section"], machine)
+
+            def cleared(record: dict) -> dict:
+                found = record.get("waiting")
+                if isinstance(found, dict) and (found.get("section"), found.get("machine")) == mine:
+                    return {**record, "waiting": None}
+                return record
+
+            return cleared
         if event.kind == "next":
             matter = data.get("matter")
             if not isinstance(matter, str) or not matter:

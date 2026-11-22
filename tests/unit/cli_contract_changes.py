@@ -107,7 +107,6 @@ KEPT: dict[str, str] = {
 
 # Each word the table has and the contract lacks, and its source.
 NEW: dict[str, str] = {
-    "--no-lock": "T8 and O16 item 15 as trimmed: the one word for a run that takes no lock, as RUN_LOCK= was",
     "--attended": "T8 and O16 item 15: kept as the agents' server's own word, as ATTENDED=1 was",
     "--detached-run": "T5: a detached run is the same program in a session of its own, started with this hidden word",
     "--detach": "V2-5: every verb whose run is a job can be started detached, as the agents' server starts it",

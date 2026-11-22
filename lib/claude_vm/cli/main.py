@@ -1,7 +1,7 @@
 """aw's entry, which tools/aw runs (docs/architecture/engine.md §16.3): the words typed read against the one table, held
 by the one check, today's habits applied, and the verb handed to its handler or refused in one sentence.
 
-    aw [--no-lock] [--attended=1] <verb> [<word>...] [<option>...]
+    aw [--attended=1] <verb> [<word>...] [<option>...]
 
 A refusal is one line on standard error, and exits 1 (words.py's EXITS), before any of the words reach a handler: it
 imports no Ansible and no module of the engine. Its sentence says no value typed but where today's does (the rules

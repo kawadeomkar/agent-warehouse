@@ -422,11 +422,12 @@ def test_the_aw_check_catches_what_it_is_for() -> None:
     deploy, status, help_, init = VERBS["deploy"], VERBS["status"], VERBS["help"], VERBS["init"]
     assert _aw_problem([], deploy, ["alpha", "--tags", "claude_code", "--check"]) is None
     assert _aw_problem([], deploy, ["alpha", "-t", "claude_code", "-vvv", "--set", "vm_cores=4", "--detach"]) is None
-    assert _aw_problem(["--no-lock", "--attended=1"], deploy, ["alpha"]) is None
+    assert _aw_problem(["--attended=1"], deploy, ["alpha"]) is None
+    assert _aw_problem(["--no-lock"], deploy, ["alpha"]) == "no word --no-lock before a verb"
     assert _aw_problem([], deploy, ["alpha", "--type", "configure"]) == "no option --type"
     assert _aw_problem([], status, ["--detach"]) == "no option --detach"
     assert _aw_problem(["--run-lock=x"], deploy, []) == "no word --run-lock before a verb"
-    assert _aw_problem(["--no-lock=1"], deploy, []) == "--no-lock takes no value"
+    assert _aw_problem(["--detached-run=1"], deploy, []) == "--detached-run takes no value"
     assert _aw_problem(["--attended=2"], deploy, []) is not None
     assert _aw_problem([], deploy, ["--only", "configre"]) is not None
     assert _aw_problem([], deploy, ["--cores=0"]) is not None
@@ -441,8 +442,8 @@ def test_the_aw_check_catches_what_it_is_for() -> None:
     assert _aw_problem([], init, ["--migrate", "--finish"]) is None
     assert _aw_problem([], init, ["--export=x"]) == "no option --export"
     assert _aw_problem([], init, ["--address", "pve.lan", "and", "then"]) is None
-    [(_, _, before, verb, words)] = _aw_commands_in("run `aw --no-lock deploy alpha --only configure` once")
-    assert (before, verb, words) == (["--no-lock"], "deploy", ["alpha", "--only", "configure"])
+    [(_, _, before, verb, words)] = _aw_commands_in("run `aw --attended=1 deploy alpha --only configure` once")
+    assert (before, verb, words) == (["--attended=1"], "deploy", ["alpha", "--only", "configure"])
     assert list(_aw_commands_in("the new engine behind aw is not built; aw from the checkout")) == []
     assert [verb for *_, verb, _ in _aw_commands_in("tools/aw status and aw help deploy")] == ["status", "help"]
 

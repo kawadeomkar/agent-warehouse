@@ -2,11 +2,11 @@
 
 `RunWords` is one frozen record of what shapes a run of any verb rather than what the verb does: the system layer's
 verbosity (-v) and the settings for one run (--set, as typed: D5 types them) from after the verb; --detach, which C13
-acts on; --no-lock, the one word for a run that takes no lock, at the person's own risk, as `just RUN_LOCK= <recipe>`
-is today (C6 acts on it); --attended=1, the agents' server's word that someone is at the screen with no terminal,
-where ATTENDED=1 stands on a just line today; the hidden --detached-run, which C13's starter gives the run it starts;
-and LOG_DIR and LOG_RETENTION_DAYS, read from the environment as today. Nothing else is read from the environment: an
-exported RUN_LOCK or ATTENDED changes nothing.
+acts on; --attended=1, the agents' server's word that someone is at the screen with no terminal, where ATTENDED=1
+stands on a just line today; the hidden --detached-run, which C13's starter gives the run it starts; and LOG_DIR and
+LOG_RETENTION_DAYS, read from the environment as today. Nothing else is read from the environment: an exported RUN_LOCK
+or ATTENDED changes nothing, and no word makes a run take no lock (runs/lock_sets.py says which locks each verb's run
+takes).
 
 Standard library only.
 """
@@ -30,7 +30,6 @@ class RunWords:
     verbosity: int = 0
     set: tuple[str, ...] = ()
     detach: bool = False
-    no_lock: bool = False
     attended: bool = False
     detached_run: bool = False
     log_dir: str | None = None
@@ -48,7 +47,6 @@ def run_words(
         verbosity=verbosity if isinstance(verbosity, int) else 0,
         set=tuple(str(word) for word in settings) if isinstance(settings, (list, tuple)) else (),
         detach=values.get("detach") is True,
-        no_lock=before.get("no_lock") is True,
         attended=before.get("attended") == "1",
         detached_run=before.get("detached_run") is True,
         log_dir=environ.get("LOG_DIR"),

@@ -176,7 +176,6 @@ TAKE_OVER_REFUSED = "it clears another computer's run recorded on a machine: the
 MIGRATE_REFUSED = "a 2.x fleet is brought in by the person, at a terminal"
 PRINT_COMMANDS_REFUSED = "it prints the commands the Proxmox host's root runs: the administrator's, by hand"
 INSTALLED_REFUSED = "the installed program's, after 3.0: a checkout refuses it, and takes a newer version by git pull"
-NO_LOCK_REFUSED = "a run that takes no lock is the person's, at their own risk: an agent's run always takes its locks"
 DETACHED_RUN_REFUSED = "the run --detach starts is given it by the program itself: nobody types it"
 
 # Given by the server.
@@ -219,11 +218,6 @@ VERBOSE = Option(
 
 # The words given before any verb.
 BEFORE: tuple[Option, ...] = (
-    _flag(
-        "no-lock",
-        "Take no lock for this run, at your own risk: another run may change the same machines at the same time",
-        refused(NO_LOCK_REFUSED),
-    ),
     _value(
         "attended",
         "attended",

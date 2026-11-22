@@ -7,7 +7,8 @@ verb has not got are refused before the dispatch, in one sentence of the project
 with argparse's own text: no refusal has a usage block. A verb no card has built is refused naming that card, and just
 <verb> only where today's justfile has the recipe. --detach is on exactly the verbs whose run is a job. No names means
 the default VM or every VM as the reference says, with no fleet file read. An exported RUN_LOCK or ATTENDED changes
-nothing, in run_words and in the program; --no-lock and --attended=1 before the verb do. A Python that is no
+nothing, in run_words and in the program; --attended=1 before the verb does, and no word makes a run take no lock. A
+Python that is no
 virtualenv's is refused for every verb, naming PYTHON. A refusal imports no Ansible and no module of the engine.
 
 The launcher, run as a person runs it, through the kit: through a link in another folder, through a relative link in a
@@ -212,7 +213,8 @@ def test_a_word_outside_its_pattern_is_refused_unsaid(verb: Verb) -> None:
         ["--bogus", "deploy"],
         [f"--attended={TYPED}", "deploy"],
         ["--attended"],
-        [f"--no-lock={TYPED}", "deploy"],
+        [f"--detached-run={TYPED}", "deploy"],
+        ["--no-lock", "deploy"],
     ],
 )
 def test_a_refusal_is_one_sentence_of_the_project_s_that_says_nothing_typed(words: list[str]) -> None:
@@ -243,7 +245,7 @@ def test_each_refusal_says_what_was_wrong() -> None:
 def test_control_is_an_unknown_verb_since_the_add_on_s_verbs_are_not_the_base_s(capsys) -> None:
     # The owner's answer 3 of 2026-11-20: control is the add-on's, and aw control is refused as a word that is no
     # command is, before anything runs and whatever follows it: never "not built yet", which would name a card.
-    for words in (["control"], ["control", "--detach"], ["control", TYPED], ["--no-lock", "control"]):
+    for words in (["control"], ["control", "--detach"], ["control", TYPED], ["--attended=1", "control"]):
         assert _refused(words) == checks.NO_SUCH_COMMAND, words
     assert checks.check("control", {}) == checks.NO_SUCH_COMMAND
     assert main([str(REPO / "tools" / "aw"), "control"]) == EXITS["refused"]
@@ -293,7 +295,7 @@ def test_a_value_of_two_dashes_is_given_with_equals() -> None:
 
 
 def test_no_verb_is_help() -> None:
-    assert parse.read([]).verb == parse.read(["--no-lock"]).verb == "help"
+    assert parse.read([]).verb == parse.read(["--attended=1"]).verb == "help"
 
 
 def test_detach_is_on_exactly_the_verbs_whose_run_is_a_job(monkeypatch) -> None:
@@ -319,7 +321,8 @@ def test_the_check_takes_json_with_exact_types_and_coerces_nothing() -> None:
     assert checks.check("deploy", {"cores": None}) is None
     assert checks.check("deploy", {"no_such": "x"}) == checks.no_option("deploy", "no_such")
     assert checks.check(TYPED, {}) == checks.NO_SUCH_COMMAND
-    assert checks.check_before({"attended": "1", "no_lock": True}) is None
+    assert checks.check_before({"attended": "1", "detached_run": True}) is None
+    assert checks.check_before({"no_lock": True}) is not None
     assert checks.check_before({"attended": "2"}) is not None
 
 
@@ -378,16 +381,16 @@ def test_a_verb_that_takes_one_name_is_given_no_default() -> None:
 def test_an_exported_run_lock_or_attended_changes_nothing_and_the_words_before_the_verb_do() -> None:
     environ = {"RUN_LOCK": "", "ATTENDED": "1", "LOG_DIR": "/srv/logs", "LOG_RETENTION_DAYS": "3"}
     run, values = before.run_words(parse.read(["deploy", "alpha"]).before, {"names": ["alpha"]}, environ)
-    assert (run.no_lock, run.attended, run.log_dir, run.log_retention_days) == (False, False, "/srv/logs", "3")
-    reading = parse.read(["--no-lock", "--attended=1", "--detached-run", "deploy", "--detach", "-vv", "--set=a=1"])
+    assert (run.attended, run.log_dir, run.log_retention_days) == (False, "/srv/logs", "3")
+    reading = parse.read(["--attended=1", "--detached-run", "deploy", "--detach", "-vv", "--set=a=1"])
     run, values = before.run_words(reading.before, reading.values, {})
-    assert run == before.RunWords(
-        verbosity=2, set=("a=1",), detach=True, no_lock=True, attended=True, detached_run=True
-    )
+    assert run == before.RunWords(verbosity=2, set=("a=1",), detach=True, attended=True, detached_run=True)
     assert values == {}
     assert before.run_words(parse.read(["--attended", "0", "status"]).before, {}, {})[0].attended is False
     with pytest.raises(dataclasses.FrozenInstanceError):
-        run.no_lock = False  # type: ignore[misc]
+        run.attended = False  # type: ignore[misc]
+    # No word, and no field of the run's own, makes a run take no lock.
+    assert "no_lock" not in {field.name for field in dataclasses.fields(before.RunWords)}
 
 
 def test_an_exported_run_lock_or_attended_changes_nothing_in_the_program_either(monkeypatch) -> None:
@@ -404,8 +407,8 @@ def test_an_exported_run_lock_or_attended_changes_nothing_in_the_program_either(
     monkeypatch.setenv("ATTENDED", "1")
     monkeypatch.setenv("RUN_LOCK", "")
     assert main([str(REPO / "tools" / "aw"), "status"]) == EXITS["done"]
-    assert main([str(REPO / "tools" / "aw"), "--no-lock", "--attended=1", "status"]) == EXITS["done"]
-    assert received == [before.RunWords(), before.RunWords(no_lock=True, attended=True)]
+    assert main([str(REPO / "tools" / "aw"), "--attended=1", "status"]) == EXITS["done"]
+    assert received == [before.RunWords(), before.RunWords(attended=True)]
 
 
 # ---------------------------------------------------------------- the dispatch ----

@@ -147,9 +147,10 @@ def test_no_two_options_of_a_verb_share_a_spelling_or_a_name_and_none_is_detach(
     assert VERBS[verb.name] is verb
 
 
-def test_the_words_before_a_verb_are_the_three_ruled_and_none_is_detach() -> None:
-    assert [_spelled(option) for option in BEFORE] == ["--no-lock", "--attended", "--detached-run"]
-    assert [option.help is None for option in BEFORE] == [False, False, True]
+def test_the_words_before_a_verb_are_the_two_ruled_and_none_is_detach() -> None:
+    # No word makes a run take no lock (the clean slate's decision 8): each verb's run takes the locks its row gives.
+    assert [_spelled(option) for option in BEFORE] == ["--attended", "--detached-run"]
+    assert [option.help is None for option in BEFORE] == [False, True]
 
 
 @pytest.mark.parametrize("verb", list(VERBS.values()), ids=list(VERBS))
@@ -297,7 +298,6 @@ def test_the_new_words_fates_are_those_ruled() -> None:
                 if option.long == "confirm":
                     assert given == words.fixed(None, words.CONFIRMED), name
     assert [fate(option.agent, "any") for option in BEFORE] == [
-        words.refused(words.NO_LOCK_REFUSED),
         words.ATTENDED,
         words.refused(words.DETACHED_RUN_REFUSED),
     ]
