@@ -27,6 +27,7 @@ import dataclasses
 import json
 import os
 import re
+import shlex
 import shutil
 import stat
 import subprocess
@@ -34,7 +35,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from aw_kit import LAUNCHER, environment, imports_of, run_aw, run_launcher
+from aw_kit import LAUNCHER, environment, imports_of, on_path, run_aw, run_launcher
 from harness import GIT_ENV, REPO
 
 from claude_vm.cli import before, dispatch, habits, parse
@@ -43,7 +44,7 @@ from claude_vm.fleet import paths
 from claude_vm.schema import check as checks
 from claude_vm.schema import rules
 from claude_vm.schema.patterns import PATTERNS, full
-from claude_vm.schema.words import EXITS, VERBS, Verb
+from claude_vm.schema.words import EXITS, VERBS, Verb, said
 
 CONTRACT = json.loads((Path(__file__).resolve().parent / "cli_contract.json").read_text())
 # Today's justfile's recipes a person runs, by the contract.
@@ -143,8 +144,6 @@ def test_every_option_of_every_verb_parses_in_both_spellings(monkeypatch, verb: 
     assert parse.read([verb.name, f"{spelling}={sample}"]).values == {field: taken}
     if option.kind == "repeatable":
         assert parse.read([verb.name, spelling, sample, f"{spelling}={sample}"]).values == {field: [sample, sample]}
-    if option.kind == "optional-value":
-        assert parse.read([verb.name, spelling]).values == {field: True}
 
 
 def test_set_twice_and_v_counted_beside_the_words() -> None:
@@ -179,7 +178,9 @@ def test_a_value_outside_its_pattern_or_with_a_newline_after_it_is_refused_unsai
     for value in (BAD, SAMPLES[option.pattern] + "\n" + TYPED, SAMPLES[option.pattern] + "\n"):
         sentence = _refused([verb.name, f"{spelling}={value}"])
         _said_nothing_typed(sentence)
-        assert spelling in sentence and option.help in sentence, sentence
+        # The option's help, and the form its value may take, which the person reads in aw help too (H25).
+        assert spelling in sentence and said(option.help or "") in sentence, sentence
+        assert sentence.endswith(f" [pattern: '{PATTERNS[option.pattern]}']"), sentence
 
 
 @pytest.mark.parametrize("verb", [verb for verb in VERBS.values() if verb.words and verb.words.pattern])
@@ -187,7 +188,8 @@ def test_a_word_outside_its_pattern_is_refused_unsaid(verb: Verb) -> None:
     for word in (BAD, SAMPLES[verb.words.pattern] + "\n"):
         sentence = _refused([verb.name, word])
         _said_nothing_typed(sentence)
-        assert verb.words.help in sentence, sentence
+        assert said(verb.words.help) in sentence, sentence
+        assert sentence.endswith(f" [pattern: '{PATTERNS[verb.words.pattern]}']"), sentence
 
 
 @pytest.mark.parametrize(
@@ -231,10 +233,10 @@ def test_each_refusal_says_what_was_wrong() -> None:
     assert _refused(["deploy", "--bogus=x"]) == checks.no_option("deploy", "--bogus")
     assert _refused(["deploy", f"--{TYPED}"]) == checks.no_option("deploy", f"--{TYPED}")
     assert _refused(["deploy", "--Bogus"]) == checks.no_option("deploy", None)
-    assert _refused([TYPED]) == checks.NO_SUCH_COMMAND
+    assert _refused([TYPED]) == checks.no_such_command()
     assert _refused(["install", "x"]) == checks.only_options("install")
     # init's word, and help's second, are refused by today's rules, in today's sentences (H5's, schema/rules.py).
-    assert _refused(["init", "x"]) == rules.RULES["init.1"].sentence
+    assert _refused(["init", "x"]) == rules.RULES["init.1"].check({"extra": "x"})
     assert _refused(["logs", "0123456789abcdef", "fedcba9876543210"]) == checks.one_word("logs", VERBS["logs"].words)
     assert "takes --cores once" in _refused(["deploy", "--cores=8", "--cores=9"])
     assert "--check takes no value" in _refused(["deploy", "--check=yes"])
@@ -246,11 +248,11 @@ def test_control_is_an_unknown_verb_since_the_add_on_s_verbs_are_not_the_base_s(
     # The owner's answer 3 of 2026-11-20: control is the add-on's, and aw control is refused as a word that is no
     # command is, before anything runs and whatever follows it: never "not built yet", which would name a card.
     for words in (["control"], ["control", "--detach"], ["control", TYPED], ["--attended=1", "control"]):
-        assert _refused(words) == checks.NO_SUCH_COMMAND, words
-    assert checks.check("control", {}) == checks.NO_SUCH_COMMAND
+        assert _refused(words) == checks.no_such_command(), words
+    assert checks.check("control", {}) == checks.no_such_command()
     assert main([str(REPO / "tools" / "aw"), "control"]) == EXITS["refused"]
     said = capsys.readouterr()
-    assert (said.out, said.err) == ("", checks.NO_SUCH_COMMAND + "\n")
+    assert (said.out, said.err) == ("", checks.no_such_command() + "\n")
 
 
 def test_a_word_that_starts_with_a_dash_is_given_with_equals() -> None:
@@ -291,7 +293,7 @@ def test_an_end_of_options_is_refused_before_argparse_reads_it(monkeypatch, word
 
 def test_a_value_of_two_dashes_is_given_with_equals() -> None:
     assert parse.read(["settings", "vm_cores", "--value=--"]).values == {"name": "vm_cores", "value": "--"}
-    assert _refused(["bogus", "--"]) == checks.NO_SUCH_COMMAND
+    assert _refused(["bogus", "--"]) == checks.no_such_command()
 
 
 def test_no_verb_is_help() -> None:
@@ -317,10 +319,9 @@ def test_the_check_takes_json_with_exact_types_and_coerces_nothing() -> None:
     assert checks.check("deploy", {"verbosity": True}) is not None
     assert checks.check("deploy", {"names": "alpha"}) is not None
     assert checks.check("deploy", {"detach": True}) is None and checks.check("status", {"detach": True}) is not None
-    assert checks.check("init", {"migrate": True}) is None and checks.check("init", {"migrate": False}) is not None
     assert checks.check("deploy", {"cores": None}) is None
     assert checks.check("deploy", {"no_such": "x"}) == checks.no_option("deploy", "no_such")
-    assert checks.check(TYPED, {}) == checks.NO_SUCH_COMMAND
+    assert checks.check(TYPED, {}) == checks.no_such_command()
     assert checks.check_before({"attended": "1", "detached_run": True}) is None
     assert checks.check_before({"no_lock": True}) is not None
     assert checks.check_before({"attended": "2"}) is not None
@@ -536,16 +537,19 @@ REFUSED = [
 
 @pytest.mark.parametrize("words", REFUSED, ids=lambda words: " ".join(words).replace("\x07", "^G"))
 def test_tools_aw_and_the_launcher_refuse_in_one_line_that_says_nothing_typed(home, words) -> None:
-    for ran in (run_aw(*words, home=home), run_launcher(*words, home=home, cwd=home)):
+    launched = run_launcher(*words, home=home, cwd=home, first_on_path=(on_path(home),))
+    for ran in (run_aw(*words, home=home), launched):
         assert (ran.returncode, ran.stdout) == (1, ""), ran
         [line] = ran.stderr.splitlines()
         _said_nothing_typed(line)
 
 
 def test_the_done_lines_are_said_as_the_card_says(home) -> None:
-    built = run_launcher("deploy", "--cores", "8", "alpha", home=home, cwd=REPO)
+    # aw on PATH is the launcher, so its sentences name aw, as in this process.
+    path = (on_path(home),)
+    built = run_launcher("deploy", "--cores", "8", "alpha", home=home, cwd=REPO, first_on_path=path)
     assert built.stderr == dispatch.not_built(VERBS["deploy"]) + "\n" and "(card G3 builds it)" in built.stderr
-    core = run_launcher("deploy", "--core", "8", home=home, cwd=REPO)
+    core = run_launcher("deploy", "--core", "8", home=home, cwd=REPO, first_on_path=path)
     assert (core.returncode, core.stderr) == (1, checks.no_option("deploy", "--core") + "\n")
 
 
@@ -804,6 +808,20 @@ def test_install_lock_is_uv_lock_alone(home, tmp_path) -> None:
     assert result.stdout == "" and not (checkout / ".git" / "hooks" / "pre-commit").exists()
 
 
+def test_install_says_how_to_put_aw_on_path_where_aw_on_path_is_not_this_launcher(home, tmp_path) -> None:
+    # The owner's answer 4 of 2026-11-21: one sentence, and nothing written outside the checkout for it (H25).
+    checkout = _checkout(tmp_path, "hint")
+    _uv(tmp_path)
+    env = {"PYTHON": sys.executable, "UV": str(tmp_path / "uv-bin" / "uv"), "AGENT_WAREHOUSE_JOB": JOB, **NO_GIT_CONFIG}
+    told = run_launcher("--install-env", home=home, launcher=checkout / "aw", env=env)
+    link = f"ln -s '{checkout.resolve() / 'aw'}' ~/.local/bin/aw"
+    assert told.returncode == 0, told.stderr
+    assert f"To run aw from any folder, link it into a folder on your PATH: {link}" in told.stdout.splitlines()
+    linked = on_path(home, checkout / "aw")
+    again = run_launcher("--install-env", home=home, launcher=checkout / "aw", env=env, first_on_path=(linked,))
+    assert again.returncode == 0 and "To run aw from any folder" not in again.stdout + again.stderr
+
+
 def test_a_core_hooks_path_of_yours_gets_no_hook_and_is_said(home, tmp_path) -> None:
     checkout = _checkout(tmp_path, "hooks-path")
     _uv(tmp_path)
@@ -873,7 +891,9 @@ def test_your_virtualenv_without_the_packages_is_never_installed_into_unasked(ho
     result = run_launcher("status", home=home, launcher=checkout / "aw", env=env)
     assert (result.returncode, result.stdout) == (1, "")
     [line] = result.stderr.splitlines()
-    assert line.startswith("error: the Python environment") and line.endswith("run aw install"), line
+    # Run by its path, with no aw on PATH that is it: the program as it was started (H25).
+    program = shlex.quote(str(checkout / "aw"))
+    assert line.startswith("error: the Python environment") and line.endswith(f"run {program} install"), line
     assert _uv_runs(tmp_path) == [] and not (checkout / ".git" / "hooks" / "pre-commit").exists()
 
 

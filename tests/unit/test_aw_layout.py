@@ -19,7 +19,7 @@ from harness import repo_files, repo_texts
 from test_claude_vm import _core_modules
 
 from claude_vm.cli.dispatch import not_built
-from claude_vm.schema.check import NO_SUCH_COMMAND
+from claude_vm.schema.check import no_such_command
 from claude_vm.schema.words import VERBS
 
 REPO = Path(__file__).resolve().parents[2]
@@ -274,7 +274,7 @@ def test_aw_version_names_this_checkout(tmp_path, home) -> None:
     [
         (("status",), not_built(VERBS["status"])),
         (("deploy", "alpha"), not_built(VERBS["deploy"])),
-        (("hunter2",), NO_SUCH_COMMAND),
+        (("hunter2",), no_such_command()),
     ],
 )
 def test_aw_refuses_what_is_not_built_in_one_sentence_that_repeats_nothing(tmp_path, home, words, said) -> None:

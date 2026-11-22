@@ -4,14 +4,18 @@ agents' server through aw, and the add-on's broker on JSON (docs/architecture/en
 `check(verb, values)` holds each value the table of verbs and options (words.py) names to its kind and its pattern,
 with patterns.py's `full`; then runs the rules between options its row names (rules.py), in that order; then holds the
 verb's words to their number. It returns None, or the one sentence of the first refusal. A pattern's sentence never
-says the value, since a word typed may be a secret; a rule's says one back only where today's does, once the value has
-met its pattern. Values come as the parser gives them and as JSON with exact types, and nothing is coerced: a value
-option's is a string, a flag's a boolean, a repeatable option's a list of strings, a counted option's a whole number,
-an optional value's true (given alone) or a string; a verb's words are a list of strings where it takes several and a
-string where it takes one, or a list where the parser was given more than one, which the rules see as given before the
-verb's one word is held to its number; and `detach` is a flag of every verb whose run is a job. A key the verb has no
-option for is refused, and one whose value is None is taken as not given. `formed(verb, values)` is the check but for
-the rules between options: what the printer of a command holds a line to (lib/claude_vm/cli/inverse.py).
+says the value, since a word typed may be a secret, and says the form the value may take (patterns.py's `form`) after
+the option's help; a rule's says one back only where today's does, once the value has met its pattern. Values come as
+the parser gives them and as JSON with exact types, and nothing is coerced: a value option's is a string, a flag's a
+boolean, a repeatable option's a list of strings, a counted option's a whole number; a verb's words are a list of
+strings where it takes several and a string where it takes one, or a list where the parser was given more than one,
+which the rules see as given before the verb's one word is held to its number; and `detach` is a flag of every verb
+whose run is a job. A key the verb has no option for is refused, and one whose value is None is taken as not given.
+`formed(verb, values)` is the check but for the rules between options: what the printer of a command holds a line to
+(lib/claude_vm/cli/inverse.py).
+
+Every command a sentence here names, the verb refused and where its options are listed among them, is the printer's,
+through words.py's `said`, so it is the program as it was started.
 
 Standard library only: every command reads it, a refusal among them.
 """
@@ -22,11 +26,9 @@ import re
 from collections.abc import Mapping
 
 from claude_vm.schema import rules
-from claude_vm.schema.patterns import full
-from claude_vm.schema.words import BEFORE, DETACH, DETACH_AGENT, VERBS, Option, Verb, Words
+from claude_vm.schema.patterns import form, full
+from claude_vm.schema.words import BEFORE, DETACH, DETACH_AGENT, VERBS, Line, Option, Verb, Words, said
 
-# The sentence of a verb the table has not got, which never says the word: it may be anything typed.
-NO_SUCH_COMMAND = "error: aw has no such command (aw help lists them)"
 # A key of JSON's values a sentence may name: a field's name, never a value.
 _NAMEABLE = re.compile(r"[a-z][a-z0-9_]{0,40}")
 
@@ -36,7 +38,6 @@ _TYPES = {
     "flag": "true or false",
     "repeatable": "a list of strings",
     "counted": "a whole number",
-    "optional-value": "true or a string",
 }
 
 # The flag the parser gives every verb whose run is a job (words.py's DETACH): no row of the table holds it.
@@ -49,12 +50,19 @@ def spelled(option: Option) -> str:
 
 
 def command(verb: str) -> str:
-    """The command a sentence names: aw and the verb, or aw alone for the words before any verb."""
-    return f"aw {verb}" if verb else "aw"
+    """The command a sentence names: the program and the verb, or the program alone for the words before any verb, as
+    the printer writes them."""
+    return said("{line}", {"line": Line(verb, host_flag="")}) if verb else said("{program}")
 
 
 def help_of(verb: str) -> str:
-    return f"aw help {verb}" if verb else "aw help"
+    """Where a sentence sends a person for a verb's options, or for the verbs: aw help <verb>, or aw help."""
+    return said("{line}", {"line": Line("help", {"recipe": verb} if verb else {})})
+
+
+def no_such_command() -> str:
+    """The sentence of a verb the table has not got, which never says the word: it may be anything typed."""
+    return f"error: {command('')} has no such command ({help_of('')} lists them)"
 
 
 def options_of(verb: Verb) -> tuple[Option, ...]:
@@ -80,7 +88,10 @@ def no_option(verb: str, name: str | None) -> str:
 
 
 def _not_held(verb: str, option: Option) -> str:
-    return f"error: {command(verb)} {spelled(option)} takes no such value: {option.help}"
+    """The sentence of a value outside its option's pattern: the option's help and the form it may take, never the
+    value."""
+    helped = said(option.help or "")
+    return f"error: {command(verb)} {spelled(option)} takes no such value: {helped} {form(option.pattern or '')}"
 
 
 def _wrong_type(verb: str, option: Option) -> str:
@@ -88,7 +99,7 @@ def _wrong_type(verb: str, option: Option) -> str:
 
 
 def _word_not_held(verb: str, words: Words) -> str:
-    return f"error: {command(verb)} takes no such {words.name}: {words.help}"
+    return f"error: {command(verb)} takes no such {words.name}: {said(words.help)} {form(words.pattern or '')}"
 
 
 def _words_type(verb: str, words: Words) -> str:
@@ -111,12 +122,6 @@ def _option(verb: str, option: Option, value: object) -> str | None:
         if type(value) is not list or not all(_string(item) for item in value):
             return _wrong_type(verb, option)
         items = value
-    elif kind == "optional-value":
-        if value is True:
-            return None
-        if not _string(value):
-            return _wrong_type(verb, option)
-        items = [value]
     else:
         if not _string(value):
             return _wrong_type(verb, option)
@@ -179,7 +184,7 @@ def check(verb: str, values: Mapping[str, object]) -> str | None:
     between options its row names that the values break; then a word beyond what the verb takes."""
     row = VERBS.get(verb)
     if row is None:
-        return NO_SUCH_COMMAND
+        return no_such_command()
     return (
         _hold(verb, options_of(row), row.words, values)
         or rules.run(row.rules, values)
@@ -194,7 +199,7 @@ def formed(verb: str, values: Mapping[str, object]) -> str | None:
     run's to say, and a line may name a run that one refuses."""
     row = VERBS.get(verb)
     if row is None:
-        return NO_SUCH_COMMAND
+        return no_such_command()
     return _hold(verb, options_of(row), row.words, values) or _number(verb, row.words, values)
 
 

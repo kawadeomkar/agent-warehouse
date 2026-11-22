@@ -2,36 +2,41 @@
 check (check.py) after the patterns, in the order the verb's row of the table names them, and stopping at the first
 that refuses (docs/architecture/engine.md §16.2).
 
-A rule is `Rule(code, verbs, sentence, breaks)`: the code the contract of today's command line gives it
+A rule is `Rule(code, verbs, sentence, breaks, lines)`: the code the contract of today's command line gives it
 (tests/unit/cli_contract.json: `deploy.4`, `check.names.1`), the verbs whose row of the table (words.py) names it,
-today's sentence with aw where it said just and `{name}` where it says a value, and `breaks`, which takes the verb's
-values and returns None where they keep the rule, or what fills the sentence where they break it. `Rule.check(values)`
-gives nothing or the sentence filled in. A sentence says a value back only where today's does, and then a value that
-has already met its pattern: the check holds every value to its pattern first, as just does before a recipe's script.
+its sentence with `{name}` where it says a value or names a command, and `breaks`, which takes the verb's values and
+returns None where they keep the rule, or what fills the sentence where they break it; `lines` are the commands the
+sentence names whatever the values. A command is a `Line` (words.py), never text: `Rule.check(values)` gives nothing or
+the sentence said through words.py's `said`, so each command in it is the printer's line, the program as it was
+started, and a value or a verb's words it does not know is named by its help name (`aw code <name>`). A sentence says a
+value back only where today's does, and then a value that has already met its pattern: the check holds every value to
+its pattern first, as just does before a recipe's script.
 
 The values are the verb's as the check takes them: by the field the handler receives them by, only what was given, a
 value option's a string, a flag's a boolean, the words a list where the verb takes several and a string where it takes
 one, or a list where the parser was given more than one; an empty string is no value given, as today's empty
-parameter is. The rules are today's rules between options (the justfile's, said before any check or tool), word for
-word, and the three argument checks of tools/check that are more than one pattern: host --for's names, split at its
+parameter is. The rules are today's rules between options (the justfile's, said before any check or tool), and the
+three argument checks of tools/check that are more than one pattern: host --for's names, split at its
 commas; --repos' 2000 characters; and --project's . and .., which its pattern takes. tools/check's other checks hold
 one value to what its pattern already holds, behind just's pattern, for the JSON the justfile's scripts join: they
 are the pattern's alone here, and no rule repeats a value's own pattern. What is not a rule between options is a habit
 (lib/claude_vm/cli/habits.py); a check that reads the fleet's files, the environment, the file system or a terminal is
 its verb's own, made where the verb is built.
 
-Standard library only: every command reads it, a refusal among them.
+Standard library only, and words.py: every command reads it, a refusal among them.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from claude_vm.schema.words import PLACEHOLDER, Line, said
 
 # A verb's values, by the field the handler receives each by.
 Values = Mapping[str, object]
-# What fills a sentence's {name}s where a rule is broken.
-Filled = Mapping[str, str]
+# What fills a sentence's {name}s where a rule is broken: a value, as a string, or a command, as a Line.
+Filled = Mapping[str, object]
 
 # The roles configuration can be narrowed to (deploy --tags), as today's configure.yml tags them: with the guest's
 # second layer out of Ansible they stay these six, as the parts of a configure (tests/unit/test_aw_cli_rules.py holds
@@ -40,22 +45,23 @@ CONFIGURE_ROLES = ("common", "vscode_server", "dev_tools", "claude_code", "githu
 # The characters the checks spell out, as tools/check does, so no locale can widen them.
 _LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 _DIGITS = "0123456789"
-_LOWER = "abcdefghijklmnopqrstuvwxyz"
 
 
 @dataclass(frozen=True)
 class Rule:
-    """A rule between options: its code, the verbs whose row names it, its sentence, and what breaks it."""
+    """A rule between options: its code, the verbs whose row names it, its sentence, what breaks it, and the commands
+    its sentence names whatever the values."""
 
     code: str
     verbs: tuple[str, ...]
     sentence: str
     breaks: Callable[[Values], Filled | None]
+    lines: Mapping[str, Line] = field(default_factory=dict)
 
     def check(self, values: Values) -> str | None:
-        """None where values keep the rule, else its sentence filled in."""
+        """None where values keep the rule, else its sentence filled in and said, each command the printer's."""
         filled = self.breaks(values)
-        return None if filled is None else self.sentence.format_map(filled)
+        return None if filled is None else said(self.sentence, {**self.lines, **filled})
 
 
 def _text(values: Values, field: str) -> str:
@@ -133,15 +139,22 @@ def _tags_roles(values: Values) -> Filled | None:
     return None
 
 
+def _configure(roles: str) -> Line:
+    """deploy's configuration of every VM, narrowed to roles."""
+    return Line("deploy", {"only": "configure", "tags": roles}, host_flag="")
+
+
 def _tags_stage(values: Values) -> Filled | None:
     roles, stage = _text(values, "tags"), _text(values, "only")
-    return {"stage": stage, "roles": roles} if roles and stage in _UNCONFIGURED else None
+    return {"stage": stage, "configure": _configure(roles)} if roles and stage in _UNCONFIGURED else None
 
 
 def _tags_alone(values: Values) -> Filled | None:
     roles = _text(values, "tags")
     alone = not _words(values, "names") and not _on(values, "only") and not _on(values, "check")
-    return {"roles": roles} if roles and alone else None
+    if not (roles and alone):
+        return None
+    return {"named": Line("deploy", {"names": PLACEHOLDER, "tags": roles}, host_flag=""), "every": _configure(roles)}
 
 
 def _check_stage(values: Values) -> Filled | None:
@@ -187,19 +200,6 @@ def _confirm_differs(values: Values) -> Filled | None:
     if confirm and names and _set_of(confirm) != _set_of(names):
         return {"confirm": confirm, "names": names.replace("_", "-")}
     return None
-
-
-def _host_address(values: Values) -> Filled | None:
-    host, address = _text(values, "host"), _text(values, "address")
-    return {"host": host, "address": address} if ("." in host or ":" in host) and address else None
-
-
-def _host_name(values: Values) -> Filled | None:
-    host = _text(values, "host")
-    if not host or "." in host or ":" in host:
-        return None
-    held = host[0] in _LOWER + _DIGITS and _only(host, _LOWER + _DIGITS + "-")
-    return None if held else {"host": host}
 
 
 def _count(field: str, most: int) -> Callable[[Values], Filled | None]:
@@ -257,34 +257,31 @@ def _mcp_both(values: Values) -> Filled | None:
     return {} if _on(values, "remove") and _on(values, "show") else None
 
 
+# The commands the rules' sentences name whatever the values.
+_DEPLOY = Line("deploy", host_flag="")
+_PROVISION = Line("deploy", {"only": "provision"}, host_flag="")
+
 _ALL: tuple[Rule, ...] = (
     Rule(
         "help.1",
         ("help",),
-        "error: aw help shows one recipe's options at a time (got: [{words}])",
+        "error: {help} shows one recipe's options at a time (got: [{words}])",
         _count("recipe", 1),
+        {"help": Line("help")},
     ),
     Rule(
         "init.1",
         ("init",),
-        "error: aw init takes only its options (aw help init), and nothing after them - never the token secret, which "
+        "error: {init} takes only its options ({help_init}), and nothing after them - never the token secret, which "
         "the command line would put in the shell's history and the process list: put it in a file only you can read, "
-        "aw init --token-secret-file <file>, or export AGENT_WAREHOUSE_TOKEN_SECRET from wherever your secrets live - "
-        "a CI secret, or read -rs at a prompt",
+        "{secret_file}, or export AGENT_WAREHOUSE_TOKEN_SECRET from wherever your secrets live - a CI secret, or read "
+        "-rs at a prompt",
         _any_word("extra"),
-    ),
-    Rule(
-        "init.2",
-        ("init",),
-        "error: --host {host} and --address {address}: --host names a host of this checkout's, and its address is "
-        "--address",
-        _host_address,
-    ),
-    Rule(
-        "init.3",
-        ("init",),
-        "error: a host's name is lowercase letters, digits and -, from a letter or a digit (got: [{host}])",
-        _host_name,
+        {
+            "init": Line("init"),
+            "help_init": Line("help", {"recipe": "init"}),
+            "secret_file": Line("init", {"token_secret_file": PLACEHOLDER}),
+        },
     ),
     Rule(
         "deploy.4",
@@ -296,70 +293,79 @@ _ALL: tuple[Rule, ...] = (
     Rule(
         "deploy.6",
         ("deploy",),
-        "error: --tags narrows configuration, which --only {stage} does not run: aw deploy --only configure --tags "
-        "{roles}",
+        "error: --tags narrows configuration, which --only {stage} does not run: {configure}",
         _tags_stage,
     ),
     Rule(
         "deploy.7",
         ("deploy",),
-        "error: --tags on its own configures the VMs named beside it: aw deploy <name>... --tags {roles}, or every VM "
-        "this project created with aw deploy --only configure --tags {roles}",
+        "error: --tags on its own configures the VMs named beside it: {named}, or every VM this project created with "
+        "{every}",
         _tags_alone,
     ),
     Rule(
         "deploy.8",
         ("deploy",),
-        "error: --check is a dry run of configuration, which --only {stage} is not: aw deploy --check",
+        "error: --check is a dry run of configuration, which --only {stage} is not: {dry_run}",
         _check_stage,
+        {"dry_run": Line("deploy", {"check": True}, host_flag="")},
     ),
     Rule(
         "deploy.9",
         ("deploy",),
-        "error: aw deploy --only template builds the template, which takes no VM names",
+        "error: {template} builds the template, which takes no VM names",
         _template_names,
+        {"template": Line("deploy", {"only": "template"}, host_flag="")},
     ),
     Rule(
         "deploy.10",
         ("deploy",),
-        "error: --start starts a VM the run would leave stopped, which only aw deploy and aw deploy --only provision "
-        "start",
+        "error: --start starts a VM the run would leave stopped, which only {deploy} and {provision} start",
         _start,
+        {"deploy": _DEPLOY, "provision": _PROVISION},
     ),
     Rule(
         "deploy.11",
         ("deploy",),
-        "error: --cores, --memory and --disk size a VM the run creates, which only aw deploy and aw deploy --only "
-        "provision do",
+        "error: --cores, --memory and --disk size a VM the run creates, which only {deploy} and {provision} do",
         _size,
+        {"deploy": _DEPLOY, "provision": _PROVISION},
     ),
     Rule(
         "deploy.12",
         ("deploy",),
-        "error: --repos gives a VM its list as it is provisioned, which only aw deploy and aw deploy --only provision "
-        "do",
+        "error: --repos gives a VM its list as it is provisioned, which only {deploy} and {provision} do",
         _repos_given,
+        {"deploy": _DEPLOY, "provision": _PROVISION},
     ),
-    Rule("code.1", ("code",), "error: code opens one VM: aw code <name>", _code_none),
+    Rule(
+        "code.1",
+        ("code",),
+        "error: code opens one VM: {code}",
+        _code_none,
+        {"code": Line("code", {"name": PLACEHOLDER}, host_flag="")},
+    ),
     Rule("code.2", ("code",), "error: code opens one VM at a time, not [{words}]", _code_many),
     Rule(
         "settings.1",
         ("settings",),
-        "error: aw settings takes one role or variable, and --value its value",
+        "error: {settings} takes one role or variable, and --value its value",
         _count("name", 1),
+        {"settings": Line("settings")},
     ),
     Rule(
         "settings.2",
         ("settings",),
-        "error: aw settings --all lists every setting: give it no role or variable",
+        "error: {all} lists every setting: give it no role or variable",
         _settings_all,
+        {"all": Line("settings", {"all": True})},
     ),
     Rule(
         "settings.3",
         ("settings",),
-        "error: --value and --reset each change the one setting named beside it: aw settings <name> --value <value>, "
-        "or --reset",
+        "error: --value and --reset each change the one setting named beside it: {value}, or --reset",
         _settings_one,
+        {"value": Line("settings", {"name": PLACEHOLDER, "value": PLACEHOLDER})},
     ),
     Rule(
         "settings.4",
@@ -370,8 +376,9 @@ _ALL: tuple[Rule, ...] = (
     Rule(
         "destroy.1",
         ("destroy",),
-        "error: --confirm answers for the VMs named beside it: aw destroy --confirm=<names> <names>",
+        "error: --confirm answers for the VMs named beside it: {confirmed}",
         _confirm_alone,
+        {"confirmed": Line("destroy", {"names": PLACEHOLDER, "confirm": PLACEHOLDER}, host_flag="")},
     ),
     Rule(
         "destroy.2",
@@ -379,7 +386,13 @@ _ALL: tuple[Rule, ...] = (
         "error: --confirm names {confirm}, but the VMs given are {names}: nothing was deleted",
         _confirm_differs,
     ),
-    Rule("host.1", ("host",), "error: aw host takes one host's name (got: [{words}])", _count("name", 1)),
+    Rule(
+        "host.1",
+        ("host",),
+        "error: {host} takes one host's name (got: [{words}])",
+        _count("name", 1),
+        {"host": Line("host")},
+    ),
     Rule("host.2", ("host",), "error: --json lists the hosts: give it no name", _host_json),
     Rule(
         "host.3",
@@ -390,14 +403,16 @@ _ALL: tuple[Rule, ...] = (
     Rule(
         "host.4",
         ("host",),
-        "error: --remove deletes the host named beside it: aw host <name> --remove",
+        "error: --remove deletes the host named beside it: {remove}",
         _host_remove,
+        {"remove": Line("host", {"name": PLACEHOLDER, "remove": True})},
     ),
     Rule(
         "mcp.1",
         ("mcp",),
-        "error: aw mcp takes only its options (aw help mcp), and nothing after them",
+        "error: {mcp} takes only its options ({help_mcp}), and nothing after them",
         _any_word("extra"),
+        {"mcp": Line("mcp"), "help_mcp": Line("help", {"recipe": "mcp"})},
     ),
     Rule(
         "mcp.2",

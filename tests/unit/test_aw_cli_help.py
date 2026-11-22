@@ -6,13 +6,16 @@ as just --usage <verb> shows it today and each help sentence just --usage prints
 word the cutover's map records as changed for another reason (tests/unit/cli_contract_changes.py's CHANGED); its usage
 line is the one today's command reference writes, where the verb takes the words it takes today; and it holds every row
 today's page shows for the verb. For every verb of the table it shows its usage, its doc, each of its options with its
-help, --detach last where its run is a job, and its words. aw help lists every verb of the table in its order, each
-with its doc, and no recipe of the repository's own; the options given before a verb, but the hidden one; and today's
-closing paragraph, with aw where it said just and -v and --set, each named on the verbs whose row has it, where it
-named ANSIBLE_ARGS, its commands written by the printer. Through tools/aw and the launcher, aw alone is aw help, a word
-that is no verb is refused unsaid, and a second word in today's sentence. help and the reference import the standard
-library, schema/ and the printer alone, and aw help loads nothing of the engine. The reference gives a row for every
-verb but help, every option and the words of each, and every option given before a verb but the hidden one; holds
+help, --detach last where its run is a job, and its words, each sentence said with the printer's commands; after the
+help of every option and words the table holds to a pattern, the form a value may take, and never an empty default. An
+option of a later card's is left out of help and the reference until that card. aw help lists every verb of the table
+in its order, each with its doc and [options] where it has any, and no recipe of the repository's own; the options
+given before a verb, but the hidden one, with their form; and today's closing paragraph, with aw where it said just and
+-v and --set, each named on the verbs whose row has it, where it named ANSIBLE_ARGS, its commands written by the
+printer. Through tools/aw and the launcher, aw alone is aw help, a word that is no verb is refused unsaid, control
+among them, and a second word in today's sentence. help and the reference import the standard library, schema/ and
+the printer alone, and aw help loads nothing of the engine. The reference gives a row for every verb but help, every
+option but a later card's and the words of each, and every option given before a verb but the hidden one; holds
 today's page's rows with aw where they said just; and escapes a cell as tools/docs.py does.
 """
 
@@ -29,7 +32,7 @@ from pathlib import Path
 
 import harness
 import pytest
-from aw_kit import imports_of, run_aw, run_launcher
+from aw_kit import imports_of, on_path, run_aw, run_launcher
 from cli_contract_changes import CHANGED, NEW, WORD_1
 from harness import REPO
 from test_aw_cli_contract_words import RECIPES, _key
@@ -37,7 +40,8 @@ from test_aw_cli_contract_words import RECIPES, _key
 from claude_vm.cli import help as helps
 from claude_vm.cli import inverse, parse, reference
 from claude_vm.schema import check as checks
-from claude_vm.schema.words import BEFORE, EXITS, SET, VERBOSE, VERBS
+from claude_vm.schema.patterns import PATTERNS
+from claude_vm.schema.words import BEFORE, EXITS, SET, VERBOSE, VERBS, Option, said
 
 CONTRACT = json.loads((Path(__file__).resolve().parent / "cli_contract.json").read_text())
 CASES = {case["code"]: case for case in CONTRACT["cases"]}
@@ -55,9 +59,15 @@ def _aw(text: str) -> str:
     return re.sub(r"\bjust\b", inverse.PROGRAM, text)
 
 
+# The words whose help the clean slate changed, beside the maps, which go with the contract (H26): init --host is a
+# host's name alone, with no address taken for --address (review/clean-slate/PROPOSAL.md, decision 10; H25).
+CLEAN_SLATE = {"init --host"}
+
+
 def _changed(key: str) -> bool:
-    """Whether the cutover's map records the word, or its help, as changed for more than aw where it said just."""
-    return key in CHANGED or CHANGED.get(f"{key}: help", WORD_1) != WORD_1
+    """Whether the cutover's map records the word, or its help, as changed for more than aw where it said just, or the
+    clean slate changed it."""
+    return key in CHANGED or CHANGED.get(f"{key}: help", WORD_1) != WORD_1 or key in CLEAN_SLATE
 
 
 def _plain(text: str) -> str:
@@ -81,6 +91,21 @@ def _usage_today(name: str) -> str:
         check=True,
         timeout=60,
     ).stdout
+
+
+def _unformed(row: str) -> str:
+    """A row of aw help without the form it ends with, as today's page shows the row."""
+    return row.rsplit(" [pattern: ", 1)[0] if " [pattern: " in row else row
+
+
+def _form(name: str | None) -> str:
+    """What a row ends with after its help, for a value held to the pattern name: the pattern's text, as just --usage
+    prints it today; nothing for none."""
+    return "" if name is None else f" [pattern: '{PATTERNS[name]}']"
+
+
+def _helped(option: Option) -> str:
+    return said(option.help or "") + _form(option.pattern)
 
 
 def _flags(option: dict) -> str:
@@ -117,12 +142,16 @@ def test_help_of_a_verb_holds_each_option_and_sentence_just_usage_prints_today(n
 def test_help_of_a_verb_shows_its_usage_doc_options_and_words_in_the_table_s_order(name: str) -> None:
     verb = VERBS[name]
     lines = helps.of(name).splitlines()
-    assert lines[:3] == [f"{helps.USAGE} {helps.usage(verb)}", "", verb.doc]
-    options = checks.options_of(verb)
+    assert lines[:3] == [f"{helps.USAGE} {helps.usage(verb)}", "", said(verb.doc)]
     # Only a word before any verb is hidden from help: every option of a verb has its sentence.
-    assert all(option.help for option in options), name
-    shown = [(helps.shown(option), option.help) for option in options]
-    words = [] if verb.words is None else [(f"<{verb.words.name}>", verb.words.help)]
+    assert all(option.help for option in checks.options_of(verb)), name
+    options = [option for option in checks.options_of(verb) if option.until is None]
+    assert helps.options(verb) == options, name
+    shown = [(helps.shown(option), _helped(option)) for option in options]
+    words = []
+    if verb.words is not None:
+        formed = verb.words.name != helps.REFUSED_WORDS
+        words = [(f"<{verb.words.name}>", said(verb.words.help) + _form(verb.words.pattern if formed else None))]
     rows = [line for line in lines if line.startswith("  ")]
     assert len(rows) == len(shown) + len(words), name
     for row, (left, text) in zip(rows, shown + words, strict=True):
@@ -131,6 +160,45 @@ def test_help_of_a_verb_shows_its_usage_doc_options_and_words_in_the_table_s_ord
     detach = helps.shown(checks.DETACH_FLAG)
     detached = [row for row in rows if row.lstrip().startswith(f"{detach} ")]
     assert detached == (rows[len(shown) - 1 : len(shown)] if verb.changes else []), name
+
+
+@pytest.mark.parametrize("name", list(VERBS))
+def test_help_says_the_form_of_each_value_the_table_holds_to_a_pattern_and_no_empty_default(name: str) -> None:
+    # The owner's frame and answer 7 of 2026-11-21: help says what each value may be, as just --usage did, and leaves
+    # out [default: ''], which says nothing.
+    verb = VERBS[name]
+    text = helps.of(name)
+    rows = [line for line in text.splitlines() if line.startswith("  ")]
+    for option in helps.options(verb):
+        [row] = [row for row in rows if row.lstrip().startswith(f"{helps.shown(option)} ")]
+        if option.pattern is not None:
+            assert row.endswith(f" [pattern: '{PATTERNS[option.pattern]}']"), row
+        else:
+            assert "[pattern: " not in row, row
+    if verb.words is not None:
+        [row] = [row for row in rows if row.lstrip().startswith(f"<{verb.words.name}> ")]
+        formed = verb.words.pattern is not None and verb.words.name != helps.REFUSED_WORDS
+        assert row.endswith(f" [pattern: '{PATTERNS[verb.words.pattern]}']") if formed else "[pattern: " not in row
+    assert "[default:" not in text and "[default:" not in helps.listing()
+
+
+def test_an_option_of_a_later_card_is_left_out_of_help_and_the_reference_until_that_card() -> None:
+    # The installed program's update (H14, H15), which a checkout refuses: the table marks it, and help reads the mark.
+    later = {
+        (name, option.long): option.until for name, verb in VERBS.items() for option in verb.options if option.until
+    }
+    assert later == {
+        ("install", "version"): "H14",
+        ("install", "newer"): "H15",
+        ("install", "rollback"): "H15",
+        ("install", "without"): "H14",
+    }
+    for (name, long), _ in later.items():
+        assert f"--{long}" not in helps.of(name) and f"`--{long} " not in reference.commands(), long
+        assert f"`--{long}`" not in reference.commands(), long
+    assert "--lock" in helps.of("install")
+    # The parser and the check take them all the same: the verb refuses them.
+    assert parse.read(["install", "--newer"]).values == {"newer": True}
 
 
 def test_a_usage_line_needs_a_word_only_where_its_verb_needs_one() -> None:
@@ -153,8 +221,6 @@ def test_an_option_is_shown_as_just_usage_shows_one_today() -> None:
     assert helps.shown(deploy["detach"]) == "--detach"
     assert helps.shown(VERBOSE) == "-v"
     assert helps.shown(SET) == "--set NAME=VALUE"
-    migrate = next(option for option in VERBS["init"].options if option.long == "migrate")
-    assert helps.shown(migrate) == "--migrate [CHECKOUT]"
 
 
 def _rows(text: str) -> dict[str, list[tuple[str, str]]]:
@@ -203,7 +269,7 @@ def test_help_of_a_verb_shows_every_row_today_s_page_shows_for_it() -> None:
             if _changed(key):
                 continue
             [line] = [line for line in ours.splitlines() if line.lstrip().startswith(f"{code} ")]
-            assert line.endswith(f"  {_plain(_aw(text))}"), key
+            assert _unformed(line).endswith(f"  {_plain(_aw(text))}"), key
 
 
 def test_help_of_deploy_shows_the_eleven_rows_of_today_s_page() -> None:
@@ -225,8 +291,11 @@ def test_aw_help_lists_every_verb_in_the_table_s_order_with_its_doc_and_no_recip
     listed = [line for line in lines[1:end] if line.startswith("    ") and not line.lstrip().startswith("[")]
     assert [line.split()[0] for line in listed] == list(VERBS)
     for line, verb in zip(listed, VERBS.values(), strict=True):
-        assert line.endswith(f" # {verb.doc}"), line
-        assert line.split(" # ")[0].split() == helps.usage(verb).split()[1:], line
+        assert line.endswith(f" # {said(verb.doc)}"), line
+        # Its words as its usage line shows them, and [options] where it has any to show (review/code/H6.md 4).
+        options = [helps.WITH_OPTIONS] if helps.options(verb) else []
+        assert line.split(" # ")[0].split() == [*helps.usage(verb).split()[1:], *options], line
+    assert [line.split()[0] for line in listed if helps.WITH_OPTIONS not in line] == ["help", "cancel"]
     groups = [line.strip() for line in lines[1:end] if line.lstrip().startswith("[")]
     assert groups == [f"[{group}]" for group in dict.fromkeys(verb.group for verb in VERBS.values()) if group]
     develop = {
@@ -242,11 +311,11 @@ def test_aw_help_lists_the_options_given_before_a_verb_but_the_hidden_one() -> N
     assert [line.split(" # ")[0].strip() for line in before] == [
         helps.shown(option) for option in BEFORE if option.help is not None
     ]
-    assert [line.split(" # ", 1)[1] for line in before] == [option.help for option in BEFORE if option.help]
+    assert [line.split(" # ", 1)[1] for line in before] == [_helped(option) for option in BEFORE if option.help]
     hidden = [option for option in BEFORE if option.help is None]
     assert hidden and not [option for option in hidden if f"--{option.long}" in helps.listing()]
     # The one check's refusal of such an option sends a person here.
-    assert checks.no_option("", "--bogus").endswith(f"({inverse.line('help', {})} lists them)")
+    assert checks.no_option("", "--bogus").endswith(f"({inverse.line('help', {}, refused=False)} lists them)")
 
 
 def _today_s_closing() -> list[str]:
@@ -275,13 +344,14 @@ def test_aw_help_ends_in_today_s_closing_paragraph_with_aw_and_v_and_set_for_ans
         assert f"{helps.shown(option)} " in ours[1] and f" in {named}" in ours[1], (option.field, ours[1])
     assert "LOG_DIR=<dir>" in ours[1]
     # Its example is the printer's, and runs: deploy alpha, saying the most of the system layer, as today's did.
-    example = inverse.line(*helps.EXAMPLE)
+    example = inverse.line(*helps.EXAMPLE, host_flag="", refused=False)
     assert ours[1].endswith(f": {example}.")
     reading = parse.read(shlex.split(example)[1:])
     assert (reading.verb, reading.values) == ("deploy", {"names": ["alpha"], "verbosity": 3})
-    assert f"({inverse.line('host', {})} lists them)" in ours[2]
+    hosts = inverse.line("host", {}, refused=False)
+    assert f"({hosts} lists them)" in ours[2]
     # A command a person pastes, and an option with its value, is never cut across two lines.
-    for whole in (example, inverse.line("host", {}), helps.shown(SET)):
+    for whole in (example, hosts, helps.shown(SET)):
         assert [line for line in closing if whole in line], whole
 
 
@@ -295,15 +365,18 @@ def test_aw_alone_is_aw_help(home, words) -> None:
 
 
 def test_the_launcher_prints_help_of_deploy(home) -> None:
-    result = run_launcher("help", "deploy", home=home, cwd=REPO)
+    # aw on PATH is the launcher, so help names aw, as in this process.
+    result = run_launcher("help", "deploy", home=home, cwd=REPO, first_on_path=(on_path(home),))
     assert (result.returncode, result.stdout, result.stderr) == (EXITS["done"], helps.of("deploy"), "")
 
 
-@pytest.mark.parametrize("word", ["lint", "swordfish"])
+@pytest.mark.parametrize("word", ["lint", "swordfish", "control"])
 def test_a_word_that_is_no_verb_is_refused_unsaid(home, word) -> None:
-    # lint is a recipe of the repository's own, which stays just's: no verb of aw's.
+    # lint is a recipe of the repository's own, which stays just's: no verb of aw's. control is the add-on's, whose row
+    # the add-on adds (H22): none of the base's.
     result = run_aw("help", word, home=home)
-    assert (result.returncode, result.stdout, result.stderr) == (EXITS["refused"], "", checks.NO_SUCH_COMMAND + "\n")
+    expected = (EXITS["refused"], "", checks.no_such_command() + "\n")
+    assert (result.returncode, result.stdout, result.stderr) == expected
     assert word not in result.stderr
 
 
@@ -349,20 +422,21 @@ def test_aw_help_loads_nothing_of_the_engine(home, words) -> None:
 def test_the_reference_gives_a_row_for_every_verb_but_help_every_option_and_the_words() -> None:
     rows = reference.commands().splitlines()
     for name, verb in VERBS.items():
-        first = f"| `{helps.usage(verb)}` | {reference.cell(verb.doc)} |"
+        first = f"| `{helps.usage(verb)}` | {reference.cell(said(verb.doc))} |"
         assert (first in rows) is (name != "help"), name
         if name == "help":
             continue
         under = [
-            f"| {reference.INDENT_CELL}`{helps.shown(option)}` | {reference.cell(option.help or '')} |"
+            f"| {reference.INDENT_CELL}`{helps.shown(option)}` | {reference.cell(said(option.help or ''))} |"
             for option in checks.options_of(verb)
+            if option.until is None
         ]
         if verb.words is not None and verb.words.name != helps.REFUSED_WORDS:
-            under.append(f"| {reference.INDENT_CELL}`<{verb.words.name}>` | {reference.cell(verb.words.help)} |")
+            under.append(f"| {reference.INDENT_CELL}`<{verb.words.name}>` | {reference.cell(said(verb.words.help))} |")
         at = rows.index(first) + 1
         assert rows[at : at + len(under)] == under, name
         assert not rows[at + len(under)].startswith(f"| {reference.INDENT_CELL}"), name
-    before = [f"| `{helps.shown(option)}` | {reference.cell(option.help)} |" for option in BEFORE if option.help]
+    before = [f"| `{helps.shown(option)}` | {reference.cell(said(option.help))} |" for option in BEFORE if option.help]
     at = rows.index(f"### {reference.BEFORE_ANY}")
     assert rows[at + 1 :] == ["", *reference.BEFORE_HEAD, *before]
     groups = [*dict.fromkeys((verb.group or reference.OTHER) for name, verb in VERBS.items() if name != "help")]

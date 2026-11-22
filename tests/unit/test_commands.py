@@ -373,7 +373,7 @@ def _aw_problem(before: list[str], verb: Verb, words: list[str]) -> str | None:
                 if given:
                     return f"--{name} takes no value"
             else:
-                if not given and option.kind != "optional-value" and i + 1 < len(words):
+                if not given and i + 1 < len(words):
                     i += 1
                     raw = words[i]
                     value = raw.rstrip(".,:;")
@@ -439,7 +439,8 @@ def test_the_aw_check_catches_what_it_is_for() -> None:
     assert "second word" in _aw_problem([], help_, ["deploy", "login"])
     assert _aw_problem([], help_, ["deploy", "then"]) is None
     assert _aw_problem([], VERBS["logs"], ["0123456789abcdef", "--follow"]) is None
-    assert _aw_problem([], init, ["--migrate", "--finish"]) is None
+    assert _aw_problem([], init, ["--check", "--no-prompt"]) is None
+    assert _aw_problem([], init, ["--migrate"]) == "no option --migrate"
     assert _aw_problem([], init, ["--export=x"]) == "no option --export"
     assert _aw_problem([], init, ["--address", "pve.lan", "and", "then"]) is None
     [(_, _, before, verb, words)] = _aw_commands_in("run `aw --attended=1 deploy alpha --only configure` once")

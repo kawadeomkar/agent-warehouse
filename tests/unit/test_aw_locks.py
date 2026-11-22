@@ -420,7 +420,7 @@ def _files_open(pid: int) -> list[str]:
 def _named(holder: str, command: str, state: Path) -> str:
     """The sentence a lock refused says of a holder that runs, as the module and the printer write it."""
     record = _record(state, holder)
-    cancel = inverse.line("cancel", {"job": holder})
+    cancel = inverse.line("cancel", {"job": holder}, refused=False)
     return f"held by job {holder}, `{command}`, started {_started(record['started'])}: `{cancel}` stops it"
 
 
@@ -550,7 +550,7 @@ def test_a_run_naming_no_machine_is_refused_while_either_runs_and_refuses_both_w
     beta = start("beta", machines=[("pve", "beta")], command="aw deploy beta", steps=[{}])
     alpha.first("taken")
     beta.first("taken")
-    listing = inverse.line("logs", {})
+    listing = inverse.line("logs", {}, refused=False)
     under_way = (
         "error: runs on machines of this fleet are under way, and this run needs the whole fleet:"
         f" `{listing}` lists them"
@@ -838,7 +838,7 @@ def test_a_draft_always_carries_its_verb_s_values() -> None:
 def test_exclusive_and_the_runs_refuse_each_other_and_nothing_is_left_held_after_its_block(start, state) -> None:
     alpha = start("alpha", machines=[("pve", "alpha")], steps=[{}])
     alpha.first("taken")
-    listing = inverse.line("logs", {})
+    listing = inverse.line("logs", {}, refused=False)
     with pytest.raises(locks.Held) as refused, locks.exclusive(state, "aw host nuc"):
         pytest.fail("the fleet taken for one write beside a run")
     assert refused.value.sentence == (

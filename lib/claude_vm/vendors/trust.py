@@ -4,10 +4,9 @@ context made from them alone (docs/architecture/engine.md §16.7).
 GitHub, Tailscale and the download servers are verified against them, and so is the Proxmox API wherever its host keeps
 no anchor file of its own (pve/pin.py). certifi's bundle is named by the path certifi gives, the same on every system;
 the setting tls_ca_file names a file of PEM certificates that is added to it, never put in its place: a company's root,
-say. That is a recorded change from 2.x, whose vendor calls were Ansible's uri, verified against the system's own store
-of the machine that made them, which the interpreter's certificate variables change. Neither that store nor any
-certificate variable is read here: tls_ca_file is the one way to add a root, and the refusal of a certificate whose
-issuer is unknown (the transport's Untrusted) says so. There is no table of each system's paths.
+say. Neither the system's own store nor any certificate variable is read here: tls_ca_file is the one way to add a
+root, and the refusal of a certificate whose issuer is unknown (the transport's Untrusted) says so. There is no table
+of each system's paths.
 
 context() loads those files and nothing else: not the interpreter's own store, nothing the environment names, not
 macOS's keychain. It makes the context by hand, since the standard library's ready-made one loads the interpreter's
@@ -20,13 +19,19 @@ from __future__ import annotations
 import os
 import ssl
 
+from ..schema.words import Line, said
+
 # The computer's setting that names a file of certificates added to certifi's: every refusal of a file names it.
 SETTING = "tls_ca_file"
 # What a context verifies with beside the files: the flags Python 3.13's own context sets, and today's requests on it,
 # set here on every Python, so that one before 3.13 is no looser.
 FLAGS = ssl.VERIFY_X509_STRICT | ssl.VERIFY_X509_PARTIAL_CHAIN
-# What mends a missing or broken certifi: the words the command line says for any package its environment lacks.
-INSTALL = "run aw install"
+
+
+def _install() -> str:
+    """What mends a missing or broken certifi: the words the command line says for any package its environment lacks,
+    the command the printer's."""
+    return said("run {install}", {"install": Line("install")})
 
 
 class Unusable(Exception):
@@ -42,7 +47,7 @@ def _certifi() -> str:
     except ImportError:
         raise Unusable(
             f"certifi, whose list of certificates every connection with no anchor of its own trusts, is not installed"
-            f" in this Python environment: {INSTALL}"
+            f" in this Python environment: {_install()}"
         ) from None
     return certifi.where()
 
@@ -86,7 +91,7 @@ def context(setting: str | os.PathLike[str] | None = None) -> ssl.SSLContext:
     made.verify_mode = ssl.CERT_REQUIRED
     made.verify_flags |= FLAGS
     bundle, *named = files(setting)
-    _add(made, bundle, f"certifi's certificate file {bundle!r}", INSTALL)
+    _add(made, bundle, f"certifi's certificate file {bundle!r}", _install())
     for name in named:
         what = f"the file the setting {SETTING} names, {name!r},"
         _add(made, name, what, f"set {SETTING} to a file of PEM certificates")
