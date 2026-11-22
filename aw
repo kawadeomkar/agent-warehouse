@@ -27,7 +27,7 @@ set -eu
 
 # The Python version the checkout's own environment runs on: the justfile's managed_python, which
 # tests/unit/test_aw_cli_parse.py holds equal until just install calls this launcher.
-managed_python=3.13
+managed_python=3.14
 
 self=$0
 case $self in */*) ;; *) self=./$self ;; esac

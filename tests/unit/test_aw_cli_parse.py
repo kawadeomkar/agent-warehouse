@@ -817,7 +817,7 @@ def test_with_no_environment_the_launcher_makes_the_checkout_s_own_then_the_hook
     result = run_launcher("status", "--json", home=home, launcher=checkout / "aw", cwd=tmp_path, **managed)
     assert result.returncode == 0, result.stderr
     # Today's just install's words for the checkout's own environment, from the checkout's top, once.
-    assert _uv_runs(tmp_path) == [["sync", "--locked", "--managed-python", "--python", "3.13"]]
+    assert _uv_runs(tmp_path) == [["sync", "--locked", "--managed-python", "--python", "3.14"]]
     assert _uv_env(tmp_path) == [f"UV_PROJECT_ENVIRONMENT={venv}", "UV_PYTHON_DOWNLOADS=automatic"]
     assert (tmp_path / "uv.env").read_text().splitlines()[2] == f"PWD={checkout.resolve()}"
     hook = checkout / ".git" / "hooks" / "pre-commit"

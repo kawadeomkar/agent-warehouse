@@ -6,7 +6,12 @@ you bring one (`PYTHON=`, or `python3` as the shell finds it in the checkout whe
 otherwise the checkout's own. `just install` runs `uv sync --locked`, which refuses a lock that no longer
 matches `pyproject.toml`: into one of yours `--inexact`, with Python downloads off, so the versions the lock
 pins go in and nothing else of the environment is removed; into the checkout's own, which the first run
-makes, `--managed-python --python 3.13` (`managed_python`), on a Python uv downloads, exactly the lock's.
+makes, `--managed-python --python 3.14` (`managed_python`, which the launcher `aw` and CI's setup action name too,
+held to one by `tests/unit/test_justfile.py`), on a Python uv downloads, exactly the lock's. The floor is
+`pyproject.toml`'s `requires-python`, Python 3.13, which the program `aw` and ansible-core 2.22 need: `just install`
+refuses a virtualenv of yours below it before uv starts, in one sentence that names the floor and the two ways out -
+a virtualenv of 3.13 or later, or none, so that the checkout's own is made - and ruff checks `lib/` against it
+(`py313`). CI runs every job on 3.14 and one shard of the unit suite on 3.13 too ([§12](ci.md)).
 That one lives in the checkout's folder outside it,
 `${XDG_DATA_HOME:-~/.local/share}/agent-warehouse/checkouts/<folder>-<cksum of its path>`
 (`tools/env-run --data`), never a `.venv` in the checkout, so a worktree or a second clone has its own; and
