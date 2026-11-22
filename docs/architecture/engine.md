@@ -417,7 +417,9 @@ so that a host, or a proxy the computer's certificates trust, that echoes what i
   no `digest` of the form Proxmox gives one (`DIGEST`) before anything is sent - an empty one among them, which
   Proxmox reads as none - and every test of the new engine that runs the fake
   (`harness.fake_fleet(engine=True)`) ends by reading the fake's request log, failing where a `PUT` or a `POST` of the
-  client's user agent to a configuration's path carried none.
+  client's user agent to a configuration's path carried none. Both read a path as Proxmox reads it, its `%`-escapes
+  decoded, so that `.../confi%67` is a configuration's path too, and an escaped `/` counts as one; the path is still
+  sent as it was given, never decoded or escaped again, so a `%` is no refusal of its own.
 - **Proxmox's refusals of a write, typed.** Proxmox answers each with a 500, so its words tell them apart, each held
   equal to the fake's constant, which experiment 6 corrects: `DigestMismatch`; `Locked` (a clone, a deletion or a backup
   holds the VM, with Proxmox's word for the lock, or another task held its configuration's file longer than a write
@@ -439,16 +441,17 @@ so that a host, or a proxy the computer's certificates trust, that echoes what i
   of plain text. The log is read once the task has ended, each page held to what is left of the same deadline and
   `stop` read before it, and it never decides the outcome: the task's end is Proxmox's answer, already read, and its
   lines a courtesy. Where they cannot be read in that time, a read of them fails, or the run stops, a success is
-  returned with no lines, and a failure is `TaskFailed` with none, or `Stopped` once the run has stopped, the
-  `TaskFailed` its cause; lines read before then are not the last, and none is kept. A poll that fails while the run
+  returned with no lines, and a failure is `TaskFailed` with none, whatever stopped the read; lines read before then
+  are not the last, and none is kept. `Stopped` is only for a task left before its end: once a status read says the
+  task ended, `follow` says how it ended. A poll that fails while the run
   goes on raises its own error - the transport's `TimedOut`, where one poll had no answer within its read's wait with
   time still left, its `Unreachable`, or the client's - and the task may then still run on Proxmox: the workflow
   follows it again by the `Task` it holds, or reads the VM. `stop` is the run's
   `Context.stopping` (§16.8), a `threading.Event`, since a workflow calls the client in a thread: it is read before each
   poll and waited on in place of each pause, so once the run stops, at a Ctrl-C or wherever it is to end, `follow`
-  raises `Stopped` within a pause's first moment, never asking again, and the task goes on on Proxmox, which
-  `Stopped`'s sentence says with the task's kind and VM; a poll already sent is never cut, and ends within its own
-  limit, and one that fails once the run has stopped (its client closed under it, whose transport then sends nothing
+  raises `Stopped` within a pause's first moment, never asking again, and the task, left before its end, may still run
+  on Proxmox, which `Stopped`'s sentence says with the task's kind and VM; a poll already sent is never cut, and ends
+  within its own limit, and one that fails once the run has stopped (its client closed under it, whose transport then sends nothing
   more: 16.7) is `Stopped` too, never the poll's own error. A phase that must finish, a deletion inside a shield,
   passes no `stop`, and is followed to its end.
 
@@ -543,13 +546,14 @@ source's; a clone whose answer a tunnel of the test's own cuts, `Unknown` with o
 task with its log, one that ended with warnings a success with its warnings' lines (the fake's `task-warn`), one past
 its deadline, each poll held to what is left of it; a log that cannot be read once its task ended - each of the
 transport's errors and the client's, a host that holds it past the deadline, no deadline left, and the run stopping as
-the task ends or during the read - a success with no lines and a failure `TaskFailed` with none, or `Stopped`; a
-follow whose run stops between polls, during one, and before the first, each `Stopped` with no poll after it and the
-task still running on the fake, and a poll that fails once the run
+the task ends or during the read - a success with no lines and a failure `TaskFailed` with none, never `Stopped`; a
+follow whose run stops while its task still runs, between polls, during one, and before the first, each `Stopped` with
+no poll after it and the task still running on the fake, and a poll that fails once the run
 has stopped; a deletion's parameters, `destroy-unreferenced-disks` alone and `purge` only where asked for, read from the
 fake's log; and a UPID with a `/` in a part of its own `Malformed`. Its rules: a `PUT` or a `POST` to a configuration's
-path with no `digest`, or an empty one, is refused before it is sent, `harness.fake_fleet`'s end fails a test where
-the fake was sent one,
+path with no `digest`, or an empty one, is refused before it is sent, `%`-escaped spellings of the path among them,
+while a path with a `%` is sent as it was given, `harness.fake_fleet`'s end fails a test where the fake was sent one,
+the path read decoded there too,
 and every method that sends one sends `digest` (a syntax-tree test of the module); a configuration's write sends only
 the keys the table covers for it; both ways, every row of the table is a call the client makes and every call it makes
 has its rows, each method of the client driven against the fake under enforcement and what it sent read from the

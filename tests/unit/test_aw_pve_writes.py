@@ -13,17 +13,18 @@ edit_config reads and applies again, three times at most. A write to a VM a clon
 tried once; so is one that meets its configuration's file lock, and a clone's task that meets its source's lock names
 the source. A write whose answer is cut is the transport's Unknown, sent once. A task that fails raises with the last
 lines of its log, made plain; one that ends with warnings is a success, its warnings' lines kept; one that runs past its
-deadline raises then, and is not waited for longer, each poll held to what is left of it; one whose run stops is
-Stopped, between polls or during one, and goes on on Proxmox, unfollowed. The log of a task that has ended is read
-within what is left of the same deadline and never decides the outcome: where it cannot be read, a success is a success
-with no lines and a failure TaskFailed with none, or Stopped once the run has stopped. A deletion sends
+deadline raises then, and is not waited for longer, each poll held to what is left of it; one whose run stops before its
+end is read is Stopped, between polls or during one, and goes on on Proxmox, unfollowed. The log of a task that has
+ended is read within what is left of the same deadline and never decides the outcome: where it cannot be read, a success
+is a success with no lines and a failure TaskFailed with none, the run's stop among what cuts the read. A deletion sends
 destroy-unreferenced-disks alone, and purge only where it is asked for. The rules with a test of their own: a PUT or a
-POST to a configuration's path with no digest, or with one that is not a digest, is refused before it is sent, every one
-the fake was sent carried it (harness.fake_fleet's end, for every test of the new engine), and every method that sends
-one sends digest (a syntax-tree test of the module); a configuration's write sends only the keys the table covers for
-it; both ways, every row of the table is a call the client makes and every call it makes has its rows, each method of
-the client driven against the fake under enforcement and its requests read from the fake's log; and no error of a write,
-nor of a read, says the token's secret, even where Proxmox's words echo it.
+POST to a configuration's path with no digest, or with one that is not a digest, is refused before it is sent, the path
+read with its %-escapes decoded and sent as it was given, every one the fake was sent carried it (harness.fake_fleet's
+end, for every test of the new engine, reading the path decoded too), and every method that sends one sends digest (a
+syntax-tree test of the module); a configuration's write sends only the keys the table covers for it; both ways, every
+row of the table is a call the client makes and every call it makes has its rows, each method of the client driven
+against the fake under enforcement and its requests read from the fake's log; and no error of a write, nor of a read,
+says the token's secret, even where Proxmox's words echo it.
 """
 
 from __future__ import annotations
@@ -574,8 +575,8 @@ def test_a_follow_whose_run_stops_between_polls_is_stopped_at_once_and_the_task_
     raised = ended.get("raised")
     assert isinstance(raised, Stopped) and raised.task == task, ended
     assert str(raised) == (
-        "Proxmox's start task for VM 9010 still runs on Proxmox: the run stopped following it, so read the VM to know"
-        " where it was left"
+        "Proxmox's start task for VM 9010 was left before its end: the run stopped following it, and the task may"
+        " still run on Proxmox, so read the VM to know where it was left"
     )
     # Nothing more is asked once it is stopped, and the task goes on on Proxmox.
     assert len(fleet.sent("GET", status)) == polls >= 6
@@ -843,10 +844,11 @@ def test_an_ended_task_s_log_is_not_read_once_its_deadline_has_passed(pki) -> No
 
 
 @pytest.mark.parametrize("when", ["as the task ends", "during the log's read"])
-def test_a_run_that_stops_once_its_task_has_ended_has_a_success_with_no_lines_and_a_failure_stopped(pki, when) -> None:
+def test_a_run_that_stops_once_its_task_has_ended_has_its_success_or_its_failure_with_no_lines(pki, when) -> None:
     """The run stops just as the task ends, before its log is read, or while it is read, closing its client under the
-    read: a success is still the success, with no lines, and a failure is Stopped, the TaskFailed its cause, as every
-    call of follow()'s that the run's stop ends is. Stopped before the read, nothing is asked."""
+    read: the task's end is Proxmox's answer, already read, so a success is still the success and a failure is still
+    TaskFailed, each with no lines, never Stopped, which says a task may still run (the coordinator's ruling (a) on
+    B26, card B28). Stopped before the read, nothing is asked."""
     task = answers.task(UPID, "pve", "start", 9010)
     for status in (WARNED, FAILED):
         stop = threading.Event()
@@ -862,11 +864,24 @@ def test_a_run_that_stops_once_its_task_has_ended_has_a_success_with_no_lines_an
             ended = client.follow(task, stop=stop)
             assert ended.ok and ended.lines == ()
         else:
-            with pytest.raises(Stopped) as stopped:
+            with pytest.raises(TaskFailed) as failed:
                 client.follow(task, stop=stop)
-            assert stopped.value.task == task and isinstance(stopped.value.__cause__, TaskFailed)
-            assert stopped.value.__cause__.error == "start failed: no room" and stopped.value.__cause__.lines == ()
+            assert not isinstance(failed.value, Stopped) and failed.value.__cause__ is None
+            assert (failed.value.task, failed.value.error, failed.value.lines) == (task, "start failed: no room", ())
+            assert str(failed.value) == "Proxmox's start task for VM 9010 failed: start failed: no room"
         assert len(logged.logs()) == (0 if when == "as the task ends" else 1)
+
+
+def test_a_run_that_stops_while_its_task_still_runs_is_stopped_and_reads_no_log(pki) -> None:
+    """The other side of the same rule: where the last status follow() read says the task still runs, the stop leaves it
+    before its end, which is Stopped, and no log is read."""
+    task = answers.task(UPID, "pve", "start", 9010)
+    stop = threading.Event()
+    logged = _Logged({"status": "running"}, LOG_FAILS["Unreachable"], at_end=stop.set)
+    with pytest.raises(Stopped) as stopped:
+        _logged(pki, logged).follow(task, stop=stop)
+    assert stopped.value.task == task and stopped.value.__cause__ is None
+    assert logged.logs() == []
 
 
 def test_each_write_answers_a_task_of_its_kind_that_changes_the_vm_when_it_ends(fleet) -> None:
@@ -1135,7 +1150,9 @@ def _config_puts_without_digest(source: str) -> tuple[list[str], list[str]]:
         if not isinstance(function, ast.FunctionDef | ast.AsyncFunctionDef):
             continue
         sent = [_sends(node) for node in ast.walk(function) if isinstance(node, ast.Call)]
-        if any(found and found[0] in ("PUT", "POST") and found[1].endswith("/config") for found in sent):
+        # The path's text read as Proxmox reads a path, its %-escapes decoded (card B28).
+        configs = [found for found in sent if found and found[0] in ("PUT", "POST")]
+        if any(urllib.parse.unquote(found[1]).rstrip("/").endswith("/config") for found in configs):
             putting.append(function.name)
             if not _says_digest(function):
                 without.append(function.name)
@@ -1148,10 +1165,21 @@ def test_every_method_that_sends_a_put_or_a_post_to_a_config_path_sends_digest()
 
 
 @pytest.mark.parametrize("method", ["PUT", "POST"])
-@pytest.mark.parametrize("path", ["nodes/pve/qemu/9010/config", "nodes/pve/qemu/9010/config/"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "nodes/pve/qemu/9010/config",
+        "nodes/pve/qemu/9010/config/",
+        # A configuration's path as Proxmox reads one, its %-escapes decoded (review/code/B22.md 7, card B28).
+        "nodes/pve/qemu/9010/confi%67",
+        "nodes/pve/qemu/9010/%63%6F%6e%66%69%67/",
+        # Decoded whole, an escaped / among them: the reading that refuses more.
+        "nodes/pve/qemu/9010%2Fconfig",
+    ],
+)
 def test_a_write_to_a_configuration_s_path_with_no_digest_is_refused_before_it_is_sent(fleet, method, path) -> None:
-    """Where every request passes, whatever method made it and however its path was built: Proxmox would write it
-    whatever the configuration had become since it was read."""
+    """Where every request passes, whatever method made it and however its path was built or spelled: Proxmox would
+    write it whatever the configuration had become since it was read. Nothing reaches the fake."""
     with fleet.client() as client:
         with pytest.raises(ValueError, match="sends the digest"):
             client._send(method, path, 9010, form={"description": "late"})
@@ -1176,14 +1204,28 @@ def test_every_configuration_write_the_client_sent_the_fake_carried_its_digest_a
             with Proxmox(base, pin.kept(pki["ca"]), Token(token_id, Secret(secret))) as client:
                 header = {"Authorization": (f"PVEAPIToken={token_id}=", Secret(secret))}
                 client._transport.request("PUT", "nodes/pve/qemu/9010/config", headers=header, form={"cores": "3"})
+                # A configuration's path %-escaped is one too, as the fake's routing and Proxmox read it (card B28).
+                for method in ("PUT", "POST"):
+                    client._transport.request(
+                        method, "nodes/pve/qemu/9010/confi%67", headers=header, form={"cores": "3"}
+                    )
                 # A write that is no configuration's is not one of them.
                 client._transport.request("POST", "nodes/pve/qemu/9012/status/start", headers=header)
-    (bare,) = digestless(tmp_path)
-    assert (bare["method"], bare["path"], bare["params"]) == (
-        "PUT",
-        "/api2/json/nodes/pve/qemu/9010/config",
-        {"cores": "3"},
-    )
+    assert [(bare["method"], bare["path"], bare["params"]) for bare in digestless(tmp_path)] == [
+        ("PUT", "/api2/json/nodes/pve/qemu/9010/config", {"cores": "3"}),
+        ("PUT", "/api2/json/nodes/pve/qemu/9010/confi%67", {"cores": "3"}),
+        ("POST", "/api2/json/nodes/pve/qemu/9010/confi%67", {"cores": "3"}),
+    ]
+
+
+def test_a_path_with_a_percent_is_sent_as_it_was_given_and_a_write_there_with_its_digest_is_taken(fleet) -> None:
+    """The digest rule reads the path decoded, and only reads it: a path goes as it was given, never decoded and never
+    escaped again, so a % is no refusal of its own (card B28). The fake routes it as Proxmox does."""
+    with fleet.client() as client:
+        digest = client.config("pve", 9010).digest
+        client._send("PUT", "nodes/pve/qemu/9010/confi%67", 9010, form={"description": "escaped", "digest": digest})
+        assert client.config("pve", 9010).description == "escaped"
+    assert fleet.writes() == [("PUT", "nodes/pve/qemu/9010/confi%67")]
 
 
 @pytest.mark.parametrize(
@@ -1205,6 +1247,8 @@ def test_every_configuration_write_the_client_sent_the_fake_carried_its_digest_a
         ),
         ('def w(self, n, v):\n    self._send("PUT", f"nodes/{n}/qemu/{v}/resize", v)', [], []),
         ('def w(self, c):\n    self._transport.request("PUT", "nodes/pve/qemu/9010/config", form=c)', ["w"], ["w"]),
+        ('def w(self, n, v):\n    self._send("POST", f"nodes/{n}/qemu/{v}/confi%67", v)', ["w"], ["w"]),
+        ('def w(self, n, v):\n    self._send("PUT", f"nodes/{n}/qemu/{v}/config/", v, form={"digest": 1})', ["w"], []),
     ],
 )
 def test_the_scan_sees_a_put_to_a_config_path_and_its_digest(source, putting, without) -> None:

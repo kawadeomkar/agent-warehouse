@@ -14,20 +14,21 @@ what Proxmox said, with the token's secret struck from Proxmox's words first, so
 computer's certificates trust, that echoes what it was sent has none of it said.
 
 The writes are sent once each, never again: the transport sends no request but a GET twice, and one that left with no
-answer is its Unknown, which a workflow settles by reading the VM again. Every write of a VM's configuration is one
-PUT that sends the digest of the read it was made from, so that Proxmox writes it only while the configuration is
-still that, in the call itself, under the VM's lock: a stale digest is DigestMismatch, and edit_config reads and
-applies again, EDITS times at most. A PUT or a POST to a configuration's path that carries no digest is refused before
-it is sent, in the one function every request passes. A clone, a resize, a start, a shutdown, a stop, a conversion to a
-template and a deletion each answer a Task, which follow() polls to its end within a deadline of its kind, or until the
-run that follows it stops (Stopped, the task going on on Proxmox); a task that ended OK, or with warnings, which Proxmox
-counts a success, is a success, its warnings' lines kept for the workflow to say; one that ended otherwise is
-TaskFailed with the last lines of its log, one whose VMID another took is Exists, one that found the VM locked is
-Locked. Proxmox answers every refusal of a write with a 500, so its words tell them apart: a lock (Locked, which a
-workflow may try again), a configuration's file lock among them, a stale digest, a clone's VMID taken. A deletion
-takes the VM and its disks alone: never purge, unless a caller asks for it, which would take the VM out of the host's
-backup jobs, replication and HA as well. The VMID a workflow asks for is its own to choose, the record's text is its
-own to write, and a sequence of calls is its own to make: none of them is this module's.
+answer is its Unknown, which a workflow settles by reading the VM again. Every write of a VM's configuration is one PUT
+that sends the digest of the read it was made from, so that Proxmox writes it only while the configuration is still
+that, in the call itself, under the VM's lock: a stale digest is DigestMismatch, and edit_config reads and applies
+again, EDITS times at most. A PUT or a POST to a configuration's path that carries no digest is refused before it is
+sent, in the one function every request passes, the path read as Proxmox reads it, its %-escapes decoded. A clone, a
+resize, a start, a shutdown, a stop, a conversion to a template and a deletion each answer a Task, which follow() polls
+to its end within a deadline of its kind, or until the run that follows it stops (Stopped, a task left before its end,
+which Proxmox goes on with); a task that ended OK, or with warnings, which Proxmox counts a success, is a success, its
+warnings' lines kept for the workflow to say; one that ended otherwise is TaskFailed with the last lines of its log,
+whatever stopped the run then, one whose VMID another took is Exists, one that found the VM locked is Locked. Proxmox
+answers every refusal of a write with a 500, so its words tell them apart: a lock (Locked, which a workflow may try
+again), a configuration's file lock among them, a stale digest, a clone's VMID taken. A deletion takes the VM and its
+disks alone: never purge, unless a caller asks for it, which would take the VM out of the host's backup jobs,
+replication and HA as well. The VMID a workflow asks for is its own to choose, the record's text is its own to write,
+and a sequence of calls is its own to make: none of them is this module's.
 
 The guest agent's one call, agent_interfaces, asks what a started VM's agent reports of its network cards, on a
 transport of its own whose read limit is AGENT_READ, shorter than every other read's, since Proxmox waits on the VM for
@@ -278,14 +279,15 @@ class TaskTimedOut(ProxmoxError):
 
 
 class Stopped(ProxmoxError):
-    """The run stopped while a task was followed: follow() returned before the task's end, which Proxmox goes on with,
-    so the workflow reads the VM to know where it was left."""
+    """The run stopped while a task was followed, and follow() left the task before its end: no status it read said
+    the task had ended, and Proxmox goes on with it, so the workflow reads the VM to know where it was left. A task
+    whose end follow() read is never Stopped: it is the success, or the failure, it ended in."""
 
     def __init__(self, task: Task) -> None:
         self.task = task
         super().__init__(
-            f"Proxmox's {task.kind} task for VM {task.vmid} still runs on Proxmox: the run stopped following it, so"
-            " read the VM to know where it was left"
+            f"Proxmox's {task.kind} task for VM {task.vmid} was left before its end: the run stopped following it, and"
+            " the task may still run on Proxmox, so read the VM to know where it was left"
         )
 
 
@@ -490,6 +492,15 @@ def _digest_in(form: Mapping[str, Any] | None) -> bool:
     return isinstance(digest, str) and DIGEST.fullmatch(digest) is not None
 
 
+def _config_path(path: str) -> bool:
+    """Whether path, below the API, is a VM's configuration's as Proxmox reads it: with its %-escapes decoded, as
+    Proxmox decodes a request's path before it finds the call, so that .../confi%67 is one, and a trailing / dropped.
+    Decoded whole, so that an escaped / counts as one too: the reading that refuses more. The decoded path is only read
+    here, never sent: a path goes as it was given, a % in it included, and is refused only where it is a
+    configuration's and its write carries no digest."""
+    return urllib.parse.unquote(path).rstrip("/").endswith("/config")
+
+
 def _taken(said: str, newid: int) -> bool:
     """Whether Proxmox's words said said that the VMID newid is taken."""
     return any(int(found.group(1)) == newid for pattern in TAKEN for found in pattern.finditer(said))
@@ -562,10 +573,11 @@ class Proxmox:
         """method path, carrying the token, with query and form, on the guest agent's transport where agent says so:
         Proxmox's answer, whatever its status. Every request passes here, so here a PUT or a POST to a configuration's
         path with no digest in its form is refused, before anything is sent: Proxmox would write it whatever the
-        configuration had become since it was read. A certificate that is not what the host keeps is Unverified, told
-        by OpenSSL's verify code. Every refusal is raised after the handler that caught its cause has ended, so it
-        carries no cause."""
-        if method in ("PUT", "POST") and path.rstrip("/").endswith("/config") and not _digest_in(form):
+        configuration had become since it was read. The path is told a configuration's as Proxmox reads it, its
+        %-escapes decoded (_config_path), and is sent as it was given. A certificate that is not what the host keeps is
+        Unverified, told by OpenSSL's verify code. Every refusal is raised after the handler that caught its cause has
+        ended, so it carries no cause."""
+        if method in ("PUT", "POST") and _config_path(path) and not _digest_in(form):
             raise ValueError(
                 "a write of a VM's configuration sends the digest of the read it was made from, and this one had none:"
                 " nothing was sent"
@@ -941,8 +953,9 @@ class Proxmox:
         its Unreachable, or the client's - and the task may then still run on Proxmox: the workflow follows it again by
         the Task it holds, or reads the VM. The log, read once the task has ended, is held to what is left of the same
         deadline and to stop, and never decides the outcome: where it cannot be read in that time, its read fails or
-        the run stops, a success is returned with no lines, and a failure is TaskFailed with none - or Stopped where the
-        run stopped, the TaskFailed its cause."""
+        the run stops, a success is returned with no lines, and a failure is TaskFailed with none. Stopped is only ever
+        for a task left before its end was read: once its status says it ended, follow() says how, whatever stopped
+        the run."""
         if not isinstance(task, Task):
             raise TypeError("follow() follows a Task a write answered")
         if stop is not None and not isinstance(stop, threading.Event):
@@ -995,10 +1008,9 @@ class Proxmox:
             raise Locked(held, locked.group(1), f"its {task.kind} task")
         if _file_locked(said, held):
             raise Locked(held, FILE, f"its {task.kind} task")
-        lines = self._last_lines(task, end, stop)
-        if lines is None and stop is not None and stop.is_set():
-            raise Stopped(task) from TaskFailed(task, said, ())
-        raise TaskFailed(task, said, lines or ())
+        # The task's failure is Proxmox's answer, read: whatever the log's read meets, the run's stop among them, the
+        # task is said failed, never Stopped, which is for a task left before its end.
+        raise TaskFailed(task, said, self._last_lines(task, end, stop) or ())
 
     def _last_lines(self, task: Task, end: float, stop: threading.Event | None) -> tuple[str, ...] | None:
         """The last LOG_LAST lines of an ended task's log, read LOG_PAGE lines a request and LOG_PAGES requests at
