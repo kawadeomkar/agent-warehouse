@@ -640,10 +640,18 @@ def _raising(error: BaseException):
 
 # How a poll fails: through the run's own close of its client, the poll cut or its transport found closed (the
 # transport's mark, closed), which once the run has stopped is the stop; or of itself, the network's, the transport's
-# or the host's, which is the poll's own, whether the run has stopped or not (review/code/C22.md 5).
+# or the host's, which is the poll's own, whether the run has stopped or not (review/code/C22.md 5). Told by the mark
+# alone, never the words: a marked failure in other words is the stop too, and one in CUT's words with no mark is the
+# poll's own (review/code/B29.md 3).
 POLL_FAILS = {
     "cut": (_raising(Unreachable(CUT, closed=True)), Unreachable, True),
     "found closed": (_raising(Closed(CLOSED)), Closed, True),
+    "marked, in other words": (
+        _raising(Unreachable("the connection was dropped: Broken pipe", closed=True)),
+        Unreachable,
+        True,
+    ),
+    "in CUT's words, unmarked": (_raising(Unreachable(CUT)), Unreachable, False),
     "dropped": (_raising(Unreachable("the connection was dropped: Connection reset by peer")), Unreachable, False),
     "timed out": (_raising(TimedOut("no answer within 30 s")), TimedOut, False),
     "Denied": (lambda: Answer(403, (), b"", "Forbidden"), Denied, False),

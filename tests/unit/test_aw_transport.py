@@ -10,9 +10,9 @@ proxy only as an argument, sends a write once, bounds every body and wait and th
 included, and never says a header's value or a peer's words; a body cut short of its length is no answer. Closed, it
 sends nothing more: a request started after is Closed, and one under way ends at its first error, never asked again -
 at once, with no socket closed under its read, so that none that takes the socket's number is read or written by it,
-said as cut (CUT) and marked closed; and a socket is closed only once the transport holds it no more. proxy.choose
-works out today's proxy from the environment it is given, as requests does. The rules at the end hold the new engine's
-modules to one transport.
+said as cut (CUT) and marked closed, where a failure of the request's own with the close just after it is not marked;
+and a socket is closed only once the transport holds it no more. proxy.choose works out today's proxy from the
+environment it is given, as requests does. The rules at the end hold the new engine's modules to one transport.
 """
 
 from __future__ import annotations
@@ -660,15 +660,19 @@ def test_a_get_under_way_when_the_transport_is_closed_ends_at_its_first_error_an
     assert str(failed[0]) == transport.CUT and failed[0].closed
 
 
-def _closing_after(once: Callable) -> Callable:
-    """Transport._once that closes its transport once a try has ended, failed or answered, as a caller that closes it
-    just then, between the try and the next."""
+def _closing_after(once: Callable, tries: int = 1) -> Callable:
+    """Transport._once that closes its transport once its tries-th try has ended, failed or answered, as a caller that
+    closes it just then: between that try and the next, or after the call's last."""
+    ended = 0
 
     def tried(self, *args):
+        nonlocal ended
+        ended += 1
         try:
             return once(self, *args)
         finally:
-            self.close()
+            if ended == tries:
+                self.close()
 
     return tried
 
@@ -682,7 +686,8 @@ def test_a_get_whose_next_try_a_close_forestalls_is_closed_and_sends_nothing_mor
 ) -> None:
     """A GET that would be tried again - its connection dropped, or answered 503 - whose transport is closed before
     that try: the close is what ended the call, so it is Closed, marked closed, wherever the close comes, before the
-    pause or during it, and nothing more is sent."""
+    pause or during it, and nothing more is sent. During it: the pause is held until the test has closed the
+    transport, so that the close lands inside it whatever the lane's load (review/code/B29.md 5)."""
     server = serve(answer(503) if road.startswith("answered") else drop)
     client = _client(server, pki)
     if road.endswith("before its pause"):
@@ -692,7 +697,14 @@ def test_a_get_whose_next_try_a_close_forestalls_is_closed_and_sends_nothing_mor
             client.request("GET", "version")
         raised = closed.value
     else:
-        monkeypatch.setattr(transport, "PAUSES", (0.5, 0.5))
+        pausing, release = threading.Event(), threading.Event()
+
+        def paused(seconds: float) -> None:
+            # The transport's one sleep, the pause before a GET's next try, stood in for: held until released.
+            pausing.set()
+            release.wait(10)
+
+        monkeypatch.setattr(transport, "time", types.SimpleNamespace(monotonic=time.monotonic, sleep=paused))
         ended: dict = {}
 
         def get() -> None:
@@ -703,16 +715,46 @@ def test_a_get_whose_next_try_a_close_forestalls_is_closed_and_sends_nothing_mor
 
         thread = threading.Thread(target=get, daemon=True)
         thread.start()
-        deadline = time.monotonic() + 10
-        while not server.asked and time.monotonic() < deadline:
-            time.sleep(0.01)
-        time.sleep(0.2)  # the GET waits out its pause by now
-        client.close()
+        try:
+            assert pausing.wait(10)  # the first try has ended, and the GET is in its pause
+            client.close()
+        finally:
+            release.set()
         thread.join(10)
         assert not thread.is_alive() and "raised" in ended, ended
         raised = ended["raised"]
     assert str(raised) == CLOSED and raised.closed
     assert len(server.asked) == 1
+
+
+# A failure of the request's own, the transport closed just after it and before the call returned: the last try of a
+# GET dropped by the server, and a POST, sent once, dropped by it. Each: its method, the try the close comes after, and
+# what it is.
+OWN_FAILURES = {
+    "a GET's last try dropped, then closed": ("GET", transport.ATTEMPTS, Unreachable),
+    "a POST dropped, then closed": ("POST", 1, Unknown),
+}
+
+
+@pytest.mark.parametrize(("method", "tries", "raised"), OWN_FAILURES.values(), ids=OWN_FAILURES.keys())
+def test_a_failure_the_close_did_not_make_is_unmarked_and_said_in_its_own_words(
+    serve, pki, fast, monkeypatch, method, tries, raised
+) -> None:
+    """review/code/B29.md 4, the mark's other half: only a failure close() made is marked closed. One the server made -
+    the connection dropped, on a GET's last try or a POST's only one - is unmarked and said in its own words, though the
+    transport was closed just after it, before the call ended: a caller that reads the mark at a run's stop then says
+    what the host did, never the run's own close."""
+    server = serve(drop)
+    client = _client(server, pki)
+    monkeypatch.setattr(Transport, "_once", _closing_after(Transport._once, tries))
+    with pytest.raises(raised) as failed:
+        client.request(method, "version")
+    said = str(failed.value)
+    assert client._closed and not failed.value.closed and not isinstance(failed.value, Closed)
+    assert said.startswith("the connection was dropped") and transport.CUT not in said and CLOSED not in said, said
+    if method == "POST":
+        assert said.endswith(": the request may or may not have been carried out"), said
+    assert [one.method for one in server.asked] == [method] * tries
 
 
 def _waiting(sock: socket.socket) -> bytes:
@@ -1006,6 +1048,40 @@ def test_a_kept_connection_is_taken_before_its_far_end_is_looked_at(serve, pki, 
         for _ in range(3):
             assert client.request("GET", "version").status == 200
     assert seen == [True, True] and len({one.port for one in server.asked}) == 1
+
+
+@pytest.mark.parametrize("method", ["GET", "POST"])
+def test_a_close_between_the_look_at_a_kept_connection_and_its_take_is_the_request_s_closed(
+    serve, pki, monkeypatch, method
+) -> None:
+    """review/code/B29.md 1: a close() on another thread that lands as a request has looked its thread's kept connection
+    up, just before the take, finds the connection idle and forgets it, which lets its socket go (http.client's close
+    leaves the connection's socket None). The request is then the transport's Closed, marked closed, with nothing sent:
+    never an AssertionError, nor any error that is not the transport's. Stood in for by running close() to its end, on
+    a thread of its own, at the take's entry, where the interpreter may switch threads."""
+    take = Transport._take
+    taken: list = []
+    let_go: list = []
+
+    def closing_first(self, conn):
+        taken.append(conn)
+        if len(taken) == 2:
+            closer = threading.Thread(target=self.close, daemon=True)
+            closer.start()
+            closer.join(10)
+            let_go.append((closer.is_alive(), conn.sock))
+        return take(self, conn)
+
+    monkeypatch.setattr(Transport, "_take", closing_first)
+    server = serve()
+    client = _client(server, pki)
+    assert client.request("GET", "version").status == 200
+    with pytest.raises(Closed) as closed:
+        client.request(method, "version")
+    assert str(closed.value) == CLOSED and closed.value.closed
+    # The second take was of the kept connection, which close() had let go of: its socket gone, nothing held.
+    assert taken[0] is taken[1] and let_go == [(False, None)] and client._held == {}
+    assert len(server.asked) == 1
 
 
 # The roads on which a connection's socket is let go, or closed: an answer the connection keeps, then the transport

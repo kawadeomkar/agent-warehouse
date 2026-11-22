@@ -556,9 +556,11 @@ the task ends or during the read - a success with no lines and a failure `TaskFa
 follow whose run stops while its task still runs, between polls, during one, and before the first, each `Stopped` with
 no poll after it and the task still running on the fake; a poll that fails once the run has stopped, `Stopped` where
 the run's close made it fail (cut, or its transport found closed) and raised as itself otherwise (dropped, timed out,
-`Denied`, `Unverified`, `Malformed`), and each raised as itself while the run goes on; a log whose read could not be
-made, whose lines are `()` as a log with none's are; a deletion's parameters, `destroy-unreferenced-disks` alone and
-`purge` only where asked for, read from the fake's log; and a UPID with a `/` in a part of its own `Malformed`. Its
+`Denied`, `Unverified`, `Malformed`), and each raised as itself while the run goes on, told by the mark and never the
+words - a marked failure in other words is `Stopped` too, and one in `CUT`'s words with no mark is raised as itself; a
+log whose read could not be made, whose lines are `()` as a log with none's are; a deletion's parameters,
+`destroy-unreferenced-disks` alone and `purge` only where asked for, read from the fake's log; and a UPID with a `/` in
+a part of its own `Malformed`. Its
 rules: a `PUT` or a `POST` to a configuration's path with no `digest`, or an empty one, is refused before it is sent,
 `%`-escaped spellings of the path among them, while a path with a `%` is sent as it was given, `harness.fake_fleet`'s
 end fails a test where the fake was sent one, the path read decoded there too, and every method that sends one sends
@@ -658,7 +660,9 @@ builds no context and reads no setting.
   a TLS alert onto its connection. The decision is made under the lock a request takes its connection under, so
   a connection is either found in use and shut down, or found idle and closed before any request can take it; a kept
   connection is taken before its far end is looked at, so that the look, a poll of its socket's number, is never made
-  on a socket `close()` closed; and a connection still being made is refused as `Closed` once made.
+  on a socket `close()` closed; its socket is read by the take alone, under that lock, so that a `close()` that found
+  it idle and let it go just before is that request's `Closed`; and a connection still being made is refused as
+  `Closed` once made.
 - **One place closes a socket.** A connection's socket is closed by `_forget` alone, once no request is under way on
   it, and only after it is taken out of what the transport holds, under the same lock: `close()` shuts down only a
   connection it finds there, so its shutdown never meets a close. The socket `http.client` is handed (`_Wire`) closes
@@ -668,12 +672,13 @@ builds no context and reads no setting.
   send or the read raise - on Linux almost never a clean end: a TLS read meets the end of the stream, tries to send
   its alert on a socket shut for writing and fails, "Broken pipe", or meets "Connection reset by peer" - and an answer
   read so is never handed back, since one that ends with its connection would seem to end there. A `GET`'s is
-  `Unreachable`, "the transport was closed while its answer was read" (`CUT`), and any other method's `Unknown`, in
+  `Unreachable`, "the transport was closed while the request was under way" (`CUT`), words true of every road a cut
+  takes - its request still being written, its answer awaited or being read - and any other method's `Unknown`, in
   the same words first. **The mark is an attribute**, `TransportError.closed`: true for `Closed` and for a cut, false
-  for every other failure, the peer's or the network's, so a caller tells the run's own close by it and never by
-  words; a copy or a pickle keeps it. A `GET` whose next try a close forestalls - its connection dropped or its answer
-  502, 503 or 504, the transport closed before the pause or during it - is `Closed`: the close is what ended the
-  call.
+  for every other failure, the peer's or the network's, a try's own failure with the close just after it among them,
+  so a caller tells the run's own close by it and never by words; a copy or a pickle keeps it. A `GET` whose next try
+  a close forestalls - its connection dropped or its answer 502, 503 or 504, the transport closed before the pause or
+  during it - is `Closed`: the close is what ended the call.
 - **A secret is never said.** A header's value may be a `Secret`, or a tuple or list of `str` and `Secret` parts, as
   the Proxmox client's `PVEAPIToken=<id>=<secret>` is; and a form's value may be a `Secret`, or a list or tuple of
   values that may be, as Tailscale's `client_secret` is. A `Secret` is revealed in `_plain` and nowhere else, for the
@@ -719,9 +724,12 @@ keep every byte sent to them and are sent none; so does a send waiting on full b
 with the mark, and an answer that seemed to end whole on a socket shut down is handed back for neither a `GET` nor a
 `POST`. A body of 10 bytes under a `Content-Length` of 100, with and with no TLS `close_notify`, is no answer: a `GET`
 is asked three times, or answered whole on its second try, and a `POST` is `Unknown`. A kept connection is taken before
-its far end is looked at, a `_Wire` closes nothing, and on every road a connection's socket is let go by - kept, an
-answer's `Connection: close`, a connection dropped, a kept one the server closed - it is closed only once the
-transport holds it no more. It holds four rules over the new engine's modules.
+its far end is looked at, and a `close()` just before the take, stood in for at its entry, makes the request `Closed`.
+A `GET`'s last try dropped and a `POST` dropped, each with the close just after it, are unmarked, in their own words;
+a `GET` whose pause before its next try is held until the transport is closed is `Closed`. A `_Wire` closes nothing,
+and on every road a connection's socket is let go by - kept, an answer's `Connection: close`, a connection dropped, a
+kept one the server closed - it is closed only once the transport holds it no more. It holds four rules over the new
+engine's modules.
 Only `transport.py` imports `http.client` or wraps a socket. Only `proxy.py` imports `urllib.request`, and only for
 those readers. No module names a certificate variable. And `reveal(` appears once in the transport. It also holds the
 modules that hand the transport a `peer_check` to a list, `PEER_CHECKS`, each with why, found by the calls of
