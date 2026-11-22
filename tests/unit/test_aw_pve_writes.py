@@ -10,10 +10,14 @@ A clone into the pool with a description is proved by the new VM's own configura
 taken is Exists, at the call or in its task in each of Proxmox's three sentences, and nothing is ever deleted at that
 VMID. A configuration's write sends the digest its read gave, and a stale one is DigestMismatch with nothing written;
 edit_config reads and applies again, three times at most. A write to a VM a clone or a deletion holds is Locked, and
-tried once. A write whose answer is cut is the transport's Unknown, sent once. A task that fails raises with the last
-lines of its log, made plain; one that runs past its deadline raises then, and is not waited for longer; one whose run
-stops is Stopped, between polls or during one, and goes on on Proxmox, unfollowed. The rules with a test of their own:
-every method that sends a PUT to a configuration's path sends digest (a syntax-tree test of the module); a
+tried once; so is one that meets its configuration's file lock, and a clone's task that meets its source's lock names
+the source. A write whose answer is cut is the transport's Unknown, sent once. A task that fails raises with the last
+lines of its log, made plain; one that ends with warnings is a success, its warnings' lines kept; one that runs past
+its deadline raises then, and is not waited for longer, each poll held to what is left of it; one whose run stops is
+Stopped, between polls or during one, and goes on on Proxmox, unfollowed. A deletion sends destroy-unreferenced-disks
+alone, and purge only where it is asked for. The rules with a test of their own: a PUT or a POST to a configuration's
+path with no digest is refused before it is sent, every one the fake was sent carried it (harness.fake_fleet's end, for
+every test of the new engine), and every method that sends one sends digest (a syntax-tree test of the module); a
 configuration's write sends only the keys whose privileges are the table's rows for it; every row of the table names a
 method of the client; and no error of a write, nor of a read, says the token's secret, even where Proxmox's words echo
 it.
@@ -41,11 +45,13 @@ from harness import (
     REPO,
     _pve,
     _pve_requests,
+    digestless,
     engine_grant,
     engine_token,
     fake_fleet,
 )
 from pki import proxmox_pki
+from test_aw_pve_agent import _holding
 from test_aw_transport import _said, _Tunnel
 
 from claude_vm.pve import answers, pin, privileges
@@ -53,13 +59,17 @@ from claude_vm.pve.client import (
     CONFIG_KEYS,
     DEADLINES,
     EDITS,
+    FILE,
+    FILE_LOCK,
     LOCK,
     REFUSED_STATUS,
     STALE,
+    TAKEN,
     Denied,
     DigestMismatch,
     Exists,
     Locked,
+    Malformed,
     Proxmox,
     Refused,
     Stopped,
@@ -67,11 +77,13 @@ from claude_vm.pve.client import (
     TaskFailed,
     TaskTimedOut,
     Token,
+    TooOld,
     Unknown,
+    _file_locked,
     _taken,
 )
 from claude_vm.secret import MARK, Secret
-from claude_vm.vendors.transport import Answer, Unreachable
+from claude_vm.vendors.transport import Answer, TimedOut, Unreachable
 
 # The module's certificate authority, which signs the fake's certificate: cheap enough to make again on each worker
 # (tests/unit/conftest.py).
@@ -167,7 +179,8 @@ def _cloned(client: Proxmox, newid: int = 9020, name: str = "delta", **kwargs) -
 def test_a_clone_into_the_pool_with_a_description_is_proved_by_its_own_config(fleet) -> None:
     with fleet.client() as client:
         task = client.clone("pve", 9000, 9020, "delta", ENGINE_POOL, storage="local-lvm", description="aw: cloning")
-        assert (task.node, task.kind, task.vmid) == ("pve", "clone", 9020) and answers.UPID.fullmatch(task.upid)
+        assert (task.node, task.kind, task.vmid, task.source) == ("pve", "clone", 9020, 9000)
+        assert answers.UPID.fullmatch(task.upid)
         assert client.follow(task).ok
         config = client.config("pve", 9020)
         template = client.config("pve", 9000)
@@ -412,6 +425,91 @@ def test_a_failed_task_raises_with_the_last_lines_of_its_log_made_plain(fleet) -
     assert fleet.sent("GET", f"nodes/pve/tasks/{task.upid}/log") == [{"start": "0", "limit": "500"}]
 
 
+WARNING = "iothread is only valid with virtio disk or virtio-scsi-single controller, ignoring"
+
+
+def test_a_task_that_ended_with_warnings_is_a_success_its_warnings_kept_for_the_workflow_to_say(fleet) -> None:
+    """Proxmox counts a task whose worker logged a warning and went on a success, as today's community.proxmox does
+    (api_task_ok): a start of a person's own template with iothread on another controller logs one."""
+    _pve(fleet.base, "PUT", "fake/task-warn", warning=f"{WARNING}\nsecond \x1b[31mone\x1b[0m", type="qmstart")
+    with fleet.client() as client:
+        _cloned(client)
+        task = client.start("pve", 9020)
+        status = client.follow(task)
+        assert client.current("pve", 9020).status == "running"
+        plain = client.follow(client.stop("pve", 9020))
+    assert status.ok and (status.exitstatus, status.warnings) == ("WARNINGS: 2", 2)
+    assert status.lines == (f"WARN: {WARNING}", "WARN: second one", "TASK WARNINGS: 2")
+    assert fleet.sent("GET", f"nodes/pve/tasks/{task.upid}/log") == [{"start": "0", "limit": "500"}]
+    # A task that ended OK has no warnings, and its log is not read.
+    assert plain.ok and (plain.exitstatus, plain.warnings, plain.lines) == ("OK", 0, ())
+    assert len([entry for entry in fleet.asked() if entry["path"].endswith("/log")]) == 1
+
+
+def test_the_words_a_task_that_ended_with_warnings_is_told_by_are_the_fake_s() -> None:
+    for count in (1, 2, 30):
+        found = answers.WARNINGS.fullmatch(SAID["TASK_WARNINGS_STATUS"].format(count=count))
+        assert found and int(found.group(1)) == count
+    stopped = {"status": "stopped", "exitstatus": SAID["TASK_WARNINGS_STATUS"].format(count=1)}
+    assert answers.task_status(stopped, "pve", UPID).ok and answers.task_status(stopped, "pve", UPID).warnings == 1
+    for said in ("WARNINGS: 0", "WARNINGS: 1 and more", "WARNINGS: x", "warnings: 1", "TASK WARNINGS: 1", "WARN"):
+        status = answers.task_status({"status": "stopped", "exitstatus": said}, "pve", UPID)
+        assert not status.ok and status.warnings == 0, said
+    running = answers.task_status({"status": "running", "exitstatus": "WARNINGS: 1"}, "pve", UPID)
+    assert not running.ok and running.warnings == 0
+
+
+def test_a_task_that_meets_its_vm_s_configuration_file_lock_is_locked(fleet) -> None:
+    """Another task held the VM's configuration's file longer than Proxmox waits for it: the lock word is file. For a
+    clone the same words with its new VMID say another run's clone holds it, Exists."""
+    held = SAID["CLONE_LOCK_TIMEOUT"].format(newid=9020)
+    _pve(fleet.base, "PUT", "fake/task-fail", error=held, type="qmstart")
+    with fleet.client() as client:
+        _cloned(client)
+        with pytest.raises(Locked) as locked:
+            client.follow(client.start("pve", 9020))
+    assert (locked.value.vmid, locked.value.lock) == (9020, FILE) and "try again" in str(locked.value)
+
+
+@pytest.mark.parametrize("lock", ["backup", "the file"])
+def test_a_clone_s_task_that_meets_its_source_s_lock_is_locked_and_names_the_source(fleet, lock) -> None:
+    error = SAID["LOCKED"].format(lock="backup") if lock == "backup" else SAID["CLONE_LOCK_TIMEOUT"].format(newid=9000)
+    _pve(fleet.base, "PUT", "fake/task-fail", error=error, type="qmclone")
+    with fleet.client() as client:
+        task = client.clone("pve", 9000, 9020, "delta", ENGINE_POOL)
+        with pytest.raises(Locked) as locked:
+            client.follow(task)
+    assert (locked.value.vmid, locked.value.lock) == (9000, "backup" if lock == "backup" else FILE)
+    assert str(locked.value).startswith("VM 9000 is locked") and fleet.deletions() == []
+
+
+def test_a_write_that_meets_its_configuration_s_file_lock_at_the_call_is_locked_and_a_clone_s_names_its_source(
+    pki,
+) -> None:
+    client = Proxmox("https://127.0.0.1:9", pin.kept(pki["ca"]), Token(f"{ENGINE_USER}!{ENGINE_TOKEN}", Secret(CANARY)))
+    held = SAID["CLONE_LOCK_TIMEOUT"]
+    client._transport = _Answers(
+        VERSION,
+        _echo(held.format(newid=9010)),
+        _echo(held.format(newid=9011)),
+        _echo(held.format(newid=9000)),
+        _echo(held.format(newid=9020)),
+    )
+    with pytest.raises(Locked) as locked:
+        client.write_config("pve", 9010, {"cores": 2}, "0" * 40)
+    assert (locked.value.vmid, locked.value.lock) == (9010, FILE)
+    # Another VM's file is not this VM's lock.
+    with pytest.raises(Refused):
+        client.write_config("pve", 9010, {"cores": 2}, "0" * 40)
+    with pytest.raises(Locked) as source:
+        client.clone("pve", 9000, 9020, "delta", ENGINE_POOL)
+    assert (source.value.vmid, source.value.lock) == (9000, FILE)
+    with pytest.raises(Exists):
+        client.clone("pve", 9000, 9020, "delta", ENGINE_POOL)
+    assert FILE_LOCK in TAKEN
+    assert _file_locked(held.format(newid=9010), 9010) and not _file_locked(held.format(newid=9010), 901)
+
+
 def test_a_task_past_its_deadline_raises_and_is_not_waited_for_longer(fleet) -> None:
     _pve(fleet.base, "PUT", "fake/task-polls", polls=100_000)
     with fleet.client() as client:
@@ -557,6 +655,85 @@ def test_a_follow_not_stopped_follows_its_task_to_its_end(fleet) -> None:
     assert status.ok and not status.running
 
 
+def test_a_follow_whose_run_stops_and_closes_its_client_during_a_held_poll_is_stopped_and_asks_nothing_more(
+    pki,
+) -> None:
+    """The meeting of follow()'s stop (card C22) with the closed transport (card B22): the run stops while a poll is
+    held by the host and closes its client under it. The poll ends at its first error, within its read's limit (a
+    second here), is never sent again on a new connection, and follow() says Stopped."""
+    release = threading.Event()
+    server = _holding(pki, release)
+    url = f"https://127.0.0.1:{server.server_address[1]}"
+    pinned = pin.kept(pki["ca"])
+    client = Proxmox(url, pinned, Token(f"{ENGINE_USER}!{ENGINE_TOKEN}", Secret(CANARY)))
+    client._transport = pin.transport(f"{url}/api2/json", pinned, read=1.0)
+    task = answers.task(UPID, "pve", "start", 9010)
+    status = f"/api2/json/nodes/pve/tasks/{task.upid}/status"
+
+    def polls() -> list:
+        return [one for one in server.asked if one.path == status]
+
+    try:
+        stop = threading.Event()
+        thread, ended = _following(client, task, stop)
+        deadline = time.monotonic() + 20
+        while not polls() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        stop.set()
+        client.close()
+        closed = time.monotonic()
+        thread.join(timeout=10)
+        assert not thread.is_alive()
+    finally:
+        release.set()
+        server.shutdown()
+        server.server_close()
+    assert isinstance(ended.get("raised"), Stopped), ended
+    assert ended["at"] - closed < 1.0 + pin.CONNECT
+    assert len(polls()) == 1
+
+
+class _Unanswered:
+    """A transport that answers the version and then no task's status: each poll waits what its call's deadline
+    gives, or, where it gives none, five seconds (the transport's own default is 120), and is the transport's TimedOut,
+    as the transport ends a GET that had no answer in time; or, at_once, it is TimedOut at once, as one whose read had
+    no answer within its own wait, with the call's deadline still far off."""
+
+    def __init__(self, at_once: bool = False) -> None:
+        self.at_once = at_once
+        self.deadlines: list[float | None] = []
+
+    def request(self, method, path, deadline=None, **kwargs) -> Answer:
+        if path == "version":
+            return VERSION
+        self.deadlines.append(deadline)
+        if not self.at_once:
+            time.sleep(deadline if deadline is not None else 5.0)
+        raise TimedOut("no answer within 30 s")
+
+
+def test_each_poll_of_a_task_is_held_to_what_is_left_of_its_deadline(pki) -> None:
+    client = Proxmox("https://127.0.0.1:9", pin.kept(pki["ca"]), Token(f"{ENGINE_USER}!{ENGINE_TOKEN}", Secret(CANARY)))
+    client._transport = waits = _Unanswered()
+    task = answers.task(UPID, "pve", "start", 9010)
+    began = time.monotonic()
+    with pytest.raises(TaskTimedOut):
+        client.follow(task, deadline=0.5)
+    took = time.monotonic() - began
+    assert 0.5 <= took < 1.5, took
+    assert waits.deadlines and all(left is not None and 0 < left <= 0.5 for left in waits.deadlines), waits.deadlines
+
+
+def test_a_poll_that_fails_with_time_left_raises_its_own_error_and_the_task_may_still_run(pki) -> None:
+    client = Proxmox("https://127.0.0.1:9", pin.kept(pki["ca"]), Token(f"{ENGINE_USER}!{ENGINE_TOKEN}", Secret(CANARY)))
+    client._transport = waits = _Unanswered(at_once=True)
+    with pytest.raises(TimedOut):
+        # The poll's read had no answer within its own wait, long before the task's deadline: the poll's error, not
+        # TaskTimedOut, since the task may still run on Proxmox (follow's docstring says so).
+        client.follow(answers.task(UPID, "pve", "start", 9010), deadline=600)
+    assert len(waits.deadlines) == 1
+
+
 def test_each_write_answers_a_task_of_its_kind_that_changes_the_vm_when_it_ends(fleet) -> None:
     with fleet.client() as client:
         _cloned(client)
@@ -587,8 +764,21 @@ def test_each_write_answers_a_task_of_its_kind_that_changes_the_vm_when_it_ends(
     assert fleet.sent("PUT", "nodes/pve/qemu/9020/resize") == [{"disk": "scsi0", "size": "40G"}]
     assert fleet.sent("POST", "nodes/pve/qemu/9020/status/shutdown") == [{"timeout": "30", "forceStop": "1"}]
     assert fleet.sent("POST", "nodes/pve/qemu/9020/status/start") == [{}, {}]
-    assert fleet.sent("DELETE", "nodes/pve/qemu/9020") == [{"destroy-unreferenced-disks": "1", "purge": "1"}]
+    assert fleet.sent("DELETE", "nodes/pve/qemu/9020") == [{"destroy-unreferenced-disks": "1"}]
     assert {fleet.tasks()[task.upid]["owner"] for task in made} == {fleet.token.id}
+
+
+def test_a_deletion_sends_destroy_unreferenced_disks_alone_and_purge_only_where_it_is_asked_for(fleet) -> None:
+    """With purge, Proxmox also takes the VMID out of the host's backup jobs, replication and HA, and without it refuses
+    to delete a VM a person put under HA or replication: the client sends it only where a caller asks for it, as
+    today's role never does (roles/proxmox_vm/tasks/absent.yml)."""
+    with fleet.client() as client:
+        _cloned(client)
+        _cloned(client, 9021, "epsilon")
+        assert client.follow(client.delete("pve", 9020)).ok
+        assert client.follow(client.delete("pve", 9021, purge=True)).ok
+    assert fleet.sent("DELETE", "nodes/pve/qemu/9020") == [{"destroy-unreferenced-disks": "1"}]
+    assert fleet.sent("DELETE", "nodes/pve/qemu/9021") == [{"destroy-unreferenced-disks": "1", "purge": "1"}]
 
 
 def test_a_delete_of_a_vm_outside_the_pool_is_denied_and_it_stays(fleet) -> None:
@@ -653,6 +843,28 @@ def test_a_deadline_is_a_number_of_seconds_above_0(fleet) -> None:
         answers.task(None, "pve", "start", 9010)
     with pytest.raises(ValueError):
         answers.task("UPID:pve:00000001:00000000:00000000:qmstart:1:root@pam:", "pve", "reboot", 9010)
+    with pytest.raises(ValueError):
+        answers.task("UPID:pve:00000001:00000000:00000000:qmstart:1:root@pam:", "pve", "start", 9010, source=9000)
+
+
+SLASHED = [
+    "UPID:pve:00000001:00000000:00000000:qm/x:1:root@pam:",
+    "UPID:pve:00000001:00000000:00000000:qmstart:1/../x:root@pam:",
+    "UPID:pve:00000001:00000000:00000000:qmstart:1:root/../x@pam:",
+]
+
+
+@pytest.mark.parametrize("upid", SLASHED, ids=["its type", "its ID", "its user"])
+def test_a_write_answered_with_a_upid_that_holds_a_slash_is_malformed(pki, upid) -> None:
+    """A write's answer is a UPID the client puts back into two paths, a task's status and its log: one with a / in a
+    part of its own would reach another path."""
+    with pytest.raises(Malformed):
+        answers.task(upid, "pve", "start", 9010)
+    client = Proxmox("https://127.0.0.1:9", pin.kept(pki["ca"]), Token(f"{ENGINE_USER}!{ENGINE_TOKEN}", Secret(CANARY)))
+    client._transport = _Answers(VERSION, _data(upid))
+    with pytest.raises(Malformed):
+        client.start("pve", 9010)
+    assert answers.task(upid.replace("/", "-"), "pve", "start", 9010).upid == upid.replace("/", "-")
 
 
 # ------------------------------------------------------------------------------------------------- the rules ----
@@ -701,22 +913,58 @@ def _says_digest(function: ast.AST) -> bool:
 
 
 def _config_puts_without_digest(source: str) -> tuple[list[str], list[str]]:
-    """The functions of source that send a PUT to a configuration's path, and those of them that send no digest."""
+    """The functions of source that send a PUT or a POST to a configuration's path, and those of them that send no
+    digest: a second line, behind the client's own refusal and the fleet's end, both of which read what is sent."""
     putting, without = [], []
     for function in ast.walk(ast.parse(source)):
         if not isinstance(function, ast.FunctionDef | ast.AsyncFunctionDef):
             continue
         sent = [_sends(node) for node in ast.walk(function) if isinstance(node, ast.Call)]
-        if any(found and found[0] == "PUT" and found[1].endswith("/config") for found in sent):
+        if any(found and found[0] in ("PUT", "POST") and found[1].endswith("/config") for found in sent):
             putting.append(function.name)
             if not _says_digest(function):
                 without.append(function.name)
     return putting, without
 
 
-def test_every_method_that_sends_a_put_to_a_config_path_sends_digest() -> None:
+def test_every_method_that_sends_a_put_or_a_post_to_a_config_path_sends_digest() -> None:
     putting, without = _config_puts_without_digest(CLIENT.read_text())
     assert putting == ["write_config"] and without == []
+
+
+@pytest.mark.parametrize("method", ["PUT", "POST"])
+@pytest.mark.parametrize("path", ["nodes/pve/qemu/9010/config", "nodes/pve/qemu/9010/config/"])
+def test_a_write_to_a_configuration_s_path_with_no_digest_is_refused_before_it_is_sent(fleet, method, path) -> None:
+    """Where every request passes, whatever method made it and however its path was built: Proxmox would write it
+    whatever the configuration had become since it was read."""
+    with fleet.client() as client:
+        with pytest.raises(ValueError, match="sends the digest"):
+            client._send(method, path, 9010, form={"description": "late"})
+        with pytest.raises(ValueError, match="sends the digest"):
+            client._request(method, path, form=None)
+        assert client.config("pve", 9010).description != "late"
+    assert fleet.writes() == []
+
+
+def test_every_configuration_write_the_client_sent_the_fake_carried_its_digest_at_the_fleet_s_end(
+    tmp_path, pki
+) -> None:
+    """harness.fake_fleet(engine=True) reads, at its end, what the fake was sent: a write past the client's own refusal,
+    sent with the client's user agent and no digest, fails the test then."""
+    with pytest.raises(AssertionError, match="no digest"):
+        for base in fake_fleet(tmp_path, engine=True, certificate=(pki["cert"], pki["key"])):
+            token_id, secret = engine_token(tmp_path)
+            with Proxmox(base, pin.kept(pki["ca"]), Token(token_id, Secret(secret))) as client:
+                header = {"Authorization": (f"PVEAPIToken={token_id}=", Secret(secret))}
+                client._transport.request("PUT", "nodes/pve/qemu/9010/config", headers=header, form={"cores": "3"})
+                # A write that is no configuration's is not one of them.
+                client._transport.request("POST", "nodes/pve/qemu/9012/status/start", headers=header)
+    (bare,) = digestless(tmp_path)
+    assert (bare["method"], bare["path"], bare["params"]) == (
+        "PUT",
+        "/api2/json/nodes/pve/qemu/9010/config",
+        {"cores": "3"},
+    )
 
 
 @pytest.mark.parametrize(
@@ -730,7 +978,12 @@ def test_every_method_that_sends_a_put_to_a_config_path_sends_digest() -> None:
             [],
         ),
         ('def w(self, n, v):\n    self._send("PUT", f"nodes/{n}/qemu/{v}/config", v, form={"digest": 1})', ["w"], []),
-        ('def w(self, n, v):\n    self._send("POST", f"nodes/{n}/qemu/{v}/config", v)', [], []),
+        ('def w(self, n, v):\n    self._send("POST", f"nodes/{n}/qemu/{v}/config", v)', ["w"], ["w"]),
+        (
+            'def w(self, n, v, d):\n    self._send("POST", f"nodes/{n}/qemu/{v}/config", v, form={"digest": d})',
+            ["w"],
+            [],
+        ),
         ('def w(self, n, v):\n    self._send("PUT", f"nodes/{n}/qemu/{v}/resize", v)', [], []),
         ('def w(self, c):\n    self._transport.request("PUT", "nodes/pve/qemu/9010/config", form=c)', ["w"], ["w"]),
     ],
@@ -788,30 +1041,37 @@ ECHOES = {
     "the secret where the words are cut": "x" * 180 + CANARY,
 }
 RAISED = {
-    "a read's Refused": (lambda c: c.config("pve", 9010), lambda echo: [_echo(echo)], Refused),
+    "a read's Refused": (lambda c: c.config("pve", 9010), lambda echo: [VERSION, _echo(echo)], Refused),
     "a write's Refused": (
         lambda c: c.write_config("pve", 9010, {"cores": 2}, "0" * 40),
-        lambda echo: [_echo(echo)],
+        lambda echo: [VERSION, _echo(echo)],
         Refused,
     ),
     "DigestMismatch": (
         lambda c: c.write_config("pve", 9010, {"cores": 2}, "0" * 40),
-        lambda echo: [_echo(f"checksum mismatch {echo}")],
+        lambda echo: [VERSION, _echo(f"checksum mismatch {echo}")],
         DigestMismatch,
     ),
-    "Locked": (lambda c: c.start("pve", 9010), lambda echo: [_echo(f"VM is locked (clone) {echo}")], Locked),
+    "Locked": (lambda c: c.start("pve", 9010), lambda echo: [VERSION, _echo(f"VM is locked (clone) {echo}")], Locked),
     "Exists": (
         lambda c: c.clone("pve", 9000, 9020, "delta", ENGINE_POOL),
-        lambda echo: [_echo(f"unable to create VM 9020: config file already exists {echo}")],
+        lambda echo: [VERSION, _echo(f"unable to create VM 9020: config file already exists {echo}")],
         Exists,
     ),
     "TaskFailed": (
         lambda c: c.follow(answers.task(UPID, "pve", "start", 9010)),
         lambda echo: [
+            VERSION,
             _data({"status": "stopped", "exitstatus": f"start failed: {echo}"}),
             _data([{"n": 1, "t": f"TASK ERROR: start failed: {echo}"}]),
         ],
         TaskFailed,
+    ),
+    "TooOld": (lambda c: c.version(), lambda echo: [_data({"version": f"8.2 {echo}", "release": "8.2"})], TooOld),
+    "the version's Malformed": (
+        lambda c: c.version(),
+        lambda echo: [_data({"version": f"nine {echo}", "release": "9.2"})],
+        Malformed,
     ),
 }
 
@@ -825,7 +1085,7 @@ def test_no_error_says_the_token_s_secret_even_where_proxmox_s_words_echo_it(pki
     caplog.set_level(logging.DEBUG)
     call, given, kind = raised
     client = Proxmox("https://127.0.0.1:9", pin.kept(pki["ca"]), Token(f"{ENGINE_USER}!{ENGINE_TOKEN}", Secret(CANARY)))
-    client._transport = _Answers(VERSION, *given(echo))
+    client._transport = _Answers(*given(echo))
     with pytest.raises(kind) as error:
         call(client)
     said = _said(error.value, caplog, capsys, frames=False)
@@ -833,6 +1093,8 @@ def test_no_error_says_the_token_s_secret_even_where_proxmox_s_words_echo_it(pki
         said += [error.value.error, *error.value.lines]
     if isinstance(error.value, Refused):
         said.append(error.value.reason)
+    if isinstance(error.value, TooOld):
+        said.append(error.value.version)
     # No part of it either: no ten characters of it in a row, which a secret struck only once its words were cut would
     # leave.
     parts = {CANARY[at : at + 10] for at in range(len(CANARY) - 9)}

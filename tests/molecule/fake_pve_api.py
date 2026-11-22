@@ -32,7 +32,10 @@ A started VM's guest agent fails its first two polls, so every wait for it is
 exercised; a fixture that is not about that wait answers from the first with
 PUT /api2/json/fake/agent-ready-after?polls=0. What a VM's agent reports of its
 network cards is the VM's to choose: PUT /api2/json/fake/agent-answer?vmid=
-&result=<JSON> plants it, in place of the usual lo, docker0 and eth0.
+&result=<JSON> plants it, in place of the usual lo, docker0 and eth0. A VM whose
+configuration turns no guest agent on (no agent, or agent=0) has every agent
+call refused first with NO_AGENT, as Proxmox refuses it before it asks whether
+the VM runs; every VM the fake makes takes the template's.
 
 GET /access/permissions answers each token's privileges by path, as Proxmox
 does - the privilege's name as the key, 1 or 0 its propagate flag - from a
@@ -173,8 +176,11 @@ those made after it run with PUT /api2/json/fake/task-polls?polls=N: then its st
 polls and ends at the next, or when PUT /api2/json/fake/task-end?upid= ends it, or with no upid every running task,
 as its worker ends whether or not anyone asks. It ends OK, its log "TASK OK"; or with the error PUT
 /api2/json/fake/task-fail?error=&type= planted for the next task (of that type, where one is given), changing nothing
-- a failed clone leaves no VM - its log "TASK ERROR: <error>". A UPID the fake never made is answered as stopped and
-OK, with an empty log, as before.
+- a failed clone leaves no VM - its log "TASK ERROR: <error>"; or with the warnings PUT
+/api2/json/fake/task-warn?warning=&type= planted for the next task (of that type, where one is given), one a line of
+warning: a success, as Proxmox counts it, its change made, its exit status "WARNINGS: <n>" and its log each warning as
+"WARN: <warning>", then "TASK WARNINGS: <n>", as Proxmox's worker logs them (TASK_WARNINGS). A UPID the fake never made
+is answered as stopped and OK, with an empty log, as before.
 
 A HEAD is answered 501, as pveproxy answers it, token or not. PUT /api2/json/fake/tokenless?answer=none has every
 request with no token go unanswered from then on, the connection closed with nothing said: something answering in the
@@ -262,6 +268,14 @@ INVALID_PRIVILEGE = "invalid privilege '{privilege}'"
 AGENT_REFUSED_STATUS = 500
 VM_NOT_RUNNING = "VM {vmid} is not running"
 AGENT_NOT_RUNNING = "QEMU guest agent is not running"
+# A guest agent's call to a VM whose configuration turns no agent on, refused before the VM's state is read.
+NO_AGENT = "No QEMU guest agent configured"
+# The exit status of a task whose worker logged warnings and went on, which Proxmox counts a success, and the last line
+# of its log (PVE::RESTEnvironment's worker; PVE::Tools::upid_read_status reads the one from the other); each warning
+# is a line of its own before it. Read from the source, for experiment 6 to confirm (card A21).
+TASK_WARNINGS_STATUS = "WARNINGS: {count}"
+TASK_WARNINGS = "TASK WARNINGS: {count}"
+TASK_WARN = "WARN: {warning}"
 
 PORT = int(sys.argv[1])
 CERT, KEY = sys.argv[2], sys.argv[3]
@@ -378,6 +392,9 @@ TASK_POLLS = {"polls": 0}
 # Errors planted for tasks to come, each ending the next task made - of its type, where it names one - once:
 # PUT /api2/json/fake/task-fail?error=&type=
 TASK_FAIL = []
+# Warnings planted for tasks to come, each list the next task's - of its type, where it names one - once:
+# PUT /api2/json/fake/task-warn?warning=&type=, one warning a line
+TASK_WARN_NEXT = []
 # Whether a clone takes its source's tags and its description: PUT /api2/json/fake/clone-inherits?tags=&description=
 CLONE_INHERITS = {"tags": 1, "description": 1}
 # Whether the next clone onto a VMID this node's VM holds, and the next configuration POST with a stale digest, each
@@ -791,6 +808,8 @@ def new_task(kind, vmid, owner, end=None, error=None, check=None):
     if error is None:
         planted = next((i for i, (only, _) in enumerate(TASK_FAIL) if only in ("", kind)), None)
         error = "" if planted is None else TASK_FAIL.pop(planted)[1]
+    warned = next((i for i, (only, _) in enumerate(TASK_WARN_NEXT) if only in ("", kind)), None)
+    warnings = [] if warned is None else TASK_WARN_NEXT.pop(warned)[1]
     TASK_RECORDS[upid] = {
         "type": kind,
         "owner": owner,
@@ -798,6 +817,8 @@ def new_task(kind, vmid, owner, end=None, error=None, check=None):
         "status": "running",
         "polls": TASK_POLLS["polls"],
         "error": error,
+        # Only where some were planted, so that a record is what it always was otherwise.
+        **({"warnings": warnings} if warnings else {}),
     }
     TASK_ENDS[upid] = end
     TASK_CHECKS[upid] = check
@@ -822,10 +843,33 @@ def end_task(upid):
 
 
 def task_lines(record):
-    """A task's log, as Proxmox's ends one: nothing yet while it runs, then TASK OK, or TASK ERROR and its error."""
+    """A task's log, as Proxmox's ends one: nothing yet while it runs, then each warning its worker logged, and TASK
+    OK, or TASK ERROR and its error, or TASK WARNINGS and how many where there were some."""
     if record["status"] == "running":
         return []
-    return [f"TASK ERROR: {record['error']}" if record["error"] else "TASK OK"]
+    warnings = record.get("warnings", [])
+    said = [TASK_WARN.format(warning=warning) for warning in warnings]
+    if record["error"]:
+        return [*said, f"TASK ERROR: {record['error']}"]
+    return [*said, TASK_WARNINGS.format(count=len(warnings)) if warnings else "TASK OK"]
+
+
+def task_exitstatus(record):
+    """How a stopped task ended, as its status says: its error, WARNINGS and how many, or OK."""
+    if record["error"]:
+        return record["error"]
+    warnings = record.get("warnings", [])
+    return TASK_WARNINGS_STATUS.format(count=len(warnings)) if warnings else "OK"
+
+
+def agent_on(config):
+    """Whether a VM's configuration turns its guest agent on: its agent option enabled, written as Proxmox takes it
+    ([enabled=]1, then its other keys); off where it has none, as Proxmox's default is."""
+    for part in str(config.get("agent", "")).split(","):
+        key, sep, value = part.partition("=")
+        if (value if sep else key).strip().lower() in ("1", "on", "yes", "true") and (not sep or key == "enabled"):
+            return True
+    return False
 
 
 def config_digest(config):
@@ -1318,6 +1362,10 @@ class Handler(BaseHTTPRequestHandler):
             # Not a PVE endpoint: the error the next task, of the type given or any, ends with.
             TASK_FAIL.append((params.get("type", ""), params["error"]))
             return self._reply(200, len(TASK_FAIL))
+        if parts[:2] == ["fake", "task-warn"] and method == "PUT":
+            # Not a PVE endpoint: the warnings the next task, of the type given or any, logs and ends with, a success.
+            TASK_WARN_NEXT.append((params.get("type", ""), params["warning"].split("\n")))
+            return self._reply(200, len(TASK_WARN_NEXT))
         if parts[:2] == ["fake", "task-end"] and method == "PUT":
             # Not a PVE endpoint: running tasks end as their workers would, polled or not - the one upid names, or
             # every one; the UPIDs ended.
@@ -1513,8 +1561,8 @@ class Handler(BaseHTTPRequestHandler):
                     save_tasks()
                     return self._reply(200, {"status": "running", "upid": rest[1]})
                 end_task(rest[1])
-            ended = record["error"] if record else ""
-            return self._reply(200, {"status": "stopped", "exitstatus": ended or "OK", "upid": rest[1]})
+            ended = task_exitstatus(record) if record else "OK"
+            return self._reply(200, {"status": "stopped", "exitstatus": ended, "upid": rest[1]})
         if rest[:1] == ["tasks"] and rest[2:] == ["log"]:
             # Its lines from start, at most limit of them, each with its number, as Proxmox gives them.
             lines = task_lines(TASK_RECORDS[rest[1]]) if rest[1] in TASK_RECORDS else []
@@ -1697,6 +1745,8 @@ class Handler(BaseHTTPRequestHandler):
 
             return self._reply(200, self._task("resize", vmid, resized))
         if sub == ["agent", "network-get-interfaces"] and method == "GET":
+            if not agent_on(vm["config"]):
+                return self._reply(AGENT_REFUSED_STATUS, None, NO_AGENT)
             if vm["status"] != "running":
                 return self._reply(AGENT_REFUSED_STATUS, None, VM_NOT_RUNNING.format(vmid=vmid))
             AGENT_CALLS[vmid] = AGENT_CALLS.get(vmid, 0) + 1
@@ -1740,6 +1790,8 @@ class Handler(BaseHTTPRequestHandler):
         if sub == ["pending"] and method == "GET":
             return self._reply(200, [{"key": k, "value": v} for k, v in sorted(vm["config"].items())])
         if sub[:1] == ["agent"] and sub[1:] in (["get-osinfo"], ["get-fsinfo"]) and method == "GET":
+            if not agent_on(vm["config"]):
+                return self._reply(AGENT_REFUSED_STATUS, None, NO_AGENT)
             if vm["status"] != "running":
                 return self._reply(AGENT_REFUSED_STATUS, None, VM_NOT_RUNNING.format(vmid=vmid))
             if AGENT_CALLS.get(vmid, 0) <= AGENT_READY["after"]:

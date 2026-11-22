@@ -8,7 +8,12 @@ reached at checked. Or no file, where the host's certificate verifies against th
 vendors' do: certifi's list, with the file the setting tls_ca_file names added to it (vendors/trust.py). Where the
 anchor is the node's own certificate, its SHA-256 fingerprint as it was recorded is held too: the transport hands this
 module's check the certificate the server presented, after the handshake and before the first byte of a request, and
-a certificate that is not the one recorded is refused there, nothing sent.
+a certificate that is not the one recorded is refused there, nothing sent. The fingerprint names the one certificate
+the host may present, so its name is not checked then: a host reached at an address its certificate does not name, a
+tailnet's or a forwarded port's, is reached through its node's own certificate. A CA's anchor, and no anchor, keep the
+name checked, since each verifies any certificate it signed. Either way the certificate is always checked: there is
+no context that checks nothing. No context logs its session's keys, whatever SSLKEYLOGFILE says and however Python was
+started: the token's connection is the one the engine most needs kept.
 
 This module makes the client's transport, the one connection a Proxmox token goes on, so it alone hands the transport a
 check of the peer; it touches neither http.client nor a socket. It reads no setting and no variable: the anchor's text,
@@ -30,6 +35,9 @@ from ..vendors.transport import Transport
 
 # What the client says it is, on every request.
 USER_AGENT = "agent-warehouse"
+# How long making a connection waits for each step, in seconds: the transport's own limit, named here so that a caller
+# can bound a call by it (agent.py's polls).
+CONNECT = 5.0
 
 
 class Mismatch(Exception):
@@ -48,13 +56,14 @@ class Pin:
 
 
 def context(anchor_pem: str | None, tls_ca_file: str | os.PathLike[str] | None = None) -> ssl.SSLContext:
-    """The context the client's connections verify with: the certificates of anchor_pem alone, the host's anchor
-    file's text, where it keeps one; else the computer's certificates, certifi's list with the file tls_ca_file names
-    added to it. Raises ValueError for an anchor that holds no certificate, and vendors.trust.Unusable for a file that
-    cannot be used."""
-    if anchor_pem is not None:
-        return trust.anchored_context(anchor_pem)
-    return vendors_trust.context(tls_ca_file)
+    """The context the client's connections verify with, the name checked: the certificates of anchor_pem alone, the
+    host's anchor file's text, where it keeps one; else the computer's certificates, certifi's list with the file
+    tls_ca_file names added to it. It logs no session's keys: the standard library's ready-made context, which today's
+    trust.anchored_context makes, names the file SSLKEYLOGFILE gives unless Python ignores the environment. Raises
+    ValueError for an anchor that holds no certificate, and vendors.trust.Unusable for a file that cannot be used."""
+    made = trust.anchored_context(anchor_pem) if anchor_pem is not None else vendors_trust.context(tls_ca_file)
+    made.keylog_filename = None
+    return made
 
 
 def _fingerprint(value: str) -> str:
@@ -81,12 +90,17 @@ def check(expected_fingerprint: str) -> Callable[[bytes], None]:
 def kept(anchor_pem: str | None, fingerprint: str = "", tls_ca_file: str | os.PathLike[str] | None = None) -> Pin:
     """The Pin of what a host keeps: its anchor file's text, or None where it keeps none; the fingerprint recorded for
     the node's own certificate where that is the anchor; and the computer's setting tls_ca_file, read only where there
-    is no anchor. A fingerprint is held only beside an anchor: ValueError otherwise, or for one that is not one."""
+    is no anchor. Where a fingerprint is recorded, the context checks no name: the transport's check holds the
+    certificate presented to that fingerprint, which names the one certificate, and the anchor still verifies it. A
+    fingerprint is held only beside an anchor: ValueError otherwise, or for one that is not one."""
     if fingerprint and anchor_pem is None:
         raise ValueError("a recorded fingerprint goes with the node's own certificate as the host's anchor")
-    return Pin(
-        context(anchor_pem, tls_ca_file), anchor_pem is not None, _fingerprint(fingerprint) if fingerprint else ""
-    )
+    recorded = _fingerprint(fingerprint) if fingerprint else ""
+    made = context(anchor_pem, tls_ca_file)
+    if recorded:
+        # The fingerprint, checked before a byte is written, says more than a name could: the certificate is that one.
+        made.check_hostname = False
+    return Pin(made, anchor_pem is not None, recorded)
 
 
 def transport(url: str, pin: Pin, proxy: str | None = None, read: float = 30.0) -> Transport:
@@ -94,4 +108,6 @@ def transport(url: str, pin: Pin, proxy: str | None = None, read: float = 30.0) 
     checked against it before anything is written; through proxy, an http:// URL, where there is one (proxy.choose
     works out today's for the API's address)."""
     held = check(pin.fingerprint) if pin.fingerprint else None
-    return Transport(url, context=pin.context, user_agent=USER_AGENT, read=read, proxy=proxy, peer_check=held)
+    return Transport(
+        url, context=pin.context, user_agent=USER_AGENT, connect=CONNECT, read=read, proxy=proxy, peer_check=held
+    )

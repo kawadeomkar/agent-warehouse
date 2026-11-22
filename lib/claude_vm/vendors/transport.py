@@ -31,7 +31,9 @@ and every error is raised outside the handler that caught its cause, so it carri
 a connection that is not kept is closed however the making ends, a Ctrl-C included.
 
 Blocking, and safe to call from several threads, with one connection a thread; a caller on an asyncio loop uses
-asyncio.to_thread. It builds no context and reads no setting and no variable.
+asyncio.to_thread. Closed, it sends nothing more: a request started after close() is Closed, nothing sent, and one
+still under way on another thread, as a caller that let it go leaves it, ends at its first error, never tried again
+and never given a new connection. It builds no context and reads no setting and no variable.
 """
 
 from __future__ import annotations
@@ -70,6 +72,8 @@ CHUNK = 64 * 1024
 TUNNEL_MOST = 64 * 1024
 # What a request http.client would refuse to make is said as: its own words quote the header.
 NOT_MADE = "the request could not be made"
+# What a request to a transport that was closed is said as.
+CLOSED = "the transport was closed, and sends nothing more"
 
 # A header's name, as HTTP has one; a value, visible ASCII, a space or a tab, and nothing that ends a line.
 _NAME = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+")
@@ -118,6 +122,11 @@ class PeerRefused(TransportError):
 
 class NotMade(TransportError):
     """A request http.client would refuse to make, a header's, a path's or a method's: said as NOT_MADE."""
+
+
+class Closed(TransportError):
+    """The transport was closed before the request was sent, or before it could be tried again, or given a new
+    connection: nothing more is sent. Said as CLOSED."""
 
 
 # OpenSSL's verify codes for a certificate whose issuer it does not know: the one failure that a root of the person's
@@ -489,6 +498,8 @@ class Transport:
         self._local = threading.local()
         self._held: set[http.client.HTTPSConnection] = set()
         self._lock = threading.Lock()
+        # Set by close(), never unset: nothing is sent once it is.
+        self._closed = False
 
     def __enter__(self) -> Transport:
         return self
@@ -497,8 +508,12 @@ class Transport:
         self.close()
 
     def close(self) -> None:
-        """Close every connection kept, each thread's: for when no request is in flight."""
+        """Close every connection kept, each thread's, and the transport: nothing more is sent. A request started
+        after it is Closed; one still under way on another thread - a call its caller let go, as a cancelled run's
+        thread is left - ends at its first error, never tried again and never given a new connection, so that no
+        request leaves once its caller has closed the transport."""
         with self._lock:
+            self._closed = True
             held = list(self._held)
         for conn in held:
             self._forget(conn)
@@ -519,7 +534,9 @@ class Transport:
         a stream, a binary file read in chunks, sent chunked unless headers name its Content-Length - and return the
         Answer, a 3xx included. deadline bounds the whole call, making its connections included, in seconds (DEADLINE
         where None). Raises a TransportError: Unreachable (Untrusted among them), TimedOut, TooLarge, Unknown,
-        PeerRefused or NotMade."""
+        PeerRefused, NotMade, or Closed for a transport closed before it was sent."""
+        if self._closed:
+            raise Closed(CLOSED)
         clock = _Clock(DEADLINE if deadline is None else _seconds(deadline, "deadline"))
         headers = dict(headers or {})
         if sum(body is not None for body in (form, json, stream)) > 1:
@@ -563,6 +580,8 @@ class Transport:
         tries = ATTEMPTS if method in RETRIED else 1
         last: TransportError | Answer | None = None
         for attempt in range(tries):
+            if attempt and self._closed:
+                break  # its caller closed the transport: the try that failed is the last
             if attempt:
                 pause = PAUSES[min(attempt, len(PAUSES)) - 1]
                 if clock.left() <= pause:
@@ -674,17 +693,25 @@ class Transport:
     # -------------------------------------------------------------------------------------------- connections ----
 
     def _connection(self, clock: _Clock) -> http.client.HTTPSConnection:
-        """This thread's kept connection, where its far end has not closed it; else a new one, its peer checked."""
+        """This thread's kept connection, where its far end has not closed it; else a new one, its peer checked, while
+        the transport is not closed: Closed, with no connection made or kept, once it is."""
         conn = getattr(self._local, "conn", None)
         if conn is not None and isinstance(conn.sock, _Wire) and not _closed_by_peer(conn.sock):
             conn.sock.clock = clock
             return conn
         if conn is not None:
             self._forget(conn)
+        if self._closed:
+            raise Closed(CLOSED)
         conn = self._new(clock)
-        self._local.conn = conn
         with self._lock:
-            self._held.add(conn)
+            kept = not self._closed
+            if kept:
+                self._held.add(conn)
+        if not kept:
+            self._forget(conn)
+            raise Closed(CLOSED)
+        self._local.conn = conn
         return conn
 
     def _new(self, clock: _Clock) -> http.client.HTTPSConnection:

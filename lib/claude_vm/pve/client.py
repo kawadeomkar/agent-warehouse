@@ -4,7 +4,8 @@
 One class, Proxmox, sends the engine's token to Proxmox, and it alone writes the token's header: the engine's one token
 on the fleet's pool, a Token whose secret is a Secret, handed to the transport as parts of the header's value and
 revealed there alone. It goes only on a connection pin.py made, whose certificate verified against what the host keeps
-before anything was written. The first request a client sends is GET /version, which needs no privilege: a host below
+before anything was written; a certificate that did not is Unverified, its remedy told by OpenSSL's verify code, never
+by its words. The first request a client sends is GET /version, which needs no privilege: a host below
 Proxmox VE 9 is refused before any other request goes. A redirect is an answer, never followed (the transport follows
 none); a 401 or a 403 is Denied, by its status alone, never by its words, since Proxmox names a VM in its reasons ("VM
 4013 is not running"); any other answer but a 200 is Refused, with Proxmox's reason made plain. No method returns the
@@ -16,19 +17,24 @@ The writes are sent once each, never again: the transport sends no request but a
 answer is its Unknown, which a workflow settles by reading the VM again. Every write of a VM's configuration is one
 PUT that sends the digest of the read it was made from, so that Proxmox writes it only while the configuration is
 still that, in the call itself, under the VM's lock: a stale digest is DigestMismatch, and edit_config reads and
-applies again, EDITS times at most. A clone, a resize, a start, a shutdown, a stop, a conversion to a template and a
-deletion each answer a Task, which follow() polls to its end within a deadline of its kind, or until the run that
-follows it stops (Stopped, the task going on on Proxmox); a task that ends with anything but OK is TaskFailed with the
-last lines of its log, one whose VMID another took is Exists, one that found the VM locked is Locked. Proxmox
-answers every refusal of a write with a 500, so its words tell them apart: a lock (Locked, which a workflow may try
-again), a stale digest, a clone's VMID taken. The VMID a workflow asks for is its own to choose, the record's text is
-its own to write, and a sequence of calls is its own to make: none of them is this module's.
+applies again, EDITS times at most. A PUT or a POST to a configuration's path that carries no digest is refused before
+it is sent, in the one function every request passes. A clone, a resize, a start, a shutdown, a stop, a conversion to a
+template and a deletion each answer a Task, which follow() polls to its end within a deadline of its kind, or until the
+run that follows it stops (Stopped, the task going on on Proxmox); a task that ended OK, or with warnings, which Proxmox
+counts a success, is a success, its warnings' lines kept for the workflow to say; one that ended otherwise is
+TaskFailed with the last lines of its log, one whose VMID another took is Exists, one that found the VM locked is
+Locked. Proxmox answers every refusal of a write with a 500, so its words tell them apart: a lock (Locked, which a
+workflow may try again), a configuration's file lock among them, a stale digest, a clone's VMID taken. A deletion
+takes the VM and its disks alone: never purge, unless a caller asks for it, which would take the VM out of the host's
+backup jobs, replication and HA as well. The VMID a workflow asks for is its own to choose, the record's text is its
+own to write, and a sequence of calls is its own to make: none of them is this module's.
 
 The guest agent's one call, agent_interfaces, asks what a started VM's agent reports of its network cards, on a
 transport of its own whose read limit is AGENT_READ, shorter than every other read's, since Proxmox waits on the VM for
-the answer: agent.py reads the VM's address from it, and waits for one. A VM that is not running is NotRunning, told by
-Proxmox's words on its 500, as the writes' refusals are; what the agent reports is the VM's to choose, so of it only
-the plain values a network card and its addresses have are kept (answers.Interfaces).
+the answer: agent.py reads the VM's address from it, and waits for one. A VM that is not running is NotRunning, and one
+with no guest agent configured NoAgent, each told by Proxmox's words on its 500, as the writes' refusals are; what the
+agent reports is the VM's to choose, so of it only the plain values a network card and its addresses have are kept
+(answers.Interfaces).
 
 Each read and each write returns a frozen record of answers.py, built by a parsing function there, or nothing. Every
 name and ID that goes into a path or a write is held to the form Proxmox gives it first, so that none can reach another
@@ -50,7 +56,7 @@ from ..checks import proxmox_name
 from ..schema.patterns import full
 from ..secret import Secret
 from ..text import one_line
-from ..vendors.transport import Answer, PeerRefused, TimedOut, Transport, Unknown, Untrusted
+from ..vendors.transport import UNKNOWN_ISSUER, Answer, PeerRefused, TimedOut, Transport, Unknown, Untrusted
 from . import answers, pin
 from .answers import (
     UPID,
@@ -78,6 +84,7 @@ __all__ = [
     "Exists",
     "Locked",
     "Malformed",
+    "NoAgent",
     "NotRunning",
     "Proxmox",
     "ProxmoxError",
@@ -108,8 +115,17 @@ READ_PATH = re.compile(r"[A-Za-z0-9_@!:=-][A-Za-z0-9._@!:=-]*(?:/[A-Za-z0-9_@!:=
 # Proxmox asks the VM's agent before it answers, and an agent still starting may not answer at all.
 AGENT_READ = 10.0
 # A VM that is not running, which Proxmox says of a guest agent's call with a 500 before it asks the agent
-# (qemu-server's PVE/QemuServer/Agent.pm, assert_agent_available): the VM's ID in its words.
+# (qemu-server's PVE/QemuServer/Agent.pm, assert_agent_available): the VM's ID in its words. Read as the whole of
+# Proxmox's words, never found within them: what follows "failed - " in an agent's other refusals is where a VM's words
+# could be.
 NOT_RUNNING = re.compile(r"VM ([0-9]+) is not running")
+# A VM whose configuration turns no guest agent on, which Proxmox says before it asks whether the VM runs: no agent will
+# answer, so waiting for one cannot help. Read as the whole of Proxmox's words too.
+NO_AGENT = re.compile(r"No QEMU guest agent configured")
+# OpenSSL's verify codes for a certificate that does not name the address it was reached at:
+# X509_V_ERR_HOSTNAME_MISMATCH and X509_V_ERR_IP_ADDRESS_MISMATCH. What to change is the address, or what the host
+# keeps: never the certificate's roots.
+MISNAMED = frozenset({62, 64})
 
 # ------------------------------------------------------------------------------------------- the writes ----
 
@@ -155,12 +171,17 @@ REFUSED_STATUS = 500
 STALE = re.compile(r"checksum mismatch")
 # A VM that Proxmox holds locked, its lock in brackets (clone, destroyed, backup, ...): check_lock's words.
 LOCK = re.compile(r"VM is locked \(([A-Za-z0-9_-]{1,40})\)")
+# A VM's configuration file that another task held locked for longer than a write waits for it (lock_config's ten
+# seconds, PVE::Tools::lock_file_full's words), with the VM's ID: Locked, its lock FILE. For a clone the same words with
+# its new VMID say another run's clone holds that VMID: Exists, which is looked for first.
+FILE_LOCK = re.compile(r"can't lock file '/var/lock/qemu-server/lock-([0-9]+)\.conf' - got timeout")
+FILE = "file"
 # A clone whose new VMID is taken, each with that VMID: the call's own check (and its worker's once the winner's
 # clone has ended), the worker's timeout on the new VM's lock while the winner's clone still runs, and
 # create_and_lock_config's where a container or another node's VM holds it.
 TAKEN = (
     re.compile(r"unable to create VM ([0-9]+): config file already exists"),
-    re.compile(r"can't lock file '/var/lock/qemu-server/lock-([0-9]+)\.conf' - got timeout"),
+    FILE_LOCK,
     re.compile(r"(?:VM|CT) ([0-9]+) already exists on node "),
 )
 # How long follow() waits for a task of each kind, in seconds, unless told: today's waits, roles/proxmox_vm's
@@ -193,7 +214,8 @@ class Denied(ProxmoxError):
 
 class Refused(ProxmoxError):
     """Any other answer but a 200: status, and Proxmox's reason, made one line of plain text. A 3xx is one, never
-    followed: the token goes to the address it was given alone."""
+    followed: the token goes to the address it was given alone. A read of a VM that is not there is one too, Proxmox's
+    500 naming its configuration's file: a workflow knows a VM is gone from resources("vm"), never from these words."""
 
     def __init__(self, status: int, reason: str, asked: str) -> None:
         self.status = status
@@ -217,8 +239,9 @@ class DigestMismatch(ProxmoxError):
 
 
 class Locked(ProxmoxError):
-    """Proxmox holds the VM locked - a clone, a deletion or a backup runs on it - and refused what was asked, which may
-    be tried again once that has ended. lock is Proxmox's word for it."""
+    """Proxmox holds the VM locked - a clone, a deletion or a backup runs on it, or another task held its
+    configuration's file longer than the write waits - and refused what was asked, which may be tried again once that
+    has ended. lock is Proxmox's word for it, or FILE for its file."""
 
     def __init__(self, vmid: int, lock: str, asked: str) -> None:
         self.vmid = vmid
@@ -284,28 +307,73 @@ class NotRunning(ProxmoxError):
         super().__init__(f"VM {vmid} is not running, so its guest agent cannot answer: it is not waited for")
 
 
-class TooOld(ProxmoxError):
-    """The host's Proxmox VE is older than 9, which the engine does not speak to."""
+class NoAgent(ProxmoxError):
+    """The VM's configuration turns no QEMU guest agent on, so none will answer and no address can be read from it:
+    it is not waited for. Its agent setting, which a clone takes from its template, turns it on."""
 
-    def __init__(self, found: Version) -> None:
-        self.version = found.version
+    def __init__(self, vmid: int) -> None:
+        self.vmid = vmid
         super().__init__(
-            f"this Proxmox host runs Proxmox VE {one_line(found.version, 40)}, and the engine speaks to Proxmox VE"
-            f" {LEAST_MAJOR} or later only: upgrade the host first"
+            f"VM {vmid} has no QEMU guest agent configured, so none can report its address: it is not waited for. Its"
+            " configuration's agent setting, which a clone takes from its template, must be enabled=1, and its guest"
+            " must run qemu-guest-agent"
+        )
+
+
+class TooOld(ProxmoxError):
+    """The host's Proxmox VE is older than 9, which the engine does not speak to. version is the host's as it may be
+    said: one line, the token's secret struck from it, as from every word of a host's an error says."""
+
+    def __init__(self, version: str) -> None:
+        self.version = version
+        super().__init__(
+            f"this Proxmox host runs Proxmox VE {version}, and the engine speaks to Proxmox VE {LEAST_MAJOR} or later"
+            " only: upgrade the host first"
         )
 
 
 class Unverified(ProxmoxError):
-    """The host's certificate is not what the host keeps: it does not verify against its anchor, or it is not the
-    node's certificate whose fingerprint was recorded. Nothing was sent; it is never tried again without the check."""
+    """The host's certificate is not what the host keeps: it does not verify against its anchor, or the computer's
+    certificates where it keeps none, or it is not the node's certificate whose fingerprint was recorded. Nothing was
+    sent; it is never tried again without the check. reason is what OpenSSL, or the pin, said; code is OpenSSL's verify
+    code (0 for the pin's refusal), which alone tells the remedy, never the words:
 
-    def __init__(self, reason: str) -> None:
+    - a certificate that does not name the address it was reached at (MISNAMED): the address is what to change, to one
+      the certificate holds, or the node's own certificate is what to keep, which is held to its fingerprint and not to
+      a name, so that a host reached at a tailnet's address or through a forwarded port is reached;
+    - any other refusal, with an anchor or with none: aw init, which reads the host's own certificate and asks before
+      it keeps one as the host's anchor; and where no anchor is kept and the issuer is unknown, a root of the person's
+      own, added with tls_ca_file, comes second, never alone - the root of a Proxmox host's certificate is almost
+      always the host's own CA, whose key is on the host, and a root added there is trusted for every vendor too."""
+
+    def __init__(self, reason: str, code: int = 0, anchored: bool = True, address: str = "") -> None:
         self.reason = one_line(reason, 200)
-        super().__init__(
-            f"the Proxmox host's certificate is not the one kept for it ({self.reason}): if Proxmox renewed it, or the"
-            " host was reinstalled, aw init reads the host's own and asks before it trusts one in its place; if not,"
-            " something else may answer at that address"
-        )
+        self.code = code
+        self.anchored = anchored
+        if code in MISNAMED:
+            said = (
+                f"the Proxmox host's certificate does not name the address it was reached at, {one_line(address, 100)},"
+                f" the one the host's record gives ({self.reason}): give the host a name or address its certificate"
+                " holds - on a tailnet, the node's own name, which MagicDNS resolves there - or have aw init keep the"
+                " node's own certificate as the host's anchor, which is held to its fingerprint and not to a name"
+            )
+        elif anchored:
+            said = (
+                f"the Proxmox host's certificate is not the one kept for it ({self.reason}): if Proxmox renewed it, or"
+                " the host was reinstalled, aw init reads the host's own and asks before it trusts one in its place; if"
+                " not, something else may answer at that address"
+            )
+        else:
+            said = (
+                f"the Proxmox host's certificate does not verify against the computer's certificates ({self.reason}):"
+                " aw init reads the host's own and asks before it keeps it as the host's anchor"
+            )
+            if code in UNKNOWN_ISSUER:
+                said += (
+                    "; or, where your company's root signed it, add that root to the file of PEM certificates the"
+                    " setting tls_ca_file names, which is added to certifi's list"
+                )
+        super().__init__(said)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -406,8 +474,14 @@ def _taken(said: str, newid: int) -> bool:
 
 
 def _stopped(said: str, vmid: int) -> bool:
-    """Whether Proxmox's words said said that the VM vmid is not running."""
-    return any(int(found.group(1)) == vmid for found in NOT_RUNNING.finditer(said))
+    """Whether Proxmox's words said, whole, are that the VM vmid is not running."""
+    found = NOT_RUNNING.fullmatch(said.strip())
+    return found is not None and int(found.group(1)) == vmid
+
+
+def _file_locked(said: str, vmid: int) -> bool:
+    """Whether Proxmox's words said said that the configuration's file of the VM vmid was held locked too long."""
+    return any(int(found.group(1)) == vmid for found in FILE_LOCK.finditer(said))
 
 
 class Proxmox:
@@ -423,11 +497,15 @@ class Proxmox:
         if parts.path not in ("", "/"):
             raise ValueError("the API's address is https://host:port, with no path: the client adds /api2/json")
         self._anchored = pinned.anchored
+        # The host's address as its record gives it, which a certificate that does not name it is said with.
+        self._address = parts.hostname or ""
         self._token = token
         self._said = f"Proxmox(token={token.id!r})"
         self._transport: Transport = pin.transport(f"{url.rstrip('/')}{API}", pinned, proxy)
-        # The guest agent's calls, on connections of their own that wait AGENT_READ for each read.
+        # The guest agent's calls, on connections of their own that wait AGENT_READ for each read; agent_call_most, the
+        # longest one of them usefully runs, a connection made and one read waited for, which agent.py holds a poll to.
         self._agent: Transport = pin.transport(f"{url.rstrip('/')}{API}", pinned, proxy, read=AGENT_READ)
+        self.agent_call_most = AGENT_READ + pin.CONNECT
         self._version: Version | None = None
         self._lock = threading.Lock()
 
@@ -438,7 +516,9 @@ class Proxmox:
         self.close()
 
     def close(self) -> None:
-        """Close every connection kept: for when no request is in flight."""
+        """Close every connection kept, and both transports: nothing more is sent. A request started after is the
+        transport's Closed; one still under way on another thread, as a cancelled wait leaves its poll, ends at its
+        first error, never tried again and never on a new connection."""
         self._transport.close()
         self._agent.close()
 
@@ -457,8 +537,16 @@ class Proxmox:
         agent: bool = False,
     ) -> Answer:
         """method path, carrying the token, with query and form, on the guest agent's transport where agent says so:
-        Proxmox's answer, whatever its status. Every refusal is raised after the handler that caught its cause has
-        ended, so it carries no cause."""
+        Proxmox's answer, whatever its status. Every request passes here, so here a PUT or a POST to a configuration's
+        path with no digest in its form is refused, before anything is sent: Proxmox would write it whatever the
+        configuration had become since it was read. A certificate that is not what the host keeps is Unverified, told
+        by OpenSSL's verify code. Every refusal is raised after the handler that caught its cause has ended, so it
+        carries no cause."""
+        if method in ("PUT", "POST") and path.rstrip("/").endswith("/config") and not (form and "digest" in form):
+            raise ValueError(
+                "a write of a VM's configuration sends the digest of the read it was made from, and this one had none:"
+                " nothing was sent"
+            )
         failure: ProxmoxError | None = None
         try:
             answer = (self._agent if agent else self._transport).request(
@@ -470,9 +558,7 @@ class Proxmox:
                 deadline=deadline,
             )
         except Untrusted as error:
-            if not self._anchored:
-                raise  # the computer's certificate file: the transport's sentence names tls_ca_file
-            failure = Unverified(f"it does not verify against the host's anchor: {error.reason}")
+            failure = Unverified(error.reason, error.code, self._anchored, self._address)
         except PeerRefused:
             failure = Unverified("its SHA-256 fingerprint is not the one recorded for the host")
         if failure is not None:
@@ -501,8 +587,15 @@ class Proxmox:
     def _get(
         self, path: str, query: Mapping[str, str] | None = None, deadline: float | None = None, agent: bool = False
     ) -> Any:
-        """GET path once the host's version is known to be one the engine speaks to."""
-        self.version()
+        """GET path once the host's version is known to be one the engine speaks to, the version asked first where it
+        is not known yet: both within deadline seconds together, where one is given, so that a first call is held to
+        its caller's deadline too."""
+        given, end = deadline, None if deadline is None else time.monotonic() + deadline
+        self.version(deadline)
+        if end is not None:
+            deadline = end - time.monotonic()
+            if deadline <= 0:
+                raise TimedOut(f"no answer within the call's deadline of {given:g} s")
         return self._ask(path, query, deadline, agent)
 
     def _send(
@@ -516,8 +609,9 @@ class Proxmox:
     ) -> Any:
         """A write, method path for VM vmid, sent once, once the host's version is one the engine speaks to: the
         answer's data, or its refusal - Denied by its status alone; where Proxmox answers REFUSED_STATUS, by its words,
-        a clone's Exists (for newid), DigestMismatch or Locked; else Refused. The transport's Unknown, a write that
-        left with no answer, passes as it is: it is never sent again."""
+        a clone's Exists (for newid), DigestMismatch, or Locked by vmid's lock or its configuration's file lock; else
+        Refused. The transport's Unknown, a write that left with no answer, passes as it is: it is never sent
+        again."""
         self.version()
         asked = f"{method} {path}"
         answer = self._request(method, path, query, form)
@@ -533,19 +627,21 @@ class Proxmox:
                 raise DigestMismatch(vmid, asked)
             if locked := LOCK.search(said):
                 raise Locked(vmid, locked.group(1), asked)
+            if _file_locked(said, vmid):
+                raise Locked(vmid, FILE, asked)
         raise Refused(answer.status, said, asked)
 
     # ------------------------------------------------------------------------------------------------- reads ----
 
-    def version(self) -> Version:
-        """GET /version, asked once a client: the first request it sends. Raises TooOld for a host below Proxmox VE 9,
-        each time it is asked, with nothing more sent."""
+    def version(self, deadline: float | None = None) -> Version:
+        """GET /version, asked once a client, within deadline seconds where given: the first request it sends. Raises
+        TooOld for a host below Proxmox VE 9, each time it is asked, with nothing more sent."""
         with self._lock:
             if self._version is None:
-                self._version = answers.version(self._ask("version"))
+                self._version = answers.version(self._ask("version", deadline=deadline))
             found = self._version
         if found.major < LEAST_MAJOR:
-            raise TooOld(found)
+            raise TooOld(self._words(found.version, 40))
         return found
 
     def resources(self, kind: str) -> tuple[Resource, ...]:
@@ -635,19 +731,25 @@ class Proxmox:
         whose reads wait AGENT_READ, within deadline seconds where given: the Interfaces, each card's plain values as
         the VM's agent reported them, which agent.address reads the VM's address from. Raises NotRunning for a VM that
         is not running, Denied for a token without the agent's privilege, and Refused while the agent does not answer
-        yet (Proxmox's 500, "QEMU guest agent is not running")."""
+        yet (Proxmox's 500, "QEMU guest agent is not running"); NoAgent for a VM whose configuration turns no agent on,
+        which Proxmox says before whether it runs."""
         node, vmid = _node(node), _vmid(vmid)
         if deadline is not None:
             deadline = _seconds(deadline)
-        stopped = False
+        failure: ProxmoxError | None = None
         try:
             found = self._get(f"nodes/{node}/qemu/{vmid}/agent/network-get-interfaces", deadline=deadline, agent=True)
         except Refused as refused:
-            if refused.status != REFUSED_STATUS or not _stopped(refused.reason, vmid):
+            if refused.status != REFUSED_STATUS:
                 raise
-            stopped = True
-        if stopped:
-            raise NotRunning(vmid)
+            if NO_AGENT.fullmatch(refused.reason.strip()):
+                failure = NoAgent(vmid)
+            elif _stopped(refused.reason, vmid):
+                failure = NotRunning(vmid)
+            else:
+                raise
+        if failure is not None:
+            raise failure
         return answers.interfaces(found, node, vmid)
 
     # ------------------------------------------------------------------------------------------------ writes ----
@@ -670,7 +772,12 @@ class Proxmox:
         finds it taken, in any of Proxmox's words for it. Either way the workflow asks for the next free VMID again, and
         nothing is ever deleted at newid, which on a host would be the VM of the run that came first. The new VM is
         proved by reading its own config once the task has ended OK - its identity, its MAC, its name - never by an ID
-        a call returned: a module once returned the clone's source's VMID for a clone that made nothing."""
+        a call returned: a module once returned the clone's source's VMID for a clone that made nothing. Where the call
+        left and no answer came, the transport's Unknown: the clone may be running at newid with its UPID unknown, the
+        new VM's configuration holding only its lock (clone) until the worker ends. It is settled by reading newid
+        again - resources("vm") for whether a VM is there, config() for its lock - until that lock is gone, and never
+        by a clone under another VMID before then (card G3). Locked is the source's: a clone waits on no lock of its
+        own VM but newid's, which is Exists."""
         node, source, newid, pool = _node(node), _vmid(source), _vmid(newid), _pool(pool)
         if not isinstance(name, str) or not VM_NAME.fullmatch(name):
             raise ValueError("a VM's name is one Proxmox takes: letters, digits, dots and dashes")
@@ -688,7 +795,7 @@ class Proxmox:
                 raise TypeError("a description is a str")
             form["description"] = description
         upid = self._send("POST", f"nodes/{node}/qemu/{source}/clone", source, form=form, newid=newid)
-        return answers.task(upid, node, "clone", newid)
+        return answers.task(upid, node, "clone", newid, source)
 
     def write_config(self, node: str, vmid: int, changes: Mapping[str, Any], digest: str) -> None:
         """PUT changes to a VM's configuration with digest, the one the read they were made from gave, in one call:
@@ -771,10 +878,12 @@ class Proxmox:
         node, vmid = _node(node), _vmid(vmid)
         return answers.task(self._send("POST", f"nodes/{node}/qemu/{vmid}/template", vmid), node, "template", vmid)
 
-    def delete(self, node: str, vmid: int, purge: bool = True) -> Task:
+    def delete(self, node: str, vmid: int, purge: bool = False) -> Task:
         """DELETE a VM with its disks, those its configuration no longer lists but that carry its VMID too, as today's
-        role deletes one (destroy-unreferenced-disks), and with purge, its VMID taken out of the host's backup jobs,
-        replication and HA as well: the Task."""
+        role deletes one (destroy-unreferenced-disks): the Task. Nothing else is changed on the host: without purge,
+        which is sent only where a caller asks for it, Proxmox leaves its backup jobs, replication and HA as they are,
+        and refuses to delete a VM a person put under HA or replication, as it refuses today's deletion; with it, the
+        VMID is taken out of each of them too, a change outside the VM."""
         node, vmid = _node(node), _vmid(vmid)
         if not isinstance(purge, bool):
             raise TypeError("purge is True or False")
@@ -789,9 +898,14 @@ class Proxmox:
         before each poll and waited on between them: once it is set, Stopped is raised and the task goes on on Proxmox,
         unfollowed; a poll already sent is never cut, and ends within its own limit; one that fails once it is set (its
         client closed under it) is Stopped too. A phase that must finish, a deletion inside a shield, passes none.
-        Returns the status of a task that ended OK. Raises TaskTimedOut where it still runs at the deadline; for one
-        that ended otherwise, Exists for a clone whose VMID was taken, Locked for one that found its VM locked, else
-        TaskFailed with the last lines of its log."""
+        Returns the status of a task that ended a success: OK, or WARNINGS: <n>, which Proxmox counts one (its worker
+        logged a warning and went on), with the last lines of its log in lines then, for the workflow to say. Raises
+        TaskTimedOut where it still runs at the deadline; for one that ended otherwise, Exists for a clone whose VMID
+        was taken, Locked for one that found its VM locked (a clone's, its source), by its lock or its configuration's
+        file lock, else TaskFailed with the last lines of its log. A poll that fails while the run goes on raises its
+        own error - the transport's TimedOut, where one poll had no answer within its read's wait with time still left,
+        its Unreachable, or the client's - and the task may then still run on Proxmox: the workflow follows it again by
+        the Task it holds, or reads the VM."""
         if not isinstance(task, Task):
             raise TypeError("follow() follows a Task a write answered")
         if stop is not None and not isinstance(stop, threading.Event):
@@ -830,13 +944,17 @@ class Proxmox:
             elif stop.wait(pause):
                 raise Stopped(task)
         if status.ok:
-            return status
+            return dataclasses.replace(status, lines=self._last_lines(task)) if status.warnings else status
         error = status.entry.get("exitstatus")
         said = self._words(error if isinstance(error, str) else "", 400)
         if task.kind == "clone" and _taken(said, task.vmid):
             raise Exists(task.vmid)
+        # A clone's task meets its source's lock: the new VM's own is Exists, above.
+        held = task.source if task.source is not None else task.vmid
         if locked := LOCK.search(said):
-            raise Locked(task.vmid, locked.group(1), f"its {task.kind} task")
+            raise Locked(held, locked.group(1), f"its {task.kind} task")
+        if _file_locked(said, held):
+            raise Locked(held, FILE, f"its {task.kind} task")
         raise TaskFailed(task, said, self._last_lines(task))
 
     def _last_lines(self, task: Task) -> tuple[str, ...]:

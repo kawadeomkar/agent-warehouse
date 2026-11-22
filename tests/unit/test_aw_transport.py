@@ -7,8 +7,9 @@ whose handlers answer, redirect, drop a connection, drip or wait, and keep every
 stand-in CONNECT proxy, on loopback too, which keeps what it was asked and every byte it carried, or answers the CONNECT
 itself, dripping. The transport follows no redirect, reads no certificate variable, netrc or proxy variable, takes a
 proxy only as an argument, sends a write once, bounds every body and wait and the whole call, making its connection
-included, and never says a header's value or a peer's words. proxy.choose works out today's proxy from the environment
-it is given, as requests does. The rules at the end hold the new engine's modules to one transport.
+included, and never says a header's value or a peer's words. Closed, it sends nothing more: a request started after
+is Closed, and one under way ends at its first error, never asked again. proxy.choose works out today's proxy from the
+environment it is given, as requests does. The rules at the end hold the new engine's modules to one transport.
 """
 
 from __future__ import annotations
@@ -43,9 +44,11 @@ from test_aw_layout import NEW
 from claude_vm.secret import Secret
 from claude_vm.vendors import proxy, transport
 from claude_vm.vendors.transport import (
+    CLOSED,
     NOT_MADE,
     UNKNOWN_ISSUER,
     Answer,
+    Closed,
     NotMade,
     PeerRefused,
     TimedOut,
@@ -603,6 +606,52 @@ def test_a_post_answered_503_is_not_sent_again(serve, pki, fast) -> None:
     server = serve(answer(503))
     with _client(server, pki) as client:
         assert client.request("POST", "pools").status == 503
+    assert len(server.asked) == 1
+
+
+def test_a_request_after_the_transport_is_closed_is_closed_and_nothing_is_sent(serve, pki) -> None:
+    server = serve()
+    client = _client(server, pki)
+    assert client.request("GET", "version").status == 200
+    client.close()
+    for method in ("GET", "POST"):
+        with pytest.raises(Closed) as closed:
+            client.request(method, "version")
+        assert str(closed.value) == CLOSED
+    assert len(server.asked) == 1
+
+
+def test_a_get_under_way_when_the_transport_is_closed_ends_at_its_first_error_and_is_never_asked_again(
+    serve, pki, fast
+) -> None:
+    """A caller that let a call go - a cancelled run leaves its thread - closes the transport: the call then ends at the
+    first error its closed connection gives, and is tried on no new connection, so that nothing more is sent."""
+    asked, release = threading.Event(), threading.Event()
+
+    def held(handler, one, nth) -> None:
+        asked.set()
+        release.wait(30)
+        handler.close_connection = True
+
+    server = serve(held)
+    client = _client(server, pki, read=1.0)
+    failed: list[BaseException] = []
+
+    def get() -> None:
+        try:
+            client.request("GET", "version")
+        except (TimedOut, Unreachable) as error:
+            failed.append(error)
+
+    thread = threading.Thread(target=get, daemon=True)
+    thread.start()
+    try:
+        assert asked.wait(10)
+        client.close()
+        thread.join(10)
+        assert not thread.is_alive() and len(failed) == 1
+    finally:
+        release.set()
     assert len(server.asked) == 1
 
 

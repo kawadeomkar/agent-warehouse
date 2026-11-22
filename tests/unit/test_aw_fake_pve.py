@@ -927,6 +927,48 @@ def test_a_task_ends_with_the_error_a_fixture_planted_and_changes_nothing(fleet:
     assert _ok(fleet, "GET", "nodes/pve/qemu/9012/status/current")["status"] == "running"
 
 
+def test_a_task_ends_with_the_warnings_a_fixture_planted_a_success_its_change_made(fleet: str, tmp_path: Path) -> None:
+    """Proxmox counts a task whose worker logged warnings and went on a success: its exit status says how many, and its
+    log each warning, then how many."""
+    _pve(fleet, "PUT", "fake/task-warn", warning="iothread is only valid with virtio\nsecond", type="qmstart")
+    # A task of another type is not the one planted for.
+    other = _ok(fleet, "POST", "nodes/pve/qemu/9011/status/shutdown")
+    assert _task(fleet, other)["exitstatus"] == "OK" and "warnings" not in _tasks(tmp_path)[other]
+    upid = _ok(fleet, "POST", "nodes/pve/qemu/9012/status/start")
+    warned = SAID["TASK_WARNINGS_STATUS"].format(count=2)
+    assert _task(fleet, upid) == {"status": "stopped", "exitstatus": warned, "upid": upid}
+    assert [line["t"] for line in _task(fleet, upid, "log")] == [
+        SAID["TASK_WARN"].format(warning="iothread is only valid with virtio"),
+        SAID["TASK_WARN"].format(warning="second"),
+        SAID["TASK_WARNINGS"].format(count=2),
+    ]
+    assert _ok(fleet, "GET", "nodes/pve/qemu/9012/status/current")["status"] == "running"
+    assert _tasks(tmp_path)[upid]["warnings"] == ["iothread is only valid with virtio", "second"]
+    # Planted once: the next task ends OK.
+    assert _task(fleet, _ok(fleet, "POST", "nodes/pve/qemu/9012/status/stop"))["exitstatus"] == "OK"
+    # With an error planted beside it, the task fails, its warnings logged before its error.
+    _pve(fleet, "PUT", "fake/task-warn", warning="first")
+    _pve(fleet, "PUT", "fake/task-fail", error="start failed")
+    failed = _ok(fleet, "POST", "nodes/pve/qemu/9012/status/start")
+    assert _task(fleet, failed)["exitstatus"] == "start failed"
+    assert [line["t"] for line in _task(fleet, failed, "log")] == ["WARN: first", "TASK ERROR: start failed"]
+    assert _ok(fleet, "GET", "nodes/pve/qemu/9012/status/current")["status"] == "stopped"
+
+
+@pytest.mark.parametrize("agent", ["", "0", "enabled=0", "enabled=0,fstrim_cloned_disks=1", "fstrim_cloned_disks=1"])
+def test_a_vm_whose_configuration_turns_no_guest_agent_on_has_every_agent_call_refused_first(fleet: str, agent) -> None:
+    """As Proxmox's assert_agent_available: before whether the VM runs, and every agent call alike. beta runs, its
+    agent up; gamma is stopped."""
+    for vmid in (9011, 9012):
+        _ok(fleet, "PUT", f"nodes/pve/qemu/{vmid}/config", **({"agent": agent} if agent else {"delete": "agent"}))
+        for call in ("network-get-interfaces", "get-osinfo", "get-fsinfo"):
+            refused = _call(fleet, "GET", f"nodes/pve/qemu/{vmid}/agent/{call}")
+            assert refused == (SAID["AGENT_REFUSED_STATUS"], SAID["NO_AGENT"]), (vmid, call, refused)
+    # Turned on again, as the template has it, the agent of the running VM answers.
+    _ok(fleet, "PUT", "nodes/pve/qemu/9011/config", agent="1,fstrim_cloned_disks=1")
+    assert _call(fleet, "GET", "nodes/pve/qemu/9011/agent/network-get-interfaces")[0] == 200
+
+
 def test_every_task_is_recorded_with_its_type_the_token_that_made_it_and_its_vm(tmp_path: Path) -> None:
     for base in fake_fleet(tmp_path, engine=True):
         token, vm = engine_token(tmp_path), "nodes/pve/qemu/9020"

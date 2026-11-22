@@ -980,6 +980,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       that does not verify is `Untrusted`, an `Unreachable`, never tried again, whose sentence names `tls_ca_file` only
       where OpenSSL's verify code says the issuer is unknown (`UNKNOWN_ISSUER`), never for a wrong name or an expiry.
     - A GET or HEAD is tried at most three times; any other method is sent once, and is `Unknown` once it has left.
+      Closed, a transport sends nothing more: a request after `close()` is `Closed`, and one under way on another
+      thread ends at its first error, never tried again or on a new connection.
       Every body is held to `most`, every wait to its limit and the whole call to its deadline, making the connection
       included - each address in turn, a proxy's CONNECT and its answer, the handshake - but the name's lookup, which
       the system's resolver alone bounds. `http.client` never makes a connection.
@@ -1010,31 +1012,44 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       before they are cut, so a peer that echoes it has none of it said.
     - It goes only on `lib/claude_vm/pve/pin.py`'s connection: the host's anchor alone where it keeps one, made by
       today's `trust.anchored_context` (strict, a partial chain, the name checked, on every Python), else the
-      computer's one certificate file (`lib/claude_vm/vendors/trust.py`); and where the anchor is the node's own
-      certificate, its recorded fingerprint checked through `peer_check` before a byte is written. A certificate that
-      is not what the host keeps is `Unverified` (with no anchor, the transport's `Untrusted`), and nothing was sent.
+      computer's certificates: `certifi`'s list, with `tls_ca_file`'s added (`lib/claude_vm/vendors/trust.py`); and
+      where the anchor is the node's own certificate, its recorded fingerprint checked through `peer_check` before a
+      byte is written. The certificate is always checked, with no unchecked mode; its name is not checked only where
+      that fingerprint is recorded, which names the one certificate, so a host reached at an address its certificate
+      does not name is reached through its node's own certificate. No context logs its session's keys, whatever
+      `SSLKEYLOGFILE` says (`keylog_filename` none on both kinds).
+    - A certificate that is not what the host keeps is `Unverified`, anchor or none, and nothing was sent. Its remedy
+      is told by OpenSSL's verify code, never its words: a name or address mismatch (62, 64) is the address to change,
+      or the node's own certificate to keep; any other names `aw init`, with `tls_ca_file` second, never alone, where no
+      anchor is kept and the issuer is unknown - the root of a Proxmox host's certificate is almost always its own CA.
     - The first request is `GET /version`: a host below Proxmox VE 9 is refused before any other. A 401 or a 403 is
       `Denied` by its status alone, never by its words; a 3xx is an answer, never followed. A listing's status is never
       read for what the same run changed: `current` reads the VM.
-    - `tests/unit/test_aw_pve_reads.py` holds it against the fake, with the rules that `PVEAPIToken` is named in one
-      module of the new engine, that no method returns the token and that no error says it.
+    - `tests/unit/test_aw_pve_reads.py` holds it against the fake, a certificate that names another address than the
+      fake's among them, with the rules that `PVEAPIToken` is named in one module of the new engine, that no method
+      returns the token and that no error says it.
 - **Every write of a VM's configuration sends `digest`; no write is sent twice.** Read
   [§16.5](docs/architecture/engine.md#165-pve--the-typed-proxmox-client-and-the-one-table-of-privileges) first.
     - `write_config` is one synchronous `PUT` with the digest of the read its changes were made from, never a `POST`,
       whose check at the call and write in a task leave a window; a stale digest is `DigestMismatch`, nothing written,
       and `edit_config` reads and applies again, three times at most. It sends only `CONFIG_KEYS`, whose privileges are
-      the table's rows for it: a key of another group needs its row first.
+      the table's rows for it: a key of another group needs its row first. A `PUT` or a `POST` to a configuration's
+      path with no `digest` is refused in `_request`, where every request passes, before anything is sent, and
+      `harness.fake_fleet(engine=True)` fails a test at its end where the fake was sent one of the client's.
     - The transport sends no request but a `GET` twice: a write that left with no answer is `Unknown`, settled by
       reading the VM again. A clone onto a VMID that is taken is `Exists`, at the call or in its task in any of
       Proxmox's three sentences, and nothing is ever deleted at the VMID asked for, which on a host would be another
-      run's VM. A task is followed within a deadline of its kind and never longer.
+      run's VM. A task is followed within a deadline of its kind and never longer, and one that ended `WARNINGS: <n>`
+      is a success, as Proxmox counts it, its log's last lines kept for the workflow to say. A deletion sends
+      `destroy-unreferenced-disks` alone: never `purge` unless a caller asks for it, which would change the host's
+      backup jobs, replication and HA, outside the VM.
     - Proxmox answers every refusal of a write with a 500: `Locked`, `DigestMismatch` and `Exists` are told apart by its
       words, each held equal to the fake's constant. Every route the client sends has its rows in `privileges.CALLS`,
       which the fake enforces (a resize on its disk's storage). No route writes a pool, and the role on the pool holds
       no `Pool.*` privilege but `Pool.Audit`: a new VM joins it through its clone's `pool`
       (`tests/unit/test_aw_pve_privileges.py`).
     - `tests/unit/test_aw_pve_writes.py` holds it against the fake under enforcement, with a syntax-tree test that every
-      method sending a `PUT` to a configuration's path sends `digest`.
+      method sending a `PUT` or a `POST` to a configuration's path sends `digest`.
 - **A job's state is derived from its record and its own kernel lock, never stored.** Read
   [§16.8](docs/architecture/engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run) first.
     - Every run of the new engine is a job, `jobs/<id>/` in the state folder (`lib/claude_vm/runs/job.py`). `create`

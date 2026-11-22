@@ -5,11 +5,15 @@ certificate that tests/unit/pki.py made, with the new engine's pool and its one 
 held to the engine's table of privileges (enforce): every request a read sends is a call the table has a row for,
 answered only where the token holds that row's privilege. The client sends nothing until the certificate verifies
 against what the host keeps - its anchor, the node's own certificate (with its fingerprint recorded) or its CA, or with
-no anchor the computer's one certificate file - and a certificate that is not what the host keeps leaves the fake's
-request log without one request of the client's. The first request is GET /version, and a
-host below 9 is refused before any other. A redirect is an answer; a 401 or a 403 is Denied by its status alone; a
-node that is down fails its own reads alone. The rules at the end hold the token to one class: PVEAPIToken is written
-in one module of the new engine, no method returns the token, and no error says it.
+no anchor the computer's certificates - and a certificate that is not what the host keeps leaves the fake's request
+log without one request of the client's, with the remedy told by OpenSSL's verify code: a certificate that does not
+name the address it was reached at (one that names 127.0.0.2, the fake at 127.0.0.1) an address to change, or the
+node's own certificate to keep, which reaches the host there, held to its fingerprint and not to a name; any other, aw
+init, with tls_ca_file second where no anchor is kept and the issuer is unknown. No context logs its session's keys
+under SSLKEYLOGFILE. The first request is GET /version, and a host below 9 is refused before any other. A redirect is
+an answer; a 401 or a 403 is Denied by its status alone; a node that is down fails its own reads alone; an answer
+nested deeper than any of Proxmox's is Malformed. The rules at the end hold the token to one class: PVEAPIToken is
+written in one module of the new engine, no method returns the token, and no error says it.
 """
 
 from __future__ import annotations
@@ -28,14 +32,14 @@ from test_aw_transport import _new_engine, _rel, _said, _Tunnel
 
 from claude_vm import proxmox, trust
 from claude_vm.pve import answers, pin, privileges
-from claude_vm.pve.client import Denied, Malformed, Proxmox, Refused, Token, TooOld, Unverified
+from claude_vm.pve.client import MISNAMED, Denied, Malformed, Proxmox, Refused, Token, TooOld, Unverified
 from claude_vm.secret import Secret
 from claude_vm.vendors import proxy
-from claude_vm.vendors.transport import Answer, NotMade, Untrusted
+from claude_vm.vendors.transport import UNKNOWN_ISSUER, Answer, NotMade
 
-# The module's two certificate authorities: the fake's, and one that signed nothing the fake shows. Cheap enough to make
-# again on each worker (tests/unit/conftest.py).
-EACH_WORKER = {"pki", "other_pki"}
+# The module's three certificate authorities: the fake's, one that signed nothing the fake shows, and one whose node's
+# certificate names another address than the fake's. Cheap enough to make again on each worker (tests/unit/conftest.py).
+EACH_WORKER = {"pki", "other_pki", "misnamed_pki"}
 CLIENT = REPO / "lib" / "claude_vm" / "pve" / "client.py"
 # A token's secret no output may show: low in entropy, so that gitleaks takes it for no key.
 CANARY = "unit-test-pve-client-canary-value"
@@ -50,6 +54,13 @@ def pki(tmp_path_factory):
 @pytest.fixture(scope="module")
 def other_pki(tmp_path_factory):
     return proxmox_pki(tmp_path_factory.mktemp("other-pki"), key_usage=True, name="Another Test CA")
+
+
+@pytest.fixture(scope="module")
+def misnamed_pki(tmp_path_factory):
+    """A node's certificate that names 127.0.0.2, where the fake is reached at 127.0.0.1: as a host's own certificate
+    names its node and its LAN address, and never the tailnet's address, or a forwarded port's, it is reached at."""
+    return proxmox_pki(tmp_path_factory.mktemp("misnamed-pki"), key_usage=True, address="127.0.0.2")
 
 
 @dataclasses.dataclass
@@ -262,6 +273,8 @@ def test_any_other_read_status_adds_its_data_frozen(fleet) -> None:
         ("pool", ("../access",)),
         ("resources", ("all",)),
         ("task_status", ("pve", "UPID:pve:1/../../version")),
+        ("task_status", ("pve", "UPID:pve:00000001:00000000:00000000:qm/x:1:root@pam:")),
+        ("task_log", ("pve", "UPID:pve:00000001:00000000:00000000:qmstart:1:root/../x@pam:")),
         ("task_log", ("pve", "UPID:pve:00000001:00000000:00000000:qm?x:1:root@pam:")),
         ("storages", ("pve", "images&enabled=0")),
         ("permissions", ("vms",)),
@@ -300,16 +313,57 @@ def test_with_no_anchor_the_computer_s_file_that_holds_the_host_s_root_verifies_
         assert client.version().major == 9
 
 
-def test_the_context_checks_the_name_strictly_on_every_python(pki, tmp_path) -> None:
-    for made in (
-        pin.context(pki["node"]),
-        pin.context(pki["ca"]),
-        pin.context(None, _file(tmp_path, "c.pem", pki["ca"])),
-    ):
-        assert made.check_hostname is True and made.verify_mode == ssl.CERT_REQUIRED
+def test_the_context_checks_the_name_strictly_on_every_python_but_where_a_fingerprint_names_the_certificate(
+    pki, tmp_path
+) -> None:
+    computer = _file(tmp_path, "c.pem", pki["ca"])
+    named = [pin.context(pki["node"]), pin.context(pki["ca"]), pin.context(None, computer)]
+    named += [pin.kept(pki["node"]).context, pin.kept(pki["ca"]).context, pin.kept(None, tls_ca_file=computer).context]
+    fingerprinted = pin.kept(pki["node"], trust.pem_fingerprint(pki["node"])).context
+    for made in [*named, fingerprinted]:
+        # Always checked: a certificate required, strict, on every Python.
+        assert made.verify_mode == ssl.CERT_REQUIRED
         assert made.verify_flags & ssl.VERIFY_X509_STRICT and made.verify_flags & ssl.VERIFY_X509_PARTIAL_CHAIN
+        assert made.keylog_filename is None
+    assert all(made.check_hostname is True for made in named) and fingerprinted.check_hostname is False
     with pytest.raises(ValueError):
         pin.context("no certificate here")
+
+
+def test_a_node_s_certificate_with_its_fingerprint_reaches_the_host_at_an_address_it_does_not_name(
+    tmp_path, misnamed_pki
+) -> None:
+    """A host reached at a tailnet's address, or through a forwarded port: the fingerprint names the one certificate,
+    so its name adds nothing, and the anchor still verifies it."""
+    for fleet in _fleet(tmp_path, misnamed_pki):
+        with fleet.client(_anchored(fleet, "node")) as client:
+            assert client.next_id() == 9001
+        assert fleet.paths() == ["version", "cluster/nextid"]
+
+
+MISNAMED_KEPT = ["the node's certificate, no fingerprint", "its CA", "no anchor"]
+
+
+@pytest.mark.parametrize("kept", MISNAMED_KEPT)
+def test_a_certificate_that_does_not_name_the_address_is_refused_with_what_to_change_and_nothing_sent(
+    tmp_path, misnamed_pki, kept
+) -> None:
+    """The name check is a behaviour: everything verifies but the name. The remedy is the address, or the node's own
+    certificate kept, never the certificate's roots: not tls_ca_file."""
+    for fleet in _fleet(tmp_path / "fleet", misnamed_pki):
+        pinned = {
+            "the node's certificate, no fingerprint": pin.kept(misnamed_pki["node"]),
+            "its CA": pin.kept(misnamed_pki["ca"]),
+            "no anchor": pin.kept(None, tls_ca_file=_file(tmp_path, "computer.pem", misnamed_pki["ca"])),
+        }[kept]
+        with fleet.client(pinned) as client, pytest.raises(Unverified) as refused:
+            client.version()
+        assert fleet.asked() == []
+    said = str(refused.value)
+    assert refused.value.code in MISNAMED and refused.value.anchored is (kept != "no anchor")
+    assert "does not name the address it was reached at, 127.0.0.1, the one the host's record gives" in said
+    assert "the node's own name" in said and "aw init keep the node's own certificate" in said
+    assert "tls_ca_file" not in said and "not the one kept" not in said
 
 
 def _wrong(fleet: Fleet, other: dict, tmp_path: Path, kept: str) -> pin.Pin:
@@ -333,19 +387,41 @@ WRONG = ["another node's certificate", "another CA", "another fingerprint", "cer
 def test_a_certificate_that_is_not_what_the_host_keeps_has_nothing_sent(fleet, other_pki, tmp_path, kept) -> None:
     pinned = _wrong(fleet, other_pki, tmp_path, kept)
     with fleet.client(pinned) as client:
-        with pytest.raises((Unverified, Untrusted)) as refused:
+        with pytest.raises(Unverified) as refused:
             client.config("pve", 9010)
-        with pytest.raises((Unverified, Untrusted)):
+        with pytest.raises(Unverified):
             client.resources("vm")
     assert fleet.asked() == []
     said = str(refused.value)
+    # Told by OpenSSL's verify code, never its words: none of these is a name's, and each names aw init, which reads the
+    # host's own certificate and asks before it keeps one.
+    assert isinstance(refused.value, Unverified) and refused.value.code not in MISNAMED and "aw init" in said
     if pinned.anchored:
-        # The anchor's sentence: init's, which asks before it trusts another.
-        assert isinstance(refused.value, Unverified) and "not the one kept for it" in said and "aw init" in said
-        assert "tls_ca_file" not in said
+        assert "not the one kept for it" in said and "tls_ca_file" not in said
     else:
-        # The computer's file: the transport's sentence, which names the setting that adds a root.
-        assert isinstance(refused.value, Untrusted) and "tls_ca_file" in said
+        # The issuer unknown with no anchor kept: a root of the person's own second, never alone, since the root of a
+        # Proxmox host's certificate is almost always its own CA, which tls_ca_file would trust for every vendor too.
+        assert refused.value.code in UNKNOWN_ISSUER and said.index("aw init") < said.index("tls_ca_file")
+
+
+@pytest.mark.parametrize(
+    ("code", "anchored", "names"),
+    [
+        (64, True, "does not name the address"),
+        (62, False, "does not name the address"),
+        (10, True, "not the one kept for it"),
+        (10, False, "does not verify against the computer's certificates"),
+        (20, False, "tls_ca_file"),
+        (0, True, "not the one kept for it"),
+    ],
+    ids=["ip mismatch", "hostname mismatch", "expired", "expired, no anchor", "unknown issuer, no anchor", "the pin"],
+)
+def test_the_remedy_is_told_by_the_verify_code_and_never_by_the_words(code, anchored, names) -> None:
+    # The words of another case each time: only the code may decide.
+    said = str(Unverified("IP address mismatch, unable to get local issuer certificate", code, anchored, "pve.lan"))
+    assert names in said and "aw init" in said
+    assert ("tls_ca_file" in said) is (not anchored and code in UNKNOWN_ISSUER)
+    assert ("the node's own name" in said) is (code in MISNAMED)
 
 
 @pytest.mark.parametrize("kept", WRONG)
@@ -355,7 +431,7 @@ def test_with_the_fake_answering_no_request_without_a_token_a_wrong_certificate_
     """What answers in the host's place may tell a probe with no token from the request that carries one, and say
     nothing to the probe: the client sends no probe, and the token goes only once the certificate verified."""
     _pve(fleet.base, "PUT", "fake/tokenless", answer="none")
-    with fleet.client(_wrong(fleet, other_pki, tmp_path, kept)) as client, pytest.raises((Unverified, Untrusted)):
+    with fleet.client(_wrong(fleet, other_pki, tmp_path, kept)) as client, pytest.raises(Unverified):
         client.version()
     assert [entry for entry in _pve_requests(fleet.directory) if entry["token"] == ENGINE_TOKEN] == []
     assert fleet.asked() == []
@@ -387,6 +463,23 @@ def test_a_fingerprint_is_kept_only_beside_an_anchor_and_only_as_openssl_prints_
     held(ssl.PEM_cert_to_DER_cert(pki["node"]))
     with pytest.raises(pin.Mismatch):
         held(ssl.PEM_cert_to_DER_cert(pki["ca"]))
+
+
+def test_no_connection_of_the_client_logs_its_session_s_keys_whatever_sslkeylogfile_names(
+    fleet, tmp_path, monkeypatch
+) -> None:
+    """The standard library's ready-made context, which today's trust.anchored_context makes, names the file
+    SSLKEYLOGFILE gives unless Python ignores the environment: it opens that file, and writes its header there, as it
+    is made. pin.context names none, so that no key of the one connection that carries the token is ever written."""
+    keys = tmp_path / "keys.log"
+    monkeypatch.setenv("SSLKEYLOGFILE", str(keys))
+    computer = _file(tmp_path, "computer.pem", fleet.pki["ca"])
+    for pinned in (_anchored(fleet, "node"), _anchored(fleet, "ca"), pin.kept(None, tls_ca_file=computer)):
+        assert pinned.context.keylog_filename is None
+        with fleet.client(pinned) as client:
+            assert client.next_id() == 9001
+    written = keys.read_text().splitlines() if keys.exists() else []
+    assert [line for line in written if line and not line.startswith("#")] == [], written
 
 
 def test_through_the_proxy_today_s_rule_chooses_the_token_stays_in_the_tunnel(fleet) -> None:
@@ -511,6 +604,34 @@ def test_what_an_answer_is_decided_by_its_status_alone(fleet, given, raised) -> 
     assert type(error.value) is raised
 
 
+def _nested(depth: int) -> list:
+    """A list that holds a list, depth deep, made without recursion."""
+    value: list = []
+    for _ in range(depth):
+        value = [value]
+    return value
+
+
+def test_an_answer_nested_deeper_than_any_of_proxmox_s_is_malformed_never_a_recursion_error(fleet) -> None:
+    """json.loads, in C, takes an answer nested past Python's recursion limit: what keeps it frozen stops first."""
+    deep = b"[" * 900 + b"]" * 900
+    client = fleet.client()
+    client._transport = _Answers(VERSION, Answer(200, (), b'{"data": ' + deep + b"}", "OK"))
+    with pytest.raises(Malformed):
+        client.read("nodes/pve/qemu/9010/pending")
+    for parse in (
+        lambda v: answers.read(v, "x"),
+        lambda v: answers.resource({"vmid": 9010, "deep": v}),
+        lambda v: answers.config({"digest": "0" * 40, "deep": v}, "pve", 9010, "net0"),
+    ):
+        with pytest.raises(Malformed):
+            parse(_nested(900))
+        with pytest.raises(Malformed):
+            parse(_nested(answers.MOST_DEPTH + 1))
+    # As deep as MOST_DEPTH lets is read as it came.
+    assert answers.read(_nested(answers.MOST_DEPTH - 1), "x").data
+
+
 @pytest.mark.parametrize(
     ("parse", "value"),
     [
@@ -628,7 +749,7 @@ def _errors(fleet: Fleet, other: dict, tmp_path: Path) -> list[BaseException]:
 def test_no_error_of_the_client_says_the_token(fleet, other_pki, tmp_path, caplog, capsys) -> None:
     caplog.set_level(logging.DEBUG)
     errors = _errors(fleet, other_pki, tmp_path)
-    assert [type(error) for error in errors] == [Denied, NotMade, Refused, Denied, Unverified, Unverified, Untrusted]
+    assert [type(error) for error in errors] == [Denied, NotMade, Refused, Denied, Unverified, Unverified, Unverified]
     for error in errors:
         said = "\n".join(_said(error, caplog, capsys))
         assert CANARY not in said and fleet.token.secret.reveal() not in said, type(error)

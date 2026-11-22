@@ -62,6 +62,8 @@ WIDER_THAN_A_TEST: dict[str, str] = {
     "test_aw_pve_reads.py::pki": "a certificate authority made in process with cryptography, for the fake Proxmox: it"
     " starts nothing and reaches nothing",
     "test_aw_pve_reads.py::other_pki": "another such authority, of another subject, made the same way",
+    "test_aw_pve_reads.py::misnamed_pki": "another such authority, whose node's certificate names another address than"
+    " the fake's, made the same way",
     "test_aw_pve_writes.py::pki": "a certificate authority made in process with cryptography, for the fake Proxmox: it"
     " starts nothing and reaches nothing",
     "test_aw_transport.py::pki": "a certificate authority made in process with cryptography: it starts nothing and"
