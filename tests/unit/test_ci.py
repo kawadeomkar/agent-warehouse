@@ -126,13 +126,52 @@ def test_one_unit_shard_runs_on_the_oldest_python_the_project_takes_and_every_ot
     assert [step.get("with") for step in setups] == [{"python-version": floor[1]}]
     shards = len(JOBS["unit"]["strategy"]["matrix"]["shard"])
     assert [step["run"] for step in oldest["steps"] if "run" in step] == [f"just test unit --shard 1/{shards}"]
+    # The engine job's matrix names the floor and the default both, which the test below holds it to.
+    named = {("ci.yml", "unit-oldest"), ("ci.yml", "engine")}
     others = []
     for workflow in sorted((REPO / ".github" / "workflows").glob("*.yml")):
         for name, job in yaml.safe_load(workflow.read_text())["jobs"].items():
             for step in job.get("steps", []):
-                if step.get("uses") == "./.github/actions/setup" and (workflow.name, name) != ("ci.yml", "unit-oldest"):
+                if step.get("uses") == "./.github/actions/setup" and (workflow.name, name) not in named:
                     others.append((workflow.name, name, (step.get("with") or {}).get("python-version")))
     assert others and all(version is None for _, _, version in others), others
+
+
+# A hosted macOS runner named by its version alone: macos-26, never macos-latest or a larger runner's name.
+MACOS_BY_VERSION = re.compile(r"macos-[0-9]+\Z")
+
+
+def test_the_engine_job_runs_on_linux_and_on_macos_pinned_by_its_version_on_the_oldest_python_and_the_actions():
+    # The new engine's suite on both systems it runs on and both ends of the Pythons it takes: requires-python's floor
+    # and the setup action's default (test_justfile.py holds that to the justfile's managed_python). Its macOS is
+    # named by its version, never macos-latest, which GitHub moves under a workflow; its Linux is the one every other
+    # job runs on.
+    requires = tomllib.loads((REPO / "pyproject.toml").read_text())["project"]["requires-python"]
+    floor = re.fullmatch(r">=([0-9]+\.[0-9]+)", requires)
+    assert floor, requires
+    action = yaml.safe_load((REPO / ".github" / "actions" / "setup" / "action.yml").read_text())
+    default = str(action["inputs"]["python-version"]["default"])
+    engine = JOBS["engine"]
+    assert engine["name"] == "Engine tests (${{ matrix.os }}, Python ${{ matrix.python }})"
+    assert engine["runs-on"] == "${{ matrix.os }}"
+    assert engine["strategy"]["fail-fast"] is False
+    matrix = engine["strategy"]["matrix"]
+    assert set(matrix) == {"os", "python"}, matrix
+    assert sorted(matrix["python"]) == sorted({floor[1], default}) and len(matrix["python"]) == 2, matrix["python"]
+    linux, macos = matrix["os"]
+    assert linux == JOBS["unit"]["runs-on"], matrix["os"]
+    assert MACOS_BY_VERSION.fullmatch(macos), macos
+    # Each step as the unit job's: its checkout, the setup action given the matrix's Python, then the suite.
+    checkout, setup, run = engine["steps"]
+    assert checkout == JOBS["unit"]["steps"][0]
+    assert setup == {"uses": "./.github/actions/setup", "with": {"python-version": "${{ matrix.python }}"}}
+    assert run == {"name": "Engine tests", "run": "just test engine"}
+
+
+@pytest.mark.parametrize("runs_on", ["macos-latest", "macos-latest-large", "macos-26-xlarge", "macos-26\n", "macos"])
+def test_a_macos_runner_named_by_anything_but_its_version_is_not_taken(runs_on):
+    # The names GitHub gives the runners that move under a workflow (latest) or are larger, paid ones.
+    assert not MACOS_BY_VERSION.fullmatch(runs_on)
 
 
 def test_the_canary_runs_the_pinned_image_unpinned():

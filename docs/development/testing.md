@@ -88,6 +88,8 @@ port for it.
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs lint and the unit tests, every Molecule scenario, a dependency review
-and, weekly, a canary against what the project installs from outside the repository. What each job
-does is in [§12](../architecture/ci.md). No job needs a secret, so the full suite runs on pull requests
+and, weekly, a canary against what the project installs from outside the repository. The new engine's
+tests (`just test engine`) run there on Ubuntu and on a hosted macOS runner, each on Python 3.13 and
+3.14, so a change is tried on macOS on a throwaway machine, never on your own. What each job does is
+in [§12](../architecture/ci.md). No job needs a secret, so the full suite runs on pull requests
 from forks; keep it that way.

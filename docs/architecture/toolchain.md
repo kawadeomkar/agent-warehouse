@@ -58,11 +58,13 @@ linters' and tests' the `dev` group, and the wiki's the `docs` group; `just inst
 **just**, the other tool on `PATH`, runs every command (`justfile`; [Commands](../reference/commands.md)).
 It is yours to install, as uv is, 1.59.0 or later, from its own releases - Homebrew, `cargo install just`,
 or the release archive checked against its `SHA256SUMS`; not PyPI's `rust-just`, a third party's own build
-of it. The justfile's `set minimum-version` refuses an older one. CI installs upstream's x86_64 Linux
-archive, checked against the SHA256 in `.github/actions/setup/action.yml`, at the version written there
-as `JUST_VERSION`, in the justfile's `minimum-version` and as its `just_pin`; `test_justfile.py` holds the
-three to one. Dependabot moves neither file, so moving to a new `just` is by hand: the three versions, and
-the archive's line of the new release's `SHA256SUMS` as `JUST_SHA256`. The justfile's format is checked
+of it. The justfile's `set minimum-version` refuses an older one. CI installs upstream's archive for the
+runner's system, x86_64 Linux's or arm64 macOS's, each checked against its own SHA256 in
+`.github/actions/setup/action.yml`, at the version written there as `JUST_VERSION`, in the justfile's
+`minimum-version` and as its `just_pin`; `test_justfile.py` holds the three to one, and every SHA256 in
+the action beside that one version. Dependabot moves neither file, so moving to a new `just` is by hand:
+the three versions, and the two archives' lines of the new release's `SHA256SUMS`, the
+`x86_64-unknown-linux-musl` one as `JUST_SHA256` and the `aarch64-apple-darwin` one as `JUST_SHA256_MACOS`. The justfile's format is checked
 (`just lint just`) only by the pinned version, which `just lint` says when it skips it.
 
 The uv every VM gets is the `dev_tools` role's own pin (`dev_tools_uv_version`, with each architecture's
