@@ -52,7 +52,10 @@ SECRET = "unit-test-aw-job-secret"
 # The modules of runs/ that may import claude_vm.proc, the walk of the process table, each with why: to end a run's
 # tree, never to decide a state.
 PROCESS_TABLE: dict[str, str] = {
-    "claude_vm/runs/attached.py": "a run's end: the tree under the run remembered at a Ctrl-C, and ended by end_under",
+    "claude_vm/runs/attached.py": (
+        "a run's end: the tree under the run remembered at a Ctrl-C, and ended by end_under; and what under it a"
+        " terminal stopped in a group of its own, said and ended (stopped_under)"
+    ),
 }
 # What reads a process's start or the process table, in any module of runs/: ps's start column, Linux's /proc, a
 # library of processes, today's MCP jobs' reading of a start (mcp/jobs.py's started, desktop.py's PS_ENV), a pidfd.

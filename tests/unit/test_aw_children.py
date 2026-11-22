@@ -4,13 +4,14 @@ Each child here is a real process, a probe that reports what it was given: its e
 and session, the signals it ignores or blocks (as Python reads them, and on Linux as the kernel shows a program that is
 not Python), and the descriptors it has open. A child meant to outlive its run is outlive's: unmarked, in a session of
 its own, its standard streams /dev/null, in no registry. A run started with another job's marker carries none, and nor
-do the children it starts outside start (route.py's ssh, proc.py's ps). A child the terminal stopped is asking's, and
-one stopped for any other reason is not. The rules with a test of their own: in the new engine's code a child process
-is started only through children.py, the SSH runner's among them, by a scan for every way Python starts one; close_fds
-is never turned off; no process is forked without an exec (a forked child keeps every lock the run holds, since a
-descriptor that is not inheritable is closed only at an exec); pass_fds and set_inheritable(..., True), and every other
-way to make a descriptor inheritable, appear only in children.start; and every module of runs/ that takes a kernel lock
-is one children.HOLDERS reads, so that its locks are refused too.
+do the children it starts outside start (route.py's ssh, proc.py's ps). A child the terminal stopped is asking's,
+route.py's ssh in a process group of its own among them, and one stopped for any other reason is not. The rules with a
+test of their own: in the new engine's code a child process is started only through children.py, the SSH runner's among
+them, by a scan for every way Python starts one; close_fds is never turned off; no process is forked without an exec (a
+forked child keeps every lock the run holds, since a descriptor that is not inheritable is closed only at an exec);
+pass_fds and set_inheritable(..., True), and every other way to make a descriptor inheritable, appear only in
+children.start; and every module of runs/ that takes a kernel lock is one children.HOLDERS reads, so that its locks are
+refused too.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -617,7 +619,10 @@ def test_a_child_the_terminal_stopped_is_asking_and_one_stopped_otherwise_is_not
             await until(lambda: stopped_by(process.pid) == signal.SIGSTOP, "the child stopped")
             assert children.asking(made) == []
             os.kill(process.pid, signal.SIGCONT)
-            for signum in children.AT_THE_TERMINAL:
+            # Named here, never read off the module's own tuple, which a test reading it would shrink with: SIGTTOU is
+            # the stop OpenSSH's readpassphrase makes, turning the echo off before it reads (review/code/C23.md 1).
+            assert children.AT_THE_TERMINAL == (signal.SIGTTIN, signal.SIGTTOU)
+            for signum in (signal.SIGTTIN, signal.SIGTTOU):
                 # What the terminal sends a group that reads it, or writes or changes it, not being its own.
                 os.killpg(process.pid, signum)
                 await until(lambda signum=signum: children.asking(made) == [(child, signum)], "the child asking")
@@ -632,6 +637,50 @@ def test_a_child_the_terminal_stopped_is_asking_and_one_stopped_otherwise_is_not
         assert children.asking(made) == []
 
     asyncio.run(run())
+
+
+SLEEPS = [sys.executable, "-c", "import time; time.sleep(60)"]
+
+
+@pytest.mark.skipif(not hasattr(os, "waitid"), reason="Python before 3.13 on macOS has no waitid")
+def test_route_s_ssh_in_a_group_of_its_own_is_watched_and_said_asking_and_one_in_this_group_is_not(
+    made, monkeypatch
+) -> None:
+    # route.py's ssh, which the new engine starts in a process group of its own (process_group=0) and start never
+    # starts, is stopped by a question at the terminal as the registry's children are (review/code/C23.md 2); one of
+    # today's callers, in this process's group, is not the run's to watch.
+    monkeypatch.setattr(route, "_OVER", threading.Event())
+    leading = route._started(SLEEPS, process_group=0)
+    alone = route._started(SLEEPS)
+    ours = (leading, alone)
+
+    def watched() -> list[children.Child]:
+        return [child for child in children.watched(made) if child.process in ours]
+
+    def asking() -> list[tuple[children.Child, int]]:
+        return [(child, signum) for child, signum in children.asking(made) if child.process in ours]
+
+    try:
+        child = children.Child(children.SSH, leading, os.path.basename(sys.executable))
+        assert leading in route.leading() and alone not in route.leading()
+        assert watched() == [child]
+        assert asking() == []
+        for signum in (signal.SIGTTIN, signal.SIGTTOU):
+            os.killpg(leading.pid, signum)
+            deadline = time.monotonic() + 30
+            while asking() != [(child, signum)]:
+                assert time.monotonic() < deadline, "route.py's ssh never read as asking"
+                time.sleep(0.02)
+            os.kill(leading.pid, signal.SIGCONT)
+            while asking():
+                assert time.monotonic() < deadline, "route.py's ssh never going on"
+                time.sleep(0.02)
+    finally:
+        for process in ours:
+            process.kill()
+            process.wait()
+            route._forget(process)
+    assert watched() == [] and leading not in route.leading()
 
 
 # ---------------------------------------------------------------- the rules ----

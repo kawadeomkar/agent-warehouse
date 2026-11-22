@@ -17,6 +17,7 @@ import ipaddress
 import os
 import re
 import shlex
+import signal
 import socket
 import tempfile
 import threading
@@ -397,8 +398,11 @@ def vm_hop(route, address, given="", extra="") -> dict:
 # Every ssh this module has started and not yet waited for - _run's, and the ssh -G of route_settle and ssh_shown - so
 # that a caller about to end at once (os._exit, which runs no finally) can end them first (end_all), and once it has,
 # _OVER: none is started after. Each is started and added in one step under the lock end_all takes (_started), so that
-# end_all never runs between the two.
+# end_all never runs between the two. _LEADING, those of them that lead a process group of their own (process_group=0,
+# the new engine's calls): each is ended with its group (_kill), and watched by the new engine's run for a stop at the
+# terminal (leading).
 _LIVE: set = set()
+_LEADING: set = set()
 _LIVE_LOCK = threading.Lock()
 _OVER = threading.Event()
 
@@ -407,25 +411,50 @@ class NotStarted(OSError):
     """An ssh not started, since end_all has run: the run that would have waited for it is ending."""
 
 
+def _kill(process) -> None:
+    """``process`` killed, never once it has been reaped (as Popen.kill), with its process group where it leads one
+    (_LEADING: started with process_group=0, the new engine's), so that what it started there - the program of a
+    person's ``Match exec``, a ProxyCommand's - ends with it; by its pid alone where it leads none: today's callers
+    start their ssh in their own process's group, which a group's end would signal."""
+    if process.poll() is not None:
+        return
+    if process in _LEADING:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+            return
+        except OSError:
+            pass
+    try:
+        process.kill()
+    except OSError:
+        pass
+
+
 def end_all() -> None:
-    """End every ssh this process runs for the hop, ``ssh -G`` among them, whatever thread waits on it, and start none
-    after: for a caller that ends at once, before the threads' own ``finally`` could. One being started meanwhile is
-    waited for and ended with the rest. Each is reaped by the thread that started it, or by init."""
+    """End every ssh this process runs for the hop, ``ssh -G`` among them, whatever thread waits on it, each with its
+    process group where it leads one (_kill), and start none after: for a caller that ends at once, before the threads'
+    own ``finally`` could. One being started meanwhile is waited for and ended with the rest. Each is reaped by the
+    thread that started it, or by init."""
     with _LIVE_LOCK:
         _OVER.set()
         live = list(_LIVE)
     for process in live:
-        try:
-            process.kill()
-        except OSError:
-            pass
+        _kill(process)
+
+
+def leading() -> list:
+    """The ssh this module runs in a process group of its own (process_group=0, the new engine's calls), still running
+    or not yet reaped: children of this process that a question at the terminal can stop, which the new engine's run
+    watches as it watches its own children. Today's callers start none."""
+    with _LIVE_LOCK:
+        return [process for process in _LIVE if process in _LEADING]
 
 
 def _started(argv: list[str], **popen):
     """``argv`` started with nothing on its standard input and Popen's ``popen``, and added to _LIVE in one step under
     the lock end_all takes: an end_all meanwhile waits for the start and ends it with the rest, and once one has run
-    nothing is started (NotStarted). OSError where it cannot be started. The caller waits for it, then discards it from
-    _LIVE (_forget)."""
+    nothing is started (NotStarted). One started with ``process_group`` 0 leads a group of its own (_LEADING). OSError
+    where it cannot be started. The caller waits for it, then discards it from _LIVE (_forget)."""
     import subprocess
 
     with _LIVE_LOCK:
@@ -433,20 +462,24 @@ def _started(argv: list[str], **popen):
             raise NotStarted(f"{argv[0]}: not started, the run ended")
         process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, **popen)
         _LIVE.add(process)
+        if popen.get("process_group") == 0:
+            _LEADING.add(process)
     return process
 
 
 def _forget(process) -> None:
     with _LIVE_LOCK:
         _LIVE.discard(process)
+        _LEADING.discard(process)
 
 
 def _asked(argv: list[str], limit: float, *, process_group=None):
     """``argv``, an ``ssh -G``, run as ``subprocess.run`` runs it - its standard output and standard error read whole as
     text, a subprocess.CompletedProcess, and subprocess.TimeoutExpired once ``limit`` seconds have passed - but started
     as _run starts its ssh (_started), so that end_all ends it and starts none after (NotStarted): no ``ssh -G`` of a
-    caller that ended at once goes on to run a person's ``Match exec``. A caller ended meanwhile ends it too, and waits
-    for it. ``process_group`` is _run's."""
+    caller that ended at once goes on to run a person's ``Match exec``. Past its limit, or with its caller ended
+    meanwhile, it is ended here and waited for. ``process_group`` is _run's: with 0, each of those ends its group too,
+    the ``Match exec``'s program with it."""
     import subprocess
 
     process = _started(
@@ -460,8 +493,9 @@ def _asked(argv: list[str], limit: float, *, process_group=None):
     try:
         out, err = process.communicate(timeout=limit)
     except BaseException:
-        # Its limit passed, a Ctrl-C, any exception: ended here and waited for, as subprocess.run does.
-        process.kill()
+        # Its limit passed, a Ctrl-C, any exception: ended here, with its group where it leads one, and waited for, as
+        # subprocess.run does.
+        _kill(process)
         process.wait()
         raise
     finally:
@@ -479,8 +513,9 @@ def _run(argv: list[str], limit: float, until: str = "", banner: bool = False, *
     ``banner``: never more of what the far end wrote. A caller ended meanwhile (a Ctrl-C, any exception) ends it too,
     and waits for it: no ssh is left to run on by itself. Once end_all has run, nothing is started: ``rc`` 255, and
     ``said`` says so. ``process_group``, Popen's: the new engine's 0 starts it in a process group of its own, so that a
-    terminal's Ctrl-C, which the engine takes as "finish the step", never reaches it; None, today's callers', leaves it
-    in this process's group."""
+    terminal's Ctrl-C, which the engine takes as "finish the step", never reaches it, and each kill of it here, at its
+    limit or when its caller ends, ends that group with it (_kill); None, today's callers', leaves it in this process's
+    group, and a kill ends it alone."""
     import subprocess  # only where ssh is run: imported with the package, it would slow every run's start
 
     first = b""
@@ -504,13 +539,14 @@ def _run(argv: list[str], limit: float, until: str = "", banner: bool = False, *
             while process.poll() is None:
                 first = _drained(process, first)
                 if time.monotonic() >= end or (until and until.encode() in _read(errors.fileno())):
-                    process.kill()
+                    _kill(process)
                     killed = True
                     break
                 time.sleep(0.05)
         finally:
-            if process.poll() is None:
-                process.kill()
+            # A caller ended meanwhile: ended here too, with its group where it leads one (one killed above is ending).
+            if not killed:
+                _kill(process)
             process.wait()
             first = _drained(process, first)
             if process.stdout is not None:

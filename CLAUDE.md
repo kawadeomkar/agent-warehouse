@@ -527,6 +527,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - The new engine calls `route.py` as it stands (`lib/claude_vm/ssh/connections.py`), its `ssh` children in a
       process group of their own (`process_group=0`, which today's callers do not pass) and `route`, `ensure_hop` and
       `held` off the event loop, so that a terminal's first Ctrl-C kills none and has its silence read as an answer;
+      each end of one there (`end_all`, a limit, a caller ended) ends its group with it, a `Match exec`'s program
+      among it, where today's callers' `ssh` is ended by its pid alone, since it shares their own group;
       `route` settles nothing where its `ssh -G` gave no answer, ended by a signal or out of its time
       (`signalled_settles=False`), and refuses the route through the host where the hop's socket would pass
       `route.SOCKET_MOST`, naming `vm_ssh_route: direct` or a shorter home; every line of the hop's own `ssh` pins
@@ -1170,9 +1172,13 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       never anything but `True`, and never a fork with no exec (`os.fork`, `os.forkpty`, `pty.fork`, `posix`'s, a
       `fork` start method of `multiprocessing`): a forked child keeps every lock until it execs. `pass_fds` and
       `set_inheritable(..., True)` appear only in `start`, and nothing else makes a descriptor inheritable.
-    - A child the terminal stopped for asking a question there (SIGTTIN or SIGTTOU: the `ssh` of a person's own
-      `ProxyJump`, a question of `git`'s or `sudo`'s), which `children.asking` reads with `waitid`'s `WNOWAIT`, is said
-      by the run within a second, naming its program and what to do, and ended: never left stopped and silent.
+    - A child the terminal stopped for asking a question there (SIGTTIN, or SIGTTOU as OpenSSH's `readpassphrase`
+      turns the echo off before it reads: the `ssh` of a person's own `ProxyJump`, a question of `git`'s or `sudo`'s),
+      which `children.asking` reads with `waitid`'s `WNOWAIT` - the registry's children and `route.py`'s `ssh` in a
+      process group of its own (`children.watched`, `route.leading`) - or a process under one stopped in a group of its
+      own, which the ladder reads from the process table while such a child lives in its session (`proc.stopped_under`),
+      is said by the run within a second, naming its program and what to do, and ended: never left stopped and
+      silent.
     - `tests/unit/test_aw_children.py` holds it, with real children that report what they were given, and scans of the
       new engine's code for each rule; `tests/unit/test_aw_attached.py` the opener and the question at a terminal.
 - **Every `ssh` the new engine starts carries `BatchMode=yes` and names the machine by its identity.** Read
@@ -1423,11 +1429,16 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   its loop closes, since asyncio kills an `ansible-playbook` it still holds and leaves its task workers
   ([§16.8](docs/architecture/engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run)). Then nothing
   holds the process: the engine's blocking calls run on daemon threads of the ladder's own, the loop's default
-  executor, each started with the signals the ladder takes blocked and never joined, and where one is still in a call
-  once the record is written the process ends by `os._exit`, since Python joins a `ThreadPoolExecutor`'s threads at
-  exit; a call in a thread that waits is handed the run's `Context.stopping` (the Proxmox client's `follow`), never a
-  phase inside a shield; a question reads on the loop (`Context.typed`), never in a thread, and one Ctrl-C there ends
-  the run. `tests/unit/test_aw_attached.py` holds it, each rule by a test that fails without it.
+  executor, never joined, and where one is still in a call once the record is written the process ends by `os._exit`,
+  since Python joins a `ThreadPoolExecutor`'s threads at exit. No thread blocks a signal - each call runs with none
+  blocked, whatever its maker held - since a program a call in a thread starts (`route.py`'s `ssh`) keeps its thread's
+  mask through `exec`; while the run reads the process table and signals what it leads to, and while it closes, the
+  handler, which runs in the run's thread whatever thread the kernel handed the signal to, only takes note, and each
+  signal noted is handled once that is done (`_held`). A call in a thread that waits is handed the run's
+  `Context.stopping` (the Proxmox client's `follow`), set at a first Ctrl-C, at an end at once (a second, a SIGTERM, a
+  SIGHUP), at the grace's end and at the close, never a phase inside a shield; a question reads on the loop
+  (`Context.typed`), never in a thread, and one Ctrl-C there ends the run. `tests/unit/test_aw_attached.py` holds it,
+  each rule by a test that fails without it.
 - **A scenario's container is still booting when Molecule's create returns.** The boot empties `/tmp`
   (`systemd-tmpfiles-setup.service`, from `D /tmp` in the image's `tmp.conf`), where a module's payload is unpacked
   and read from while it runs: on a busy CI round five scenarios failed at their first fact gathering,

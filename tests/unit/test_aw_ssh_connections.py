@@ -19,6 +19,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import base64
+import contextlib
 import inspect
 import ipaddress
 import json
@@ -821,7 +822,8 @@ def test_a_run_remembers_nothing_of_a_master_s_open(made) -> None:
         try:
             await asyncio.to_thread(_until, lambda: len(proc.descendants(process.pid)) == 1, "the open's ProxyCommand")
             assert children.opening() == [process.pid] and children.live(made) == []
-            ladder = types.SimpleNamespace(remembered={}, blind=[])
+            # The ladder's remember on a stand-in of its own: what it leaves out, its hold of the interrupts aside.
+            ladder = types.SimpleNamespace(remembered={}, blind=[], _held=contextlib.nullcontext)
             attached._Ladder.remember(ladder)
             tree = {process.pid, *proc.descendants(process.pid)}
             assert ladder.blind == [] and other.pid in ladder.remembered and not tree & set(ladder.remembered)

@@ -10,14 +10,16 @@ once the run has ended and before anything of the test's own ends what is left. 
 way out of a run but SIGKILL writes an exit record, and the ways walk every signal whose handler is the ladder's while a
 body runs, and every outcome. SIGKILL writes none, and the job reads lost. Ctrl-C twice ends the tree from the handler
 while the loop is held; SIGHUP and SIGTERM reach each child as themselves; a call still in a thread holds the process
-no longer than the ladder takes, on a daemon thread of the ladder's own that blocks the signals it takes, so the
-interrupts stay held off while the table is read; an Ansible child started inside a shield has the Ctrl-C's SIGINT
-once the shield is done; a SIGTERM after a Ctrl-C is what the record says, within SETTLE; one Ctrl-C at a question ends
-the run there; a ladder that cannot be built leaves no job; Python's and asyncio's own reports stay off the terminal. A
-shielded phase finishes before the stop; at a pseudo-terminal the echo is back after each end; a signal ignored on the
-way in stays ignored; a child meant to outlive the run, as a page's opener is, lives on unmarked after every end; a
-child the terminal stopped for asking a question there is said within a second and ended, and its run ends; and
-end_under ends what is under a process, never the process, nor what it is told to leave.
+no longer than the ladder takes, on a daemon thread of the ladder's own that blocks no signal, a program it starts
+none either, and the interrupts stay held off while the table is read all the same; a call in a thread handed the
+run's stop has it at a first Ctrl-C, a SIGTERM and the close; an Ansible child started inside a shield has the Ctrl-C's
+SIGINT once the shield is done; a SIGTERM after a Ctrl-C is what the record says, within SETTLE; one Ctrl-C at a
+question ends the run there; a ladder that cannot be built leaves no job; Python's and asyncio's own reports stay off
+the terminal. A shielded phase finishes before the stop; at a pseudo-terminal the echo is back after each end; a signal
+ignored on the way in stays ignored; a child meant to outlive the run, as a page's opener is, lives on unmarked after
+every end; a child the terminal stopped for asking a question there - reading it or changing it first, route.py's ssh,
+or a reader in a group of its own under a child - is said within a second and ended, and its run ends; and end_under
+ends what is under a process, never the process, nor what it is told to leave.
 """
 
 from __future__ import annotations
@@ -58,7 +60,7 @@ import asyncio, concurrent.futures, json, os, signal, sys, termios, threading, t
 lib, jobs_dir, way, grace, folder, quiet, holds = sys.argv[1:8]
 sys.path.insert(0, lib)
 from pathlib import Path
-from claude_vm import proc, runs
+from claude_vm import proc, route, runs
 from claude_vm.runs import attached, children
 
 attached.STOP_GRACE = float(grace)
@@ -94,12 +96,41 @@ OPENS = (
     "time.sleep(120)\n"
 )
 # A child that asks a question at the terminal, as the ssh of a person's own ProxyJump asks a passphrase: it writes
-# when it asks into the file named, then reads the terminal.
+# when it asks into the file named, then reads the terminal, which stops it there (SIGTTIN).
 ASKS = (
     "import sys, time\n"
     "open(sys.argv[1], 'w').write(repr(time.time()))\n"
     "with open('/dev/tty') as tty:\n"
     "    tty.readline()\n"
+)
+# The same question as OpenSSH's readpassphrase asks it: the echo turned off first, and only then the read, so that the
+# terminal stops it as it changes the terminal (SIGTTOU), before any read.
+ASKS_QUIETLY = (
+    "import os, sys, termios, time\n"
+    "open(sys.argv[1], 'w').write(repr(time.time()))\n"
+    "tty = os.open('/dev/tty', os.O_RDWR)\n"
+    "settings = termios.tcgetattr(tty)\n"
+    "settings[3] &= ~termios.ECHO\n"
+    "termios.tcsetattr(tty, termios.TCSAFLUSH, settings)\n"
+    "os.read(tty, 100)\n"
+)
+# A child whose own child asks, from a process group the child made for it: the reader alone is stopped, and the child
+# waits on it, never stopped itself (review/code/C23.md 2). It exits 1 where its reader did not end well.
+ASKS_BELOW = (
+    "import subprocess, sys\n"
+    "reader = subprocess.Popen([sys.executable, '-I', '-c', sys.argv[2], sys.argv[1]], process_group=0)\n"
+    "sys.exit(1 if reader.wait() else 0)\n"
+)
+ASKERS = {"asks": ASKS, "asks-quietly": ASKS_QUIETLY, "asks-below": ASKS_BELOW}
+# How long a body waits on a child that asks: far past the second it is said within, and short of the test's limit.
+ASKING_LIMIT = 20
+# A program a call in a thread starts, as route.py starts the hop's ssh: it writes its pid into the file named, then
+# waits.
+STARTED = (
+    "import os, sys, time\n"
+    "open(sys.argv[1] + '.part', 'w').write(str(os.getpid()))\n"
+    "os.rename(sys.argv[1] + '.part', sys.argv[1])\n"
+    "time.sleep(60)\n"
 )
 
 if way == "slow-table":
@@ -120,6 +151,16 @@ if way == "slow-table":
             depth[0] -= 1
 
     proc._table = slow
+if way == "slow-close":
+    # The run's close made slow before its outcome is taken, with a mark where it begins.
+    close = attached._Ladder._close_loop
+
+    def slow_close(self):
+        (folder / "closing").write_text("closing")
+        time.sleep(1.5)
+        close(self)
+
+    attached._Ladder._close_loop = slow_close
 if way == "no-loop":
 
     def failing():
@@ -194,15 +235,66 @@ async def outlives(ctx, said):
 
 
 async def asks(ctx, said):
-    argv = [sys.executable, "-I", "-c", ASKS, str(folder / "asking")]
+    if way == "asks-route":
+        # route.py's ssh, in a process group of its own as the new engine starts it, off the loop.
+        say(said)
+        argv = [sys.executable, "-I", "-c", ASKS, str(folder / "asking")]
+        ended = await asyncio.to_thread(route._run, argv, ASKING_LIMIT, process_group=0)
+        # -9 once said and ended; None where it waited out route.py's limit.
+        (folder / "asked").write_text(str(ended["rc"]))
+        return 1
+    argv = [sys.executable, "-I", "-c", ASKERS[way], str(folder / "asking"), ASKS]
     asking = await children.start(
         ctx.job, argv, children.GROUP, dict(os.environ), DEVNULL, DEVNULL, DEVNULL, children.SSH
     )
     said["asks"] = asking.pid
     say(said)
-    status = await asking.wait()
+    try:
+        status = await asyncio.wait_for(asking.wait(), ASKING_LIMIT)
+    except TimeoutError:
+        asking.kill()
+        status = "the limit"
     (folder / "asked").write_text(str(status))
     return 0 if status == 0 else 1
+
+
+KEPT = []
+
+
+def waits_for_the_stop(ctx):
+    (folder / "waiting").write_text("waiting")
+    ctx.stopping.wait(600)
+    (folder / "stopping").write_text(repr(time.time()))
+
+
+async def stopping(ctx, said):
+    # A call in a thread handed the run's stop, as the Proxmox client's follow is: when its wait returns.
+    KEPT.append(asyncio.ensure_future(asyncio.to_thread(waits_for_the_stop, ctx)))
+    while not (folder / "waiting").exists():
+        await asyncio.sleep(0.02)
+    say(said)
+    if way == "stopping-ctrl-c":
+        # The body goes on a while after the Ctrl-C, so that only the Ctrl-C's own setting is within a moment of it.
+        await ctx.cancelled.wait()
+        await asyncio.sleep(3)
+        return 0
+    if way == "stopping-sigterm":
+        try:
+            await asyncio.sleep(600)
+        except asyncio.CancelledError:
+            await asyncio.sleep(3)
+            raise
+    # The body returns with its call still waiting: the close is what stops it.
+    (folder / "returned").write_text(repr(time.time()))
+    return 0
+
+
+async def thread_child(ctx, said):
+    say(said)
+    argv = [sys.executable, "-I", "-c", STARTED, str(folder / "started")]
+    ended = await asyncio.to_thread(route._run, argv, 30, process_group=0)
+    (folder / "ended").write_text(json.dumps(ended))
+    return 0
 
 
 async def body(ctx):
@@ -211,8 +303,20 @@ async def body(ctx):
         return await prompted(ctx, said)
     if way.startswith("outlive"):
         return await outlives(ctx, said)
-    if way == "asks":
+    if way.startswith("asks"):
         return await asks(ctx, said)
+    if way.startswith("stopping"):
+        return await stopping(ctx, said)
+    if way == "thread-child":
+        return await thread_child(ctx, said)
+    if way == "slow-close":
+        # A call left in a thread, which blocks no signal, so the kernel hands it what the run's thread holds off.
+        KEPT.append(asyncio.ensure_future(asyncio.to_thread(blocked)))
+        while not (folder / "calling").exists():
+            await asyncio.sleep(0.02)
+        say(said)
+        await ctx.cancelled.wait()
+        return 0
     for name, code in (("ends", ENDS), ("ignores", IGNORES)):
         said[name] = await ready(ctx, code, name)
     process = await stand_in(ctx, holds, "holds", DEVNULL)
@@ -749,21 +853,19 @@ def test_a_call_still_in_a_thread_holds_the_process_no_longer_than_the_ladder_ta
     assert took < bound, took
     assert process.returncode == given.status
     assert _ended_as(jobs_dir, said) == (given.outcome, given.exit, given.why)
-    # The call ran on a daemon thread of the ladder's own, which blocks the signals the ladder takes.
+    # The call ran on a daemon thread of the ladder's own, which blocks no signal: a program it started would inherit
+    # the mask (review/code/C22.md 1).
     if given.body != "own-pool":
         assert said["daemon"] is True
-        assert {int(each) for each in attached.TAKEN} <= set(said["blocked"]), said["blocked"]
+        assert said["blocked"] == [], said["blocked"]
     if given.body == "thread-error":
         # Said as Python says an error it ends on, though the process ended at once.
         assert "RuntimeError: the body's own error" in (tmp_path / "err").read_text()
 
 
-@pytest.mark.skipif(
-    sys.platform == "darwin",
-    reason="asyncio waits for each child in a thread of its own on macOS, which the ladder does not start, and the"
-    " kernel may hand a signal to it: the hold is real on Linux",
-)
 def test_with_a_call_in_a_thread_the_interrupts_stay_held_off_while_the_table_is_read(home, jobs_dir, tmp_path) -> None:
+    # The run's thread blocks them while it reads, and the call's thread blocks none, so the kernel hands the SIGTERM to
+    # the call's: its handler still runs in the run's thread, inside the read, where it only takes note.
     with _run(home, tmp_path, jobs_dir, "slow-table", 60) as (process, said):
         _until(lambda: (tmp_path / "calling").is_file(), "the body's call in a thread")
         (tmp_path / "slow").write_text("the next read of the table is slow")
@@ -776,6 +878,71 @@ def test_with_a_call_in_a_thread_the_interrupts_stay_held_off_while_the_table_is
     assert not (tmp_path / "nested").exists()
     assert process.returncode == -signal.SIGTERM
     assert _ended_as(jobs_dir, said) == ("cancelled", 143, "SIGTERM")
+
+
+@pytest.mark.skipif(not Path("/proc/self/status").is_file(), reason="a process's mask is read in /proc, Linux's")
+def test_a_program_a_call_in_a_thread_starts_has_no_signal_blocked_and_ends_on_a_sigterm(
+    home, jobs_dir, tmp_path
+) -> None:
+    # route.py's ssh, started by subprocess in the thread asyncio.to_thread gives it, as the new engine runs the hop's:
+    # a child takes its thread's mask through exec, and one with SIGTERM blocked would take no kill, logout or shutdown
+    # (review/code/C22.md 1).
+    with _run(home, tmp_path, jobs_dir, "thread-child", 60) as (process, said):
+        _until(lambda: (tmp_path / "started").is_file(), "the program a call in a thread started")
+        pid = int((tmp_path / "started").read_text())
+        status = Path(f"/proc/{pid}/status").read_text()
+        found = re.search(r"^SigBlk:\s*([0-9a-f]+)$", status, re.M)
+        assert found is not None and int(found.group(1), 16) == 0, status
+        os.kill(pid, signal.SIGTERM)
+        process.wait(timeout=60)
+    ended = json.loads((tmp_path / "ended").read_text())
+    assert ended["rc"] == -signal.SIGTERM and not ended["killed"], ended
+    assert process.returncode == 0
+    assert _ended_as(jobs_dir, said) == ("succeeded", 0, "done")
+
+
+def test_a_signal_during_the_close_is_noted_whatever_thread_takes_it_and_changes_only_what_the_run_dies_of(
+    home, jobs_dir, tmp_path
+) -> None:
+    # A SIGTERM while a Ctrl-C's run closes, with a call still in a thread: the kernel hands it that thread, since the
+    # run's thread holds it off, and its handler runs in the run's thread inside the close, where it only takes note.
+    with _run(home, tmp_path, jobs_dir, "slow-close", 60) as (process, said):
+        os.kill(process.pid, signal.SIGINT)
+        _until(lambda: (tmp_path / "closing").is_file(), "the run's close begun")
+        time.sleep(0.3)
+        os.kill(process.pid, signal.SIGTERM)
+        process.wait(timeout=60)
+    assert process.returncode == -signal.SIGTERM
+    assert _ended_as(jobs_dir, said) == ("cancelled", 130, "Ctrl-C")
+
+
+# Each way the run's stop reaches a call in a thread: the body's way, the signal sent, and the run's status.
+STOPS = {
+    "a first Ctrl-C": ("stopping-ctrl-c", (signal.SIGINT,), 130),
+    "a SIGTERM": ("stopping-sigterm", (signal.SIGTERM,), -signal.SIGTERM),
+    "the close of a body that returns": ("stopping-close", (), 0),
+}
+
+
+@pytest.mark.parametrize("way", STOPS)
+def test_a_call_in_a_thread_handed_the_run_s_stop_is_stopped_by_the_ladder(way, home, jobs_dir, tmp_path) -> None:
+    # Context.stopping, which G3 and G5 hand to the Proxmox client's follow in a thread: set by a first Ctrl-C and a
+    # SIGTERM within a moment, never left to the body's end three seconds on or the grace's, and at the close of a body
+    # that returned with the call still waiting (review/code/C22.md 2).
+    body, sent, status = STOPS[way]
+    with _run(home, tmp_path, jobs_dir, body, 20) as (process, said):
+        at = time.time()
+        for signum in sent:
+            os.kill(process.pid, signum)
+        process.wait(timeout=60)
+    assert process.returncode == status, (tmp_path / "err").read_text()
+    stopping = tmp_path / "stopping"
+    assert stopping.is_file(), "the call's wait on the run's stop never returned"
+    stopped = float(stopping.read_text())
+    if sent:
+        assert stopped - at < 1.0, stopped - at
+    else:
+        assert stopped >= float((tmp_path / "returned").read_text())
 
 
 # ---------------------------------------------------------------- a question ----
@@ -959,14 +1126,29 @@ def test_a_child_meant_to_outlive_the_run_lives_on_unmarked_after_each_end(way, 
 # ---------------------------------------------------------------- a child the terminal stopped ----
 
 ASKED_LINE = re.compile(rb"aw: (\S+) stopped at the terminal to ask a question there")
+# Each child that asks a question at a pseudo-terminal, and is stopped there: the body's way, and what the step that
+# waited on it saw. A child of the run's is killed; route.py's ssh is killed, its rc -9 where its limit would say None;
+# the child whose reader was killed exits 1.
+ASKING = {
+    "a child that reads the terminal (SIGTTIN)": ("asks", str(-signal.SIGKILL)),
+    "a child that turns the echo off first, as OpenSSH's readpassphrase does (SIGTTOU)": (
+        "asks-quietly",
+        str(-signal.SIGKILL),
+    ),
+    "route.py's ssh, in a process group of its own": ("asks-route", str(-signal.SIGKILL)),
+    "a reader in a process group of its own under a child": ("asks-below", "1"),
+}
 
 
 @pytest.mark.skipif(not hasattr(os, "waitid"), reason="Python before 3.13 on macOS has no waitid")
+@pytest.mark.parametrize("way", ASKING)
 def test_a_child_stopped_asking_at_the_terminal_is_said_within_a_second_and_ended_and_its_run_ends(
-    home, jobs_dir, tmp_path
+    way, home, jobs_dir, tmp_path
 ) -> None:
-    # A group child that reads the terminal is stopped by it (SIGTTIN), and would wait for an answer no run gives,
-    # silent, until the run's end (the owner's 8, review/code/SUMMARY-5.md; C2.md, "the terminal").
+    # A group child that reads the terminal is stopped by it (SIGTTIN), or by changing it first (SIGTTOU), and would
+    # wait for an answer no run gives, silent, until the run's end (the owner's 8, review/code/SUMMARY-5.md; C2.md, "the
+    # terminal"); so would route.py's ssh, and a reader under a child in a group of its own (review/code/C23.md 1, 2).
+    body, waited = ASKING[way]
     state: dict = {"said": None, "seen": None}
 
     def act(chunk: bytes, output: bytes, master: int, process: subprocess.Popen) -> None:
@@ -975,7 +1157,7 @@ def test_a_child_stopped_asking_at_the_terminal_is_said_within_a_second_and_ende
         if state["seen"] is None and ASKED_LINE.search(output):
             state["seen"] = time.time()
 
-    argv = [sys.executable, "-I", "-c", WATCHES, *_argv(tmp_path, jobs_dir, "asks", 60)]
+    argv = [sys.executable, "-I", "-c", WATCHES, *_argv(tmp_path, jobs_dir, body, 60)]
     try:
         rc, output = harness._at_a_pseudo_terminal(argv, tmp_path, _env(home, tmp_path), act=act, timeout=90, poll=0.05)
         left = _left(tmp_path)
@@ -984,10 +1166,14 @@ def test_a_child_stopped_asking_at_the_terminal_is_said_within_a_second_and_ende
     watched = WATCHED.search(output)
     assert rc == 0 and watched is not None, output.decode(errors="replace")
     asked = ASKED_LINE.search(output)
-    assert asked is not None and asked.group(1) == os.path.basename(sys.executable).encode()
-    assert state["seen"] is not None and state["seen"] - float((tmp_path / "asking").read_text()) < 1.0
+    program = os.path.basename(sys.executable).encode()
+    # The process table names a program by what its system keeps of it: Linux the first 15 bytes of its name.
+    assert asked is not None and asked.group(1) in (program, program[:15]), output.decode(errors="replace")
+    # Said within a second of asking, never left to a limit: the process table's look is every TABLE_LOOKS-th.
+    within = 1.0 if body != "asks-below" else attached.ASKING_POLL * attached.TABLE_LOOKS + 0.7
+    assert state["seen"] is not None and state["seen"] - float((tmp_path / "asking").read_text()) < within
     # Ended: killed, so the step that waited on it failed, and the run ended with the body's own status.
-    assert (tmp_path / "asked").read_text() == str(-signal.SIGKILL)
+    assert (tmp_path / "asked").read_text() == waited
     assert int(watched.group(2)) == 1
     assert _record(jobs_dir, state["said"])["outcome"] == "failed"
     assert left == []

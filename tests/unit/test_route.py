@@ -11,8 +11,10 @@ import json
 import os
 import shlex
 import shutil
+import signal
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -703,6 +705,176 @@ def test_a_caller_ended_during_an_ssh_ends_it_and_waits_for_it(tmp_path, monkeyp
         route._run([program], 30)
     with pytest.raises(ProcessLookupError):
         os.kill(int(pid_file.read_text()), 0)
+
+
+# An ssh -G whose person's Match exec runs a program of its own, in the ssh's own process group, that would outlive it:
+# it writes that program's pid and its own beside itself, then waits for the program, as ssh -G waits for its Match
+# exec. Ended by its pid alone, it leaves the program running.
+MATCH_EXEC = (
+    "#!/bin/sh\n"
+    'sleep 60 > /dev/null 2>&1 &\necho $! > "$0.child.part" && mv "$0.child.part" "$0.child"\n'
+    'echo $$ > "$0.pid.part" && mv "$0.pid.part" "$0.pid"\nwait\n'
+)
+
+
+def _match_exec(tmp_path: Path) -> str:
+    return _program(tmp_path / "ssh", MATCH_EXEC)
+
+
+def _its_pids(ssh: str) -> tuple[int, int]:
+    """The stand-in's pid and its Match exec's program's, once both are written."""
+    deadline = time.monotonic() + 10
+    while not (Path(f"{ssh}.pid").is_file() and Path(f"{ssh}.child").is_file()):
+        assert time.monotonic() < deadline, "the stand-in ssh -G never started its Match exec's program"
+        time.sleep(0.02)
+    return int(Path(f"{ssh}.pid").read_text()), int(Path(f"{ssh}.child").read_text())
+
+
+def _gone(pid: int) -> bool:
+    """Whether pid has ended: no such process, or one dead that nothing has reaped yet."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    return not state or state.startswith("Z")
+
+
+def _until_gone(*pids: int) -> bool:
+    deadline = time.monotonic() + 5
+    while not all(_gone(pid) for pid in pids):
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.05)
+    return True
+
+
+def _end(*pids: int) -> None:
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+# Each road an ssh of the new engine's, started in a process group of its own, is ended on: end_all, for a caller about
+# to end at once, met by route_settle's ssh -G, ssh_shown's and _run's ssh; and the three time-outs of _asked and _run.
+LEADERS = {
+    "end_all, route_settle's ssh -G": ("end_all", "route_settle"),
+    "end_all, ssh_shown's ssh -G": ("end_all", "ssh_shown"),
+    "end_all, _run's ssh": ("end_all", "_run"),
+    "_asked past its limit, route_settle's ssh -G": ("limit", "route_settle"),
+    "_asked past its limit, ssh_shown's ssh -G": ("limit", "ssh_shown"),
+    "_run past its limit": ("limit", "_run"),
+    "_run with its caller ended meanwhile": ("caller", "_run"),
+}
+
+
+@pytest.mark.parametrize("road", LEADERS)
+def test_an_ssh_of_the_new_engine_s_is_ended_with_its_group_and_the_match_exec_s_program_with_it(
+    tmp_path, monkeypatch, road
+):
+    # Its ssh -G reads the person's own ssh config, whose Match exec may run anything: an ssh ended by its pid alone
+    # leaves that program running under init (B24's hand-back; the owner's word of 2026-11-22). One started with
+    # process_group=0, the new engine's, leads its group, and each of its ends ends that group.
+    monkeypatch.setattr(route, "_OVER", threading.Event())
+    how, caller = LEADERS[road]
+    ssh = _match_exec(tmp_path)
+    hop = route.hop_settings(ssh=ssh, host="192.0.2.10", control_dir="/tmp/cp")
+    limit = 0.5 if how == "limit" else 30
+    calls = {
+        "route_settle": lambda: route.route_settle("auto", hop, limit=limit, process_group=0, signalled_settles=False),
+        "ssh_shown": lambda: route.ssh_shown(ssh, [], "192.0.2.10", limit=limit, process_group=0),
+        "_run": lambda: route._run([ssh], limit, process_group=0),
+    }
+    if how == "caller":
+        real_sleep = time.sleep
+
+        def interrupted(seconds):
+            # The caller's thread alone ended, once the stand-in has started its program: this test's waits sleep on.
+            if threading.current_thread().name == "asking" and Path(f"{ssh}.pid").is_file():
+                raise KeyboardInterrupt
+            real_sleep(seconds)
+
+        monkeypatch.setattr(route.time, "sleep", interrupted)
+    answered: list = []
+
+    def ask():
+        try:
+            answered.append(calls[caller]())
+        except (route.HopRefused, KeyboardInterrupt) as ended:
+            answered.append(ended)
+
+    waiting = threading.Thread(target=ask, name="asking", daemon=True)
+    waiting.start()
+    pids: tuple[int, ...] = ()
+    try:
+        pids = _its_pids(ssh)
+        if how == "end_all":
+            route.end_all()
+        waiting.join(15)
+        assert answered and not waiting.is_alive()
+        assert _until_gone(*pids), f"left running: {[pid for pid in pids if not _gone(pid)]}"
+        assert not route._LIVE and not route._LEADING
+    finally:
+        _end(*pids)
+        route.end_all()  # a run of this test that failed leaves no ssh behind it
+        waiting.join(10)
+
+
+# Today's caller, just status, in a process group of its own as a shell starts one, with a program of its own in its
+# group: it runs the stand-in ssh as it does (no process_group), ends it at its limit or by end_all, and then says what
+# it saw, which it can only where its own group was never signalled.
+TODAYS_CALLER = r"""
+import json, os, subprocess, sys, threading, time
+lib, ssh, how = sys.argv[1:4]
+sys.path.insert(0, lib)
+from claude_vm import route
+bystander = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+if how == "limit":
+    ended = route._run([ssh], 0.5)
+else:
+    got = []
+    waiting = threading.Thread(target=lambda: got.append(route._run([ssh], 30)), daemon=True)
+    waiting.start()
+    deadline = time.monotonic() + 10
+    while not (os.path.isfile(ssh + ".pid") and os.path.isfile(ssh + ".child")):
+        if time.monotonic() > deadline:
+            sys.exit("the stand-in ssh never started")
+        time.sleep(0.02)
+    route.end_all()
+    waiting.join(10)
+    ended = got[0]
+time.sleep(0.5)
+print(json.dumps({"ended": ended, "bystander": bystander.poll() is None}), flush=True)
+bystander.kill()
+"""
+
+
+@pytest.mark.parametrize("how", ["limit", "end_all"])
+def test_today_s_callers_ssh_is_ended_by_its_pid_alone_and_their_own_group_is_never_signalled(tmp_path, how):
+    ssh = _match_exec(tmp_path)
+    pids: tuple[int, ...] = ()
+    try:
+        ran = subprocess.run(
+            [sys.executable, "-I", "-c", TODAYS_CALLER, str(REPO / "lib"), ssh, how],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            process_group=0,
+        )
+        pids = _its_pids(ssh)
+        assert ran.returncode == 0, ran.stderr
+        said = json.loads(ran.stdout)
+        assert said["bystander"] is True
+        # Killed at its limit, rc None; or by end_all, its status -9.
+        assert said["ended"]["rc"] == (None if how == "limit" else -signal.SIGKILL), said
+        stand_in, program = pids
+        assert _until_gone(stand_in)
+        # The Match exec's program, in the caller's group, lives on: a kill of the group would have reached the caller.
+        assert not _gone(program)
+    finally:
+        _end(*pids)
 
 
 def test_a_name_that_gets_no_answer_in_time_does_not_resolve(monkeypatch):
