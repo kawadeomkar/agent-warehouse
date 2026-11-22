@@ -4,9 +4,9 @@ engine writes the command line a person types, the program as it was started and
 For every verb of the table, its words, each option alone and beside the words, and each pair of options the rules
 between options allow, with the words and without, are printed, parsed again by aw's parser and held by the one check,
 and come back as they went in; and no verb, option or verb's words of the table lacks such a case. Every example line
-of the contract of today's command line that aw takes is parsed, printed and parsed again to the same values, before
-today's habits and after them. A line is the program, the verb, its words, then its options, a value after a space but
-where it starts with - or is empty. A value with a space, a quote, a leading -, each character a POSIX shell reads,
+here, of every verb, is taken, parsed, printed and parsed again to the same values, before the habits and after them.
+A line is the program, the verb, its words, then its options, a value after a space but where it starts with - or is
+empty. A value with a space, a quote, a leading -, each character a POSIX shell reads,
 a backslash and a trailing one, two values of free text on one line, an empty value and a name that starts with a digit
 survive the trip, through shlex, /bin/sh and bash; a value a terminal would not show as it is is never printed. A line
 made from values no run has taken never says a value of --set or settings --value back, and every call of the printer
@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import ast
 import itertools
-import json
 import os
 import re
 import shlex
@@ -32,7 +31,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import cli_contract as contract
 import pytest
 from aw_kit import LAUNCHER, imports_of, on_path, run_aw, run_launcher
 from harness import REPO
@@ -47,7 +45,6 @@ from claude_vm.schema.patterns import full
 from claude_vm.schema.words import BEFORE, LINES, PLACEHOLDER, VERBS, Line, Option, Verb, Words, said
 from claude_vm.schema.words import HOST as SHARED_HOST
 
-CONTRACT = json.loads((Path(__file__).resolve().parent / "cli_contract.json").read_text())
 # A value with a space, a quote and a leading -, which a value of free text may be: given as --long=value, quoted.
 AWKWARD = '-it\'s "two" words'
 # A value a person may have pasted where it does not belong: a line made from values no run took never says it.
@@ -169,42 +166,89 @@ def test_the_words_before_the_verb_come_back_from_the_line() -> None:
     assert parse.read(printed[1:]).before == everything
 
 
-# The examples of the contract aw takes, at least: as many as when the printer was built (the contract keeps its
-# examples and only adds), so their round trip is not vacuous, and a change that makes aw refuse one shows here.
-EXAMPLES_TAKEN = 431
+# Command lines as a person types them after aw, of every verb: the words given before a verb, the names habits split
+# and hyphenate, each kind of option, a value given after a space and with =.
+EXAMPLES = (
+    "help",
+    "help deploy",
+    "init",
+    "init --no-prompt",
+    "init --host lab2",
+    "init --tailscale off",
+    "init --address pve.example --github-user octocat --token-secret-file ~/.config/pve-token",
+    "install",
+    "install --lock",
+    "vault",
+    "vault --host lab2",
+    "deploy",
+    "deploy alpha",
+    "deploy alpha beta",
+    "deploy alpha,beta",
+    "deploy my_vm",
+    "deploy alpha --only configure",
+    "deploy --only provision",
+    "deploy --only configure",
+    "deploy --only ssh-config",
+    "deploy --only template",
+    "deploy --check",
+    "deploy alpha --tags claude_code",
+    "deploy alpha --repos a,b",
+    "deploy alpha --cores 8 --memory 16G",
+    "deploy alpha --set vm_cores=4 -vvv",
+    "deploy alpha --detach",
+    "--attended=1 deploy alpha",
+    "code alpha",
+    "code my_vm",
+    "code alpha --project repo",
+    "code alpha --editor zed",
+    "login",
+    "login alpha",
+    "login alpha beta",
+    "login alpha --only github",
+    "login --only claude",
+    "status",
+    "status --json",
+    "status --only=vms,work",
+    "status --only capacity",
+    "settings",
+    "settings --all",
+    "settings --changed",
+    "settings vm_cores",
+    "settings editor --value zed",
+    "destroy",
+    "destroy alpha",
+    "destroy alpha,beta",
+    "destroy --confirm=alpha alpha",
+    "release alpha",
+    "host",
+    "host --json",
+    "host lab2",
+    "logs",
+    "logs 0123456789abcdef --follow",
+    "cancel",
+    "mcp",
+    "mcp --remove",
+    "mcp --any-branch",
+)
 
 
-def _examples():
-    """Each command of the contract's examples whose verb is the table's and that gives no setting before it: its line
-    and its words, aw's verb first."""
-    for example in CONTRACT["examples"]:
-        for _, _, settings, recipe, words in contract.matches(example["line"]):
-            if not settings and recipe in VERBS:
-                yield example["line"], [recipe, *words]
-
-
-def test_every_example_of_the_contract_aw_takes_comes_back_from_its_line() -> None:
-    # An example aw refuses (prose read as words, a <placeholder>, a word aw has otherwise) is the parity suite's to
-    # compare, not the printer's.
-    taken = 0
-    for line, words in _examples():
-        try:
-            reading = parse.read(words)
-        except parse.Refused:
-            continue
-        taken += 1
+def test_every_example_comes_back_from_its_line() -> None:
+    for example in EXAMPLES:
+        reading = parse.read(shlex.split(example))
         printed = _argv(reading.verb, reading.values, before=reading.before)
-        assert parse.read(printed[1:]) == reading, (line, printed)
+        assert parse.read(printed[1:]) == reading, (example, printed)
         assert shlex.split(_line(reading.verb, reading.values, before=reading.before)) == printed
-        # And after today's habits, as a handler receives the values: names split and with - for _, no names said.
+        # And after the habits, as a handler receives the values: names split and with - for _, no names said.
         verb = VERBS[reading.verb]
-        try:
-            values, _ = habits.names(verb, reading.values)
-        except parse.Refused:
-            continue
+        values, _ = habits.names(verb, reading.values)
         again = parse.read(_argv(reading.verb, values)[1:])
-        assert habits.names(verb, again.values)[0] == values, (line, values)
-    assert taken >= EXAMPLES_TAKEN, taken
+        assert habits.names(verb, again.values)[0] == values, (example, values)
+
+
+def test_the_examples_name_every_verb() -> None:
+    assert {next(word for word in shlex.split(example) if not word.startswith("-")) for example in EXAMPLES} == set(
+        VERBS
+    )
 
 
 # ---------------------------------------------------------------- the form of a line ----

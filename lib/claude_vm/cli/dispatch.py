@@ -39,8 +39,8 @@ from claude_vm.cli.parse import Refused
 from claude_vm.schema import check as checks
 from claude_vm.schema.words import EXITS, Verb
 
-# Today's justfile's recipes a person runs, as H1's contract lists them (tests/unit/test_aw_cli_parse.py holds the two
-# equal): a verb not built yet names just <verb> only where one of these is its name. K14 takes it out at the flip.
+# Today's justfile's recipes a person runs (tests/unit/test_aw_cli_parse.py holds them to a list of its own): a verb not
+# built yet names just <verb> only where one of these is its name. K14 takes it out at the flip.
 JUST_RECIPES = frozenset(
     ("help", "init", "install", "vault", "deploy", "code", "login", "status", "settings", "destroy", "host", "logs")
     + ("mcp",)

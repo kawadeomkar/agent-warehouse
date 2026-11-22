@@ -46,9 +46,22 @@ from claude_vm.schema import rules
 from claude_vm.schema.patterns import PATTERNS, full
 from claude_vm.schema.words import EXITS, VERBS, Verb, said
 
-CONTRACT = json.loads((Path(__file__).resolve().parent / "cli_contract.json").read_text())
-# Today's justfile's recipes a person runs, by the contract.
-TODAYS = {recipe["name"] for recipe in CONTRACT["recipes"]}
+# Today's justfile's recipes a person runs, whose verb names just <verb> while no card has built it, until the flip.
+TODAYS = {
+    "help",
+    "init",
+    "install",
+    "vault",
+    "deploy",
+    "code",
+    "login",
+    "status",
+    "settings",
+    "destroy",
+    "host",
+    "logs",
+    "mcp",
+}
 # A value a person may have typed where it does not belong: no sentence may say it back.
 TYPED = "swordfish"
 # A value no pattern takes: a control character in it.
@@ -429,7 +442,7 @@ def test_a_verb_no_card_has_built_names_its_card_and_just_only_where_today_has_i
     assert (f"just {verb.name}" in sentence) is (verb.name in TODAYS), sentence
 
 
-def test_the_recipes_named_are_today_s_by_the_contract() -> None:
+def test_the_recipes_named_are_today_s() -> None:
     assert dispatch.JUST_RECIPES == TODAYS
     assert {"cancel", "release"} <= set(VERBS) - TODAYS
 

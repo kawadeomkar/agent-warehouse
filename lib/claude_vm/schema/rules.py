@@ -2,15 +2,15 @@
 check (check.py) after the patterns, in the order the verb's row of the table names them, and stopping at the first
 that refuses (docs/architecture/engine.md §16.2).
 
-A rule is `Rule(code, verbs, sentence, breaks, lines)`: the code the contract of today's command line gives it
-(tests/unit/cli_contract.json: `deploy.4`, `check.names.1`), the verbs whose row of the table (words.py) names it,
-its sentence with `{name}` where it says a value or names a command, and `breaks`, which takes the verb's values and
-returns None where they keep the rule, or what fills the sentence where they break it; `lines` are the commands the
-sentence names whatever the values. A command is a `Line` (words.py), never text: `Rule.check(values)` gives nothing or
-the sentence said through words.py's `said`, so each command in it is the printer's line, the program as it was
-started, and a value or a verb's words it does not know is named by its help name (`aw code <name>`). A sentence says a
-value back only where today's does, and then a value that has already met its pattern: the check holds every value to
-its pattern first, as just does before a recipe's script.
+A rule is `Rule(code, verbs, sentence, breaks, lines)`: its code (`deploy.4`, `check.names.1`: the verb, or the
+check, and a number), the verbs whose row of the table (words.py) names it, its sentence with `{name}` where it says a
+value or names a command, and `breaks`, which takes the verb's values and returns None where they keep the rule, or
+what fills the sentence where they break it; `lines` are the commands the sentence names whatever the values. A
+command is a `Line` (words.py), never text: `Rule.check(values)` gives nothing or the sentence said through words.py's
+`said`, so each command in it is the printer's line, the program as it was started, and a value or a verb's words it
+does not know is named by its help name (`aw code <name>`). A sentence says a value back only where today's does, and
+then a value that has already met its pattern: the check holds every value to its pattern first, as just does before a
+recipe's script.
 
 The values are the verb's as the check takes them: by the field the handler receives them by, only what was given, a
 value option's a string, a flag's a boolean, the words a list where the verb takes several and a string where it takes
@@ -39,8 +39,7 @@ Values = Mapping[str, object]
 Filled = Mapping[str, object]
 
 # The roles configuration can be narrowed to (deploy --tags), as today's configure.yml tags them: with the guest's
-# second layer out of Ansible they stay these six, as the parts of a configure (tests/unit/test_aw_cli_rules.py holds
-# them equal to the justfile's configure_roles until the cutover).
+# second layer out of Ansible they stay these six, as the parts of a configure.
 CONFIGURE_ROLES = ("common", "vscode_server", "dev_tools", "claude_code", "github_projects", "tailscale")
 # The characters the checks spell out, as tools/check does, so no locale can widen them.
 _LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"

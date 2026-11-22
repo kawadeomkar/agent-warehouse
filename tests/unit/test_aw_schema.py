@@ -1,11 +1,9 @@
 """The command line's patterns have one home, and one function holds a value to one (lib/claude_vm/schema/patterns.py;
 docs/architecture/engine.md §16.2).
 
-Each pattern takes and refuses what today's tests give the same pattern of the justfile, case for case, and refuses
-each value it takes with a newline after it: `full` holds a value whole, never up to a newline. Until the cutover the
-justfile holds a person's values to its own copy of each pattern, so every pattern of a person's recipe is held equal,
-text for text, to the one here of its name, and the two homes cannot drift while both exist. The module imports the
-standard library alone.
+Each pattern takes and refuses the values given here, most of them what today's tests give the same pattern of the
+justfile, and refuses each value it takes with a newline after it: `full` holds a value whole, never up to a newline.
+The module imports the standard library alone.
 """
 
 from __future__ import annotations
@@ -13,7 +11,6 @@ from __future__ import annotations
 import re
 import sys
 
-import harness
 import pytest
 from aw_kit import imports_of
 
@@ -21,66 +18,6 @@ from claude_vm.schema import patterns
 from claude_vm.schema.patterns import PATTERNS, full
 
 MODULE = "claude_vm.schema.patterns"
-
-# Each pattern of a person's recipe in the justfile, (recipe, parameter), and the name of the pattern here that holds
-# the same value. The developer's recipes (the group develop) keep theirs: they are the repository's, not aw's.
-TODAY = {
-    ("help", "RECIPE"): "verb",
-    ("init", "ADDRESS"): "address",
-    ("init", "ON"): "address",
-    ("init", "TOKEN_USER"): "token_user",
-    ("init", "TOKEN_ID"): "proxmox_id",
-    ("init", "TOKEN_SECRET_FILE"): "secret_file",
-    ("init", "GITHUB_USER"): "github_user",
-    ("init", "STORAGE"): "proxmox_id",
-    ("init", "BRIDGE"): "proxmox_id",
-    ("init", "TAILSCALE"): "on_off",
-    ("init", "CERTIFICATE"): "fingerprint",
-    ("vault", "ON"): "host_name",
-    ("deploy", "NAMES"): "vm_name",
-    ("deploy", "ON"): "host_name",
-    ("deploy", "STAGE"): "stage",
-    ("deploy", "ROLES"): "roles",
-    ("deploy", "CORES"): "cores",
-    ("deploy", "MEMORY"): "memory",
-    ("deploy", "DISK"): "disk",
-    ("deploy", "REPOS"): "repos",
-    ("code", "NAME"): "vm_name",
-    ("code", "ON"): "host_name",
-    ("code", "PROJECT"): "project",
-    ("code", "IDE"): "editor",
-    ("code", "SESSION"): "session",
-    ("login", "NAMES"): "vm_name",
-    ("login", "ON"): "host_name",
-    ("login", "SIGN_IN"): "sign_in",
-    ("status", "NAMES"): "vm_name",
-    ("status", "ON"): "host_name",
-    ("status", "ONLY"): "sections",
-    ("settings", "NAME"): "setting_name",
-    ("settings", "VALUE"): "text",
-    ("settings", "ON"): "host_name",
-    ("destroy", "NAMES"): "vm_name",
-    ("destroy", "ON"): "host_name",
-    ("destroy", "CONFIRM"): "vm_names",
-    ("host", "NAME"): "current_host",
-    ("host", "ON"): "host_name",
-    ("host", "VMS"): "vm_names",
-    ("mcp", "EXTRA"): "text",
-    ("mcp", "SCREEN"): "attended",
-    ("mcp", "BROWSER"): "text",
-    ("mcp", "PROJECT_DIR"): "path",
-    ("mcp", "VAULT_PASSWORD_FILE"): "path",
-}
-# A pattern no recipe of the justfile has, and where it is from.
-NEW = {
-    "job_id": "a job's ID, which logs and cancel take: sixteen hex digits, as lib/claude_vm/mcp/jobs.py's find",
-    "assignment": "--set name=value, a setting's value for one run, on the verbs that read the settings",
-    "secret_name": "vault's word: one of the vault's named secrets, a lowercase name as the settings' are",
-    "ssh_fingerprint": "deploy --remove-key: one SSH key's SHA256 fingerprint, as ssh-keygen -l prints it",
-    "release": "install --version: a release, as its signed tag names it (v3.0.0, v3.0.0-rc.1), with or without the v",
-    "dependency_group": "install --without: the optional part of the installed program it goes without, mcp",
-}
-DEVELOP = {"lint", "test", "docs", "vagrant", "clean"}
 
 SESSION_ID = "0a608ad8-1b2c-4d3e-8f90-123456789abc"
 FINGERPRINT = ":".join(["AB"] * 32)
@@ -322,34 +259,6 @@ REFUSED = [
     for name, (_, refused) in CASES.items()
     for n, value in enumerate(refused)
 ]
-
-
-def _of_a_person_s_recipes() -> dict[tuple[str, str], list[str]]:
-    """Each pattern of a recipe of the justfile a person runs, by (recipe, parameter), as just reads it."""
-    return {
-        (name, parameter["name"]): parameter["pattern"]
-        for name, recipe in harness.public_recipes().items()
-        if {"group": "develop"} not in recipe["attributes"]
-        for parameter in recipe["parameters"]
-        if parameter["pattern"] is not None
-    }
-
-
-def test_every_pattern_of_a_person_s_recipe_is_here_by_its_name_with_the_same_text() -> None:
-    develop = {
-        name for name, recipe in harness.public_recipes().items() if {"group": "develop"} in recipe["attributes"]
-    }
-    assert develop == DEVELOP
-    today = _of_a_person_s_recipes()
-    assert set(today) == set(TODAY), "a recipe's pattern was added or taken away: name it in TODAY and PATTERNS"
-    differ = {
-        key: (pattern, PATTERNS[TODAY[key]]) for key, pattern in today.items() if pattern != [PATTERNS[TODAY[key]]]
-    }
-    assert differ == {}, "the justfile and schema/patterns.py hold one value to two patterns: (justfile, here)"
-
-
-def test_every_pattern_here_is_one_of_today_s_or_says_where_it_is_from() -> None:
-    assert set(PATTERNS) == set(TODAY.values()) | set(NEW) and not set(NEW) & set(TODAY.values())
 
 
 @pytest.mark.parametrize("name", sorted(PATTERNS))

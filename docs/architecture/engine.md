@@ -33,10 +33,11 @@ The rule is one-way, and `tests/unit/test_aw_layout.py` holds both halves of it.
   imported.
 - **What it reuses brings in only what is named too.** The test follows the imports of every module `REUSED` names,
   and of what those import in turn, all the way down, at the top of a file or inside a function. Each module it
-  reaches is in `REUSED`, or in a second list, `REACHED`, with the reason it is brought in. Today `REACHED` holds four
+  reaches is in `REUSED`, or in a second list, `REACHED`, with the reason it is brought in. Today `REACHED` holds five
   modules the new engine's own code never imports: `records` and `refs`, on which `catalogue`, `editors`, `hosts`,
-  `status` and `vpn` build their records, and `run.model` and `run.recipes`, which `tui.run` draws. None of them is
-  `ansible`, by any road.
+  `status` and `vpn` build their records; `run.model` and `run.recipes`, which `tui.run` draws; and `vault`, an
+  ansible-vault file read without Ansible, which `hosts` and `status`'s settings read. None of them is `ansible`, by any
+  road.
 
 `tools/aw` is the program, on the model of `tools/mcp`. Run as `python -I`, it puts this checkout's `lib/` first on
 `sys.path`, checks with `plugin.own` that the `claude_vm` imported is this checkout's, and runs
@@ -73,32 +74,28 @@ never this module's: two values together, a word that starts with `-`, the cap o
 `.` and `..` that `--project`'s pattern takes and a rule refuses. There are no records, no registry of operations and
 no coded refusals.
 
-Until the cutover the `justfile` holds a person's values to its own copy of each pattern, so every pattern of a
-recipe a person runs is in `PATTERNS` under a name with the same text; the developer's recipes (`lint`, `test`, `docs`,
-`vagrant`, `clean`) keep theirs, which are not the command line's. `tests/unit/test_aw_schema.py` holds the two equal,
-holds each pattern to the values today's tests of the `justfile` give the same pattern, each value it takes refused
-with a newline after it, and holds that importing the module loads nothing outside the standard library. A pattern
-that only the new command line uses (`job_id`, `assignment` for `--set`, `secret_name`, `ssh_fingerprint`, `release`,
-`dependency_group`) is listed there with where it comes from.
+The developer's recipes (`lint`, `test`, `docs`, `vagrant`, `clean`) keep their own patterns in the `justfile`, which
+are not the command line's. `tests/unit/test_aw_schema.py` holds each pattern to values it takes and values it refuses,
+most of them those today's tests of the `justfile` give the same pattern, each value it takes refused with a newline
+after it, and holds that importing the module loads nothing outside the standard library.
 
 **The table: `words.py`.** `VERBS` is the one table of the command line: every verb a person types after `aw`, in the
 order help lists them, today's thirteen and `release` and `cancel`: the base's alone, since `control` is the add-on's,
 which adds its row when it is built. Each row is a `Verb`: its group and its sentence; its `Words`, what the usage calls
 one, whether it takes several, the name the handler receives them by, their pattern and help; its `Option`s; the codes
-of the rules between its options, as the contract of today's command line names them (`deploy.4`, `check.names.1`),
-which the one check runs in that order; its handler, as `module:function`, or none while no change has built the verb,
-and then the card that builds it; the locks a run of it takes, one of `machines`, `fleet`, `none` or `words`, where the
-kind depends on the words given (16.8, `lock_sets.py`); whether a run of it is a job, with its own record, text log and
-locks; and the tools of the agents' server that run it, or why none does. An option has its spellings, its kind
-(`value`, `flag`, `repeatable` for `--set`, `counted` for `-v`), the name of its pattern, the name the handler receives
-it by (the long option in lowercase with `_` for `-`, as the agents' tools name it today, and `for_` for `host --for`),
-its help, the name help gives its value (`--host ON`, as `just --usage` prints it today), its fate for an agent's tool:
-a property of the tool's schema, a value the server always gives, or refused with the reason; where two tools run one
-verb (`settings` and `settings_set`), a fate for each; and `until`, the card that builds what it does, which help and
-the command reference leave it out until (`install`'s options of the installed program, H14's and H15's). `BEFORE` holds
-the words given before any verb: `--attended`, and `--detached-run`, which no person types. `--detach` is no row's
-option: the parser gives it, with the one sentence `DETACH`, to every verb whose run is a job, and the agents' server
-starts every such run detached.
+of the rules between its options (`deploy.4`, `check.names.1`), which the one check runs in that order; its handler, as
+`module:function`, or none while no change has built the verb, and then the card that builds it; the locks a run of it
+takes, one of `machines`, `fleet`, `none` or `words`, where the kind depends on the words given (16.8, `lock_sets.py`);
+whether a run of it is a job, with its own record, text log and locks; and the tools of the agents' server that run it,
+or why none does. An option has its spellings, its kind (`value`, `flag`, `repeatable` for `--set`, `counted` for `-v`),
+the name of its pattern, the name the handler receives it by (the long option in lowercase with `_` for `-`, and `for_`
+for `host --for`), its help, the name help gives its value (`--host ON`), its fate for an agent's tool: a property of
+the tool's schema, a value the server always gives, or refused with the reason; where two tools run one verb (`settings`
+and `settings_set`), a fate for each; and `until`, the card that builds what it does, which help and the command
+reference leave it out until (`install`'s options of the installed program, H14's and H15's). `BEFORE` holds the words
+given before any verb: `--attended`, and `--detached-run`, which no person types. `--detach` is no row's option: the
+parser gives it, with the one sentence `DETACH`, to every verb whose run is a job, and the agents' server starts every
+such run detached.
 
 **A command a sentence names: `Line` and `said`.** Every sentence of the new engine that names a command, the table's
 help, a rule's refusal, the check's own and the Proxmox client's and the vendors' errors among them, names it as a
@@ -110,23 +107,17 @@ printer spells one; `LINES` holds the commands the table's own sentences name (`
 of `cli/` when it is imported, which every command does; `pve/` and `vendors/`, which import nothing of `cli/`, say
 theirs through it too.
 
-Today's verbs keep today's words and help, with `aw` where a sentence said `just`, and `mcp --vault-password-file` is
-`--vault-key-file`; `init --host` names a host of the fleet alone, held to the pattern of a host's name. Beside the
+Today's verbs keep today's words and help, with `aw` where a sentence said `just`; `mcp` takes the vault's key file as
+`--vault-key-file`, and `init --host` names a host of the fleet alone, held to the pattern of a host's name. Beside the
 table, `EXITS` names the exit status of every verb but `status` (0 done, 1 refused before anything ran, 130 cancelled)
 and `STATUS_EXITS` those of `status` (today's 0, 1, 2 and 3, and 3 for a read a person cancelled, as today's `status`
 gives it); within each, no meaning has two numbers and no number two meanings, but `status`'s 3, which today means a
 read that failed and one a person cancelled, and a script may read. The table holds no option whose value is a secret: a
 secret reaches a verb from a file it names or from the terminal. Two options take free text a person may type one into,
 `--set` and `settings --value`, and the run layer that reads them refuses a secret's name or value there and never says
-it back. Nothing is generated from the table or into it, and it has no column for the migration: which words are new and
-which of today's it changes, each with its ruling, is `tests/unit/cli_contract_changes.py`'s, beside the contract
-(`tests/unit/cli_contract.json`), and goes with it at the cutover, and so is `BEHAVIOURS`, what today's words do that
-`aw` does otherwise on purpose. `tests/unit/test_aw_cli_words.py` holds the table's rows, today's fates for today's
-words (against `lib/claude_vm/mcp/recipes.py`, until the cutover), every other option and word of a verb a tool runs a
-property of the tool's schema but where ruled otherwise, the two values of free text, the exit statuses and the module's
-imports; `tests/unit/test_aw_cli_contract_words.py` holds every word of the contract to the table or to the maps
-`CHANGED` and `KEPT`, every word the table adds to `NEW`, and each exit status `aw` gives otherwise to `CHANGED` or
-`BEHAVIOURS`.
+it back. Nothing is generated from the table or into it. `tests/unit/test_aw_cli_words.py` holds the table's rows, the
+tools that run each verb, every option and word of a verb a tool runs a property of the tool's schema but where a ruling
+the test names says otherwise, the two values of free text, the exit statuses and the module's imports.
 
 **The one check: `check.py`.** `check(verb, values)` is the check every entry runs on a verb's values: the parser of the
 command line, the agents' server through `aw`, and the add-on's broker on JSON. It holds each value to its kind and to
@@ -144,22 +135,21 @@ words given before any verb the same way, and `formed` is the check but for the 
 of a command (16.3) holds a line to.
 
 **The rules between options: `rules.py`.** Each rule between options of today's command line is one plain function with
-the code the contract of today's command line gives it (`deploy.4`, `check.names.1`) and today's sentence:
-`Rule(code, verbs, sentence, breaks, lines)`, where `breaks` takes a verb's values and returns nothing where they keep
-the rule, or what fills the sentence's fields where they break it, a value or a `Line`, and `lines` are the commands the
-sentence names whatever the values; `Rule.check` gives nothing or the sentence, said, so each command in it is the
-printer's line (`aw code <name>`, `aw deploy --only configure --tags claude_code`). They are today's rules of `deploy`,
-`code`, `settings`, `destroy`, `host`, `help`, `init` and `mcp`, said before any check or tool, and the three argument
-checks of `tools/check` that are more than one pattern: `host --for`'s VM names, split at its commas, the 2000
-characters of `--repos`, and the `.` and `..` of `--project`; `RULES` holds them by code, and `run` runs the codes a row
-names in order and stops at the first sentence. No rule repeats a value's own pattern: `tools/check`'s other checks of
-one value (the size, the repositories' spelling, the project's characters and length, the session, status's sections,
-every other VM name) held the JSON the `justfile`'s scripts join, behind `just`'s pattern, and are the pattern's alone
-here; nor does `aw` keep `init`'s refusal of a token file named relative to a folder whose path has a space, which held
-that JSON too. A sentence says a value back only where today's does, and then a value that has met its pattern first, as
-`just` holds a value to its pattern before a recipe's script runs. What reads more than the values is no rule here but
-its verb's own: the fleet's files (`vault`'s, and `deploy`'s VM name another host's alias records), the file system,
-`claude` and the branch (`mcp`'s), and a terminal (`host --remove`'s question).
+its code (`deploy.4`, `check.names.1`) and today's sentence: `Rule(code, verbs, sentence, breaks, lines)`, where
+`breaks` takes a verb's values and returns nothing where they keep the rule, or what fills the sentence's fields where
+they break it, a value or a `Line`, and `lines` are the commands the sentence names whatever the values; `Rule.check`
+gives nothing or the sentence, said, so each command in it is the printer's line (`aw code <name>`,
+`aw deploy --only configure --tags claude_code`). They are today's rules of `deploy`, `code`, `settings`, `destroy`,
+`host`, `help`, `init` and `mcp`, said before any check or tool, and the three argument checks of `tools/check` that are
+more than one pattern: `host --for`'s VM names, split at its commas, the 2000 characters of `--repos`, and the `.` and
+`..` of `--project`; `RULES` holds them by code, and `run` runs the codes a row names in order and stops at the first
+sentence. No rule repeats a value's own pattern: `tools/check`'s other checks of one value (the size, the repositories'
+spelling, the project's characters and length, the session, status's sections, every other VM name) held the JSON the
+`justfile`'s scripts join, behind `just`'s pattern, and are the pattern's alone here, and so is a token file's name,
+named relative to the working folder whatever its path. A sentence says a value back only where today's does, and then a
+value that has met its pattern first, as `just` holds a value to its pattern before a recipe's script runs. What reads
+more than the values is no rule here but its verb's own: the fleet's files (`vault`'s, and `deploy`'s VM name another
+host's alias records), the file system, `claude` and the branch (`mcp`'s), and a terminal (`host --remove`'s question).
 
 ## 16.3 `cli/` — the `aw` program
 
@@ -257,29 +247,28 @@ run time from pieces that name none (`'aw' + ' cancel '`, a list joined): only t
 which is how such a line is made.
 
 **Help: `help.py`, and the command reference: `reference.py`.** `help` is a verb of the table whose handler is
-`help.py`'s `main`, so `aw help` runs as any verb does, and `aw` alone is `aw help`. It prints today's two levels of
-`just help` from the one table, whole from the first day: a verb no card has built yet is listed and helped as today,
-and refused only when it runs. `aw help` lists every verb in the table's order, `help` first and then each group under
-its name, each with the words it takes and its doc; then the options given before any verb, but the hidden
-`--detached-run`, since the one check's refusal of such an option sends a person there; then today's closing
-paragraph, with `aw` where it said `just`, and `-v` and `--set` where it named `ANSIBLE_ARGS`, each named on the verbs
-whose row has it. `aw help <verb>` prints the verb's usage line as today's command reference writes a recipe's
-(`aw deploy [<name>...]`), its doc, each option with the name of its value and its help as `just --usage` shows one
-today (`-t, --tags ROLES`), `--detach` last on a verb whose run is a job, and then its words with their help. After the
-help of each option and of the words the table holds to a pattern comes the form a value may take, `[pattern: '...']`,
-as `just --usage` printed it and as the refusal of a value outside it says it, but for the words of a verb that refuses
-any; an empty default, which says nothing, is not printed. An option the table marks with `until` is left out of help
-and the reference until that card. The listing shows `[options]` after a verb that has any. A second word is refused by
-the one check in today's sentence, and a word that is no verb by help, in the check's sentence, which never says it.
-The usage lines are help's own, the program as it was started first; a whole command line it prints, for a person to
-paste (the closing paragraph's example, `aw host`, the table's sentences' commands), comes from the printer. A usage
-line shows a verb's word without brackets only where the verb needs one, `code` and `release`, which help names, since
-the table says how many words a verb takes and not whether it needs one. `reference.py`'s `commands()` writes the
-tables of the command reference from the same functions, in the form `tools/docs.py` writes them from the `justfile`
-today: a table for each group of verbs, `help` aside, with a row for each verb, each of its options and its words, and
-one of the options given before any verb, each cell escaped as `tools/docs.py` escapes one. Nothing calls it before the
-cutover, which points `tools/docs.py` at it. `help.py` imports the standard library, `schema/` and the printer;
-`reference.py` those and `help.py`; and `aw help` loads nothing of the engine.
+`help.py`'s `main`, so `aw help` runs as any verb does, and `aw` alone is `aw help`. It prints two levels, as
+`just help` does, from the one table, whole from the first day: a verb no card has built yet is listed and helped as
+today, and refused only when it runs. `aw help` lists every verb in the table's order, `help` first and then each group
+under its name, each with the words it takes and its doc; then the options given before any verb, but the hidden
+`--detached-run`, since the one check's refusal of such an option sends a person there; then a closing paragraph, with
+`-v` and `--set`, each named on the verbs whose row has it, and `LOG_DIR`. `aw help <verb>` prints the verb's usage line
+as today's command reference writes a recipe's (`aw deploy [<name>...]`), its doc, each option with the name of its
+value and its help (`-t, --tags ROLES`), `--detach` last on a verb whose run is a job, and then its words with their
+help. After the help of each option and of the words the table holds to a pattern comes the form a value may take,
+`[pattern: '...']`, as the refusal of a value outside it says it, but for the words of a verb that refuses any; an empty
+default, which says nothing, is not printed. An option the table marks with `until` is left out of help and the
+reference until that card. The listing shows `[options]` after a verb that has any. A second word is refused by the one
+check (`help.1`), and a word that is no verb by help, in the check's sentence, which never says it. The usage lines are
+help's own, the program as it was started first; a whole command line it prints, for a person to paste (the closing
+paragraph's example, `aw host`, the table's sentences' commands), comes from the printer. A usage line shows a verb's
+word without brackets only where the verb needs one, `code` and `release`, which help names, since the table says how
+many words a verb takes and not whether it needs one. `reference.py`'s `commands()` writes the tables of the command
+reference from the same functions, in the form `tools/docs.py` writes them from the `justfile` today: a table for each
+group of verbs, `help` aside, with a row for each verb, each of its options and its words, and one of the options given
+before any verb, each cell escaped as `tools/docs.py` escapes one. Nothing calls it before the cutover, which points
+`tools/docs.py` at it. `help.py` imports the standard library, `schema/` and the printer; `reference.py` those and
+`help.py`; and `aw help` loads nothing of the engine.
 
 **The launcher: `aw`.** At the checkout's top, in POSIX `sh`, the launcher finds its checkout from its own path, every
 link to it followed and the folder made by its physical path (`cd -P`), so that a relative link in a folder that is
@@ -310,16 +299,13 @@ none says a value or has a usage block, `--detach`, `default_vm`, `RunWords`, in
 dispatch's refusals, what a refusal imports, and the launcher run in checkouts the test makes, with a stand-in `uv`,
 through links, from folders whose version manager picks another Python or that hold a planted module, and with a
 `PYTHON` that is no virtualenv's or cannot be run. `tests/unit/test_aw_cli_rules.py` holds the rules and `deploy`'s
-question: every rule of the contract (`tests/unit/cli_contract.json`) is a rule or a habit with today's sentence, or
-named as another verb's own, as a check whose value's pattern refuses first (on `aw`'s line as on `just`'s), or as a
-rule `aw` drops on purpose; each of the contract's cases of a rule or a habit is run against `aw` and gives today's
-status and sentence; the cases not yet run are named one by one, and a code comes out once its case runs; the check
-answers alike as words and as JSON; the question is asked at a pseudo-terminal, typed and with none; each behaviour of
-today's words that `aw` has otherwise on purpose, and that is no exit status, has a test of its own there; and each test
-of today's options' rules in `tests/unit/test_justfile.py` has a twin there by its name.
+question: every rule is named by the verbs whose rows run it; each refusal of a rule or a habit, and each of the
+parser's own, is run through the launcher, the words, status and sentence of each written there; the check answers
+alike as words and as JSON; the question is asked at a pseudo-terminal, typed and with none; and no file of the tree
+names the recorded command line of v2.7.0, which no test holds `aw` or the `justfile` to.
 `tests/unit/test_aw_cli_inverse.py` holds the printer: for every verb, its words, each option alone and beside them and
 each pair of options the rules allow come back from the line through the parser and the one check, and no verb or option
-lacks such a case; every example of the contract that `aw` takes comes back from its line, before today's habits and
+lacks such a case; every example line the test gives, of every verb, comes back from its line, before the habits and
 after; a line's form; an awkward value, each character a POSIX shell reads otherwise, a backslash and a trailing one,
 two values of free text on one line, an empty value and a name that starts with a digit survive `/bin/sh` and `bash`; a
 value a terminal would not show as it is is never printed; a value that is off is not said, and a placeholder is the
@@ -328,14 +314,12 @@ says `refused`; a value the check refuses is never printed; the program as it wa
 the launcher; and, by scans of their syntax, that no other module of the new engine's subpackages names a command
 anywhere in a string, that no sentence of the rules or the table holds one as text, that only the printer and help name
 its `PROGRAM`, and that `schema/`, `pve/` and `vendors/` import nothing of `cli/` when imported.
-`tests/unit/test_aw_cli_help.py` holds help and the reference: for every verb of the contract, `aw help <verb>` holds
-each option and help sentence `just --usage` prints today, with `aw` where it said `just`, but a word the cutover's map
-records as changed, and every row today's page shows for it; every verb's help shows its options and words in the
-table's order; `aw help` lists every verb and no recipe of the repository's own, the options before a verb, and today's
+`tests/unit/test_aw_cli_help.py` holds help and the reference: every verb's help shows its options and words in the
+table's order; `aw help` lists every verb and no recipe of the repository's own, the options before a verb, and its
 closing paragraph with `-v` and `--set`; the form of every value the table holds to a pattern, and no empty default; an
 option of a later card's left out; `[options]` in the listing; through `tools/aw` and the launcher, `control` refused as
 no verb; what each imports; and that the reference gives a row for every verb but `help`, every option but a later
-card's and the words, holds today's rows with `aw`, and escapes a cell as `tools/docs.py` does.
+card's and the words, and escapes a cell as `tools/docs.py` does.
 
 ## 16.4 `engine/` — the workflows, one module a verb
 

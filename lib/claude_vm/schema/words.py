@@ -6,12 +6,10 @@ its help and its fate for an agent's tool; the codes of the rules between its op
 will build it; the locks a run of it takes; whether a run of it is a job, and so can be started detached; and the
 tools of the agents' server that run it, or why none does. The parser, the one check, help and the reference page, the
 printer of a command, the locks and the agents' schemas read it when they run. Written by hand as literals: nothing is
-generated from it into another file or into it from another, and it has no column for the migration, whose maps of the
-words that are new or changed against today's justfile are the cutover's check's (tests/unit/cli_contract_changes.py).
+generated from it into another file or into it from another.
 
-Today's verbs keep today's words and help, with aw where they said just. The rules are named by code, as the contract
-of today's command line names them (tests/unit/cli_contract.json): the sentence is the rule's own, written where the
-rule is.
+Today's verbs keep today's words and help, with aw where they said just. The rules are named by code (deploy.4,
+check.names.1): the sentence is the rule's own, written where the rule is (rules.py).
 
 A sentence of the table, of the rules or of any part of the new engine that names a command names it as a `Line` in a
 field of the sentence, never as text: `said` fills it with the line the printer of a command writes
@@ -76,12 +74,12 @@ def fate(agent: Agent, tool: str) -> Fate:
 class Option:
     """An option. long and short are its spellings without their dashes (short alone for -v). kind is one of KINDS.
     pattern names the pattern of schema/patterns.py that its value is held to, None for a flag and a count. field is
-    the name the handler receives it by: the long option in lowercase with _ for -, as the agents' tools name it today,
-    with _ after a word Python keeps for itself (for_). help is its sentence, None for the one hidden word, which no
-    person types. agent is its fate for an agent's tool. metavar is the name help gives its value, as just --usage gives
-    it today (--host ON). until is None, or the card that builds what the option does: help and the command reference
-    leave the option out until then, and the parser and the check take it all the same, its verb refusing it (install's
-    options of the installed program, H14's and H15's, which a checkout refuses)."""
+    the name the handler receives it by: the long option in lowercase with _ for -, with _ after a word Python keeps
+    for itself (for_). help is its sentence, None for the one hidden word, which no person types. agent is its fate for
+    an agent's tool. metavar is the name help gives its value (--host ON). until is None, or the card that builds what
+    the option does: help and the command reference leave the option out until then, and the parser and the check take
+    it all the same, its verb refusing it (install's options of the installed program, H14's and H15's, which a
+    checkout refuses)."""
 
     long: str | None
     short: str | None
@@ -131,7 +129,7 @@ class Verb:
 
 
 def _field(long: str) -> str:
-    """The name the handler receives an option by: prop's (lib/claude_vm/mcp/recipes.py), with _ after a keyword."""
+    """The name the handler receives an option by: the long option in lowercase with _ for -, and _ after a keyword."""
     name = long.lower().replace("-", "_")
     return f"{name}_" if keyword.iskeyword(name) else name
 
@@ -203,13 +201,13 @@ def said(sentence: str, filled: Mapping[str, object] | None = None) -> str:
 
 # ---------------------------------------------------------------- the fates an agent's tool gives ----
 
-# Why no tool runs a verb: today's, word for word (lib/claude_vm/mcp/recipes.py's NO_TOOL), with aw where it said
-# just.
+# Why no tool runs a verb, as today's agents' server says it (lib/claude_vm/mcp/recipes.py's NO_TOOL), with aw where it
+# said just.
 NO_TOOL_HELP = "the tools' own descriptions say what {help} says"
 NO_TOOL_VAULT = "the vault is edited at a terminal, by the person: no tool takes or returns a secret"
 NO_TOOL_MCP = "it registers this server: the person's command"
 
-# Why a tool does not take an option: today's, word for word (lib/claude_vm/mcp/recipes.py's LEFT_OUT).
+# Why a tool does not take an option, as today's agents' server says it (lib/claude_vm/mcp/recipes.py's LEFT_OUT).
 LOCK_LEFT_OUT = "it rewrites uv.lock after a pin is edited: a contributor's, at a terminal"
 VALUE_LEFT_OUT = "a write into local.yml: settings_set's, after the person confirms"
 ONE_SETTING = "settings_set changes the one setting named"
