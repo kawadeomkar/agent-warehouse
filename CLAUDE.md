@@ -1346,6 +1346,14 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   gh printed. Only a pattern read line by line (`re.M`, `multiline=True`, `(?m)`, lineinfile's `regexp`) ends with
   `$`. `tests/unit/test_anchors.py` scans every pattern written in a test, in Python, or in a `*_pattern` variable,
   a `$` last in a closing group included; CONTRIBUTING.md has the rule.
+- **A conditional decodes a string literal's escapes; `{{ }}` does not.** Ansible evaluates `when`, `changed_when`,
+  `failed_when`, `until` and `assert`'s `that` as Jinja does, which decodes a literal as Python's `unicode-escape`:
+  `'^[a-z]+\Z'` keeps its `\Z` only with a warning that such sequences will not work in the future, and `'\1'` is
+  U+0001. So there, in a `{% %}` block and in a template file, a backslash that starts no escape is written twice
+  (`'^[a-z]+\\Z'`; four times in a double-quoted YAML scalar). Inside `{{ }}` of a value Ansible's own lexer escapes the
+  backslashes first, and a literal reads as written - doubled there, it is two backslashes. `tests/unit/test_anchors.py`
+  reads every literal of the files Ansible reads as Ansible decodes it, held to Ansible's own templar, and fails on one
+  that warns; CONTRIBUTING.md has the rule.
 - **An Ansible tool's stdout is more than its output once verbosity or debugging is on.** With
   `ANSIBLE_VERBOSITY` or `ANSIBLE_DEBUG` exported (or set in `ansible.cfg`), `ansible-vault decrypt --output -`
   prints `Using ... as config file` and more after the vault's text, which `just init` read as the vault's:

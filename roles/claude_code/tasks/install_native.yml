@@ -28,7 +28,7 @@
 - name: install_native | Install Claude Code {{ claude_code_version }}
   when: >-
     claude_code_current.rc != 0
-    or (claude_code_version is match('^[0-9]+\.[0-9]+\.[0-9]+')
+    or (claude_code_version is match('^[0-9]+\\.[0-9]+\\.[0-9]+')
         and claude_code_version not in claude_code_current.stdout)
   block:
     # Anthropic signs a release's manifest from 2.1.89 on: an older one has
@@ -123,7 +123,7 @@
         that:
           - claude_code_manifest.version | default('') == claude_code_release
           - claude_code_platform in claude_code_manifest.platforms | default({})
-          - claude_code_manifest.platforms[claude_code_platform].checksum | default('') is match('^[0-9a-f]{64}\Z')
+          - claude_code_manifest.platforms[claude_code_platform].checksum | default('') is match('^[0-9a-f]{64}\\Z')
         fail_msg: >-
           The signed manifest of {{ claude_code_release }} names version
           {{ (claude_code_manifest.version | default('none') | string | plain_text)[:40] }}, or has no binary for

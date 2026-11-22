@@ -608,10 +608,12 @@ pytest over `tests/unit/`, file by file:
   alone, a group the user is not in included (macOS).
 - **Patterns and units**: `test_anchors.py` (every pattern that holds a value to a shape - in a `match`, `search` or
   `regex` test, in Python, or in a `*_pattern` variable - ends at `\Z`, never a `$` a trailing newline gets past, a `$`
-  last in a closing group included; and the values a VM or a setting supplies refuse one), `test_remote_control_unit.py`
-  (Remote Control's two units, rendered by Ansible's template module beside the ones 2.5 shipped, kept verbatim in
-  `tests/unit/units/`, byte for byte alike for a VM's values, since a unit that changed is restarted; a value systemd
-  would split or expand quoted as systemd reads it).
+  last in a closing group included; the values a VM or a setting supplies refuse one; and no Jinja string literal of
+  a file Ansible reads holds an escape Python does not know as Ansible decodes it - a conditional's, a `{% %}` block's
+  or a template file's, never one inside `{{ }}`, whose backslashes Ansible's lexer escapes first - the rule held to
+  Ansible's own templar), `test_remote_control_unit.py` (Remote Control's two units, rendered by Ansible's template
+  module beside the ones 2.5 shipped, kept verbatim in `tests/unit/units/`, byte for byte alike for a VM's values,
+  since a unit that changed is restarted; a value systemd would split or expand quoted as systemd reads it).
 - **Smaller ones**: `test_configure_tags.py` (`--tags claude_code` still runs discovery and the alias
   play), `test_deploy_report.py` (deploy's opening message, rendered by its own tasks, naming only the
   sign-ins that open a page and the VMs as a list), `test_proxmox_vm_absent.py` (deleting a VM

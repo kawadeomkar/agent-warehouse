@@ -13,9 +13,13 @@ from __future__ import annotations
 
 import ast
 import re
+import warnings
 from pathlib import Path
 
+import jinja2
+import jinja2.lexer
 import pytest
+import yaml
 from harness import repo_files
 
 REPO = Path(__file__).resolve().parents[2]
@@ -167,13 +171,206 @@ def test_the_scan_sees_each_way_a_pattern_is_written(tmp_path):
     assert [line.split(":")[0] for line in _python_findings(py)] == ["2", "4", "6"]
 
 
+# ------------------------------------------------------------------------ a Jinja literal's escapes ---
+# Jinja decodes a string literal as Python's unicode-escape decodes bytes: '^[a-z]+\Z' keeps its \Z only with a warning
+# that such sequences will not work in the future, and a known escape becomes its character ('\1' is U+0001). Ansible's
+# own lexer escapes the backslashes of a literal inside {{ }} of a value it templates first, so there a literal reads as
+# written: '^[a-z]+\Z', and '\1' a backreference. Jinja decodes every other: in a conditional (when, changed_when,
+# failed_when, until, assert's that), which Ansible evaluates with that escaping off, in a {% %} block, and in a
+# template file. There a backslash that starts no escape is written twice ('^[a-z]+\\Z'), as the YAML scalar hands it
+# on: four times in a double-quoted one, which reads two as one first.
+JINJA = jinja2.Environment(extensions=["jinja2.ext.do", "jinja2.ext.loopcontrols"])
+# The keys whose value Ansible evaluates as a conditional, an expression with no {{ }} around it.
+BARE = {"when", "changed_when", "failed_when", "until", "that"}
+# A file of variables, whose keys are names and data: a "when" there is a variable's words, never a conditional.
+DATA = ("defaults", "vars", "group_vars", "host_vars", "meta")
+
+
+def _decoded(raw: str, escaped: bool = False, warned: list[str] | None = None) -> str:
+    """A string literal as written in an expression, quotes and all, as Ansible decodes it: with ``escaped``, its
+    backslashes escaped first, as Ansible's lexer does inside {{ }} of a value it templates. Each warning the decoding
+    gives goes into ``warned``."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        (token,) = JINJA.lexer.wrap(iter([(1, "string", raw.replace("\\", "\\\\") if escaped else raw)]))
+    if warned is not None:
+        warned += [str(warning.message) for warning in caught]
+    return token.value
+
+
+def _literals(source: str, escaping: bool) -> list[tuple[int, str, bool]]:
+    """Each string literal of ``source`` as Jinja's lexer finds it: where it starts in ``source``, its text, and whether
+    Ansible escapes it first - with ``escaping``, the rule of a value Ansible templates, one inside {{ }}."""
+    found, at, inside = [], 0, False
+    for _lineno, token, raw in JINJA.lexer.tokeniter(source, None):
+        at = source.index(raw, at)
+        if token == "variable_begin":
+            inside = True
+        elif token == "variable_end":
+            inside = False
+        elif token == "string":
+            found.append((at, raw, escaping and inside))
+        at += len(raw)
+    return found
+
+
+def _scalars(node: yaml.Node, key: str = ""):
+    """Each scalar of a YAML document, in the order written, with the key it is the value of (a list's items take
+    their list's)."""
+    if isinstance(node, yaml.MappingNode):
+        for name, value in node.value:
+            yield from _scalars(name, "")
+            yield from _scalars(value, name.value if isinstance(name, yaml.ScalarNode) else "")
+    elif isinstance(node, yaml.SequenceNode):
+        for value in node.value:
+            yield from _scalars(value, key)
+    elif isinstance(node, yaml.ScalarNode):
+        yield node, key
+
+
+def _expression(node: yaml.ScalarNode, key: str, data: bool) -> tuple[str, bool] | None:
+    """What Ansible makes of a scalar: the text Jinja lexes, and whether Ansible's escaping inside {{ }} applies to it
+    - for a value with {{ or {%, which Ansible templates; not for a bare conditional of a task or play file, which it
+    evaluates in {{ }} - or None for one it does neither with, and one marked !unsafe."""
+    value = node.value
+    if node.tag == "!unsafe":
+        return None
+    if "{{" in value or "{%" in value:
+        return value, True
+    if key in BARE and not data:
+        return "{{ " + value + " }}", False
+    return None
+
+
+def _escape_findings(path: Path, root: Path = REPO) -> list[str]:
+    """Each Jinja string literal of ``path`` - a YAML file of Ansible's or a template file, under ``root`` - that warns
+    as Ansible decodes it: "<line>: <the literal as Jinja is handed it>", the line its scalar starts at."""
+    text = path.read_text(encoding="utf-8")
+    if path.suffix == ".j2":
+        # The template module and lookup escape nothing: Jinja decodes every literal of a template file.
+        sources = [(1, text, False)]
+    else:
+        data = any(part in DATA for part in path.relative_to(root).parts[:-1])
+        sources = [
+            (node.start_mark.line + 1, *made)
+            for document in yaml.compose_all(text, Loader=yaml.SafeLoader)
+            if document is not None
+            for node, key in _scalars(document)
+            if (made := _expression(node, key, data)) is not None
+        ]
+    found = []
+    for line, source, escaping in sources:
+        for _at, raw, escaped in _literals(source, escaping):
+            warned: list[str] = []
+            _decoded(raw, escaped, warned)
+            if warned:
+                found.append(f"{line}: {raw[:100]}")
+    return found
+
+
+# Where the files Ansible reads are: the roles (their Molecule scenarios too), the playbook scenarios and the files
+# they share, the playbooks, the inventory.
+READ_BY_ANSIBLE = ("roles/", "molecule/", "tests/molecule/", "playbooks/", "inventory/")
+
+
+def _read_by_ansible() -> list[Path]:
+    """Every file of the project's own that Ansible reads as YAML or as a template, a link but once, where it
+    points."""
+    return [
+        path
+        for path in repo_files("*.yml", "*.yaml", "*.j2", untracked=True)
+        if path.relative_to(REPO).as_posix().startswith(READ_BY_ANSIBLE) and not path.is_symlink()
+    ]
+
+
+def test_no_jinja_literal_holds_an_escape_python_does_not_know():
+    found = []
+    for path in _read_by_ansible():
+        found += [f"{path.relative_to(REPO).as_posix()}:{line}" for line in _escape_findings(path)]
+    assert found == [], (
+        "in a conditional, a {% %} block or a template file, write each backslash that starts no escape twice (four"
+        " times in a double-quoted YAML scalar):\n" + "\n".join(found)
+    )
+
+
+def test_the_escape_scan_reads_a_literal_as_ansible_does(tmp_path):
+    tasks = tmp_path / "tasks.yml"
+    tasks.write_text(
+        r"""- a: >-
+    {{ x is match('^[a-z]+\Z') }}
+- b: >-
+    {% if x is match('^[a-z]+\Z') %}y{% endif %}
+- c: "{{ x is match('^[a-z]+\\Z') }}"
+- when: x is match('^[0-9]+\.[0-9]+')
+- when: "x is match('^[0-9]+\\.[0-9]+')"
+- when: "x is match('^[0-9]+\\\\.[0-9]+')"
+- assert:
+    that:
+      - x is search('\s')
+      - x is search('\\s')
+- e_pattern: '^[a-z]+\Z'
+- when: "{{ x is match('\\Z') }}"
+- f: !unsafe "{% if '\\Z' %}{% endif %}"
+"""
+    )
+    # Inside {{ }} a literal is escaped first, a pattern of its own is no literal, and what Ansible never templates is
+    # nothing; a {% %} block's literal and a conditional's are decoded, a double-quoted scalar's after YAML read it.
+    assert [line.split(":")[0] for line in _escape_findings(tasks, tmp_path)] == ["3", "6", "7", "11"]
+    rows = tmp_path / "vars" / "main.yml"
+    rows.parent.mkdir()
+    rows.write_text(
+        'rows:\n  - when: "`just code` runs, \\\\Z"\n'  # a double-quoted \\Z, which YAML reads as \Z
+        "  - what: >-\n      {% if x is match('\\Z') %}{% endif %}\n"
+    )
+    # In a file of variables a "when" is words: only what holds {{ or {% is an expression there.
+    assert [line.split(":")[0] for line in _escape_findings(rows, tmp_path)] == ["3"]
+    template = tmp_path / "unit.j2"
+    template.write_text("Exec={{ x | regex_replace('\\s+', ' ') }} \\s {{ y }}\n")
+    assert _escape_findings(template, tmp_path) == ["1: '\\s+'"]
+
+
+def test_a_literal_is_decoded_as_ansible_s_own_templar_decodes_it():
+    # The rule the scan and _literal hold every file to, held to Ansible itself: an ansible-core that reads a literal
+    # otherwise fails here, never in a run.
+    from ansible.parsing.dataloader import DataLoader
+    from ansible.template import Templar, trust_as_template
+
+    templar = Templar(loader=DataLoader(), variables={"one": "a\\Z"})
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        # Inside {{ }}: written once, read as written; written twice, two backslashes.
+        assert templar.template(trust_as_template("{{ 'a\\Z' }}")) == "a\\Z" == _decoded("'a\\Z'", escaped=True)
+        assert templar.template(trust_as_template("{{ 'a\\\\Z' }}")) == "a\\\\Z" == _decoded("'a\\\\Z'", escaped=True)
+        # A conditional's and a {% %} block's: written twice, read as one.
+        assert templar.evaluate_conditional(trust_as_template("one == 'a\\\\Z'")) is True
+        assert templar.template(trust_as_template("{% if one == 'a\\\\Z' %}yes{% endif %}")) == "yes"
+        assert _decoded("'a\\\\Z'") == "a\\Z"
+    assert [str(warning.message) for warning in caught if "escape" in str(warning.message)] == []
+    # Written once there, it reads the same, with the warning the scan finds.
+    warned: list[str] = []
+    assert _decoded("'a\\Z'", warned=warned) == "a\\Z" and warned
+
+
 def _literal(path: str, before: str) -> str:
-    """The pattern written as the first string literal after ``before`` in ``path``, as Jinja reads it."""
+    """The pattern written as the first string literal after ``before`` in ``path``, as Ansible reads it: YAML reads
+    the scalar first; then a literal inside {{ }} of a value Ansible templates is read as written, and a conditional's
+    decoded as Jinja's lexer decodes it; a scalar that is the pattern itself, outside any expression (a variable whose
+    value is the pattern), is what YAML gives."""
     text = (REPO / path).read_text(encoding="utf-8")
     at = text.index(before) + len(before)
-    quote = text[at:].lstrip()[0]
-    start = text.index(quote, at) + 1
-    return text[start : text.index(quote, start)]
+    for document in yaml.compose_all(text, Loader=yaml.SafeLoader):
+        for node, key in _scalars(document):
+            start, end = node.start_mark.index, node.end_mark.index
+            if start < at < end:
+                made = _expression(node, key, data=False)
+                assert made, f"{before!r} in {path} is in no expression"
+                source, escaping = made
+                after = source.index(before) + len(before)
+                _at, raw, escaped = next(one for one in _literals(source, escaping) if one[0] >= after)
+                return _decoded(raw, escaped)
+            if start >= at:
+                return node.value
+    raise AssertionError(f"no scalar after {before!r} in {path}")
 
 
 @pytest.mark.parametrize(
