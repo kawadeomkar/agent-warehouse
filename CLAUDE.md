@@ -1042,11 +1042,12 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       change the host's backup jobs, replication and HA, outside the VM.
     - Proxmox answers every refusal of a write with a 500: `Locked`, `DigestMismatch` and `Exists` are told apart by its
       words, each held equal to the fake's constant. Every route the client sends has its rows in `privileges.CALLS`,
-      and every row is a route it sends, which the fake enforces as Proxmox checks it (a resize on its disk's storage,
-      either of a row's alternatives, a configuration key by key); `init` grants each row's first privilege on its
-      first kind of path alone. No route writes a pool, and the role on the pool holds
-      no `Pool.*` privilege but `Pool.Audit`: a new VM joins it through its clone's `pool`
-      (`tests/unit/test_aw_pve_privileges.py`).
+      and every row is one the fake decides a request it sends by (`decided.log`), never only a route it sends, which
+      the fake enforces as Proxmox checks it (a resize on its disk's storage, either of a row's alternatives, a
+      configuration key by key, an empty value too); `init` grants each row's first privilege on its first kind of path
+      alone. The client asks `/cluster/resources` only for the types Proxmox's schema takes, never `pool`. No route
+      writes a pool, and the role on the pool holds no `Pool.*` privilege but `Pool.Audit`: a new VM joins it through
+      its clone's `pool` (`tests/unit/test_aw_pve_privileges.py`).
     - `tests/unit/test_aw_pve_writes.py` holds it against the fake under enforcement, with a syntax-tree test that every
       method sending a `PUT` or a `POST` to a configuration's path sends `digest`.
 - **A job's state is derived from its record and its own kernel lock, never stored.** Read

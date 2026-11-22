@@ -525,15 +525,16 @@ CONFIG = "nodes/pve/qemu/9012/config"
 CLONE = "nodes/pve/qemu/9000/clone"
 
 
-def _answer(base: str, method: str, endpoint: str, **params) -> dict:
-    """One request as today's token, its answer whole: the status, the reason, the Content-Type and the body."""
+def _answer(base: str, method: str, endpoint: str, *, auth: tuple[str, str] = TODAYS, **params) -> dict:
+    """One request as the token auth gives, today's unless told, its answer whole: the status, the reason, the
+    Content-Type and the body."""
     address = urllib.parse.urlsplit(base)
     unverified = ssl.create_default_context()
     unverified.check_hostname = False
     unverified.verify_mode = ssl.CERT_NONE
     connection = http.client.HTTPSConnection(address.hostname, address.port, timeout=30, context=unverified)
     form = urllib.parse.urlencode(params)
-    headers = {"Authorization": f"PVEAPIToken={TODAYS[0]}={TODAYS[1]}"}
+    headers = {"Authorization": f"PVEAPIToken={auth[0]}={auth[1]}"}
     try:
         if method in ("GET", "HEAD", "DELETE"):
             connection.request(method, f"/api2/json/{endpoint}" + (f"?{form}" if form else ""), headers=headers)
@@ -1236,7 +1237,6 @@ def test_a_listing_shows_the_engine_s_token_only_what_its_rows_name_on_each_entr
     assert [s["storage"] for s in _ok(base, "GET", "nodes/pve/storage", token)] == ["local-lvm"]
     assert [s["storage"] for s in _ok(base, "GET", "cluster/resources", token, type="storage")] == ["local-lvm"]
     assert [p["poolid"] for p in _ok(base, "GET", "pools", token)] == [ENGINE_POOL]
-    assert [p["pool"] for p in _ok(base, "GET", "cluster/resources", token, type="pool")] == [ENGINE_POOL]
     assert _call(base, "GET", "pools", token, poolid="other") == _refused("/pool/other", "Pool.Audit")
     assert _ok(base, "GET", "nodes/pve/network", token) == []
     assert not any("maxcpu" in node for node in _ok(base, "GET", "cluster/resources", token, type="node"))
@@ -1247,6 +1247,70 @@ def test_a_listing_shows_the_engine_s_token_only_what_its_rows_name_on_each_entr
     assert [node["node"] for node in nodes if "maxcpu" in node] == ["pve"]
     # A member's pool is named, as the token may audit it.
     assert {vm["vmid"]: vm.get("pool") for vm in _ok(base, "GET", "cluster/resources", token)}[9010] == ENGINE_POOL
+
+
+def test_a_listing_of_a_type_proxmox_s_schema_refuses_is_a_400_to_a_made_token_and_today_s_keep_their_answer(
+    enforced,
+) -> None:
+    """The cluster's listing takes vm, storage, node and sdn for its type (pve-manager's PVE/API2/Cluster.pm): pool is a
+    type its answer names, never one a request may ask for, and Proxmox's schema refuses it before anything else
+    (pve-common's PVE/JSONSchema.pm). So does the fake to a token made through /access, enforcement on or off; today's
+    tokens keep today's answer, the pools listed, which today's just status reads."""
+    base, token = enforced
+    why = SAID["ENUM_REFUSED"].format(value="pool", values="vm, storage, node, sdn")
+    for on in (1, 0):
+        _pve(base, "PUT", "fake/enforce", on=on)
+        answer = _answer(base, "GET", "cluster/resources", auth=token, type="pool")
+        assert (answer["status"], answer["reason"]) == (SAID["ENUM_REFUSED_STATUS"], "Parameter verification failed.")
+        assert json.loads(answer["body"])["errors"] == {"type": why}
+        assert _call(base, "GET", "cluster/resources", token, type="vm")[0] == 200
+    listed = _ok(base, "GET", "cluster/resources", type="pool")
+    assert {"id": f"/pool/{ENGINE_POOL}", "type": "pool", "pool": ENGINE_POOL} in listed
+
+
+def test_a_key_sent_with_an_empty_value_is_held_to_its_row_as_any_other(enforced, tmp_path: Path) -> None:
+    """Proxmox checks every key of a write's form, one sent empty too (qemu-server's update_vm_api, [keys %$param]):
+    so a token holding VM.Audit alone is refused an empty description, empty tags and an empty key no row covers, the
+    last recorded; given VM.Config.Options, the empty description and tags are taken."""
+    base, token = enforced
+    config = "nodes/pve/qemu/9011/config"
+    engine_grant(base, "/vms/9011", "VM.Audit")
+    before = _ok(base, "GET", config)
+    for key in ("description", "tags"):
+        assert _call(base, "PUT", config, token, **{key: ""}) == _refused("/vms/9011", "VM.Config.Options"), key
+    said = SAID["NO_KEY"].format(key="net0", method="PUT", path=f"/{config}")
+    assert _call(base, "PUT", config, token, net0="") == (SAID["PERMISSION_REFUSED_STATUS"], said)
+    assert _ok(base, "GET", config) == before
+    log = tmp_path / "pve" / "unmatched.log"
+    assert [json.loads(line) for line in log.read_text().splitlines()] == [
+        {"method": "PUT", "path": f"/{config}", "key": "net0"}
+    ]
+    # Read here: the fixture's end holds it empty.
+    log.unlink()
+    engine_grant(base, "/vms/9011", "VM.Config.Options")
+    for key in ("description", "tags"):
+        assert _call(base, "PUT", config, token, **{key: ""}) == (200, None), key
+
+
+@pytest.mark.parametrize("method", ["PUT", "POST"])
+def test_a_write_of_no_key_is_refused_to_a_made_token_as_proxmox_refuses_it_and_today_s_keep_their_answer(
+    enforced, method
+) -> None:
+    """update_vm_api dies "no options specified", a 500, before the digest is read, where a write sends no key and
+    deletes none, digest aside: nothing at all, a digest alone, an empty delete. So does the fake to a token made
+    through /access, enforcement on or off, whatever it holds, nothing written; today's tokens keep today's answer. A
+    configuration's POST is no call of the engine's table, so under enforcement it is refused first as a call no row
+    names (test_a_call_no_row_names_is_refused_and_recorded): it is asked here with enforcement off alone."""
+    base, token = enforced
+    config = "nodes/pve/qemu/9010/config"
+    refused = (SAID["NO_OPTIONS_STATUS"], SAID["NO_OPTIONS"])
+    before = _ok(base, "GET", config)
+    for on in (1, 0) if method == "PUT" else (0,):
+        _pve(base, "PUT", "fake/enforce", on=on)
+        for sent in ({}, {"digest": before["digest"]}, {"delete": ""}, {"digest": before["digest"], "delete": ""}):
+            assert _call(base, method, config, token, **sent) == refused, (on, sent)
+    assert _ok(base, "GET", config) == before
+    assert _call(base, method, config, digest=before["digest"])[0] == 200
 
 
 def test_a_call_no_row_names_is_refused_and_recorded(enforced, tmp_path: Path) -> None:

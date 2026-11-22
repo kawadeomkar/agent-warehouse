@@ -373,8 +373,9 @@ so that a host, or a proxy the computer's certificates trust, that echoes what i
   Proxmox host's certificate is almost always the host's own CA, whose key is on the host, and a root added there is
   trusted for every vendor too.
 - **The reads**, each returning a frozen record of `answers.py`, built by a plain parsing function there:
-  `resources(kind)` (`/cluster/resources` of a `vm`, `storage`, `node`, `pool` or `sdn`), `pool(poolid)` (its comment
-  and members), `config(node, vmid, nic)` (with its `digest`, its identity, the SMBIOS UUID, through
+  `resources(kind)` (`/cluster/resources` of a `vm`, `storage` or `node`: Proxmox's schema takes no `pool`, which its
+  answer names but a request may not ask for, and no row reads the SDN's zones), `pool(poolid)` (its comment and
+  members), `config(node, vmid, nic)` (with its `digest`, its identity, the SMBIOS UUID, through
   `proxmox.smbios_uuid`, and the MAC of `nic` through `proxmox.net_mac`), `current(node, vmid)` (the VM's own state
   now), `next_id()`, `node_status(node)` (its CPU threads and memory, for a VM's size: `Sys.Audit` on the node),
   `task_status(node, upid)` and `task_log(node, upid)`, `storages(node)` and `bridges(node)` (as `init` asks them
@@ -497,10 +498,15 @@ privilege on its first kind, never an alternative, so a second way Proxmox lets 
 request's path names - none where the call names it in its parameters, or lists such objects, each listed only where
 one of the row's privileges is held on it. It imports only the standard library: the fake Proxmox reads it with nothing
 but `lib/` on its path, enforces it when a test turns that on, and keeps no table of its own, so a test proves what the
-token can and cannot do from the table `init` grants. `tests/unit/test_aw_pve_privileges.py` holds every privilege to a
-list of Proxmox VE 9's, the module to the standard library, the rows' shape, `needed` to each row's first privilege on
-its first kind, each key of a configuration's write to one row, and the fake and the harness to no privilege name of
-their own but today's.
+token can and cannot do from the table `init` grants. The table is held by the checks the fake makes, not only by the
+routes the client sends: the fake records each row it decides a request by - held on the path the request names, read
+by its listing for its entries, or needing nothing - and places a `GET` row that neither the request's path nor its
+parameters name only where its route lists entries of that kind (its `LISTINGS`), refusing one it cannot place as a
+call no row names is refused, since nothing would check it. So a row added on a route the client already sends, which
+would widen `init`'s role, fails a test unless the fake checks it. `tests/unit/test_aw_pve_privileges.py` holds every
+privilege to a list of Proxmox VE 9's, the module to the standard library, the rows' shape, `needed` to each row's
+first privilege on its first kind, each key of a configuration's write to one row, and the fake and the harness to no
+privilege name of their own but today's.
 
 **A started VM's address: `agent.py`.** The client's one call to the guest agent, `agent_interfaces(node, vmid,
 deadline)`, asks what the VM's agent reports of its network cards (`network-get-interfaces`, `VM.GuestAgent.Audit`) on a
@@ -565,9 +571,10 @@ rules: a `PUT` or a `POST` to a configuration's path with no `digest`, or an emp
 `%`-escaped spellings of the path among them, while a path with a `%` is sent as it was given, `harness.fake_fleet`'s
 end fails a test where the fake was sent one, the path read decoded there too, and every method that sends one sends
 `digest` (a syntax-tree test of the module); a configuration's write sends only
-the keys the table covers for it; both ways, every row of the table is a call the client makes and every call it makes
-has its rows, each method of the client driven against the fake under enforcement and what it sent read from the
-fake's log, a configuration's row with one of its keys; the words the client tells refusals
+the keys the table covers for it; both ways, every row of the table is one the fake decided a request of the client's
+by (its `decided.log`), a configuration's row by a write that sent one of its keys, and every call it makes has its
+rows, each method of the client driven against the fake under enforcement, a task another made read among them so
+that a task's rows are checked, and what it sent read from the fake's log; the words the client tells refusals
 and warnings apart by match the fake's constants; and no error of a write or a read, the version's included, says the
 token's secret where Proxmox's words echo it. `tests/unit/test_aw_pve_agent.py` runs the wait against the fake in the
 same way, with what a VM's agent reports planted as its root would make it say: an agent that fails its first two
