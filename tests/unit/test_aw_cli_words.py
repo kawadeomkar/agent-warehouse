@@ -3,8 +3,10 @@
 Every verb has its handler or the card that builds it, the locks a run of it takes, whether a run of it is a job, and
 the tools of the agents' server that run it or why none does; every option a kind, a pattern of schema/patterns.py
 unless it takes no value, a name of what its value is, which help and a line's form write as its placeholder (<cores>),
-and a fate for an agent's tool, by tool where two tools run its verb. No verb of the add-on is a verb of the base's
-table. Each reason a verb no tool runs gives is said with its commands the printer's. Every option and word of a verb a
+and a fate for an agent's tool, by tool where two tools run its verb. Which pattern each option's value and each verb's
+words are held to is the one a map of this file's own names, written by hand, both ways. No verb of the add-on is a
+verb of the base's table, and no word the trims took out of the base is a word of it. Each reason a verb no tool runs
+gives is said with its commands the printer's. Every option and word of a verb a
 tool runs is a property of the tool's schema, but those ruled otherwise, each named here. No option's value is a secret,
 but the two that take free text a person may type one into, which the run layer refuses and never says back; no sentence
 says just, a reason why an agent's tool does not take a word among them; each meaning of an exit status has one number
@@ -177,6 +179,113 @@ def test_the_table_has_no_word_for_a_migration_and_init_s_host_is_a_host_s_name(
     assert KINDS == ("value", "flag", "repeatable", "counted")
     assert "migrate" not in init and "finish" not in init and not hasattr(words, "MIGRATE_REFUSED")
     assert init["host"].pattern == "host_name" and VERBS["init"].rules == ("init.1",)
+
+
+# The words the trims took out of the base, by the verb ("" for a word before any verb, which no verb takes either) and
+# the option as a person would type it, each with the ruling that took it out: none is a word of the table.
+TAKEN_OUT = {
+    ("init", "--export"): "the owner's word 3: export, import and rekey are the add-on's",
+    ("init", "--import"): "the owner's word 3: export, import and rekey are the add-on's",
+    ("init", "--rekey"): "the owner's word 3: export, import and rekey are the add-on's",
+    ("init", "--take-over"): "the owner's word 3: the take-over of an import is the add-on's",
+    ("init", "--recipient"): "the owner's word 3: an export's recipient is the add-on's",
+    ("init", "--confirm"): "the owner's word 3: an import's confirmation is the add-on's",
+    ("init", "--vault-key"): "the owner's word 2: the vault's key comes from a file or a command, chosen by a setting",
+    ("vault", "--vault-key"): "the owner's word 2: the vault's key comes from a file or a command, chosen by a setting",
+    ("init", "--audit-token-id"): "T2: one token, kept to the pool, and no audit token",
+    ("init", "--audit-token-secret-file"): "T2: one token, kept to the pool, and no audit token",
+    ("", "--run-lock"): "T8, and the clean slate's decision 8: no word names a run's lock or skips one",
+}
+
+
+@pytest.mark.parametrize(("verb", "word"), list(TAKEN_OUT), ids=[" ".join(key).strip() for key in TAKEN_OUT])
+def test_a_word_the_trims_took_out_of_the_base_is_absent(verb: str, word: str) -> None:
+    assert TAKEN_OUT[verb, word].strip()
+    assert not verb or verb in VERBS
+    rows = [VERBS[verb]] if verb else list(VERBS.values())
+    spelled = {_spelled(option) for row in rows for option in row.options}
+    if not verb:
+        spelled |= {_spelled(option) for option in BEFORE}
+    assert word not in spelled
+
+
+# Which pattern of schema/patterns.py each option's value and each verb's words are held to, by the verb ("" for the
+# words before any verb) and the option as a person types it, or the words as help names them (<name>): written here by
+# hand, so that a slip in the table's hand-written names fails, as deploy --disk held to memory's pattern would. For the
+# agents' server and the add-on's broker, which run the one check on JSON, the pattern is the only gate on a value. An
+# option that takes no value names none, nor do init's words, which init refuses whatever they are: neither is here.
+PATTERN_OF: dict[str, dict[str, str]] = {
+    "": {"--attended": "attended"},
+    "help": {"<recipe>": "verb"},
+    "init": {
+        "--address": "address",
+        "--host": "host_name",
+        "--token-user": "token_user",
+        "--token-id": "proxmox_id",
+        "--token-secret-file": "secret_file",
+        "--github-user": "github_user",
+        "--storage": "proxmox_id",
+        "--bridge": "proxmox_id",
+        "--tailscale": "on_off",
+        "--certificate": "fingerprint",
+        "--pool": "proxmox_id",
+        "--set": "assignment",
+    },
+    "install": {"--version": "release", "--without": "dependency_group"},
+    "vault": {"<name>": "secret_name", "--host": "host_name", "--file": "secret_file"},
+    "deploy": {
+        "<name>": "vm_name",
+        "--only": "stage",
+        "--host": "host_name",
+        "--tags": "roles",
+        "--cores": "cores",
+        "--memory": "memory",
+        "--disk": "disk",
+        "--repos": "repos",
+        "--remove-key": "ssh_fingerprint",
+        "--set": "assignment",
+    },
+    "code": {
+        "<name>": "vm_name",
+        "--project": "project",
+        "--editor": "editor",
+        "--host": "host_name",
+        "--session": "session",
+        "--set": "assignment",
+    },
+    "login": {"<name>": "vm_name", "--host": "host_name", "--only": "sign_in", "--set": "assignment"},
+    "status": {"<name>": "vm_name", "--host": "host_name", "--only": "sections", "--set": "assignment"},
+    "settings": {"<name>": "setting_name", "--host": "host_name", "--value": "text"},
+    "destroy": {"<name>": "vm_name", "--confirm": "vm_names", "--host": "host_name", "--set": "assignment"},
+    "release": {"<machine>": "vm_name", "--confirm": "vm_names", "--set": "assignment"},
+    "host": {"<name>": "current_host", "--for": "vm_names", "--host": "host_name"},
+    "logs": {"<job>": "job_id"},
+    "cancel": {"<job>": "job_id"},
+    "mcp": {
+        "<extra>": "text",
+        "--attended": "attended",
+        "--browser": "text",
+        "--project-dir": "path",
+        "--vault-key-file": "path",
+    },
+}
+
+
+def _patterns_named(options: tuple[Option, ...], held: words.Words | None = None) -> dict[str, str]:
+    """The pattern each of options and the words held name, by the option's spelling and the words' placeholder."""
+    named = {words.placeholder(held): held.pattern} if held is not None and held.pattern is not None else {}
+    return named | {_spelled(option): option.pattern for option in options if option.pattern is not None}
+
+
+def test_each_option_and_each_verb_s_words_are_held_to_the_pattern_this_file_names() -> None:
+    # Compared one option at a time, so that a difference names the verb and the option.
+    table = {
+        "": _patterns_named(BEFORE),
+        **{name: _patterns_named(verb.options, verb.words) for name, verb in VERBS.items()},
+    }
+    flat = {(verb, word): name for verb, named in table.items() for word, name in named.items()}
+    assert flat == {(verb, word): name for verb, named in PATTERN_OF.items() for word, name in named.items()}
+    assert {name for one in PATTERN_OF.values() for name in one.values()} <= set(PATTERNS)
 
 
 @pytest.mark.parametrize("verb", list(VERBS.values()), ids=list(VERBS))

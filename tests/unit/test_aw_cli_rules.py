@@ -3,13 +3,14 @@
 §16.2 and §16.3).
 
 Every rule of rules.py is named by a verb of the table, and every code a verb names is a rule. Each refusal of a rule or
-a habit is run end to end, through the launcher, at a pseudo-terminal of its own where deploy's question is answered,
-and gives the status and the sentence written beside its words here; each of the parser's own refusals gives through
-the launcher the sentence the parser gives in this process. The check gives the same answer to the same values as words
-and as JSON, and refuses a JSON string where a number is wanted. deploy's question is asked as a menu at a
-pseudo-terminal opened through harness._at_a_pseudo_terminal, typed where the terminal cannot draw one, and refused with
-no terminal. No rule says back a value that may be a secret. No file of the tree names the recorded contract of
-v2.7.0's command line, which was taken out of the tree (H26).
+a habit, and each of the parser's own, is run end to end, through the launcher, at a pseudo-terminal of its own where
+deploy's question is answered, and gives the status and the sentence written beside its words here; each case of a
+rule is refused by the rule its code names, and each of the parser's own is the sentence the parser gives in this
+process. The check gives the same answer to the same values as words and as JSON, and refuses a JSON string where a
+number is wanted. deploy's question is asked as a menu at a pseudo-terminal opened through
+harness._at_a_pseudo_terminal, typed where the terminal cannot draw one, and refused with no terminal. No rule says back
+a value that may be a secret, and one it says back has met its pattern first. No file of the tree names the recorded
+contract of v2.7.0's command line, which was taken out of the tree (H26).
 """
 
 from __future__ import annotations
@@ -177,15 +178,39 @@ REFUSALS: dict[str, tuple[list[str], int, str]] = {
         "error: --project names one project folder, not [..]",
     ),
 }
-# The parser's own refusals, before any rule: an option the verb has not got, a value outside its pattern, an option
-# given twice. Each names the verb and the option, and never the value.
-PARSER_REFUSALS: dict[str, list[str]] = {
-    "unknown-option-1": ["deploy", "--bogus"],
-    "pattern-1": ["deploy", "--cores=0"],
-    "pattern-2": ["deploy", "--only=check"],
-    "pattern-3": ["destroy", "alpha;beta"],
-    "repeated-option-1": ["deploy", "--cores=8", "--cores=4", "alpha"],
-    "repeated-option-2": ["deploy", "--check", "--check"],
+# The program, as a field of the parser's sentences below: each says aw and then the verb's words, which the check of
+# every aw command a file names (test_commands.py) would read as a command line those words break.
+AW = "aw"
+# The parser's own refusals, before any rule, as REFUSALS are written: an option the verb has not got, a value outside
+# its pattern, an option given twice. Each names the verb and the option, and never the value.
+PARSER_REFUSALS: dict[str, tuple[list[str], int, str]] = {
+    "unknown-option-1": (
+        ["deploy", "--bogus"],
+        1,
+        f"error: {AW} deploy has no --bogus option (aw help deploy lists them)",
+    ),
+    "pattern-1": (
+        ["deploy", "--cores=0"],
+        1,
+        f"error: {AW} deploy --cores takes no such value: Each new VM's vCPU cores, in place of the vm_cores setting"
+        " [pattern: '([1-9][0-9]{0,2})?']",
+    ),
+    "pattern-2": (
+        ["deploy", "--only=check"],
+        1,
+        f"error: {AW} deploy --only takes no such value: Run one stage and nothing after it: template (the cloud-init"
+        " template, if missing), provision (create and start), configure (every tagged VM, unless named) or ssh-config"
+        " (refresh the SSH aliases; without names, also prune those of VMs that are gone)"
+        " [pattern: '(template|provision|configure|ssh-config)?']",
+    ),
+    "pattern-3": (
+        ["destroy", "alpha;beta"],
+        1,
+        f"error: {AW} destroy takes no such name: The VMs; none means agent-warehouse-default"
+        " [pattern: '[A-Za-z0-9][A-Za-z0-9._,-]*']",
+    ),
+    "repeated-option-1": (["deploy", "--cores=8", "--cores=4", "alpha"], 1, f"error: {AW} deploy takes --cores once"),
+    "repeated-option-2": (["deploy", "--check", "--check"], 1, f"error: {AW} deploy takes --check once"),
 }
 # Each refusal at a terminal, by its rule's code and a number: the words, what is typed at deploy's question, the exit
 # status and the sentence the run ends with.
@@ -228,6 +253,16 @@ def test_each_rule_and_habit_refuses_in_a_case_of_its_own() -> None:
     assert sorted(cases - set(rules.RULES)) == ["deploy.1", "deploy.2", "deploy.3"]
 
 
+@pytest.mark.parametrize("code", [code for code in REFUSALS if _rule_of(code) in rules.RULES])
+def test_each_case_is_refused_by_the_rule_its_code_names(monkeypatch, code) -> None:
+    # Given the case's values, the rule its code names says the case's sentence: a case relabelled with another rule's
+    # words and sentence fails here, so every rule's case is its own.
+    monkeypatch.setattr(printer, "_program", printer.PROGRAM)
+    words, _, sentence = REFUSALS[code]
+    _, values = _parsed(monkeypatch, words)
+    assert rules.RULES[_rule_of(code)].check(values) == sentence
+
+
 def test_no_rule_says_back_a_value_that_may_be_a_secret() -> None:
     # settings --value's value, and a word after init's or mcp's options, which may be a secret.
     said = [
@@ -256,13 +291,17 @@ def test_each_refusal_gives_its_status_and_sentence_through_the_launcher(home, c
 
 
 @pytest.mark.parametrize("code", list(PARSER_REFUSALS))
-def test_each_refusal_of_the_parser_s_own_is_said_through_the_launcher_as_in_this_process(home, code) -> None:
-    words = PARSER_REFUSALS[code]
+def test_each_refusal_of_the_parser_s_own_gives_its_status_and_sentence_through_the_launcher(
+    home, monkeypatch, code
+) -> None:
+    words, status, sentence = PARSER_REFUSALS[code]
     result = run_launcher(*words, home=home, cwd=home, first_on_path=(on_path(home),))
+    assert (result.returncode, result.stdout, result.stderr) == (status, "", sentence + "\n")
+    # And it is the parser's own sentence, in this process too.
+    monkeypatch.setattr(printer, "_program", printer.PROGRAM)
     with pytest.raises(parse.Refused) as refused:
         parse.read(words)
-    assert (result.returncode, result.stdout, result.stderr) == (1, "", refused.value.sentence + "\n")
-    assert refused.value.sentence.startswith(f"error: aw {words[0]} "), refused.value.sentence
+    assert refused.value.sentence == sentence
 
 
 def _naming(files: list[tuple[str, str]]) -> list[str]:
@@ -300,7 +339,7 @@ def _parsed(monkeypatch, words: list[str]) -> tuple[str, dict]:
     "words",
     [pytest.param(words, id=code) for code, (words, _, _) in REFUSALS.items() if _rule_of(code) in rules.RULES]
     # An option the verb has not got, or given twice, is the parser's refusal, before any value reaches the check.
-    + [pytest.param(words, id=code) for code, words in PARSER_REFUSALS.items() if code.startswith("pattern-")],
+    + [pytest.param(words, id=code) for code, (words, _, _) in PARSER_REFUSALS.items() if code.startswith("pattern-")],
 )
 def test_the_check_gives_the_same_answer_to_the_same_values_as_words_and_as_json(monkeypatch, words) -> None:
     verb, values = _parsed(monkeypatch, words)

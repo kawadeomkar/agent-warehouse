@@ -8,8 +8,8 @@ tools of the agents' server that run it, or why none does. The parser, the one c
 printer of a command, the locks and the agents' schemas read it when they run. Written by hand as literals: nothing is
 generated from it into another file or into it from another.
 
-Today's verbs keep today's words and help, with aw where they said just. The rules are named by code (deploy.4,
-check.names.1): the sentence is the rule's own, written where the rule is (rules.py).
+Today's verbs keep today's words and help, with aw where they said just, but where a later card changed one. The rules
+are named by code (deploy.4, check.names.1): the sentence is the rule's own, written where the rule is (rules.py).
 
 A sentence of the table, of the rules or of any part of the new engine that names a command names it as a `Line` in a
 field of the sentence, never as text: the printer of a command's `said` (printer.py) fills it with the line the printer

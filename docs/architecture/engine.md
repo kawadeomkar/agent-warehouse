@@ -114,8 +114,9 @@ the printer as every module does. `placeholder` gives the name help gives a valu
 command reference and a line that shows a command's form write it: lower case, in angle brackets, never quoted
 (`--cores <cores>`, `--set <name>=<value>`, `aw code <name>`, `<name>...` for several).
 
-Today's verbs keep today's words and help, with `aw` where a sentence said `just`; `mcp` takes the vault's key file as
-`--vault-key-file`, and `init --host` names a host of the fleet alone, held to the pattern of a host's name. Beside the
+Today's verbs keep today's words and help, with `aw` where a sentence said `just`, but where a later card changed one:
+`mcp` takes the vault's key file as `--vault-key-file`, `init --host` names a host of the fleet alone, held to the
+pattern of a host's name, and `settings`' word may be `edit`, which opens the settings in your editor. Beside the
 table, `EXITS` names the exit status of every verb but `status` (0 done, 1 refused before anything ran, 130 cancelled)
 and `STATUS_EXITS` those of `status` (today's 0, 1, 2 and 3, and 3 for a read a person cancelled, as today's `status`
 gives it); within each, no meaning has two numbers and no number two meanings, but `status`'s 3, which today means a
@@ -123,9 +124,11 @@ read that failed and one a person cancelled, and a script may read. The table ho
 secret reaches a verb from a file it names or from the terminal. Two options take free text a person may type one into,
 `--set` and `settings --value`, and the run layer that reads them refuses a secret's name or value there and never says
 it back. Nothing is generated from the table or into it. `tests/unit/test_aw_cli_words.py` holds the table's rows, the
-tools that run each verb, each reason why no tool runs one said with its commands the printer's, every option and word
-of a verb a tool runs a property of the tool's schema but where a ruling the test names says otherwise, each value's
-name as its placeholder writes it, the two values of free text, the exit statuses and the module's imports.
+pattern each option's value and each verb's words are held to, against a map of the test's own written by hand, both
+ways, the words the trims took out of the base, each absent, the tools that run each verb, each reason why no tool runs
+one said with its commands the printer's, every option and word of a verb a tool runs a property of the tool's schema
+but where a ruling the test names says otherwise, each value's name as its placeholder writes it, the two values of
+free text, the exit statuses and the module's imports.
 
 **The one check: `check.py`.** `check(verb, values)` is the check every entry runs on a verb's values: the parser of the
 command line, the agents' server through `aw`, and the add-on's broker on JSON. It holds each value to its kind and to
@@ -158,7 +161,7 @@ more than one pattern: `host --for`'s VM names, split at its commas, the 2000 ch
 sentence. No rule repeats a value's own pattern: `tools/check`'s other checks of one value (the size, the repositories'
 spelling, the project's characters and length, the session, status's sections, every other VM name) held the JSON the
 `justfile`'s scripts join, behind `just`'s pattern, and are the pattern's alone here, and so is a token file's name,
-named relative to the working folder whatever its path. A sentence says a value back only where today's does, and then a
+named relative to the working folder whatever its path. A sentence says back no value that may be a secret, and only a
 value that has met its pattern first, as `just` holds a value to its pattern before a recipe's script runs. What reads
 more than the values is no rule here but its verb's own: the fleet's files (`vault`'s, and `deploy`'s VM name another
 host's alias records), the file system, `claude` and the branch (`mcp`'s), and a terminal (`host --remove`'s question).
@@ -358,9 +361,11 @@ dispatch's refusals, what a refusal imports, and the launcher run in checkouts t
 through links, from folders whose version manager picks another Python or that hold a planted module, and with a
 `PYTHON` that is no virtualenv's or cannot be run. `tests/unit/test_aw_cli_rules.py` holds the rules and `deploy`'s
 question: every rule is named by the verbs whose rows run it; each refusal of a rule or a habit, and each of the
-parser's own, is run through the launcher, the words, status and sentence of each written there; the check answers
-alike as words and as JSON; the question is asked at a pseudo-terminal, typed and with none; and no file of the tree
-names the recorded command line of v2.7.0, which no test holds `aw` or the `justfile` to.
+parser's own, is run through the launcher, the words, status and sentence of each written there; each case of a rule is
+refused by the rule its code names, and each of the parser's own is the parser's sentence in the test's process too; no
+rule says back a value that may be a secret, and one it says back has met its pattern first; the check answers alike as
+words and as JSON; the question is asked at a pseudo-terminal, typed and with none; and no file of the tree names the
+recorded command line of v2.7.0, which no test holds `aw` or the `justfile` to.
 The printer's own test is 16.2's.
 `tests/unit/test_aw_cli_help.py` holds help and the reference: every verb's help shows its options and words in the
 table's order; `aw help` lists every verb and no recipe of the repository's own, the options before a verb, and its
