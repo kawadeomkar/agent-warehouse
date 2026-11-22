@@ -894,7 +894,9 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
 - Failures carry Proxmox's reason phrase — `VM 4013 is not running` for a stopped VM's agent,
   `QEMU guest agent is not running` while it boots (`VM_NOT_RUNNING` and `AGENT_NOT_RUNNING`, the first
   of which the new engine's client tells a stopped VM by) — because proxmoxer copies it into the error
-  message that callers pattern-match.
+  message that callers pattern-match. A VM whose configuration turns no guest agent on (no `agent`, or
+  `enabled=0`) has every agent call refused first with `No QEMU guest agent configured` (`NO_AGENT`), as
+  Proxmox refuses it before whether the VM runs; every VM the fake makes takes the template's `agent`.
 - `/cluster/resources` leaves `tags` out for an untagged guest, as PVE does. Sending `tags: ""`
   hid that `claude_vm_tagged` needs `selectattr('tags', 'defined')`.
 - A second node, `pve2`, is listed as offline and holds an unrelated VM (8000, below the template so
@@ -988,7 +990,10 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
   ends on the host whether or not anyone asks, so a run killed during a clone can be shown;
   `PUT /api2/json/fake/task-fail?error=&type=` has the next task end with that error, changing nothing (a failed clone
   leaves no VM), and its log, which `tasks/<upid>/log` gives as Proxmox numbers its lines, end `TASK ERROR:` and the
-  error. With no fixture set, every answer today's requests get is what it was before the tasks and digests, byte for
+  error; `PUT /api2/json/fake/task-warn?warning=&type=` has the next task log those warnings, one a line, and end a
+  success, as Proxmox counts it, its change made: its exit status `WARNINGS: <n>`, its log each as `WARN:` and then
+  `TASK WARNINGS: <n>` (`TASK_WARNINGS_STATUS`, `TASK_WARN`, `TASK_WARNINGS`, from Proxmox's source, for experiment 6 to
+  confirm). With no fixture set, every answer today's requests get is what it was before the tasks and digests, byte for
   byte but for the clone onto a taken VMID: `tests/unit/test_aw_fake_pve.py` sends the requests
   `tests/unit/fake_pve_replies.json` recorded from the fake before then, and compares; among them the reads of today's
   whose branches the pools and tokens changed (`GET /access/permissions`, the pools and storages the cluster lists),

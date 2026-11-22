@@ -10,10 +10,15 @@ would be a directive of its own in an SSH config. Of two good addresses on the c
 
 wait_for_address() polls the agent, as today's product polls network-get-interfaces, pausing longer each time up to
 today's five seconds, until the card has such an address, within a deadline, and stops at once where waiting cannot
-help: a token without the agent's privilege (Denied, at the first 401 or 403) and a VM that is not running
-(NotRunning, which is never waited on). Anything else - the agent not answering yet, an answer with no such address,
-an answer of another shape, a poll that ran out of time - is "not yet". It ends when the run's cancelled is set. Each
-poll runs the blocking client in a thread, so the run's loop goes on meanwhile.
+help: a token without the agent's privilege (Denied, at the first 401 or 403), a VM that is not running (NotRunning,
+which is never waited on), a VM whose configuration turns no guest agent on (NoAgent, whose sentence names the setting
+that does), and a certificate that is not the host's (Unverified, or the transport's Untrusted). The agent not
+answering yet, an answer with no such address, an answer of another shape, a poll that ran out of time, and a
+connection refused or reset - pveproxy restarting, the computer's network coming back, as likely seconds after a start
+as a node's 595 is - are "not yet". Each poll is held to what is left of the deadline and to the longest one agent
+call usefully runs (the client's agent_call_most: a connection made and one read waited for), so that a poll a stopping
+run leaves behind ends within that, and sends nothing more once the run has closed its client. It ends when the run's
+cancelled is set. Each poll runs the blocking client in a thread, so the run's loop goes on meanwhile.
 
 Standard library only; asyncio is imported by the coroutine that runs on it.
 """
@@ -25,7 +30,7 @@ from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from .. import checks, proxmox
-from ..vendors.transport import TimedOut
+from ..vendors.transport import TimedOut, Unreachable, Untrusted
 from .answers import Interfaces, ProxmoxError
 from .client import Proxmox, Refused
 
@@ -102,8 +107,10 @@ async def wait_for_address(
 ) -> str:
     """The address of the started VM vmid on node, on its network card whose MAC is mac (VmConfig.mac), from its guest
     agent, polled within deadline seconds (DEADLINE is today's) with a pause between polls (PAUSES). Raises Denied at
-    the first 401 or 403, NotRunning at once for a VM that is not running, NoAddress at the deadline, and
-    asyncio.CancelledError once cancelled is set, the run stopping, between polls or during one."""
+    the first 401 or 403, NotRunning at once for a VM that is not running, NoAgent at once for one with no guest agent
+    configured, Unverified (or Untrusted) at once for a certificate that is not the host's, NoAddress at the deadline,
+    and asyncio.CancelledError once cancelled is set, the run stopping, between polls or during one. A connection
+    refused or reset is not yet, said in NoAddress where it was the last poll's."""
     import asyncio
 
     if not isinstance(client, Proxmox):
@@ -126,7 +133,7 @@ async def wait_for_address(
             if got is not None:
                 return got
             said = "the last poll: its agent answered, with no IPv4 address on that card"
-        elif isinstance(met, Refused) or not said:
+        elif not isinstance(met, TimedOut) or not said:
             # A poll that ran out of time keeps what an earlier one met: the deadline may have come during it.
             said = f"the last poll: {met}"
         pause = min(next(pauses, PAUSES[-1]), end - time.monotonic())
@@ -139,14 +146,16 @@ async def wait_for_address(
 
 async def _poll(
     client: Proxmox, node: str, vmid: int, left: float, cancelled: asyncio.Event
-) -> tuple[Interfaces | None, Refused | TimedOut | None]:
-    """One poll of the agent, in a thread, held to left seconds: what it reported, and None; or None, and what the
-    poll met where Proxmox refused it or it ran out of time. Denied, NotRunning and every other error pass as they are.
-    Where cancelled is set first, asyncio.CancelledError: the thread ends by its own limits, and its answer is not
-    read."""
+) -> tuple[Interfaces | None, Refused | TimedOut | Unreachable | None]:
+    """One poll of the agent, in a thread, held to left seconds and to the client's agent_call_most: what it reported,
+    and None; or None, and what the poll met where Proxmox refused it, it ran out of time, or its connection was refused
+    or reset (Unreachable, but never Untrusted, a certificate that does not verify). Denied, NotRunning, NoAgent,
+    Unverified and every other error pass as they are. Where cancelled is set first, asyncio.CancelledError: the
+    thread ends within its bound, sooner where its caller closes the client, and its answer is not read."""
     import asyncio
 
-    poll = asyncio.ensure_future(asyncio.to_thread(client.agent_interfaces, node, vmid, left))
+    bound = min(left, client.agent_call_most)
+    poll = asyncio.ensure_future(asyncio.to_thread(client.agent_interfaces, node, vmid, bound))
     stop = asyncio.ensure_future(cancelled.wait())
     try:
         await asyncio.wait({poll, stop}, return_when=asyncio.FIRST_COMPLETED)
@@ -156,9 +165,11 @@ async def _poll(
             poll.cancel()
     if not poll.done():
         raise asyncio.CancelledError(f"the run is stopping: VM {vmid}'s address is no longer waited for")
-    met: Refused | TimedOut | None = None
+    met: Refused | TimedOut | Unreachable | None = None
     try:
         return poll.result(), None
-    except (Refused, TimedOut) as error:
+    except Untrusted:
+        raise
+    except (Refused, TimedOut, Unreachable) as error:
         met = error
     return None, met

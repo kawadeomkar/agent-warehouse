@@ -8,13 +8,18 @@ refuses it. A VM started just now has an agent that fails its first two polls, a
 reports is planted with the fake's agent-answer, as the VM's root would make it say.
 
 The wait gives the VM's own address once its agent answers; ends at its deadline where none comes, and not later;
-stops at once on a refused token, with one request made, and on a VM that is not running, at its first poll or the
-first after it stopped; and ends when the run's cancelled is set, between polls or during one. An address is taken only
+stops at once on a refused token, with one request made, on a VM that is not running, at its first poll or the
+first after it stopped, on a VM with no guest agent configured, running or not, and on a certificate that is not the
+host's, the agent's own connection pinned as the client's is; takes a connection refused or reset for "not yet"; holds
+each poll to the longest one agent call runs, and a new client's first to the wait's deadline; and ends when the run's
+cancelled is set, between polls or during one, a poll it left behind then ending within its bound and sending nothing
+more once the client is closed. An address is taken only
 on the VM's own network card and only where checks.guest_ipv4 takes it: 0.0.0.0, a multicast address, two addresses in
 one, and an address with a newline and a ProxyCommand after it are each no address, and no shape an agent's answer
 takes raises. The rules with a test of their own: the agent's calls go on connections of their own whose reads wait
-AGENT_READ, shorter than every other read's; the words the client tells a stopped VM by are the fake's; and no error of
-the wait says the token's secret where Proxmox's words echo it.
+AGENT_READ, shorter than every other read's; the words the client tells a stopped VM, and one with no agent, by are the
+fake's, read as Proxmox's whole sentence; and no error of the wait says the token's secret where Proxmox's words echo
+it.
 """
 
 from __future__ import annotations
@@ -24,6 +29,7 @@ import asyncio
 import dataclasses
 import json
 import logging
+import ssl
 import threading
 import time
 from pathlib import Path
@@ -43,23 +49,27 @@ from harness import (
     fake_fleet,
 )
 from pki import proxmox_pki
-from test_aw_transport import _said
+from test_aw_transport import _Handler, _said, _Server, answer
 
 from claude_vm.pve import agent, answers, pin, privileges
+from claude_vm.pve import client as client_module
 from claude_vm.pve.agent import DEADLINE, PAUSES, NoAddress, address, wait_for_address
 from claude_vm.pve.client import (
     AGENT_READ,
+    NO_AGENT,
     NOT_RUNNING,
     REFUSED_STATUS,
     Denied,
+    NoAgent,
     NotRunning,
     Proxmox,
     Refused,
     Token,
+    Unverified,
     _stopped,
 )
 from claude_vm.secret import MARK, Secret
-from claude_vm.vendors.transport import Answer, TimedOut
+from claude_vm.vendors.transport import Answer, TimedOut, Unreachable, Untrusted
 
 # The module's certificate authority, which signs the fake's certificate: cheap enough to make again on each worker
 # (tests/unit/conftest.py).
@@ -228,6 +238,21 @@ def test_a_vm_that_stops_while_it_is_waited_for_is_not_running_at_the_next_poll(
     with pytest.raises(NotRunning):
         asyncio.run(waited())
     assert time.monotonic() - began < 10
+
+
+@pytest.mark.parametrize("running", [True, False], ids=["running", "stopped"])
+def test_a_vm_with_no_guest_agent_configured_is_no_agent_at_once_with_one_request_made(fleet, running) -> None:
+    """Proxmox says so before it asks whether the VM runs: no agent will answer, so waiting cannot help, and the
+    sentence names the setting that turns one on."""
+    _pve_vm(fleet.base, 9020, "delta", running=running, agent_polls=0, agent="enabled=0")
+    _pve(fleet.base, "PUT", "pools", poolid=ENGINE_POOL, vms="9020")
+    mac = fleet.mac(9020)
+    began = time.monotonic()
+    with pytest.raises(NoAgent) as none:
+        _wait(fleet, 9020, mac, deadline=60.0)
+    assert none.value.vmid == 9020 and time.monotonic() - began < 10
+    assert "no QEMU guest agent configured" in str(none.value) and "agent setting" in str(none.value)
+    assert "enabled=1" in str(none.value) and fleet.polls(9020) == 1
 
 
 @pytest.mark.parametrize("before", [True, False], ids=["after-a-refused-poll", "alone"])
@@ -407,6 +432,199 @@ def test_a_wait_ends_during_a_poll_once_the_run_is_stopping(fleet) -> None:
     assert asyncio.run(waited()) < 2
 
 
+# ------------------------------------------------------------------------- the connection, and its bounds ----
+
+
+class _Once:
+    """A transport that raises error at its first request and answers every later one with answer - or raises it
+    again, where answer is None - and keeps the path of each."""
+
+    def __init__(self, error: Exception, answer: Answer | None) -> None:
+        self.error, self.answer = error, answer
+        self.paths: list[str] = []
+
+    def request(self, method: str, path: str, **kwargs) -> Answer:
+        self.paths.append(path)
+        if len(self.paths) == 1 or self.answer is None:
+            raise self.error
+        return self.answer
+
+    def close(self) -> None:
+        pass
+
+
+MAC = "bc:24:11:00:23:32"
+REPORTED = Answer(200, (), json.dumps({"data": {"result": [_card(MAC, "192.0.2.7")]}}).encode(), "OK")
+
+
+def _standing_in(pki) -> Proxmox:
+    """A client whose reads and agent calls are each a stand-in's, given after."""
+    return Proxmox("https://127.0.0.1:9", pin.kept(pki["ca"]), Token(f"{ENGINE_USER}!{ENGINE_TOKEN}", Secret(CANARY)))
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        Unreachable("the connection could not be made: Connection refused"),
+        Unreachable("the connection was dropped: Connection reset by peer"),
+    ],
+    ids=["refused", "reset"],
+)
+def test_a_connection_refused_or_reset_is_not_yet_and_the_next_poll_gives_the_address(pki, error) -> None:
+    """pveproxy restarting, or the computer's network coming back, seconds after a start: not yet, as a node's 595 is.
+    The transport tried the GET three times first."""
+    client = _standing_in(pki)
+    client._transport, client._agent = _Answers(VERSION), (polls := _Once(error, REPORTED))
+    assert asyncio.run(wait_for_address(client, "pve", 9010, MAC, 30.0, asyncio.Event())) == "192.0.2.7"
+    assert polls.paths == [AGENT, AGENT]
+    # Where every poll meets it, the deadline says so.
+    client._agent = _Once(error, REPORTED)
+    client._agent.answer = None
+    with pytest.raises(NoAddress) as none:
+        asyncio.run(wait_for_address(client, "pve", 9010, MAC, 0.2, asyncio.Event()))
+    assert none.value.said == f"the last poll: {error}"
+
+
+@pytest.mark.parametrize("where", ["from the transport", "from the call"])
+def test_a_certificate_that_is_not_the_host_s_ends_the_wait_at_once(pki, where) -> None:
+    """Untrusted is an Unreachable of its own: never taken for not yet, nor is the client's Unverified."""
+    client = _standing_in(pki)
+    untrusted = Untrusted("unable to get local issuer certificate", 20)
+    client._transport, client._agent = _Answers(VERSION), (polls := _Once(untrusted, REPORTED))
+    if where == "from the call":
+
+        def refused(node: str, vmid: int, deadline: float | None = None) -> answers.Interfaces:
+            polls.paths.append(AGENT)
+            raise untrusted
+
+        client.agent_interfaces = refused
+    began = time.monotonic()
+    with pytest.raises(Unverified if where == "from the transport" else Untrusted):
+        asyncio.run(wait_for_address(client, "pve", 9010, MAC, 60.0, asyncio.Event()))
+    assert time.monotonic() - began < 5 and polls.paths == [AGENT]
+
+
+@pytest.mark.parametrize("kept", ["another CA", "another fingerprint"])
+def test_the_agent_s_connection_is_pinned_as_the_client_s_is(fleet, tmp_path, kept) -> None:
+    """The agent's calls carry the token on a transport of their own, held to the same pin: where it refuses the fake's
+    certificate nothing goes. The client's other transport is a stand-in that answers the version, so that the agent's
+    connection alone meets the fake."""
+    if kept == "another CA":
+        pinned = pin.kept(proxmox_pki(tmp_path / "other-pki", key_usage=True, name="Another Test CA")["ca"])
+    else:
+        pinned = pin.kept(fleet.pki["node"], ":".join(["AB"] * 32))
+    with Proxmox(fleet.base, pinned, fleet.token) as client:
+        client._transport = _Answers(VERSION)
+        with pytest.raises(Unverified):
+            client.agent_interfaces("pve", 9010)
+    assert fleet.polls(9010) == 0 and fleet.asked() == []
+
+
+def test_each_poll_is_held_to_the_longest_one_agent_call_usefully_runs(fleet) -> None:
+    mac = fleet.mac(9010)
+    asked = []
+
+    def polled(node: str, vmid: int, deadline: float | None = None) -> answers.Interfaces:
+        asked.append(deadline)
+        if len(asked) == 2:
+            raise Denied(403, "GET its agent")
+        raise TimedOut("no answer within 10 s")
+
+    async def waited() -> float:
+        with fleet.client() as client:
+            client.agent_interfaces = polled
+            with pytest.raises(Denied):
+                await wait_for_address(client, "pve", 9010, mac, 300.0, asyncio.Event())
+            return client.agent_call_most
+
+    most = asyncio.run(waited())
+    assert most == AGENT_READ + pin.CONNECT == 15.0
+    assert asked == [most, most]
+
+
+class _Silent:
+    """A transport that answers nothing: each request waits what its call's deadline gives, or five seconds where it
+    gives none (the transport's own is 120), then is the transport's TimedOut."""
+
+    def __init__(self) -> None:
+        self.deadlines: list[float | None] = []
+
+    def request(self, method: str, path: str, deadline: float | None = None, **kwargs) -> Answer:
+        self.deadlines.append(deadline)
+        time.sleep(deadline if deadline is not None else 5.0)
+        raise TimedOut("no answer within 30 s")
+
+    def close(self) -> None:
+        pass
+
+
+def test_a_new_client_s_first_poll_is_held_to_the_wait_s_deadline_its_version_included(pki) -> None:
+    client = _standing_in(pki)
+    client._transport, client._agent = (reads := _Silent()), _Silent()
+    began = time.monotonic()
+    with pytest.raises(NoAddress):
+        asyncio.run(wait_for_address(client, "pve", 9010, MAC, 0.5, asyncio.Event()))
+    took = time.monotonic() - began
+    assert took < 1.5, took
+    assert reads.deadlines and all(left is not None and 0 < left <= 0.5 for left in reads.deadlines)
+
+
+def _holding(pki, release: threading.Event) -> _Server:
+    """A TLS server on loopback with the fake's node certificate, as the fake serves it: GET /version answered as
+    Proxmox VE 9 answers it, and every other request held, nothing said, until release is set; .asked, each request."""
+
+    def behave(handler, asked, nth) -> None:
+        if asked.path.endswith("/version"):
+            return answer(200, VERSION.body)(handler, asked, nth)
+        release.wait(60)
+        handler.close_connection = True
+        return None
+
+    server = _Server(("127.0.0.1", 0), _Handler)
+    server.asked, server.lock, server.behave = [], threading.Lock(), behave
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(pki["cert"], pki["key"])
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
+    return server
+
+
+def test_a_poll_a_stopping_run_left_ends_within_its_bound_and_sends_nothing_once_the_client_is_closed(
+    pki, monkeypatch
+) -> None:
+    """The run stops during a poll the host holds, and leaves its client: the poll's thread, not read, ends at its
+    first error, within the longest one agent call runs, and its GET, which carries the token, is never sent again on
+    a new connection. asyncio.run returns once that thread has ended. The agent's read waits a second here."""
+    monkeypatch.setattr(client_module, "AGENT_READ", 1.0)
+    release = threading.Event()
+    server = _holding(pki, release)
+    polled = f"/api2/json/{AGENT}"
+    token = Token(f"{ENGINE_USER}!{ENGINE_TOKEN}", Secret(CANARY))
+
+    async def waited() -> tuple[float, float]:
+        stopping = asyncio.Event()
+        with Proxmox(f"https://127.0.0.1:{server.server_address[1]}", pin.kept(pki["ca"]), token) as client:
+            waiting = asyncio.ensure_future(wait_for_address(client, "pve", 9010, MAC, 300.0, stopping))
+            while not [one for one in server.asked if one.path == polled]:
+                await asyncio.sleep(0.02)
+            stopping.set()
+            with pytest.raises(asyncio.CancelledError):
+                await waiting
+            most = client.agent_call_most
+        return time.monotonic(), most
+
+    try:
+        closed, most = asyncio.run(waited())
+        ended = time.monotonic()
+        assert most == 1.0 + pin.CONNECT and ended - closed < most, ended - closed
+        agent_asked = [one for one in server.asked if one.path == polled]
+    finally:
+        release.set()
+        server.shutdown()
+        server.server_close()
+    assert len(agent_asked) == 1 and agent_asked[0].headers["authorization"].startswith("PVEAPIToken=")
+
+
 # --------------------------------------------------------------------------- held before anything is sent ----
 
 GIVEN = {
@@ -509,6 +727,11 @@ def test_the_words_the_client_tells_a_stopped_vm_by_are_the_fake_s() -> None:
     assert not _stopped(SAID["VM_NOT_RUNNING"].format(vmid=9012), 901)
     assert not _stopped(SAID["VM_NOT_RUNNING"].format(vmid=90120), 9012)
     assert not _stopped(SAID["AGENT_NOT_RUNNING"], 9012)
+    assert NO_AGENT.fullmatch(SAID["NO_AGENT"]) and not _stopped(SAID["NO_AGENT"], 9012)
+    assert not NO_AGENT.search(SAID["AGENT_NOT_RUNNING"]) and not NO_AGENT.search(SAID["VM_NOT_RUNNING"])
+    # Read whole, never found within Proxmox's words: what follows "failed - " is where a VM's could be.
+    within = "VM 9012 qga command 'guest-network-get-interfaces' failed - got wrong command id 'VM 9012 is not running'"
+    assert not _stopped(within, 9012) and _stopped(f" {SAID['VM_NOT_RUNNING'].format(vmid=9012)}\n", 9012)
 
 
 def test_the_agent_s_call_is_one_row_of_the_table_on_the_vm() -> None:
@@ -537,7 +760,12 @@ def test_no_error_of_the_wait_says_the_token_s_secret_even_where_proxmox_s_words
 ) -> None:
     caplog.set_level(logging.DEBUG)
     raised = []
-    for given, kind in ((_echo(echo), NoAddress), (_echo(f"VM 9010 is not running {echo}"), NotRunning)):
+    # Proxmox's sentence with more after it is no stopped VM, nor one with no agent: a refusal, said at the deadline.
+    for given, kind in (
+        (_echo(echo), NoAddress),
+        (_echo(f"VM 9010 is not running {echo}"), NoAddress),
+        (_echo(f"No QEMU guest agent configured {echo}"), NoAddress),
+    ):
 
         async def waited(given: Answer = given) -> None:
             token = Token(f"{ENGINE_USER}!{ENGINE_TOKEN}", Secret(CANARY))

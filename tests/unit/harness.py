@@ -1239,7 +1239,8 @@ def fake_fleet(
     where given (a node's of tests/unit/pki.py, which a client can verify), else one of its own, self-signed. With
     enforce, the fake holds every request of a token made through /access to the engine's table of privileges
     (lib/claude_vm/pve/privileges.py), and the test fails at its end where one of them named a call no row of the table
-    names."""
+    names. With engine, the test also fails at its end where the new engine's client sent a PUT or a POST to a VM's
+    configuration with no digest: read from what the fake was sent, it holds for every method a test reaches."""
     for base in _fake_pve(directory, certificate):
         _pve(base, "PUT", "fake/version", version=version)
         for vmid, name, running in [(9010, "alpha", True), (9011, "beta", True), (9012, "gamma", False)]:
@@ -1255,6 +1256,25 @@ def fake_fleet(
     if enforce:
         unmatched = _json_lines(directory / "pve" / "unmatched.log")
         assert unmatched == [], f"requests of the engine's token that no row of privileges.CALLS names: {unmatched}"
+    if engine:
+        assert digestless(directory) == [], (
+            f"writes of a VM's configuration the engine's client sent with no digest: {digestless(directory)}"
+        )
+
+
+def digestless(directory: Path) -> list[dict]:
+    """Every PUT or POST to a VM's configuration that the new engine's client (its user agent, pve/pin.py's) sent the
+    fake in directory with no digest: none may be (card B22)."""
+    from claude_vm.pve import pin
+
+    return [
+        entry
+        for entry in _pve_requests(directory)
+        if entry["agent"] == pin.USER_AGENT
+        and entry["method"] in ("PUT", "POST")
+        and entry["path"].rstrip("/").endswith("/config")
+        and "digest" not in entry["params"]
+    ]
 
 
 def _pve_engine(base: str, directory: Path) -> None:

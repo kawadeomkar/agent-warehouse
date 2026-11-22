@@ -4,10 +4,12 @@ by a plain parsing function (docs/architecture/engine.md §16.5).
 Proxmox's JSON is loose: 0 and 1 for booleans, numbers sent as strings, keys that come and go by version, and some
 values that a person typed into Proxmox's page. So each function here takes what it knows and keeps the rest as it was
 sent, frozen (a mapping read-only, a list a tuple), never refusing an answer for a key it does not know; it refuses,
-as Malformed, only an answer without what the record cannot be without. A guest agent's answer is the one exception:
-the VM chose all of it, so of it only the plain values a network card and its addresses have are kept, and nothing the
-VM nests deeper. A VM's MAC, its SMBIOS UUID and its tags are read by today's parsers in lib/claude_vm/proxmox.py, as
-they stand. No pydantic: an answer is the API's, the product's own records are another workstream's.
+as Malformed, only an answer without what the record cannot be without, or nested deeper than MOST_DEPTH, which no
+answer of Proxmox's is, so that what a host sends is never a RecursionError. A guest agent's answer is the one
+exception: the VM chose all of it, so of it only the plain values a network card and its addresses have are kept, and
+nothing the VM nests deeper. A VM's MAC, its SMBIOS UUID and its tags are read by today's parsers in
+lib/claude_vm/proxmox.py, as they stand. No pydantic: an answer is the API's, the product's own records are another
+workstream's.
 
 Standard library only, and nothing read or written.
 """
@@ -41,12 +43,20 @@ class Malformed(ProxmoxError):
     """Proxmox answered 200 with something that is not the answer asked for."""
 
 
-def _frozen(value: Any) -> Any:
-    """value with every mapping in it read-only and every list a tuple."""
+# How deep the values of an answer kept as it was sent may nest: far deeper than any answer of Proxmox's, and far short
+# of Python's recursion limit, which json.loads, in C, lets an answer reach before _frozen would meet it.
+MOST_DEPTH = 100
+
+
+def _frozen(value: Any, depth: int = 0) -> Any:
+    """value with every mapping in it read-only and every list a tuple; Malformed where it nests deeper than
+    MOST_DEPTH, never a RecursionError."""
+    if depth > MOST_DEPTH:
+        raise Malformed(f"Proxmox answered with values nested more than {MOST_DEPTH} deep")
     if isinstance(value, Mapping):
-        return types.MappingProxyType({str(key): _frozen(one) for key, one in value.items()})
+        return types.MappingProxyType({str(key): _frozen(one, depth + 1) for key, one in value.items()})
     if isinstance(value, list | tuple):
-        return tuple(_frozen(one) for one in value)
+        return tuple([_frozen(one, depth + 1) for one in value])
     return value
 
 
@@ -141,7 +151,8 @@ def version(value: Any) -> Version:
     said = _text(entry.get("version")).strip()
     major = re.match(r"([0-9]{1,4})(?:\.|\Z)", said)
     if major is None:
-        raise Malformed(f"Proxmox answered version with no version it reads as one: {one_line(said, 40)!r}")
+        # Nothing of what it said: the words a host sends here are no refusal's, and are never struck of the token.
+        raise Malformed("Proxmox answered version with no version it reads as one")
     return Version(said, _text(entry.get("release")), int(major.group(1)))
 
 
@@ -355,27 +366,40 @@ TASK_KINDS = frozenset({"clone", "resize", "start", "shutdown", "stop", "templat
 @dataclasses.dataclass(frozen=True)
 class Task:
     """A task a write started: the node it runs on, its UPID, the kind of write (TASK_KINDS) and the VM it is for - a
-    clone's, the new VM's VMID. The client's follow() polls it to its end."""
+    clone's, the new VM's VMID - and a clone's source, the VM or template it copies, whose lock its task may meet (None
+    for any other). The client's follow() polls it to its end."""
 
     node: str
     upid: str
     kind: str
     vmid: int
+    source: int | None = None
 
 
-def task(value: Any, node: str, kind: str, vmid: int) -> Task:
-    """A write's answer, a UPID, as the Task of kind for VM vmid on node; Malformed for anything else."""
+def task(value: Any, node: str, kind: str, vmid: int, source: int | None = None) -> Task:
+    """A write's answer, a UPID, as the Task of kind for VM vmid on node, a clone's with its source; Malformed for
+    anything else."""
     if kind not in TASK_KINDS:
         raise ValueError(f"a task's kind is one of {', '.join(sorted(TASK_KINDS))}")
+    if source is not None and kind != "clone":
+        raise ValueError("a clone's task alone names a source")
     if not isinstance(value, str) or not UPID.fullmatch(value):
         raise Malformed(f"Proxmox answered the {kind} of VM {vmid} with no task's ID")
-    return Task(node, value, kind, vmid)
+    return Task(node, value, kind, vmid, source)
+
+
+# How a task Proxmox counts a success ended with warnings: its worker logged them (WARN: ...), and its exit status says
+# how many, as PVE::Tools::upid_read_status reads the log's last line, TASK WARNINGS: <n>. Today's community.proxmox
+# takes it as a success (api_task_ok). A21 confirms the words on a host.
+WARNINGS = re.compile(r"WARNINGS: ([1-9][0-9]{0,8})")
 
 
 @dataclasses.dataclass(frozen=True)
 class TaskStatus:
-    """GET /nodes/<node>/tasks/<upid>/status: whether a task runs, and once stopped, how it ended - "OK", or the
-    error Proxmox gives, made plain - its kind, and the entry as it was sent."""
+    """GET /nodes/<node>/tasks/<upid>/status: whether a task runs, and once stopped, how it ended - "OK", "WARNINGS:
+    <n>" for one that succeeded with warnings, or the error Proxmox gives, made plain - how many warnings it logged, its
+    kind, and the entry as it was sent; and lines, the last lines of its log, which the client's follow() keeps for a
+    task that ended with warnings, so that a workflow can say them (none otherwise)."""
 
     node: str
     upid: str
@@ -383,6 +407,8 @@ class TaskStatus:
     exitstatus: str
     type: str
     entry: Mapping[str, Any]
+    warnings: int = 0
+    lines: tuple[str, ...] = ()
 
     @property
     def running(self) -> bool:
@@ -390,7 +416,8 @@ class TaskStatus:
 
     @property
     def ok(self) -> bool:
-        return self.status == "stopped" and self.exitstatus == "OK"
+        """Whether it ended a success: OK, or with warnings, which Proxmox counts one."""
+        return self.status == "stopped" and (self.exitstatus == "OK" or self.warnings > 0)
 
 
 def task_status(value: Any, node: str, upid: str) -> TaskStatus:
@@ -398,13 +425,16 @@ def task_status(value: Any, node: str, upid: str) -> TaskStatus:
     status = _text(entry.get("status"))
     if status not in ("running", "stopped"):
         raise Malformed("Proxmox answered a task's status with neither running nor stopped")
+    exitstatus = one_line(_text(entry.get("exitstatus")), 400)
+    warned = WARNINGS.fullmatch(exitstatus) if status == "stopped" else None
     return TaskStatus(
         node=node,
         upid=upid,
         status=status,
-        exitstatus=one_line(_text(entry.get("exitstatus")), 400),
+        exitstatus=exitstatus,
         type=_text(entry.get("type")),
         entry=_frozen(entry),
+        warnings=int(warned.group(1)) if warned else 0,
     )
 
 

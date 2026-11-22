@@ -56,7 +56,8 @@ CONTEXTS: dict[str, str] = {
     "lib/claude_vm/vendors/trust.py": "the vendors' one context, made by hand from one certificate file, the server's"
     " name checked and a certificate required",
     "lib/claude_vm/pve/pin.py": "the Proxmox client's context: the host's anchor alone, made by today's trust.py"
-    " (anchored_context), the one way a context is made from a certificate the host gave; else the vendors' one",
+    " (anchored_context), the one way a context is made from a certificate the host gave; else the vendors' one;"
+    " its name check off only where a recorded fingerprint names the one certificate, which the peer check holds",
 }
 # What makes a TLS context or gives one roots, by any spelling but as a type: the class, the standard library's
 # ready-made contexts and its unverified ones (_create_stdlib_context is another name of one), get_server_certificate,

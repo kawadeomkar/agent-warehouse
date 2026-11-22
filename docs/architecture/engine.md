@@ -318,7 +318,18 @@ Where the anchor is the node's own certificate, its SHA-256 fingerprint as it wa
 is the function the transport's `peer_check` calls with the certificate the server presented, and a certificate that is
 not the recorded one is refused there, with nothing sent. `kept(anchor_pem, fingerprint, tls_ca_file)` gives a `Pin` of
 the three, the context, whether it is an anchor's and the fingerprint, and refuses a fingerprint with no anchor beside
-it, or one that is not one as `openssl` prints it. `transport(url, pin, proxy)` makes the one connection a token goes
+it, or one that is not one as `openssl` prints it.
+
+- **The certificate is always checked**: no context checks nothing, and none can be asked for. **Its name is checked
+  but where the fingerprint names the certificate.** With a fingerprint recorded, `kept`'s context has
+  `check_hostname` off: the anchor still verifies the certificate, and the peer check holds it to the one certificate
+  recorded, which says more than a name could, so a host reached at an address its certificate does not name, a
+  tailnet's or a forwarded port's, is reached through its node's own certificate. A CA's anchor and no anchor keep the
+  name checked, since each verifies any certificate it signed.
+- **No session's keys are logged.** `context` sets `keylog_filename` to none on both kinds: the standard library's
+  ready-made context, which today's `trust.anchored_context` makes, names the file `SSLKEYLOGFILE` gives unless Python
+  ignores the environment, and opens it, with its header, as it is made; no key of the one connection that carries the
+  token is ever written there, however Python was started. `transport(url, pin, proxy)` makes the one connection a token goes
 on, so `pin.py` alone hands the transport a check of the peer (`PEER_CHECKS`), and it touches neither `http.client` nor
 a socket. It reads no setting and no variable: the anchor's text, the fingerprint, `tls_ca_file` and the proxy, which
 `proxy.choose` works out for the API's address as today's Proxmox calls take it, are its caller's.
@@ -338,11 +349,16 @@ so that a host, or a proxy the computer's certificates trust, that echoes what i
   never followed, and so is every other status but a 200: `Refused`, with its status and Proxmox's reason, the status
   line's words that the transport's `Answer` carries, made one line of plain text. A 200 that is not Proxmox's JSON, or
   lacks what its record cannot be without, is `Malformed`. The transport's own errors pass as they are.
-- **A certificate that is not what the host keeps.** Against an anchor, the transport's `Untrusted`, and the pin's
-  refusal of another fingerprint, are `Unverified`, whose sentence is `init`'s: if Proxmox renewed the certificate or
-  the host was reinstalled, `aw init` reads the host's own and asks before it trusts one in its place, and if not,
-  something else may answer at the address. With no anchor, `Untrusted` passes as it is, naming `tls_ca_file`. Either
-  way nothing was sent, and nothing is tried again without the check.
+- **A certificate that is not what the host keeps** - the transport's `Untrusted`, anchor or none, and the pin's
+  refusal of another fingerprint - is `Unverified`, with nothing sent and nothing tried again without the check. Its
+  remedy is told by OpenSSL's verify code (`Untrusted.code`, kept as its `code`), never by its words. A certificate that
+  does not name the address it was reached at (`MISNAMED`, codes 62 and 64) is an address to change: the sentence
+  names the address the host's record gives, and the node's own name on a tailnet, or the node's own certificate kept
+  by `aw init`, held to its fingerprint and not to a name. Any other refusal names `aw init`, which reads the host's
+  own certificate and asks before it keeps one as the host's anchor; where the host keeps none and the issuer is
+  unknown (`UNKNOWN_ISSUER`), a root of the person's own in `tls_ca_file` comes second, never alone: the root of a
+  Proxmox host's certificate is almost always the host's own CA, whose key is on the host, and a root added there is
+  trusted for every vendor too.
 - **The reads**, each returning a frozen record of `answers.py`, built by a plain parsing function there:
   `resources(kind)` (`/cluster/resources` of a `vm`, `storage`, `node`, `pool` or `sdn`), `pool(poolid)` (its comment
   and members), `config(node, vmid, nic)` (with its `digest`, its identity, the SMBIOS UUID, through
@@ -353,7 +369,11 @@ so that a host, or a proxy the computer's certificates trust, that echoes what i
   adds. A listing's status is the one the cluster last polled, up to ten seconds old, and is never read for what the
   same run changed: `resources`' docstring says so and names `current`.
 - **Proxmox's loose JSON.** 0 and 1 for booleans, numbers sent as strings and keys that come and go by version are read
-  as they come; what a record does not name is kept as it was sent, frozen, a mapping read-only and a list a tuple.
+  as they come; what a record does not name is kept as it was sent, frozen, a mapping read-only and a list a tuple. An
+  answer nested deeper than `MOST_DEPTH` (100), which no answer of Proxmox's is, is `Malformed`, never a
+  `RecursionError`: `json.loads`, in C, lets one reach past Python's recursion limit.
+- **"Gone" is no error of the client's.** A read of a VM that is not there is `Refused`, Proxmox's 500 naming its
+  configuration's file: a workflow knows a VM is gone from `resources("vm")`, never from those words.
 - **Held before anything is sent.** Every name and ID that goes into a path is held to the form Proxmox gives it (a
   node, a pool, a VMID from 100, a UPID, an ACL path, a network card, a path below the API with no `.` or `..` part
   and no query), so that none can reach another path or a query; so is every value a write sends (a VM's name, a disk
@@ -362,10 +382,15 @@ so that a host, or a proxy the computer's certificates trust, that echoes what i
   its `Unknown`, passed as it is: a workflow settles it by reading the VM again, never by sending the write again.
   `clone(node, source, newid, name, pool, full, storage, description)` clones into the pool, a full clone by default,
   with the notes given; `resize(node, vmid, disk, size)` grows a disk, never shrinking one; `start`, `shutdown` (with
-  its `timeout` and `force_stop`), `stop`, `to_template` and `delete(node, vmid, purge=True)`, which takes the disks its
-  configuration no longer lists but that carry its VMID too, as today's role does (`destroy-unreferenced-disks`). Each
-  answers a `Task` (its node, UPID, kind and VM; a clone's, the new VM's). No write changes a pool: a new VM joins the
-  fleet's pool through its clone's `pool`. The VMID to clone onto, the record's text and any sequence of calls are the
+  its `timeout` and `force_stop`), `stop`, `to_template` and `delete(node, vmid, purge=False)`, which sends
+  `destroy-unreferenced-disks` alone: it takes the disks its configuration no longer lists but that carry its VMID
+  too, as today's role does, and nothing outside the VM, so Proxmox leaves the host's backup jobs, replication and HA as
+  they are and refuses to delete a VM a person put under HA or replication, as it refuses today's deletion. `purge`,
+  which would take the VMID out of each of them, is sent only where a caller asks for it. Each write answers a `Task`
+  (its node, UPID, kind and VM; a clone's, the new VM's, with its `source`). A clone whose answer was lost is `Unknown`
+  with the clone perhaps running at `newid`, its configuration locked `clone` until its worker ends: `clone`'s docstring
+  says it is settled by reading `newid` again until that lock is gone, never by a clone under another VMID before then.
+  No write changes a pool: a new VM joins the fleet's pool through its clone's `pool`. The VMID to clone onto, the record's text and any sequence of calls are the
   workflows' (16.4), not the client's.
 - **Every write of a VM's configuration sends `digest`.** `write_config(node, vmid, changes, digest)` is one `PUT`,
   synchronous: Proxmox writes the changes only while the configuration is still the one whose digest the write sends,
@@ -377,10 +402,16 @@ so that a host, or a proxy the computer's certificates trust, that echoes what i
   write and no more: a key outside them, a network card's or `startup` above all, is refused before anything is sent,
   and needs a row first. Tags are a list, sent comma-joined, and read back through `proxmox.proxmox_tags`, which takes
   both spellings; `sshkeys` is the keys' text, sent percent-encoded whole, as Proxmox's format wants it, and read back
-  as Proxmox keeps it, encoded.
+  as Proxmox keeps it, encoded. The rule is held where every write passes and by what was sent: the client's
+  `_request`, which every request goes through, refuses a `PUT` or a `POST` to a configuration's path with no `digest`
+  in its form before anything is sent, and every test of the new engine that runs the fake
+  (`harness.fake_fleet(engine=True)`) ends by reading the fake's request log, failing where a `PUT` or a `POST` of the
+  client's user agent to a configuration's path carried none.
 - **Proxmox's refusals of a write, typed.** Proxmox answers each with a 500, so its words tell them apart, each held
   equal to the fake's constant, which experiment 6 corrects: `DigestMismatch`; `Locked` (a clone, a deletion or a backup
-  holds the VM, with Proxmox's word for the lock), which a workflow may try again; and a clone's `Exists`, whose VMID is
+  holds the VM, with Proxmox's word for the lock, or another task held its configuration's file longer than a write
+  waits, the lock `file`), which a workflow may try again - from a clone, its source's, at the call and in its task;
+  and a clone's `Exists`, whose VMID is
   taken, at the call or in its task in any of Proxmox's three sentences (the file exists; the new VM's lock timed out
   while another run's clone holds it; a container or another node's VM holds it). On `Exists` the workflow asks for the
   next free VMID again, and nothing is ever deleted at the VMID asked for, which on a host would be the VM of the run
@@ -389,14 +420,21 @@ so that a host, or a proxy the computer's certificates trust, that echoes what i
 - **A task followed to its end.** `follow(task, deadline, stop)` polls the task's status in one loop, its pauses
   growing to a second, within a deadline of its kind (`DEADLINES`: today's waits, 600 s for what `roles/proxmox_vm`
   follows, 300 for a conversion, 120 for a resize) or the one given, and never longer: each poll is held to what is left
-  of it. A task still running then is `TaskTimedOut`; one that ended with anything but `OK` is `Exists` or `Locked` as
-  above, else `TaskFailed` with Proxmox's error and the last lines of its log, each one line of plain text. `stop` is
-  the run's `Context.stopping` (§16.8), a `threading.Event`, since a workflow calls the client in a thread: it is read
-  before each poll and waited on in place of each pause, so once the run stops, at a Ctrl-C or wherever it is to end,
-  `follow` raises `Stopped` within a pause's first moment, never asking again, and the task goes on on Proxmox,
-  which `Stopped`'s sentence says with the task's kind and VM; a poll already sent is never cut, and ends within its own
-  limit, and one that fails once the run has stopped (its client closed under it) is `Stopped` too, never the poll's
-  own error. A phase that must finish, a deletion inside a shield, passes no `stop`, and is followed to its end.
+  of it. A task that ended `OK` is a success, and so is one that ended `WARNINGS: <n>`, as Proxmox counts it and today's
+  `community.proxmox` takes it: its worker logged a warning and went on (a person's template with `iothread` on another
+  controller logs one at its start). Its status then holds how many (`warnings`) and the last lines of its log
+  (`lines`), for the workflow to say. A task still running at the deadline is `TaskTimedOut`; one that ended otherwise
+  is `Exists` or `Locked` as above, else `TaskFailed` with Proxmox's error and the last lines of its log, each one line
+  of plain text. A poll that fails while the run goes on raises its own error - the transport's `TimedOut`, where one
+  poll had no answer within its read's wait with time still left, its `Unreachable`, or the client's - and the task may
+  then still run on Proxmox: the workflow follows it again by the `Task` it holds, or reads the VM. `stop` is the run's
+  `Context.stopping` (§16.8), a `threading.Event`, since a workflow calls the client in a thread: it is read before each
+  poll and waited on in place of each pause, so once the run stops, at a Ctrl-C or wherever it is to end, `follow`
+  raises `Stopped` within a pause's first moment, never asking again, and the task goes on on Proxmox, which
+  `Stopped`'s sentence says with the task's kind and VM; a poll already sent is never cut, and ends within its own
+  limit, and one that fails once the run has stopped (its client closed under it, whose transport then sends nothing
+  more: 16.7) is `Stopped` too, never the poll's own error. A phase that must finish, a deletion inside a shield,
+  passes no `stop`, and is followed to its end.
 
 **The one table of privileges: `privileges.py`.** `CALLS` is a literal tuple of `Call(name, method, route, privilege,
 on)`: one row for each privilege of each call the engine makes, its route below `/api2/json` with each name in braces
@@ -424,8 +462,10 @@ standard library, the rows' shape, and the fake and the harness to no privilege 
 **A started VM's address: `agent.py`.** The client's one call to the guest agent, `agent_interfaces(node, vmid,
 deadline)`, asks what the VM's agent reports of its network cards (`network-get-interfaces`, `VM.GuestAgent.Audit`) on a
 transport of its own, whose reads wait `AGENT_READ` (10 s) where every other read waits 30, since Proxmox asks the VM
-before it answers. It answers an `Interfaces` record; a VM that is not running is `NotRunning`, told by Proxmox's words
-on its 500 as the writes' refusals are; an agent that does not answer yet is `Refused`. The agent runs inside the VM, so
+before it answers. Its connections are pinned as the client's others are. It answers an `Interfaces` record; a VM
+that is not running is `NotRunning`, and one whose configuration turns no guest agent on `NoAgent` (Proxmox says so
+before whether it runs), each told by Proxmox's words on its 500 as the writes' refusals are, read as Proxmox's whole
+sentence and never found within its words, where a VM's could be; an agent that does not answer yet is `Refused`. The agent runs inside the VM, so
 all it reports is the VM's to choose: of its answer the record keeps each card's name and MAC and each address's
 address, type and prefix where each is a plain value, and nothing the VM nests deeper.
 
@@ -435,40 +475,57 @@ address, type and prefix where each is a plain value, and nothing the VM nests d
   reserved range, or an address with a newline and a `ProxyCommand` after it. Of two good addresses on the card it
   takes the first, as today. An answer of any other shape is no address, never an error.
 - `wait_for_address(client, node, vmid, mac, deadline, cancelled)` is a coroutine that polls the agent, each poll the
-  blocking client in a thread and held to what is left of the deadline, with pauses growing to today's five seconds
-  (`PAUSES`; `DEADLINE`, 300 s, is today's 60 polls), until the card has an address. It stops at once where waiting
-  cannot help - `Denied` at the first 401 or 403, `NotRunning` for a VM that is not running, at the first poll or the
-  first after it stopped - and at the deadline raises `NoAddress`, which says what the last poll met. It ends with
-  `asyncio.CancelledError` once the run's `cancelled` is set, between polls or during one, whose thread ends by its own
-  limits and is not read.
+  blocking client in a thread, held to what is left of the deadline and to the longest one agent call usefully runs
+  (the client's `agent_call_most`, `AGENT_READ` and `pin.CONNECT`: 15 s), with pauses growing to today's five seconds
+  (`PAUSES`; `DEADLINE`, 300 s, is today's 60 polls), until the card has an address. A new client's first poll asks
+  the version within the same bound. It stops at once where waiting cannot help - `Denied` at the first 401 or 403,
+  `NotRunning` for a VM that is not running, at the first poll or the first after it stopped, `NoAgent` for one with
+  no guest agent configured, whose sentence names the `agent` setting that turns one on, and `Unverified` (or the
+  transport's `Untrusted`) for a certificate that is not the host's. A connection refused or reset, the transport's
+  `Unreachable`, is not yet, as a node's 595 is: pveproxy restarting, or the computer's network coming back, seconds
+  after a start. At the deadline it raises `NoAddress`, which says what the last poll met. It ends with
+  `asyncio.CancelledError` once the run's `cancelled` is set, between polls or during one; that poll's thread is not
+  read, ends within its bound, and, once the run has closed its client, at its first error, sending nothing more.
 
 `status` moves onto the client in its own workstream. `tests/unit/test_aw_pve_reads.py` runs every read against the fake
 Proxmox, which serves a node's certificate from `tests/unit/pki.py` (`harness.fake_fleet`'s `certificate`), with the
 engine's pool and token, granted as `init` grants them and held to the table, so every read is a call the table has a
 row for. For an anchor of another node's certificate, of another CA, the right certificate with another fingerprint
 recorded, and no anchor with a computer's file that holds no root of the fake's, the fake's request log holds no request
-of the client's, also with the fake answering no request without a token. It holds that `PVEAPIToken` is written in one
-module of the new engine, that no method returns the token, and that no error, its words, its arguments or the names of
-its traceback's frames, says the token's secret. `tests/unit/test_aw_pve_writes.py` runs every write against the fake in
-the same way, under enforcement, so a write the token may not make is `Denied` by the fake as Proxmox refuses it: a
-clone into the pool proved by its own configuration; `Exists` at the call and in each of the three sentences of a task,
-through the fake's `clone-race`, with no `DELETE` in its request log; two `edit_config` calls that both land, and a
-writer that always loses raising after three tries; `Locked` while a deletion or a clone holds the VM; a clone whose
-answer a tunnel of the test's own cuts, `Unknown` with one request in the fake's log; a failed task with its log, and
-one past its deadline; a follow whose run stops between polls, during one, and before the first, each `Stopped` with no
-poll after it and the task still running on the fake, and a poll that fails once the run has stopped. Its rules: every
-method that sends a `PUT` to a configuration's path sends `digest` (a syntax-tree test of the module); `CONFIG_KEYS`'
-privileges are the table's rows for the write; every row of the table names a method of the client; the words the client
-tells refusals apart by match the fake's constants; and no error of a write or a read says the token's secret where
-Proxmox's words echo it. `tests/unit/test_aw_pve_agent.py` runs the wait against the fake in the same way, with what a
-VM's agent reports planted as its root would make it say: an agent that fails its first two polls; one that never
-answers, ended at the deadline and not later; a token without the agent's privilege, `Denied` with one request made; a
-stopped VM, and one that stops while it is waited for; `0.0.0.0`, a multicast address, two addresses in one, a
-`ProxyCommand` after an address, and an address on another card, each no address; shapes of an answer that raise
-nothing; and the run stopping between polls and during one. Its rules: the agent's calls go on connections whose reads
-wait less; the words that tell a stopped VM are the fake's; and no error of the wait says the token's secret.
-`tests/unit/test_aw_pve_privileges.py` holds that no call writes a pool and that the role on the pool holds no `Pool.*`
-privilege but `Pool.Audit`.
+of the client's, also with the fake answering no request without a token, and each refusal names `aw init`,
+`tls_ca_file` second with no anchor. A certificate that names `127.0.0.2`, the fake at `127.0.0.1`, is reached through
+its node's certificate with its fingerprint, and refused, with the address to change and nothing sent, through that
+certificate with none, its CA and no anchor; each sentence is told by its verify code alone. No connection logs a key
+under `SSLKEYLOGFILE`. It holds that `PVEAPIToken` is written in one module of the new engine, that no method returns
+the token, and that no error, its words, its arguments or the names of its traceback's frames, says the token's secret.
+`tests/unit/test_aw_pve_writes.py` runs every write against the fake in the same way, under enforcement, so a write the
+token may not make is `Denied` by the fake as Proxmox refuses it: a clone into the pool proved by its own configuration;
+`Exists` at the call and in each of the three sentences of a task, through the fake's `clone-race`, with no `DELETE` in
+its request log; two `edit_config` calls that both land, and a writer that always loses raising after three tries;
+`Locked` while a deletion or a clone holds the VM, by a configuration's file lock, and from a clone's task its
+source's; a clone whose answer a tunnel of the test's own cuts, `Unknown` with one request in the fake's log; a failed
+task with its log, one that ended with warnings a success with its warnings' lines (the fake's `task-warn`), one past
+its deadline, each poll held to what is left of it; a follow whose run stops between polls, during one, and before the
+first, each `Stopped` with no poll after it and the task still running on the fake, and a poll that fails once the run
+has stopped; a deletion's parameters, `destroy-unreferenced-disks` alone and `purge` only where asked for, read from the
+fake's log; and a UPID with a `/` in a part of its own `Malformed`. Its rules: a `PUT` or a `POST` to a configuration's
+path with no `digest` is refused before it is sent, `harness.fake_fleet`'s end fails a test where the fake was sent one,
+and every method that sends one sends `digest` (a syntax-tree test of the module); `CONFIG_KEYS`' privileges are the
+table's rows for the write; every row of the table names a method of the client; the words the client tells refusals
+and warnings apart by match the fake's constants; and no error of a write or a read, the version's included, says the
+token's secret where Proxmox's words echo it. `tests/unit/test_aw_pve_agent.py` runs the wait against the fake in the
+same way, with what a VM's agent reports planted as its root would make it say: an agent that fails its first two
+polls; one that never answers, ended at the deadline and not later; a token without the agent's privilege, `Denied`
+with one request made; a stopped VM, and one that stops while it is waited for; a VM with no guest agent configured,
+`NoAgent` with one request made; a connection refused or reset, not yet, and a certificate that is not the host's, at
+once; the agent's own connection pinned, another CA's certificate and another fingerprint each `Unverified` with no
+request of its; each poll held to `agent_call_most`, and a new client's first, the version included, to the wait's
+deadline; a poll a stopping run left on a host that holds it, ended within its bound with one request sent once the
+client is closed; `0.0.0.0`, a multicast address, two addresses in one, a `ProxyCommand` after an address, and an
+address on another card, each no address; shapes of an answer that raise nothing; and the run stopping between polls
+and during one. Its rules: the agent's calls go on connections whose reads wait less; the words that tell a stopped VM
+are the fake's; and no error of the wait says the token's secret. `tests/unit/test_aw_pve_privileges.py` holds that no
+call writes a pool and that the role on the pool holds no `Pool.*` privilege but `Pool.Audit`.
 
 ## 16.6 `ssh/` — the runner over OpenSSH
 
@@ -527,6 +584,11 @@ builds no context and reads no setting.
   connection could not be made or was dropped, or when the answer is 502, 503 or 504. Any other method is sent once.
   A failure once its request has left is `Unknown`, never a second send, and its caller reads the state to know.
   Before a request is written on a kept connection, one whose far end has closed it is put aside, which costs no try.
+- **Closed, it sends nothing more.** `close()` closes every connection kept and marks the transport closed, never to
+  open again: a request started after it is `Closed`, nothing sent, and one still under way on another thread - a call
+  its caller let go, as a stopping run leaves a poll's thread - ends at its first error, never tried again and never
+  given a new connection. Without it, the closed connection's error read as a dropped one, and a `GET` that carries a
+  token went out again after its caller had stopped.
 - **A secret is never said.** A header's value may be a `Secret`, or a tuple or list of `str` and `Secret` parts, as
   the Proxmox client's `PVEAPIToken=<id>=<secret>` is; and a form's value may be a `Secret`, or a list or tuple of
   values that may be, as Tailscale's `client_secret` is. A `Secret` is revealed in `_plain` and nowhere else, for the
