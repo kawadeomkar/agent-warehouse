@@ -84,9 +84,10 @@ CHUNK = 64 * 1024
 TUNNEL_MOST = 64 * 1024
 # What a request http.client would refuse to make is said as: its own words quote the header.
 NOT_MADE = "the request could not be made"
-# What a request to a transport that was closed is said as; and one under way whose answer close() cut.
+# What a request to a transport that was closed is said as; and one under way that close() cut, in words true of every
+# road a cut takes: its request still being written, its answer awaited, or its answer being read.
 CLOSED = "the transport was closed, and sends nothing more"
-CUT = "the transport was closed while its answer was read"
+CUT = "the transport was closed while the request was under way"
 
 # A header's name, as HTTP has one; a value, visible ASCII, a space or a tab, and nothing that ends a line.
 _NAME = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+")
@@ -771,9 +772,10 @@ class Transport:
         """This thread's kept connection, where its far end has not closed it; else a new one, its peer checked; either
         taken for this request (_take) while the transport is not closed: Closed, with no connection made, kept or
         taken, once it is. A kept one is taken before its far end is looked at, so that close() shuts it down, and
-        never closes it, under that look."""
+        never closes it, under that look; and its socket is read only by the take, under the lock close() decides
+        under, so that a close() that found it idle and forgot it just before is this request's Closed."""
         conn = getattr(self._local, "conn", None)
-        if conn is not None and isinstance(conn.sock, _Wire) and self._take(conn) and not _closed_by_peer(conn.sock):
+        if conn is not None and self._take(conn) and not _closed_by_peer(conn.sock):
             conn.sock.clock = clock
             return conn
         if conn is not None:
@@ -789,11 +791,14 @@ class Transport:
 
     def _take(self, conn: http.client.HTTPSConnection) -> bool:
         """Keep conn among the transport's and take it for a request on this thread, while the transport is not
-        closed; False, with nothing kept or taken, once it is. Under the lock close() decides under."""
-        wire = conn.sock
-        assert isinstance(wire, _Wire)
+        closed and conn still has its socket; False, with nothing kept or taken, otherwise. Under the lock close()
+        decides under, and conn's socket is read under it too, never before: a close() that found conn idle has marked
+        the transport closed by the time this lock is had, and may already have forgotten conn and let its socket go
+        (http.client's close of conn leaves it None), so the request conn was looked up for is then Closed, never an
+        error of this thread's own."""
         with self._lock:
-            if self._closed:
+            wire = conn.sock
+            if self._closed or not isinstance(wire, _Wire):
                 return False
             self._held[conn] = wire
             wire.busy = True
