@@ -1011,13 +1011,17 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `peer_check`, called with the peer's certificate before anything is written. A 3xx is an answer. A certificate
       that does not verify is `Untrusted`, an `Unreachable`, never tried again, whose sentence names `tls_ca_file` only
       where OpenSSL's verify code says the issuer is unknown (`UNKNOWN_ISSUER`), never for a wrong name or an expiry.
-    - A GET or HEAD is tried at most three times; any other method is sent once, and is `Unknown` once it has left.
+    - A GET or HEAD is tried at most three times; any other method is sent once, and is `Unknown` once it has left. A
+      body that ends before its `Content-Length` is cut short, never an answer, as a chunk cut short is.
       Closed, a transport sends nothing more: a request after `close()` is `Closed`, and one under way on another
       thread ends at its first error, never tried again or on a new connection. `close()` closes only a connection
       no request is under way on, and shuts down (`socket.socket.shutdown`, never `SSLSocket`'s) one that a request
-      is being written on or its answer read from, which wakes that thread at once, for that thread to close: never a
-      close under another thread's wait, which on Linux would leave that wait, at its limit, reading and writing
-      whatever took the socket's number. An answer read on a socket shut down so is never handed back.
+      is being written on or its answer read from, which wakes that thread at once: never a close under another
+      thread's wait, which on Linux would leave that wait, at its limit, reading and writing whatever took the
+      socket's number. A socket is closed by `_forget` alone, once its connection is out of what the transport holds,
+      and `_Wire` closes nothing. A request shut down so is cut: said in `CUT`'s words, whatever the shutdown made it
+      raise, and its answer never handed back. Every failure `close()` made - `Closed`, a cut, a `GET` whose next try
+      it forestalled - is marked `closed`, which a caller reads, never the words.
       Every body is held to `most`, every wait to its limit and the whole call to its deadline, making the connection
       included - each address in turn, a proxy's CONNECT and its answer, the handshake - but the name's lookup, which
       the system's resolver alone bounds. `http.client` never makes a connection.
@@ -1058,9 +1062,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       byte is written. The certificate is always checked, with no unchecked mode; its name is not checked only where
       a fingerprint is recorded, whatever the anchor, which names the one certificate, so a host reached at an address
       its certificate does not name is reached through its node's own certificate; a `Pin`'s context then checks no
-      name of itself, and nothing but `pin.py` reads it (`tests/unit/test_aw_vendor_trust.py`). No context logs its
-      session's keys, or opens the file `SSLKEYLOGFILE` names: both kinds are made by hand, with `keylog_filename`
-      none.
+      name of itself, and nothing but `pin.py` reads it, kept as `_context` and as no field of the dataclass
+      (`tests/unit/test_aw_vendor_trust.py`). No context logs its session's keys, or opens the file `SSLKEYLOGFILE`
+      names: both kinds are made by hand, with `keylog_filename` none.
     - A certificate that is not what the host keeps is `Unverified`, anchor or none, and nothing was sent. Its remedy
       is told by OpenSSL's verify code, never its words: a name or address mismatch (62, 64) is the address to change,
       or the node's own certificate to keep; one out of its dates (9, 10) is said so, to renew on the host or a clock to
@@ -1091,9 +1095,10 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       included, and one that ended `WARNINGS: <n>` is a success, as Proxmox counts it, its log's last lines kept for
       the workflow to say; a log that cannot be read within that deadline, or once the run stops, never turns a
       success into an error: a success is said with no lines, a failure with none, whatever stopped the read, and
-      `Stopped` is only for a task left before its end. A deletion sends
-      `destroy-unreferenced-disks` alone: never `purge` unless a caller asks for it, which would change the host's
-      backup jobs, replication and HA, outside the VM.
+      `Stopped` is only for a task left before its end, and for a poll's failure after the run's stop only where the
+      run's close made it (the transport's mark, `closed`): a `Denied`, `Unverified` or `Malformed` is raised as itself.
+      A deletion sends `destroy-unreferenced-disks` alone: never `purge` unless a caller asks for it, which would
+      change the host's backup jobs, replication and HA, outside the VM.
     - Proxmox answers every refusal of a write with a 500: `Locked`, `DigestMismatch` and `Exists` are told apart by its
       words, each held equal to the fake's constant. Every route the client sends has its rows in `privileges.CALLS`,
       and every row is a route it sends, which the fake enforces as Proxmox checks it (a resize on its disk's storage,

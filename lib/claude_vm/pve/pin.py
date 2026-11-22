@@ -17,8 +17,10 @@ context that checks nothing. No context logs its session's keys, whatever SSLKEY
 started: the token's connection is the one the engine most needs kept.
 
 A Pin's context, where a fingerprint is recorded, checks no name of itself: the fingerprint's check is transport()'s,
-handed beside it. So nothing but this module reads a Pin's context (tests/unit/test_aw_vendor_trust.py holds that), and
-a connection of a Pin's is made only by transport().
+handed beside it. So nothing but this module reads a Pin's context, kept under the private name _context and as no
+field of the dataclass, so that no astuple, asdict, repr or match of a Pin holds it, and a read of it elsewhere is a
+private name read off another object (tests/unit/test_aw_vendor_trust.py holds that); and a connection of a Pin's is
+made only by transport().
 
 This module makes the client's transport, the one connection a Proxmox token goes on, so it alone hands the transport a
 check of the peer; it touches neither http.client nor a socket. Of today's trust.py it binds anchored_context alone,
@@ -51,16 +53,22 @@ class Mismatch(Exception):
     """The certificate the server presented is not the one recorded for the host: its fingerprint differs."""
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, eq=False, match_args=False)
 class Pin:
-    """What a host's connections are verified with: the context; whether it is the host's anchor alone, rather than
-    the computer's certificate file; and, where the anchor is the node's own certificate, its SHA-256 fingerprint as
-    recorded, as openssl prints one (colon-separated upper-case hex), else "". Its context is read by this module
-    alone: with a fingerprint recorded it checks no name, and the fingerprint's check is transport()'s."""
+    """What a host's connections are verified with: the context, given as made and kept as _context; whether it is
+    the host's anchor alone, rather than the computer's certificate file; and, where the anchor is the node's own
+    certificate, its SHA-256 fingerprint as recorded, as openssl prints one (colon-separated upper-case hex), else "".
+    Its context is read by this module alone: with a fingerprint recorded it checks no name, and the fingerprint's
+    check is transport()'s. It is no field, so that no astuple, asdict, repr or match of a Pin holds it; and a Pin is
+    equal only to itself, since two of the same fields may verify against different contexts."""
 
-    context: ssl.SSLContext
+    made: dataclasses.InitVar[ssl.SSLContext]
     anchored: bool
     fingerprint: str = ""
+    __match_args__ = ("anchored", "fingerprint")
+
+    def __post_init__(self, made: ssl.SSLContext) -> None:
+        object.__setattr__(self, "_context", made)
 
 
 def context(anchor_pem: str | None, tls_ca_file: str | os.PathLike[str] | None = None) -> ssl.SSLContext:
@@ -119,5 +127,5 @@ def transport(url: str, pin: Pin, proxy: str | None = None, read: float = 30.0) 
     gives it for the API's address)."""
     held = check(pin.fingerprint) if pin.fingerprint else None
     return Transport(
-        url, context=pin.context, user_agent=USER_AGENT, connect=CONNECT, read=read, proxy=proxy, peer_check=held
+        url, context=pin._context, user_agent=USER_AGENT, connect=CONNECT, read=read, proxy=proxy, peer_check=held
     )
