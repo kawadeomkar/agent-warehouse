@@ -3,7 +3,8 @@
 
 For every verb of the table aw help <verb> shows its usage, its doc, each of its options with its help, --detach last
 where its run is a job, and its words, each sentence said with the printer's commands; after the help of every option
-and words the table holds to a pattern, the form a value may take, and never an empty default. An option is shown with
+and words the table holds to a pattern, what a value may be in words, never the pattern itself, and never an empty
+default; and so for every option and words the hand-written map of test_aw_cli_words.py names. An option is shown with
 its short form and the name of its value. An option of a later card's is left out of help and the reference until that
 card. aw help lists every verb of the table in its order, each with its doc and [options] where it has any, and no
 recipe of the repository's own; the options given before a verb, but the hidden one, with their form; and its closing
@@ -11,8 +12,9 @@ paragraph, with -v and --set each named on the verbs whose row has it, its comma
 tools/aw and the launcher, aw alone is aw help, a word that is no verb is refused unsaid, control among them, and a
 second word in help.1's sentence. help and the reference import the standard library and schema/ alone, the printer
 among it, and aw help loads nothing of the engine. The reference gives a row for every verb but help, every option but
-a later card's and the words of each, and every option given before a verb but the hidden one; and escapes a cell as
-tools/docs.py does.
+a later card's and the words of each, and every option given before a verb but the hidden one, each held to a pattern
+with what a value may be in words and then the pattern as code, never split by a | nor shown with a backslash; and
+escapes a cell as tools/docs.py does.
 """
 
 from __future__ import annotations
@@ -26,12 +28,13 @@ import harness
 import pytest
 from aw_kit import imports_of, on_path, run_aw, run_launcher
 from harness import REPO
+from test_aw_cli_words import PATTERN_OF
 
 from claude_vm.cli import help as helps
 from claude_vm.cli import parse, reference
 from claude_vm.schema import check as checks
 from claude_vm.schema import printer
-from claude_vm.schema.patterns import PATTERNS
+from claude_vm.schema.patterns import PATTERNS, form
 from claude_vm.schema.printer import said
 from claude_vm.schema.words import BEFORE, EXITS, SET, VERBOSE, VERBS, Option, placeholder
 
@@ -43,13 +46,24 @@ HEAVY = ("pydantic", "ansible", "yaml", "asyncio", "claude_vm.engine")
 
 
 def _form(name: str | None) -> str:
-    """What a row ends with after its help, for a value held to the pattern name: the pattern's text; nothing for
-    none."""
-    return "" if name is None else f" [pattern: '{PATTERNS[name]}']"
+    """What a row ends with after its help, for a value held to the pattern name: what a value may be, in words
+    (patterns.py's form); nothing for none."""
+    return "" if name is None else f" {form(name)}"
 
 
 def _helped(option: Option) -> str:
     return said(option.help or "") + _form(option.pattern)
+
+
+def _described(help: str, pattern: str | None) -> str:
+    """A reference row's text: the help said and escaped and, where the value is held to a pattern, what it may be in
+    words, then the pattern itself as code, an HTML code element with &#124; for each | where it has one."""
+    text = reference.cell(said(help) + _form(pattern))
+    if pattern is None:
+        return text
+    raw = PATTERNS[pattern].text
+    assert not set("<>&`") & set(raw), raw
+    return f"{text}, held to " + (f"<code>{raw.replace('|', '&#124;')}</code>" if "|" in raw else f"`{raw}`")
 
 
 # ---------------------------------------------------------------- the help of one verb ----
@@ -89,14 +103,31 @@ def test_help_says_the_form_of_each_value_the_table_holds_to_a_pattern_and_no_em
     for option in helps.options(verb):
         [row] = [row for row in rows if row.lstrip().startswith(f"{helps.shown(option)} ")]
         if option.pattern is not None:
-            assert row.endswith(f" [pattern: '{PATTERNS[option.pattern]}']"), row
+            assert row.endswith(f" {form(option.pattern)}"), row
         else:
-            assert "[pattern: " not in row, row
+            assert not row.endswith("]"), row
     if verb.words is not None:
         [row] = [row for row in rows if row.lstrip().startswith(f"<{verb.words.name}> ")]
         formed = verb.words.pattern is not None and verb.words.name != helps.REFUSED_WORDS
-        assert row.endswith(f" [pattern: '{PATTERNS[verb.words.pattern]}']") if formed else "[pattern: " not in row
-    assert "[default:" not in text and "[default:" not in helps.listing()
+        assert row.endswith(f" {form(verb.words.pattern or '')}") if formed else not row.endswith("]"), row
+    # The pattern itself is never what help says (the owner's ruling, review/code/OWNER-9.md 2).
+    assert [name for name, pattern in PATTERNS.items() if pattern.text in text] == []
+    assert "[pattern: " not in text and "[default:" not in text and "[default:" not in helps.listing()
+
+
+def test_help_ends_the_row_of_every_option_and_words_the_hand_written_map_names_with_what_its_value_may_be() -> None:
+    # test_aw_cli_words.py's PATTERN_OF, written by hand: the form each row ends with hangs on its names, not the
+    # table's, so a slip in either fails one of the two. An option of a later card's is not in help, nor are the
+    # words of a verb that refuses any.
+    for verb, named in PATTERN_OF.items():
+        text = helps.of(verb) if verb else helps.listing()
+        rows = [line for line in text.splitlines() if line.startswith("  " if verb else "    ")]
+        options = {checks.spelled(option): option for option in (checks.options_of(VERBS[verb]) if verb else BEFORE)}
+        for word, name in named.items():
+            if (word in options and options[word].until is not None) or word == f"<{helps.REFUSED_WORDS}>":
+                continue
+            [row] = [row for row in rows if re.match(rf"\s*(-[a-z], )?{re.escape(word)} ", row)]
+            assert row.endswith(f" {form(name)}"), (verb, word, row)
 
 
 def test_an_option_of_a_later_card_is_left_out_of_help_and_the_reference_until_that_card() -> None:
@@ -294,21 +325,45 @@ def test_the_reference_gives_a_row_for_every_verb_but_help_every_option_and_the_
         if name == "help":
             continue
         under = [
-            f"| {reference.INDENT_CELL}`{helps.shown(option)}` | {reference.cell(said(option.help or ''))} |"
+            f"| {reference.INDENT_CELL}`{helps.shown(option)}` | {_described(option.help or '', option.pattern)} |"
             for option in checks.options_of(verb)
             if option.until is None
         ]
         if verb.words is not None and verb.words.name != helps.REFUSED_WORDS:
-            under.append(f"| {reference.INDENT_CELL}`<{verb.words.name}>` | {reference.cell(said(verb.words.help))} |")
+            words = _described(verb.words.help, verb.words.pattern)
+            under.append(f"| {reference.INDENT_CELL}`<{verb.words.name}>` | {words} |")
         at = rows.index(first) + 1
         assert rows[at : at + len(under)] == under, name
         assert not rows[at + len(under)].startswith(f"| {reference.INDENT_CELL}"), name
-    before = [f"| `{helps.shown(option)}` | {reference.cell(said(option.help))} |" for option in BEFORE if option.help]
+    before = [
+        f"| `{helps.shown(option)}` | {_described(option.help or '', option.pattern)} |"
+        for option in BEFORE
+        if option.help
+    ]
     at = rows.index(f"### {reference.BEFORE_ANY}")
     assert rows[at + 1 :] == ["", *reference.BEFORE_HEAD, *before]
     groups = [*dict.fromkeys((verb.group or reference.OTHER) for name, verb in VERBS.items() if name != "help")]
     headings = [f"### {group.capitalize()}" for group in [*groups, reference.BEFORE_ANY]]
     assert [row for row in rows if row.startswith("### ")] == headings
+
+
+def test_a_pattern_in_the_reference_neither_splits_its_cell_nor_shows_a_backslash() -> None:
+    # A | splits a GitHub table's cell, and \| inside a code span shows its backslash on the site (tools/docs.py's
+    # value): a pattern with one is an HTML code element with &#124;, and every row keeps its two cells.
+    text = reference.commands()
+    rows = [row for row in text.splitlines() if row.startswith("| ") and not row.startswith("|---")]
+    assert rows
+    for row in rows:
+        assert len(re.findall(r"(?<!\\)\|", row)) == 3, row
+        assert [span for span in re.findall(r"`[^`]*`", row) if "|" in span] == [], row
+    piped = {name for name, pattern in PATTERNS.items() if "|" in pattern.text}
+    shown = {option.pattern for verb in VERBS.values() for option in helps.options(verb)} | {
+        option.pattern for option in BEFORE if option.help
+    }
+    assert piped & shown >= {"stage", "sign_in", "sections", "editor", "attended", "on_off"}
+    for name in piped & shown:
+        assert f"<code>{PATTERNS[name].text.replace('|', '&#124;')}</code>" in text, name
+    assert reference.code("(a|b)?") == "<code>(a&#124;b)?</code>" and reference.code("[a-z]+") == "`[a-z]+`"
 
 
 def test_the_reference_escapes_a_cell_as_tools_docs_does() -> None:

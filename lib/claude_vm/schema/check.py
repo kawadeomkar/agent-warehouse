@@ -6,15 +6,15 @@ placeholder a line that shows a command's form writes for it (words.py's `placeh
 pattern, with patterns.py's `full`; then runs the rules between options its row names (rules.py), in that order; then
 holds the verb's words to their number. It returns None, or the one sentence of the first refusal. A placeholder's
 sentence says that it stands for a value, which says no value back: the placeholder is aw's own text. A pattern's
-sentence never says the value, since a word typed may be a secret, and says the form the value may take (patterns.py's
-`form`) after the option's help; a rule's says back no value that may be a secret, and only one that has met its
-pattern. Values come as the parser gives them and as JSON with exact types, and nothing is coerced: a value option's is
-a string, a flag's a boolean, a repeatable option's a list of strings, a counted option's a whole number; a verb's words
-are a list of strings where it takes several and a string where it takes one, or a list where the parser was given more
-than one, which the rules see as given before the verb's one word is held to its number; and `detach` is a flag of every
-verb whose run is a job. A key the verb has no option for is refused, and one whose value is None is taken as not given.
-`formed(verb, values)` is the check but for the rules between options: what the printer of a command holds a line to
-(printer.py).
+sentence never says the value, since a word typed may be a secret, and says what the value may be, in words
+(patterns.py's `form`), after the option's help; a rule's says back no value that may be a secret, and only one that
+has met its pattern. Values come as the parser gives them and as JSON with exact types, and nothing is coerced: a value
+option's is a string, a flag's a boolean, a repeatable option's a list of strings, a counted option's a whole number;
+a verb's words are a list of strings where it takes several and a string where it takes one, or a list where the parser
+was given more than one, which the rules see as given before the verb's one word is held to its number; and `detach`
+is a flag of every verb whose run is a job. A key the verb has no option for is refused, and one whose value is None is
+taken as not given. `formed(verb, values)` is the check but for the rules between options: what the printer of a
+command holds a line to (printer.py).
 
 Every command a sentence here names, the verb refused and where its options are listed among them, is the printer's,
 through printer.py's `said`, so it is the program as it was started, quoted. `command` names the verb a refusal is
