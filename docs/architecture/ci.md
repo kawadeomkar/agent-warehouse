@@ -20,9 +20,12 @@
 justfile's `managed_python`, which the launcher `aw` names too (`tests/unit/test_justfile.py` holds the three to
 one) - and uv (at the version `uv.lock` pins), making a virtualenv first on `PATH` (`activate-environment`), installing
 `just` from upstream's archive for the runner's system - x86_64 Linux's or arm64 macOS's, each checked against its own
-SHA256 beside the one version (`JUST_SHA256`, `JUST_SHA256_MACOS`), by `sha256sum`, or `shasum -a 256` where there is
-none, as on macOS, and refusing a runner of any other system before it downloads anything - restoring the uv and
-Galaxy caches, and running `just install`, which installs into that virtualenv as into any of a user's. The Galaxy cache holds the
+SHA256 beside the one version (`JUST_SHA256`, `JUST_SHA256_MACOS`), and refusing a runner of any other system before
+it downloads anything - restoring the uv and Galaxy caches, and running `just install`, which installs into that
+virtualenv as into any of a user's. The step compares the archive's digest with its pin itself, as a string, the
+digest `shasum -a 256`'s (Perl's, on both runners): no checker's reading of a line decides, since each runner has a
+`sha256sum` too, Ubuntu's GNU one and macOS 26's Apple one in `/sbin`, and Apple's passes a line it cannot read (an
+empty pin, or one a digit short) with exit 0. The Galaxy cache holds the
 checkout's own collections folder (`tools/env-run --collections`), and its key hashes
 `requirements.yml`, which is only correct because those versions are exact. With `install: "false"` it stops
 after Python and uv: the docs workflow takes them from it, so their pins are written once. Every checkout, in every

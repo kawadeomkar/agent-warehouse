@@ -152,6 +152,12 @@ def test_the_engine_job_runs_on_linux_and_on_macos_pinned_by_its_version_on_the_
     action = yaml.safe_load((REPO / ".github" / "actions" / "setup" / "action.yml").read_text())
     default = str(action["inputs"]["python-version"]["default"])
     engine = JOBS["engine"]
+    # The job whole, with no key of its own beyond these: a job-level if: would skip it (on pull requests, say), which
+    # CI result takes as passed; an env: (a PYTEST_ADDOPTS) would narrow the suite it runs; and without its limit a
+    # job hung on a macOS runner would hold it for GitHub's 360 minutes.
+    assert set(engine) == {"name", "runs-on", "timeout-minutes", "strategy", "steps"}, sorted(engine)
+    assert engine["timeout-minutes"] == 30
+    assert set(engine["strategy"]) == {"fail-fast", "matrix"}, engine["strategy"]
     assert engine["name"] == "Engine tests (${{ matrix.os }}, Python ${{ matrix.python }})"
     assert engine["runs-on"] == "${{ matrix.os }}"
     assert engine["strategy"]["fail-fast"] is False
