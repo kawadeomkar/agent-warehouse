@@ -7,8 +7,10 @@ then writes `job.json`. The descriptor stays open, non-inheritable (PEP 446), fo
 job: no child holds the lock, and the kernel lets it go when that process ends, however it ends. So a job's state is
 derived, never stored: `running` while that lock is held, `cancelling` while it is held and a stop is recorded, the
 outcome the record holds (`succeeded`, `failed` or `cancelled`), and `lost` where the record has none and the lock is
-free. Nothing here keeps a pid to decide it, reads a process's start or reads the process table: the pid and the
-start in the record are information for a person and for a machine's `job` line.
+free. Only a lock file that is gone is free: any other error reading the lock (a descriptor limit, a folder's mode, a
+disk's error) is raised as itself, never taken for a run that has ended. Nothing here keeps a pid to decide it, reads
+a process's start or reads the process table: the pid and the start in the record are information for a person and
+for a machine's `job` line.
 
 `emit` hands one event of the run to the listeners the run registered (the live view, the text log), in order and in
 the run's own process; no event is written to a file of its own. What an agent and `logs` need of a run while it runs
@@ -170,10 +172,16 @@ class Job:
 
     def _load(self) -> dict:
         """The record as it is on disk, read strictly: FileNotFoundError or NotADirectoryError where there is none
-        (not yet written, or the job dropped), ValueError where what is there is no record (it does not parse, or is
-        not a mapping), and any other error of the read as itself. It is replaced whole, so it is never half of one."""
-        with open(self.record, encoding="utf-8") as stream:
-            record = json.load(stream)
+        (not yet written, or the job dropped), ValueError where what is there is no record (it does not parse, is not a
+        mapping, is nested past what Python's parser takes, or is a directory), and any other error of the read as
+        itself. It is replaced whole, so it is never half of one."""
+        try:
+            with open(self.record, encoding="utf-8") as stream:
+                record = json.load(stream)
+        except IsADirectoryError:
+            raise ValueError(f"job {self.id}'s record is no record: {RECORD} is a directory") from None
+        except RecursionError:
+            raise ValueError(f"job {self.id}'s record is no record: it is nested past what is read") from None
         if not isinstance(record, dict):
             raise ValueError(f"job {self.id}'s record is not a mapping")
         return record
@@ -439,15 +447,18 @@ def locks_held() -> dict[int, str]:
     return {held: f"job {os.path.basename(key)}'s lock" for key, held in _HELD.items()}
 
 
-def _lock_held(job: Job) -> bool:
-    """Whether the job's lock is held: by this process where it made the job (a shortcut: a probe would find the
-    same), else as a shared lock tried without waiting finds it, let go at once where it was taken. A lock file that
-    is gone is free."""
+def lock_held(job: Job) -> bool:
+    """Whether the job's lock is held, which is whether its run's process lives: by this process where it made the job
+    (a shortcut: a probe would find the same), else as a shared lock tried without waiting finds it, let go at once
+    where it was taken. A lock file that is gone (FileNotFoundError, NotADirectoryError: the job dropped) is free; any
+    other error opening or trying it is raised as itself, never read as a free lock: a descriptor limit, a folder's
+    mode or a disk's error says nothing of the run. What a stop waits on: `state` reads a written outcome whatever the
+    lock, so it cannot tell a run that has written its end from one that has ended."""
     if job._held_here() is not None:
         return True
     try:
         probe = os.open(job.lock, os.O_RDONLY)
-    except OSError:
+    except (FileNotFoundError, NotADirectoryError):
         return False
     try:
         try:
@@ -465,8 +476,9 @@ def state(job: Job) -> str | None:
     gone (not yet written, or the job dropped), as `find` and `listed` pass over it, whatever the lock says: from a
     drop's unlink on, a handle taken before it reads neither `running` nor `lost`. The lock is asked first: a run
     writes its outcome before it ends, so a lock found free means any outcome is already in the record read after it.
-    A record that is there and cannot be read is read as {}, as `read` reads it."""
-    held = _lock_held(job)
+    An error reading the lock is raised as itself (`lock_held`), never said as `lost`. A record that is there and
+    cannot be read is read as {}, as `read` reads it."""
+    held = lock_held(job)
     try:
         record = job._load()
     except (FileNotFoundError, NotADirectoryError):
@@ -525,7 +537,10 @@ def drop(job: Job) -> str | None:
     key = _key(job.folder)
     held = _HELD.get(key)
     if held is None:
-        raise RuntimeError(f"job {job.id} is not this process's: only the run that made a job drops it")
+        raise RuntimeError(
+            f"job {job.id} is held by no lock of this process's: dropped already, or made by another, and only the run"
+            " that made a job drops it, once"
+        )
     kept: OSError | None = None
     try:
         with store.locked(job.record):

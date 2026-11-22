@@ -15,7 +15,9 @@ interrupts stay held off while the table is read; an Ansible child started insid
 once the shield is done; a SIGTERM after a Ctrl-C is what the record says, within SETTLE; one Ctrl-C at a question ends
 the run there; a ladder that cannot be built leaves no job; Python's and asyncio's own reports stay off the terminal. A
 shielded phase finishes before the stop; at a pseudo-terminal the echo is back after each end; a signal ignored on the
-way in stays ignored; and end_under ends what is under a process, never the process.
+way in stays ignored; a child meant to outlive the run, as a page's opener is, lives on unmarked after every end; a
+child the terminal stopped for asking a question there is said within a second and ended, and its run ends; and
+end_under ends what is under a process, never the process, nor what it is told to leave.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ import contextlib
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -80,6 +83,24 @@ RECORDS = (
 PIPE, DEVNULL = asyncio.subprocess.PIPE, asyncio.subprocess.DEVNULL
 # How long a shield that holds an Ansible child lasts: well inside its test's grace.
 SHIELD = 1.5
+# A page's opener, meant to outlive the run: it writes its pid, its session and the job's marker it carries into the
+# file its environment names - never its command line, which the test's look for what a run left reads - then waits.
+OPENS = (
+    "import json, os, time\n"
+    "out = os.environ['OPENED']\n"
+    "said = {'pid': os.getpid(), 'session': os.getsid(0), 'marker': os.environ.get('AGENT_WAREHOUSE_JOB')}\n"
+    "open(out + '.part', 'w').write(json.dumps(said))\n"
+    "os.rename(out + '.part', out)\n"
+    "time.sleep(120)\n"
+)
+# A child that asks a question at the terminal, as the ssh of a person's own ProxyJump asks a passphrase: it writes
+# when it asks into the file named, then reads the terminal.
+ASKS = (
+    "import sys, time\n"
+    "open(sys.argv[1], 'w').write(repr(time.time()))\n"
+    "with open('/dev/tty') as tty:\n"
+    "    tty.readline()\n"
+)
 
 if way == "slow-table":
     # The process table read slowly once, when the test asks, with a mark where a read begins inside another.
@@ -159,10 +180,39 @@ async def prompted(ctx, said):
     return 0
 
 
+async def outlives(ctx, said):
+    env = {**os.environ, children.MARKER: ctx.job.id, "OPENED": str(folder / "opened")}
+    said["opener"] = children.outlive(ctx.job, [sys.executable, "-I", "-c", OPENS], env).pid
+    while not (folder / "opened").exists():
+        await asyncio.sleep(0.02)
+    say(said)
+    if way == "outlive-error":
+        raise RuntimeError("the body's own error")
+    if way == "outlive-waits":
+        await asyncio.sleep(600)
+    return 0
+
+
+async def asks(ctx, said):
+    argv = [sys.executable, "-I", "-c", ASKS, str(folder / "asking")]
+    asking = await children.start(
+        ctx.job, argv, children.GROUP, dict(os.environ), DEVNULL, DEVNULL, DEVNULL, children.SSH
+    )
+    said["asks"] = asking.pid
+    say(said)
+    status = await asking.wait()
+    (folder / "asked").write_text(str(status))
+    return 0 if status == 0 else 1
+
+
 async def body(ctx):
     said = {"job": ctx.job.id, "pid": os.getpid(), "directory": str(ctx.directory)}
     if way.startswith("prompt"):
         return await prompted(ctx, said)
+    if way.startswith("outlive"):
+        return await outlives(ctx, said)
+    if way == "asks":
+        return await asks(ctx, said)
     for name, code in (("ends", ENDS), ("ignores", IGNORES)):
         said[name] = await ready(ctx, code, name)
     process = await stand_in(ctx, holds, "holds", DEVNULL)
@@ -533,14 +583,16 @@ def test_sigkill_writes_no_exit_record_and_the_job_reads_lost(home, jobs_dir, tm
             assert record.get("outcome") is None and record.get("exit") is None
             job = jobs.find(jobs_dir, said["job"])
             assert job is not None and jobs.state(job) == "lost"
-            # What it started is left, for the next command to find: X39's question (card C5).
+            # What it started is left, for the next command to find: X39's question (card C5); and so is its
+            # directory, which no other process's rundir.remove takes (review/code/C3.md 1).
             assert not _ended(said["ignores"])
+            assert Path(said["directory"]).is_dir()
+            with pytest.raises(RuntimeError, match="not this process's"):
+                rundir.remove(job)
+            assert Path(said["directory"]).is_dir()
         finally:
             proc.end_left(remembered)
-            job = jobs.find(jobs_dir, said["job"])
-            if job is not None:
-                rundir.remove(job)
-    assert not Path(said["directory"]).exists()
+            shutil.rmtree(said["directory"], ignore_errors=True)
 
 
 # ---------------------------------------------------------------- Ctrl-C ----
@@ -869,6 +921,78 @@ def test_at_a_terminal_the_echo_is_back_after_each_end(way, home, jobs_dir, tmp_
     assert left == []
 
 
+# ---------------------------------------------------------------- a child meant to outlive the run ----
+
+# Each way a run ends with an opener meant to outlive it: the body's way, the signals sent, the grace, the run's status
+# and its record's outcome. Each but the return ends the tree under the run, which leaves the opener out.
+OUTLIVES = {
+    "returns 0": ("outlive-0", (), 60, 0, "succeeded"),
+    "an error": ("outlive-error", (), 60, 1, "failed"),
+    "Ctrl-C once": ("outlive-waits", (signal.SIGINT,), 2, 130, "cancelled"),
+    "Ctrl-C twice": ("outlive-waits", (signal.SIGINT, signal.SIGINT), 60, 130, "cancelled"),
+    "SIGTERM": ("outlive-waits", (signal.SIGTERM,), 60, -signal.SIGTERM, "cancelled"),
+}
+
+
+@pytest.mark.parametrize("way", OUTLIVES)
+def test_a_child_meant_to_outlive_the_run_lives_on_unmarked_after_each_end(way, home, jobs_dir, tmp_path) -> None:
+    # The editor and a page's opener: before, a program child, marked and ended with its run (review/code/C2.md 1).
+    body, sent, grace, status, outcome = OUTLIVES[way]
+    opener = None
+    try:
+        with _run(home, tmp_path, jobs_dir, body, grace) as (process, said):
+            opener = said["opener"]
+            _send(process, sent, tmp_path / "err")
+            assert process.wait(timeout=90) == status, (tmp_path / "err").read_text()
+        # Time for a kill the ladder sent to have ended it: it lives on, carrying no job's marker, in its own session.
+        time.sleep(1)
+        assert not _ended(opener)
+        opened = json.loads((tmp_path / "opened").read_text())
+        assert (opened["pid"], opened["session"], opened["marker"]) == (opener, opener, None)
+        assert _record(jobs_dir, said)["outcome"] == outcome
+    finally:
+        if opener is not None:
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.kill(opener, signal.SIGKILL)
+
+
+# ---------------------------------------------------------------- a child the terminal stopped ----
+
+ASKED_LINE = re.compile(rb"aw: (\S+) stopped at the terminal to ask a question there")
+
+
+@pytest.mark.skipif(not hasattr(os, "waitid"), reason="Python before 3.13 on macOS has no waitid")
+def test_a_child_stopped_asking_at_the_terminal_is_said_within_a_second_and_ended_and_its_run_ends(
+    home, jobs_dir, tmp_path
+) -> None:
+    # A group child that reads the terminal is stopped by it (SIGTTIN), and would wait for an answer no run gives,
+    # silent, until the run's end (the owner's 8, review/code/SUMMARY-5.md; C2.md, "the terminal").
+    state: dict = {"said": None, "seen": None}
+
+    def act(chunk: bytes, output: bytes, master: int, process: subprocess.Popen) -> None:
+        if state["said"] is None and (found := REPORT.search(output)) is not None:
+            state["said"] = json.loads(found.group(0))
+        if state["seen"] is None and ASKED_LINE.search(output):
+            state["seen"] = time.time()
+
+    argv = [sys.executable, "-I", "-c", WATCHES, *_argv(tmp_path, jobs_dir, "asks", 60)]
+    try:
+        rc, output = harness._at_a_pseudo_terminal(argv, tmp_path, _env(home, tmp_path), act=act, timeout=90, poll=0.05)
+        left = _left(tmp_path)
+    finally:
+        _end_left(tmp_path)
+    watched = WATCHED.search(output)
+    assert rc == 0 and watched is not None, output.decode(errors="replace")
+    asked = ASKED_LINE.search(output)
+    assert asked is not None and asked.group(1) == os.path.basename(sys.executable).encode()
+    assert state["seen"] is not None and state["seen"] - float((tmp_path / "asking").read_text()) < 1.0
+    # Ended: killed, so the step that waited on it failed, and the run ended with the body's own status.
+    assert (tmp_path / "asked").read_text() == str(-signal.SIGKILL)
+    assert int(watched.group(2)) == 1
+    assert _record(jobs_dir, state["said"])["outcome"] == "failed"
+    assert left == []
+
+
 # ---------------------------------------------------------------- end_under ----
 
 # A child with one grandchild in a session of its own and one in the child's own group, both pids to the file named.
@@ -921,6 +1045,48 @@ def test_end_under_ends_what_was_remembered_by_its_start_and_never_another_at_it
         harness._end(root)
         bystander.kill()
         bystander.wait()
+
+
+# A child that starts two of its own: one in a session of its own that starts NESTS's shape under it, as a child meant
+# to outlive its run may start its own, and a sleeper in its group; their two pids to the last file named.
+SPLITS = (
+    "import subprocess, sys, time\n"
+    "left = subprocess.Popen([sys.executable, '-I', '-c', *sys.argv[1:4]], start_new_session=True)\n"
+    "other = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\n"
+    "open(sys.argv[4], 'w').write(f'{left.pid} {other.pid}')\n"
+    "time.sleep(120)\n"
+)
+
+
+def test_end_under_never_signals_what_it_is_told_to_leave_nor_what_is_under_it(tmp_path) -> None:
+    # A child meant to outlive the run, as the run's end leaves it (children.outliving), and what it started with it.
+    nested, split = tmp_path / "nested", tmp_path / "split"
+    root = subprocess.Popen(
+        [sys.executable, "-I", "-c", SPLITS, NESTS, HOLDS, str(nested), str(split)], process_group=0
+    )
+    found: list[int] = []
+    try:
+        _until(
+            lambda: all(each.is_file() and len(each.read_text().split()) == 2 for each in (nested, split)),
+            "the pids written",
+        )
+        left, other = map(int, split.read_text().split())
+        middle, grandchild = map(int, nested.read_text().split())
+        found = [left, middle, grandchild]
+        remembered = proc.snapshot(root.pid)
+        assert {left, middle, other} <= set(remembered)
+        signalled = proc.end_under(root.pid, remembered, leaving=[left])
+        assert other in signalled and not set(found) & set(signalled)
+        _until(lambda: _ended(other), "the other child ended")
+        time.sleep(0.3)
+        assert not any(_ended(each) for each in found) and root.poll() is None
+        # And a snapshot told to leave it remembers nothing of it.
+        assert not {left, middle} & set(proc.snapshot(root.pid, leaving=[left]))
+    finally:
+        for each in found:
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.kill(each, signal.SIGKILL)
+        harness._end(root)
 
 
 def test_end_under_with_a_table_it_cannot_read_says_so_and_signals_nothing(tmp_path, monkeypatch) -> None:

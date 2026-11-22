@@ -290,9 +290,12 @@ writes `uv.lock` and needs no environment; and for its one word of its own, `--i
 passes it as a child carrying the job's marker, `AGENT_WAREHOUSE_JOB`, and which is refused, naming `aw install`,
 without it. It never installs into a virtualenv of the person's own unasked: the program names `aw install` where one
 lacks the packages. It tells the program how a person runs it again, in `AGENT_WAREHOUSE_STARTED_AS`: `aw` where
-`command -v aw` is this launcher by its physical path, else what was typed to start it. `install_env` ends, where `aw`
-on `PATH` is not this launcher, with one sentence of how to put it there (`ln -s <checkout>/aw ~/.local/bin/aw`), and
-writes nothing outside the checkout for it.
+`command -v aw` is this launcher by its physical path, else what was typed to start it. It hands the program no job's
+marker it inherited: past `--install-env`, which reads it, `AGENT_WAREHOUSE_JOB` is unset, so the program's own
+environment, as the system shows it, carries none; and `main.py` takes one out of its environment at its start too,
+for `tools/aw` run directly, so that a child a run starts outside `children.start` (16.8) carries no other job's ID.
+`install_env` ends, where `aw` on `PATH` is not this launcher, with one sentence of how to put it there
+(`ln -s <checkout>/aw ~/.local/bin/aw`), and writes nothing outside the checkout for it.
 
 `tests/unit/test_aw_cli_parse.py` holds all of it: every option of every verb in both spellings, the refusals and that
 none says a value or has a usage block, `--detach`, `default_vm`, `RunWords`, in `run_words` and in the program, the
@@ -1067,27 +1070,32 @@ anything is made, and the module is the standard library alone, with `store`, `t
 `store.locked`, so the run and another process recording a stop lose neither change. A name `FIELDS` lacks is refused,
 and so are `id`, `pid` and `started` (`CREATED`), which only `create` writes: `cancel` signals the recorded pid only
 while the job's lock is held, which holds only while nothing else writes it. Only `create` writes a record from
-nothing. A change reads the record strictly: where it is gone (the job dropped) or is no record (it does not parse, or
-is not a mapping), `Gone` is raised and nothing is written; any other error of the read (a descriptor limit, a disk's
-error, NFS's `ESTALE`) is raised as itself, so that `Gone`, which `cancel` says as "no such job", is never said of a run
-that runs. A reader is never refused: `read` gives `{}` for a record it cannot read. The record has no schema of its
-own and no event file beside it: `events.jsonl` is the add-on's.
+nothing. A change reads the record strictly: where it is gone (the job dropped) or is no record (it does not parse, is
+not a mapping, is nested past what Python's parser takes, or is a directory), `Gone` is raised and nothing is written;
+any other error of the read (a descriptor limit, a disk's error, NFS's `ESTALE`) is raised as itself, so that `Gone` is
+said only of a record that is gone or damaged, never of a run whose record is whole. A reader is never refused: `read`
+gives `{}` for a record it cannot read, and `listed` passes over it. The record has no schema of its own and no event
+file beside it: `events.jsonl` is the add-on's.
 
 **The states are derived, never stored.** `state(job)` reads `running` while the job's lock is held, which a
-`LOCK_SH | LOCK_NB` attempt on the file finds (let go at once where it was taken), and `cancelling` while it is held
-and a stop is recorded; the outcome where the record has one; and `lost` where it has none and the lock is free: a run
-killed outright, or one that ended without saying how. Where the record is gone (not written yet, or the job dropped)
-there is no state: `state` is `None`, no such job, as `find` says, whatever the lock, so a job read through a handle
-taken before its drop is, from the record's unlink on, neither `running` with an empty record nor `lost`, which a test
-holds with the drop made by another process. A record that is there and cannot be read is read as `{}`. It asks the
-lock before it reads the record: a run writes its outcome before it ends, so a lock found free means any outcome is
-already there, and a run that ends just after its record is read reads `running`, never `lost`, which a test holds. A
-job the reading process made itself is read from what it holds, a shortcut that saves a probe and no rule: a probe
-reads the same, since a `flock` belongs to its open file description and closing a second descriptor of a lock file
-does not let the first's lock go, as experiment 40 measured on Linux, on NFSv3 and NFSv4.2, where Linux emulates
-`flock` with POSIX locks, as on a local disk (macOS's half is not measured yet); a test probes the run's own lock from
-its own process. No module of `runs/` keeps a pid to decide a state, reads a process's start or reads the process table
-for one, which a scan in the test holds.
+`LOCK_SH | LOCK_NB` attempt on the file finds (let go at once where it was taken), and `cancelling` while it is held and
+a stop is recorded; the outcome where the record has one; and `lost` where it has none and the lock is free: a run
+killed outright, or one that ended without saying how. **Only a lock file that is gone is free**: `lock_held(job)`, the
+lock's own answer, which a stop waits on since `state` reads a written outcome whatever the lock, takes
+`FileNotFoundError` and `NotADirectoryError` for a free lock and raises any other error of its probe as itself (a
+descriptor limit, the file's or the folder's mode, a disk's error), and so does `state`: read as free, a living run read
+`lost`, and another process could act on that. A refusal at the locks says that error in its sentence. Where the record
+is gone (not written yet, or the job dropped) there is no state: `state` is `None`, no such job, as `find` says,
+whatever the lock, so a job read through a handle taken before its drop is, from the record's unlink on, neither
+`running` with an empty record nor `lost`, which a test holds with the drop made by another process. A record that is
+there and cannot be read is read as `{}`. It asks the lock before it reads the record: a run writes its outcome before
+it ends, so a lock found free means any outcome is already there, and a run that ends just after its record is read
+reads `running`, never `lost`, which a test holds. A job the reading process made itself is read from what it holds, a
+shortcut that saves a probe and no rule: a probe reads the same, since a `flock` belongs to its open file description
+and closing a second descriptor of a lock file does not let the first's lock go, as experiment 40 measured on Linux, on
+NFSv3 and NFSv4.2, where Linux emulates `flock` with POSIX locks, as on a local disk (macOS's half is not measured yet);
+a test probes the run's own lock from its own process. No module of `runs/` keeps a pid to decide a state, reads a
+process's start or reads the process table for one, which a scan in the test holds.
 
 **Events.** `emit(kind, machine, text, **data)` hands one event, with its time, to each listener the run registered
 with `listen` (the live view and the text log), in order and in the run's own process. The kinds are `stage`, `step`,
@@ -1115,37 +1123,63 @@ unlinked while the drop holds the folder's lock.
 
 **A run's children: `children.py`.** Every process a run starts carries the job's marker, `AGENT_WAREHOUSE_JOB`, the
 name today's MCP jobs set, with the job's ID: whatever reads it matches the ID, never the name alone. `start` gives it
-whatever environment it is handed; `unmarked(env)` takes it away, for the one kind of child that must not carry it, a
-shared SSH master, which other runs may ride after this one ends. Only the process that made a job marks a child with
-it. `start(job, argv, own, env, stdin, stdout, stderr, kind, pass_fds=())`
-is the one way the engine starts a child, the SSH runner's `ssh` children among them, a coroutine over asyncio's own:
+whatever environment it is handed; `unmarked(env)` takes it away, for the two kinds of child that must not carry it,
+which no end of the run reaches: a shared SSH master, which other runs may ride after this one ends, and a child meant
+to outlive its run. Only the process that made a job marks a child with it, and a run carries no marker of its own: one
+it inherited (a run started from an agent's job, or from a terminal of an editor a run opened) is unset by the launcher
+and taken out of the program's environment at its start (16.3), so the children a run starts outside `start` - the
+`ssh` that `route.py` runs for the hop and `ssh -G`, the `ps` that `proc.py` runs for the tree - carry none.
+`start(job, argv, own, env, stdin, stdout, stderr, kind, pass_fds=())` is the one way the engine starts a child that
+ends with its run, the SSH runner's `ssh` children among them, a coroutine over asyncio's own:
 
 - `own` is `group`, a process group of its own, so that the terminal's Ctrl-C reaches the run alone; or `session`, a
-  session of its own, its standard input `/dev/null`. Standard input is always named: a child in a group of its own
-  that read the terminal would be stopped, and one in a session of its own would take what the person types.
-- The child gets the marker whatever environment it is handed, and a master loses it. Before it runs, SIGINT, SIGTERM,
-  SIGHUP and SIGQUIT are put back to their defaults and unblocked: a process starts with what its parent ignored still
-  ignored, and a run started under `nohup` or with `&` ignores SIGINT.
+  session of its own, its standard input `/dev/null`. Standard input is always named, and never the run's own
+  descriptor 0: a child in a group of its own that read the terminal would be stopped, and one in a session of its own
+  would take what the person types.
+- The child gets the marker whatever environment it is handed, and a master loses it. Before it runs, every signal a
+  handler can be given is put back to its default and none is blocked: a process starts with what its parent ignored
+  still ignored, a run started under `nohup` or with `&` ignores SIGINT, and Python ignores SIGPIPE.
 - Every descriptor is closed in the child but its standard streams and those `pass_fds` names, which is how a pipe is
   handed over on purpose. A descriptor of one of the run's locks, or any duplicate of one (the same file), is refused
-  with the lock's name before anything starts: the kernel lets a lock go only once every descriptor of it is closed,
-  so a child that held one would keep it past its run's end. The locks are read from `HOLDERS`, one function of each
-  module of `runs/` that takes a lock, which gives the descriptors it holds them by.
+  with the lock's name before anything starts, a standard stream given as `None`, which the child inherits from the
+  run, among them: the kernel lets a lock go only once every descriptor of it is closed, so a child that held one would
+  keep it past its run's end. The locks are read from `HOLDERS`, one function of each module of `runs/` that takes a
+  lock, which gives the descriptors it holds them by.
 - The kinds are `ssh`, the SSH runner's bounded and held children, a forward among them; `ansible`, layer 1's
-  `ansible-playbook`; `program`, a program of the computer's own (`rsync`, an opener, the editor); and `master`.
+  `ansible-playbook`; `program`, a program of the computer's own that ends with the run (`rsync`); and `master`.
 
-The children a run started are kept by kind, in memory, for the run's end (`attached.py`): `start` enters each, and
-`live(job, kind)` gives those still running, in the order they started. A master is entered nowhere, since no run ever
-ends one.
+The children a run started are kept by kind, in memory, for the run's end (`attached.py`): `start` enters each, with its
+program's name, and `live(job, kind)` gives those still running, in the order they started. A master is entered
+nowhere, since no run ever ends one. **A run's end ends `ssh`, `ansible` and `program` children, and nothing else.**
+
+**A child meant to outlive its run**, the editor or a page's opener, is `outlive(job, argv, env)`'s, the kind
+`outliving`: unmarked, in a session of its own, so that the terminal neither stops it nor hangs it up, the signals at
+their defaults, its standard streams `/dev/null` and nothing else open; entered in no registry, so the run's end neither
+waits for it nor ends it; and left out, with what is under it, of every tree the ladder remembers and ends
+(`outliving()`). It is started by `subprocess` itself, never through asyncio, whose transport kills a child it still
+holds once the transport is closed or collected. Nothing ends it; a caller that wants its status polls it.
+
+**A child the terminal stopped.** `asking(job)` gives the job's children that the terminal has stopped, with the signal:
+SIGTTIN, for a child in a group of its own, or of its group (the `ssh` of a person's own `ProxyJump`, which `BatchMode`
+does not reach), that read the terminal to ask a question there, a passphrase or a second factor, or `git`'s or
+`sudo`'s; or SIGTTOU, for one that wrote to it or changed its settings to ask. It reads with `waitid` and `WNOWAIT`,
+reaping nothing, and a child stopped for any other reason is not one; where Python has no `waitid` (macOS before
+Python 3.13) none is found.
+
 Nothing is written to a file, and nothing reads the process table. `tests/unit/test_aw_children.py` holds it, with real
-children that report what they were given, and holds four rules by scans of the new engine's code: a child process is
-started only through this module, by any of Python's ways; `close_fds=False` appears nowhere; no
-process is forked without an exec (`os.fork`, `os.forkpty`, `pty.fork`, a `fork` start method or context), since a
-forked child keeps every lock until it execs; and `pass_fds` and `set_inheritable(..., True)` appear only in `start`.
+children that report what they were given (on Linux, a program that is not Python shows the kernel's own masks of the
+signals ignored and blocked), and holds four rules by scans of the new engine's code: a child process is started only
+through this module, by any of Python's ways, `posix`'s, a browser's opener and a module or an attribute asked for by
+its name among them; `close_fds` is never anything but `True`; no process is forked without an exec (`os.fork`,
+`os.forkpty`, `pty.fork`, `posix`'s, a `fork` start method or context, or one named by a variable), since a forked child
+keeps every lock until it execs; and `pass_fds` and `set_inheritable(..., True)` appear only in `start`, and nothing
+else makes a descriptor inheritable (`os.dup2`, `F_SETFD`, `F_DUPFD`, `os.pipe2`).
 
 **A run's short-lived directory: `rundir.py`.** A run's generated files, the layer-1 child's configuration, its
-inventory and its variables, go in one directory of the run's own. `make(job)` makes it with `tempfile.mkdtemp` under
-the per-user temporary directory (`TMPDIR` where it is set, as on macOS, else `/tmp`), at mode 0700 whatever the umask,
+inventory and its variables, go in one directory of the run's own, and so does a machine's first use's scratch
+known-hosts file (`ssh/connections.py`). `make(job)` makes it with `tempfile.mkdtemp` under the per-user temporary
+directory (`tempfile.gettempdir()`: the first of `TMPDIR`, `TEMP` and `TMP` that names a directory it can write in,
+else `/tmp`, `/var/tmp` or `/usr/tmp`, and at last the folder the run started in), at mode 0700 whatever the umask,
 named `aw-run-`, the job's ID, a dash and mkdtemp's letters, and writes its path into the job's record as `directory`;
 where the record cannot take it, the job dropped, the directory is removed again. It is never made inside
 `XDG_RUNTIME_DIR`, compared by the real paths of both: systemd removes that directory at the person's last logout
@@ -1155,14 +1189,13 @@ in the name tells which job left a directory, and is in the command line of ever
 each writing nothing: the module makes and removes
 the directory and writes no file in it. Only the process that made a job makes its directory, one a run, or names a
 file in it. `remove(job)` deletes the directory with what it holds, says whether anything was left, and is safe to
-call twice: the run removes the one it made, even once its job is dropped; any other process removes only the one the
-record names, held to the form `make` gives it (absolute, the job's ID in its name, a real directory of this account's
-and not a link), and never while the job's lock is held, since a living run's directory is its own, nor where the job
-is no job by the time its state is asked (its run dropped it since the record was read, and removes what it made
-itself). No secret is ever written there: a secret travels on standard input or stays in memory, as today, and every
-workflow's tests search the directory for the secrets they gave (`aw_kit.searched_for`). No socket is made there
-either: a shared connection lives in the one control directory. `tests/unit/test_aw_rundir.py` holds it, with a scan
-that finds no write in the module.
+call twice: only the process that made the directory removes it, even once its job is dropped, and what it could not
+remove it tries again at the same path, whatever the record says by then; a call for a job another process made is
+refused, as `make` and `path_for` refuse one, so that another process deletes nothing whatever the job's lock and
+record say: a living run's directory is its own, and one a killed run left is no other run's to judge. No secret is
+ever written there: a secret travels on standard input or stays in memory, as today. No socket is made there either: a
+shared connection lives in the one control directory. `tests/unit/test_aw_rundir.py` holds it, with a scan that finds
+no write in the module, by any of the codebase's ways (`store.replace`, a copy, a link, a rename, a folder made).
 
 **The locks: `locks.py`.** Two runs are kept apart by the kernel's file locks, `flock` on files of the state folder's
 `locks/` (`paths.locks_dir`), each opened in this module alone at mode 0600, never through a link, and kept open for as
@@ -1299,16 +1332,26 @@ ladder:
 On every path but SIGKILL, the terminal's settings are put back as the run found them, its echo among them (where
 anything changed them, SIGTTOU held off); every child of the registry has ended or been ended before the loop closes,
 since asyncio kills an `ansible-playbook` it still holds when its loop closes and leaves the playbook's detached task
-workers running; the run's directory is removed; and the exit record is written last, with the signals held off and
-then taken as notes only, so that a late one changes nothing but what the process dies of. "The tree" is everything
-under the run's process, ended by `proc.end_under(pid, remembered, signum)`, which signals every process under a process
-and what was remembered of it, by each one's start, with their groups, and never the process, its group or the
-caller's: today's `end` signals the root too, which here is the run. A shared SSH master daemonises out of the tree, so
-no end reaches it, and its open, while it runs, is left out of what is remembered (`children.opening`), since the master
-it leaves keeps its `ProxyCommand` in the open's group; a second Ctrl-C during an open ends that open, and the master
-it was making. No child subreaper and no systemd scope are adopted, since under a subreaper one run's end would cut
-another run's connection through the host. The ladder is built against stand-ins; experiment 37 tries it with real
-children, and if a foreground run cannot end its tree by itself, `runs.run` is where a small watcher would go.
+workers running; the run's directory is removed; and the exit record is written last, with the signals held off and then
+taken as notes only, so that a late one changes nothing but what the process dies of. "The tree" is everything under the
+run's process, ended by `proc.end_under(pid, remembered, signum)`, which signals every process under a process and what
+was remembered of it, by each one's start, with their groups, and never the process, its group or the caller's: today's
+`end` signals the root too, which here is the run. A shared SSH master daemonises out of the tree, so no end reaches it,
+and its open, while it runs, is left out of what is remembered (`children.opening`), since the master it leaves keeps
+its `ProxyCommand` in the open's group; a second Ctrl-C during an open ends that open, and the master it was making. A
+child meant to outlive the run (`children.outliving`, the editor, a page's opener) is left out of both, of what is
+remembered and of what is ended, with what is under it: no end of the run reaches it. No child subreaper and no systemd
+scope are adopted, since under a subreaper one run's end would cut another run's connection through the host. The ladder
+is built against stand-ins; experiment 37 tries it with real children, and if a foreground run cannot end its tree by
+itself, `runs.run` is where a small watcher would go.
+
+**A child the terminal stopped.** While the run lives it looks, every 0.2 seconds, for a child the terminal has
+stopped (`children.asking`): one in a group of its own that asked a question at the terminal, which a run never answers
+and where it would wait, stopped and silent, holding its step until the run's end. Such a child is said at once on
+standard error, in one line that names its program and what to do (hold the key in an agent, `ssh-add`, or give a
+`ProxyJump` of the person's own what it asks for in its own settings), and ended with what is under it; the step that
+waited on it sees it killed, its machine's failure. Giving such a question the terminal, so that it reaches the person,
+is the owner's to ask for.
 
 **Nothing holds the process once its record is written.** The engine's blocking calls (`asyncio.to_thread`, a
 `run_in_executor` of the default) run on the ladder's own executor, the loop's default: each call on a daemon thread of
@@ -1348,7 +1391,8 @@ in a shield has its SIGINT once the shield is done; a SIGTERM after a Ctrl-C who
 `SETTLE`, recorded as itself; one Ctrl-C at a question ends the run at a pseudo-terminal, cooked or raw; a ladder that
 cannot be built leaves no job; a record that cannot be written is said; asyncio's reports stay off the terminal; the
 grace, the stop recorded, a shielded phase, a signal ignored on the way in, and the echo at a pseudo-terminal after
-each end.
+each end; a page's opener meant to outlive the run alive and unmarked after each end; and a child that asks a question
+at a pseudo-terminal said within a second and ended, its run ending with its body's own status.
 
 ## 16.9 `fleet/` — the fleet's files, the settings, the secrets and the fleet's mark
 

@@ -10,8 +10,11 @@ between options, lib/claude_vm/schema/rules.py). A Ctrl-C at deploy's question e
 is the program as it was started: the launcher at the checkout's top says which in STARTED_AS (aw where aw on PATH is
 that launcher, else what the person typed to start it), which main takes out of the environment at once, so nothing the
 run starts inherits it, and hands to the printer of a command (inverse.py's started_as); with none, as for tools/aw run
-directly, the program is aw. Standard library only, and the modules of cli/, schema/ and fleet/paths.py, and of tui/ to
-ask deploy's question.
+directly, the program is aw. It takes a job's marker, AGENT_WAREHOUSE_JOB, out of its environment as soon: a run is
+started by a marked process now and then (an agent's job, a terminal of an editor a run opened), and its own children
+are marked by the one way a run starts them (runs/children.py), so a child it starts any other way - route.py's ssh,
+proc.py's ps - would carry another job's ID. Standard library only, and the modules of cli/, schema/ and fleet/paths.py,
+and of tui/ to ask deploy's question.
 """
 
 from __future__ import annotations
@@ -25,6 +28,8 @@ from claude_vm.schema.words import EXITS, VERBS
 
 # What the launcher at the checkout's top says the program is, as a person can run it again: aw, or what they typed.
 STARTED_AS = "AGENT_WAREHOUSE_STARTED_AS"
+# A job's marker, which a run never inherits: runs/children.py's MARKER, held equal by tests/unit/test_aw_children.py.
+MARKER = "AGENT_WAREHOUSE_JOB"
 
 
 def checkout(program: str) -> Path:
@@ -36,6 +41,7 @@ def checkout(program: str) -> Path:
 def main(argv: list[str]) -> int:
     """argv as tools/aw hands it on: its own path, then the words typed. Returns the exit status."""
     program, words = argv[0], argv[1:]
+    os.environ.pop(MARKER, None)
     inverse.started_as(os.environ.pop(STARTED_AS, None))
     if words == ["--version"]:
         print(f"aw from the checkout {checkout(program)}")

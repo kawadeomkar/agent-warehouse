@@ -1093,9 +1093,11 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       inherits, for the life of the process that made the job: the kernel lets the lock go when that process ends,
       however it ends, and nothing is ever left to clear.
     - `state` reads `running` while that lock is held (`cancelling` with a stop recorded), the outcome the record holds,
-      and `lost` where it holds none and the lock is free; `lost` is never written. Where the record is gone it is
+      and `lost` where it holds none and the lock is free; `lost` is never written. Only a lock file that is gone is
+      free: any other error of the lock's probe (a descriptor limit, a mode, a disk's error) is raised as itself by
+      `lock_held`, the lock's own answer, and by `state`, never read as a run that ended. Where the record is gone it is
       `None`, no such job, as `find` says, whatever the lock: a handle taken before a drop never reads `running` or
-      `lost` after it. It asks the lock before it reads the record, since a run writes its outcome before it ends:
+      `lost` after a drop that removed the record. It asks the lock before it reads the record, since a run writes its outcome before it ends:
       asked the other way round, a run that ends just after its record was read would read `lost`. A job the reading
       process made itself is read from what it holds, a shortcut, not a need: closing a second descriptor of a lock
       file does not let the first's lock go, since a `flock` belongs to its open file description, as experiment 40
@@ -1104,29 +1106,42 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       information, written by `create` alone, so that a pid `cancel` signals is the one `create` recorded.
     - Every string the record and an event hold is made plain (`text.plain_text`), and a `Secret` is refused before
       anything is written or heard. Only `create` writes a record from nothing. A change reads it strictly: one whose
-      record is gone, or is no record, raises `Gone`, and any other error of the read is raised as itself, so that
-      `Gone` is never said of a run that runs; a reader is never refused. A job dropped goes `job.json` first, unlinked
+      record is gone, or is no record (nested past what is read, or a directory, among them), raises `Gone`, and any
+      other error of the read is raised as itself, so that `Gone` is never said of a run whose record is whole; a
+      reader is never refused. A job dropped goes `job.json` first, unlinked
       under `store.locked` as every change is, so a writer lands before it or is refused; then its lock; then its
       folder, what cannot be removed left as it is, so that a refused run's refusal is never lost to a traceback, and
       `drop` returns the line that says where the record is left, if it is. Removed with the lock still open, NFS keeps
       the folder.
     - `tests/unit/test_aw_job.py` holds it, each state made by a run in a child process, with a scan of `runs/`.
-- **Every process a run starts carries the job's marker, but a shared SSH master; no child is handed a lock.** Read
+- **Every process a run starts carries the job's marker, but a shared SSH master and a child meant to outlive its run;
+  no child is handed a lock.** Read
   [§16.8](docs/architecture/engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run) first.
     - A child of the new engine is started by `lib/claude_vm/runs/children.py`'s `start`, the SSH runner's `ssh`
       children too: never another `Popen`, `create_subprocess_exec` or any other of Python's ways, and no module but
       `children.py` is a starter. `start` gives the child `AGENT_WAREHOUSE_JOB`, the job's
       ID, whatever environment it is handed, and takes it from a shared master, which other runs may ride after this
-      one ends; a process group or a session of its own; SIGINT, SIGTERM, SIGHUP and SIGQUIT at their defaults and
-      unblocked, since a run started under `nohup` ignores SIGINT; and standard input named, `/dev/null` in a session.
+      one ends; a process group or a session of its own; every signal a handler can be given at its default and none
+      blocked, since a run started under `nohup` ignores SIGINT and Python ignores SIGPIPE; and standard input named,
+      never the run's own descriptor 0, `/dev/null` in a session. The children `start` does not start are `route.py`'s
+      `ssh` (the hop, `ssh -G`) and `proc.py`'s `ps`: a run carries no marker it inherited, which the launcher at the
+      checkout's top unsets and `cli/main.py` takes out of the environment at once, so they carry none.
+    - A run's end ends its `ssh`, `ansible` and `program` children. A child meant to outlive its run, the editor or a
+      page's opener, is `outlive`'s, never `start`'s: unmarked, in a session of its own, its standard streams
+      `/dev/null`, in no registry, started by `subprocess` and never asyncio (whose transport kills a child it still
+      holds), and left out of every tree the ladder remembers and ends (`outliving`).
     - Every descriptor is closed in a child but its standard streams and those `pass_fds` names, which is how a pipe
       goes over on purpose; one of a lock the run holds, or a duplicate of it, is refused by the lock's name before
-      anything starts, since a child that held it would keep it past the run. A module of `runs/` that takes a lock
-      gives `children.HOLDERS` a function that lists them. Never `close_fds=False`, and never a fork with no exec
-      (`os.fork`, `os.forkpty`, `pty.fork`, a `fork` start method of `multiprocessing`): a forked child keeps every lock
-      until it execs. `pass_fds` and `set_inheritable(..., True)` appear only in `start`.
+      anything starts, a standard stream the child inherits among them, since a child that held it would keep it past
+      the run. A module of `runs/` that takes a lock gives `children.HOLDERS` a function that lists them. `close_fds` is
+      never anything but `True`, and never a fork with no exec (`os.fork`, `os.forkpty`, `pty.fork`, `posix`'s, a
+      `fork` start method of `multiprocessing`): a forked child keeps every lock until it execs. `pass_fds` and
+      `set_inheritable(..., True)` appear only in `start`, and nothing else makes a descriptor inheritable.
+    - A child the terminal stopped for asking a question there (SIGTTIN or SIGTTOU: the `ssh` of a person's own
+      `ProxyJump`, a question of `git`'s or `sudo`'s), which `children.asking` reads with `waitid`'s `WNOWAIT`, is said
+      by the run within a second, naming its program and what to do, and ended: never left stopped and silent.
     - `tests/unit/test_aw_children.py` holds it, with real children that report what they were given, and scans of the
-      new engine's code for each rule.
+      new engine's code for each rule; `tests/unit/test_aw_attached.py` the opener and the question at a terminal.
 - **Every `ssh` the new engine starts carries `BatchMode=yes` and names the machine by its identity.** Read
   [§16.6](docs/architecture/engine.md#166-ssh--the-runner-over-openssh) first.
     - `lib/claude_vm/ssh/runner.py` builds every command line from a `Target`, each value held before any child starts:

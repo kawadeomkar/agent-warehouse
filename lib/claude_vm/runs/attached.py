@@ -21,6 +21,13 @@ and a kill (docs/architecture/engine.md §16.8).
   for any other status, and `cancelled` for 130.
 - SIGKILL: nothing is written, and the job reads `lost` once its lock is free (runs/job.py).
 
+While the run lives, a child the terminal stopped for asking a question there (runs/children.py's asking: SIGTTIN or
+SIGTTOU, a passphrase or a second factor asked by the `ssh` of a person's own ProxyJump, a question of `git`'s or
+`sudo`'s) is said at once, in a line that names its program and what to do, and ended with what is under it: a run
+answers no question at the terminal, and a child stopped there would hold its step to the run's end. The step that
+waited on it sees it killed, its machine's failure. A child meant to outlive the run (children.outlive: the editor, a
+page's opener) is never ended: it is left out of every tree the ladder remembers and ends.
+
 On every path but SIGKILL the terminal is put back as it was found, its echo with it; every child of the registry has
 ended or been ended before the loop closes, since asyncio kills an `ansible-playbook` it still holds when its loop
 closes and leaves the playbook's detached task workers running; the run's directory is removed; and the exit record is
@@ -82,6 +89,13 @@ STOPPING = "aw: stopping: what the run started has {grace} s to end, then it is 
 FINISHING = "aw: stopping once {reason} is finished: Ctrl-C again ends it now"
 # What is said where the run's work did not end once it was cancelled, and is left as it is.
 LEFT = "aw: the run's work did not end within {settle} s of being stopped, and is left unfinished"
+# How often the run looks for a child the terminal has stopped, and what it says of one.
+ASKING_POLL = 0.2
+ASKED = (
+    "aw: {program} stopped at the terminal to ask a question there (a key's passphrase, a second factor), which a run"
+    " never answers: it is ended, and its machine fails. Hold the key in an agent (ssh-add), or give a ProxyJump of"
+    " yours what it asks for in its own settings, then run it again"
+)
 # Why a run ended as it did, in its record.
 BY_CTRL_C = "Ctrl-C"
 BY_CTRL_C_TWICE = "Ctrl-C twice"
@@ -385,6 +399,9 @@ class _Ladder:
         self.closing = False
         # What could not read the process table, or record the stop, said at the end.
         self.blind: list[str] = []
+        # The children the terminal stopped that were said and ended, and the task that looks for them.
+        self.asked: set[children.Child] = set()
+        self.watching: asyncio.Task | None = None
 
     # ---------------------------------------------------------------- the handler, and what it starts ----
 
@@ -424,23 +441,26 @@ class _Ladder:
         """The tree under this process added to what is remembered of it, read with the interrupts held off: blocked
         in this thread, and in every thread of the ladder's own from its start, so none of them takes one meanwhile.
         Never a shared master's open, nor what is under it (children.opening): the master it leaves keeps its
-        ProxyCommand in the open's group, and no run ends a master."""
+        ProxyCommand in the open's group, and no run ends a master; nor a child meant to outlive the run
+        (children.outliving), nor what is under it."""
         from claude_vm import proc
 
         held = signal.pthread_sigmask(signal.SIG_BLOCK, proc.HELD)
         try:
-            self.remembered.update(proc.snapshot(os.getpid(), leaving=children.opening()))
+            leaving = [*children.opening(), *children.outliving()]
+            self.remembered.update(proc.snapshot(os.getpid(), leaving=leaving))
         except proc.Blind as error:
             self.blind.append(str(error))
         finally:
             signal.pthread_sigmask(signal.SIG_SETMASK, held)
 
     def end_tree(self, signum: int) -> None:
-        """Everything under this process signalled, and what was remembered of it, never this process."""
+        """Everything under this process signalled, and what was remembered of it, never this process, nor a child
+        meant to outlive the run (children.outliving) or what is under it."""
         from claude_vm import proc
 
         self.remember()
-        proc.end_under(os.getpid(), self.remembered, signum, blind=self.blind.append)
+        proc.end_under(os.getpid(), self.remembered, signum, blind=self.blind.append, leaving=children.outliving())
 
     def _shielded(self, child: children.Child) -> bool:
         """Whether child began inside a shield still up."""
@@ -515,6 +535,38 @@ class _Ladder:
         self.ctx.stopping.set()
         if not self.now.done():
             self.now.set_result(None)
+
+    async def watch(self) -> None:
+        """For as long as the loop runs: each child the terminal has stopped for asking a question there
+        (children.asking), said at once and ended, its tree and its group. Once only for each; one the loop's look
+        cannot read is said at the end, and the look ends."""
+        import asyncio
+
+        from claude_vm import proc
+
+        while True:
+            try:
+                for child, _signum in children.asking(self.job):
+                    if child in self.asked:
+                        continue
+                    self.asked.add(child)
+                    _say(ASKED.format(program=plain_text(child.program)))
+                    proc.end(child.pid, signum=signal.SIGKILL, blind=self.blind.append)
+            except Exception as error:
+                self.blind.append(f"a child stopped at the terminal could not be looked for: {plain_text(str(error))}")
+                return
+            await asyncio.sleep(ASKING_POLL)
+
+    def _unwatch(self) -> None:
+        """The look for a child the terminal stopped ended, before the loop closes."""
+        import asyncio
+
+        watching = self.watching
+        if watching is None or watching.done():
+            return
+        watching.cancel()
+        with contextlib.suppress(Exception):
+            self.loop.run_until_complete(asyncio.wait({watching}, timeout=SETTLE))
 
     # ---------------------------------------------------------------- the run ----
 
@@ -652,6 +704,7 @@ class _Ladder:
         found = _terminal()
         # The body called inside its task: whatever it raises, even as it is called, is the run's to end on.
         self.task = self.loop.create_task(self._body(body))
+        self.watching = self.loop.create_task(self.watch())
         previous = {}
         error: BaseException | None = None
         unraisable = sys.unraisablehook
@@ -674,6 +727,7 @@ class _Ladder:
             try:
                 # A call in a thread still waiting stops at its next look.
                 self.ctx.stopping.set()
+                self._unwatch()
                 self._close_loop()
                 outcome, status, why, error = self.outcome()
                 _put_back(found)

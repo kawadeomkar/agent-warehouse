@@ -4,23 +4,28 @@ engine.md §16.8).
 
 `MARKER`, `AGENT_WAREHOUSE_JOB`, carries the job's ID into every process a run starts, as today's MCP jobs set it.
 `start` gives each child the marker itself, whatever environment it is handed, so no caller can forget it; `unmarked`
-takes it out, for the one kind of child that must not carry it: a shared SSH master, which other runs may ride after
-this one ends.
+takes it out, for the two kinds of child that must not carry it, which a run never ends: a shared SSH master, which
+other runs may ride after this one ends, and a child meant to outlive its run (`outlive`). A run carries no marker of
+its own: the program takes an inherited one out of its environment at its start (cli/main.py), so that a child started
+outside `start` (route.py's `ssh`, proc.py's `ps`) carries none either.
 
 `start` is a coroutine: the child is in a process group of its own (`group`), so that the terminal's Ctrl-C reaches the
-run alone, or in a session of its own (`session`), its standard input on `/dev/null`. In the child, before it runs, the
-signals a Ctrl-C, a closing terminal and a kill send are put back to their defaults and unblocked: a process starts
-with what its parent ignored still ignored, and a run started under `nohup` or with `&` ignores SIGINT. Every
+run alone, or in a session of its own (`session`), its standard input on `/dev/null`. In the child, before it runs,
+every signal a handler can be given is put back to its default and none is blocked: a process starts with what its
+parent ignored still ignored, a run started under `nohup` or with `&` ignores SIGINT, and Python ignores SIGPIPE. Every
 descriptor is closed in the child but its standard streams and those `pass_fds` names, which is how a pipe is handed
 over on purpose. A descriptor that holds one of the run's locks, its number or any duplicate of it, is refused by the
-lock's name before anything starts: the kernel lets a lock go only when every descriptor of it is closed, so a child
-that held one would keep it past its run's end.
+lock's name before anything starts, a standard stream the child inherits among them: the kernel lets a lock go only
+when every descriptor of it is closed, so a child that held one would keep it past its run's end.
 
 The children a run started are kept, by kind, in memory for the run's end (runs/attached.py): `start` enters each, the
-SSH runner's `ssh` children among them, and `live` gives those still running. A shared master is entered nowhere, since
-no run ever ends one; while its open runs it is kept apart (`opening`), so that a run's end, which remembers the tree
-under it at a Ctrl-C, remembers nothing of the open's: the master it leaves behind keeps its `ProxyCommand` in the
-open's group, and ending that ends the master. Nothing here reads the process table, and nothing is written to a file.
+SSH runner's `ssh` children among them, and `live` gives those still running, and `asking` those the terminal stopped
+for reading it. A shared master is entered nowhere, since no run ever ends one; while its open runs it is kept apart
+(`opening`), so that a run's end, which remembers the tree under it at a Ctrl-C, remembers nothing of the open's: the
+master it leaves behind keeps its `ProxyCommand` in the open's group, and ending that ends the master. A child meant to
+outlive its run - the editor, a page's opener - is `outlive`'s: unmarked, in a session of its own, entered in no
+registry, and left out of the tree a run's end remembers and ends (`outliving`), so that no end of the run reaches it.
+Nothing here reads the process table, and nothing is written to a file.
 
 Standard library only; asyncio and subprocess are imported inside the functions that start a child.
 """
@@ -38,6 +43,7 @@ from claude_vm.runs import locks
 from claude_vm.schema import patterns
 
 if TYPE_CHECKING:
+    import subprocess
     from asyncio.subprocess import Process
 
 # The variable that carries the job's ID into every process a run starts: today's MCP jobs' name. Whatever reads it
@@ -49,17 +55,24 @@ GROUP = "group"
 SESSION = "session"
 OWN = (GROUP, SESSION)
 
-# The kinds of child a run starts: an `ssh` of the SSH runner's, bounded or held (a forward among them); layer 1's
-# `ansible-playbook`; a program of the computer's own (`rsync`, an opener, the editor); and a shared SSH master, the one
-# kind that carries no marker and is entered in no registry.
+# The kinds of child `start` starts: an `ssh` of the SSH runner's, bounded or held (a forward among them); layer 1's
+# `ansible-playbook`; a program of the computer's own that ends with the run (`rsync`); and a shared SSH master, which
+# carries no marker and is entered in no registry. A run's end ends the first three, which carry its marker.
 SSH = "ssh"
 ANSIBLE = "ansible"
 PROGRAM = "program"
 MASTER = "master"
 KINDS = (SSH, ANSIBLE, PROGRAM, MASTER)
+# The kind of a child meant to outlive its run - the editor, a page's opener - which `outlive` starts: like a master,
+# unmarked, in a session of its own and in no registry, and no end of the run reaches it.
+OUTLIVING = "outliving"
 
-# The signals a person's Ctrl-C, a closing terminal and a kill send: in each child, at their defaults and unblocked.
-SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT)
+# Every signal a handler can be given, SIGKILL and SIGSTOP being none's to catch or ignore: in each child, at its
+# default, and none of them blocked.
+CATCHABLE = tuple(sorted(set(signal.valid_signals()) - {signal.SIGKILL, signal.SIGSTOP}))
+# What the terminal stops a process with that reads it (SIGTTIN) or changes or writes to it (SIGTTOU) from a process
+# group that is not the terminal's own: a child in a group of its own that asks a question there.
+AT_THE_TERMINAL = (signal.SIGTTIN, signal.SIGTTOU)
 
 # Where each lock the run holds is found: a function of the module that takes it, giving the descriptor that holds
 # each lock with its name. Every module of runs/ that takes a kernel lock has its function here, which a test holds.
@@ -72,10 +85,11 @@ class LockRefused(ValueError):
 
 @dataclass(frozen=True)
 class Child:
-    """One child of a run: its kind, and its process."""
+    """One child of a run: its kind, its process, and its program's name, as a sentence says it."""
 
     kind: str
     process: Process
+    program: str
 
     @property
     def pid(self) -> int:
@@ -86,6 +100,9 @@ class Child:
 _CHILDREN: dict[str, list[Child]] = {}
 # The shared masters' opens this process started, entered in no registry: opening() gives those still running.
 _OPENING: list[Process] = []
+# The children meant to outlive their run that this process started, entered in no registry: outliving() gives those
+# still running. Kept, so that none is collected while it runs.
+_OUTLIVING: list[subprocess.Popen] = []
 
 
 def _job_id(job: jobs.Job) -> str:
@@ -99,15 +116,19 @@ def _job_id(job: jobs.Job) -> str:
 
 
 def unmarked(env: Mapping[str, str]) -> dict[str, str]:
-    """A copy of env without the job's marker: for a shared SSH master alone."""
+    """A copy of env without the job's marker: for a shared SSH master and a child meant to outlive its run."""
     return {name: value for name, value in env.items() if name != MARKER}
 
 
 def _default_signals() -> None:
-    """In the child, before it runs: each of SIGNALS at its default and unblocked, whatever the run ignored or held."""
-    for number in SIGNALS:
-        signal.signal(number, signal.SIG_DFL)
-    signal.pthread_sigmask(signal.SIG_UNBLOCK, SIGNALS)
+    """In the child, before it runs: every signal of CATCHABLE at its default, and none blocked, whatever the run
+    ignored or held. One the system will not take a handler for is passed over: nothing here may stop the start."""
+    for number in CATCHABLE:
+        try:
+            signal.signal(number, signal.SIG_DFL)
+        except (OSError, ValueError):
+            continue
+    signal.pthread_sigmask(signal.SIG_SETMASK, ())
 
 
 def _descriptor(stream: object) -> int | None:
@@ -118,6 +139,21 @@ def _descriptor(stream: object) -> int | None:
         return stream if stream >= 0 else None
     fileno = getattr(stream, "fileno", None)
     return fileno() if callable(fileno) else None
+
+
+def _inherited(stdout: object, stderr: object) -> list[int]:
+    """This process's own standard output and error, where a child is given either as None and so inherits it: what
+    the child is handed by them, which may be a duplicate of a lock's as much as a descriptor named. One that is not
+    open is handed nothing."""
+    handed = []
+    for stream, number in ((stdout, 1), (stderr, 2)):
+        if stream is None:
+            try:
+                os.fstat(number)
+            except OSError:
+                continue
+            handed.append(number)
+    return handed
 
 
 def _refuse_locks(handed: Sequence[int]) -> None:
@@ -133,6 +169,18 @@ def _refuse_locks(handed: Sequence[int]) -> None:
         name = held.get((found.st_dev, found.st_ino))
         if name is not None:
             raise LockRefused(f"a child is never handed a lock: descriptor {descriptor} holds {name}")
+
+
+def _program(argv: Sequence[str]) -> str:
+    """A child's program, as a sentence names it: the last part of its path."""
+    return os.path.basename(argv[0]) or argv[0]
+
+
+def _argv(argv: object) -> list[str]:
+    """argv held to a child's command: a list of str, its program first."""
+    if isinstance(argv, str) or not isinstance(argv, Sequence) or not argv or not all(isinstance(w, str) for w in argv):
+        raise TypeError("a child's command is a list of str, its program first")
+    return list(argv)
 
 
 def live(job: jobs.Job, kind: str | None = None) -> list[Child]:
@@ -152,6 +200,36 @@ def opening() -> list[int]:
     running = [process for process in _OPENING if process.returncode is None]
     _OPENING[:] = running
     return [process.pid for process in running]
+
+
+def outliving() -> list[int]:
+    """The pids of the children meant to outlive their run that still run, each the root of a tree no end of the run
+    remembers or ends (attached.py's remember and end_tree). One that has ended is reaped and let go of: what it
+    started has left the run's tree."""
+    running = [process for process in _OUTLIVING if process.poll() is None]
+    _OUTLIVING[:] = running
+    return [process.pid for process in running]
+
+
+def asking(job: jobs.Job) -> list[tuple[Child, int]]:
+    """The job's children still running that the terminal has stopped, each with the signal that stopped it (one of
+    AT_THE_TERMINAL): a child in a group of its own, or its group's, that asked a question at the terminal - a
+    passphrase asked by the `ssh` of a person's own ProxyJump, which BatchMode does not reach, a question of `git`'s or
+    `sudo`'s - and waits, stopped, for an answer no run gives. Read without reaping it or changing anything (waitid with
+    WNOWAIT): asyncio still reaps it, and a child stopped for any other reason is not one. Where Python has no waitid
+    (macOS before Python 3.13), none is found."""
+    waitid = getattr(os, "waitid", None)
+    if waitid is None:
+        return []
+    found = []
+    for child in live(job):
+        try:
+            seen = waitid(os.P_PID, child.pid, os.WSTOPPED | os.WNOHANG | os.WNOWAIT)
+        except OSError:
+            continue
+        if seen is not None and seen.si_code == os.CLD_STOPPED and seen.si_status in AT_THE_TERMINAL:
+            found.append((child, seen.si_status))
+    return found
 
 
 async def start(
@@ -174,13 +252,16 @@ async def start(
     import subprocess
 
     job_id = _job_id(job)
+    if kind == OUTLIVING:
+        raise ValueError(
+            "a child meant to outlive its run is started by outlive, never by start: no end of a run ends it"
+        )
     if kind not in KINDS:
         raise ValueError(f"{kind!r} is no kind of child: one of {', '.join(KINDS)}")
     if own not in OWN:
         raise ValueError(f"{own!r} is no way to keep a child from the terminal: one of {', '.join(OWN)}")
-    if isinstance(argv, str) or not argv or not all(isinstance(word, str) for word in argv):
-        raise TypeError("a child's command is a list of str, its program first")
-    if stdin is None:
+    words = _argv(argv)
+    if stdin is None or _descriptor(stdin) == 0:
         raise ValueError(
             "a child never reads the run's own standard input: one in a group of its own would be stopped reading the"
             " terminal, and one in a session of its own would take what the person types"
@@ -192,11 +273,11 @@ async def start(
     ):
         raise TypeError("pass_fds names descriptors, by their numbers")
     handed = [*pass_fds, *(found for found in map(_descriptor, (stdin, stdout, stderr)) if found is not None)]
-    _refuse_locks(handed)
+    _refuse_locks([*handed, *_inherited(stdout, stderr)])
     environment = unmarked(env) if kind == MASTER else {**env, MARKER: job_id}
     kept = {"process_group": 0} if own == GROUP else {"start_new_session": True}
     process = await asyncio.create_subprocess_exec(
-        *argv,
+        *words,
         stdin=stdin,
         stdout=stdout,
         stderr=stderr,
@@ -208,7 +289,33 @@ async def start(
     )
     if kind != MASTER:
         # Entered under its kind for the run's end; a shared master never, since no run ends one.
-        _CHILDREN.setdefault(job_id, []).append(Child(kind, process))
+        _CHILDREN.setdefault(job_id, []).append(Child(kind, process, _program(words)))
     else:
         _OPENING.append(process)
+    return process
+
+
+def outlive(job: jobs.Job, argv: Sequence[str], env: Mapping[str, str]) -> subprocess.Popen:
+    """argv started as a child of the job's run that is meant to outlive it - the editor, a page's opener - and its
+    process. It carries no marker (unmarked), as a shared master does, runs in a session of its own, so the terminal
+    neither stops it nor hangs it up, with the signals at their defaults, its standard streams on /dev/null and no other
+    descriptor open; and it is entered in no registry, so the run's end neither waits for it nor ends it, and is left
+    out of the tree a run's end remembers and ends (`outliving`). Started by subprocess itself, never through asyncio,
+    whose transport kills a child it still holds once it is closed or collected. Nothing ends it: a caller that wants
+    to know how it ended polls it. Everything is checked before anything starts."""
+    import subprocess
+
+    _job_id(job)
+    words = _argv(argv)
+    process = subprocess.Popen(
+        words,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        env=unmarked(env),
+        close_fds=True,
+        start_new_session=True,
+        preexec_fn=_default_signals,
+    )
+    _OUTLIVING.append(process)
     return process

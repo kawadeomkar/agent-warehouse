@@ -19,7 +19,9 @@
 # how to put it there, and writes nothing outside the checkout.
 #
 # The program is told how a person runs it again, AGENT_WAREHOUSE_STARTED_AS, for every command line it prints: aw where
-# aw on PATH is this launcher, else what was typed to start it (./aw).
+# aw on PATH is this launcher, else what was typed to start it (./aw). It is never handed a job's marker it inherited:
+# AGENT_WAREHOUSE_JOB is unset before anything but --install-env, which reads it, so the program's own environment, as
+# the system shows it, carries none, and nor does anything it starts.
 set -eu
 
 # The Python version the checkout's own environment runs on: the justfile's managed_python, which
@@ -160,6 +162,8 @@ if [ "${1:-}" = --install-env ]; then
   (install_env "$@")
   exit 0
 fi
+# A run makes its own job and marks its own children: an inherited marker is another job's.
+unset AGENT_WAREHOUSE_JOB
 # uv.lock written again, which needs no environment.
 if [ "$#" -eq 2 ] && [ "$1" = install ] && [ "$2" = --lock ]; then
   (install_env --lock)
