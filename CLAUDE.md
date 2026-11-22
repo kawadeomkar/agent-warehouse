@@ -970,6 +970,22 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   `lib/claude_vm/` only the modules `REUSED` names, each with its reason, and what those import in turn, all the way
   down, is in `REUSED` or `REACHED`, with the reason it is brought in; never Ansible. `tests/unit/test_aw_layout.py`
   holds both.
+- **Every command line the new engine prints, and every command a sentence of it names, is the printer's.** Read
+  [§16.3](docs/architecture/engine.md#163-cli--the-aw-program) first.
+    - `lib/claude_vm/cli/inverse.py`'s `line` and `argv` write it from the one table: the program as it was started
+      (`aw` where `aw` on `PATH` is the checkout's launcher, else what was typed, from `AGENT_WAREHOUSE_STARTED_AS`,
+      which the launcher sets and `main.py` takes out of the environment at once), the verb, its words, its options
+      (`--long value`, and `--long=value` only for a value that starts with `-` or is empty), the host's flag last;
+      quoted for a POSIX shell; a value or a word with a character of the categories Cc, Cf, Zl or Zp refused.
+    - A sentence names a command as a `Line`, said through `lib/claude_vm/schema/words.py`'s `said`, never as text:
+      `schema/` reaches the printer there alone, when a sentence is said, and imports nothing of `cli/` when it is
+      imported; `pve/` and `vendors/` say theirs through it.
+    - `host_flag` is given by every caller of a verb whose row has the shared `--host` and whose values give none
+      (`None` is a `ValueError` there), and taken only by a verb whose `--host` runs it against a host; `refused` is
+      keyword-only with no default, so every caller says whether a value of free text may be said back.
+    - `tests/unit/test_aw_cli_inverse.py` holds it: a syntax-tree scan of every string of the new subpackages for a
+      command named anywhere in it, `dispatch.py`'s `not_built` (today's `just <verb>`, until the flip) its one
+      exception; the printer's `PROGRAM` named only by the printer and help; every call saying `refused`.
 - **One transport sends every HTTPS request of the engine, follows no redirect, reads no certificate variable, and
   takes a proxy only as an argument.** Read
   [§16.7](docs/architecture/engine.md#167-vendors--one-https-transport-tailscales-calls-verified-downloads) first.
@@ -996,7 +1012,7 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - The vendors' TLS context, and the Proxmox client's where a host keeps no anchor, is
       `lib/claude_vm/vendors/trust.py`'s alone: `certifi`'s file by its path, and then the file the setting
       `tls_ca_file` names, which adds to `certifi`'s list and never replaces it; never the system's store or a
-      certificate variable - a change from 2.x, whose vendor calls trust the system's store.
+      certificate variable.
     - Of the new engine only the modules `CONTEXTS` names, each with why, name what makes a TLS context or gives one
       roots (`MAKERS`, by any spelling but as a type, or a call's `ssl=True`), set one of its checks (`CHECKS`:
       `check_hostname`, `verify_mode`, `verify_flags`, `hostname_checks_common_name`), or import one of today's modules

@@ -1,30 +1,36 @@
 """aw help: today's two levels of just help, printed from the one table (docs/architecture/engine.md §16.3).
 
-`aw help`, and `aw` alone, lists every verb of the table in its order, each with the words it takes and its doc, as
-`just` alone lists the recipes: help first, then each group under its name. Then the options given before any verb, but
-the hidden one, which the one check's refusal of such an option sends a person here for; then today's closing
-paragraph, with aw where it said just, and -v and --set where it named ANSIBLE_ARGS, each named on the verbs the table
-gives it. `aw help <verb>` prints one verb: its usage line as today's command reference writes a recipe's
-(`aw deploy [<name>...]`) and its doc, each option with the name of its value and its help, `--detach` last on a verb
-whose run is a job, then the words it takes with theirs. A verb no card has built yet is listed and helped as today: it
-is refused only when it runs. A second word after the verb is refused before this runs, in today's sentence (rules.py's
-help.1); a word that is no verb is refused here in the one check's sentence, which never says it.
+`aw help`, and `aw` alone, lists every verb of the table in its order, each with the words it takes, [options] where
+it has any, and its doc, as `just` alone lists the recipes: help first, then each group under its name. Then the
+options given before any verb, but the hidden one, which the one check's refusal of such an option sends a person here
+for; then today's closing paragraph, with aw where it said just, and -v and --set where it named ANSIBLE_ARGS, each
+named on the verbs the table gives it. `aw help <verb>` prints one verb: its usage line as today's command reference
+writes a recipe's (`aw deploy [<name>...]`) and its doc, each option with the name of its value and its help, `--detach`
+last on a verb whose run is a job, then the words it takes with theirs. After the help of each option and of the words
+that the table holds to a pattern comes the form a value may take (patterns.py's `form`), as the refusal of a value
+outside it says it too, but for the words of a verb that refuses any. An option the table marks as a later card's
+(`until`) is left out until that card. A verb no card has built yet is listed and helped as today: it is refused only
+when it runs. A second word after the verb is refused before this runs, in today's sentence (rules.py's help.1); a
+word that is no verb is refused here in the one check's sentence, which never says it.
 
-The usage lines and the options' spellings are help's own, and the command reference's tables are written from them
-(reference.py); a whole command line it prints, for a person to paste, comes from the printer (inverse.py).
+Every command help prints is the program as it was started (inverse.py's `program`): the usage lines, whose words and
+options' spellings are help's own and the command reference's tables are written from (reference.py), and every whole
+command line, for a person to paste, which the printer writes, the table's sentences' among them (words.py's `said`).
 
 Standard library, schema/ and the printer only: nothing of the engine, no argparse and no child.
 """
 
 from __future__ import annotations
 
+import shlex
 import sys
 import textwrap
 from typing import TextIO
 
 from claude_vm.cli import inverse
 from claude_vm.schema import check as checks
-from claude_vm.schema.words import BEFORE, EXITS, SET, VERBOSE, VERBS, Option, Verb
+from claude_vm.schema.patterns import form
+from claude_vm.schema.words import BEFORE, EXITS, SET, VERBOSE, VERBS, Option, Verb, said
 
 # The words a verb takes that are no word to give: init's and mcp's, which each refuse any, as today's EXTRA does. A
 # usage line leaves them out, as today's command reference does; aw help <verb> says them with why, as just --usage
@@ -38,6 +44,8 @@ NEEDS_ITS_WORD = {
 }
 # The heading of the verbs, of the options given before any verb, and of a verb's options and words.
 LISTING = "Available commands:"
+# What the listing shows after a verb that has options to show.
+WITH_OPTIONS = "[options]"
 BEFORE_ANY = "Options before the command:"
 USAGE = "Usage:"
 OPTIONS = "Options:"
@@ -73,20 +81,31 @@ def _taken(verb: Verb) -> list[str]:
 
 
 def usage(verb: Verb) -> str:
-    """A verb's usage line, as today's command reference writes a recipe's: aw, the verb and the words it takes, its
-    options in the rows below it (aw deploy [<name>...])."""
-    return " ".join([inverse.PROGRAM, verb.name, *_taken(verb)])
+    """A verb's usage line, as today's command reference writes a recipe's: the program as it was started, quoted as
+    the printer quotes it, the verb and the words it takes, its options in the rows below it (aw deploy [<name>...])."""
+    return " ".join([shlex.quote(inverse.program()), verb.name, *_taken(verb)])
 
 
 def shown(option: Option) -> str:
     """An option as help and the command reference show it, as just --usage shows today's: -t, --tags ROLES; --check
-    for a flag; -v for a count; --set NAME=VALUE, given once for each; --migrate [CHECKOUT], whose value may be left
-    out."""
+    for a flag; -v for a count; --set NAME=VALUE, given once for each."""
     names = ", ".join([f"-{option.short}"] * bool(option.short) + [f"--{option.long}"] * bool(option.long))
     if option.kind in ("flag", "counted"):
         return names
-    value = option.metavar or "VALUE"
-    return f"{names} [{value}]" if option.kind == "optional-value" else f"{names} {value}"
+    return f"{names} {option.metavar or 'VALUE'}"
+
+
+def options(verb: Verb) -> list[Option]:
+    """The options of a verb that help and the command reference show: the parser's, --detach where its run is a job,
+    but one the table marks as a later card's (until)."""
+    return [option for option in checks.options_of(verb) if option.help is not None and option.until is None]
+
+
+def helped(option: Option) -> str:
+    """An option's help as aw help says it: its sentence said, and the form its value may take where the table holds
+    it to a pattern."""
+    text = said(option.help or "")
+    return f"{text} {form(option.pattern)}" if option.pattern is not None else text
 
 
 def _named(names: list[str]) -> str:
@@ -103,14 +122,14 @@ def closing() -> list[str]:
     a command a person pastes."""
     whole = {
         "set": shown(SET),
-        "example": inverse.line(*EXAMPLE),
-        "hosts": inverse.line("host", {}),
+        "example": inverse.line(*EXAMPLE, host_flag="", refused=False),
+        "hosts": inverse.line("host", {}, refused=False),
     }
     filled = {
         "verbose": shown(VERBOSE),
         "verbose_verbs": _named(_having(VERBOSE)),
         "set_verbs": _named(_having(SET)),
-        "program": inverse.PROGRAM,
+        "program": shlex.quote(inverse.program()),
         **{name: text.replace(" ", _GLUE) for name, text in whole.items()},
     }
     return [
@@ -131,8 +150,9 @@ def listing() -> str:
     takes and its doc; the options given before any verb, but the hidden one; then the closing paragraph."""
     groups: dict[str | None, list[tuple[str, str]]] = {}
     for verb in VERBS.values():
-        groups.setdefault(verb.group, []).append((" ".join([verb.name, *_taken(verb)]), verb.doc))
-    before = [(shown(option), option.help) for option in BEFORE if option.help is not None]
+        listed = [verb.name, *_taken(verb), *[WITH_OPTIONS] * bool(options(verb))]
+        groups.setdefault(verb.group, []).append((" ".join(listed), said(verb.doc)))
+    before = [(shown(option), helped(option)) for option in BEFORE if option.help is not None]
     width = max(len(left) for rows in (*groups.values(), before) for left, _ in rows)
     lines = [LISTING]
     for group, rows in groups.items():
@@ -154,14 +174,17 @@ def _left(option: Option) -> str:
 def of(name: str) -> str:
     """aw help <verb>: its usage line and its doc, as the command reference's row of the verb has both; then each of its
     options with the name of its value and its help, --detach last where its run is a job; then the words it takes with
-    theirs."""
+    theirs; each help followed by the form a value may take where the table holds it to a pattern."""
     verb = VERBS[name]
-    options = [(_left(option), option.help) for option in checks.options_of(verb) if option.help is not None]
-    lines = [f"{USAGE} {usage(verb)}", "", verb.doc]
-    if options:
-        lines += ["", OPTIONS, *_rows(options, "  ", "  ")]
+    rows = [(_left(option), helped(option)) for option in options(verb)]
+    lines = [f"{USAGE} {usage(verb)}", "", said(verb.doc)]
+    if rows:
+        lines += ["", OPTIONS, *_rows(rows, "  ", "  ")]
     if verb.words is not None:
-        lines += ["", WORDS, *_rows([(f"<{verb.words.name}>", verb.words.help)], "  ", "  ")]
+        words = said(verb.words.help)
+        if verb.words.pattern is not None and verb.words.name != REFUSED_WORDS:
+            words = f"{words} {form(verb.words.pattern)}"
+        lines += ["", WORDS, *_rows([(f"<{verb.words.name}>", words)], "  ", "  ")]
     return "\n".join(lines) + "\n"
 
 
@@ -169,7 +192,7 @@ def main(run: object, recipe: str | None = None, *, out: TextIO | None = None, e
     """help's handler (words.py's row): the listing, or one verb's help, on standard output, and the exit status. A
     word that is no verb is refused on standard error in the one check's sentence, which never says it."""
     if recipe is not None and recipe not in VERBS:
-        print(checks.NO_SUCH_COMMAND, file=err or sys.stderr)
+        print(checks.no_such_command(), file=err or sys.stderr)
         return EXITS["refused"]
     (out or sys.stdout).write(listing() if recipe is None else of(recipe))
     return EXITS["done"]

@@ -112,8 +112,6 @@ NEW: dict[str, str] = {
     "--detach": "V2-5: every verb whose run is a job can be started detached, as the agents' server starts it",
     "init --check": "the report's table of verbs, row init: its modes --check and --print-commands",
     "init --print-commands": "N-22 section 4: init --migrate, --finish, --print-commands, sound as words",
-    "init --migrate": "O16 item 9: the 2.x checkout's folder as --migrate's value, the one it runs in by default",
-    "init --finish": "N-22 section 4: init --migrate, --finish, --print-commands, sound as words",
     "init --pool": "O16 item 4: --pool names another pool",
     "init --machines": "O16 item 5: --machines answers init's first question under --no-prompt",
     "install --version": "the report's table of verbs, row install: the installed program's --version and --rollback",

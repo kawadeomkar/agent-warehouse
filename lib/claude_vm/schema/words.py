@@ -11,17 +11,24 @@ words that are new or changed against today's justfile are the cutover's check's
 
 Today's verbs keep today's words and help, with aw where they said just. The rules are named by code, as the contract
 of today's command line names them (tests/unit/cli_contract.json): the sentence is the rule's own, written where the
-rule is. Standard library only: every command reads it, a refusal and help among them.
+rule is.
+
+A sentence of the table, of the rules or of any part of the new engine that names a command names it as a `Line` in a
+field of the sentence, never as text: `said` fills it with the line the printer of a command writes
+(lib/claude_vm/cli/inverse.py), so that every command a person reads is the program as it was started, spelled as the
+printer spells one. `LINES` holds the commands the table's own sentences name. Standard library only: every command
+reads it, a refusal and help among them; the printer is imported by `said` alone, when a sentence is said.
 """
 
 from __future__ import annotations
 
 import keyword
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 
-# What an option takes: a value; nothing (a flag); a value, given once for each (--set); nothing, given once or more and
-# counted (-vvv); or a value or nothing (--migrate, alone or with a folder).
-KINDS = ("value", "flag", "repeatable", "counted", "optional-value")
+# What an option takes: a value; nothing (a flag); a value, given once for each (--set); or nothing, given once or more
+# and counted (-vvv).
+KINDS = ("value", "flag", "repeatable", "counted")
 # The locks a run of a verb takes. machines: with names, the fleet's lock shared and each machine's lock; with none, the
 # fleet's lock alone. fleet: the fleet's lock alone, whatever is named. none. words: worked out from the words given, by
 # a function of the verb's name in lib/claude_vm/runs/lock_sets.py.
@@ -72,7 +79,9 @@ class Option:
     the name the handler receives it by: the long option in lowercase with _ for -, as the agents' tools name it today,
     with _ after a word Python keeps for itself (for_). help is its sentence, None for the one hidden word, which no
     person types. agent is its fate for an agent's tool. metavar is the name help gives its value, as just --usage gives
-    it today (--host ON)."""
+    it today (--host ON). until is None, or the card that builds what the option does: help and the command reference
+    leave the option out until then, and the parser and the check take it all the same, its verb refusing it (install's
+    options of the installed program, H14's and H15's, which a checkout refuses)."""
 
     long: str | None
     short: str | None
@@ -82,6 +91,7 @@ class Option:
     help: str | None
     agent: Agent
     metavar: str | None = None
+    until: str | None = None
 
 
 @dataclass(frozen=True)
@@ -127,20 +137,75 @@ def _field(long: str) -> str:
 
 
 def _value(
-    long: str, pattern: str, metavar: str, help: str, agent: Agent = PROPERTY, short: str | None = None
+    long: str,
+    pattern: str,
+    metavar: str,
+    help: str,
+    agent: Agent = PROPERTY,
+    short: str | None = None,
+    until: str | None = None,
 ) -> Option:
-    return Option(long, short, "value", pattern, _field(long), help, agent, metavar)
+    return Option(long, short, "value", pattern, _field(long), help, agent, metavar, until)
 
 
-def _flag(long: str, help: str | None, agent: Agent = PROPERTY) -> Option:
-    return Option(long, None, "flag", None, _field(long), help, agent)
+def _flag(long: str, help: str | None, agent: Agent = PROPERTY, until: str | None = None) -> Option:
+    return Option(long, None, "flag", None, _field(long), help, agent, None, until)
+
+
+# ---------------------------------------------------------------- a command a sentence names ----
+
+
+class Placeholder:
+    """What a line gives a value or a verb's words in place of one, so that it names them by the name help gives them:
+    <name> for the words, <name>... for several, and the option's VALUE for a value (aw destroy <name>...). Never a
+    value: the one check refuses it as one, since it is no string."""
+
+    def __repr__(self) -> str:
+        return "PLACEHOLDER"
+
+
+PLACEHOLDER = Placeholder()
+
+
+@dataclass(frozen=True)
+class Line:
+    """A command line a sentence names: a verb and its values, as the parser gives them, any of which may be
+    PLACEHOLDER; and host_flag as the printer of a command takes it, which a line of a verb that takes the shared --host
+    gives: "" where it names no host, as a line that shows a command's form, said before any fleet is read, does. said
+    writes it."""
+
+    verb: str
+    values: Mapping[str, object] = field(default_factory=dict)
+    host_flag: str | None = None
+
+
+# The commands the table's own sentences name, by the field each names one with.
+LINES: dict[str, Line] = {
+    "help": Line("help"),
+    "help_of_one": Line("help", {"recipe": PLACEHOLDER}),
+    "hosts": Line("host"),
+    "vault": Line("vault"),
+    "mcp": Line("mcp"),
+    # deploy --tags' help: beside VM names it means --only configure.
+    "tags_beside_names": Line("deploy", {"names": ["alpha"], "tags": "claude_code"}, host_flag=""),
+}
+
+
+def said(sentence: str, filled: Mapping[str, object] | None = None) -> str:
+    """sentence as a person reads it: each field filled, a Line with the command line the printer of a command writes
+    for it (lib/claude_vm/cli/inverse.py), LINES' among them, and anything else as given. The one way a sentence of the
+    new engine names a command. schema/ imports the printer here, when a sentence is said, and never when schema/ is
+    imported, which every command does; pve/ and vendors/, which import nothing of cli/, say theirs through it too."""
+    from claude_vm.cli import inverse
+
+    return inverse.said(sentence, {**LINES, **(filled or {})})
 
 
 # ---------------------------------------------------------------- the fates an agent's tool gives ----
 
 # Why no tool runs a verb: today's, word for word (lib/claude_vm/mcp/recipes.py's NO_TOOL), with aw where it said
 # just.
-NO_TOOL_HELP = "the tools' own descriptions say what aw help says"
+NO_TOOL_HELP = "the tools' own descriptions say what {help} says"
 NO_TOOL_VAULT = "the vault is edited at a terminal, by the person: no tool takes or returns a secret"
 NO_TOOL_MCP = "it registers this server: the person's command"
 
@@ -173,7 +238,6 @@ VERBOSE_REFUSED = "how much the system layer says is the person's, at a terminal
 ADOPT_REFUSED = "an agent never adopts a machine: the person's, at a terminal or by --adopt in a script of their own"
 REMOVE_KEY_REFUSED = "it takes a key off each VM's account: the person's, at a terminal"
 TAKE_OVER_REFUSED = "it clears another computer's run recorded on a machine: the person's, at a terminal"
-MIGRATE_REFUSED = "a 2.x fleet is brought in by the person, at a terminal"
 PRINT_COMMANDS_REFUSED = "it prints the commands the Proxmox host's root runs: the administrator's, by hand"
 INSTALLED_REFUSED = "the installed program's, after 3.0: a checkout refuses it, and takes a newer version by git pull"
 DETACHED_RUN_REFUSED = "the run --detach starts is given it by the program itself: nobody types it"
@@ -181,7 +245,7 @@ DETACHED_RUN_REFUSED = "the run --detach starts is given it by the program itsel
 # Given by the server.
 JSON = fixed(True)
 ATTENDED = fixed(
-    None, "for each run: what aw mcp recorded, else 1 exactly when the session is an interactive one at this computer"
+    None, "for each run: what {mcp} recorded, else 1 exactly when the session is an interactive one at this computer"
 )
 # --detach is no row's option: the parser gives it to every verb whose changes is true, with this help, and the server
 # starts each such run detached and follows its job.
@@ -191,7 +255,7 @@ DETACH_AGENT = fixed(True, "the server starts every run that is a job detached, 
 # ---------------------------------------------------------------- the words several verbs share ----
 
 # --host on deploy, code, login, status and destroy.
-HOST = _value("host", "host_name", "ON", "Run against this host rather than the current one (aw host lists them)")
+HOST = _value("host", "host_name", "ON", "Run against this host rather than the current one ({hosts} lists them)")
 # A setting's value for one run, on every verb that reads the fleet's settings to do its work.
 SET = Option(
     "set",
@@ -236,7 +300,7 @@ _VERBS: tuple[Verb, ...] = (
     Verb(
         name="help",
         group=None,
-        doc="Show the recipes, or the options of one: aw help <recipe>",
+        doc="Show the recipes, or the options of one: {help_of_one}",
         words=Words("recipe", False, "recipe", "verb", "The one recipe whose options to show", refused(NO_TOOL_HELP)),
         options=(),
         rules=("help.1",),
@@ -260,13 +324,7 @@ _VERBS: tuple[Verb, ...] = (
         ),
         options=(
             _value("address", "address", "ADDRESS", "The Proxmox host's address, for its hosts.yml"),
-            _value(
-                "host",
-                "address",
-                "ON",
-                "Set up another host of this checkout, by its name (aw host lists them); a value with a dot or a "
-                "colon is taken for --address through 2.x",
-            ),
+            _value("host", "host_name", "ON", "Set up another host of this checkout, by its name ({hosts} lists them)"),
             _value("token-user", "token_user", "TOKEN_USER", "The API token's user, when it is not ansible@pve"),
             _value(
                 "token-id",
@@ -318,22 +376,6 @@ _VERBS: tuple[Verb, ...] = (
                 "running them over root SSH",
                 refused(PRINT_COMMANDS_REFUSED),
             ),
-            Option(
-                "migrate",
-                None,
-                "optional-value",
-                "text",
-                "migrate",
-                "Bring in the fleet a 2.x checkout made, from that checkout's folder (this one when none is given): "
-                "its whole plan is printed before anything changes",
-                refused(MIGRATE_REFUSED),
-                "CHECKOUT",
-            ),
-            _flag(
-                "finish",
-                "With --migrate: remove what only 2.x read, once the fleet is brought in, after showing it",
-                refused(MIGRATE_REFUSED),
-            ),
             _value(
                 "pool", "proxmox_id", "POOL", "The Proxmox pool that holds the fleet's VMs, when it is not the default"
             ),
@@ -345,7 +387,7 @@ _VERBS: tuple[Verb, ...] = (
             SET,
             VERBOSE,
         ),
-        rules=("init.1", "init.2", "init.3"),
+        rules=("init.1",),
         handler=None,
         card="E4",
         locks="fleet",
@@ -370,17 +412,20 @@ _VERBS: tuple[Verb, ...] = (
                 "VERSION",
                 "Bring the installed program to this release rather than the newest; refused in a checkout",
                 refused(INSTALLED_REFUSED),
+                until="H14",
             ),
             _flag(
                 "newer",
                 "Say whether a newer release exists, and the interpreter's version and age, changing nothing; refused "
                 "in a checkout",
                 refused(INSTALLED_REFUSED),
+                until="H15",
             ),
             _flag(
                 "rollback",
                 "Go back to the release kept before this one; refused in a checkout",
                 refused(INSTALLED_REFUSED),
+                until="H15",
             ),
             _value(
                 "without",
@@ -388,6 +433,7 @@ _VERBS: tuple[Verb, ...] = (
                 "GROUP",
                 "Install the release without this optional part: mcp, the agents' server; refused in a checkout",
                 refused(INSTALLED_REFUSED),
+                until="H14",
             ),
         ),
         rules=(),
@@ -415,7 +461,7 @@ _VERBS: tuple[Verb, ...] = (
                 "host",
                 "host_name",
                 "ON",
-                "That host's own vault, which holds its token, rather than the shared one (aw host lists them)",
+                "That host's own vault, which holds its token, rather than the shared one ({hosts} lists them)",
                 refused(NO_TOOL_VAULT),
             ),
             _flag("list", "Each secret's name, and whether it is set, never a value", refused(NO_TOOL_VAULT)),
@@ -468,8 +514,8 @@ _VERBS: tuple[Verb, ...] = (
                 "tags",
                 "roles",
                 "ROLES",
-                "Configure only these roles, comma-separated: beside VM names it means --only configure (aw deploy "
-                "alpha --tags claude_code)",
+                "Configure only these roles, comma-separated: beside VM names it means --only configure "
+                "({tags_beside_names})",
                 short="t",
             ),
             _flag("start", "Start a VM this run would leave stopped (proxmox_vm_start_existing)"),
@@ -669,7 +715,7 @@ _VERBS: tuple[Verb, ...] = (
                 "value",
                 "text",
                 "VALUE",
-                "Set the one setting named to this value, in local.yml (never a secret: aw vault; an empty value is "
+                "Set the one setting named to this value, in local.yml (never a secret: {vault}; an empty value is "
                 "none: --reset)",
                 {"settings": refused(VALUE_LEFT_OUT), "settings_set": PROPERTY},
             ),

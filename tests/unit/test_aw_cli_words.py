@@ -100,7 +100,6 @@ SECRET_TEXT = {
 }
 # The other options whose value is free text, and what it is: a thing named, never a secret.
 NAMED_TEXT = {
-    ("init", "migrate"): "a 2.x checkout's folder",
     ("mcp", "browser"): "the program that opens the sign-in pages",
 }
 # Patterns that take a line of any text.
@@ -164,6 +163,16 @@ def test_every_option_names_a_pattern_or_takes_no_value(verb: words.Verb) -> Non
             assert option.pattern in PATTERNS and option.metavar, option
     if verb.words is not None:
         assert verb.words.pattern is None or verb.words.pattern in PATTERNS
+
+
+def test_the_table_has_no_word_for_a_migration_and_init_s_host_is_a_host_s_name() -> None:
+    # The clean slate (review/clean-slate/PROPOSAL.md, section 2 and decision 10): no init --migrate or --finish, no
+    # kind of option that existed for --migrate alone, and init --host a host of the fleet by its name, never an
+    # address.
+    init = {option.long: option for option in VERBS["init"].options}
+    assert KINDS == ("value", "flag", "repeatable", "counted")
+    assert "migrate" not in init and "finish" not in init and not hasattr(words, "MIGRATE_REFUSED")
+    assert init["host"].pattern == "host_name" and VERBS["init"].rules == ("init.1",)
 
 
 @pytest.mark.parametrize("verb", list(VERBS.values()), ids=list(VERBS))
@@ -244,8 +253,8 @@ def test_the_verbs_and_tools_are_today_s_until_the_cutover() -> None:
         assert tool in VERBS[recipe.recipe].tools, tool
     for name, why in recipes.NO_TOOL.items():
         if name in VERBS:
-            # Today's reason, with aw where it said just (the owner's word 1).
-            assert VERBS[name].tools == re.sub(r"\bjust\b", "aw", why), name
+            # Today's reason, with aw where it said just (the owner's word 1), its command the printer's (H25).
+            assert words.said(VERBS[name].tools) == re.sub(r"\bjust\b", "aw", why), name
         else:
             assert name in ("lint", "test", "docs", "vagrant", "clean"), name
     every = {recipe["name"] for recipe in CONTRACT["recipes"]}
@@ -277,8 +286,6 @@ def test_the_new_words_fates_are_those_ruled() -> None:
         "adopt": words.ADOPT_REFUSED,
         "remove-key": words.REMOVE_KEY_REFUSED,
         "take-over": words.TAKE_OVER_REFUSED,
-        "migrate": words.MIGRATE_REFUSED,
-        "finish": words.MIGRATE_REFUSED,
         "print-commands": words.PRINT_COMMANDS_REFUSED,
         "version": words.INSTALLED_REFUSED,
         "newer": words.INSTALLED_REFUSED,

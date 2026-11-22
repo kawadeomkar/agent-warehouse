@@ -4,12 +4,13 @@ the justfile today. The cutover points tools/docs.py at commands() (K's); until 
 
 One table for each group of verbs, help aside as today's page leaves it: a row for each verb, its usage line and its
 doc, and under it a row for each of its options, --detach last on a verb whose run is a job, and one for the words it
-takes, each with its help, but the words of a verb that refuses any. Then a table of the options given before any verb,
-but the hidden one. The usage lines and options are help's (help.py), and each cell is escaped as tools/docs.py escapes
+takes, each with its help, but the words of a verb that refuses any and an option the table marks as a later card's.
+Then a table of the options given before any verb, but the hidden one. The usage lines and options are help's
+(help.py), each sentence is said as help says it (words.py's `said`), and each cell is escaped as tools/docs.py escapes
 one, so a placeholder such as <name> reads as text on GitHub and on the site: tests/unit/test_aw_cli_help.py holds the
 two escapes equal.
 
-Standard library, schema/ and help.py only.
+Standard library, schema/, help.py and the printer only.
 """
 
 from __future__ import annotations
@@ -18,8 +19,7 @@ import html
 import re
 
 from claude_vm.cli import help as helps
-from claude_vm.schema import check as checks
-from claude_vm.schema.words import BEFORE, VERBS
+from claude_vm.schema.words import BEFORE, VERBS, said
 
 # Spans left as they are: Markdown code, an HTML code element, a Markdown link's target (tools/docs.py's CODE).
 CODE = re.compile(r"(`+)(?:.+?)\1|<code>.*?</code>|\]\([^)]*\)")
@@ -60,12 +60,13 @@ def commands() -> str:
         if name == HELP:
             continue
         rows = groups.setdefault(verb.group or OTHER, [])
-        rows.append(f"| `{helps.usage(verb)}` | {cell(verb.doc)} |")
-        for option in checks.options_of(verb):
-            if option.help is not None:
-                rows.append(f"| {INDENT_CELL}`{helps.shown(option)}` | {cell(option.help)} |")
+        rows.append(f"| `{helps.usage(verb)}` | {cell(said(verb.doc))} |")
+        for option in helps.options(verb):
+            rows.append(f"| {INDENT_CELL}`{helps.shown(option)}` | {cell(said(option.help or ''))} |")
         if verb.words is not None and verb.words.name != helps.REFUSED_WORDS:
-            rows.append(f"| {INDENT_CELL}`<{verb.words.name}>` | {cell(verb.words.help)} |")
+            rows.append(f"| {INDENT_CELL}`<{verb.words.name}>` | {cell(said(verb.words.help))} |")
     out = [line for group, rows in groups.items() for line in _table(group, VERB_HEAD, rows)]
-    before = [f"| `{helps.shown(option)}` | {cell(option.help)} |" for option in BEFORE if option.help is not None]
+    before = [
+        f"| `{helps.shown(option)}` | {cell(said(option.help))} |" for option in BEFORE if option.help is not None
+    ]
     return "\n".join(out + _table(BEFORE_ANY, BEFORE_HEAD, before))

@@ -13,6 +13,10 @@ tests/unit/test_aw_schema.py holds the two equal: the justfile holds a value to 
 the new engine holds the same value to the same pattern here. A pattern of the developer's recipes (lint, test, docs,
 vagrant, clean) is not the command line's, and stays the justfile's.
 
+`form(name)` is how help and a refusal say the form a value may take: the pattern's text, as `[pattern: '...']`,
+after the option's or the words' help, so a person learns it from aw help <verb> and from the refusal of a value
+outside it alike.
+
 Standard library only: every command reads it, a refusal and help among them. No records, no registry of operations,
 no coded refusals: a refusal is the check's one sentence, which never says the value back.
 """
@@ -65,14 +69,14 @@ PATTERNS: dict[str, str] = {
     # help's word: a verb.
     "verb": "[a-z]+",
     # One line of text, with no control character: settings' --value, mcp's --browser, and the words after mcp's
-    # options, which mcp refuses; and aw's init --migrate, a 2.x checkout's folder.
+    # options, which mcp refuses.
     "text": r"[^\x00-\x1f\x7f]*",
     # A path from / or ~, with no control character, or none: mcp's --project-dir and --vault-password-file, which aw
     # calls --vault-key-file.
     "path": r"([/~][^\x00-\x1f\x7f]*)?",
     # mcp's --attended: whether someone is at the screen, or unset; and aw's --attended before a verb.
     "attended": "(0|1)?",
-    # init's --address, and its --host, which through 2.x takes an address too.
+    # init's --address.
     "address": "[A-Za-z0-9.:-]*",
     # init's --storage, --bridge and --token-id: the names Proxmox gives a storage, a bridge and a token; and aw's init
     # --pool, a pool's.
@@ -114,3 +118,9 @@ def full(name: str, value: str) -> bool:
             raise KeyError(f"no pattern of the command line is named {name!r}")
         compiled = _COMPILED[name] = re.compile(PATTERNS[name])
     return compiled.fullmatch(value) is not None
+
+
+def form(name: str) -> str:
+    """The form a value of the pattern PATTERNS names name may take, as help and a refusal say it after the option's or
+    the words' help: [pattern: '<its text>']. A name that is not in PATTERNS raises KeyError, as full does."""
+    return f"[pattern: '{PATTERNS[name]}']"

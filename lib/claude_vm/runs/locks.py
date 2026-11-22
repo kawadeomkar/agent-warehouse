@@ -281,7 +281,7 @@ def _refusal(state: Path, name: str, how: int, who: str) -> Held:
     what = described(name)
     path = state / paths.LOCKS / name
     if name == FLEET and how == fcntl.LOCK_EX and not _held_exclusively(path):
-        listing = inverse.line("logs", {})
+        listing = inverse.line("logs", {}, refused=False)
         return Held(
             f"error: runs on machines of this fleet are under way, and {who} needs the whole fleet: `{listing}` lists"
             " them",
@@ -293,7 +293,7 @@ def _refusal(state: Path, name: str, how: int, who: str) -> Held:
     if running is None:
         return Held(f"error: {what} is held by a run that is starting or ending: try again", name)
     job_id, command, when = running
-    cancel = inverse.line("cancel", {"job": job_id})
+    cancel = inverse.line("cancel", {"job": job_id}, refused=False)
     return Held(
         f"error: {what} is held by job {job_id}, `{_one_line(command)}`, started {when}: `{cancel}` stops it",
         name,

@@ -154,9 +154,15 @@ def _exit_row(case: str) -> dict:
     return row
 
 
+# What the clean slate changed in the table, beside the maps, which go with the contract (H26): init --host is a host's
+# name alone, with no address taken for --address (review/clean-slate/PROPOSAL.md, decision 10; H25).
+CLEAN_SLATE = {"init --host: pattern": "the clean slate, decision 10: init --host is a host's name alone"}
+
+
 def _changed_by(key: str) -> str | None:
-    """The entry that says why a difference is one: CHANGED's or BEHAVIOURS' own, or CHANGED's of its word's whole."""
-    return CHANGED.get(key) or BEHAVIOURS.get(key) or CHANGED.get(key.split(": ", 1)[0])
+    """The entry that says why a difference is one: CHANGED's or BEHAVIOURS' own, or CHANGED's of its word's whole, or
+    the clean slate's."""
+    return CHANGED.get(key) or BEHAVIOURS.get(key) or CHANGED.get(key.split(": ", 1)[0]) or CLEAN_SLATE.get(key)
 
 
 def test_every_word_of_the_contract_is_in_the_table_as_it_is_or_changed_with_its_source() -> None:

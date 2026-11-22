@@ -72,7 +72,7 @@ class _Parser(argparse.ArgumentParser):
 
 
 class _Once(argparse.Action):
-    """A value, or a value or nothing, given once."""
+    """A value, given once."""
 
     def __call__(self, parser, namespace, values, option_string=None):
         if getattr(namespace, self.dest, None) is not None:
@@ -108,8 +108,6 @@ def _parser(verb: str, options: tuple[Option, ...], takes_words: bool) -> tuple[
             parser.add_argument(*spellings, dest=option.field, action="append")
         elif option.kind == "counted":
             parser.add_argument(*spellings, dest=option.field, action="count")
-        elif option.kind == "optional-value":
-            parser.add_argument(*spellings, dest=option.field, action=_Once, nargs="?", const=True)
         else:
             parser.add_argument(*spellings, dest=option.field, action=_Once)
         named["/".join(spellings)] = option
@@ -194,7 +192,7 @@ def read(words: list[str]) -> Reading:
     verb, *verb_words = rest or [NO_VERB]
     row = VERBS.get(verb)
     if row is None:
-        raise Refused(checks.NO_SUCH_COMMAND)
+        raise Refused(checks.no_such_command())
     if END_OF_OPTIONS in verb_words:
         raise Refused(no_end_of_options(verb))
     values = _parse(verb, checks.options_of(row), row, verb_words)

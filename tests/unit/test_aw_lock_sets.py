@@ -103,7 +103,7 @@ def start(home: Path, state: Path, tmp_path: Path) -> Iterator[Callable[..., Run
 def _under_way(who: str) -> str:
     return (
         f"error: runs on machines of this fleet are under way, and {who} needs the whole fleet:"
-        f" `{inverse.line('logs', {})}` lists them"
+        f" `{inverse.line('logs', {}, refused=False)}` lists them"
     )
 
 
@@ -210,7 +210,7 @@ def test_vault_rotate_and_host_name_are_refused_through_exclusive_while_a_run_ho
         verb, values = typed[0], _handed(typed)
         # No run: its own handler holds the fleet's lock for its one write, and makes no job.
         assert lock_sets.locks_for(verb, values) == lock_sets.FLEET and not VERBS[verb].changes
-        command = inverse.line(verb, values)
+        command = inverse.line(verb, values, refused=False)
         with pytest.raises(locks.Held) as refused, locks.exclusive(state, command):
             pytest.fail(f"{command} took the fleet for its write beside a run")
         assert refused.value.sentence == _under_way(f"`{command}`")

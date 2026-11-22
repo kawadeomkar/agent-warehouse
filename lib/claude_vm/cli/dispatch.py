@@ -16,7 +16,11 @@ keyword arguments, and returns the exit status it returns. Before that, in this 
   for the two that come before any fleet, init and install; and says on standard error which fleet it drives where
   that is not the checkout's own or the installed program's, as fleet/paths.py's variable or a fleet_home line chose.
 
-Standard library only, and fleet/paths.py, imported only to look for a fleet, which reads at most two client.yml files.
+Each command a sentence here names is the printer's (inverse.py), the program as it was started; but today's just
+<verb>, which is no command of aw's, and goes at the flip.
+
+Standard library only, the printer of a command, and fleet/paths.py, imported only to look for a fleet, which reads at
+most two client.yml files.
 """
 
 from __future__ import annotations
@@ -29,8 +33,10 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TextIO
 
+from claude_vm.cli import inverse
 from claude_vm.cli.before import RunWords
 from claude_vm.cli.parse import Refused
+from claude_vm.schema import check as checks
 from claude_vm.schema.words import EXITS, Verb
 
 # Today's justfile's recipes a person runs, as H1's contract lists them (tests/unit/test_aw_cli_parse.py holds the two
@@ -42,7 +48,7 @@ JUST_RECIPES = frozenset(
 # The changing verbs that run before there is a fleet, each with why.
 BEFORE_A_FLEET = {
     "init": "it makes the fleet's files",
-    "install": "it makes the checkout's Python environment, before any fleet, as just install comes before just init",
+    "install": "it makes the checkout's Python environment, which comes before any fleet",
 }
 # A Python that is no virtualenv's, said with its path: the PYTHON a person set is the one way the launcher runs one.
 NO_VIRTUALENV = (
@@ -77,7 +83,7 @@ def _load(handler: str) -> Callable[..., int | None]:
 def not_built(verb: Verb) -> str:
     """The sentence of a verb no card has built yet, which says none of the words given."""
     until = f": until then, use today's just {verb.name}" if verb.name in JUST_RECIPES else ""
-    return f"error: aw {verb.name} is not built yet (card {verb.card} builds it){until}"
+    return f"error: {checks.command(verb.name)} is not built yet (card {verb.card} builds it){until}"
 
 
 def _fleet(program_root: Path, verb: Verb, environ: Mapping[str, str], err: TextIO) -> None:
@@ -89,7 +95,7 @@ def _fleet(program_root: Path, verb: Verb, environ: Mapping[str, str], err: Text
     except paths.Refused as refused:
         raise Refused(f"error: {refused}") from None
     if verb.name not in BEFORE_A_FLEET and not paths.fleet_dir(home).is_dir():
-        raise Refused(f"error: {paths.fleet_dir(home)} missing. Run: aw init")
+        raise Refused(f"error: {paths.fleet_dir(home)} missing. Run: {inverse.line('init', {}, refused=False)}")
     if home.how == "variable":
         print(f"aw drives the fleet in {home.root}, which {paths.VARIABLE} names", file=err)
     elif home.pointer is not None:
@@ -111,9 +117,9 @@ def dispatch(
     if not in_a_virtualenv():
         raise Refused(NO_VIRTUALENV.format(python=sys.executable))
     if verb.name not in WITHOUT_PACKAGES and (missing := lacking()):
-        raise Refused(
-            f"error: the Python environment {sys.prefix} lacks {', '.join(missing)}, which uv.lock pins: run aw install"
-        )
+        install = inverse.line("install", {}, refused=False)
+        lacks = ", ".join(missing)
+        raise Refused(f"error: the Python environment {sys.prefix} lacks {lacks}, which uv.lock pins: run {install}")
     if verb.handler is None:
         raise Refused(not_built(verb))
     if verb.changes:

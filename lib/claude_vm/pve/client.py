@@ -54,6 +54,7 @@ from typing import Any
 
 from ..checks import proxmox_name
 from ..schema.patterns import full
+from ..schema.words import Line, said
 from ..secret import Secret
 from ..text import one_line
 from ..vendors.transport import UNKNOWN_ISSUER, Answer, PeerRefused, TimedOut, Transport, Unknown, Untrusted
@@ -350,30 +351,35 @@ class Unverified(ProxmoxError):
         self.reason = one_line(reason, 200)
         self.code = code
         self.anchored = anchored
+        # Each command it names is the printer's (words.py's said): the program as it was started.
+        filled = {"reason": self.reason, "address": one_line(address, 100), "init": Line("init")}
         if code in MISNAMED:
-            said = (
-                f"the Proxmox host's certificate does not name the address it was reached at, {one_line(address, 100)},"
-                f" the one the host's record gives ({self.reason}): give the host a name or address its certificate"
-                " holds - on a tailnet, the node's own name, which MagicDNS resolves there - or have aw init keep the"
-                " node's own certificate as the host's anchor, which is held to its fingerprint and not to a name"
+            sentence = said(
+                "the Proxmox host's certificate does not name the address it was reached at, {address}, the one the"
+                " host's record gives ({reason}): give the host a name or address its certificate holds - on a tailnet,"
+                " the node's own name, which MagicDNS resolves there - or have {init} keep the node's own certificate"
+                " as the host's anchor, which is held to its fingerprint and not to a name",
+                filled,
             )
         elif anchored:
-            said = (
-                f"the Proxmox host's certificate is not the one kept for it ({self.reason}): if Proxmox renewed it, or"
-                " the host was reinstalled, aw init reads the host's own and asks before it trusts one in its place; if"
-                " not, something else may answer at that address"
+            sentence = said(
+                "the Proxmox host's certificate is not the one kept for it ({reason}): if Proxmox renewed it, or the"
+                " host was reinstalled, {init} reads the host's own and asks before it trusts one in its place; if"
+                " not, something else may answer at that address",
+                filled,
             )
         else:
-            said = (
-                f"the Proxmox host's certificate does not verify against the computer's certificates ({self.reason}):"
-                " aw init reads the host's own and asks before it keeps it as the host's anchor"
+            sentence = said(
+                "the Proxmox host's certificate does not verify against the computer's certificates ({reason}): {init}"
+                " reads the host's own and asks before it keeps it as the host's anchor",
+                filled,
             )
             if code in UNKNOWN_ISSUER:
-                said += (
+                sentence += (
                     "; or, where your company's root signed it, add that root to the file of PEM certificates the"
                     " setting tls_ca_file names, which is added to certifi's list"
                 )
-        super().__init__(said)
+        super().__init__(sentence)
 
 
 @dataclasses.dataclass(frozen=True)

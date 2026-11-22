@@ -235,9 +235,10 @@ lib/claude_vm/schema/             the new engine (§16), built beside today's an
                                   3.0, one subpackage each below: the command line's patterns and its one table of
                                   verbs and options, literals written by hand; patterns.py, the one home of the
                                   patterns, and full, which holds a value to one; words.py, the table: each verb's
-                                  words, options, rules, handler, locks and agents' tools, and the exit statuses;
-                                  check.py, the one check every entry runs on a verb's values; rules.py, the rules
-                                  between options, each a function that says today's sentence
+                                  words, options, rules, handler, locks and agents' tools, the exit statuses, and
+                                  said, the one way a sentence names a command; check.py, the one check every entry
+                                  runs on a verb's values; rules.py, the rules between options, each a function that
+                                  says its sentence
 lib/claude_vm/cli/                aw, the program: the command line read against the table, help, the dispatch;
                                   main.py, the entry tools/aw runs; parse.py, the words read with argparse; habits.py,
                                   today's habits, deploy's question among them; before.py, RunWords, the run's own

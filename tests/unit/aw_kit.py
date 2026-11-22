@@ -23,6 +23,8 @@ syntax tree for one):
 - `run_launcher(*words, home=...)`: the launcher at the checkout's top, aw, which runs tools/aw, run by its path as a
   person runs it, in run_aw's environment and with the suite's own Python as PYTHON unless a test names another: this
   checkout's, a link to it, or a copy of it in a checkout a test made, and never this checkout's asked to install;
+  `on_path(home)` is a folder of the test's own whose aw is a link to a launcher, for `first_on_path`, so that aw on
+  PATH is that launcher and every line it prints says aw, as a person who linked it there reads them;
 - `imports_of(*words, home=...)`: the modules a run loaded, from python's `-X importtime`; and with `module=`, what
   importing that one module of this checkout's lib/ loaded;
 - `searched_for(secrets, *paths)`: which files hold one of the secrets, failing a search that read nothing.
@@ -415,6 +417,17 @@ def run_launcher(
         first_on_path=first_on_path,
         argv=[str(launcher), *words],
     )
+
+
+def on_path(home: Path, launcher: Path = LAUNCHER) -> Path:
+    """A folder of the test's own directory, for first_on_path, whose aw is a link to launcher: aw on PATH is that
+    launcher, so the program a run of it says is aw, as for a person who linked it there."""
+    folder = home.parent / "aw-on-path"
+    folder.mkdir(exist_ok=True)
+    link = folder / "aw"
+    if not link.is_symlink():
+        link.symlink_to(launcher)
+    return folder
 
 
 def aw_at_a_terminal(
