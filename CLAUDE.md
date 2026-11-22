@@ -1077,7 +1077,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       cover (`privileges.keys`), each row the privilege Proxmox checks its keys with, which the fake holds key by key:
       a key of another group needs its row first. A `PUT` or a `POST` to a configuration's
       path with no `digest` of `DIGEST`'s form (an empty one is none to Proxmox) is refused in `_request`, where every
-      request passes, before anything is sent, and
+      request passes, before anything is sent - the path read as Proxmox reads it, its `%`-escapes decoded, and sent
+      as it was given - and
       `harness.fake_fleet(engine=True)` fails a test at its end where the fake was sent one of the client's.
     - The transport sends no request but a `GET` twice: a write that left with no answer is `Unknown`, settled by
       reading the VM again. A clone onto a VMID that is taken is `Exists`, at the call or in its task in any of
@@ -1085,8 +1086,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       run's VM. A task is followed within a deadline of its kind and never longer, its log's read after its end
       included, and one that ended `WARNINGS: <n>` is a success, as Proxmox counts it, its log's last lines kept for
       the workflow to say; a log that cannot be read within that deadline, or once the run stops, never turns a
-      success into an error: a success is said with no lines, a failure with none, or as `Stopped` once the run has
-      stopped. A deletion sends
+      success into an error: a success is said with no lines, a failure with none, whatever stopped the read, and
+      `Stopped` is only for a task left before its end. A deletion sends
       `destroy-unreferenced-disks` alone: never `purge` unless a caller asks for it, which would change the host's
       backup jobs, replication and HA, outside the VM.
     - Proxmox answers every refusal of a write with a 500: `Locked`, `DigestMismatch` and `Exists` are told apart by its

@@ -1265,7 +1265,9 @@ def fake_fleet(
 
 def digestless(directory: Path) -> list[dict]:
     """Every PUT or POST to a VM's configuration that the new engine's client (its user agent, pve/pin.py's) sent the
-    fake in directory with no digest: none may be (card B22)."""
+    fake in directory with no digest: none may be (card B22). The fake's log keeps each path as it was sent, so it is
+    read here with its %-escapes decoded, as the fake's routing reads it and Proxmox does: .../confi%67 is a
+    configuration's path too (card B28)."""
     from claude_vm.pve import pin
 
     return [
@@ -1273,7 +1275,7 @@ def digestless(directory: Path) -> list[dict]:
         for entry in _pve_requests(directory)
         if entry["agent"] == pin.USER_AGENT
         and entry["method"] in ("PUT", "POST")
-        and entry["path"].rstrip("/").endswith("/config")
+        and urllib.parse.unquote(entry["path"]).rstrip("/").endswith("/config")
         and "digest" not in entry["params"]
     ]
 
