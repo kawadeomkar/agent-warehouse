@@ -9,7 +9,9 @@ refused login does. For ssh -G it runs this machine's own ssh by its path, given
 (or /dev/null), so that ssh itself reads a configuration and nothing of the developer's is read: OpenSSH finds ~ in the
 password database, never in HOME. No stand-in dials anything. The rules with a test of their own: no -O but check in the
 new subpackages, never -O exit; nothing in ssh/ retries a connection; only ensure (and route.py, for the hop) opens a
-master, and only with the kind that carries no job's marker.
+master, and only with the kind that carries no job's marker; route.py's ssh runs in a process group of its own, so a
+terminal's Ctrl-C settles nothing; the control directory is its owner's alone; and a run remembers nothing of a
+master's open.
 """
 
 from __future__ import annotations
@@ -23,11 +25,14 @@ import json
 import os
 import re
 import shutil
+import signal
 import stat
 import struct
+import subprocess
 import sys
 import tempfile
 import time
+import types
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -35,10 +40,11 @@ import harness
 import pytest
 from harness import REPO, repo_files
 from test_aw_layout import NEW
+from test_processes import _until
 
-from claude_vm import checks, route
+from claude_vm import checks, proc, route
 from claude_vm.fleet import paths
-from claude_vm.runs import children, rundir
+from claude_vm.runs import attached, children, rundir
 from claude_vm.runs import job as jobs
 from claude_vm.ssh import connections, hostkeys, runner
 
@@ -56,7 +62,8 @@ import json, os, sys, time
 here = os.path.dirname(os.path.abspath(__file__))
 argv = sys.argv[1:]
 with open(os.path.join(here, "calls.jsonl"), "a") as out:
-    out.write(json.dumps({"argv": argv, "env": dict(os.environ), "pid": os.getpid(), "session": os.getsid(0)}) + "\n")
+    called = {"argv": argv, "env": dict(os.environ), "pid": os.getpid(), "session": os.getsid(0), "group": os.getpgrp()}
+    out.write(json.dumps(called) + "\n")
 
 
 def after(flag):
@@ -69,6 +76,12 @@ def first(prefix):
 
 
 if "-G" in argv:
+    # slow-G beside the stand-in: ssh -G takes that many seconds first, as a person's Match exec may; killed-G: it is
+    # ended by a signal.
+    if os.path.exists(os.path.join(here, "slow-G")):
+        time.sleep(float(open(os.path.join(here, "slow-G")).read()))
+    if os.path.exists(os.path.join(here, "killed-G")):
+        os.kill(os.getpid(), 9)
     if "-F" not in argv:
         config = os.path.join(os.environ["HOME"], ".ssh", "config")
         argv = ["-F", config if os.path.exists(config) else "/dev/null", *argv]
@@ -213,7 +226,19 @@ def _machine(tmp_path: Path, short_dir: Path, address: str = ADDRESS, **over) ->
 
 
 def _settle(short_dir: Path, setting: str, address: str = HOST, **over) -> dict:
-    return connections.Connections(short_dir, dict(os.environ)).route(setting, _host(short_dir, address), **over)
+    return _route(connections.Connections(short_dir, dict(os.environ)), setting, _host(short_dir, address), **over)
+
+
+def _route(conns, setting, host, **over) -> dict:
+    return asyncio.run(conns.route(setting, host, **over))
+
+
+def _held(conns, target, settled) -> None:
+    return asyncio.run(conns.held(target, settled))
+
+
+def _ensure_hop(conns, settled) -> connections.Master:
+    return asyncio.run(conns.ensure_hop(settled))
 
 
 def _target(conns, job, machine, settled, given=()) -> runner.Target:
@@ -223,9 +248,9 @@ def _target(conns, job, machine, settled, given=()) -> runner.Target:
 # ---------------------------------------------------------------- the one control directory ----
 
 
-def test_the_one_control_directory_is_today_s_ansible_one() -> None:
-    # fleet/paths.py names it, and route.hop_settings' default is the same: the directory today's hop and just status
-    # write already, so nothing new is written on the computer.
+def test_the_one_control_directory_is_ansible_s_and_the_hop_s_default() -> None:
+    # fleet/paths.py names it, and route.hop_settings' default is the same: short, the account's alone, and the one
+    # layer 1's Ansible child and the status probe use.
     assert paths.control_dir({"HOME": "/home/person"}) == Path("/home/person/.ansible/cp")
     assert inspect.signature(route.hop_settings).parameters["control_dir"].default == "~/.ansible/cp"
 
@@ -234,12 +259,12 @@ def test_every_connection_lives_in_the_run_s_one_control_directory(tmp_path, sho
     conns = connections.Connections(short_dir, dict(os.environ))
     elsewhere = short_dir / "elsewhere"
     with pytest.raises(runner.Refused, match="one control directory"):
-        conns.route("host", _host(elsewhere))
+        _route(conns, "host", _host(elsewhere))
     machine = runner.machine(IDENTITY, ADDRESS, "dev", elsewhere, known_hosts=tmp_path / "known_hosts")
     for call in (
         lambda: asyncio.run(conns.ensure(made, machine)),
         lambda: _target(conns, made, machine, {"route": "direct"}),
-        lambda: conns.held(machine, {"route": "direct"}),
+        lambda: _held(conns, machine, {"route": "direct"}),
     ):
         with pytest.raises(runner.Refused, match="one control directory"):
             call()
@@ -259,6 +284,68 @@ def test_a_machine_s_socket_is_named_by_its_identity_its_address_and_its_hop(tmp
     for target in (direct, through):
         [word] = [word for word in runner.options(target) if word.startswith("ControlPath=")]
         assert word.replace("%r", "dev").replace("%p", "22") == f"ControlPath={connections.socket_path(target)}"
+
+
+@pytest.mark.parametrize(
+    ("make", "said"),
+    [
+        ("link", "is a symbolic link"),
+        ("file", "is not a directory"),
+        ("group", "may be written in by its group or others"),
+        ("others", "may be written in by its group or others"),
+    ],
+)
+def test_a_control_directory_that_is_not_its_owner_s_alone_is_refused_and_starts_nothing(
+    short_dir, stand_in, make, said
+) -> None:
+    # Anyone who may write in it could put a socket at a machine's path before its master, and be handed what every
+    # child then sends there, secrets included.
+    control = short_dir / "cp"
+    if make == "link":
+        (short_dir / "elsewhere").mkdir(mode=0o700)
+        control.symlink_to(short_dir / "elsewhere")
+    elif make == "file":
+        control.write_text("")
+    else:
+        control.mkdir(mode=0o700)
+        os.chmod(control, 0o770 if make == "group" else 0o707)
+    with pytest.raises(connections.Unsafe, match=said) as refused:
+        connections.Connections(control, dict(os.environ))
+    assert isinstance(refused.value, runner.Refused) and str(control) in str(refused.value)
+    if make in ("group", "others"):
+        assert f"run chmod 700 {control}" in str(refused.value)
+    assert _calls(stand_in) == []
+
+
+def test_a_control_directory_of_another_account_s_is_refused(short_dir, stand_in, monkeypatch) -> None:
+    mine = os.geteuid()
+    monkeypatch.setattr(connections.os, "geteuid", lambda: mine + 1)
+    with pytest.raises(connections.Unsafe, match=f"belongs to another account \\(uid {mine}\\)"):
+        connections.Connections(short_dir, dict(os.environ))
+    assert _calls(stand_in) == []
+
+
+def test_a_control_directory_of_its_owner_s_alone_or_not_made_yet_is_taken(short_dir) -> None:
+    assert stat.S_IMODE(short_dir.stat().st_mode) == 0o700
+    connections.Connections(short_dir, {})
+    connections.Connections(short_dir / "not-made-yet", {})
+    assert not (short_dir / "not-made-yet").exists()
+
+
+def test_a_machine_whose_socket_s_path_would_be_too_long_logs_in_alone_said_once(tmp_path, stand_in, made) -> None:
+    # A long home: past route.SOCKET_MOST a machine takes no shared connection, ensure opens nothing for it, and the
+    # run's notes say so once, however many machines it meets.
+    long_dir = Path(tempfile.mkdtemp(prefix="aw-" + "c" * 60, dir="/tmp"))
+    try:
+        conns = connections.Connections(long_dir, dict(os.environ))
+        for address in (ADDRESS, OTHER_ADDRESS):
+            target = _machine(tmp_path, long_dir, address)
+            assert not target.shared and "ControlPath=none" in runner.options(target)
+            assert asyncio.run(conns.ensure(made, target)) == connections.Master(True, False, "")
+        assert conns.notes == [connections.UNSHARED.format(directory=long_dir, most=route.SOCKET_MOST)]
+        assert _calls(stand_in) == []
+    finally:
+        shutil.rmtree(long_dir, ignore_errors=True)
 
 
 # ---------------------------------------------------------------- the route ----
@@ -285,8 +372,78 @@ def test_auto_settles_by_where_ssh_dials_for_the_host(home, short_dir, stand_in,
     settled = _settle(short_dir, "auto")
     assert (settled["route"], settled["setting"], settled["addresses"]) == (expected, "auto", [dialled])
     assert bool(settled["hop"]) is (expected == "host")
-    # The one call: ssh -G for the host, as the person's own ssh reads it.
+    # The one call: ssh -G for the host, as the person's own ssh reads it, in a process group of its own.
     assert _kinds(stand_in) == ["-G"]
+    [call] = _calls(stand_in)
+    assert call["group"] == call["pid"] != os.getpgrp()
+
+
+def test_under_auto_an_ssh_g_ended_by_a_signal_settles_nothing(home, short_dir, stand_in, addresses) -> None:
+    # Read as no answer, it would settle from the address as written: direct, where the person's configuration sends
+    # the host to a tailnet. The new engine's run refuses; today's callers of route.py settle as they did.
+    _config(home, f"Host {HOST}\n  HostName {TAILNET}\n")
+    (stand_in / "killed-G").write_text("")
+    with pytest.raises(route.HopRefused) as refused:
+        _settle(short_dir, "auto")
+    said = str(refused.value)
+    assert "ended by a signal (9)" in said and "vm_ssh_route: auto is not settled" in said
+    assert said.endswith("set vm_ssh_route: direct or host")
+    hop = route.hop_settings(user="root", host=HOST, control_dir=str(short_dir))
+    assert route.route_settle("auto", hop)["route"] == "direct"
+
+
+# A run's own process, as a terminal's foreground group: it settles the route under auto while the test sends its group
+# SIGINT, as a terminal's Ctrl-C does, which the run only takes note of, as the ladder does a first Ctrl-C.
+CTRL_C_RUN = r"""
+import asyncio, ipaddress, json, os, signal, sys
+
+lib, control, host = sys.argv[1:]
+sys.path.insert(0, lib)
+from claude_vm import route
+from claude_vm.ssh import connections, runner
+
+noted = []
+signal.signal(signal.SIGINT, lambda *_: noted.append("SIGINT"))
+
+
+def literal(name, limit=None):
+    try:
+        return [str(ipaddress.ip_address(str(name)))]
+    except ValueError:
+        return []
+
+
+route.addresses_of = literal
+conns = connections.Connections(control, dict(os.environ))
+try:
+    settled = asyncio.run(conns.route("auto", runner.proxmox_host(host, "root", control)))
+    said = {"route": settled["route"], "addresses": settled["addresses"]}
+except route.HopRefused as refused:
+    said = {"refused": str(refused)}
+print(json.dumps({**said, "noted": noted}), flush=True)
+"""
+
+
+def test_a_first_ctrl_c_while_the_route_is_settled_kills_no_ssh_and_settles_it_as_it_is(home, short_dir, stand_in):
+    _config(home, f"Host {HOST}\n  HostName {TAILNET}\n")
+    (stand_in / "slow-G").write_text("2")
+    argv = [sys.executable, "-I", "-c", CTRL_C_RUN, str(REPO / "lib"), str(short_dir), HOST]
+    run = subprocess.Popen(
+        argv,
+        env=dict(os.environ),
+        stdout=subprocess.PIPE,
+        text=True,
+        process_group=0,
+        preexec_fn=harness._default_signals,
+    )
+    try:
+        _until(lambda: "-G" in _kinds(stand_in), "the route's ssh -G started")
+        os.killpg(run.pid, signal.SIGINT)
+        out, _ = run.communicate(timeout=60)
+    finally:
+        run.kill()
+        run.wait(timeout=10)
+    assert json.loads(out) == {"route": "host", "addresses": [TAILNET], "noted": ["SIGINT"]}
 
 
 def test_the_hop_s_account_is_vm_ssh_jump_where_it_names_one(short_dir, stand_in) -> None:
@@ -312,9 +469,9 @@ def test_under_auto_a_hop_that_is_not_one_plain_word_matters_only_where_the_rule
 def test_a_setting_that_is_no_route_and_a_machine_for_the_host_are_refused(tmp_path, short_dir) -> None:
     conns = connections.Connections(short_dir, {})
     with pytest.raises(runner.Refused, match="vm_ssh_route is one of auto, direct, host"):
-        conns.route("tailnet", _host(short_dir))
+        _route(conns, "tailnet", _host(short_dir))
     with pytest.raises(runner.Refused, match="Proxmox host's own Target"):
-        conns.route("host", _machine(tmp_path, short_dir))
+        _route(conns, "host", _machine(tmp_path, short_dir))
 
 
 # ---------------------------------------------------------------- a machine's target ----
@@ -322,7 +479,7 @@ def test_a_setting_that_is_no_route_and_a_machine_for_the_host_are_refused(tmp_p
 
 def test_under_host_a_machine_s_line_holds_the_hop_s_command_word_for_word(tmp_path, short_dir, stand_in, made) -> None:
     conns = connections.Connections(short_dir, dict(os.environ))
-    settled = conns.route("host", _host(short_dir))
+    settled = _route(conns, "host", _host(short_dir))
     target = _target(conns, made, _machine(tmp_path, short_dir), settled, {"Compression": "yes"})
     proxy = " ".join(route.hop_argv(settled["hop"], ADDRESS, settled["policy"]))
     assert target.hop == runner.Hop(proxy, os.path.basename(settled["hop"]["socket"]))
@@ -339,7 +496,7 @@ def test_under_host_a_machine_s_line_holds_the_hop_s_command_word_for_word(tmp_p
 
 def test_under_direct_a_machine_takes_no_hop_and_nothing_is_read(tmp_path, short_dir, stand_in, made) -> None:
     conns = connections.Connections(short_dir, dict(os.environ))
-    target = _target(conns, made, _machine(tmp_path, short_dir), conns.route("direct", _host(short_dir)))
+    target = _target(conns, made, _machine(tmp_path, short_dir), _route(conns, "direct", _host(short_dir)))
     assert target.hop is None and _calls(stand_in) == []
 
 
@@ -348,7 +505,7 @@ def test_under_direct_a_machine_takes_no_hop_and_nothing_is_read(tmp_path, short
 )
 def test_a_machine_given_a_jump_by_vm_ssh_options_takes_no_hop(tmp_path, short_dir, stand_in, made, given) -> None:
     conns = connections.Connections(short_dir, dict(os.environ))
-    target = _target(conns, made, _machine(tmp_path, short_dir), conns.route("host", _host(short_dir)), given)
+    target = _target(conns, made, _machine(tmp_path, short_dir), _route(conns, "host", _host(short_dir)), given)
     assert target.hop is None and target.given == tuple(given.items())
     # Decided from the options alone: the person's configuration is not asked.
     assert _calls(stand_in) == []
@@ -356,14 +513,14 @@ def test_a_machine_given_a_jump_by_vm_ssh_options_takes_no_hop(tmp_path, short_d
 
 def test_proxycommand_none_is_no_jump(tmp_path, short_dir, stand_in, made) -> None:
     conns = connections.Connections(short_dir, dict(os.environ))
-    settled = conns.route("host", _host(short_dir))
+    settled = _route(conns, "host", _host(short_dir))
     assert _target(conns, made, _machine(tmp_path, short_dir), settled, {"ProxyCommand": "none"}).hop is not None
 
 
 def test_a_machine_whose_own_ssh_config_shows_a_jump_takes_no_hop(home, tmp_path, short_dir, stand_in, made) -> None:
     _config(home, f"Host {ADDRESS}\n  ProxyJump jumper@jump.example.test\n")
     conns = connections.Connections(short_dir, dict(os.environ))
-    settled = conns.route("host", _host(short_dir))
+    settled = _route(conns, "host", _host(short_dir))
     machine = _machine(tmp_path, short_dir)
     assert _target(conns, made, machine, settled).hop is None
     # Read once a run for each machine: asked again, the run's reading is used.
@@ -382,12 +539,12 @@ def test_a_configuration_ssh_cannot_read_is_said_and_nothing_is_built(home, tmp_
     with pytest.raises(
         runner.Refused, match=r"ssh -G could not read your ssh configuration for 192\.0\.2\.9: .*Bad config"
     ):
-        _target(conns, made, _machine(tmp_path, short_dir), conns.route("host", _host(short_dir)))
+        _target(conns, made, _machine(tmp_path, short_dir), _route(conns, "host", _host(short_dir)))
 
 
 def test_target_for_takes_a_machine_with_no_hop_and_no_options_of_its_own(tmp_path, short_dir, stand_in, made):
     conns = connections.Connections(short_dir, dict(os.environ))
-    settled = conns.route("host", _host(short_dir))
+    settled = _route(conns, "host", _host(short_dir))
     for machine in (
         _machine(tmp_path, short_dir, given={"Compression": "yes"}),
         _target(conns, made, _machine(tmp_path, short_dir), settled),
@@ -405,20 +562,22 @@ def test_target_for_takes_a_machine_with_no_hop_and_no_options_of_its_own(tmp_pa
 
 def test_held_takes_the_hop_s_command_and_a_jump_of_the_machine_s_own(home, tmp_path, short_dir, stand_in, made):
     conns = connections.Connections(short_dir, dict(os.environ))
-    settled = conns.route("host", _host(short_dir))
-    conns.held(_target(conns, made, _machine(tmp_path, short_dir), settled), settled)
+    settled = _route(conns, "host", _host(short_dir))
+    _held(conns, _target(conns, made, _machine(tmp_path, short_dir), settled), settled)
     jump = {"ProxyJump": "jumper@jump.example.test"}
-    conns.held(_target(conns, made, _machine(tmp_path, short_dir), settled, jump), settled)
+    _held(conns, _target(conns, made, _machine(tmp_path, short_dir), settled, jump), settled)
     _config(home, f"Host {OTHER_ADDRESS}\n  ProxyJump jumper@jump.example.test\n")
-    conns.held(_target(conns, made, _machine(tmp_path, short_dir, OTHER_ADDRESS), settled), settled)
-    direct = conns.route("direct", _host(short_dir))
-    conns.held(_target(conns, made, _machine(tmp_path, short_dir), direct), direct)
+    _held(conns, _target(conns, made, _machine(tmp_path, short_dir, OTHER_ADDRESS), settled), settled)
+    direct = _route(conns, "direct", _host(short_dir))
+    _held(conns, _target(conns, made, _machine(tmp_path, short_dir), direct), direct)
     assert not _dialled(stand_in, ADDRESS) and not _dialled(stand_in, OTHER_ADDRESS)
+    # Every ssh -G, held's (route.ssh_shown) and target_for's, in a process group of its own.
+    assert [call["group"] == call["pid"] for call in _calls(stand_in)] == [True] * len(_calls(stand_in))
 
 
 def test_held_refuses_any_other_proxy_before_anything_connects(tmp_path, short_dir, stand_in, made) -> None:
     conns = connections.Connections(short_dir, dict(os.environ))
-    settled = conns.route("host", _host(short_dir))
+    settled = _route(conns, "host", _host(short_dir))
     other = route.hop_settings(user="root", host="pve-other", control_dir=str(short_dir))
     elsewhere = runner.Hop(" ".join(route.hop_argv(other, ADDRESS, settled["policy"])), "awh-0123456789ab")
     refusals = {
@@ -429,12 +588,12 @@ def test_held_refuses_any_other_proxy_before_anything_connects(tmp_path, short_d
     }
     for said, target in refusals.items():
         with pytest.raises(connections.Unheld, match=said) as refused:
-            conns.held(target, settled)
+            _held(conns, target, settled)
         assert "vm_ssh_route: direct" in str(refused.value)
     # Under direct, a target that takes the hop.
     hopped = _target(conns, made, _machine(tmp_path, short_dir), settled)
     with pytest.raises(connections.Unheld, match="where the route is direct"):
-        conns.held(hopped, conns.route("direct", _host(short_dir)))
+        _held(conns, hopped, _route(conns, "direct", _host(short_dir)))
     assert not _dialled(stand_in, ADDRESS)
 
 
@@ -443,14 +602,16 @@ def test_held_refuses_any_other_proxy_before_anything_connects(tmp_path, short_d
 
 def test_ensure_hop_opens_the_hop_s_master_once_and_finds_it_the_second_time(short_dir, stand_in) -> None:
     conns = connections.Connections(short_dir, dict(os.environ))
-    settled = conns.route("host", _host(short_dir))
-    assert conns.ensure_hop(settled) == connections.Master(ok=True, opened=True, said="")
-    assert conns.ensure_hop(settled) == connections.Master(ok=True, opened=False, said="")
+    settled = _route(conns, "host", _host(short_dir))
+    assert _ensure_hop(conns, settled) == connections.Master(ok=True, opened=True, said="")
+    assert _ensure_hop(conns, settled) == connections.Master(ok=True, opened=False, said="")
     assert _kinds(stand_in) == ["-O check", "open", "-O check", "-O check"]
     assert Path(settled["hop"]["socket"]).read_text() == "live"
-    # route.py's open, with this process's own environment, which a run never marks.
+    # route.py's open, with this process's own environment, which a run never marks; each of its ssh in a process
+    # group of its own.
     assert children.MARKER not in _calls(stand_in)[1]["env"] and children.MARKER not in os.environ
-    assert conns.ensure_hop(conns.route("direct", _host(short_dir))).ok and len(_calls(stand_in)) == 4
+    assert [call["group"] == call["pid"] for call in _calls(stand_in)] == [True] * 4
+    assert _ensure_hop(conns, _route(conns, "direct", _host(short_dir))).ok and len(_calls(stand_in)) == 4
 
 
 @pytest.mark.parametrize(("setting", "named"), [("auto", "vm_ssh_route: direct"), ("host", "vm_ssh_route: host")])
@@ -460,12 +621,15 @@ def test_a_hop_that_cannot_be_used_stops_the_run_and_nothing_dials_the_vm(
     _config(home, f"Host {HOST}\n  HostName {TAILNET}\n")
     (stand_in / f"mode-root@{HOST}").write_text("refused")
     conns = connections.Connections(short_dir, dict(os.environ))
-    settled = conns.route(setting, _host(short_dir))
+    settled = _route(conns, setting, _host(short_dir))
     target = _target(conns, made, _machine(tmp_path, short_dir), settled)
     with pytest.raises(connections.Unusable, match="ssh could not log in there") as unusable:
-        conns.ensure_hop(settled)
-    # route.login_said's sentence as it stands: under auto it names vm_ssh_route: direct, under host the setting given.
-    assert named in str(unusable.value) and "Permission denied" in str(unusable.value)
+        _ensure_hop(conns, settled)
+    # route.login_said's sentence in the new engine's names: under auto it names vm_ssh_route: direct, under host the
+    # setting given; the key is this computer's ssh_identity_file, never an inventory's variable.
+    said = str(unusable.value)
+    assert named in said and "Permission denied" in said
+    assert "ssh_identity_file" in said and "ansible_" not in said and f"`ssh -p 22 root@{HOST}`" in said
     assert target.hop is not None and not _dialled(stand_in, ADDRESS)
 
 
@@ -477,7 +641,7 @@ def test_ensure_opens_a_master_once_unmarked_and_finds_it_the_second_time(
     tmp_path, short_dir, stand_in, made, through
 ) -> None:
     conns = connections.Connections(short_dir, dict(os.environ))
-    settled = conns.route("host" if through else "direct", _host(short_dir))
+    settled = _route(conns, "host" if through else "direct", _host(short_dir))
     target = _target(conns, made, _machine(tmp_path, short_dir), settled)
     assert (target.hop is not None) is through
     before = len(_calls(stand_in))
@@ -558,6 +722,45 @@ def test_ensure_never_opens_a_master_for_a_first_use_or_the_host(tmp_path, short
     # A first use rides no master at all: a connection of its own.
     assert "ControlPath=none" in runner.options(first)
     assert _calls(stand_in) == []
+
+
+def test_a_run_remembers_nothing_of_a_master_s_open(made) -> None:
+    # The master a finished open leaves behind keeps its ProxyCommand in the open's group, so a run's end that had
+    # remembered the open's tree at a Ctrl-C during it would end that master, which no run does (review/code/B8.md 3).
+    holds = (
+        "import subprocess, sys, time;"
+        " subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); time.sleep(60)"
+    )
+
+    async def opening() -> None:
+        devnull = asyncio.subprocess.DEVNULL
+        process = await children.start(
+            made,
+            [sys.executable, "-c", holds],
+            children.SESSION,
+            dict(os.environ),
+            devnull,
+            devnull,
+            devnull,
+            children.MASTER,
+        )
+        # Another child of the run's, which is remembered.
+        other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], stdin=subprocess.DEVNULL)
+        try:
+            await asyncio.to_thread(_until, lambda: len(proc.descendants(process.pid)) == 1, "the open's ProxyCommand")
+            assert children.opening() == [process.pid] and children.live(made) == []
+            ladder = types.SimpleNamespace(remembered={}, blind=[])
+            attached._Ladder.remember(ladder)
+            tree = {process.pid, *proc.descendants(process.pid)}
+            assert ladder.blind == [] and other.pid in ladder.remembered and not tree & set(ladder.remembered)
+        finally:
+            other.kill()
+            other.wait()
+            os.killpg(process.pid, signal.SIGKILL)
+            await process.wait()
+        assert children.opening() == []
+
+    asyncio.run(opening())
 
 
 # ---------------------------------------------------------------- a first use ----
@@ -776,9 +979,14 @@ def test_the_retry_scan_sees_each_way(source, found) -> None:
     assert bool(_retries([source])) is found
 
 
+# ssh's flags that take no value (its getopt string's): a word of them run together, -NM, holds -M where it holds M.
+_FLAGS = re.compile(r"-[1246afgknqstvxACGKMNTVXYy]*M[1246afgknqstvxACGKMNTVXYy]*")
+
+
 def _masters(path: Path, source: str) -> list[str]:
     """Each place source opens a master or names the kind of child that carries no marker: a ControlMaster other than
-    no, ssh's -M, children.MASTER, or master=True; each with the function it is in."""
+    no - in a string, or in an f-string whose formatted value is its value - ssh's -M alone or run together with other
+    flags, children.MASTER, or master=True; each with the function it is in."""
     tree = ast.parse(source)
     said = _said(tree)
     inside: dict[int, str] = {}
@@ -786,12 +994,19 @@ def _masters(path: Path, source: str) -> list[str]:
     for function in [node for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]:
         for node in ast.walk(function):
             inside[id(node)] = function.name
+    # An f-string is read whole, a formatted value as {}, and the strings inside it not again.
+    joined = {id(part) for node in ast.walk(tree) if isinstance(node, ast.JoinedStr) for part in node.values}
     found = []
     for node in ast.walk(tree):
         where = f"{path.name}:{inside.get(id(node), '<module>')}"
-        if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in said:
+        if isinstance(node, ast.JoinedStr) and id(node) not in said:
+            text = "".join(part.value if isinstance(part, ast.Constant) else "{}" for part in node.values)
+            master = re.search(r"(?i)controlmaster\s*=\s*(\w+|\{\})", text)
+            if master and master.group(1).lower() != "no":
+                found.append(f"{where}: {text}")
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in said | joined:
             master = re.search(r"(?i)controlmaster\s*=\s*(\w+)", node.value)
-            if (master and master.group(1).lower() != "no") or node.value == "-M":
+            if (master and master.group(1).lower() != "no") or _FLAGS.fullmatch(node.value):
                 found.append(f"{where}: {node.value}")
         elif isinstance(node, ast.Attribute) and node.attr == "MASTER" and getattr(node.value, "id", "") == "children":
             found.append(f"{where}: children.MASTER")
@@ -823,6 +1038,12 @@ def test_only_ensure_opens_a_master_and_only_with_the_kind_that_carries_no_marke
         ('def f():\n    return ["-o", "ControlMaster=auto"]', ["x.py:f: ControlMaster=auto"]),
         ('def f():\n    return ["-o", "ControlMaster=yes"]', ["x.py:f: ControlMaster=yes"]),
         ('def f():\n    return ["-M", host]', ["x.py:f: -M"]),
+        ('def f():\n    return ["-NM", host]', ["x.py:f: -NM"]),
+        ('def f():\n    return ["-fMN", host]', ["x.py:f: -fMN"]),
+        ('def f(mode):\n    return ["-o", f"ControlMaster={mode}"]', ["x.py:f: ControlMaster={}"]),
+        ('def f(mode):\n    return [f"-oControlMaster=yes{mode}"]', ["x.py:f: -oControlMaster=yes{}"]),
+        ('def f(x):\n    return [f"ControlMaster=no {x}"]', []),
+        ('def f():\n    return ["-N", "-Mode"]', []),
         ("def f():\n    return children.MASTER", ["x.py:f: children.MASTER"]),
         ("def f():\n    return g(master=True)", ["x.py:f: master=True"]),
         ('def f():\n    return ["-o", "ControlMaster=no"]', []),

@@ -1,15 +1,14 @@
-"""The proxy a request of the new engine goes through, worked out as today's clients work it out
+"""The proxy a request of the new engine goes through: the one the environment names, by `requests`' rule
 (docs/architecture/engine.md §16.7).
 
-Today every Proxmox API call, `just status`'s reads and destroy's Tailscale calls take the proxy the environment
-names: through `requests`, or through `urllib`, whose rule is the narrower. `choose` keeps the wider one, `requests`'
-(2.34's `get_environ_proxies` and `select_proxy`), so that whatever went direct or through the proxy under either
-still does: the `https` entry of the environment's proxies, else its `all` entry (`HTTPS_PROXY`, `ALL_PROXY` and their
-lower-case forms, the lower-case one first); none where `no_proxy` or `NO_PROXY` names the host, by a name, a suffix,
-`*`, or, for a host that is an IPv4 address, the address or a CIDR range holding it. Where the environment names no
-proxy at all, macOS's network settings are read as the standard library reads them, their exceptions included;
-Linux has no such settings. That is the setting `network_proxy` at `environment`, its default. At `none` there is no
-proxy whatever the environment says, the stricter form and an opt-in; at an `http://` URL, that proxy.
+`choose` takes `requests`' rule (2.34's `get_environ_proxies` and `select_proxy`), the one a person behind a proxy
+expects of a Python program: the `https` entry of the environment's proxies, else its `all` entry (`HTTPS_PROXY`,
+`ALL_PROXY` and their lower-case forms, the lower-case one first); none where `no_proxy` or `NO_PROXY` names the host,
+by a name, a suffix, `*`, or, for a host that is an IPv4 address, the address or a CIDR range holding it. Where the
+environment names no proxy at all, macOS's network settings are read as the standard library reads them, their
+exceptions included; Linux has no such settings. That is the setting `network_proxy` at `environment`, its default.
+At `none` there is no proxy whatever the environment says, the stricter form and an opt-in; at an `http://` URL, that
+proxy.
 
 `choose` reads only the `environ` it is given, never this process's, so of `urllib.request` it calls only the readers
 that take what they read as an argument or read the system's settings: `proxy_bypass_environment`, given the proxies

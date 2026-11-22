@@ -254,6 +254,7 @@ def status_cache(where: Home) -> Path:
 
 
 def control_dir(environ: Mapping[str, str] | None = None) -> Path:
-    """The one shared control directory of every SSH connection: Ansible's, which today's hop and just status use
-    (route.hop_settings' default), short and the same for every fleet on the computer."""
+    """The one shared control directory of every SSH connection (route.hop_settings' default): short, as a socket's
+    path must be, the account's alone, the same for every fleet on the computer, and the one layer 1's Ansible and the
+    status probe use."""
     return _user_home(os.environ if environ is None else environ) / ".ansible" / "cp"

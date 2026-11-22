@@ -27,6 +27,7 @@ import contextlib
 import os
 import signal
 import subprocess
+from collections.abc import Iterable
 
 # Held off while a tree is read and signalled: one of them arriving then would abandon the end half way.
 HELD = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
@@ -66,10 +67,14 @@ def descendants(pid: int, table: dict[int, tuple[int, str]] | None = None) -> li
     return found
 
 
-def snapshot(pid: int) -> dict[int, str]:
-    """Every process under pid with its start, to remember a tree by before part of it ends."""
+def snapshot(pid: int, *, leaving: Iterable[int] = ()) -> dict[int, str]:
+    """Every process under pid with its start, to remember a tree by before part of it ends; never one of leaving, nor
+    anything under one, read from the same table (the new engine's run leaves a shared master's open out)."""
     table = _table()
-    return {each: table[each][1] for each in descendants(pid, table)}
+    left: set[int] = set()
+    for each in leaving:
+        left |= {each, *descendants(each, table)}
+    return {each: table[each][1] for each in descendants(pid, table) if each not in left}
 
 
 def _signal(pids: list[int], groups: set[int], signum: int, spared: frozenset[int] = frozenset()) -> None:

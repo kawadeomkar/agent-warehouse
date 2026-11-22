@@ -192,9 +192,12 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       day ahead. `tests/unit/test_pins.py` holds every armored block of each vendored key file to its vendor's
       fingerprints; `test_signed_downloads.py` runs both task files against `fake_downloads.py` with keys of its own.
     - The new engine verifies both in `lib/claude_vm/vendors/downloads.py` alone, which only returns a release's
-      version and digests, or an image's digest, once the signature verifies, with the caps and checks of the two task
-      files; it alone imports `openpgp`, and only `lib/claude_vm/vendors/keys.py` names a key file, which `test_pins.py`
-      holds to the same fingerprints (`tests/unit/test_aw_downloads.py`).
+      version and digests, or an image's digest (`signed_digest`: a list and its signature from URLs of their own, over
+      https, the key a `keys.Key` or its armored text with its fingerprint; `listed_digest` for an unsigned list, by the
+      same line reader), once the signature verifies - decided by whether `openpgp.verify` returned, never by a
+      refusal's words - with the caps and checks of the two task files. It alone reaches `openpgp`, by an import, by
+      its own `openpgp` or `verify` taken from it, or read off a name, and only `lib/claude_vm/vendors/keys.py` names
+      a key file, which `test_pins.py` holds to the same fingerprints (`tests/unit/test_aw_downloads.py`).
 - **Idempotence.** Molecule's idempotence stage re-runs converge and fails on any `changed` task.
 - **An API key and Remote Control are mutually exclusive.** `ANTHROPIC_API_KEY` outranks the
   claude.ai login in Claude Code's credential precedence, and only that login can establish a
@@ -447,8 +450,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `vm_control_name`; `just status`'s too), so a VM that reports a sibling's address is refused there, never
       riding the sibling's open connection; two VMs that report one address are both left out (`guest_addresses`).
       Deleting a VM keeps its key: under an identity no VM made later has, it can only match that VM again, and
-      refuses any other given it. `~/.ssh/known_hosts` is never edited. The new engine keeps the same file under the
-      same identities, and files a key there through `lib/claude_vm/ssh/hostkeys.py` alone
+      refuses any other given it. `~/.ssh/known_hosts` is never edited. The new engine keeps every machine's key in
+      that file under its identity, and files a key there through `lib/claude_vm/ssh/hostkeys.py` alone
       (`tests/unit/test_aw_hostkeys.py`).
     - A key kept there by address before 2.6 is copied in under the VM's identity once, before anything connects -
       in check mode too, whose connections take keys on first use - by `playbooks/tasks/host_keys.yml`, which every
@@ -521,15 +524,24 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       scenarios' vars and the Vagrantfile: `auto` would ask this machine's ssh, through the developer's own config,
       where it dials a test's host. `test_vm_route.py` reads back what each writes and fails if one stops; a test of
       the route sets its own, its sockets in a directory of the test's.
-    - The new engine calls `route.py` as it stands (`lib/claude_vm/ssh/connections.py`) and keeps every shared master, a
-      machine's and the hop's, in the one control directory every run shares (`fleet/paths.py`'s `control_dir()`,
-      Ansible's `~/.ansible/cp`). No master it opens carries a job's marker: a machine's is opened only by `ensure`, as
-      `children.MASTER` in a session of its own, and never for a first use (`first_use`: no key filed under the
-      identity), which is a connection of its own (`ControlPath=none`) until its key is filed; the hop's only by
-      `route.py`, with the engine's own environment, which a run never marks. No run ends a master, the engine sends no
-      control command but `-O check`, and nothing in `ssh/` tries a connection again. Until the engine settles its route
-      once a run, `direct_only` refuses every settled route but `direct`, naming `vm_ssh_route: direct`.
-      `tests/unit/test_aw_ssh_connections.py` holds it, the rules by scans.
+    - The new engine calls `route.py` as it stands (`lib/claude_vm/ssh/connections.py`), its `ssh` children in a
+      process group of their own (`process_group=0`, which today's callers do not pass) and `route`, `ensure_hop` and
+      `held` off the event loop, so that a terminal's first Ctrl-C kills none and has its silence read as an answer;
+      `route` settles nothing where its `ssh -G` was ended by a signal (`signalled_settles=False`). It keeps every
+      shared master, a machine's and the hop's, in the one control directory every run shares (`fleet/paths.py`'s
+      `control_dir()`, `~/.ansible/cp`: short, the account's alone, and the one layer 1's Ansible and the status probe
+      use), which `Connections` refuses where it is a link, another account's, or writable by its group or others
+      (`Unsafe`, with the `chmod 700` to run); a machine whose socket's path there would pass `route.SOCKET_MOST`
+      connects alone (`runner.Target.shared`), said once a run (`notes`). A machine's master is opened only by
+      `ensure`, as `children.MASTER` in a session of its own, which carries no job's marker, never for a first use
+      (`first_use`: no key filed under the identity), which is a connection of its own (`ControlPath=none`) until its
+      key is filed, and while its open runs a run remembers nothing of its tree (`children.opening`). The hop's master
+      is `route.py`'s: `ensure_hop` opens it with the engine's own environment, and so may any connection through the
+      hop whose `ProxyCommand` finds none live (its `ControlMaster=auto`), which then carries that child's job's
+      marker. No run ends a master; never `-O exit`; `-O stop` only through `route.hop_stop`, for the hop; and nothing
+      in `ssh/` tries a connection again. Until the engine settles its route once a run, `direct_only` refuses every
+      settled route but `direct`, naming `vm_ssh_route: direct`. `tests/unit/test_aw_ssh_connections.py` holds it, the
+      rules by scans.
 - **`just code` writes in one directory of its own on the VM, the session copies, the rest of Claude Code it
   carries and one fast-forward aside, and never answers VS Code's, Zed's or Claude Code's security questions.** Read
   [§4.9](docs/architecture/lifecycle.md#49-playbookscodeyml),
@@ -998,18 +1010,23 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       says a header's value or a peer's words: one `http.client` would refuse is `NotMade`, "the request could not be
       made"; what `http.client` raised of an answer is said by what it means, never in its words, which quote the
       answer; of a proxy's answer only its status.
-    - The proxy is `lib/claude_vm/vendors/proxy.py`'s `choose`: today's, from the environment under `requests`' rule,
-      at `network_proxy: environment`, with `none` the opt-in. It reads only the environment it is given, and of
+    - The proxy is `lib/claude_vm/vendors/proxy.py`'s `choose`: from the environment under `requests`' rule, at
+      `network_proxy: environment`, with `none` the opt-in. It reads only the environment it is given, and of
       `urllib.request` only `proxy_bypass_environment` and macOS's two readers of the system's settings.
     - The vendors' TLS context, and the Proxmox client's where a host keeps no anchor, is
       `lib/claude_vm/vendors/trust.py`'s alone: `certifi`'s file by its path, and then the file the setting
       `tls_ca_file` names, which adds to `certifi`'s list and never replaces it; never the system's store or a
       certificate variable - a change from 2.x, whose vendor calls trust the system's store.
     - Of the new engine only the modules `CONTEXTS` names, each with why, name what makes a TLS context or gives one
-      roots (`MAKERS`, by any spelling but as a type, or a call's `ssl=True`), set one of its checks (`CHECKS`:
+      roots (`MAKERS`, by any written spelling but as a type, or a call's `ssl=True`), set one of its checks (`CHECKS`:
       `check_hostname`, `verify_mode`, `verify_flags`, `hostname_checks_common_name`), or import one of today's modules
-      that does (`TODAYS_CONTEXTS`); and no module of the new engine names the interpreter's own store or its paths
-      (`DEFAULT_STORE`). The transport takes any context, so one made elsewhere could check nothing.
+      that does (`TODAYS_CONTEXTS`); no module takes `trust` or `status` from one `CONTEXTS` names, and those take
+      names of today's modules, never a module whole (`lib/claude_vm/pve/pin.py` binds `anchored_context` alone); and no
+      module of the new engine names the interpreter's own store or its paths (`DEFAULT_STORE`). The transport takes
+      any context, so one made elsewhere could check nothing. Past the rules: a name built at run time (`getattr` of a
+      string made there, `sys.modules`, `import_module` of a relative name), a keyword `check_hostname=False` handed to
+      a function, and the standard library's own TLS clients (`urllib.request.urlopen`, `xmlrpc.client`, `ftplib`,
+      `smtplib`, `imaplib`, `poplib`): a reviewer looks for those.
     - `tests/unit/test_aw_transport.py` holds the transport and the proxy, and `tests/unit/test_aw_vendor_trust.py`
       the computer's certificates, `CONTEXTS` and `DEFAULT_STORE`.
 - **One class sends the Proxmox token, on a connection whose certificate verified.** Read
@@ -1119,11 +1136,14 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       the identity to `checks.HOST_KEY_ALIAS_RE`, the address to one IPv4 address (the one value a machine supplies,
       and the only one of a machine's that reaches the line), the account, the port and every path to plain words. The
       product's options come first, since `ssh` keeps the first value: `checks.vm_ssh_args` as it stands, the shared
-      socket, `ControlMaster=no` (a child is never a master), `BatchMode=yes`, `StrictHostKeyChecking=yes` against the
-      product's own known-hosts file under `HostKeyAlias`, the limits on a connection, `LogLevel=ERROR`; then the
-      hop's; then the person's `vm_ssh_options`, which may not name a key the product writes (refused by name) and give
-      `StrictHostKeyChecking` only as `yes`; then `--`, the address and the command. No `-F`: the person's own
-      `~/.ssh/config` is read, as today.
+      socket (`ControlPath=none` where its path would pass `route.SOCKET_MOST`), `ControlMaster=no` (a child is never a
+      master), `BatchMode=yes`, `ForwardX11=no`, `PermitLocalCommand=no`, `StrictHostKeyChecking=yes` against the
+      product's own known-hosts file under `HostKeyAlias`, the limits on a connection, public keys alone (the Proxmox
+      host's too, until someone asks for more), `LogLevel=ERROR`; then the hop's; then the person's `vm_ssh_options`,
+      which may not name a key the product writes (`REFUSED_OPTIONS`) or one that undoes what every connection holds
+      (`UNDOING_OPTIONS`: `StdinNull`, `ForkAfterAuthentication`, `SessionType`, `RemoteCommand`, `ForwardX11*`,
+      `PermitLocalCommand`, `LocalCommand`), each refused by name, and give `StrictHostKeyChecking` only as `yes`; then
+      `--`, the address and the command. No `-F`: the person's own `~/.ssh/config` is read, as today.
     - `accept-new` is written in `ssh/` only for a first use, into a fresh scratch file under the identity and never the
       product's file or the person's, and for the Proxmox host, into the person's own `known_hosts` as today.
     - A machine's key is filed only by `lib/claude_vm/ssh/hostkeys.py`, whose functions take no address: `taken` reads
@@ -1134,8 +1154,11 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `ssh-keygen` for a name as `ssh` reads and hashes one.
     - A secret reaches a child only on its standard input, revealed in `_bytes` alone (`REVEALS`). Every child is
       started through `children.start` in a group of its own, its output read under bounds for a line, the whole, a
-      deadline and a silence, its group killed on a breach, and every string it gave made plain. A held child (a
-      sign-in's) and a forward (`ssh -N`, `ControlPath=none`) are ended by their deadline, their caller or the run.
+      deadline and a silence, its group killed on a breach, and every string it gave made plain. Ending the local
+      `ssh` never ends the command on the machine. A 255 is `ssh`'s or the command's own: `Unreachable` keeps the
+      command's lines and whether the machine was heard. A held child (a sign-in's) and a forward (`ControlPath=none`)
+      are ended by their deadline, their caller or the run; a forward's deadline is required, and its far end is
+      `sleep <deadline>`, so it ends by itself after a run killed outright, nothing recorded on the machine.
       `ansible_vars` gives layer 1's Ansible child the same options in the same order.
     - `tests/unit/test_aw_ssh_runner.py` holds it against a stand-in `ssh` that records its words, environment and
       standard input, with this machine's `ssh -G -F /dev/null` for the values the options hold, and scans: a child
@@ -1168,7 +1191,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   the host (`add_host`), and the delete play forces `ansible_connection: local`. GitHub's release only signs gh
   out and revokes no token: revoking the one this project's device flow made ended every GitHub CLI sign-in of
   the account. Tailscale's device is deleted from the controller by the node's `Self.ID`, held to
-  `tailscale_node_id_pattern` before it goes into the API's path, and only when its name is the VM's or Tailscale's
+  `tailscale_node_id_pattern` before it goes into the API's path (the new engine holds it in
+  `lib/claude_vm/vendors/tailscale.py` alone, `NODE_ID` by `fullmatch`, which `tests/unit/test_aw_tailscale_api.py`
+  holds equal to the role's), and only when its name is the VM's or Tailscale's
   `-<n>` of it that is not the name another VM joins as - one of the listing's, or the other hosts' aliases'
   (`tailscale_release_other_vms`), made from its name as `tailscale_hostname` is made from this VM's - and no other VM
   may join under the VM's own (`tailscale_sibling_labels`). The pre-check honours

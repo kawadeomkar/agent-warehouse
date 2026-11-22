@@ -5,11 +5,11 @@ A machine is named by its identity, `agent-warehouse-<its SMBIOS UUID>` (`checks
 holds and the machine cannot change, never by the address it reports: no function here takes an address. `parse` holds
 one line of a public key, `<type> <base64> [comment]`, to a type OpenSSH files (`checks.KNOWN_KEY_TYPES`) and to a body
 that is base64 (`checks.KNOWN_KEY_RE`) of a key of that very type; `line` is the known-hosts line under an identity.
-`kept` reads the product's file (`runner.KNOWN_HOSTS`, today's `claude_ssh_known_hosts_file`) as `ssh` reads it - a
-plain name, a list of patterns, or a name `ssh` hashed (`HashKnownHosts`) - and returns the keys filed under the
-identity. `file` adds the line under the folder's lock (`store.locked`), only where no key of that type is filed for the
-identity, and raises `Changed` where another is: a changed key is a person's decision, and nothing here ever replaces
-or removes a line, so a deleted machine's key stays under an identity no machine made later has.
+`kept` reads the product's file (`runner.KNOWN_HOSTS`) as `ssh` reads it - a plain name, a list of patterns, or a name
+`ssh` hashed (`HashKnownHosts`), as a person's own `ssh` writes there for the editor's alias - and returns the keys
+filed under the identity. `file` adds the line under the folder's lock (`store.locked`), only where no key of that
+type is filed for the identity, and raises `Changed` where another is: a changed key is a person's decision, and nothing
+here ever replaces or removes a line, so a deleted machine's key stays under an identity no machine made later has.
 
 A first connection (`runner.Target`'s `first_use`) takes the key into a scratch file that `fresh` makes empty, 0600, in
 a directory of the run's; `taken` reads back exactly the one line `ssh` wrote there under the identity, and the caller

@@ -422,12 +422,14 @@ class _Ladder:
 
     def remember(self) -> None:
         """The tree under this process added to what is remembered of it, read with the interrupts held off: blocked
-        in this thread, and in every thread of the ladder's own from its start, so none of them takes one meanwhile."""
+        in this thread, and in every thread of the ladder's own from its start, so none of them takes one meanwhile.
+        Never a shared master's open, nor what is under it (children.opening): the master it leaves keeps its
+        ProxyCommand in the open's group, and no run ends a master."""
         from claude_vm import proc
 
         held = signal.pthread_sigmask(signal.SIG_BLOCK, proc.HELD)
         try:
-            self.remembered.update(proc.snapshot(os.getpid()))
+            self.remembered.update(proc.snapshot(os.getpid(), leaving=children.opening()))
         except proc.Blind as error:
             self.blind.append(str(error))
         finally:
