@@ -446,7 +446,7 @@ classDef rescue stroke:#665352,stroke-width:2px;
 | Task | Module | When |
 |---|---|---|
 | Check installed version | `ansible.builtin.command` |  |
-| Install Claude Code {{ claude_code_version }} | block | <code>claude_code_current.rc != 0 or (claude_code_version is match('^[0-9]+\.[0-9]+\.[0-9]+')     and claude_code_version not in claude_code_current.stdout)</code> |
+| Install Claude Code {{ claude_code_version }} | block | <code>claude_code_current.rc != 0 or (claude_code_version is match('^[0-9]+\\.[0-9]+\\.[0-9]+')     and claude_code_version not in claude_code_current.stdout)</code> |
 | &emsp;Refuse a version Anthropic signed no release of | `ansible.builtin.assert` |  |
 | &emsp;Read the version the channel names | `ansible.builtin.uri` | <code>claude_code_version in ['stable', 'latest']</code> |
 | &emsp;Refuse a release that is no version of Anthropic's signed ones | `ansible.builtin.assert` |  |
@@ -476,7 +476,7 @@ classDef includeVars stroke:#8e44ad,stroke-width:2px;
 classDef rescue stroke:#665352,stroke-width:2px;
 
   Start-->|Task| install_native___Check_installed_version0[install native   check installed version]:::task
-  install_native___Check_installed_version0-->|Block Start| install_native___Install_Claude_Code_claude_code_version1_block_start_0[[install native   install claude code claude code<br>version<br>When: **claude code current rc    0 or  claude code<br>version is match    0 9     0 9     0 9        <br>and claude code version not in claude code current<br>stdout**]]:::block
+  install_native___Check_installed_version0-->|Block Start| install_native___Install_Claude_Code_claude_code_version1_block_start_0[[install native   install claude code claude code<br>version<br>When: **claude code current rc    0 or  claude code<br>version is match    0 9      0 9      0 9        <br>and claude code version not in claude code current<br>stdout**]]:::block
   install_native___Install_Claude_Code_claude_code_version1_block_start_0-->|Task| install_native___Refuse_a_version_Anthropic_signed_no_release_of0[install native   refuse a version anthropic signed<br>no release of]:::task
   install_native___Refuse_a_version_Anthropic_signed_no_release_of0-->|Task| install_native___Read_the_version_the_channel_names1[install native   read the version the channel<br>names<br>When: **claude code version in   stable    latest**]:::task
   install_native___Read_the_version_the_channel_names1-->|Task| install_native___Refuse_a_release_that_is_no_version_of_Anthropic_s_signed_ones2[install native   refuse a release that is no<br>version of anthropic s signed ones]:::task

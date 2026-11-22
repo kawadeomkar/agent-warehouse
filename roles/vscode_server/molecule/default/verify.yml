@@ -39,7 +39,7 @@
           - "'AllowStreamLocalForwarding yes' in vscode_server_verify_dropin_text"
           - "'ClientAliveInterval 45' in vscode_server_verify_dropin_text"
           - "'ClientAliveCountMax 4' in vscode_server_verify_dropin_text"
-          - vscode_server_verify_sysctl_text is search('^fs\.inotify\.max_user_watches\s*=\s*262144$', multiline=True)
+          - vscode_server_verify_sysctl_text is search('^fs\\.inotify\\.max_user_watches\\s*=\\s*262144$', multiline=True)
           - vscode_server_verify_stat.results | map(attribute='stat.mode') | list == ['0644', '0644']
           - "'allowtcpforwarding yes' in vscode_server_verify_sshd.stdout_lines"
           - "'allowstreamlocalforwarding yes' in vscode_server_verify_sshd.stdout_lines"

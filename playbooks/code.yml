@@ -708,7 +708,7 @@
             code_asked: "{{ vm_project | default('', true) | string }}"
           ansible.builtin.assert:
             that:
-              - code_asked is match('^[A-Za-z0-9._-]{1,100}\Z')
+              - code_asked is match('^[A-Za-z0-9._-]{1,100}\\Z')
               - code_asked not in ['.', '..']
             fail_msg: >-
               --project names one project folder on the VM, the way a GitHub repository is named: up to 100

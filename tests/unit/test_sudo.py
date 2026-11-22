@@ -104,12 +104,13 @@ def test_the_password_is_the_user_s_before_any_rule_goes() -> None:
     # Unlocked as well: a new cloud-init instance locks it and keeps the hash, which the module compares unlocked.
     assert given["ansible.builtin.user"]["password_lock"] is False
     password = order.index(given["name"])
-    # And a rule that takes it must be left, or the run locks itself and every later one out.
+    # And a rule that takes it must be left, or the run locks itself and every later one out. A conditional's
+    # literal, which Jinja decodes: its \s is written twice (tests/unit/test_anchors.py).
     left = _named(off, "while no other takes the password")
     assert (
         left["ansible.builtin.assert"]["that"].split()
         == (
-            "common_user_sudo_before.stdout_lines | select('match', '\\s+[(]') | reject('search', 'NOPASSWD') | list"
+            "common_user_sudo_before.stdout_lines | select('match', '\\\\s+[(]') | reject('search', 'NOPASSWD') | list"
             " | length > 0"
         ).split()
     )

@@ -49,7 +49,7 @@
         claude_code_verify_settings: "{{ claude_code_verify_settings_raw.content | b64decode | from_json }}"
       ansible.builtin.assert:
         that:
-          - claude_code_verify_version.stdout is search('[0-9]+\.[0-9]+\.[0-9]+')
+          - claude_code_verify_version.stdout is search('[0-9]+\\.[0-9]+\\.[0-9]+')
           - claude_code_verify_settings.env.ANTHROPIC_API_KEY == 'sk-ant-molecule-test-key'
           - claude_code_verify_settings.env.KEEP_ME == '1'
           - claude_code_verify_settings.theme == 'dark'
