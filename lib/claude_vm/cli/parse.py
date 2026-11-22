@@ -7,12 +7,13 @@ argparse's own error text, usage block and exit status never reach a person, and
 
 `argparse` is set as the design requires: abbreviations off (a prefix of an option is an option the verb has not got),
 its own help off (aw help is H6's, from the table), errors raised rather than printed and exited on, and its colours
-off from Python 3.14, where they would write escape codes into a file. An option is taken as `--long value` and as
-`--long=value`, which is how a value that starts with - is given; an option is given once, but `--set`, given once for
-each setting, and `-v`, counted. Every verb whose run is a job takes `--detach` (words.py's `changes`), and no other.
-`--`, which elsewhere ends the options, is refused wherever it stands, before argparse sees it: no verb takes a word
-that starts with -, a value that does is given as `--option=value`, and argparse's intermixed parse would drop it and
-read the words after it as options all the same.
+off from Python 3.14, where they would write escape codes into a file; and which word that starts with - it takes for
+a negative number, and so for an option's value, is Python 3.13's rule on every Python. An option is taken as `--long
+value` and as `--long=value`, which is how a value that starts with - is given; an option is given once, but `--set`,
+given once for each setting, and `-v`, counted. Every verb whose run is a job takes `--detach` (words.py's `changes`),
+and no other. `--`, which elsewhere ends the options, is refused wherever it stands, before argparse sees it: no verb
+takes a word that starts with -, a value that does is given as `--option=value`, and argparse's intermixed parse would
+drop it and read the words after it as options all the same.
 
 Standard library only: a refusal imports nothing the engine needs.
 """
@@ -42,6 +43,11 @@ _TWICE = "_given twice"
 END_OF_OPTIONS = "--"
 # Python 3.14's argparse colours its text unless told not to; earlier ones have no such switch.
 _PLAIN = {"color": False} if sys.version_info >= (3, 14) else {}
+# Which word argparse takes for a negative number, and so for an option's value where a verb has no option that looks
+# like one: Python 3.13's -<digits> and -[<digits>].<digits>, on every Python. 3.14 takes any word that starts with -
+# and a digit (-\.?\d, read with match), so --value -1x was a value there and a refusal on 3.13; a value that starts
+# with - is given as --option=value on both.
+_NEGATIVE_NUMBER = re.compile(r"-\d+\Z|-\d*\.\d+\Z")
 
 
 class Refused(Exception):
@@ -67,6 +73,11 @@ class _Unreadable(Exception):
 
 
 class _Parser(argparse.ArgumentParser):
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        # Before any option is added: argparse asks it of each option string too.
+        self._negative_number_matcher = _NEGATIVE_NUMBER
+
     def error(self, message: str):  # type: ignore[override]
         raise _Unreadable(message)
 
