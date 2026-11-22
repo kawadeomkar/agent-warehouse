@@ -26,7 +26,7 @@ from harness import REPO, repo_files, repo_texts
 from claude_vm.cli import before, dispatch, habits, parse
 from claude_vm.schema import check as checks
 from claude_vm.schema import printer, rules
-from claude_vm.schema.patterns import PATTERNS, full
+from claude_vm.schema.patterns import form, full
 from claude_vm.schema.printer import said
 from claude_vm.schema.words import VERBS
 
@@ -193,7 +193,7 @@ PARSER_REFUSALS: dict[str, tuple[list[str], int, str]] = {
         ["deploy", "--cores=0"],
         1,
         f"error: {AW} deploy --cores takes no such value: Each new VM's vCPU cores, in place of the vm_cores setting"
-        " [pattern: '([1-9][0-9]{0,2})?']",
+        " [a whole number from 1 to 999, e.g. 8]",
     ),
     "pattern-2": (
         ["deploy", "--only=check"],
@@ -201,13 +201,13 @@ PARSER_REFUSALS: dict[str, tuple[list[str], int, str]] = {
         f"error: {AW} deploy --only takes no such value: Run one stage and nothing after it: template (the cloud-init"
         " template, if missing), provision (create and start), configure (every tagged VM, unless named) or ssh-config"
         " (refresh the SSH aliases; without names, also prune those of VMs that are gone)"
-        " [pattern: '(template|provision|configure|ssh-config)?']",
+        " [one of template, provision, configure, ssh-config]",
     ),
     "pattern-3": (
         ["destroy", "alpha;beta"],
         1,
         f"error: {AW} destroy takes no such name: The VMs; none means agent-warehouse-default"
-        " [pattern: '[A-Za-z0-9][A-Za-z0-9._,-]*']",
+        " [a VM's name: letters, digits, dots, underscores and hyphens, starting with a letter or a digit, e.g. alpha]",
     ),
     "repeated-option-1": (["deploy", "--cores=8", "--cores=4", "alpha"], 1, f"error: {AW} deploy takes --cores once"),
     "repeated-option-2": (["deploy", "--check", "--check"], 1, f"error: {AW} deploy takes --check once"),
@@ -699,8 +699,8 @@ BAD_SESSIONS = [
 def _outside(verb: str, field: str) -> str:
     """The sentence of a value outside the pattern of verb's option received as field: it never says the value."""
     option = next(option for option in VERBS[verb].options if option.field == field)
-    # The option's help, and the form its value may take (H25).
-    helped = f"{said(option.help or '')} [pattern: '{PATTERNS[option.pattern or '']}']"
+    # The option's help, and what its value may be in words (H25; the owner's ruling, review/code/OWNER-9.md 2).
+    helped = f"{said(option.help or '')} {form(option.pattern or '')}"
     return f"error: aw {verb} {checks.spelled(option)} takes no such value: {helped}"
 
 

@@ -8,7 +8,10 @@ takes, each with its help, but the words of a verb that refuses any and an optio
 Then a table of the options given before any verb, but the hidden one. The usage lines and options are help's
 (help.py), each sentence is said as help says it (words.py's `said`), and each cell is escaped as tools/docs.py escapes
 one, so a placeholder such as <name> reads as text on GitHub and on the site: tests/unit/test_aw_cli_help.py holds the
-two escapes equal.
+two escapes equal. Where the table holds an option's value or the words to a pattern, the cell ends as help's row does,
+with what a value may be in words (patterns.py's `form`), and then, as a definition, the pattern itself as code: a
+code span, or an HTML code element with each | written &#124; where the pattern has one, since a | splits a GitHub
+table's cell and \\| inside a code span shows its backslash on the site, as tools/docs.py writes a value with one.
 
 Standard library, schema/ (the printer among it) and help.py only.
 """
@@ -19,6 +22,7 @@ import html
 import re
 
 from claude_vm.cli import help as helps
+from claude_vm.schema.patterns import PATTERNS, form
 from claude_vm.schema.printer import said
 from claude_vm.schema.words import BEFORE, VERBS, placeholder
 
@@ -33,6 +37,8 @@ HELP = "help"
 VERB_HEAD = ("| Command | What it does |", "|---|---|")
 BEFORE_ANY = "Before the command"
 BEFORE_HEAD = ("| Option | What it does |", "|---|---|")
+# What comes between a cell's form and its pattern.
+HELD_TO = ", held to "
 
 
 def escape(text: str) -> str:
@@ -49,6 +55,24 @@ def cell(text: str) -> str:
     return escape(text).replace("|", "\\|").strip()
 
 
+def code(text: str) -> str:
+    """text as code in a table's cell: a code span, or, where text has a |, an HTML code element with each | written
+    &#124;, as tools/docs.py writes a value with one, so the cell is neither split on GitHub nor shown with a backslash
+    on the site."""
+    if "|" in text:
+        return f"<code>{html.escape(text, quote=False).replace('|', '&#124;')}</code>"
+    return f"`{text}`"
+
+
+def described(help: str, pattern: str | None) -> str:
+    """The cell of an option or a verb's words: its help said, and where the table holds a value to a pattern, what the
+    value may be in words, as help says it, then the pattern itself as code."""
+    text = said(help)
+    if pattern is None:
+        return cell(text)
+    return f"{cell(f'{text} {form(pattern)}')}{HELD_TO}{code(PATTERNS[pattern].text)}"
+
+
 def _table(heading: str, head: tuple[str, str], rows: list[str]) -> list[str]:
     return [f"### {heading.capitalize()}", "", *head, *rows, ""]
 
@@ -63,11 +87,14 @@ def commands() -> str:
         rows = groups.setdefault(verb.group or OTHER, [])
         rows.append(f"| `{helps.usage(verb)}` | {cell(said(verb.doc))} |")
         for option in helps.options(verb):
-            rows.append(f"| {INDENT_CELL}`{helps.shown(option)}` | {cell(said(option.help or ''))} |")
+            rows.append(f"| {INDENT_CELL}`{helps.shown(option)}` | {described(option.help or '', option.pattern)} |")
         if verb.words is not None and verb.words.name != helps.REFUSED_WORDS:
-            rows.append(f"| {INDENT_CELL}`{placeholder(verb.words)}` | {cell(said(verb.words.help))} |")
+            words = verb.words
+            rows.append(f"| {INDENT_CELL}`{placeholder(words)}` | {described(words.help, words.pattern)} |")
     out = [line for group, rows in groups.items() for line in _table(group, VERB_HEAD, rows)]
     before = [
-        f"| `{helps.shown(option)}` | {cell(said(option.help))} |" for option in BEFORE if option.help is not None
+        f"| `{helps.shown(option)}` | {described(option.help, option.pattern)} |"
+        for option in BEFORE
+        if option.help is not None
     ]
     return "\n".join(out + _table(BEFORE_ANY, BEFORE_HEAD, before))

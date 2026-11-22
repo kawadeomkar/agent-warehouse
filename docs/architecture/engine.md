@@ -69,20 +69,31 @@ one, so that any of them may be imported first. Any part of the new engine may i
 top of a file.
 
 **The patterns: `patterns.py`.** `PATTERNS` is the one home of every pattern the command line holds a value to: one
-literal mapping from a name (`vm_name`, `host_name`, `cores`, `repos`, `session`, `job_id` and the rest) to the
-pattern's inner text, with no anchor. The table of verbs and options names a pattern for each option and for a verb's
-words, and nothing else in the new engine writes one. `full(name, value)` is the one way to hold a value to a pattern:
-it holds the value whole, with `re.fullmatch` of the named pattern compiled once on its first use, so a value with a
-newline after it is refused, and a name `PATTERNS` does not have raises `KeyError`. An option's pattern takes the empty
-value where today's does, since an empty value is no value given. A rule that is more than one pattern is the check's,
-never this module's: two values together, a word that starts with `-`, the cap of 2000 characters on `--repos`, the
-`.` and `..` that `--project`'s pattern takes and a rule refuses. There are no records, no registry of operations and
-no coded refusals.
+literal mapping from a name (`vm_name`, `host_name`, `cores`, `repos`, `session`, `job_id` and the rest) to a `Pattern`,
+written by hand: the pattern's inner text, with no anchor, which holds a value; its form in words, what a value may be
+as a person reads it; and values it takes, as examples, with whether the form shows the first. The table of verbs and
+options names a pattern for each option and for a verb's words, and nothing else in the new engine writes one.
+`full(name, value)` is the one way to hold a value to a pattern: it holds the value whole, with `re.fullmatch` of the
+named pattern's text compiled once on its first use, so a value with a newline after it is refused, and a name
+`PATTERNS` does not have raises `KeyError`. An option's pattern takes the empty value where today's does, since an
+empty value is no value given. A rule that is more than one pattern is the check's, never this module's: two values
+together, a word that starts with `-`, the cap of 2000 characters on `--repos`, the `.` and `..` that `--project`'s
+pattern takes and a rule refuses. There are no records, no registry of operations and no coded refusals.
+
+`form(name)` is what help and a refusal say a value may be, after the option's or the words' help: the words and the
+first example, `[a whole number from 1 to 999, e.g. 8]`, or the words alone where they list the values
+(`[one of template, provision, configure, ssh-config]`), where an example would be too long to print (the two
+fingerprints, a session's ID) or where it would say nothing more than the words (a line of text). It never shows the
+pattern itself, and nothing says "or empty": an option not given is not given. The words are prose, with none of a
+pattern's own characters, and may be narrower than the pattern, never wider: where the two differ, the pattern is what
+holds a value. The pattern itself is shown where it is read as a definition: the command reference's rows (16.3).
 
 The developer's recipes (`lint`, `test`, `docs`, `vagrant`, `clean`) keep their own patterns in the `justfile`, which
 are not the command line's. `tests/unit/test_aw_schema.py` holds each pattern to values it takes and values it refuses,
 most of them those today's tests of the `justfile` give the same pattern, each value it takes refused with a newline
-after it, and holds that importing the module loads nothing outside the standard library.
+after it; each pattern's words and examples, every example held by its pattern and a near miss of each, written there,
+refused, no words with a pattern's own characters, the form as it is made from them, and the owner's five rows of
+before and after as they are worded; and that importing the module loads nothing outside the standard library.
 
 **The table: `words.py`.** `VERBS` is the one table of the command line: every verb a person types after `aw`, in the
 order help lists them, today's thirteen and `release` and `cancel`: the base's alone, since `control` is the add-on's,
@@ -135,8 +146,8 @@ command line, the agents' server through `aw`, and the add-on's broker on JSON. 
 the pattern the table names, with `full`; then runs the rules between options the verb's row names, in that order; then
 holds the verb's words to their number. It returns nothing or the one sentence of the first refusal: an option the verb
 has not got, a value of the wrong type, the placeholder a line that shows a command's form writes for it, or one outside
-its pattern, each naming the option and never the value, a pattern's with its help and the form a value may take after
-it (`patterns.py`'s `form`, as `[pattern: '...']`, which help prints too); then a rule's sentence; then a second word
+its pattern, each naming the option and never the value, a pattern's with its help and what a value may be after it, in
+words (`patterns.py`'s `form`, which help prints too); then a rule's sentence; then a second word
 where the verb takes one, or any word where it takes none. A placeholder given back to `aw`, pasted from a form or sent
 by an agent, is refused before its pattern is read, since a value of free text takes one (`error: aw settings --value:
 <value> stands for the value: put yours in its place`, or `... <name> stands for the name ...` for a verb's words): its
@@ -306,8 +317,9 @@ under its name, each with the words it takes and its doc; then the options given
 as today's command reference writes a recipe's (`aw deploy [<name>...]`), its doc, each option with its value's
 placeholder and its help (`-t, --tags <roles>`, the same `placeholder` a line's form writes, as the reference's rows
 do), `--detach` last on a verb whose run is a job, and then its words with their help. After the help of each option
-and of the words the table holds to a pattern comes the form a value may take, `[pattern: '...']`, as the refusal of a
-value outside it says it, but for the words of a verb that refuses any; an empty default, which says nothing, is not
+and of the words the table holds to a pattern comes what a value may be, in words and with an example
+(`[a whole number from 1 to 999, e.g. 8]`, 16.2), never the pattern itself, as the refusal of a value outside it says
+it, but for the words of a verb that refuses any; an empty default, which says nothing, is not
 printed. An option the table marks with `until` is left out of help and the
 reference until that card. The listing shows `[options]` after a verb that has any. A second word is refused by the one
 check (`help.1`), and a word that is no verb by help, in the check's sentence, which never says it. The usage lines are
@@ -319,9 +331,13 @@ word without brackets only where the verb needs one, `code` and `release`, which
 many words a verb takes and not whether it needs one. `reference.py`'s `commands()` writes the tables of the command
 reference from the same functions, in the form `tools/docs.py` writes them from the `justfile` today: a table for each
 group of verbs, `help` aside, with a row for each verb, each of its options and its words, and one of the options given
-before any verb, each cell escaped as `tools/docs.py` escapes one. Nothing calls it before the cutover, which points
-`tools/docs.py` at it. `help.py` imports the standard library and `schema/`, the printer among it; `reference.py` those
-and `help.py`; and `aw help` loads nothing of the engine.
+before any verb, each cell escaped as `tools/docs.py` escapes one. The cell of a value the table holds to a pattern ends
+as help's row does, with what the value may be in words, and then gives the pattern itself, as its definition, in code:
+a code span, or an HTML code element with `&#124;` for each `|` where the pattern has one, as `tools/docs.py` writes a
+setting's value with one, since a `|` splits a GitHub table's cell and an escaped one inside a code span shows its
+backslash on the site. Nothing calls it before the cutover, which points `tools/docs.py` at it. `help.py` imports the
+standard library and `schema/`, the printer among it; `reference.py` those and `help.py`; and `aw help` loads nothing
+of the engine.
 
 **The launcher: `aw`.** At the checkout's top, in POSIX `sh`, the launcher finds its checkout from its own path, every
 link to it followed and the folder made by its physical path (`cd -P`), so that a relative link in a folder that is
@@ -370,9 +386,12 @@ The printer's own test is 16.2's.
 `tests/unit/test_aw_cli_help.py` holds help and the reference: every verb's help shows its options and words in the
 table's order; `aw help` lists every verb and no recipe of the repository's own, the options before a verb, and its
 closing paragraph with `-v` and `--set`; each option with its value's placeholder; the form of every value the table
-holds to a pattern, and no empty default; an option of a later card's left out; `[options]` in the listing; through `tools/aw` and the launcher, `control` refused as
-no verb; what each imports; and that the reference gives a row for every verb but `help`, every option but a later
-card's and the words, and escapes a cell as `tools/docs.py` does.
+holds to a pattern, in words, for every option and words of the table and of the map
+`tests/unit/test_aw_cli_words.py` writes by hand, never the pattern itself, and no empty default; an option of a later
+card's left out; `[options]` in the listing; through `tools/aw` and the launcher, `control` refused as no verb; what
+each imports; and that the reference gives a row for every verb but `help`, every option but a later card's and the
+words, each value held to a pattern with its words and then its pattern as code, and no row split by a `|` or a code
+span holding one; and escapes a cell as `tools/docs.py` does.
 
 ## 16.4 `engine/` — the workflows, one module a verb
 

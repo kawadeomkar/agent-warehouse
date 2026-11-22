@@ -7,12 +7,12 @@ for; then today's closing paragraph, with aw where it said just, and -v and --se
 named on the verbs the table gives it. `aw help <verb>` prints one verb: its usage line as today's command reference
 writes a recipe's (`aw deploy [<name>...]`) and its doc, each option with its value's placeholder (`--cores <cores>`,
 words.py's `placeholder`) and its help, `--detach` last on a verb whose run is a job, then the words it takes with
-theirs. After the help of each option and of the words that the table holds to a pattern comes the form a value may
-take (patterns.py's `form`), as the refusal of a value outside it says it too, but for the words of a verb that refuses
-any. An option the table marks as a later card's (`until`) is left out until that card. A verb no card has built yet is
-listed and helped as today: it is refused only when it runs. A second word after the verb is refused before this runs,
-in today's sentence (rules.py's help.1); a word that is no verb is refused here in the one check's sentence, which
-never says it.
+theirs. After the help of each option and of the words that the table holds to a pattern comes what a value may be,
+in words and with an example (patterns.py's `form`: `[a whole number from 1 to 999, e.g. 8]`), never the pattern
+itself, as the refusal of a value outside it says it too, but for the words of a verb that refuses any. An option the
+table marks as a later card's (`until`) is left out until that card. A verb no card has built yet is listed and helped
+as today: it is refused only when it runs. A second word after the verb is refused before this runs, in today's
+sentence (rules.py's help.1); a word that is no verb is refused here in the one check's sentence, which never says it.
 
 Every command help prints is the program as it was started, quoted, as the printer writes it: the usage lines, which
 begin with the check's `command` (the program and the verb) and whose words and options' spellings are help's own and

@@ -3,7 +3,10 @@ docs/architecture/engine.md §16.2).
 
 Each pattern takes and refuses the values given here, most of them what today's tests give the same pattern of the
 justfile, and refuses each value it takes with a newline after it: `full` holds a value whole, never up to a newline.
-The module imports the standard library alone.
+Each has its form in words and its examples: every example is held by its pattern and a near miss of each, written
+here, is not; no words hold a pattern's own characters; and `form` says the words and the first example, or the words
+alone where the pattern shows none, never the pattern itself (the owner's ruling of 2026-11-22, review/code/OWNER-9.md
+2, in the plan's folder). The module imports the standard library alone.
 """
 
 from __future__ import annotations
@@ -15,7 +18,7 @@ import pytest
 from aw_kit import imports_of
 
 from claude_vm.schema import patterns
-from claude_vm.schema.patterns import PATTERNS, full
+from claude_vm.schema.patterns import PATTERNS, form, full
 
 MODULE = "claude_vm.schema.patterns"
 
@@ -263,7 +266,7 @@ REFUSED = [
 
 @pytest.mark.parametrize("name", sorted(PATTERNS))
 def test_a_pattern_is_its_inner_text_with_no_anchor(name: str) -> None:
-    text = PATTERNS[name]
+    text = PATTERNS[name].text
     assert not text.startswith(("^", r"\A")) and not text.endswith(("$", r"\Z")), text
     re.compile(text)
 
@@ -310,3 +313,106 @@ def test_the_patterns_import_nothing_outside_the_standard_library(home) -> None:
     assert MODULE in added, sorted(added)
     tops = {name.split(".")[0] for name in added}
     assert sorted(tops - set(sys.stdlib_module_names) - {"claude_vm"}) == []
+
+
+# ---------------------------------------------------------------- what a value may be, in words ----
+
+# The examples patterns.py gives the two fingerprints, which no form shows: written here as there.
+EXAMPLE_FINGERPRINT = ":".join(["AB", "CD", "EF", "01", "23", "45", "67", "89"] * 4)
+EXAMPLE_SSH_FINGERPRINT = "SHA256:" + "Ab0+" * 10 + "xyz"
+# A near miss of each example of each pattern, by the example: one character or one part away, and refused. Written
+# here by hand, so that an example the pattern does not hold, or a pattern loosened past its words, fails.
+NEAR_MISSES: dict[str, dict[str, str]] = {
+    "vm_name": {"alpha": "-alpha", "dev-2.lab": "dev 2.lab"},
+    "vm_names": {"alpha,beta": "alpha;beta", "alpha": "_alpha"},
+    "host_name": {"lab2": "Lab2"},
+    "current_host": {"lab2": "lab_2"},
+    "cores": {"8": "08"},
+    "memory": {"16G": "16GB", "2048": "2048.5"},
+    "disk": {"128G": "128", "1T": "1TB"},
+    "repos": {"my-app,my-lib": "my-app,-my-lib"},
+    "roles": {"claude_code,dev_tools": "claude_code,dev-tools"},
+    "stage": {"configure": "config", "ssh-config": "ssh_config"},
+    "sign_in": {"github": "gh"},
+    "sections": {"vms,work": "vms, work", "sign-ins": "signins"},
+    "project": {"my-app": "my/app"},
+    "session": {"0a608ad8-1b2c-4d3e-8f90-123456789abc": "0A608AD8-1B2C-4D3E-8F90-123456789ABC"},
+    "setting_name": {"vm_cores": "vm-cores"},
+    "job_id": {"3f9a0c1e7b2d4a58": "3f9a0c1e7b2d4a5"},
+    "editor": {"zed": "Zed"},
+    "verb": {"deploy": "Deploy"},
+    "text": {"two words": "two\nlines"},
+    "path": {"~/projects/app": "projects/app", "/srv/aw": "srv/aw"},
+    "attended": {"1": "yes"},
+    "address": {"pve.example": "https://pve.example", "192.0.2.10": "192.0.2.10/24"},
+    "proxmox_id": {"local-lvm": "local lvm"},
+    "token_user": {"ansible@pve": "ansible@pve!ansible"},
+    "github_user": {"octocat": "octo_cat"},
+    "secret_file": {"~/secrets/token": "~/my secrets/token"},
+    "on_off": {"on": "yes"},
+    "fingerprint": {EXAMPLE_FINGERPRINT: EXAMPLE_FINGERPRINT[:-3]},
+    "assignment": {"vm_cores=8": "vm-cores=8"},
+    "secret_name": {"github_token": "github-token"},
+    "ssh_fingerprint": {EXAMPLE_SSH_FINGERPRINT: EXAMPLE_SSH_FINGERPRINT[:-1]},
+    "release": {"v3.0.0": "v3.0", "3.0.0-rc.1": "3.0.0-RC.1"},
+    "dependency_group": {"mcp": "dev"},
+}
+# What a pattern is written with, which no words may hold: a person reads the words, never a regular expression.
+PATTERN_CHARACTERS = "[]{}\\|?*^$"
+# What help and a refusal say for the owner's five rows of "Before and after" (OWNER-9.md 2), as worded here.
+BEFORE_AND_AFTER = {
+    "cores": "[a whole number from 1 to 999, e.g. 8]",
+    "memory": "[a whole number of MiB, or a whole number with M or G after it, e.g. 16G]",
+    "fingerprint": "[a SHA-256 fingerprint as openssl prints it: 32 pairs of hex digits joined by colons]",
+    "stage": "[one of template, provision, configure, ssh-config]",
+    "assignment": "[a setting's name, then = and its value for this run, e.g. vm_cores=8]",
+}
+
+
+def test_every_pattern_has_its_words_and_its_examples() -> None:
+    lacking = [
+        name
+        for name, pattern in PATTERNS.items()
+        if not isinstance(pattern.words, str)
+        or not pattern.words.strip()
+        or not isinstance(pattern.examples, tuple)
+        or not pattern.examples
+        or not all(isinstance(example, str) and example for example in pattern.examples)
+        or type(pattern.shown) is not bool
+    ]
+    assert lacking == []
+
+
+@pytest.mark.parametrize("name", sorted(PATTERNS))
+def test_each_example_is_held_by_its_pattern_and_a_near_miss_of_each_is_not(name: str) -> None:
+    assert set(NEAR_MISSES) == set(PATTERNS)
+    examples = PATTERNS[name].examples
+    assert tuple(NEAR_MISSES[name]) == examples, "a near miss for each example, in its order"
+    assert [example for example in examples if not full(name, example)] == []
+    assert [near for near in NEAR_MISSES[name].values() if full(name, near)] == []
+
+
+@pytest.mark.parametrize("name", sorted(PATTERNS))
+def test_no_words_hold_a_pattern_s_own_characters(name: str) -> None:
+    words = PATTERNS[name].words
+    assert [character for character in PATTERN_CHARACTERS if character in words] == [], words
+    # The words are a clause the form ends with its example: no full stop, and no example of their own.
+    assert not words.endswith(".") and "e.g." not in words and words == words.strip(), words
+
+
+@pytest.mark.parametrize("name", sorted(PATTERNS))
+def test_the_form_is_the_words_and_the_first_example_or_the_words_alone(name: str) -> None:
+    pattern = PATTERNS[name]
+    said = form(name)
+    assert said == (f"[{pattern.words}, e.g. {pattern.examples[0]}]" if pattern.shown else f"[{pattern.words}]")
+    assert pattern.text not in said and "pattern" not in said, said
+    assert "\n" not in said
+
+
+def test_the_owner_s_before_and_after_reads_as_written() -> None:
+    assert {name: form(name) for name in BEFORE_AND_AFTER} == BEFORE_AND_AFTER
+
+
+def test_form_with_a_name_it_does_not_have_raises() -> None:
+    with pytest.raises(KeyError):
+        form("vm_nmae")

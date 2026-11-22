@@ -234,8 +234,9 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
 lib/claude_vm/schema/             the new engine (§16), built beside today's and reached through tools/aw alone until
                                   3.0, one subpackage each below: the command line's patterns and its one table of
                                   verbs and options, literals written by hand; patterns.py, the one home of the
-                                  patterns, and full, which holds a value to one; words.py, the table: each verb's
-                                  words, options, rules, handler, locks and agents' tools, the exit statuses, and each
+                                  patterns, each with what a value may be in words and its examples, form, which says
+                                  it, and full, which holds a value to one; words.py, the table: each verb's words,
+                                  options, rules, handler, locks and agents' tools, the exit statuses, and each
                                   value's placeholder; check.py, the one check every entry runs on a verb's values;
                                   rules.py, the rules between options, each a function that says its sentence;
                                   printer.py, the printer of a command, the one way a line a person types is written,

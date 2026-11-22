@@ -43,7 +43,7 @@ from claude_vm.cli.main import main
 from claude_vm.fleet import paths
 from claude_vm.schema import check as checks
 from claude_vm.schema import rules
-from claude_vm.schema.patterns import PATTERNS, full
+from claude_vm.schema.patterns import PATTERNS, form, full
 from claude_vm.schema.printer import said
 from claude_vm.schema.words import EXITS, VERBS, Verb
 
@@ -192,9 +192,11 @@ def test_a_value_outside_its_pattern_or_with_a_newline_after_it_is_refused_unsai
     for value in (BAD, SAMPLES[option.pattern] + "\n" + TYPED, SAMPLES[option.pattern] + "\n"):
         sentence = _refused([verb.name, f"{spelling}={value}"])
         _said_nothing_typed(sentence)
-        # The option's help, and the form its value may take, which the person reads in aw help too (H25).
+        # The option's help, and what its value may be in words, which the person reads in aw help too (H25), never
+        # the pattern itself (the owner's ruling, review/code/OWNER-9.md 2).
         assert spelling in sentence and said(option.help or "") in sentence, sentence
-        assert sentence.endswith(f" [pattern: '{PATTERNS[option.pattern]}']"), sentence
+        assert sentence.endswith(f" {form(option.pattern)}"), sentence
+        assert PATTERNS[option.pattern].text not in sentence and "[pattern: " not in sentence, sentence
 
 
 @pytest.mark.parametrize("verb", [verb for verb in VERBS.values() if verb.words and verb.words.pattern])
@@ -203,7 +205,8 @@ def test_a_word_outside_its_pattern_is_refused_unsaid(verb: Verb) -> None:
         sentence = _refused([verb.name, word])
         _said_nothing_typed(sentence)
         assert said(verb.words.help) in sentence, sentence
-        assert sentence.endswith(f" [pattern: '{PATTERNS[verb.words.pattern]}']"), sentence
+        assert sentence.endswith(f" {form(verb.words.pattern)}"), sentence
+        assert PATTERNS[verb.words.pattern].text not in sentence and "[pattern: " not in sentence, sentence
 
 
 @pytest.mark.parametrize(

@@ -91,7 +91,7 @@ MACHINE = "machine-"
 # The host of an adopted machine, which no Proxmox host may be named (hosts/model.py's RESERVED).
 ADOPTED = "machines"
 # A short section's lock file: a word lock_sets.py names, a dash and the host's name (lock_sets.section_name).
-SECTION = re.compile(rf"(?:{'|'.join(lock_sets.SECTIONS)})-(?:{patterns.PATTERNS['current_host']})")
+SECTION = re.compile(rf"(?:{'|'.join(lock_sets.SECTIONS)})-(?:{patterns.PATTERNS['current_host'].text})")
 # How each lock is held, as the record names it.
 HOW = {fcntl.LOCK_SH: "shared", fcntl.LOCK_EX: "exclusive"}
 # How often a section that waits tries again.
