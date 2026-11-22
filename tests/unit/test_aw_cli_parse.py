@@ -274,6 +274,21 @@ def test_a_word_that_starts_with_a_dash_is_given_with_equals() -> None:
 
 
 @pytest.mark.parametrize(
+    ("value", "taken"),
+    [("-1", True), ("-.5", True), ("-1.5", True), ("-1x", False), ("-1e5", False), ("-1_000", False), ("-1\n", False)],
+)
+def test_a_negative_number_is_one_rule_on_every_python(value: str, taken: bool) -> None:
+    # Python 3.14's argparse takes any word that starts with - and a digit for a negative number, and so for an option's
+    # value, where 3.13 took only -<digits> and -[<digits>].<digits>: aw reads by 3.13's on both, and any other value
+    # that starts with - is given with =.
+    words = ["settings", "vm_cores", "--value", value]
+    if taken:
+        assert parse.read(words).values == {"name": "vm_cores", "value": value}
+    else:
+        assert "--value takes a value" in _refused(words)
+
+
+@pytest.mark.parametrize(
     ("words", "verb"),
     [
         (["deploy", "--", "--check"], "deploy"),
