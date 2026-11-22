@@ -450,10 +450,10 @@ so that a host, or a proxy the computer's certificates trust, that echoes what i
   in the call itself and under the VM's lock, so a `POST`'s window, a check at the call and the write in a task that a
   write made between them fails, never opens. A stale digest is `DigestMismatch`, nothing written; `edit_config(node,
   vmid, edit)` reads, applies `edit` to what it read, writes with that read's digest, and on a mismatch reads and
-  applies again, `EDITS` (three) times at most, then raises. `changes` holds only the keys of `CONFIG_KEYS`, each with
-  the privilege Proxmox checks it with (qemu-server's `check_vm_modify_config_perm`), which are the table's rows for the
-  write and no more: a key outside them, a network card's or `startup` above all, is refused before anything is sent,
-  and needs a row first. Tags are a list, sent comma-joined, and read back through `proxmox.proxmox_tags`, which takes
+  applies again, `EDITS` (three) times at most, then raises. `changes` holds only the keys the table's rows for the
+  write cover (`privileges.keys`), each under the row of the privilege Proxmox checks it with (qemu-server's
+  `check_vm_modify_config_perm`): a key outside them, a network card's or `startup` above all, is refused before
+  anything is sent, and needs its row first. Tags are a list, sent comma-joined, and read back through `proxmox.proxmox_tags`, which takes
   both spellings; `sshkeys` is the keys' text, sent percent-encoded whole, as Proxmox's format wants it, and read back
   as Proxmox keeps it, encoded. The rule is held where every write passes and by what was sent: the client's
   `_request`, which every request goes through, refuses a `PUT` or a `POST` to a configuration's path with no `digest`
@@ -490,26 +490,44 @@ so that a host, or a proxy the computer's certificates trust, that echoes what i
   passes no `stop`, and is followed to its end.
 
 **The one table of privileges: `privileges.py`.** `CALLS` is a literal tuple of
-`Call(name, method, route, privilege, on)`: one row for each privilege of each call the engine makes, its route below
-`/api2/json` with each name in braces (`/nodes/{node}/qemu/{vmid}/config`), and `on` the kind of ACL path Proxmox checks
-it on - `vm` (`/vms/<vmid>`, which a member of a pool also takes from the pool's roles), `pool`, `storage`, `bridge`
-(`/sdn/zones/localnetwork/<bridge>`) or `node` - or no privilege and no kind for a call that needs none (the version,
-the next VMID, the token's own permissions). A call that needs several privileges has a row for each, and needs every
-one. The rows are Proxmox VE 9's names alone, read for each call from Proxmox's source and API viewer, until a real host
-is read for them. A configuration's write has a row for each group of the keys the client sends; a resize needs
-`Datastore.AllocateSpace` on the storage its disk is on, which its VM's configuration names. No call writes a pool, so
-of `Pool.*` the table names `Pool.Audit` alone, and the role on the pool holds no other: a new VM joins the fleet's pool
-through its clone's `pool`, which needs `VM.Allocate` on the pool. A token whose role is on its pool alone could add no
-guest it did not already hold, and `Pool.Allocate` would let it rewrite its pool's comment, the fleet's mark, and delete
-the pool once empty. Two functions read it: `needed(on)`, the privileges the table needs on one kind of path, which
-`init` makes the engine's role of and grants, and the permission check compares with what the token holds (on a pool,
-with every privilege checked on a VM, which the pool's members take from it); and `for_request(method, path)`, the rows
-of one request with the concrete ACL path each is checked on where the request's path names it - none where the call
-names it in its parameters, or lists such objects, each listed only where the row's privilege is held on it. It imports
-only the standard library: the fake Proxmox reads it with nothing but `lib/` on its path, enforces it when a test turns
-that on, and keeps no table of its own, so a test proves what the token can and cannot do from the table `init` grants.
-`tests/unit/test_aw_pve_privileges.py` holds every privilege to a list of Proxmox VE 9's, the module to the standard
-library, the rows' shape, and the fake and the harness to no privilege name of their own but today's.
+`Call(name, method, route, privilege, on, keys)`: one row for each privilege of each call the engine makes, its route
+below `/api2/json` with each name in braces (`/nodes/{node}/qemu/{vmid}/config`), and `on` the kind of ACL path Proxmox
+checks it on - `vm` (`/vms/<vmid>`, which a member of a pool also takes from the pool's roles), `new` (`/vms/<newid>`,
+the VM a clone makes, named by its `newid`), `pool`, `storage`, `bridge` (`/sdn/zones/localnetwork/<bridge>`) or `node` -
+or no privilege and no kind for a call that needs none (the version, the next VMID, the token's own permissions). A
+call that needs several privileges has a row for each, and needs every one. The rows are Proxmox VE 9's names alone,
+read for each call from Proxmox's source, until a real host is read for them. A row says what Proxmox checks, in the
+three shapes its checks take:
+
+- **Either of two privileges.** A row's `privilege` may be a tuple of alternatives, any of which suffices: a node's
+  storages and a storage's disks take `Datastore.Audit` or `Datastore.AllocateSpace` (pve-storage's `check_any`), a
+  node's bridges `SDN.Use` or `SDN.Audit` (pve-manager's `check_sdn_bridge`), and of a configuration's keys
+  `nameserver` and `searchdomain` `VM.Config.Cloudinit` or `VM.Config.Network`.
+- **Either of two paths.** A row's `on` may be a tuple of kinds, the privilege held on any of them sufficing: a clone's
+  `VM.Allocate` is held on the pool it names or on its new VM's path (`pool`, then `new`), and with no pool named on the
+  new VM's alone, as the call's declared check, an `or` of the two, asks it.
+- **Key by key.** A configuration's write is checked for each key it sends or deletes, with the privilege of the key's
+  group (qemu-server's `check_vm_modify_config_perm`): its rows each carry the `keys` they cover - the record's notes,
+  its tags, its name and the general options; cloud-init's, `ipconfig0` to `ipconfig31` among them; the CPU's; the
+  memory's - and a row with keys is checked only for a request that sends one of them. `keys(name)` is the keys the
+  rows of a call cover, which the client holds every write to; a key no row covers has no privilege granted for it.
+
+A resize needs `Datastore.AllocateSpace` on the storage its disk is on, which its VM's configuration names. No call
+writes a pool, so of `Pool.*` the table names `Pool.Audit` alone, and the role on the pool holds no other: a new VM joins
+the fleet's pool through its clone's `pool`, which needs `VM.Allocate` on the pool. A token whose role is on its pool
+alone could add no guest it did not already hold, and `Pool.Allocate` would let it rewrite its pool's comment, the
+fleet's mark, and delete the pool once empty. Two functions read it: `needed(on)`, the privileges the table needs on
+one kind of path, which `init` makes the engine's role of and grants, and the permission check compares with what the
+token holds (on a pool, with every privilege checked on a VM, which the pool's members take from it) - each row's first
+privilege on its first kind, never an alternative, so a second way Proxmox lets a token through widens no role; and
+`for_request(method, path)`, the rows of one request, each with, for each of its kinds, the concrete ACL path the
+request's path names - none where the call names it in its parameters, or lists such objects, each listed only where
+one of the row's privileges is held on it. It imports only the standard library: the fake Proxmox reads it with nothing
+but `lib/` on its path, enforces it when a test turns that on, and keeps no table of its own, so a test proves what the
+token can and cannot do from the table `init` grants. `tests/unit/test_aw_pve_privileges.py` holds every privilege to a
+list of Proxmox VE 9's, the module to the standard library, the rows' shape, `needed` to each row's first privilege on
+its first kind, each key of a configuration's write to one row, and the fake and the harness to no privilege name of
+their own but today's.
 
 **A started VM's address: `agent.py`.** The client's one call to the guest agent, `agent_interfaces(node, vmid,
 deadline)`, asks what the VM's agent reports of its network cards (`network-get-interfaces`, `VM.GuestAgent.Audit`) on a
@@ -562,8 +580,10 @@ first, each `Stopped` with no poll after it and the task still running on the fa
 has stopped; a deletion's parameters, `destroy-unreferenced-disks` alone and `purge` only where asked for, read from the
 fake's log; and a UPID with a `/` in a part of its own `Malformed`. Its rules: a `PUT` or a `POST` to a configuration's
 path with no `digest` is refused before it is sent, `harness.fake_fleet`'s end fails a test where the fake was sent one,
-and every method that sends one sends `digest` (a syntax-tree test of the module); `CONFIG_KEYS`' privileges are the
-table's rows for the write; every row of the table names a method of the client; the words the client tells refusals
+and every method that sends one sends `digest` (a syntax-tree test of the module); a configuration's write sends only
+the keys the table covers for it; both ways, every row of the table is a call the client makes and every call it makes
+has its rows, each method of the client driven against the fake under enforcement and what it sent read from the
+fake's log, a configuration's row with one of its keys; the words the client tells refusals
 and warnings apart by match the fake's constants; and no error of a write or a read, the version's included, says the
 token's secret where Proxmox's words echo it. `tests/unit/test_aw_pve_agent.py` runs the wait against the fake in the
 same way, with what a VM's agent reports planted as its root would make it say: an agent that fails its first two

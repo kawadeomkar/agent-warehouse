@@ -1065,8 +1065,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   [§16.5](docs/architecture/engine.md#165-pve--the-typed-proxmox-client-and-the-one-table-of-privileges) first.
     - `write_config` is one synchronous `PUT` with the digest of the read its changes were made from, never a `POST`,
       whose check at the call and write in a task leave a window; a stale digest is `DigestMismatch`, nothing written,
-      and `edit_config` reads and applies again, three times at most. It sends only `CONFIG_KEYS`, whose privileges are
-      the table's rows for it: a key of another group needs its row first. A `PUT` or a `POST` to a configuration's
+      and `edit_config` reads and applies again, three times at most. It sends only the keys the table's rows for it
+      cover (`privileges.keys`), each row the privilege Proxmox checks its keys with, which the fake holds key by key:
+      a key of another group needs its row first. A `PUT` or a `POST` to a configuration's
       path with no `digest` is refused in `_request`, where every request passes, before anything is sent, and
       `harness.fake_fleet(engine=True)` fails a test at its end where the fake was sent one of the client's.
     - The transport sends no request but a `GET` twice: a write that left with no answer is `Unknown`, settled by
@@ -1078,7 +1079,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       backup jobs, replication and HA, outside the VM.
     - Proxmox answers every refusal of a write with a 500: `Locked`, `DigestMismatch` and `Exists` are told apart by its
       words, each held equal to the fake's constant. Every route the client sends has its rows in `privileges.CALLS`,
-      which the fake enforces (a resize on its disk's storage). No route writes a pool, and the role on the pool holds
+      and every row is a route it sends, which the fake enforces as Proxmox checks it (a resize on its disk's storage,
+      either of a row's alternatives, a configuration key by key); `init` grants each row's first privilege on its
+      first kind of path alone. No route writes a pool, and the role on the pool holds
       no `Pool.*` privilege but `Pool.Audit`: a new VM joins it through its clone's `pool`
       (`tests/unit/test_aw_pve_privileges.py`).
     - `tests/unit/test_aw_pve_writes.py` holds it against the fake under enforcement, with a syntax-tree test that every
