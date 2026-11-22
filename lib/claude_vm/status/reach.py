@@ -34,9 +34,12 @@ START_SECONDS = 20
 MARK = "#!status-probe"
 BOOTSTRAP = f"import sys; d = sys.stdin.read(); exec(d[d.index({MARK!r}):])"
 
-_children = set()  # the connections still open
+# The connections still open, each started and added in one step under the lock end_all takes (_attempt), as route.py
+# starts its ssh (route._started), so that end_all never runs between the two; and _over, set by end_all: no connection
+# is made after it.
+_children = set()
 _children_lock = threading.Lock()
-_over = threading.Event()  # set by end_all: no connection is made after it
+_over = threading.Event()
 
 
 def _no_number(text):
@@ -55,7 +58,9 @@ def loads(text):
 
 
 def end_all() -> None:
-    """Every connection still open ended, and none made after: a run that is over waits for none of them."""
+    """Every connection still open ended, and none made after: a run that is over waits for none of them. One being
+    started meanwhile is waited for and ended with the rest, so that a run about to end at once (os._exit, which runs
+    no thread's finally) leaves none to run on by itself."""
     with _children_lock:
         _over.set()
         for process in _children:
@@ -119,19 +124,18 @@ def command(how: dict, as_root: bool = True, password: bool = False) -> list[str
 
 
 def _attempt(argv: list[str], stdin: str, early) -> dict:
-    """One connection: what it said, as {"started", "final", "rc", "errors"}."""
+    """One connection: what it said, as {"started", "final", "rc", "errors"}. Started and recorded in one step under the
+    lock end_all takes: an end_all meanwhile waits for the start and ends it with the rest, and once one has run, none
+    is started (OSError)."""
     import subprocess  # only where a connection is made: imported with the package, it would slow every run's start
 
-    if _over.is_set():
-        raise OSError("the run ended before it was reached")
-    process = subprocess.Popen(
-        argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors="replace"
-    )
     with _children_lock:
-        _children.add(process)
         if _over.is_set():
-            # end_all ran while it started: ended here, since end_all could not see it.
-            process.kill()
+            raise OSError("the run ended before it was reached")
+        process = subprocess.Popen(
+            argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors="replace"
+        )
+        _children.add(process)
     timer = threading.Timer(SECONDS, process.kill)
     timer.start()
     silent = threading.Event()

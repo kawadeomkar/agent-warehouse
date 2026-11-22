@@ -41,6 +41,8 @@ from . import found as vm_found
 from . import model, reach, settings
 
 GET_WORKERS = 8
+# How long the main thread waits at a time for what it asked off itself (_off_main): the most a Ctrl-C waits to land.
+OFF_MAIN_SLICE = 0.1
 # What is read before anything else, the listing first: the version, the storages' and the nodes' figures, and the
 # pools the token may read the members of (Pool.Audit), without which the listing names no guest's pool.
 FIRST_WAVE = (
@@ -253,6 +255,22 @@ class Proxmox:
 
     def later(self, item):
         return self.pool.submit(self.get, item)
+
+
+def _off_main(pool, call, *args, **kwargs):
+    """``call``'s answer, run on a thread of ``pool`` while this one waits for it: how the main thread asks anything
+    that starts an ssh of route.py's. Python raises a Ctrl-C's KeyboardInterrupt in the main thread alone, so it lands
+    in this wait, never between an ssh's start and its record (route._started), and end_all ends that ssh with the
+    rest."""
+    future = pool.submit(call, *args, **kwargs)
+    # Waited for a slice at a time: where Python's locks are a mutex and a condition (macOS), a signal wakes no wait
+    # without a limit, and the Ctrl-C would land only once the call had returned.
+    while not future.done():
+        try:
+            future.exception(timeout=OFF_MAIN_SLICE)
+        except TimeoutError:
+            pass
+    return future.result()
 
 
 def _data(result):
@@ -546,10 +564,11 @@ class Run:
         verdicts = {}
         for name in names[:3]:
             how = unanswered[name][0]
-            verdicts[name] = routes.hop_forward(hop, how["host"], "yes", port=how.get("port") or 22)
+            # Each ssh of the hop's asked off the main thread, which takes a Ctrl-C (_off_main).
+            verdicts[name] = _off_main(pool, routes.hop_forward, hop, how["host"], "yes", port=how.get("port") or 22)
             if verdicts[name]["why"] == "answered" and verdicts[name].get("banner"):
-                routes.hop_stop(hop, "yes")
-                routes.hop_held(hop, "yes")
+                _off_main(pool, routes.hop_stop, hop, "yes")
+                _off_main(pool, routes.hop_held, hop, "yes")
                 for job in [pool.submit(self.probe, one, *unanswered[one]) for one in names]:
                     job.result()
                 # Each that still did not answer: the hop's words for it, as the others get them.
@@ -663,9 +682,9 @@ class Run:
         refusal for a VM, said, with no probe started after it, or ""; the probes)."""
         if not self.over_ssh:
             return "", []
-        # The route, before the first probe starts; the API's reads go on meanwhile. The hop's login waits for a VM
-        # that takes the hop.
-        self.route = self.settle_route()
+        # The route, before the first probe starts, off the main thread, since under auto it asks ssh -G (_off_main);
+        # the API's reads go on meanwhile. The hop's login waits for a VM that takes the hop.
+        self.route = _off_main(pool, self.settle_route)
         # What a VM's line says of the route: the hop it went through, or that it was dialled straight with a
         # Proxmox host to go through. A mark, never the words, which status_clean would cut as a setting's.
         if self.route:

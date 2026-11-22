@@ -155,7 +155,9 @@ pytest over `tests/unit/`, file by file:
   every file of each VM unchanged after and the fakes' logs holding only reads; the engine against the roles' own
   tasks and vars in check mode on the same stand-ins, state by state, the two held equal; the host key,
   `status_ssh_args` held to `ansible.cfg`'s, the options as `ssh -G` resolves them (and as they reach a stand-in `ssh`,
-  first, in `test_status.py`'s run of the fleet), and ssh's two host-key refusals each said for what it is. Every
+  first, in `test_status.py`'s run of the fleet), and ssh's two host-key refusals each said for what it is. A
+  Ctrl-C at the main thread as each ssh of the hop's starts, and a run's end as a probe's connection starts, each
+  ssh ended before the run ends at once, and no ssh of a run through the hop started on the main thread. Every
   status run in a test gets that refusing stand-in `ssh` (`status_root`), so none reaches a VM or this machine's ssh,
   and keeps nothing: the snapshot and the upgrades cache are `test_status_settings.py`'s, in a folder of its own. WORK
   (`test_status_work.py`): the checkouts' `work` over real throwaway repositories - a worktree under

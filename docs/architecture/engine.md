@@ -846,7 +846,10 @@ run takes as "finish the step", never kills one and has its silence read as an a
 starts, the `ssh -G` of `route_settle` and `ssh_shown` too, is started and recorded in one step under the lock
 `route.end_all` takes, and ended by the thread that waits for it, at its limit or when its caller ends; a run that is
 stopped ends them with the rest of its tree, and `end_all`, which ends every one still running and starts none after, so that no
-`ssh -G` goes on to run a person's `Match exec`, is for a caller about to end at once. Each of those ends ends the `ssh`
+`ssh -G` goes on to run a person's `Match exec`, is for a caller about to end at once: today's one, `status`, starts
+none of them on its main thread, where Python raises a Ctrl-C and could raise it between a start and its record, and
+starts and records its own probes (`status/reach.py`) in one step under the lock of its own `end_all`, which a run's end
+calls before `route.end_all`. Each of those ends ends the `ssh`
 with its process group, which it leads, so that the program a person's `Match exec` started, or a `ProxyCommand`'s,
 ends with it; today's callers' `ssh`, in their own process's group, is ended by its pid alone. A run watches each for a
 stop at the terminal as it watches its own children (`route.leading`, §16.8). `route(setting, host)`

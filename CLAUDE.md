@@ -868,7 +868,10 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       told `-O stop` - never `-O exit`, which cuts another run's tasks - and those VMs read again, through the pool;
       otherwise, and for one still unanswered after, the hop's words are each one's line. The login's line, written
       from a pool thread, is landed again on the main thread once the probes are joined, and a Ctrl-C ends the
-      hop's ssh too (`route.end_all`).
+      hop's ssh too (`route.end_all`). No ssh of a status run is started on its main thread, where Python raises the
+      Ctrl-C and could raise it between a start and its record: the route's settling and the hop's calls after the
+      probes go to the pool (`engine._off_main`), and each probe is started and recorded in one step under the lock
+      `reach.end_all` takes, as `route._started` does; `test_status_vms.py` and `test_status_settings.py` hold both.
     - With more than one host it reads every host at once, a child of `tools/status` each (`--emit`,
       `lib/claude_vm/status/hosts.py`): the engine is not safe twice in one process. Each child has its host's sources,
       vaults and `.cache/status/<host>/`; a host not answering fails the run only as the current host.
