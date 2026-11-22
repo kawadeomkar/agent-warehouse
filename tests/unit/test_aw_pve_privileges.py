@@ -8,8 +8,9 @@ from the design's notes, N-14); the module imports nothing outside the standard 
 nothing but lib/ on its path; the fake (tests/molecule/fake_pve_api.py) and the harness hold no privilege name of
 their own but today's, so that the table is the one place a call's privilege is said; what init grants is each row's
 first privilege on its first kind of path, never an alternative; and a configuration's write covers each key once. How
-the fake enforces the table is tests/unit/test_aw_fake_pve.py's; that every row is a call the client makes, and every
-call the client makes has its rows, is tests/unit/test_aw_pve_writes.py's, which drives the client.
+the fake enforces the table is tests/unit/test_aw_fake_pve.py's; that every row is one the fake decides a request of
+the client's by, and every call the client makes has its rows, is tests/unit/test_aw_pve_writes.py's, which drives the
+client.
 """
 
 from __future__ import annotations

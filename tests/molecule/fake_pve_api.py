@@ -117,17 +117,32 @@ privileges, or either of two paths (a node's storages and a storage's disks,
 Datastore.Audit or Datastore.AllocateSpace; a node's bridges, SDN.Use or
 SDN.Audit; a clone's VM.Allocate, on the pool it names or on its new VM's path),
 any of them held lets it through. A configuration's write is held key by key:
-each key it sends or deletes to the privilege of the row that covers it, and a
+each key it sends or deletes to the privilege of the row that covers it, a key
+sent with an empty value too, as Proxmox checks every key of the form, and a
 key no row covers is refused. A task's owner needs nothing to read it; a listing
-(/cluster/resources, a node's storages and bridges, the pools) shows each entry
-only where the token holds what its row names on it, and a node's figures only
-so; and a call no row names, or a key, is refused the same way and recorded in
-<state_dir>/unmatched.log. Enforcement answers before a call's own checks: a
-request Proxmox would refuse for a parameter it cannot verify (400), or for an
-object that does not exist, is answered 403 first where the token lacks the
-privilege. A request to a node that is down still gets its 595, as pveproxy
-answers it before the node's own check. Today's tokens are answered as now,
-enforcement or not.
+(/cluster/resources, a node's storages and bridges, the pools: LISTINGS) shows
+each entry only where the token holds what its row names on it, and a node's
+figures only so, and a guest's pool only where its pool's row is held; and a
+call no row names, a key, or a GET row that neither the request's path nor its
+parameters place and that its route lists no entry of, which nothing would
+check, is refused the same way and recorded in <state_dir>/unmatched.log. Each
+row a request was decided by - held on a path, read by a listing for its
+entries, or needing nothing - is recorded in <state_dir>/decided.log, by its
+index in the table: a row in no line of it was checked by nothing. Enforcement
+answers before a call's own checks, so one difference from Proxmox stays: a
+request whose parameter Proxmox's schema refuses (a 400) is answered 403 first
+where the token lacks the privilege. A request for an object that does not
+exist is answered as Proxmox answers it, the privilege checked first there too.
+A request to a node that is down still gets its 595, as pveproxy answers it
+before the node's own check. Today's tokens are answered as now, enforcement
+or not.
+
+Whatever enforcement says, a token made through /access is answered two
+refusals of Proxmox's own that today's tokens are not: /cluster/resources asked
+for a type its schema does not hold - pool, which an answer names but a request
+may not ask for - is a 400 with the schema's words (ENUM_REFUSED); and a
+configuration's PUT or POST that sends no key and deletes none, digest aside, is
+update_vm_api's 500 (NO_OPTIONS).
 
 A second token id, "noagent", stands for a token created without the
 guest-agent privilege (VM.Monitor on PVE 8, VM.GuestAgent.Audit on 9): every
@@ -274,8 +289,22 @@ PERMISSION_REFUSED_ANY = "Permission check failed"
 # and a configuration's key that no row of its call covers.
 NO_ROW = "Permission check failed (no row of the engine's table names {method} {path})"
 NO_KEY = "Permission check failed (no row of the engine's table covers the key {key} of {method} {path})"
+# A GET row that neither its request's path nor its parameters place, on a route that lists no entry of its kind
+# (LISTINGS): checked by nothing, so refused the same way, in the fake's own words.
+NO_PLACE = "Permission check failed (nothing {method} {path} names or lists places the row of {privilege} on a {kind})"
 # A clone a token made through /access sends into a pool that does not exist: check_pool_exist's words, a 403.
 NO_SUCH_POOL = "Permission check failed (pool '{pool}' does not exist)"
+# A value a parameter's enumeration does not hold, refused by Proxmox's schema before anything else (pve-common's
+# PVE/JSONSchema.pm, check_prop): a 400, the words in the answer's errors under the parameter's name. The cluster's
+# listing takes these types alone (pve-manager's PVE/API2/Cluster.pm): pool is a type the answer names, never one a
+# request may ask for. Answered so to a token made through /access; today's tokens keep today's answer.
+ENUM_REFUSED_STATUS = 400
+ENUM_REFUSED = "value '{value}' does not have a value in the enumeration '{values}'"
+RESOURCE_TYPES = ("vm", "storage", "node", "sdn")
+# A configuration's write that sends no key and deletes none, digest aside: update_vm_api's words, a 500, before the
+# digest is read. Answered so to a token made through /access; today's tokens keep today's answer.
+NO_OPTIONS_STATUS = 500
+NO_OPTIONS = "no options specified"
 # A role made with a privilege Proxmox VE 9 does not define: add_role_privs' words, after create_role's label.
 INVALID_PRIVILEGE = "invalid privilege '{privilege}'"
 # A guest agent's call, refused with a 500 before the agent is asked, as qemu-server's assert_agent_available refuses
@@ -485,6 +514,17 @@ ROLES = {"NoAccess": set(), **{name: set(privs) for name, privs in (CLI.DEFAULT[
 ENFORCE = {"on": 0}
 LIB = Path(__file__).resolve().parents[2] / "lib"
 TABLE = []
+# Under enforcement, each listing of the engine's table by its route, and the kinds of entry it shows only where the
+# token holds a row's privilege on them (Handler._sees): a GET row whose kind its request's path and parameters do not
+# name is checked so, and only where its route lists that kind, or it is checked by nothing. The cluster's listing names
+# a guest's pool only where its pool's row is held (PVE/API2/Cluster.pm); a node's storages and bridges (pve-storage's
+# PVE/API2/Storage/Status.pm, pve-manager's PVE/API2/Network.pm); the pools, read with no poolid (PVE/API2/Pool.pm).
+LISTINGS = {
+    "/cluster/resources": ("vm", "storage", "node", "pool"),
+    "/nodes/{node}/storage": ("storage",),
+    "/nodes/{node}/network": ("bridge",),
+    "/pools": ("pool",),
+}
 
 
 def table():
@@ -945,8 +985,13 @@ class Handler(BaseHTTPRequestHandler):
     def _params(self):
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length).decode() if length else ""
+        query = urlparse(self.path).query
         params = {k: v[0] for k, v in parse_qs(body).items()}
-        params.update({k: v[0] for k, v in parse_qs(urlparse(self.path).query).items()})
+        params.update({k: v[0] for k, v in parse_qs(query).items()})
+        # The form as Proxmox reads it, a key sent with an empty value kept: what a made token's write is held by
+        # (_keys, NO_OPTIONS). Every other answer reads params, whose blank values are dropped, as it always did.
+        self.form = {k: v[0] for k, v in parse_qs(body, keep_blank_values=True).items()}
+        self.form.update({k: v[0] for k, v in parse_qs(query, keep_blank_values=True).items()})
         return params
 
     def _reply_empty(self, status, reason):
@@ -988,35 +1033,46 @@ class Handler(BaseHTTPRequestHandler):
     def _refusal(self, method, parts, params):
         """Under enforcement, why the engine's table refuses this request of a made token; "" where it may go on. Each
         row of its call is held on the ACL paths its path names, or its parameters, by acl_privileges, which answers GET
-        /access/permissions too: any of its privileges held on any of its paths lets it through. A row of neither is a
-        listing's, whose entries are each shown only where it is held (self.entries, _sees). A row with keys, of a
-        configuration's write, is held only where the request sends or deletes one of them, and a key no row of the
-        call covers is refused. A task's owner needs nothing to read it. A call no row names, or a key, is refused, and
-        recorded in unmatched.log for harness.fake_fleet(enforce=True) to fail on."""
+        /access/permissions too: any of its privileges held on any of its paths lets it through. A GET row of neither is
+        a listing's, where its route lists that kind (LISTINGS), whose entries are each shown only where it is held
+        (self.entries, _sees); one whose route lists no such kind is checked by nothing, and refused. A row with keys,
+        of a configuration's write, is held only where the request sends or deletes one of them, a key sent with an
+        empty value among them, and a key no row of the call covers is refused. A task's owner needs nothing to read it.
+        A call no row names, a key, or a row nothing places, is refused, and recorded in unmatched.log for
+        harness.fake_fleet(enforce=True) to fail on. Each row the request is decided by - held on a path, read by a
+        listing (_sees), or needing nothing - is recorded in decided.log (_decided)."""
         path = "/" + "/".join(parts)
         rows = table().for_request(method, path)
         if not rows:
             self._unmatched({"method": method, "path": path})
             return NO_ROW.format(method=method, path=path)
-        sent = self._keys(params) if any(call.keys for call, _ in rows) else set()
+        sent = self._keys(self.form) if any(call.keys for call, _ in rows) else set()
         uncovered = sorted(sent - {key for call, _ in rows for key in call.keys})
         if uncovered:
             self._unmatched({"method": method, "path": path, "key": uncovered[0]})
             return NO_KEY.format(key=uncovered[0], method=method, path=path)
         task = TASK_RECORDS.get(parts[3], {}) if parts[2:3] == ["tasks"] and len(parts) > 3 else {}
         for call, at in rows:
-            if not call.privileges or task.get("owner") == self.owner:
+            row = table().CALLS.index(call)
+            if not call.privileges:
+                self._decided(row, "nothing")
+                continue
+            if task.get("owner") == self.owner:
                 continue
             if call.keys and not sent & set(call.keys):
                 continue
             named = [one or self._named(kind, parts, params) for kind, one in zip(call.kinds, at, strict=True)]
             named = [one for one in named if one]
-            if not named and method == "GET":
-                self.entries[call.kinds[0]] = call.privileges
-                continue
             said = PRIVILEGES_JOINED.join(call.privileges)
+            if not named and method == "GET":
+                if call.kinds[0] in LISTINGS.get(call.route, ()):
+                    self.entries[call.kinds[0]] = (row, call.privileges)
+                    continue
+                self._unmatched({"method": method, "path": path, "row": row})
+                return NO_PLACE.format(method=method, path=path, privilege=said, kind=call.kinds[0])
             if not named:
                 return PERMISSION_REFUSED.format(path=call.kinds[0], privilege=said)
+            self._decided(row, "path")
             if not any(set(call.privileges) & set(acl_privileges(self.owner, one)) for one in named):
                 if len(call.kinds) > 1:
                     return PERMISSION_REFUSED_ANY
@@ -1025,15 +1081,33 @@ class Handler(BaseHTTPRequestHandler):
 
     @staticmethod
     def _unmatched(entry):
-        """A request of a made token the engine's table has no row for, recorded for harness.fake_fleet."""
+        """A request of a made token the engine's table has no row for, or a key, or a row nothing places, recorded for
+        harness.fake_fleet."""
         with STATE_DIR.joinpath("unmatched.log").open("a") as log:
             log.write(json.dumps(entry) + "\n")
 
+    def _decided(self, row, by):
+        """That this request of a made token was decided by the table's row at index row of CALLS, by: held on a path
+        ("path"), read by a listing for its entries ("listing"), or needing nothing ("nothing"). Once a request each,
+        in decided.log, for the test that every row is one the fake decides a request the client sends by."""
+        if (row, by) in self.decided:
+            return
+        self.decided.add((row, by))
+        entry = {"row": row, "by": by, "method": self.command, "path": self.routed}
+        with STATE_DIR.joinpath("decided.log").open("a") as log:
+            log.write(json.dumps(entry) + "\n")
+
     @staticmethod
-    def _keys(params):
-        """The configuration's keys a write sends or deletes, as Proxmox checks them: every parameter but digest and
-        delete, and each key delete names (qemu-server's update_vm_api)."""
-        return {key for key in params if key not in ("digest", "delete")} | set(split_list(params.get("delete")))
+    def _keys(form):
+        """The configuration's keys a write sends or deletes, as Proxmox checks them: every key of the form but digest
+        and delete, one sent with an empty value too, and each key delete names (qemu-server's update_vm_api, which
+        checks every key of %$param)."""
+        return {key for key in form if key not in ("digest", "delete")} | set(split_list(form.get("delete")))
+
+    def _no_options(self):
+        """Whether a configuration's write of a made token sends no key and deletes none, digest aside, which
+        update_vm_api refuses (NO_OPTIONS) whatever the token holds: an empty delete is none."""
+        return self.made and not set(self.form) - {"digest", "delete"} and not self.form.get("delete")
 
     @staticmethod
     def _named(kind, parts, params):
@@ -1058,10 +1132,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def _sees(self, kind, path, today):
         """Whether this request's token sees the entry of kind at path in a listing: under enforcement, a made token
-        where it holds any of the privileges its call's row names on that kind; any other, today's answer, today."""
+        where it holds any of the privileges its call's row names on that kind, the row recorded as one the request was
+        decided by, and nowhere where no row of its call names that kind; any other, today's answer, today."""
         if not self.enforced:
             return today
-        return bool(set(self.entries.get(kind, ())) & set(acl_privileges(self.owner, path)))
+        if kind not in self.entries:
+            return False
+        row, held = self.entries[kind]
+        self._decided(row, "listing")
+        return bool(set(held) & set(acl_privileges(self.owner, path)))
 
     def _pooled(self, vm, token_id):
         """Whether the cluster's listing names vm's pool to this request's token: where it may audit that pool."""
@@ -1073,7 +1152,7 @@ class Handler(BaseHTTPRequestHandler):
     def _pools(self, method, poolid, params, token, deprecated):
         """/pools, and the deprecated /pools/<poolid>, as pve-manager's PVE/API2/Pool.pm answers them."""
         if method == "GET" and not poolid:
-            # The pools the token may read, as ?type=pool lists them.
+            # The pools the token may read, each with its comment.
             audited = [
                 name
                 for name in sorted(pool_names())
@@ -1293,8 +1372,11 @@ class Handler(BaseHTTPRequestHandler):
         self.made = bool(made)
         self.enforced = self.made and bool(ENFORCE["on"])
         self.entries = {}
+        self.decided = set()
 
         parts = [unquote(p) for p in path.removeprefix("/api2/json").strip("/").split("/")]
+        # The path below the API as the fake routes it, its %-escapes decoded.
+        self.routed = "/" + "/".join(parts)
         if token.group(2) == NOAGENT_TOKEN_ID and "agent" in parts:
             vmid = parts[parts.index("agent") - 1]
             return self._reply(403, None, f"Permission check failed (/vms/{vmid}, VM.GuestAgent.Audit)")
@@ -1427,6 +1509,11 @@ class Handler(BaseHTTPRequestHandler):
             # Not a PVE endpoint: the most bytes a description may hold, 0 for no limit.
             NOTES_LIMIT["bytes"] = int(params.get("bytes", "0"))
             return self._reply(200, dict(NOTES_LIMIT))
+        if parts == ["cluster", "resources"] and self.made and params.get("type") not in (None, *RESOURCE_TYPES):
+            # As Proxmox's schema, to a token made through /access: a type its enumeration does not hold, pool among
+            # them, is a 400. Today's tokens keep today's answer, which lists the pools.
+            why = ENUM_REFUSED.format(value=params["type"], values=", ".join(RESOURCE_TYPES))
+            return self._reply(ENUM_REFUSED_STATUS, None, "Parameter verification failed.", {"type": why})
         if parts == ["cluster", "resources"] and params.get("type") == "storage":
             # Only the storages the token may audit, as Proxmox lists them; none on the node that is down.
             listed = []
@@ -1440,7 +1527,8 @@ class Handler(BaseHTTPRequestHandler):
                     listed.append(storage_resource(node, entry))
             return self._reply(200, listed)
         if parts == ["cluster", "resources"] and params.get("type") == "pool":
-            # The pools the token may read the members of (Pool.Audit), as Proxmox lists them.
+            # Today's tokens alone, a made token's being the 400 above: the pools the token may read the members of
+            # (Pool.Audit), as the fake always listed them, which today's just status reads.
             listed = [
                 {"id": f"/pool/{name}", "type": "pool", "pool": name}
                 for name in sorted(pool_names())
@@ -1639,6 +1727,9 @@ class Handler(BaseHTTPRequestHandler):
             # As Proxmox's schema, before anything else: sshkeys still percent-encoded once the form is decoded.
             if "sshkeys" in params and not re.fullmatch(URLENCODED, params["sshkeys"]):
                 return self._sshkeys_refused(params["sshkeys"])
+            # As update_vm_api, before the digest is read, to a token made through /access: a write of no key.
+            if self._no_options():
+                return self._reply(NO_OPTIONS_STATUS, None, NO_OPTIONS)
             # As Proxmox: a digest sent is the one a GET gives now, or nothing is written; it is never kept. A POST
             # that lost a race (RACE) passed this check before the winner's write, and its task fails instead.
             digest = params.pop("digest", None)

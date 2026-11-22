@@ -24,8 +24,9 @@ POST to a configuration's path with no digest, or with one that is not a digest,
 read with its %-escapes decoded and sent as it was given, every one the fake was sent carried it (harness.fake_fleet's
 end, for every test of the new engine, reading the path decoded too), and every method that sends one sends digest (a
 syntax-tree test of the module); a configuration's write sends only the keys the table covers for it; both ways, every
-row of the table is a call the client makes and every call it makes has its rows, each method of the client driven
-against the fake under enforcement and its requests read from the fake's log; and no error of a write, nor of a read,
+row of the table is one the fake decided a request of the client's by and every call the client makes has its rows,
+each method of the client driven against the fake under enforcement, its requests read from the fake's log and the rows
+each was decided by from its decided.log; and no error of a write, nor of a read,
 says the token's secret, even where Proxmox's words echo it.
 """
 
@@ -1084,27 +1085,21 @@ def test_a_write_answered_with_a_upid_that_holds_a_slash_is_malformed(pki, upid)
 APART = {"follow", "edit_config", "close"}
 
 
-def _keys(params: dict) -> set[str]:
-    """The configuration's keys a request sent or deleted: its parameters but digest and delete, and those delete
-    names."""
-    return {key for key in params if key not in ("digest", "delete")} | set(
-        filter(None, params.get("delete", "").split(","))
-    )
-
-
 def _sent_by_each_method(fleet: Fleet) -> dict[str, list[dict]]:
     """Each method of the client that has rows, called against the fake under enforcement as a workflow calls it, the
     version first and every write of a configuration with the keys of one of the write's rows: what each sent, as the
-    fake logged it, by the method's name."""
+    fake logged it, by the method's name. A task is read that another made, whose owner the engine's token is not, so
+    that its rows are checked: its owner needs nothing to read it."""
     engine_grant(fleet.base, "/nodes/pve", "Sys.Audit")
     engine_grant(fleet.base, "/sdn/zones/localnetwork/vmbr0", ",".join(sorted(privileges.needed("bridge"))))
     _pve(fleet.base, "PUT", "fake/agent-ready-after", polls=0)
+    others = _pve(fleet.base, "POST", "nodes/pve/qemu/9012/status/start")["data"]
     sent: dict[str, list[dict]] = {}
     with fleet.client() as client:
         made: list[Task] = []
         steps = [
             ("version", lambda: client.version()),
-            ("resources", lambda: [client.resources(kind) for kind in ("vm", "storage", "node", "pool")]),
+            ("resources", lambda: [client.resources(kind) for kind in ("vm", "storage", "node")]),
             ("pool", lambda: client.pool(ENGINE_POOL)),
             ("config", lambda: client.config("pve", 9010)),
             ("current", lambda: client.current("pve", 9010)),
@@ -1118,8 +1113,8 @@ def _sent_by_each_method(fleet: Fleet) -> dict[str, list[dict]]:
             ("read", lambda: client.read("nodes/pve/storage/local-lvm/content")),
             ("agent_interfaces", lambda: client.agent_interfaces("pve", 9010)),
             ("clone", lambda: made.append(client.clone("pve", 9000, 9020, "delta", ENGINE_POOL))),
-            ("task_status", lambda: client.task_status("pve", made[0].upid)),
-            ("task_log", lambda: client.task_log("pve", made[0].upid)),
+            ("task_status", lambda: [client.task_status("pve", upid) for upid in (made[0].upid, others)]),
+            ("task_log", lambda: [client.task_log("pve", upid) for upid in (made[0].upid, others)]),
             *[
                 (
                     "write_config",
@@ -1148,28 +1143,40 @@ def _sent_by_each_method(fleet: Fleet) -> dict[str, list[dict]]:
     return sent
 
 
+def _decided(fleet: Fleet) -> dict[int, set[str]]:
+    """Each row of the table, by its index in CALLS, that the fake decided a request of the engine's token by, and how:
+    held on a path, read by a listing for its entries, or needing nothing (its decided.log)."""
+    log = fleet.directory / "pve" / "decided.log"
+    decided: dict[int, set[str]] = {}
+    for line in log.read_text().splitlines() if log.exists() else ():
+        entry = json.loads(line)
+        decided.setdefault(entry["row"], set()).add(entry["by"])
+        rows = {call for call, _ in privileges.for_request(entry["method"], entry["path"])}
+        assert privileges.CALLS[entry["row"]] in rows, entry
+    return decided
+
+
 def test_every_row_is_a_call_the_client_makes_and_every_call_it_makes_has_its_rows(fleet) -> None:
     """Both ways: the rows' names are the public methods of the client that send a request, those named apart aside;
-    every request each method sent under enforcement is a call whose rows bear its name; and each row's route is one
-    its method sent, a configuration's row with one of its keys. A row no call uses would widen the role init grants
-    from the table, unseen; a call with no row fails its own test at the fleet's end."""
+    every request each method sent under enforcement is a call whose rows bear its name; and every row is one the fake
+    decided a request the client sent by - held on the path the request names, read by its listing for its entries, or
+    needing nothing - a configuration's row by a write that sent one of its keys. A row no check reads, on a route the
+    client sends or not, would widen the role init grants from the table, unseen; a call with no row fails its own test
+    at the fleet's end."""
     methods = {name for name, member in vars(Proxmox).items() if callable(member) and not name.startswith("_")}
     named = {call.name for call in privileges.CALLS}
     assert APART <= methods and named == methods - APART, named ^ (methods - APART)
     sent = _sent_by_each_method(fleet)
     assert set(sent) == named
-    rows_of = {}
     for name, requests in sent.items():
         assert requests, name
         for request in requests:
             rows = privileges.for_request(request["method"], request["path"].removeprefix("/api2/json"))
             assert rows and {call.name for call, _ in rows} == {name}, (name, request["method"], request["path"])
-            for call, _ in rows:
-                rows_of.setdefault(call, []).append(request)
-    for call in privileges.CALLS:
-        assert call in rows_of, call
-        if call.keys:
-            assert any(set(call.keys) & _keys(request["params"]) for request in rows_of[call]), call
+    decided = _decided(fleet)
+    for row, call in enumerate(privileges.CALLS):
+        assert row in decided, call
+        assert decided[row] <= ({"path", "listing"} if call.privileges else {"nothing"}), (call, decided[row])
 
 
 def _sends(call: ast.Call) -> tuple[str, str] | None:

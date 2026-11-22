@@ -33,8 +33,9 @@ A row with no privilege needs none (the version, the next free VMID, the token's
 path names the object a row is checked on, for_request gives the concrete ACL path; where it does not, the call names
 it in its parameters (a clone's pool, its new VM and its storage, a pool read by its poolid) or its VM's configuration
 does (the storage of the disk a resize grows), or the call lists such objects, each listed only where the row's
-privilege is held on it (GET /cluster/resources, a node's storages and bridges): Proxmox's own code says which, and so
-does the fake's.
+privilege is held on it (GET /cluster/resources, a node's storages and bridges, the pools): Proxmox's own code says
+which, and so does the fake's, which refuses a row it can place in none of these ways and records each row it decides a
+request by, so that a test holds every row to a check the fake makes (tests/unit/test_aw_pve_writes.py).
 
 No call writes a pool, so of Pool.* the table names Pool.Audit alone: a new VM joins the fleet's pool through its
 clone's pool, which needs VM.Allocate on the pool and nothing of Pool.*. A token whose role is on its pool alone could
@@ -100,8 +101,9 @@ CONFIG = "/nodes/{node}/qemu/{vmid}/config"
 CALLS = (
     # The reads every workflow makes (client.py).
     Call("version", "GET", "/version", None, None),
-    # The cluster's listing: a guest listed only with VM.Audit on it, a storage with Datastore.Audit, a pool with
-    # Pool.Audit; a node always, its figures only with Sys.Audit (PVE/API2/Cluster.pm).
+    # The cluster's listing, of the types its schema takes that the engine asks for (vm, storage and node): a guest
+    # listed only with VM.Audit on it, and its pool named only with Pool.Audit on the pool; a storage with
+    # Datastore.Audit; a node always, its figures only with Sys.Audit (PVE/API2/Cluster.pm).
     Call("resources", "GET", "/cluster/resources", "VM.Audit", "vm"),
     Call("resources", "GET", "/cluster/resources", "Datastore.Audit", "storage"),
     Call("resources", "GET", "/cluster/resources", "Pool.Audit", "pool"),

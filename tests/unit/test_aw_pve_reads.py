@@ -177,14 +177,14 @@ def test_the_listing_reads_each_guest_with_its_pool_and_frozen(fleet) -> None:
 
 
 def test_the_listing_of_each_other_kind(fleet) -> None:
+    """Of the types Proxmox's schema takes for the listing (vm, storage, node, sdn), the engine asks for these; a pool
+    is read by pool(), never ?type=pool, which Proxmox refuses with a 400 and so does the fake to the engine's token."""
     with fleet.client() as client:
-        pools = client.resources("pool")
         storages = client.resources("storage")
         nodes = client.resources("node")
-    assert ("pool", ENGINE_POOL) in {(entry.type, entry.id.removeprefix("/pool/")) for entry in pools}
     assert [(entry.type, entry.node, entry.storage) for entry in storages] == [("storage", "pve", "local-lvm")]
     assert {(entry.node, entry.status) for entry in nodes} == {("pve", "online"), ("pve2", "offline")}
-    assert [entry["params"] for entry in fleet.asked()][1:] == [{"type": "pool"}, {"type": "storage"}, {"type": "node"}]
+    assert [entry["params"] for entry in fleet.asked()][1:] == [{"type": "storage"}, {"type": "node"}]
 
 
 def test_the_engine_s_pool_with_its_members(fleet) -> None:
@@ -300,6 +300,9 @@ def test_any_other_read_status_adds_its_data_frozen(fleet) -> None:
         ("current", ("pve/qemu", 9010)),
         ("pool", ("../access",)),
         ("resources", ("all",)),
+        # Types Proxmox's schema refuses (pool), or that no row of the table reads (sdn).
+        ("resources", ("pool",)),
+        ("resources", ("sdn",)),
         ("task_status", ("pve", "UPID:pve:1/../../version")),
         ("task_status", ("pve", "UPID:pve:00000001:00000000:00000000:qm/x:1:root@pam:")),
         ("task_log", ("pve", "UPID:pve:00000001:00000000:00000000:qmstart:1:root/../x@pam:")),

@@ -971,15 +971,26 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
   `Datastore.AllocateSpace`; a node's bridges, `SDN.Use` or `SDN.Audit`); where it names either of two paths, a
   clone's `VM.Allocate` on the pool it names or on its new VM's, either lets it through, and the words are Proxmox's
   bare `Permission check failed`, as the `or` of two declared checks raises it. A configuration's write is held key by
-  key: each key it sends or deletes to the privilege of the row that covers it, so a token holding
-  `VM.Config.Options` writes the record's keys and no other, and a key no row covers is refused. A task's owner reads
-  it with no privilege; a listing (the cluster's, a node's storages and bridges, the pools) shows each entry only where
-  the token holds what its row names on it, and a node's figures only so. A call no row names, or a key, is refused
-  the same way and recorded in the state directory's `unmatched.log`, and `fake_fleet(enforce=True)` fails the test at
-  its end on one: so a call the client adds without its row fails its own test. Enforcement answers before a call's
-  own checks: a request whose parameters Proxmox would refuse to verify (a 400), or of an object that does not exist,
-  is a 403 first where the token lacks the privilege; the client refuses a malformed name before sending it. A request
+  key: each key it sends or deletes to the privilege of the row that covers it, a key sent with an empty value too, as
+  Proxmox checks every key of the form, so a token holding `VM.Config.Options` writes the record's keys and no other,
+  and a key no row covers is refused. A task's owner reads it with no privilege; a listing (the cluster's, a node's
+  storages and bridges, the pools: the fake's `LISTINGS`) shows each entry only where the token holds what its row
+  names on it, a node's figures only so, and a guest's pool only where its pool's row is held. A call no row names, a
+  key, or a `GET` row that neither the request's path nor its parameters place and whose route lists no entry of its
+  kind, which nothing would check, is refused the same way and recorded in the state directory's `unmatched.log`, and
+  `fake_fleet(enforce=True)` fails the test at its end on one: so a call the client adds without its row fails its own
+  test. Each row a request was decided by - held on a path, read by a listing for its entries, or needing nothing - is
+  recorded in `decided.log`, by its index in the table, which the client's both-ways test holds every row to.
+  Enforcement answers before a call's own checks, which leaves one difference from Proxmox: a request whose parameter
+  Proxmox's schema refuses (a 400) is a 403 first where the token lacks the privilege; the client refuses a malformed
+  name before sending it. A request for an object that does not exist is answered as Proxmox answers it, the privilege
+  checked first there too (`Pool.pm` checks `Pool.Audit` on the pool before it says the pool does not exist). A request
   to a node that is down still gets its 595, as pveproxy answers it before that node's own check.
+- Whatever enforcement says, a made token is answered two refusals of Proxmox's own that today's tokens are not:
+  `/cluster/resources` asked for a type its schema does not hold - `pool`, which an answer names but a request may not
+  ask for - is a 400 with the schema's words under the parameter's name (`ENUM_REFUSED`), and a configuration's `PUT`
+  or `POST` that sends no key and deletes none, `digest` aside, is `update_vm_api`'s 500, `no options specified`
+  (`NO_OPTIONS`). Today's `just status` asks for `?type=pool`, and is answered the pools as before.
 - `GET /nodes/<node>/status` answers a node's CPU threads, memory and uptime as Proxmox VE 9 does, to a token
   `PUT /api2/json/fake/privileges` granted `Sys.Audit` on the node (under enforcement, a made token holding it there),
   and 403 to any other.

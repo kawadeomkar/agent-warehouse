@@ -116,8 +116,10 @@ __all__ = [
 API = "/api2/json"
 # The oldest Proxmox VE the engine speaks to: 9 (the owner's decision 6 of the nine; O9).
 LEAST_MAJOR = 9
-# What /cluster/resources lists, by its type.
-KINDS = frozenset({"vm", "storage", "node", "pool", "sdn"})
+# What the engine asks /cluster/resources to list, by its type. Proxmox's schema takes vm, storage, node and sdn alone
+# (pve-manager's PVE/API2/Cluster.pm), refusing pool with a 400, though its answer names a pool's type: a pool is read
+# by pool(). The SDN's zones, which no workflow reads, have no row of the table, so they are not asked for.
+KINDS = frozenset({"vm", "storage", "node"})
 # A network card of a VM's configuration.
 NIC = re.compile(r"net[0-9]{1,2}")
 # An ACL path, as /access/permissions takes one: / or its parts, each a name Proxmox gives.
@@ -705,9 +707,10 @@ class Proxmox:
         return found
 
     def resources(self, kind: str) -> tuple[Resource, ...]:
-        """GET /cluster/resources?type=kind: what the cluster lists of that kind (vm, storage, node, pool, sdn), as far
-        as the token may see it. A guest's status here is the one the cluster last polled, up to ten seconds old: it is
-        never read for what the same run just changed, which current() reads from the VM itself."""
+        """GET /cluster/resources?type=kind: what the cluster lists of that kind (vm, storage, node), as far as the
+        token may see it; a pool and its members are pool()'s, since Proxmox's schema takes no type pool. A guest's
+        status here is the one the cluster last polled, up to ten seconds old: it is never read for what the same run
+        just changed, which current() reads from the VM itself."""
         if kind not in KINDS:
             raise ValueError(f"the cluster lists {', '.join(sorted(KINDS))}")
         return answers.resources(self._get("cluster/resources", {"type": kind}))
