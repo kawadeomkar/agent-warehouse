@@ -12,6 +12,12 @@ Under enforcement a made token is held to the engine's one table of privileges (
 Proxmox checks each call: a configuration's write key by key, a listing and a storage's disks with either of their
 privileges, a clone's VM.Allocate on the pool it names or on its new VM's path. Today's own tests of the fake and the
 two scenarios that run it hold it for today's product.
+
+And the stand-in pveum and pvesh (tests/molecule/fake_pve_cli.py), which init's script runs over root SSH: a pool made
+with its comment and read with it and its members, an ACL entry that names a token, a token made with privilege
+separation, changed and its secret made again, and deleted with its entries, and the reads that say who made each, each
+command's state afterwards, what Proxmox refuses refused with nothing changed, and the reads a dry run makes changing
+nothing. Today's script against it is tests/unit/test_proxmox_access.py's.
 """
 
 from __future__ import annotations
@@ -21,6 +27,7 @@ import http.client
 import json
 import socket
 import ssl
+import subprocess
 import threading
 import time
 import urllib.error
@@ -31,10 +38,16 @@ from pathlib import Path
 import pytest
 from harness import (
     ENGINE_POOL,
+    ENGINE_ROLE,
+    ENGINE_TOKEN,
     ENGINE_USER,
     FAKES,
     PVE_SECRET,
     _pve,
+    _pve_cli,
+    _pve_cli_calls,
+    _pve_cli_state,
+    _pve_cli_writes,
     engine_grant,
     engine_token,
     fake_fleet,
@@ -1395,3 +1408,303 @@ def test_today_s_tokens_and_a_made_token_with_enforcement_off_are_answered_as_be
     assert _pve(base, "PUT", "fake/enforce", on=0)["data"] == {"on": 0}
     assert _listed(base, token) == EVERY_GUEST
     assert _ok(base, "GET", "nodes/pve/qemu/9011/config", token)["name"] == "beta"
+
+
+# ------------------------------------------------------------------- the stand-in pveum and pvesh, for init ---
+# tests/molecule/fake_pve_cli.py, the commands init's script runs over root SSH, as Proxmox VE 9 answers them: a pool
+# with its comment, an ACL entry for a token, a token with privilege separation and its secret made again, and the
+# reads that say who made each. Today's script against it is tests/unit/test_proxmox_access.py's.
+
+CLI_SECRET = "11111111-2222-3333-4444-555555555555"
+FLEET, CLI_ROLE, CLI_USER, CLI_TOKEN = ENGINE_POOL, ENGINE_ROLE, ENGINE_USER, f"{ENGINE_USER}!{ENGINE_TOKEN}"
+MARK = "agent-warehouse fleet=00000000-0000-4000-8000-000000000001 controller=none"
+JSON = ("--output-format", "json")
+
+
+@pytest.fixture
+def host(tmp_path: Path) -> Path:
+    return _pve_cli(tmp_path / "pve", {"next_secret": CLI_SECRET})
+
+
+def _cli(host: Path, command: str, *words: str) -> subprocess.CompletedProcess:
+    """One call of the stand-in command, as root runs it on the host: its exit status and what it printed."""
+    return subprocess.run(
+        [str(host / command), *words], capture_output=True, text=True, stdin=subprocess.DEVNULL, check=False
+    )
+
+
+def _get(host: Path, path: str, *words: str) -> object:
+    done = _cli(host, "pvesh", "get", path, *words, "--output-format", "json")
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+def _pveum(host: Path, *words: str) -> object:
+    done = _cli(host, "pveum", *words)
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout) if done.stdout else None
+
+
+def _refused_unchanged(host: Path, command: str, *words: str) -> str:
+    """A call the stand-in refuses: the state file byte for byte as it was. Returns what it said."""
+    before = (host / "pve-state.json").read_bytes()
+    done = _cli(host, command, *words)
+    assert done.returncode != 0 and done.stdout == "", (words, done.stdout)
+    assert (host / "pve-state.json").read_bytes() == before, words
+    return done.stderr
+
+
+def _made(host: Path) -> None:
+    """The engine's objects as init's script makes them: the pool with its mark, the role, the user, the token with
+    privilege separation, its grants on the pool and on /vms."""
+    _pveum(host, "pool", "add", FLEET, "--comment", MARK)
+    _pveum(host, "role", "add", CLI_ROLE, "--privs", ",".join(sorted(privileges.needed("pool"))))
+    _pveum(host, "user", "add", CLI_USER, "--comment", "agent-warehouse")
+    _pveum(host, "user", "token", "add", CLI_USER, ENGINE_TOKEN, "--privsep", "1", "--comment", "agent-warehouse")
+    _pveum(host, "acl", "modify", f"/pool/{FLEET}", "--tokens", CLI_TOKEN, "--roles", CLI_ROLE)
+    _pveum(host, "acl", "modify", "/vms", "--tokens", CLI_TOKEN, "--roles", "PVEAuditor")
+
+
+def test_a_pool_is_made_with_its_comment_read_with_it_and_given_another_or_none(host: Path) -> None:
+    assert _pveum(host, "pool", "add", FLEET, "--comment", MARK) is None
+    assert _pve_cli_state(host)["pools"] == {FLEET: {"comment": MARK}}
+    assert _get(host, "/pools") == [{"poolid": FLEET, "comment": MARK}]
+    assert _get(host, "/pools", "--poolid", FLEET) == [{"poolid": FLEET, "comment": MARK, "members": []}]
+    # The deprecated read of one pool, which Proxmox VE 9 still answers, and pvesh takes a path with no leading /.
+    assert _get(host, f"pools/{FLEET}") == {"poolid": FLEET, "comment": MARK, "members": []}
+    # A person's note kept beside the mark, then the comment taken away: an empty one is none, as Proxmox reads it.
+    _pveum(host, "pool", "modify", FLEET, "--comment", f"lab pool; {MARK}")
+    assert _get(host, "/pools") == [{"poolid": FLEET, "comment": f"lab pool; {MARK}"}]
+    _pveum(host, "pool", "modify", FLEET, "--comment", "")
+    assert _pve_cli_state(host)["pools"] == {FLEET: {}}
+    assert _get(host, f"pools/{FLEET}") == {"poolid": FLEET, "members": []}
+    # One made with no comment, or an empty one, has none.
+    _pveum(host, "pool", "add", "bare")
+    _pveum(host, "pool", "add", "blank", "--comment", "")
+    assert _get(host, "/pools") == [{"poolid": FLEET}, {"poolid": "bare"}, {"poolid": "blank"}]
+
+
+def test_a_pool_s_members_are_its_guests_as_proxmox_lists_a_pool_s_members(tmp_path: Path) -> None:
+    guests = [
+        {"vmid": 9000, "name": "ubuntu-24.04", "template": 1, "pool": FLEET},
+        {"vmid": 101, "name": "alpha", "template": 0, "tags": "agent-warehouse", "pool": FLEET},
+        {"vmid": 300, "name": "theirs", "template": 0, "pool": "bob"},
+        {"vmid": 301, "name": "loose", "template": 0},
+    ]
+    host = _pve_cli(tmp_path / "pve", {"guests": guests, "pools": {FLEET: {"comment": MARK}, "bob": {}}})
+    member = {"node": "pve", "type": "qemu", "status": "stopped"}
+    alpha = {"id": "qemu/101", "vmid": 101, **member, "name": "alpha", "template": 0}
+    template = {"id": "qemu/9000", "vmid": 9000, **member, "name": "ubuntu-24.04", "template": 1}
+    # By VMID, and never with their pool or tags, which only the cluster's listing names.
+    assert _get(host, "/pools", "--poolid", FLEET) == [{"poolid": FLEET, "comment": MARK, "members": [alpha, template]}]
+    _pveum(host, "pool", "modify", FLEET, "--vms", "301")
+    loose = {"id": "qemu/301", "vmid": 301, **member, "name": "loose", "template": 0}
+    assert _get(host, f"pools/{FLEET}")["members"] == [alpha, loose, template]
+    assert [entry["vmid"] for entry in _get(host, "/pools", "--poolid", "bob")[0]["members"]] == [300]
+
+
+def test_a_pool_proxmox_would_not_make_or_find_is_refused_and_nothing_changes(host: Path) -> None:
+    _pveum(host, "pool", "add", FLEET, "--comment", MARK)
+    said = _refused_unchanged(host, "pveum", "pool", "add", FLEET, "--comment", "again")
+    assert said == f"create pool failed: pool '{FLEET}' already exists\n"
+    assert "pool name must start with a letter" in _refused_unchanged(host, "pveum", "pool", "add", "1st")
+    assert "pool 'gone' does not exist" in _refused_unchanged(host, "pveum", "pool", "modify", "gone", "--comment", "x")
+    assert "pool 'gone' does not exist" in _refused_unchanged(host, "pvesh", "get", "/pools", "--poolid", "gone", *JSON)
+    assert "pool 'gone' does not exist" in _refused_unchanged(host, "pvesh", "get", "pools/gone", *JSON)
+
+
+def test_an_acl_entry_names_a_token_and_is_listed_as_proxmox_lists_one_never_as_its_user_s(host: Path) -> None:
+    _made(host)
+    entry = {"ugid": CLI_TOKEN, "propagate": 1, "type": "token"}
+    assert _get(host, "/access/acl") == [
+        {"path": f"/pool/{FLEET}", "roleid": CLI_ROLE, **entry},
+        {"path": "/vms", "roleid": "PVEAuditor", **entry},
+    ]
+    # The token's entries are no grant of its user's.
+    assert _pveum(host, "user", "permissions", CLI_USER, "--path", f"/pool/{FLEET}") == {f"/pool/{FLEET}": {}}
+    # The same role at the same path again replaces its entry; a user and a token in one call get one each; and
+    # roles, users and tokens are lists, as Proxmox splits them.
+    _pveum(host, "acl", "modify", "/vms", "--tokens", CLI_TOKEN, "--roles", "PVEAuditor", "--propagate", "0")
+    _pveum(host, "acl", "modify", "/nodes/pve", "--users", CLI_USER, "--tokens", CLI_TOKEN, "--roles", "PVEAuditor")
+    acls = [
+        (acl["path"], acl["ugid"], acl["roleid"], acl["propagate"], acl["type"]) for acl in _get(host, "/access/acl")
+    ]
+    assert acls == [
+        (f"/pool/{FLEET}", CLI_TOKEN, CLI_ROLE, 1, "token"),
+        ("/vms", CLI_TOKEN, "PVEAuditor", 0, "token"),
+        ("/nodes/pve", CLI_USER, "PVEAuditor", 1, "user"),
+        ("/nodes/pve", CLI_TOKEN, "PVEAuditor", 1, "token"),
+    ]
+    _pveum(host, "acl", "modify", "/storage/local-lvm", "--tokens", CLI_TOKEN, "--roles", f"{CLI_ROLE};PVEAuditor")
+    storage = [(acl["roleid"], acl["type"]) for acl in _get(host, "/access/acl") if acl["path"] == "/storage/local-lvm"]
+    assert storage == [(CLI_ROLE, "token"), ("PVEAuditor", "token")]
+    assert _pve_cli_writes(host)[-1] == (
+        f"pveum acl modify /storage/local-lvm --tokens {CLI_TOKEN} --roles {CLI_ROLE};PVEAuditor"
+    )
+
+
+@pytest.mark.parametrize(
+    ("words", "said"),
+    [
+        (["--tokens", f"{CLI_USER}!gone", "--roles", CLI_ROLE], f"no such token 'gone' for user '{CLI_USER}'"),
+        (["--tokens", "aw", "--roles", CLI_ROLE], "'aw' is not a valid token ID - not able to split into user"),
+        (["--roles", CLI_ROLE], "users: either 'users', 'groups' or 'tokens' is required."),
+        (["--tokens", CLI_TOKEN], "roles: property is missing and it is not optional"),
+        (["--tokens", CLI_TOKEN, "--roles", "Missing"], "role 'Missing' does not exist"),
+        (["--users", "nobody@pve", "--roles", CLI_ROLE], "user 'nobody@pve' does not exist"),
+        (["--tokens", CLI_TOKEN, "--roles", CLI_ROLE, "--propagate", "maybe"], "unable to parse boolean option"),
+        # The state keeps no groups: a group's grant is refused, never taken as nobody's.
+        (["--groups", "ops", "--roles", CLI_ROLE], "fake pveum: unsupported call"),
+    ],
+)
+def test_an_acl_entry_proxmox_would_refuse_is_refused_and_nothing_changes(host: Path, words, said) -> None:
+    _made(host)
+    assert said in _refused_unchanged(host, "pveum", "acl", "modify", f"/pool/{FLEET}", *words)
+
+
+def test_a_token_is_made_with_privilege_separation_and_its_comment_and_read_back_with_both(host: Path) -> None:
+    _pveum(host, "user", "add", CLI_USER, "--comment", "agent-warehouse")
+    made = _pveum(
+        host, "user", "token", "add", CLI_USER, ENGINE_TOKEN, "--privsep", "1", "--comment", "agent-warehouse"
+    )
+    assert made == {
+        "full-tokenid": CLI_TOKEN,
+        "info": {"privsep": "1", "comment": "agent-warehouse"},
+        "value": CLI_SECRET,
+    }
+    assert _pve_cli_state(host)["tokens"] == {
+        CLI_TOKEN: {"privsep": 1, "secret": CLI_SECRET, "comment": "agent-warehouse"}
+    }
+    info = {"expire": 0, "privsep": 1, "comment": "agent-warehouse"}
+    assert _get(host, f"/access/users/{CLI_USER}/token/{ENGINE_TOKEN}") == info
+    assert _get(host, f"/access/users/{CLI_USER}") == {
+        "enable": 1,
+        "expire": 0,
+        "comment": "agent-warehouse",
+        "groups": [],
+        "tokens": {ENGINE_TOKEN: info},
+    }
+    # Privilege separation unless told otherwise, as Proxmox makes a token, and a boolean read as its command line
+    # reads one: given bare, or as a word.
+    for name, words, privsep in [("plain", [], 1), ("bare", ["--privsep"], 1), ("off", ["--privsep", "off"], 0)]:
+        _pveum(host, "user", "token", "add", CLI_USER, name, *words)
+        assert _get(host, f"/access/users/{CLI_USER}/token/{name}") == {"expire": 0, "privsep": privsep}
+    said = _refused_unchanged(host, "pveum", "user", "token", "add", CLI_USER, "odd", "--privsep", "maybe")
+    assert "unable to parse boolean option" in said
+    assert "Token already exists." in _refused_unchanged(host, "pveum", "user", "token", "add", CLI_USER, ENGINE_TOKEN)
+    assert "no such user ('nobody@pve')" in _refused_unchanged(host, "pveum", "user", "token", "add", "nobody@pve", "t")
+
+
+def test_a_user_and_a_role_are_read_back_with_what_says_who_made_them(host: Path) -> None:
+    privs = sorted(privileges.needed("pool"))
+    _pveum(host, "role", "add", CLI_ROLE, "--privs", ",".join(privs))
+    assert _get(host, f"/access/roles/{CLI_ROLE}") == dict.fromkeys(privs, 1)
+    _pveum(host, "user", "add", CLI_USER, "--comment", "agent-warehouse")
+    _pveum(host, "user", "add", "plain@pve")
+    assert _pve_cli_state(host)["users"][CLI_USER] == {"comment": "agent-warehouse"}
+    assert _pve_cli_state(host)["users"]["plain@pve"] == {}
+    # A user with no token has none, null where read_user takes its tokens from.
+    assert _get(host, "/access/users/plain@pve") == {"enable": 1, "expire": 0, "groups": [], "tokens": None}
+    assert "role 'Gone' does not exist" in _refused_unchanged(host, "pvesh", "get", "/access/roles/Gone", *JSON)
+
+
+def test_a_token_s_secret_is_made_again_and_the_old_one_is_kept_nowhere(host: Path) -> None:
+    _made(host)
+    again = _pveum(host, "user", "token", "modify", CLI_USER, ENGINE_TOKEN, "--regenerate", "--output-format", "json")
+    assert again["value"] != CLI_SECRET and again["full-tokenid"] == CLI_TOKEN
+    assert {key: again[key] for key in again if key not in ("value", "full-tokenid")} == {
+        "expire": 0,
+        "privsep": 1,
+        "comment": "agent-warehouse",
+    }
+    state = json.dumps(_pve_cli_state(host))
+    assert again["value"] in state and CLI_SECRET not in state
+    # Its grants stay: the token is the same, its secret another.
+    assert {acl["ugid"] for acl in _get(host, "/access/acl")} == {CLI_TOKEN}
+    # Asked as a word, the same; told no, the secret stays.
+    assert (
+        _pveum(host, "user", "token", "modify", CLI_USER, ENGINE_TOKEN, "--regenerate", "1")["value"] != again["value"]
+    )
+    kept = _pve_cli_state(host)["tokens"][CLI_TOKEN]["secret"]
+    assert "value" not in _pveum(host, "user", "token", "modify", CLI_USER, ENGINE_TOKEN, "--regenerate", "0")
+    assert _pve_cli_state(host)["tokens"][CLI_TOKEN]["secret"] == kept
+
+
+def test_a_token_s_comment_privsep_and_expire_are_changed_and_its_comment_deleted(host: Path) -> None:
+    _made(host)
+    token = ("user", "token", "modify", CLI_USER, ENGINE_TOKEN)
+    assert _pveum(host, *token, "--comment", "another") == {"expire": 0, "privsep": 1, "comment": "another"}
+    assert _pveum(host, *token, "--comment", "") == {"expire": 0, "privsep": 1}
+    _pveum(host, *token, "--comment", "back")
+    assert _pveum(host, *token, "--delete", "comment") == {"expire": 0, "privsep": 1}
+    assert _pveum(host, *token, "--privsep", "0", "--expire", "4102444800") == {"expire": 4102444800, "privsep": 0}
+    assert _pve_cli_state(host)["tokens"][CLI_TOKEN] == {"privsep": 0, "secret": CLI_SECRET, "expire": 4102444800}
+    assert "delete: unknown option 'privsep'" in _refused_unchanged(host, "pveum", *token, "--delete", "privsep")
+    assert "type check ('integer') failed" in _refused_unchanged(host, "pveum", *token, "--expire", "soon")
+    said = _refused_unchanged(host, "pveum", "user", "token", "modify", CLI_USER, "gone", "--regenerate")
+    assert f"no such token 'gone' for user '{CLI_USER}'" in said
+    assert "no such user ('nobody@pve')" in _refused_unchanged(
+        host, "pveum", "user", "token", "modify", "nobody@pve", ENGINE_TOKEN
+    )
+
+
+def test_a_token_deleted_takes_its_acl_entries_with_it_and_leaves_its_user_s(host: Path) -> None:
+    _made(host)
+    _pveum(host, "acl", "modify", "/nodes/pve", "--users", CLI_USER, "--roles", "PVEAuditor")
+    _pveum(host, "user", "token", "delete", CLI_USER, ENGINE_TOKEN)
+    assert _pve_cli_state(host)["tokens"] == {}
+    assert [(acl["path"], acl["ugid"]) for acl in _get(host, "/access/acl")] == [("/nodes/pve", CLI_USER)]
+    assert _get(host, f"/access/users/{CLI_USER}")["tokens"] is None
+
+
+@pytest.mark.parametrize(
+    "words",
+    [
+        # Proxmox would take a guest out of the pool; the stand-in models no --delete, so it refuses, never adds.
+        ["pveum", "pool", "modify", FLEET, "--vms", "101", "--delete", "1"],
+        ["pveum", "pool", "add", "other", "--storage", "local-lvm"],
+        ["pveum", "user", "add", "someone@pve", "--password", "x"],
+        ["pveum", "user", "token", "add", CLI_USER, "second", "--privsep", "1", "--nope", "1"],
+        ["pveum", "role", "add", "Other", "--privs", "VM.Audit", "--special", "1"],
+        ["pvesh", "get", "/pools", "--type", "qemu", "--output-format", "json"],
+        ["pvesh", "get", f"pools/{FLEET}", "--type", "qemu", "--output-format", "json"],
+        ["pvesh", "get", f"/access/users/{CLI_USER}", "--full", "1", "--output-format", "json"],
+        ["pvesh", "get", f"/access/users/{CLI_USER}/token/{ENGINE_TOKEN}", "--noborder", "--output-format", "json"],
+    ],
+)
+def test_an_option_the_stand_in_does_not_model_is_refused_never_ignored(host: Path, words: list[str]) -> None:
+    _made(host)
+    assert "unsupported call" in _refused_unchanged(host, *words)
+
+
+# What the script's --dry-run and the offer's plan read before anything is made, each object's read.
+READS = [
+    ("pvesh", "get", "/pools"),
+    ("pvesh", "get", "/pools", "--poolid", FLEET),
+    ("pvesh", "get", f"pools/{FLEET}"),
+    ("pvesh", "get", f"/access/roles/{CLI_ROLE}"),
+    ("pvesh", "get", f"/access/users/{CLI_USER}"),
+    ("pvesh", "get", f"/access/users/{CLI_USER}/token/{ENGINE_TOKEN}"),
+    ("pvesh", "get", "/access/acl"),
+    ("pvesh", "get", "/cluster/resources", "--type", "vm"),
+    ("pveum", "user", "permissions", CLI_USER, "--path", f"/pool/{FLEET}"),
+]
+
+
+@pytest.mark.parametrize("made", [False, True], ids=["fresh", "set-up"])
+def test_the_reads_a_dry_run_makes_change_nothing(tmp_path: Path, made: bool) -> None:
+    # On a host that has the objects every read answers, and on one that has none some are refused: on both the state
+    # is as it was, and every call of them was a read. The host's guests are the pool's, so its members are read too.
+    guests = [{"vmid": 101, "name": "alpha", "template": 0, "pool": FLEET}, {"vmid": 102, "name": "beta"}]
+    host = _pve_cli(tmp_path / "pve", {"next_secret": CLI_SECRET, "guests": guests})
+    if made:
+        _made(host)
+    before, logged, writes = (host / "pve-state.json").read_bytes(), len(_pve_cli_calls(host)), _pve_cli_writes(host)
+    done = [_cli(host, *read, "--output-format", "json") for read in READS]
+    if made:
+        assert [run.returncode for run in done] == [0] * len(READS), [run.stderr for run in done]
+    else:
+        assert [run.returncode == 0 for run in done] == [True, False, False, False, False, False, True, True, False]
+    assert (host / "pve-state.json").read_bytes() == before
+    assert _pve_cli_calls(host)[logged:] == [[*read, "--output-format", "json"] for read in READS]
+    assert _pve_cli_writes(host) == writes
