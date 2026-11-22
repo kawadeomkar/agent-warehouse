@@ -3,8 +3,10 @@
 Every child here is a stand-in ssh, first on the test's own PATH by engine_guard.first_on_path, that records the words,
 the environment and the standard input it was given in the test's own directory, and then does what the command it was
 asked to run says: prints lines, prints one with no end or past the bound, says nothing, never ends, exits 255 as an
-unreachable machine does, or holds its standard input open for a line. This machine's real ssh is run by its path for
-ssh -G -F /dev/null alone, which reads no file and dials nothing, to show the values the built options hold. The rules
+unreachable machine does or as a command that printed first and died does, holds its standard input open for a line,
+or, for a forward, plays the far end: with a command, sleep, it runs that and ends, as ssh ends with the command on the
+machine, and with none (-N) it never ends. This machine's real ssh is run by its path for ssh -G with no configuration
+(or one of the test's own), which dials nothing, to show the values the built options hold. The rules
 with a test of their own: in the new subpackages a child named ssh is started only in ssh/ (and route.py, today's,
 outside them); no option is made of a value a machine supplied but its address; accept-new is written in ssh/ only for
 a first use and the Proxmox host; and no ssh of the runner's carries a ControlMaster but no.
@@ -14,10 +16,12 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import contextlib
 import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import uuid
@@ -89,6 +93,11 @@ elif what == "exit":
 elif what == "unreachable":
     sys.stderr.write("ssh: connect to host 192.0.2.9 port 22: Connection refused\n")
     sys.exit(255)
+elif what == "ran255":
+    # A command that printed and then ended without a status ssh could pass on: its own 255, or a signal.
+    say(*rest)
+    sys.stderr.write("it died\n")
+    sys.exit(255)
 elif what == "noend":
     sys.stdout.write("partial")
 elif what == "flood":
@@ -117,8 +126,13 @@ elif what == "wait":
     say("ready")
     time.sleep(300)
 elif what == "forward":
+    # ssh -N: nothing runs at the far end, and the connection lives until something here ends it.
     linger(os.environ.get("AW_FORWARD_MARK", "no-mark"))
     time.sleep(300)
+elif what == "sleep":
+    # The far end's command: ssh ends when it does, a stand-in that names the forward's mark until then.
+    mark = os.environ.get("AW_FORWARD_MARK", "no-mark")
+    os.execv(sys.executable, [sys.executable, "-c", "import sys, time; time.sleep(float(sys.argv[1]))", rest[0], mark])
 """
 
 
@@ -176,12 +190,12 @@ def _real_ssh() -> str:
     return found
 
 
-def _shown(words: list[str]) -> dict[str, list[str]]:
+def _shown(words: list[str], config: Path | None = None) -> dict[str, list[str]]:
     """What this machine's own ssh says the options words hold for the address after --: ssh -G -F /dev/null, which
-    reads no configuration file and dials nothing. Each key lower case, with its values as ssh prints them, a flag's
-    true and false read as yes and no."""
+    reads no configuration file and dials nothing, or -F config, a file of the test's own, as a person's own would be
+    read. Each key lower case, with its values as ssh prints them, a flag's true and false read as yes and no."""
     shown = subprocess.run(
-        [_real_ssh(), "-G", "-F", "/dev/null", *words],
+        [_real_ssh(), "-G", "-F", str(config or "/dev/null"), *words],
         capture_output=True,
         text=True,
         stdin=subprocess.DEVNULL,
@@ -218,6 +232,10 @@ def test_a_machine_s_command_line_is_the_product_s_options_then_the_place_then_t
         "ControlMaster=no",
         "-o",
         "BatchMode=yes",
+        "-o",
+        "ForwardX11=no",
+        "-o",
+        "PermitLocalCommand=no",
         "-o",
         "StrictHostKeyChecking=yes",
         "-o",
@@ -310,6 +328,8 @@ EXPECTED = {
     "controlpath": None,
     "controlmaster": ["no"],
     "batchmode": ["yes"],
+    "forwardx11": ["no"],
+    "permitlocalcommand": ["no"],
     "stricthostkeychecking": ["yes"],
     "connecttimeout": ["10"],
     "serveraliveinterval": ["15"],
@@ -374,14 +394,47 @@ def test_an_option_the_product_writes_itself_is_refused_by_its_name(tmp_path, gi
 
 
 @pytest.mark.parametrize(
+    "given",
+    [
+        {"StdinNull": "yes"},
+        {"forkafterauthentication": "yes"},
+        {"SessionType": "none"},
+        {"RemoteCommand": "id"},
+        {"ForwardX11": "yes"},
+        {"ForwardX11Trusted": "yes"},
+        {"ForwardX11Timeout": "1h"},
+        {"PermitLocalCommand": "yes"},
+        {"LocalCommand": "touch /tmp/x"},
+    ],
+)
+def test_an_option_that_undoes_what_every_connection_holds_is_refused_by_its_name(tmp_path, given) -> None:
+    # Each would undo a rule of the runner's from vm_ssh_options: StdinNull, and a secret never arrives while the call
+    # is Done; ForkAfterAuthentication, and ssh leaves its group; a display or a program of this computer's handed on.
+    [(name, _)] = given.items()
+    named = runner.UNDOING_OPTIONS[name.lower()]
+    with pytest.raises(runner.Refused, match=rf"vm_ssh_options sets {named}, which undoes what every connection holds"):
+        _machine(tmp_path, given=given)
+    assert set(runner.UNDOING_OPTIONS).isdisjoint(runner.REFUSED_OPTIONS)
+
+
+def test_forward_x11_and_local_commands_are_pinned_off_whatever_a_person_s_config_says(tmp_path) -> None:
+    config = tmp_path / "config"
+    config.write_text("Host *\n  ForwardX11 yes\n  ForwardX11Trusted yes\n  PermitLocalCommand yes\n")
+    for name, target in _forms(tmp_path):
+        shown = _shown(runner.argv(target, ["true"])[1:-1], config)
+        assert (shown["forwardx11"], shown["permitlocalcommand"]) == (["no"], ["no"]), name
+
+
+@pytest.mark.parametrize(
     ("given", "said"),
     [
         ({"StrictHostKeyChecking": "no"}, "StrictHostKeyChecking to other than yes"),
         ({"StrictHostKeyChecking": "accept-new"}, "StrictHostKeyChecking to other than yes"),
         ({"Compression": "yes\nProxyCommand evil"}, "value for Compression is one line"),
         ({"Compression": ""}, "value for Compression is one line"),
-        ({"Proxy Command": "x"}, "letters alone"),
-        ({"-oProxyCommand": "x"}, "letters alone"),
+        ({"Proxy Command": "x"}, "a letter, then letters and digits"),
+        ({"-oProxyCommand": "x"}, "a letter, then letters and digits"),
+        ({"9Compression": "yes"}, "a letter, then letters and digits"),
         ((("Compression", "yes"), ("compression", "no")), "gives compression twice"),
         ({"Compression": 1}, "value for Compression is one line"),
     ],
@@ -450,7 +503,10 @@ def _forms(tmp_path: Path) -> list[tuple[str, runner.Target]]:
 def test_every_form_carries_batch_mode_a_client_s_control_master_and_its_one_policy(tmp_path) -> None:
     product = f'UserKnownHostsFile="{runner.KNOWN_HOSTS.expanduser()}"'
     for name, target in _forms(tmp_path):
-        for words in (runner.argv(target, ["true"]), runner.forward_argv(target, ["127.0.0.1:5000:127.0.0.1:5000"])):
+        for words in (
+            runner.argv(target, ["true"]),
+            runner.forward_argv(target, ["127.0.0.1:5000:127.0.0.1:5000"], 60),
+        ):
             options = words[: words.index("--")]
             assert options.count("BatchMode=yes") == 1, name
             # The runner's own: the hop's ssh inside a ProxyCommand is the route's, a master of the hop's own.
@@ -471,15 +527,26 @@ def test_every_form_carries_batch_mode_a_client_s_control_master_and_its_one_pol
                 assert f"HostKeyAlias={IDENTITY}" in options, name
 
 
-def test_a_forward_is_ssh_n_with_each_l_its_own_connection_and_its_failure_said(tmp_path) -> None:
+def test_a_forward_s_far_end_is_sleep_for_its_deadline_each_l_its_own_connection_and_its_failure_said(tmp_path):
     specs = ["127.0.0.1:5000:127.0.0.1:5000", "[::1]:5000:127.0.0.1:5000"]
-    words = runner.forward_argv(_machine(tmp_path), specs)
+    words = runner.forward_argv(_machine(tmp_path), specs, 59.2)
     options = words[: words.index("--")]
-    assert words[:2] == ["ssh", "-N"] and words[words.index("--") :] == ["--", ADDRESS]
+    # No -N: its far end is the command sleep for the deadline, rounded up, so that the local end ends it first, and
+    # the far end ends it where nothing here can.
+    assert words[0] == "ssh" and "-N" not in words and words[words.index("--") :] == ["--", ADDRESS, "sleep 60"]
     assert options[options.index("-L") :] == ["-L", specs[0], "-L", specs[1], "-l", "dev", "-p", "22"]
-    for option in ("ExitOnForwardFailure=yes", "ControlPath=none", "ControlMaster=no", "ClearAllForwardings=no"):
+    for option in (
+        "ExitOnForwardFailure=yes",
+        "ControlPath=none",
+        "ControlMaster=no",
+        "ClearAllForwardings=no",
+        "AddressFamily=any",
+    ):
         assert option in options, option
-    shown = _shown(words[1:])
+    # Each loopback family bound whatever a person's configuration says: one of AddressFamily inet is outranked.
+    config = tmp_path / "config"
+    config.write_text("Host *\n  AddressFamily inet\n  ClearAllForwardings yes\n")
+    shown = _shown(words[1:-1], config)
     assert (shown["exitonforwardfailure"], shown["clearallforwardings"], shown["addressfamily"]) == (
         ["yes"],
         ["no"],
@@ -492,7 +559,13 @@ def test_a_forward_is_ssh_n_with_each_l_its_own_connection_and_its_failure_said(
 @pytest.mark.parametrize("spec", ["5000", "127.0.0.1:5000:127.0.0.1", "-oProxyCommand=x", "a b:1:c:2", "1:h:2\n"])
 def test_a_forward_s_spec_is_one_plain_l_spec(tmp_path, spec) -> None:
     with pytest.raises(runner.Refused, match="a forward's spec"):
-        runner.forward_argv(_machine(tmp_path), [spec])
+        runner.forward_argv(_machine(tmp_path), [spec], 60)
+
+
+@pytest.mark.parametrize("seconds", [0, -1, float("nan"), float("inf"), True, "60", None, runner.FORWARD_MOST + 1])
+def test_a_forward_s_deadline_is_a_number_of_seconds(tmp_path, seconds) -> None:
+    with pytest.raises(runner.Refused, match="a forward's deadline is a number of seconds"):
+        runner.forward_argv(_machine(tmp_path), ["127.0.0.1:5000:127.0.0.1:5000"], seconds)
 
 
 def test_the_ansible_child_is_given_the_same_options_in_the_same_order(tmp_path) -> None:
@@ -624,10 +697,24 @@ def test_a_machine_s_other_values_are_held_before_any_child_starts(tmp_path, ove
         runner.machine(IDENTITY, ADDRESS, given.pop("account", "dev"), CONTROL, **given)
 
 
-@pytest.mark.parametrize("control", ["relative/cp", "/a b/cp", "/a%C/cp", "/" + "c" * 70])
+@pytest.mark.parametrize("control", ["relative/cp", "/a b/cp", "/a%C/cp"])
 def test_a_control_directory_that_ssh_could_not_bind_a_socket_in_is_refused(tmp_path, control) -> None:
     with pytest.raises(runner.Refused, match="control directory"):
         runner.machine(IDENTITY, ADDRESS, "dev", control, known_hosts=tmp_path / "known_hosts")
+
+
+def test_a_machine_whose_socket_s_path_would_be_too_long_connects_alone(tmp_path) -> None:
+    # A home long enough that a socket's path there would pass what macOS binds: every connection of the machine logs
+    # in alone (ControlPath=none), and it is no refusal; the length is held by what fits and what does not.
+    name = checks.vm_control_name(IDENTITY, ADDRESS)
+    fits = "/" + "c" * (route.SOCKET_MOST - len(f"/{name}-dev-22") - 1)
+    for control, shared in ((fits, True), (fits + "c", False), ("/" + "c" * 70, False)):
+        target = runner.machine(IDENTITY, ADDRESS, "dev", control, known_hosts=tmp_path / "known_hosts")
+        assert target.shared is shared, control
+        [socket] = [word for word in runner.options(target) if word.startswith("ControlPath=")]
+        assert (socket == "ControlPath=none") is not shared, control
+        assert runner.ansible_vars(target)["ansible_ssh_common_args"].count("ControlPath=none") == (not shared)
+    assert runner.proxmox_host("pve.example.test", "root", CONTROL).shared
 
 
 def test_a_command_that_is_not_a_list_of_words_starts_nothing(tmp_path, stand_in, made) -> None:
@@ -677,10 +764,18 @@ def test_a_call_says_how_the_child_ended(tmp_path, stand_in, made) -> None:
     target = _machine(tmp_path)
     assert _run(made, target, ["exit", "3", "it failed"]) == runner.Done(3, (), "it failed")
     assert _run(made, target, ["unreachable"]) == runner.Unreachable(
-        "ssh: connect to host 192.0.2.9 port 22: Connection refused"
+        "ssh: connect to host 192.0.2.9 port 22: Connection refused", (), False
     )
     noisy = _run(made, target, ["noisy"], limits=BYTES)
     assert noisy == runner.Done(0, ("done",), "e" * BYTES.said)
+
+
+def test_a_255_after_output_keeps_its_lines_and_that_the_machine_was_heard(tmp_path, stand_in, made) -> None:
+    # ssh's 255 is also the command's own, or a signal that ended it: a session was made, and what it printed is kept,
+    # so that a caller never takes a command that ran for a machine it never reached.
+    result = _run(made, _machine(tmp_path), ["ran255", "first line", "second line"])
+    assert result == runner.Unreachable("it died", ("first line", "second line"), True)
+    assert result.heard and result.lines
 
 
 def test_escape_sequences_in_what_the_machine_said_are_gone(tmp_path, stand_in, made) -> None:
@@ -789,10 +884,12 @@ def test_a_held_child_past_its_deadline_is_ended(tmp_path, stand_in, made) -> No
     marker = _marker()
 
     async def held() -> runner.Result:
-        child = await runner.hold(made, _machine(tmp_path), ["wait", marker], dict(os.environ), deadline=1)
+        child = await runner.hold(made, _machine(tmp_path), ["wait", marker], dict(os.environ), deadline=3)
         return await child.result()
 
-    assert asyncio.run(held()) == runner.TimedOut(("ready",), "")
+    # A loaded machine may start the stand-in after its first second: its "ready" may or may not have come.
+    result = asyncio.run(held())
+    assert isinstance(result, runner.TimedOut) and result.lines in ((), ("ready",)) and result.said == "", result
     _gone(marker)
 
 
@@ -812,7 +909,67 @@ def test_a_forward_is_held_until_its_end_and_takes_no_input(tmp_path, stand_in, 
     assert asyncio.run(held()).status < 0
     _gone(marker)
     [call] = _calls(stand_in)
-    assert call["argv"] == runner.forward_argv(_machine(tmp_path), specs)[1:]
+    assert call["argv"] == runner.forward_argv(_machine(tmp_path), specs, 60)[1:]
+
+
+# A run that holds a forward and is then killed: its child process makes a job, holds the forward and says so. The
+# forward's mark is in its environment alone, so that only the forward's far end names it on its command line.
+KILLED_RUN = r"""
+import asyncio, os, sys
+from pathlib import Path
+
+lib, jobs_dir, identity, address, control, known, deadline = sys.argv[1:]
+sys.path.insert(0, lib)
+from claude_vm.runs import job as jobs
+from claude_vm.ssh import runner
+
+job = jobs.create(Path(jobs_dir), "deploy", "deploy alpha", "pve", ["alpha"], {"kind": "terminal"}, True)
+target = runner.machine(identity, address, "dev", control, known_hosts=known)
+
+
+async def main():
+    env = dict(os.environ)
+    await runner.forward(job, target, ["127.0.0.1:5000:127.0.0.1:5000"], env, deadline=float(deadline))
+    print("held", flush=True)
+    await asyncio.sleep(300)
+
+
+asyncio.run(main())
+"""
+
+
+def test_a_forward_s_far_end_ends_it_within_its_deadline_after_its_run_was_killed(tmp_path, stand_in, home) -> None:
+    # A run killed outright (SIGKILL, an OOM kill) ends nothing it holds: its forward ends by itself, as its far end's
+    # sleep ends, and keeps this computer's port no longer than its deadline.
+    marker, deadline = _marker(), 3
+    argv = [
+        sys.executable,
+        "-I",
+        "-c",
+        KILLED_RUN,
+        str(REPO / "lib"),
+        str(paths.jobs_dir(paths.home(REPO))),
+        IDENTITY,
+        ADDRESS,
+        str(CONTROL),
+        str(tmp_path / "known_hosts"),
+        str(deadline),
+    ]
+    env = {**os.environ, "AW_FORWARD_MARK": marker}
+    run = subprocess.Popen(argv, env=env, stdout=subprocess.PIPE, text=True, preexec_fn=harness._default_signals)
+    try:
+        assert run.stdout is not None and run.stdout.readline() == "held\n"
+        _until(lambda: _by_argv(marker) != [], "the forward's far end up")
+        assert run.pid not in _by_argv(marker)
+        run.kill()
+        run.wait(timeout=10)
+        _until(lambda: _by_argv(marker) == [], "the forward ended by itself", timeout=deadline + 10)
+    finally:
+        run.kill()
+        run.wait(timeout=10)
+        for pid in _by_argv(marker):
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, signal.SIGKILL)
 
 
 # ---------------------------------------------------------------- the rules ----

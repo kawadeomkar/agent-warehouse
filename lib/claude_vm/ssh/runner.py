@@ -14,18 +14,29 @@ command joined with `shlex.join`. No `-F`: the person's own `~/.ssh/config` is r
 a jump of theirs is named. Every `ssh` here carries `BatchMode=yes`, so a key that wants a passphrase fails in one
 sentence and never waits at a terminal it cannot reach, and `ControlMaster=no`: a child rides a master the engine opened
 in the shared directory (`connections.py`'s `ensure`), or connects alone where none lives, and is never a master itself.
-A machine is named by its identity alone, its key checked strictly in the product's own file, which `ssh` can neither
-add to nor replace; a first use takes the key into a scratch file instead, under the identity and never the address, for
-the caller to file, on a connection of its own (`ControlPath=none`): a master of the identity and the address that still
-lives would carry it, and `ssh` would write no key.
+It authenticates by public key alone (`PreferredAuthentications=publickey`), the Proxmox host's connection too: GSSAPI
+and host-based authentication are added only if someone asks. A machine is named by its identity alone, its key checked
+strictly in the product's own file, which `ssh` can neither add to nor replace; a first use takes the key into a
+scratch file instead, under the identity and never the address, for the caller to file, on a connection of its own
+(`ControlPath=none`): a master of the identity and the address that still lives would carry it, and `ssh` would write no
+key. A machine whose socket's path in the shared directory would pass `route.SOCKET_MOST` bytes (a long home) takes no
+shared connection either (`Target.shared`): each of its connections logs in alone.
 
 `run` starts the command line as a child of the run through `runs/children.py`'s `start`, in a process group of its
 own, hands it bytes on its standard input, and reads its standard output a line at a time under a bound for one line,
 one for the whole, a deadline, and a time to say anything at all; its standard error is kept to a fixed size; on a
 breach its group is killed. `hold` starts the same command line and keeps it, its standard input open for a line
-written later and its output read while it runs: the sign-ins' children. `forward` holds an `ssh -N` with the caller's
-`-L` specs, a connection of its own. `ansible_vars` gives layer 1's Ansible child the same options, so that its `ssh`,
-`sftp` and `scp` ride the same master. Every string a result holds is made plain (`text.plain_text`).
+written later and its output read while it runs: the sign-ins' children. `forward` holds an `ssh` with the caller's
+`-L` specs, a connection of its own whose far end is the command `sleep` for the caller's deadline, so that it ends by
+itself where the run that holds it was killed and could end it no more; nothing is recorded on the machine.
+`ansible_vars` gives layer 1's Ansible child the same options, so that its `ssh`, `sftp` and `scp` ride the same master.
+Every string a result holds is made plain (`text.plain_text`).
+
+Ending the local `ssh` - a breach, a cancel, `end` - never ends the command on the machine: with no terminal on the
+session, `sshd` sends it no signal, so a command that neither reads nor writes goes on. A caller whose command changes
+something bounds it on the machine (`timeout`) or reads its state again. An exit status of 255 is `ssh`'s own failure,
+or the command's own 255, or a signal that ended the command, which `ssh` cannot pass on: `Unreachable` keeps the lines
+the command printed and whether the machine was heard at all.
 
 A secret reaches a child only on its standard input: a `Secret` is revealed in `_bytes` alone, never in a word or a
 variable. Only the address is a value a machine supplied, held to one IPv4 address; nothing else of a machine's reaches
@@ -37,6 +48,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import ipaddress
+import math
 import os
 import re
 import shlex
@@ -56,7 +68,8 @@ if TYPE_CHECKING:
     from claude_vm.runs.job import Job
 
 # The product's own known-hosts file, where a machine's key is filed under its identity and every connection but a
-# first use checks it: today's claude_ssh_known_hosts_file.
+# first use checks it: one for every fleet on the computer, outside every repository, beside the person's own, so that
+# the editor's alias, which the person's own ssh reads, names the same file.
 KNOWN_HOSTS = Path("~/.ssh/agent-warehouse.known_hosts")
 # The person's own known-hosts files, which a first use never writes: the Proxmox host's key alone is kept there.
 PERSONS_KNOWN_HOSTS = (Path("~/.ssh/known_hosts"), Path("~/.ssh/known_hosts2"))
@@ -74,10 +87,12 @@ CONNECT_SECONDS = 10
 START_SECONDS = 20
 
 # What every ssh here is given after the host key's options and its socket, in this order, with the host key's policy
-# after BatchMode and the forwards' clearing after PreferredAuthentications (_pinned): a child, never a master; no
-# prompt, ever; today's limits on a connection and on its silence; a key and nothing else; no terminal; and ssh's own
-# words kept to its errors (the hop's ssh keeps INFO, which route.py reads).
-FIRST = ("ControlMaster=no", "BatchMode=yes")
+# after them and the forwards' clearing after PreferredAuthentications (_pinned): a child, never a master; no prompt,
+# ever; the computer's X display never handed to the machine, and no program run here for a connection (each known to
+# every OpenSSH, so pinned, where a person's ForwardX11 yes or Ubuntu's own ForwardX11Trusted would otherwise reach
+# it); today's limits on a connection and on its silence; a key and nothing else; no terminal; and ssh's own words kept
+# to its errors (the hop's ssh keeps INFO, which route.py reads).
+FIRST = ("ControlMaster=no", "BatchMode=yes", "ForwardX11=no", "PermitLocalCommand=no")
 THEN = (
     f"ConnectTimeout={CONNECT_SECONDS}",
     "ServerAliveInterval=15",
@@ -104,6 +119,23 @@ REFUSED_OPTIONS = {
     "user": "User",
     "port": "Port",
 }
+# The options a person may not give in vm_ssh_options because they undo what every connection holds, by ssh's name in
+# lower case: a standard input never read (StdinNull: a secret would silently never arrive), an ssh that leaves for the
+# background (ForkAfterAuthentication: out of its group, so a breach ends nothing), no command or another one
+# (SessionType, RemoteCommand), the computer's X display handed to the machine (ForwardX11 and its two), and a program
+# run here for each connection (PermitLocalCommand, LocalCommand). The three newer ones are refused rather than pinned,
+# which would break an ssh older than 8.7.
+UNDOING_OPTIONS = {
+    "stdinnull": "StdinNull",
+    "forkafterauthentication": "ForkAfterAuthentication",
+    "sessiontype": "SessionType",
+    "remotecommand": "RemoteCommand",
+    "forwardx11": "ForwardX11",
+    "forwardx11trusted": "ForwardX11Trusted",
+    "forwardx11timeout": "ForwardX11Timeout",
+    "permitlocalcommand": "PermitLocalCommand",
+    "localcommand": "LocalCommand",
+}
 STRICT_OPTION = "stricthostkeychecking"
 
 # A word of a command line or a path that holds no control character: nothing that ends a line of ssh's config.
@@ -113,8 +145,8 @@ _ACCOUNT = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,63}")
 # A program, or a directory whose socket path ssh expands: plain characters, never % (one of ssh's tokens), a space or
 # a quote.
 _PLAIN = re.compile(r"[A-Za-z0-9_./+@,=-]{1,4096}")
-# An option's name as ssh reads one.
-_OPTION = re.compile(r"[A-Za-z]{1,64}")
+# An option's name as ssh reads one: a letter, then letters and digits (ForwardX11).
+_OPTION = re.compile(r"[A-Za-z][A-Za-z0-9]{0,63}")
 # The name of the hop's shared connection, as route.hop_settings names its socket.
 _HOP_NAME = re.compile(r"awh-[0-9a-f]{12}")
 # A forward's spec as -L takes it for a loopback port: [bind address:]port:host:hostport, an IPv6 address in brackets.
@@ -122,6 +154,9 @@ _FORWARD = re.compile(
     r"(?:(?:\[[0-9A-Fa-f:.]{2,45}\]|[A-Za-z0-9._-]{1,253}):)?[0-9]{1,5}:(?:\[[0-9A-Fa-f:.]{2,45}\]|[A-Za-z0-9._-]{1,253})"
     r":[0-9]{1,5}"
 )
+
+# The longest a forward is held, in seconds: a sign-in's wait on a person, a few minutes, well within it.
+FORWARD_MOST = 24 * 60 * 60
 
 # The way out of a refused setting of the Proxmox host's: where the new engine keeps each one.
 HOST_WAY_OUT = (
@@ -215,12 +250,17 @@ class Target:
                     "a first use takes a key into a scratch file of its own, never the product's known-hosts file or"
                     " the person's"
                 )
+
+    @property
+    def shared(self) -> bool:
+        """Whether a machine's connections ride a shared one: its socket's path in the control directory is at most
+        route.SOCKET_MOST bytes, the most macOS binds. Past it (a long home), each connection logs in alone
+        (ControlPath=none), and no master is opened for it. The Proxmox host's, the hop's, is route.hop_settings' to
+        hold."""
+        if self.is_host:
+            return True
         socket = f"{self.control_dir}/{_control_name(self)}-{self.account}-{self.port}"
-        if len(socket.encode()) > route.SOCKET_MOST:
-            raise Refused(
-                f"the control directory {self.control_dir} is too long: a socket's path there would pass"
-                f" {route.SOCKET_MOST} bytes, the most macOS binds"
-            )
+        return len(socket.encode()) <= route.SOCKET_MOST
 
     def _as_the_host(self) -> None:
         if self.known_hosts is not None or self.hop is not None or self.given or self.first_use:
@@ -353,7 +393,8 @@ def _directory(path: object) -> Path:
 
 def _given(given: object) -> tuple[tuple[str, str], ...]:
     """The person's own options for a machine, held: each an option ssh names, given once, never one the product
-    writes itself (REFUSED_OPTIONS, said by name), StrictHostKeyChecking only as yes, each value one line."""
+    writes itself (REFUSED_OPTIONS) or one that undoes what every connection holds (UNDOING_OPTIONS), each said by
+    name, StrictHostKeyChecking only as yes, each value one line."""
     if isinstance(given, Mapping):
         given = tuple(given.items())
     if not isinstance(given, tuple) or not all(isinstance(pair, tuple) and len(pair) == 2 for pair in given):
@@ -361,12 +402,18 @@ def _given(given: object) -> tuple[tuple[str, str], ...]:
     seen: set[str] = set()
     for name, value in given:
         if not isinstance(name, str) or not _OPTION.fullmatch(name):
-            raise Refused("vm_ssh_options names each option as ssh does: letters alone")
+            raise Refused("vm_ssh_options names each option as ssh does: a letter, then letters and digits")
         lower = name.lower()
         if lower in REFUSED_OPTIONS:
             raise Refused(
                 f"vm_ssh_options sets {REFUSED_OPTIONS[lower]}, which the product writes itself: take it out of"
                 " vm_ssh_options (agent forwarding is claude_ssh_forward_agent, the key claude_ssh_identity_file)"
+            )
+        if lower in UNDOING_OPTIONS:
+            raise Refused(
+                f"vm_ssh_options sets {UNDOING_OPTIONS[lower]}, which undoes what every connection holds - a command's"
+                " standard input, the ssh a run ends, the command run, this computer's display and programs kept from"
+                " the machine: take it out of vm_ssh_options"
             )
         if lower in seen:
             raise Refused(f"vm_ssh_options gives {name} twice")
@@ -416,7 +463,8 @@ def options(target: Target, forward: bool = False) -> list[str]:
     """Every option of target's connection, in the order ssh is given them: the product's, then the hop's, then the
     person's. A forward's is a connection of its own (ControlPath=none) that fails where a port cannot be bound and
     keeps its forwards whatever a person's ClearAllForwardings says; so is a first use's, which a master that still
-    lives for the identity and the address would otherwise carry, so that ssh wrote no key into its scratch file."""
+    lives for the identity and the address would otherwise carry, so that ssh wrote no key into its scratch file; and
+    so is every connection of a machine whose socket's path would be too long (Target.shared)."""
     if target.is_host:
         socket = route.hop_settings(
             ssh=target.ssh,
@@ -430,7 +478,8 @@ def options(target: Target, forward: bool = False) -> list[str]:
     else:
         socket = f"{target.control_dir}/{_control_name(target)}-%r-%p"
         words = shlex.split(checks.vm_ssh_args(target.identity, target.known_hosts))
-    words += ["-o", "ControlPath=none" if forward or target.first_use else f"ControlPath={socket}"]
+    alone = forward or target.first_use or not target.shared
+    words += ["-o", "ControlPath=none" if alone else f"ControlPath={socket}"]
     words += _pinned(target, forward)
     if target.identity_file is not None:
         words += ["-o", f"IdentityFile={checks.vm_ssh_word(target.identity_file)}"]
@@ -457,15 +506,24 @@ def argv(target: Target, command: Sequence[str]) -> list[str]:
     return [target.ssh, *options(target), *_place(target), _command(command)]
 
 
-def forward_argv(target: Target, specs: Sequence[str]) -> list[str]:
-    """The command line of a forward to target: ssh -N, a forward's options, and each of specs as one -L."""
+def _far_end(seconds: object) -> list[str]:
+    """What a forward runs at its far end: sleep for seconds, rounded up, so that the local end, ended at seconds, ends
+    it first, and the far end ends it where nothing here can."""
+    if not isinstance(seconds, (int, float)) or isinstance(seconds, bool) or not 0 < seconds <= FORWARD_MOST:
+        raise Refused(f"a forward's deadline is a number of seconds, more than 0 and at most {FORWARD_MOST}")
+    return ["sleep", str(math.ceil(seconds))]
+
+
+def forward_argv(target: Target, specs: Sequence[str], seconds: float) -> list[str]:
+    """The command line of a forward to target for seconds: ssh, a forward's options, each of specs as one -L, and the
+    far end's command, sleep for seconds, which ends the forward by itself where the run that held it was killed."""
     if isinstance(specs, (str, bytes)) or not isinstance(specs, Sequence) or not specs:
         raise Refused("a forward is given one -L spec or more")
     for spec in specs:
         if not isinstance(spec, str) or not _FORWARD.fullmatch(spec):
             raise Refused("a forward's spec is [address:]port:host:port, an IPv6 address in brackets")
     forwards = [word for spec in specs for word in ("-L", spec)]
-    return [target.ssh, "-N", *options(target, forward=True), *forwards, *_place(target)]
+    return [target.ssh, *options(target, forward=True), *forwards, *_place(target), _command(_far_end(seconds))]
 
 
 def ansible_vars(target: Target) -> dict[str, object]:
@@ -527,7 +585,8 @@ class Done:
 @dataclasses.dataclass(frozen=True)
 class Cut:
     """The child sent more than it may - a line past its bound, more than the whole, a line with no end - and was
-    ended: why, the lines read before, and what it said."""
+    ended: why, the lines read before, and what it said. Its local ssh was ended, never the command on the machine,
+    which goes on where it neither reads nor writes."""
 
     why: str
     lines: tuple[str, ...]
@@ -536,14 +595,16 @@ class Cut:
 
 @dataclasses.dataclass(frozen=True)
 class Silent:
-    """The child said nothing within its time to say anything, and was ended."""
+    """The child said nothing within its time to say anything, and was ended: its local ssh, never the command on the
+    machine, which goes on where it neither reads nor writes."""
 
     said: str
 
 
 @dataclasses.dataclass(frozen=True)
 class TimedOut:
-    """The child outlived its deadline, and was ended: the lines read before, and what it said."""
+    """The child outlived its deadline, and was ended: the lines read before, and what it said. Its local ssh was
+    ended, never the command on the machine, which goes on where it neither reads nor writes."""
 
     lines: tuple[str, ...]
     said: str
@@ -551,9 +612,14 @@ class TimedOut:
 
 @dataclasses.dataclass(frozen=True)
 class Unreachable:
-    """ssh could not reach the machine, or lost it (its exit status 255): what it said."""
+    """ssh exited 255: its own failure - it could not reach the machine, or lost it - or the command's own 255, or a
+    signal that ended the command, which ssh has no status to pass on for. What it said; the lines the command printed;
+    and whether the machine was heard, any byte on standard output: a session was made, so the command ran and ended
+    without a status, and a caller that tries an unreachable machine again would run it twice."""
 
     said: str
+    lines: tuple[str, ...] = ()
+    heard: bool = False
 
 
 Result = Done | Cut | Silent | TimedOut | Unreachable
@@ -716,7 +782,7 @@ def _result(process: Process, output: _Output, said: str, timed_out: bool = Fals
     if output.cut is not None:
         return Cut(output.cut, lines, said)
     if process.returncode == 255:
-        return Unreachable(said)
+        return Unreachable(said, lines, output.heard)
     assert process.returncode is not None
     return Done(process.returncode, lines, said)
 
@@ -845,7 +911,8 @@ class Held:
                 await stream.wait_closed()
 
     async def end(self) -> None:
-        """The child's group ended: SIGTERM, then SIGKILL where it has not ended within END_GRACE seconds."""
+        """The child's group ended: SIGTERM, then SIGKILL where it has not ended within END_GRACE seconds. That is its
+        local ssh, never the command on the machine, which goes on where it neither reads nor writes."""
         import asyncio
 
         if self._timer is not None:
@@ -919,11 +986,15 @@ async def forward(
     specs: Sequence[str],
     env: Mapping[str, str],
     started: Callable[[Process], None] | None = None,
-    deadline: float | None = None,
+    *,
+    deadline: float,
 ) -> Held:
-    """A held ssh -N to target with each of specs as a -L, ExitOnForwardFailure=yes, made as a connection of its own
-    (ControlPath=none), since a forward asked of a shared master would outlive the run on it. Its standard input is
-    /dev/null: nothing is sent to it."""
+    """A held ssh to target with each of specs as a -L, ExitOnForwardFailure=yes, made as a connection of its own
+    (ControlPath=none), since a forward asked of a shared master would outlive the run on it. It is ended at deadline
+    seconds, which a forward requires, by its caller or at the run's end; and its far end is sleep for deadline, so that
+    it ends by itself where the run was killed and nothing here can end it. Its standard input is /dev/null: nothing is
+    sent to it."""
     import asyncio
 
-    return await _held(job, forward_argv(target, specs), asyncio.subprocess.DEVNULL, LIMITS, env, started, deadline)
+    words = forward_argv(target, specs, deadline)
+    return await _held(job, words, asyncio.subprocess.DEVNULL, LIMITS, env, started, deadline)

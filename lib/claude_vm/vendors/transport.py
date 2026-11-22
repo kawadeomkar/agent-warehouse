@@ -2,7 +2,7 @@
 
 Over `http.client` and `ssl` alone, so it follows no redirect, reads no certificate variable, no netrc and no proxy
 variable, by construction: a 3xx is an answer, the context its connections verify with is the caller's, and the proxy
-is the caller's too, an `http://` URL or none (`proxy.choose` works out today's). Through a proxy a connection is a
+is the caller's too, an `http://` URL or none (`proxy.choose` gives it). Through a proxy a connection is a
 CONNECT tunnel, asked for and read here: TLS and the caller's check of the peer's certificate are end to end with the
 server, so a token never leaves the tunnel's TLS. `peer_check` is handed the peer's certificate, as DER, after each new
 connection's handshake and before anything is written on it; its raising ends the call as `PeerRefused`, with nothing
@@ -155,8 +155,9 @@ class Untrusted(Unreachable):
         said = f"its certificate does not verify ({reason})"
         if code in UNKNOWN_ISSUER:
             said += (
-                ": where a root of your own signed it, such as your company's, add that root to the file of PEM"
-                f" certificates the setting {SETTING} names, which is added to certifi's list"
+                ": where a root of your own signed it, such as your company's, add the certificate that issued it -"
+                " that root, or the intermediate the server does not send - to the file of PEM certificates the"
+                f" setting {SETTING} names, which is added to certifi's list"
             )
         super().__init__(said)
 

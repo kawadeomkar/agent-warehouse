@@ -205,27 +205,37 @@ LOG_PAGE, LOG_PAGES, LOG_LAST = 500, 20, 10
 
 class Denied(ProxmoxError):
     """Proxmox refused the token: a 401 or a 403, by its status alone. It holds for every VM, so a workflow stops at
-    once rather than wait or skip."""
+    once rather than wait or skip. A copy or a pickle is made again from what it was made of, and says its sentence
+    once."""
 
     def __init__(self, status: int, asked: str) -> None:
         self.status = status
+        self.asked = asked
         what = "did not take the token" if status == 401 else "refused the token the privilege it needs"
         super().__init__(f"Proxmox {what} ({status}) to {asked}")
+
+    def __reduce__(self) -> tuple[type[Denied], tuple[int, str]]:
+        return type(self), (self.status, self.asked)
 
 
 class Refused(ProxmoxError):
     """Any other answer but a 200: status, and Proxmox's reason, made one line of plain text. A 3xx is one, never
     followed: the token goes to the address it was given alone. A read of a VM that is not there is one too, Proxmox's
-    500 naming its configuration's file: a workflow knows a VM is gone from resources("vm"), never from these words."""
+    500 naming its configuration's file: a workflow knows a VM is gone from resources("vm"), never from these words. A
+    copy or a pickle is made again from what it was made of, and says its sentence once."""
 
     def __init__(self, status: int, reason: str, asked: str) -> None:
         self.status = status
         self.reason = one_line(reason, 200)
+        self.asked = asked
         if 300 <= status < 400:
             said = f"Proxmox answered {asked} with a redirect ({status}), which is never followed"
         else:
             said = f"Proxmox answered {asked} with {status}" + (f": {self.reason}" if self.reason else "")
         super().__init__(said)
+
+    def __reduce__(self) -> tuple[type[Refused], tuple[int, str, str]]:
+        return type(self), (self.status, self.reason, self.asked)
 
 
 class DigestMismatch(ProxmoxError):

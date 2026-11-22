@@ -9,7 +9,9 @@ variables below change, a file (SSL_CERT_FILE) and a folder read by subject hash
 here never reads: a root put in either and in neither file is refused, and the refusal, for an issuer OpenSSL does not
 know and for nothing else, says to add it with tls_ca_file. The rules at the end hold the new engine to never naming
 that store, certifi to one importer, and the new engine to the makers of a TLS context CONTEXTS names, by what a module
-writes and by which of today's modules that make one it imports.
+writes, by which of today's modules that make one it imports, and by what it takes of today's trust or status from a
+module CONTEXTS names; and a module CONTEXTS names to taking names of today's modules, never a module whole, so that
+none of today's is reached through its namespace.
 """
 
 from __future__ import annotations
@@ -33,7 +35,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 from harness import REPO, repo_files
 from pki import proxmox_pki
-from test_aw_layout import _imported, _module_files, _package, _reached, _reused_modules, _within
+from test_aw_layout import _exists, _imported, _module_files, _package, _reached, _reused_modules, _within
 from test_aw_transport import _imports, _new_engine, _rel
 
 from claude_vm.vendors import trust
@@ -53,13 +55,13 @@ VARIABLES = ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE")
 # The modules of the new engine that make a TLS context, give one roots or set its checks, or import one of today's
 # modules that does, each with why: the vendors' context, made in one place; and the Proxmox client's pin.
 CONTEXTS: dict[str, str] = {
-    "lib/claude_vm/vendors/trust.py": "the vendors' one context, made by hand from one certificate file, the server's"
-    " name checked and a certificate required",
+    "lib/claude_vm/vendors/trust.py": "the vendors' one context, made by hand from the computer's certificates"
+    " (certifi's list, with tls_ca_file's file added), the server's name checked and a certificate required",
     "lib/claude_vm/pve/pin.py": "the Proxmox client's context: the host's anchor alone, made by today's trust.py"
     " (anchored_context), the one way a context is made from a certificate the host gave; else the vendors' one;"
     " its name check off only where a recorded fingerprint names the one certificate, which the peer check holds",
 }
-# What makes a TLS context or gives one roots, by any spelling but as a type: the class, the standard library's
+# What makes a TLS context or gives one roots, by any written spelling but as a type: the class, the standard library's
 # ready-made contexts and its unverified ones (_create_stdlib_context is another name of one), get_server_certificate,
 # which makes one of those to connect with, and the three ways to give one roots. A call's ssl=True, asyncio's way to a
 # ready-made context, is one too (_makes_a_context).
@@ -252,7 +254,8 @@ def test_a_server_whose_root_is_in_the_interpreter_s_store_and_not_in_the_files_
     said = str(refused.value)
     assert refused.value.code in UNKNOWN_ISSUER
     assert said.startswith(f"its certificate does not verify ({refused.value.reason}): ")
-    assert "add that root to the file of PEM certificates the setting tls_ca_file names" in said
+    assert "add the certificate that issued it - that root, or the intermediate the server does not send" in said
+    assert "file of PEM certificates the setting tls_ca_file names" in said
     assert "which is added to certifi's list" in said
 
 
@@ -511,13 +514,101 @@ def test_todays_contexts_names_every_module_of_today_that_makes_one() -> None:
     assert all(reason.strip() for reason in TODAYS_CONTEXTS.values())
 
 
+def _contexts_modules() -> set[str]:
+    """The modules CONTEXTS names, by their names."""
+    return {rel.removeprefix("lib/").removesuffix(".py").replace("/", ".") for rel in CONTEXTS}
+
+
+def _base(node: ast.ImportFrom, package: str | None) -> str:
+    """The module an ImportFrom takes its names from, by its absolute name."""
+    if not node.level:
+        return node.module or ""
+    parts = (package or "").split(".")
+    return ".".join(parts[: len(parts) - node.level + 1] + ([node.module] if node.module else []))
+
+
+def _taken_from_contexts(tree: ast.AST, package: str | None) -> list[str]:
+    """Each place tree takes today's trust or status from the namespace of a module CONTEXTS names, which bound them for
+    itself: `from <it> import trust`, or `<it>.trust` read off a name it was imported as. The imports of that module
+    alone would not show them (review/code/B21.md 1)."""
+    contexts = _contexts_modules()
+    bound: set[str] = set()
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            base = _base(node, package)
+            for alias in node.names:
+                if base in contexts and alias.name in TODAYS_CONTEXTS:
+                    found.append(f"{base}.{alias.name}")
+                if f"{base}.{alias.name}" in contexts:
+                    bound.add(alias.asname or alias.name)
+        elif isinstance(node, ast.Import):
+            bound |= {alias.asname for alias in node.names if alias.name in contexts and alias.asname}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr in TODAYS_CONTEXTS and getattr(node.value, "id", "") in bound:
+            found.append(f"{node.value.id}.{node.attr}")  # type: ignore[attr-defined]
+    return found
+
+
 def _contexts_made(source: str, path: Path) -> list[str]:
     """What a file of the new engine at path, whose text is source, does that only the modules CONTEXTS names may: it
     makes a TLS context, gives one roots or sets its checks (_makes_a_context), or imports one of today's modules that
-    does (TODAYS_CONTEXTS), relative imports resolved."""
+    does (TODAYS_CONTEXTS), relative imports resolved, or takes one from a module CONTEXTS names
+    (_taken_from_contexts)."""
     tree = ast.parse(source)
     todays = {module for module in _imported(tree, _package(path), every=True) if _within(module, TODAYS_CONTEXTS)}
-    return _makes_a_context(tree) + sorted(todays)
+    return _makes_a_context(tree) + sorted(todays) + _taken_from_contexts(tree, _package(path))
+
+
+def _todays_modules_whole(source: str, path: Path) -> list[str]:
+    """Each of today's modules that make a context (TODAYS_CONTEXTS) that a file at path imports whole, as a module:
+    `import claude_vm.trust`, `from .. import trust`, `from ..status import engine`, import_module of one. A name taken
+    from one (`from ..trust import anchored_context`) is not."""
+    tree, package = ast.parse(source), _package(path)
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            found += [alias.name for alias in node.names if _within(alias.name, TODAYS_CONTEXTS)]
+        elif isinstance(node, ast.ImportFrom):
+            base = _base(node, package)
+            found += [
+                f"{base}.{alias.name}"
+                for alias in node.names
+                if _exists(f"{base}.{alias.name}") and _within(f"{base}.{alias.name}", TODAYS_CONTEXTS)
+            ]
+            if not node.names or any(alias.name == "*" for alias in node.names):
+                found += [base] if _within(base, TODAYS_CONTEXTS) else []
+        elif isinstance(node, ast.Call) and node.args and isinstance(node.args[0], ast.Constant):
+            name = getattr(node.func, "attr", getattr(node.func, "id", ""))
+            value = node.args[0].value
+            if name in ("import_module", "__import__") and isinstance(value, str) and _within(value, TODAYS_CONTEXTS):
+                found.append(value)
+    return found
+
+
+def test_a_module_contexts_names_takes_names_of_today_s_modules_never_a_module_whole() -> None:
+    """So that no module reaches today's trust, or the rest of it, through a CONTEXTS module's namespace: pin.py binds
+    anchored_context alone (review/code/B21.md 1, whose rogue got the interpreter's own store with no name check)."""
+    whole = {rel: _todays_modules_whole((REPO / rel).read_text(), REPO / rel) for rel in CONTEXTS}
+    assert {rel: found for rel, found in whole.items() if found} == {}
+
+
+@pytest.mark.parametrize(
+    ("source", "whole"),
+    [
+        ("from .. import trust", True),
+        ("import claude_vm.trust", True),
+        ("import claude_vm.trust as today", True),
+        ("from ..status import engine", True),
+        ("from ..trust import *", True),
+        ("importlib.import_module('claude_vm.trust')", True),
+        ("from ..trust import anchored_context", False),
+        ("from ..status.engine import read", False),
+        ("from ..vendors import trust as vendors_trust", False),
+    ],
+)
+def test_the_whole_module_scan_sees_each_way(source, whole) -> None:
+    assert bool(_todays_modules_whole(source, REPO / "lib" / "claude_vm" / "pve" / "probe.py")) is whole
 
 
 @pytest.mark.parametrize(
@@ -530,6 +621,13 @@ def _contexts_made(source: str, path: Path) -> list[str]:
         ("importlib.import_module('claude_vm.trust')", True),
         ("from ..vendors import trust", False),
         ("from .. import proxmox", False),
+        ("from ..pve.pin import trust as today", True),
+        ("from claude_vm.pve.pin import status", True),
+        ("from ..vendors.trust import trust", True),
+        ("from ..pve import pin\npin.trust._context(None, None, None)", True),
+        ("import claude_vm.pve.pin as held\nheld.trust", True),
+        ("from ..pve.pin import kept", False),
+        ("from ..pve import pin\npin.kept(anchor)", False),
     ],
 )
 def test_an_import_of_todays_contexts_is_found_relative_or_whole(source, imports) -> None:
@@ -547,6 +645,12 @@ def test_a_module_of_vendors_that_has_today_s_trust_make_its_context_is_found() 
         "    return today._context(None, None, None, check_hostname=False)\n"
     )
     assert _contexts_made(rogue, REPO / "lib" / "claude_vm" / "vendors" / "rogue.py") == ["claude_vm.trust"]
+    # The same, today's trust taken from pin.py's namespace (review/code/B21.md 1), which pin.py no longer binds.
+    through = rogue.replace("from .. import trust as today", "from ..pve.pin import trust as today")
+    assert _contexts_made(through, REPO / "lib" / "claude_vm" / "vendors" / "rogue.py") == ["claude_vm.pve.pin.trust"]
+    from claude_vm.pve import pin
+
+    assert not hasattr(pin, "trust") and pin.anchored_context.__module__ == "claude_vm.trust"
 
 
 def test_only_the_modules_contexts_names_make_a_tls_context() -> None:

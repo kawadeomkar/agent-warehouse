@@ -16,7 +16,9 @@ no context that checks nothing. No context logs its session's keys, whatever SSL
 started: the token's connection is the one the engine most needs kept.
 
 This module makes the client's transport, the one connection a Proxmox token goes on, so it alone hands the transport a
-check of the peer; it touches neither http.client nor a socket. It reads no setting and no variable: the anchor's text,
+check of the peer; it touches neither http.client nor a socket. Of today's trust.py it binds anchored_context alone,
+never the module, so that no module reaches the rest of today's trust through this one's names (a context of the
+interpreter's own store with no name check among them). It reads no setting and no variable: the anchor's text,
 the recorded fingerprint, the certificate file's setting and the proxy are its caller's.
 """
 
@@ -28,8 +30,8 @@ import os
 import ssl
 from collections.abc import Callable
 
-from .. import trust
 from ..schema.patterns import full
+from ..trust import anchored_context
 from ..vendors import trust as vendors_trust
 from ..vendors.transport import Transport
 
@@ -61,7 +63,7 @@ def context(anchor_pem: str | None, tls_ca_file: str | os.PathLike[str] | None =
     tls_ca_file names added to it. It logs no session's keys: the standard library's ready-made context, which today's
     trust.anchored_context makes, names the file SSLKEYLOGFILE gives unless Python ignores the environment. Raises
     ValueError for an anchor that holds no certificate, and vendors.trust.Unusable for a file that cannot be used."""
-    made = trust.anchored_context(anchor_pem) if anchor_pem is not None else vendors_trust.context(tls_ca_file)
+    made = anchored_context(anchor_pem) if anchor_pem is not None else vendors_trust.context(tls_ca_file)
     made.keylog_filename = None
     return made
 
@@ -106,7 +108,7 @@ def kept(anchor_pem: str | None, fingerprint: str = "", tls_ca_file: str | os.Pa
 def transport(url: str, pin: Pin, proxy: str | None = None, read: float = 30.0) -> Transport:
     """The transport to the API at url, every connection made with pin's context and, where a fingerprint is recorded,
     checked against it before anything is written; through proxy, an http:// URL, where there is one (proxy.choose
-    works out today's for the API's address)."""
+    gives it for the API's address)."""
     held = check(pin.fingerprint) if pin.fingerprint else None
     return Transport(
         url, context=pin.context, user_agent=USER_AGENT, connect=CONNECT, read=read, proxy=proxy, peer_check=held

@@ -8,8 +8,8 @@ stand-in CONNECT proxy, on loopback too, which keeps what it was asked and every
 itself, dripping. The transport follows no redirect, reads no certificate variable, netrc or proxy variable, takes a
 proxy only as an argument, sends a write once, bounds every body and wait and the whole call, making its connection
 included, and never says a header's value or a peer's words. Closed, it sends nothing more: a request started after
-is Closed, and one under way ends at its first error, never asked again. proxy.choose works out today's proxy from the
-environment it is given, as requests does. The rules at the end hold the new engine's modules to one transport.
+is Closed, and one under way ends at its first error, never asked again. proxy.choose gives the proxy from the
+environment it is given, by requests' rule. The rules at the end hold the new engine's modules to one transport.
 """
 
 from __future__ import annotations

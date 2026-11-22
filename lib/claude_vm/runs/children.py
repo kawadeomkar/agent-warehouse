@@ -18,7 +18,9 @@ that held one would keep it past its run's end.
 
 The children a run started are kept, by kind, in memory for the run's end (runs/attached.py): `start` enters each, the
 SSH runner's `ssh` children among them, and `live` gives those still running. A shared master is entered nowhere, since
-no run ever ends one. Nothing here reads the process table, and nothing is written to a file.
+no run ever ends one; while its open runs it is kept apart (`opening`), so that a run's end, which remembers the tree
+under it at a Ctrl-C, remembers nothing of the open's: the master it leaves behind keeps its `ProxyCommand` in the
+open's group, and ending that ends the master. Nothing here reads the process table, and nothing is written to a file.
 
 Standard library only; asyncio and subprocess are imported inside the functions that start a child.
 """
@@ -82,6 +84,8 @@ class Child:
 
 # The children each job of this process started, by the job's ID, in the order they were started.
 _CHILDREN: dict[str, list[Child]] = {}
+# The shared masters' opens this process started, entered in no registry: opening() gives those still running.
+_OPENING: list[Process] = []
 
 
 def _job_id(job: jobs.Job) -> str:
@@ -142,6 +146,14 @@ def live(job: jobs.Job, kind: str | None = None) -> list[Child]:
     return [child for child in running if kind is None or child.kind == kind]
 
 
+def opening() -> list[int]:
+    """The pids of the shared masters' opens still running, each the root of a tree a run's end remembers nothing of
+    (attached.py's remember). One that has ended is let go of: the master it left is no child of the run."""
+    running = [process for process in _OPENING if process.returncode is None]
+    _OPENING[:] = running
+    return [process.pid for process in running]
+
+
 async def start(
     job: jobs.Job,
     argv: Sequence[str],
@@ -197,4 +209,6 @@ async def start(
     if kind != MASTER:
         # Entered under its kind for the run's end; a shared master never, since no run ends one.
         _CHILDREN.setdefault(job_id, []).append(Child(kind, process))
+    else:
+        _OPENING.append(process)
     return process

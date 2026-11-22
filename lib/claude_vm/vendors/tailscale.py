@@ -5,15 +5,18 @@ Three calls, on the one transport, verified against the computer's certificates 
 the file the setting tls_ca_file names added), through the proxy its caller gives: POST /api/v2/oauth/token, the
 client's ID and secret as form fields; GET and DELETE /api/v2/device/<node ID>, carrying an access token as a Bearer
 token - the one an OAuth client was exchanged for, or an API access token held as it is. The base address is its
-caller's (today's tailscale_api_url), so a test points it at tests/molecule/fake_tailscale_api.py.
+caller's (today's tailscale_api_url), so a test points it at tests/molecule/fake_tailscale_api.py; one written with
+the API's own path, https://api.tailscale.com/api/v2 as Tailscale's documentation writes it, has that path taken off,
+so that it reads devices as the host's address does, where it would read every device as gone.
 
 The node's ID is what a machine reported, so the machine chooses it, and an access token may delete any device of the
 tailnet: it goes into the path only once it is held whole, with fullmatch, to NODE_ID, the pattern of today's
 tailscale_node_id_pattern, letters and digits alone, so that no / or .. takes the token to another endpoint. One that
-is not is NotANodeId, and nothing is sent. A 404 is a device that is not there - deleted already, or in a tailnet the
-token does not reach: device() answers None, and delete_device() False. A 401 or a 403 is Denied, by its status alone;
-a 403 is the refusal of a token that may not reach that device, as an OAuth client's reaches only the devices with its
-tags. Any other answer but the call's own is Refused, with Tailscale's words, the secrets the call sent struck from
+is not is NotANodeId, and nothing is sent; an ID is said cut at SHOWN characters, where the path holds it whole. A 404
+is a device that is not there - deleted already, or in a tailnet the token does not reach: device() answers None, and
+delete_device() False. A 401 or a 403 is Denied, by its status alone; why a 403 refused a device is the workflow's to
+say, which knows which credential the token is. Any other answer but the call's own is Refused, with Tailscale's
+words, the secrets the call sent struck from
 them before they are made plain and cut (Secret.struck), so that a peer that echoes them has none of them said. A 3xx is
 an answer, never followed. A 200 that is not the answer asked for is Malformed, and never quoted: an exchange's body
 holds a token. The transport's own errors pass as they are: a DELETE that left with no answer is its Unknown, never sent
@@ -21,9 +24,10 @@ again, which the workflow settles by reading the device.
 
 Which device may be deleted (the name rules of today's release), which credential is used where none is held, and what
 is said to a person are the release workflow's, never this module's. The client secret and every access token are a
-Secret, revealed by the transport alone; the access token an exchange answers is one from the moment it is read. No
-method returns a secret the caller gave, and no error says one. Blocking, and safe to call from several threads, as the
-transport is.
+Secret, revealed by the transport alone; the access token an exchange answers is one from the moment it is read, in a
+frame of its own that has ended before any error is raised. No method returns a secret the caller gave, and no error
+says one. Each error survives a copy and a pickle (__reduce__), said once. Blocking, and safe to call from several
+threads, as the transport is.
 """
 
 from __future__ import annotations
@@ -53,16 +57,14 @@ USER_AGENT = "agent-warehouse"
 DEADLINE = 60.0
 # An answer's body at most, in bytes: a device's JSON is a few kilobytes.
 MOST = 1024 * 1024
-# How much of Tailscale's words a refusal says, once made one line of plain text; and of a node ID refused, before it
-# is shown.
+# How much of Tailscale's words a refusal says, once made one line of plain text; and of a node ID, where an error
+# says one, refused or asked for: today's release cuts one at 200.
 WORDS = 200
-SHOWN = 60
+SHOWN = 200
 # An access token as an exchange answers one: visible ASCII, which a header's value carries as it is.
 TOKEN = re.compile(r"[!-~]{1,4096}")
 # A client's ID given as a str: visible ASCII, one line.
 CLIENT_ID = re.compile(r"[!-~]{1,256}")
-# Why a token may be refused a device (403): today's words for it (roles/tailscale/vars/main.yml).
-TAGGED = "an access token an OAuth client was exchanged for reaches only the devices with that client's tags"
 # The keys of a refusal's JSON that carry Tailscale's words, in the order they are read: the API's own, and OAuth's.
 SAYS = ("message", "error_description", "error")
 
@@ -73,28 +75,37 @@ class TailscaleError(Exception):
 
 class NotANodeId(TailscaleError, ValueError):
     """The node ID given is not one Tailscale gives, so Tailscale's API was not asked. The sentence shows what the
-    machine reported as it is, cut: as JSON, ASCII alone, so that a newline or an escape is seen and never let through
-    (today's said it plain, where a trailing newline, the very fault, did not show)."""
+    machine reported, cut at SHOWN: as JSON, ASCII alone, so that a newline or an escape is seen and never let
+    through."""
 
     def __init__(self, value: object) -> None:
+        self.value = value
         given = json.dumps(value[:SHOWN]) if isinstance(value, str) else f"(a value of type {type(value).__name__})"
         super().__init__(
             f"the node ID {given} is not one Tailscale gives (letters and digits), so Tailscale's API was not asked"
         )
 
+    def __reduce__(self) -> tuple[type[NotANodeId], tuple[object]]:
+        return type(self), (self.value,)
+
 
 class Denied(TailscaleError):
     """Tailscale refused the credential: a 401, which it did not take, or a 403, which may not do what was asked. By its
-    status alone, never its words. For a device, a 403 says why it may be: an access token an OAuth client was
-    exchanged for reaches only the devices with that client's tags (TAGGED)."""
+    status alone, never its words. Why a 403 refused a device is the workflow's to say: it knows which credential the
+    token is."""
 
-    def __init__(self, status: int, asked: str, credential: str, why: str = "") -> None:
+    def __init__(self, status: int, asked: str, credential: str) -> None:
         self.status = status
+        self.asked = asked
+        self.credential = credential
         if status == 401:
             said = f"Tailscale did not take {credential} (401) for {asked}"
         else:
-            said = f"Tailscale refused {asked} to {credential} (403)" + (f": {why}" if why else "")
+            said = f"Tailscale refused {asked} to {credential} (403)"
         super().__init__(said)
+
+    def __reduce__(self) -> tuple[type[Denied], tuple[int, str, str]]:
+        return type(self), (self.status, self.asked, self.credential)
 
 
 class Refused(TailscaleError):
@@ -104,11 +115,15 @@ class Refused(TailscaleError):
     def __init__(self, status: int, reason: str, asked: str) -> None:
         self.status = status
         self.reason = reason
+        self.asked = asked
         if 300 <= status < 400:
             said = f"Tailscale answered {asked} with a redirect ({status}), which is never followed"
         else:
             said = f"Tailscale answered {asked} with {status}" + (f": {reason}" if reason else "")
         super().__init__(said)
+
+    def __reduce__(self) -> tuple[type[Refused], tuple[int, str, str]]:
+        return type(self), (self.status, self.reason, self.asked)
 
 
 class Malformed(TailscaleError):
@@ -131,6 +146,25 @@ def _node(node_id: object) -> str:
     if not isinstance(node_id, str) or not NODE_ID.fullmatch(node_id):
         raise NotANodeId(node_id)
     return node_id
+
+
+def _asked(method: str, path: str) -> str:
+    """A call as an error says it: its method and its path, a node ID in it cut at SHOWN characters, which a machine
+    chose the length of; the path sent holds it whole."""
+    head, _, node_id = path.rpartition("/")
+    if len(node_id) > SHOWN:
+        path = f"{head}/{node_id[:SHOWN]}…"
+    return f"{method} {API}/{path}"
+
+
+def _token(found: Any) -> Secret | None:
+    """The access token an exchange's JSON holds, as a Secret, or None where it holds no Bearer token: in a frame of
+    its own, so that no frame an error is raised through holds the token plain."""
+    token = found.get("access_token") if isinstance(found, dict) else None
+    kind = found.get("token_type", "Bearer") if isinstance(found, dict) else None
+    if isinstance(token, str) and TOKEN.fullmatch(token) and isinstance(kind, str) and kind.lower() == "bearer":
+        return Secret(token)
+    return None
 
 
 def _secret(value: object, what: str) -> Secret:
@@ -168,17 +202,18 @@ def _words(answer: Answer, secrets: tuple[Secret, ...]) -> str:
 
 
 class Tailscale:
-    """The client of Tailscale's API at base_url (https://api.tailscale.com, today's tailscale_api_url), its
-    connections verified against the computer's certificates and the file tls_ca_file names, where it names one,
-    through proxy, an http:// URL, where there is one (proxy.choose works out today's for the API's address). Raises
-    trust.Unusable where those certificates cannot be used."""
+    """The client of Tailscale's API at base_url (https://api.tailscale.com, today's tailscale_api_url; a trailing
+    /api/v2 taken off), its connections verified against the computer's certificates and the file tls_ca_file names,
+    where it names one, through proxy, an http:// URL, where there is one (proxy.choose gives it for the API's
+    address). Raises trust.Unusable where those certificates cannot be used."""
 
     def __init__(
         self, base_url: str, tls_ca_file: str | os.PathLike[str] | None = None, proxy: str | None = None
     ) -> None:
         if not isinstance(base_url, str):
             raise TypeError("the API's address is a str")
-        self._base = base_url.rstrip("/")
+        # The API's own path, where the address is written as Tailscale's documentation writes it, is put on again.
+        self._base = base_url.rstrip("/").removesuffix(API).rstrip("/")
         self._transport = Transport(
             f"{self._base}{API}", context=trust.context(tls_ca_file), user_agent=USER_AGENT, most=MOST, proxy=proxy
         )
@@ -196,13 +231,11 @@ class Tailscale:
     def __repr__(self) -> str:
         return f"Tailscale({self._base!r})"
 
-    def _refusal(
-        self, answer: Answer, asked: str, credential: str, secrets: tuple[Secret, ...], why: str = ""
-    ) -> TailscaleError:
+    def _refusal(self, answer: Answer, asked: str, credential: str, secrets: tuple[Secret, ...]) -> TailscaleError:
         """The refusal an answer that is not the call's own is: Denied by a 401's or a 403's status alone, else
         Refused with Tailscale's words, secrets struck."""
         if answer.status in (401, 403):
-            return Denied(answer.status, asked, credential, why)
+            return Denied(answer.status, asked, credential)
         return Refused(answer.status, _words(answer, secrets), asked)
 
     def access_token(self, client_id: str | Secret, client_secret: Secret) -> Secret:
@@ -218,28 +251,25 @@ class Tailscale:
         if answer.status != 200:
             sent = (client_secret, client_id) if isinstance(client_id, Secret) else (client_secret,)
             raise self._refusal(answer, asked, "the OAuth client", sent)
-        found = _json(answer.body)
-        token = found.get("access_token") if isinstance(found, dict) else None
-        kind = found.get("token_type", "Bearer") if isinstance(found, dict) else None
-        if not (
-            isinstance(token, str) and TOKEN.fullmatch(token) and isinstance(kind, str) and kind.lower() == "bearer"
-        ):
+        token = _token(_json(answer.body))
+        del answer
+        if token is None:
             raise Malformed(f"Tailscale answered {asked} with something that is not an access token")
-        return Secret(token)
+        return token
 
     def device(self, token: Secret, node_id: str) -> Device | None:
         """GET /api/v2/device/<node_id>: the device, or None where Tailscale has none under that ID (404) - gone, or
         in a tailnet the token does not reach. Raises NotANodeId, with nothing sent, for an ID that is not one Tailscale
         gives; Denied for a 401 or a 403; Refused for any other answer; Malformed for a 200 that is no device."""
         path = f"device/{_node(node_id)}"
-        asked = f"GET {API}/{path}"
+        asked = _asked("GET", path)
         answer = self._transport.request(
             "GET", path, headers={"Authorization": ("Bearer ", _secret(token, "an access token"))}, deadline=DEADLINE
         )
         if answer.status == 404:
             return None
         if answer.status != 200:
-            raise self._refusal(answer, asked, "the access token", (token,), TAGGED)
+            raise self._refusal(answer, asked, "the access token", (token,))
         found = _json(answer.body)
         if not isinstance(found, dict):
             raise Malformed(f"Tailscale answered {asked} with something that is not a device")
@@ -252,7 +282,7 @@ class Tailscale:
         that may not delete that device; Refused for any other answer. The transport's Unknown, a deletion that left
         with no answer, passes as it is: the workflow reads the device to know."""
         path = f"device/{_node(node_id)}"
-        asked = f"DELETE {API}/{path}"
+        asked = _asked("DELETE", path)
         answer = self._transport.request(
             "DELETE", path, headers={"Authorization": ("Bearer ", _secret(token, "an access token"))}, deadline=DEADLINE
         )
@@ -260,4 +290,4 @@ class Tailscale:
             return True
         if answer.status == 404:
             return False
-        raise self._refusal(answer, asked, "the access token", (token,), TAGGED)
+        raise self._refusal(answer, asked, "the access token", (token,))
