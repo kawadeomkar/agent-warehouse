@@ -160,6 +160,35 @@ jobs:
         env:
           PYTEST_XDIST_AUTO_NUM_WORKERS: "4"
 
+  # The new engine's tests (just test engine: tests/unit/test_aw_*.py, which
+  # conftest.py marks engine) on both systems the engine runs on and on both
+  # ends of the Pythons it takes: requires-python's floor and the setup
+  # action's default, the checkout's own environment's (tests/unit/test_ci.py
+  # holds the four to those). The one place macOS runs the suite, as a throwaway
+  # machine: never the developer's Mac. Its runner is named by its version,
+  # never macos-latest, so that a new macOS is a change made here; and it
+  # installs nothing but what the setup action and just install do. A test that
+  # cannot run on one system is skipped there by a mark that says why. -n auto
+  # gives a worker per CPU the runner has: psutil is not in uv.lock.
+  engine:
+    name: Engine tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-26]
+        python: ["3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Engine tests
+        run: just test engine
+
   # Public repository: pull requests can add dependencies. This flags any new
   # one that carries a known advisory before it is merged. It reads the
   # dependency graph, which is enabled by default on public repositories.
@@ -290,7 +319,7 @@ jobs:
   # the canary, which may fail on purpose. A cancelled or failed job fails it.
   result:
     name: CI result
-    needs: [lint, unit, unit-oldest, dependency-review, molecule, debian, playbooks]
+    needs: [lint, unit, unit-oldest, engine, dependency-review, molecule, debian, playbooks]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10

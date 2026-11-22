@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import atexit
 import contextlib
+import hashlib
 import json
 import os
 import pty
@@ -257,6 +258,129 @@ def test_the_pinned_version_is_one_version() -> None:
         str(step["env"]["JUST_VERSION"]) for step in action["runs"]["steps"] if "JUST_VERSION" in step.get("env", {})
     )
     assert minimum == _pinned() == ci, (minimum, _pinned(), ci)
+
+
+SETUP = REPO / ".github" / "actions" / "setup" / "action.yml"
+# What the setup action pins of just's release: each system's archive, by the variable that holds its SHA256.
+JUST_ARCHIVES = {"JUST_SHA256": "x86_64-unknown-linux-musl", "JUST_SHA256_MACOS": "aarch64-apple-darwin"}
+
+
+def _just_step() -> dict:
+    """The setup action's step that installs just: the one that names its version."""
+    action = yaml.safe_load(SETUP.read_text())
+    (step,) = [step for step in action["runs"]["steps"] if "JUST_VERSION" in step.get("env", {})]
+    return step
+
+
+def test_every_sha256_of_the_setup_action_is_beside_the_one_just_version() -> None:
+    # Each system's archive has its SHA256 in the one step whose JUST_VERSION the test above holds to the justfile's
+    # pin: a SHA256 anywhere else in the action, or an older version's left under another name, would be one no bump
+    # of the version moves. Which variable is which system's, the runs below hold.
+    step = _just_step()
+    assert str(step["env"]["JUST_VERSION"]) == _pinned()
+    pins = {name: value for name, value in step["env"].items() if name.startswith("JUST_SHA256")}
+    assert set(pins) == set(JUST_ARCHIVES), pins
+    assert all(re.fullmatch(r"[0-9a-f]{64}", value) for value in pins.values()), pins
+    assert len(set(pins.values())) == len(pins), pins
+    assert set(re.findall(r"\b[0-9a-f]{64}\b", SETUP.read_text())) == set(pins.values())
+
+
+def _install_just(
+    tmp_path: Path, system: str, arch: str, checker: str, right: str
+) -> tuple[subprocess.CompletedProcess, list[str]]:
+    """The setup action's just step as GitHub runs a composite step's (bash, -e and pipefail) on a runner of that system
+    and arch, with nothing on PATH but a stand-in curl that writes an archive of the test's own and records the URL, a
+    stand-in tar that records its words, mkdir, and the one checker named (this machine's sha256sum or shasum, recording
+    its words): the variable right holds that archive's SHA256 and every other pin a SHA256 of something else. The
+    run, and the calls the stand-ins recorded."""
+    bin_dir, calls = tmp_path / "bin", tmp_path / "calls"
+    bin_dir.mkdir()
+    (bin_dir / "curl").write_text(
+        '#!/bin/sh\nout=\nwhile [ "$#" -gt 1 ]; do [ "$1" = -o ] && out=$2; shift; done\n'
+        'printf "curl %s\\n" "$1" >> "$CALLS"\nprintf "an archive of the test\'s own\\n" > "$out"\n'
+    )
+    (bin_dir / "tar").write_text('#!/bin/sh\nprintf "tar %s\\n" "$*" >> "$CALLS"\n')
+    real = shutil.which(checker)
+    (bin_dir / checker).write_text(f'#!/bin/sh\nprintf "{checker} %s\\n" "$*" >> "$CALLS"\nexec {real} "$@"\n')
+    for tool in bin_dir.iterdir():
+        tool.chmod(0o755)
+    (bin_dir / "mkdir").symlink_to(shutil.which("mkdir"))
+    archive = hashlib.sha256(b"an archive of the test's own\n").hexdigest()
+    other = hashlib.sha256(b"another archive\n").hexdigest()
+    step = _just_step()
+    env = {
+        "PATH": str(bin_dir),
+        "CALLS": str(calls),
+        "RUNNER_OS": system,
+        "RUNNER_ARCH": arch,
+        "RUNNER_TEMP": str(tmp_path / "temp"),
+        "GITHUB_PATH": str(tmp_path / "github-path"),
+        "JUST_VERSION": str(step["env"]["JUST_VERSION"]),
+        **{name: archive if name == right else other for name in JUST_ARCHIVES},
+    }
+    run = subprocess.run(
+        ["/bin/bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step["run"]],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    return run, calls.read_text().splitlines() if calls.exists() else []
+
+
+NEEDS_SHA256SUM = pytest.mark.skipif(shutil.which("sha256sum") is None, reason="this machine has no sha256sum")
+NEEDS_SHASUM = pytest.mark.skipif(shutil.which("shasum") is None, reason="this machine has no shasum")
+
+
+@pytest.mark.parametrize(
+    ("system", "arch", "checker", "pin", "words"),
+    [
+        pytest.param("Linux", "X64", "sha256sum", "JUST_SHA256", "-c -", marks=NEEDS_SHA256SUM, id="linux"),
+        # macOS has shasum, and sha256sum only where something put it there.
+        pytest.param("macOS", "ARM64", "shasum", "JUST_SHA256_MACOS", "-a 256 -c -", marks=NEEDS_SHASUM, id="macos"),
+    ],
+)
+def test_the_setup_action_installs_the_just_archive_of_the_runner_s_system_held_to_its_own_sha256(
+    tmp_path, system, arch, checker, pin, words
+) -> None:
+    version = str(_just_step()["env"]["JUST_VERSION"])
+    archive = f"just-{version}-{JUST_ARCHIVES[pin]}.tar.gz"
+    run, calls = _install_just(tmp_path, system, arch, checker, pin)
+    assert run.returncode == 0, (run.stdout, run.stderr)
+    folder = tmp_path / "temp" / "just"
+    assert calls == [
+        f"curl https://github.com/casey/just/releases/download/{version}/{archive}",
+        f"{checker} {words}",
+        f"tar -xzf {folder / archive} -C {folder} just",
+    ]
+    assert (tmp_path / "github-path").read_text() == f"{folder}\n"
+
+
+@pytest.mark.parametrize(
+    ("system", "arch", "checker", "pin"),
+    [
+        pytest.param("Linux", "X64", "sha256sum", "JUST_SHA256_MACOS", marks=NEEDS_SHA256SUM, id="linux"),
+        pytest.param("macOS", "ARM64", "shasum", "JUST_SHA256", marks=NEEDS_SHASUM, id="macos"),
+    ],
+)
+def test_an_archive_that_is_not_the_one_its_system_s_sha256_names_is_never_unpacked(
+    tmp_path, system, arch, checker, pin
+) -> None:
+    # The archive is the other system's pin's: each system is held to its own.
+    run, calls = _install_just(tmp_path, system, arch, checker, pin)
+    assert run.returncode != 0, (run.stdout, run.stderr)
+    assert [call.split()[0] for call in calls] == ["curl", checker], calls
+    assert not (tmp_path / "github-path").exists()
+
+
+@pytest.mark.parametrize(("system", "arch"), [("Linux", "ARM64"), ("macOS", "X64"), ("Windows", "X64")])
+def test_a_runner_with_no_just_archive_pinned_fails_before_anything_is_downloaded(tmp_path, system, arch) -> None:
+    run, calls = _install_just(tmp_path, system, arch, "shasum" if shutil.which("shasum") else "sha256sum", "")
+    assert run.returncode == 1, (run.stdout, run.stderr)
+    said = f"::error::no just archive is pinned for {system} on {arch} (.github/actions/setup/action.yml)\n"
+    assert run.stdout == said
+    assert calls == []
 
 
 def _floor() -> tuple[int, int]:
