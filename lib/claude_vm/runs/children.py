@@ -19,8 +19,10 @@ lock's name before anything starts, a standard stream the child inherits among t
 when every descriptor of it is closed, so a child that held one would keep it past its run's end.
 
 The children a run started are kept, by kind, in memory for the run's end (runs/attached.py): `start` enters each, the
-SSH runner's `ssh` children among them, and `live` gives those still running, and `asking` those the terminal stopped
-for reading it. A shared master is entered nowhere, since no run ever ends one; while its open runs it is kept apart
+SSH runner's `ssh` children among them, and `live` gives those still running. `watched` gives them with route.py's
+`ssh` that runs in a process group of its own (the new engine's calls), this process's children too though `start`
+starts none of them, and `asking` those of them the terminal stopped for reading it or changing it. A shared master is
+entered nowhere, since no run ever ends one; while its open runs it is kept apart
 (`opening`), so that a run's end, which remembers the tree under it at a Ctrl-C, remembers nothing of the open's: the
 master it leaves behind keeps its `ProxyCommand` in the open's group, and ending that ends the master. A child meant to
 outlive its run - the editor, a page's opener - is `outlive`'s: unmarked, in a session of its own, entered in no
@@ -85,10 +87,11 @@ class LockRefused(ValueError):
 
 @dataclass(frozen=True)
 class Child:
-    """One child of a run: its kind, its process, and its program's name, as a sentence says it."""
+    """One child of a run: its kind, its process, and its program's name, as a sentence says it. The process is
+    asyncio's for one `start` started, and subprocess's for route.py's `ssh` (`watched`)."""
 
     kind: str
-    process: Process
+    process: Process | subprocess.Popen
     program: str
 
     @property
@@ -211,18 +214,29 @@ def outliving() -> list[int]:
     return [process.pid for process in running]
 
 
+def watched(job: jobs.Job) -> list[Child]:
+    """The job's children still running (`live`), then route.py's `ssh` still running in a process group of its own -
+    the hop's and its `ssh -G`, which the new engine starts there (route.leading) - each as a child of kind `ssh`: the
+    children of this process that a question at the terminal can stop, which `asking` looks at."""
+    from claude_vm import route
+
+    hop = [Child(SSH, process, _program(process.args)) for process in route.leading()]
+    return [*live(job), *hop]
+
+
 def asking(job: jobs.Job) -> list[tuple[Child, int]]:
-    """The job's children still running that the terminal has stopped, each with the signal that stopped it (one of
+    """The children `watched` gives that the terminal has stopped, each with the signal that stopped it (one of
     AT_THE_TERMINAL): a child in a group of its own, or its group's, that asked a question at the terminal - a
     passphrase asked by the `ssh` of a person's own ProxyJump, which BatchMode does not reach, a question of `git`'s or
-    `sudo`'s - and waits, stopped, for an answer no run gives. Read without reaping it or changing anything (waitid with
-    WNOWAIT): asyncio still reaps it, and a child stopped for any other reason is not one. Where Python has no waitid
-    (macOS before Python 3.13), none is found."""
+    `sudo`'s - and waits, stopped, for an answer no run gives: SIGTTIN where it read the terminal, SIGTTOU where it
+    changed it first, as OpenSSH's readpassphrase turns the echo off before it reads. Read without reaping it or
+    changing anything (waitid with WNOWAIT): asyncio or route.py still reaps it, and a child stopped for any other
+    reason is not one. Where Python has no waitid (macOS before Python 3.13), none is found."""
     waitid = getattr(os, "waitid", None)
     if waitid is None:
         return []
     found = []
-    for child in live(job):
+    for child in watched(job):
         try:
             seen = waitid(os.P_PID, child.pid, os.WSTOPPED | os.WNOHANG | os.WNOWAIT)
         except OSError:

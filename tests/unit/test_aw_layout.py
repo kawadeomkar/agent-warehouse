@@ -41,10 +41,11 @@ REUSED = {
     "text": "what a machine printed made plain before a message quotes it, or a run's event or record keeps it",
     "trust": "which certificate makes the Proxmox API verify, for init's anchor and the client's pin",
     "proxmox": "a guest agent's output, a VM's tags, a refused token and a settings drift, read as today",
-    "route": "how this machine reaches a host's VMs, and the hop's ssh under hard limits, for the SSH runner",
+    "route": "how this machine reaches a host's VMs, and the hop's ssh under hard limits, for the SSH runner and"
+    " a run's watch of what stops at the terminal",
     "checks": "a guest agent's address, a name ssh would take for another host, a name Proxmox gives",
     "openpgp": "a vendor's detached signature checked here, for the verified downloads",
-    "proc": "the processes under a run, and their end, a detached task worker's included",
+    "proc": "the processes under a run, what a terminal stopped of them, their end, a detached task worker's included",
     "golden": "a golden template's toolchain digest and key",
     "init": "what an answer to one of init's questions must look like, and its normal form",
     "wiring": "each role's argument_specs and the settings that reach it, for the role options passed through",
