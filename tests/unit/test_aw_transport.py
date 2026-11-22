@@ -7,10 +7,12 @@ whose handlers answer, redirect, drop a connection, drip or wait, and keep every
 stand-in CONNECT proxy, on loopback too, which keeps what it was asked and every byte it carried, or answers the CONNECT
 itself, dripping. The transport follows no redirect, reads no certificate variable, netrc or proxy variable, takes a
 proxy only as an argument, sends a write once, bounds every body and wait and the whole call, making its connection
-included, and never says a header's value or a peer's words. Closed, it sends nothing more: a request started after
-is Closed, and one under way ends at its first error, never asked again - at once, with no socket closed under its
-read, so that none that takes the socket's number is read or written by it. proxy.choose works out today's proxy from
-the environment it is given, as requests does. The rules at the end hold the new engine's modules to one transport.
+included, and never says a header's value or a peer's words; a body cut short of its length is no answer. Closed, it
+sends nothing more: a request started after is Closed, and one under way ends at its first error, never asked again -
+at once, with no socket closed under its read, so that none that takes the socket's number is read or written by it,
+said as cut (CUT) and marked closed; and a socket is closed only once the transport holds it no more. proxy.choose
+works out today's proxy from the environment it is given, as requests does. The rules at the end hold the new engine's
+modules to one transport.
 """
 
 from __future__ import annotations
@@ -654,6 +656,63 @@ def test_a_get_under_way_when_the_transport_is_closed_ends_at_its_first_error_an
     finally:
         release.set()
     assert len(server.asked) == 1
+    # Said as the run's own close, with its mark: never as the host's dropped connection.
+    assert str(failed[0]) == transport.CUT and failed[0].closed
+
+
+def _closing_after(once: Callable) -> Callable:
+    """Transport._once that closes its transport once a try has ended, failed or answered, as a caller that closes it
+    just then, between the try and the next."""
+
+    def tried(self, *args):
+        try:
+            return once(self, *args)
+        finally:
+            self.close()
+
+    return tried
+
+
+@pytest.mark.parametrize(
+    "road",
+    ["dropped, closed before its pause", "answered 503, closed before its pause", "dropped, closed during its pause"],
+)
+def test_a_get_whose_next_try_a_close_forestalls_is_closed_and_sends_nothing_more(
+    serve, pki, monkeypatch, road
+) -> None:
+    """A GET that would be tried again - its connection dropped, or answered 503 - whose transport is closed before
+    that try: the close is what ended the call, so it is Closed, marked closed, wherever the close comes, before the
+    pause or during it, and nothing more is sent."""
+    server = serve(answer(503) if road.startswith("answered") else drop)
+    client = _client(server, pki)
+    if road.endswith("before its pause"):
+        monkeypatch.setattr(transport, "PAUSES", (0.01, 0.01))
+        monkeypatch.setattr(Transport, "_once", _closing_after(Transport._once))
+        with pytest.raises(Closed) as closed:
+            client.request("GET", "version")
+        raised = closed.value
+    else:
+        monkeypatch.setattr(transport, "PAUSES", (0.5, 0.5))
+        ended: dict = {}
+
+        def get() -> None:
+            try:
+                client.request("GET", "version")
+            except Closed as error:
+                ended["raised"] = error
+
+        thread = threading.Thread(target=get, daemon=True)
+        thread.start()
+        deadline = time.monotonic() + 10
+        while not server.asked and time.monotonic() < deadline:
+            time.sleep(0.01)
+        time.sleep(0.2)  # the GET waits out its pause by now
+        client.close()
+        thread.join(10)
+        assert not thread.is_alive() and "raised" in ended, ended
+        raised = ended["raised"]
+    assert str(raised) == CLOSED and raised.closed
+    assert len(server.asked) == 1
 
 
 def _waiting(sock: socket.socket) -> bytes:
@@ -739,17 +798,22 @@ def test_a_read_left_on_a_closed_transport_ends_at_once_and_touches_no_socket_th
     assert closed - closing < 1.0, closed - closing
     assert ended["at"] - closed < 1.0, (ended["at"] - closed, ended)
     assert isinstance(ended.get("raised"), Unreachable), ended
+    # review/code/B26.md 1: whatever the shutdown made the read raise (on Linux, Broken pipe or Connection reset by
+    # peer), it is said as the run's own close, with its mark, never as the host's dropped connection.
+    assert str(ended["raised"]) == transport.CUT and ended["raised"].closed, ended
     assert left == [(b"F" * 37, b"N" * 37)] * len(pairs)
     assert len(server.asked) == 1
 
 
+@pytest.mark.parametrize("method", ["GET", "POST"])
 def test_an_answer_read_on_a_socket_close_shut_down_is_never_handed_back_though_it_seemed_to_end(
-    serve, pki, monkeypatch
+    serve, pki, monkeypatch, method
 ) -> None:
     """A body that ends with its connection ends where the connection does, so a read whose socket close() shut down
     could take the shutdown for the body's end, where a system reads it as an end rather than an error (Linux's says an
-    error): such an answer is never handed back, but said as cut (CUT). The shutdown is stood in for by its mark alone,
-    and the server then ends the connection, so that the read ends as a whole body would."""
+    error): such an answer is never handed back, but said as cut (CUT), a GET's Unreachable and any other method's
+    Unknown (review/code/B26.md 2), each marked closed. The shutdown is stood in for by its mark alone, and the server
+    then ends the connection, so that the read ends as a whole body would."""
     asked, release = threading.Event(), threading.Event()
 
     def held(handler, one, nth) -> None:
@@ -767,13 +831,13 @@ def test_an_answer_read_on_a_socket_close_shut_down_is_never_handed_back_though_
     client = _client(server, pki, read=3.0)
     ended: dict = {}
 
-    def get() -> None:
+    def ask() -> None:
         try:
-            ended["answer"] = client.request("GET", "version")
-        except (TimedOut, Unreachable) as error:
+            ended["answer"] = client.request(method, "version")
+        except (TimedOut, Unreachable, Unknown) as error:
             ended["raised"] = error
 
-    thread = threading.Thread(target=get, daemon=True)
+    thread = threading.Thread(target=ask, daemon=True)
     thread.start()
     try:
         assert asked.wait(10)
@@ -783,8 +847,9 @@ def test_an_answer_read_on_a_socket_close_shut_down_is_never_handed_back_though_
         release.set()
     thread.join(10)
     assert not thread.is_alive()
-    assert "answer" not in ended and isinstance(ended.get("raised"), Unreachable), ended
-    assert str(ended["raised"]) == transport.CUT
+    assert "answer" not in ended and isinstance(ended.get("raised"), Unreachable if method == "GET" else Unknown), ended
+    said = transport.CUT if method == "GET" else f"{transport.CUT}: the request may or may not have been carried out"
+    assert str(ended["raised"]) == said and ended["raised"].closed
     assert len(server.asked) == 1
 
 
@@ -839,7 +904,158 @@ def test_a_send_left_on_a_closed_transport_ends_at_once_and_touches_no_socket_th
             far.close()
     assert ended["at"] - closed < 1.0, (ended["at"] - closed, ended)
     assert isinstance(ended.get("raised"), Unknown), ended
+    said = f"{transport.CUT}: the request may or may not have been carried out"
+    assert str(ended["raised"]) == said and ended["raised"].closed, ended
     assert left == [(b"F" * 37, b"N" * 37)] * len(pairs)
+
+
+def test_the_mark_of_the_transport_s_own_close_is_kept_by_a_copy_and_a_pickle() -> None:
+    for error in (Unreachable(transport.CUT, closed=True), Unknown(transport.CUT, closed=True), Closed(CLOSED)):
+        for again in (copy.copy(error), pickle.loads(pickle.dumps(error))):
+            assert type(again) is type(error) and str(again) == str(error) and again.closed
+    assert not Unreachable("the connection was dropped").closed and not TimedOut("no answer within 30 s").closed
+    assert not Untrusted("unable to get local issuer certificate", 20).closed
+
+
+class _Spy:
+    """A socket's stand-in under a _Wire: it counts its closes, and is never read or written here."""
+
+    def __init__(self) -> None:
+        self.closes = 0
+
+    def close(self) -> None:
+        self.closes += 1
+
+
+def test_a_wire_closes_nothing_of_itself() -> None:
+    """review/code/B26.md 3: http.client closes the socket it lets go, and an answer the file it reads; neither closes
+    the socket under a _Wire, which _forget alone closes once no request is under way on it, so that no close runs
+    while close() may be shutting it down."""
+    spy = _Spy()
+    wire = transport._Wire(spy, 1.0, transport._Clock(5.0))
+    read = wire.makefile("rb")
+    read.close()
+    wire.close()
+    assert spy.closes == 0
+
+
+def _cut_short(notify: bool) -> Behave:
+    """Answer 200 with a Content-Length of 100 and 10 bytes of it, then end the connection: with TLS's close_notify
+    first where notify says so, else with none."""
+
+    def behave(handler, asked, nth):
+        handler.send_response(200)
+        handler.send_header("Content-Length", "100")
+        handler.end_headers()
+        handler.wfile.write(b"x" * 10)
+        handler.wfile.flush()
+        if notify:
+            handler.connection.settimeout(1.0)
+            try:
+                handler.connection.unwrap()
+            except (OSError, ValueError):
+                pass  # the client went first, as it may: its close is no close_notify
+        handler.close_connection = True
+
+    return behave
+
+
+@pytest.mark.parametrize("notify", [False, True], ids=["with no close_notify", "after a close_notify"])
+def test_a_body_cut_short_of_its_length_is_no_answer_a_get_tried_again_and_a_post_unknown(
+    serve, pki, fast, notify
+) -> None:
+    """review/code/SUMMARY-9.md, "An older fault": http.client's read takes the end of a body that stops before its
+    Content-Length for the body's end, and says nothing. Such a body is cut short, as one that stops part way through a
+    chunk is: a GET is tried again, three times in all, a POST sent once is Unknown, and neither is an answer."""
+    server = serve(_cut_short(notify))
+    with _client(server, pki) as client:
+        with pytest.raises(Unreachable) as get:
+            client.request("GET", "version")
+        with pytest.raises(Unknown) as post:
+            client.request("POST", "pools", form={"poolid": "aw"})
+    assert str(get.value) == "the answer was cut short" and not get.value.closed
+    assert str(post.value) == "the answer was cut short: the request may or may not have been carried out"
+    assert not post.value.closed
+    assert [one.method for one in server.asked] == ["GET"] * transport.ATTEMPTS + ["POST"]
+
+
+def test_a_get_whose_body_was_cut_short_is_answered_whole_on_its_next_try(serve, pki, fast) -> None:
+    short, whole = _cut_short(False), answer(body=b"y" * 100)
+    server = serve(lambda handler, asked, nth: (short if nth == 1 else whole)(handler, asked, nth))
+    with _client(server, pki) as client:
+        got = client.request("GET", "version")
+    assert (got.status, got.body) == (200, b"y" * 100)
+    first, second = server.asked
+    assert first.port != second.port
+
+
+def test_a_kept_connection_is_taken_before_its_far_end_is_looked_at(serve, pki, monkeypatch) -> None:
+    """review/code/B26.md 3 (a): the look at a kept connection's far end is a poll of its socket's number, which a
+    close() that found the connection idle could close under it, so that the poll read another socket's readiness. The
+    connection is taken first: close() then shuts it down, and never closes it, under the look."""
+    looked = transport._closed_by_peer
+    seen: list[bool] = []
+
+    def looking(wire):
+        seen.append(wire.busy)
+        return looked(wire)
+
+    monkeypatch.setattr(transport, "_closed_by_peer", looking)
+    server = serve()
+    with _client(server, pki) as client:
+        for _ in range(3):
+            assert client.request("GET", "version").status == 200
+    assert seen == [True, True] and len({one.port for one in server.asked}) == 1
+
+
+# The roads on which a connection's socket is let go, or closed: an answer the connection keeps, then the transport
+# closed; an answer's Connection: close, which hands the socket to the answer; a connection dropped before its answer,
+# on which http.client closes the connection and the answer; and a kept connection the server closed, put aside.
+LET_GO = {
+    "kept, then closed": answer(),
+    "Connection: close": answer(headers=[("Connection", "close")], close_after=True),
+    "dropped": drop,
+    "kept, the server's end closed": answer(close_after=True),
+}
+
+
+@pytest.mark.parametrize("behave", LET_GO.values(), ids=LET_GO.keys())
+def test_a_connection_s_socket_is_closed_only_once_the_transport_holds_it_no_more(
+    serve, pki, fast, monkeypatch, behave
+) -> None:
+    """review/code/B26.md 3 (b): every close of a connection's socket is _forget's, once the connection is out of what
+    the transport holds, so that close(), which shuts down only a connection it finds there, never meets it: none is
+    closed by http.client's close of the connection, an answer's close, or the end of a body, while the transport
+    still holds the connection."""
+    server = serve(behave)
+    client = _client(server, pki)
+    wires: list = []
+    made = transport._Wire.__init__
+
+    def recorded(self, sock, read, clock):
+        made(self, sock, read, clock)
+        wires.append(self)
+
+    closing = ssl.SSLSocket.close
+    held: list[str] = []
+
+    def close(sock):
+        # The server's sockets are no wire's: only the client's own, closed on this thread, are looked up.
+        if any(wire.sock is sock for wire in wires) and any(kept.sock is sock for kept in list(client._held.values())):
+            held.append("closed while the transport still held it")
+        closing(sock)
+
+    monkeypatch.setattr(transport._Wire, "__init__", recorded)
+    monkeypatch.setattr(ssl.SSLSocket, "close", close)
+    for _ in range(2):
+        try:
+            client.request("GET", "version")
+        except Unreachable:
+            pass  # dropped: three tries, each on a connection of its own
+        time.sleep(0.2)  # a server that ends its side has done so by the next request
+    client.close()
+    assert wires and held == []
+    assert all(wire.sock.fileno() == -1 for wire in wires)
 
 
 def test_a_get_dropped_once_is_asked_again_on_a_new_connection(serve, pki, fast) -> None:

@@ -344,8 +344,12 @@ def test_the_context_checks_the_name_strictly_on_every_python_but_where_a_finger
 ) -> None:
     computer = _file(tmp_path, "c.pem", pki["ca"])
     named = [pin.context(pki["node"]), pin.context(pki["ca"]), pin.context(None, computer)]
-    named += [pin.kept(pki["node"]).context, pin.kept(pki["ca"]).context, pin.kept(None, tls_ca_file=computer).context]
-    fingerprinted = pin.kept(pki["node"], trust.pem_fingerprint(pki["node"])).context
+    named += [
+        pin.kept(pki["node"])._context,
+        pin.kept(pki["ca"])._context,
+        pin.kept(None, tls_ca_file=computer)._context,
+    ]
+    fingerprinted = pin.kept(pki["node"], trust.pem_fingerprint(pki["node"]))._context
     for made in [*named, fingerprinted]:
         # Always checked: a certificate required, strict, on every Python.
         assert made.verify_mode == ssl.CERT_REQUIRED
@@ -542,7 +546,7 @@ def test_no_connection_of_the_client_logs_its_session_s_keys_whatever_sslkeylogf
     monkeypatch.setenv("SSLKEYLOGFILE", str(keys))
     computer = _file(tmp_path, "computer.pem", fleet.pki["ca"])
     for pinned in (_anchored(fleet, "node"), _anchored(fleet, "ca"), pin.kept(None, tls_ca_file=computer)):
-        assert pinned.context.keylog_filename is None
+        assert pinned._context.keylog_filename is None
         with fleet.client(pinned) as client:
             assert client.next_id() == 9001
     assert not keys.exists()

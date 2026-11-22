@@ -562,33 +562,33 @@ def test_only_the_modules_contexts_names_make_a_tls_context() -> None:
     assert all(reason.strip() for reason in CONTEXTS.values())
 
 
+# What a Pin keeps its context under (lib/claude_vm/pve/pin.py): a private name, and no field of the dataclass.
+PINNED = "_context"
+
+
 def _context_reads(source: str) -> list[str]:
-    """Where source reads an attribute named context off anything but a name an import binds there - a module, as the
-    vendors' modules call trust.context, or pin.context, which makes a context - or names it as a string (getattr,
-    attrgetter): the written spellings a read of a Pin's context could take. Past the scan, a reviewer looks for
-    vars(), __dict__ and dataclasses.astuple of a Pin."""
-    tree = ast.parse(source)
-    bound: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            bound |= {alias.asname or alias.name.partition(".")[0] for alias in node.names}
-        elif isinstance(node, ast.ImportFrom):
-            bound |= {alias.asname or alias.name for alias in node.names}
+    """Where source reads a Pin's context: the attribute PINNED off anything but self, which is a class's own
+    (the transport keeps its context as self._context), the name as a string (getattr, vars(...)[...], __dict__,
+    attrgetter), or a class pattern's keyword (case Pin(_context=...)). A Pin keeps it as no field, so no astuple,
+    asdict, repr or positional pattern of one holds it, and a run's own context, or anything else named context, is
+    none of these. Past the scan, a name built at run time ("_" + "context"): a reviewer looks for that."""
     found = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Attribute) and node.attr == "context":
-            if not (isinstance(node.value, ast.Name) and node.value.id in bound):
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Attribute) and node.attr == PINNED:
+            if not (isinstance(node.value, ast.Name) and node.value.id == "self"):
                 found.append(f"line {node.lineno}: {ast.unparse(node)}")
-        elif isinstance(node, ast.Constant) and node.value == "context":
+        elif isinstance(node, ast.Constant) and node.value == PINNED:
             found.append(f"line {node.lineno}: {node.value!r}")
+        elif isinstance(node, ast.MatchClass) and PINNED in node.kwd_attrs:
+            found.append(f"line {node.lineno}: a class pattern of {PINNED}")
     return found
 
 
 def test_a_pin_s_context_is_read_by_pin_py_alone() -> None:
-    """review/code/B22.md 3: where a fingerprint is recorded, a Pin's context checks no name of itself, whatever the
-    anchor: pin.transport hands the fingerprint's check beside it. A connection made from that context anywhere else
-    would check neither the name nor the fingerprint - with a CA's anchor, any certificate that CA signed - so no module
-    of the new engine but pin.py reads a context off anything but a module it imports."""
+    """review/code/B22.md 3, and B26.md 4: where a fingerprint is recorded, a Pin's context checks no name of itself,
+    whatever the anchor: pin.transport hands the fingerprint's check beside it. A connection made from that context
+    anywhere else would check neither the name nor the fingerprint - with a CA's anchor, any certificate that CA signed
+    - so no module of the new engine but pin.py reads a Pin's _context."""
     pin_py = REPO / "lib" / "claude_vm" / "pve" / "pin.py"
     reading = {_rel(path): _context_reads(path.read_text()) for path in _new_engine() if path != pin_py}
     assert {rel: found for rel, found in reading.items() if found} == {}
@@ -597,19 +597,54 @@ def test_a_pin_s_context_is_read_by_pin_py_alone() -> None:
 @pytest.mark.parametrize(
     ("source", "reads"),
     [
-        ("pinned.context", True),
-        ("self._pin.context.wrap_socket(raw)", True),
-        ("from ..pve import pin\npin.kept(anchor).context", True),
-        ("getattr(pinned, 'context')", True),
-        ("operator.attrgetter('context')(pinned)", True),
+        ("pinned._context", True),
+        ("self._pin._context.wrap_socket(raw)", True),
+        ("from ..pve import pin\npin.kept(anchor)._context", True),
+        ("getattr(pinned, '_context')", True),
+        ("vars(pinned)['_context']", True),
+        ("pinned.__dict__['_context']", True),
+        ("operator.attrgetter('_context')(pinned)", True),
+        ("match pinned:\n    case Pin(_context=made):\n        pass", True),
+        # review/code/B26.md 4: what the scan of a context named context flagged with no Pin in sight.
+        ("self.context.stopping.is_set()", False),
+        ("record = {'context': 'deploy'}", False),
+        ("error.context", False),
+        ("self._context = context", False),
+        ("self._context.wrap_socket(raw, server_hostname=host)", False),
         ("from . import trust\ntrust.context(None)", False),
-        ("from ..vendors import trust as vendors_trust\nvendors_trust.context(None)", False),
         ("from ..pve import pin\npin.context(anchor)", False),
         ("Transport(url, context=made, user_agent=AGENT)", False),
     ],
 )
 def test_the_scan_of_a_context_read_sees_each_way(source, reads) -> None:
     assert bool(_context_reads(source)) is reads
+
+
+def test_a_pin_keeps_its_context_as_no_field_that_astuple_asdict_repr_or_a_match_reads(pki) -> None:
+    """review/code/B26.md 4: the readings of a Pin the scan cannot see by a name - dataclasses.astuple, asdict, its
+    repr and a positional class pattern - hold no context, since a Pin keeps it as no field."""
+    import dataclasses
+
+    from claude_vm.pve import pin
+
+    pinned = pin.kept(pki["ca"])
+    assert isinstance(pinned._context, ssl.SSLContext)
+    assert dataclasses.astuple(pinned) == (True, "")
+    assert dataclasses.asdict(pinned) == {"anchored": True, "fingerprint": ""}
+    assert [field.name for field in dataclasses.fields(pinned)] == ["anchored", "fingerprint"]
+    assert "SSLContext" not in repr(pinned)
+    assert pin.Pin.__match_args__ == ("anchored", "fingerprint")
+    with pytest.raises(TypeError):
+        # Three positional patterns, as a Pin with its context as a field would take: a Pin takes two.
+        match pinned:
+            case pin.Pin(_, _, _):
+                pass
+    matched = None
+    match pinned:
+        case pin.Pin(anchored, fingerprint):
+            matched = (anchored, fingerprint)
+    assert matched == (True, "")
+    assert pinned != pin.kept(pki["ca"])
 
 
 def test_certifi_is_imported_by_vendors_trust_alone() -> None:

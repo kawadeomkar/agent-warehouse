@@ -15,9 +15,11 @@ tries and their pauses included, to its deadline, which every step of making a c
 addresses in turn, a proxy's CONNECT and its answer, held to TUNNEL_MOST bytes, the TLS handshake) and every read and
 every send of a connection is held to. Only the name's lookup is not: the system's resolver bounds it. http.client is
 handed the connection made, and never makes one. A GET or HEAD is tried again, at most ATTEMPTS times in all, on a
-connection that could not be made or was dropped, or on 502, 503 or 504; any other method is sent once, and a failure
-once it has left is `Unknown`, never a second send. A kept connection whose far end has closed it is put aside before
-a request is written on it, which costs no try.
+connection that could not be made or was dropped, on an answer cut short, or on 502, 503 or 504; any other method is
+sent once, and a failure once it has left is `Unknown`, never a second send. An answer whose body ends before its
+Content-Length is cut short, as one that ends part way through a chunk is: never an answer, since http.client's own
+read takes the early end for the body's end and says nothing. A kept connection whose far end has closed it is put
+aside before a request is written on it, which costs no try.
 
 A header's value may be a `Secret`, or a tuple or list of `str` and `Secret` parts; a form's value may be a `Secret`,
 or a list or tuple of values that may be; a `Secret` anywhere else in a form, or anywhere in a query, is refused, never
@@ -35,11 +37,15 @@ asyncio.to_thread. Closed, it sends nothing more: a request started after close(
 still under way on another thread, as a caller that let it go leaves it, ends at its first error, never tried again
 and never given a new connection - at once where its request was being written or its answer read, and as Closed once
 made where its connection was still being made. close() closes only a connection no request is under way on; one that
-a request is being written on, or its answer read from, it shuts down, which wakes that thread's wait at once, and
-leaves the socket for that thread to close: a socket closed under a wait frees its number while the wait goes on, and
-on Linux the wait, at its limit, reads and writes whatever socket or pipe took the number next. An answer read on a
-socket close() shut down is never handed back (CUT): one that ends with its connection would seem to end there. It
-builds no context and reads no setting and no variable.
+a request is being written on, or its answer read from, it shuts down, which wakes that thread's wait at once: a socket
+closed under a wait frees its number while the wait goes on, and on Linux the wait, at its limit, reads and writes
+whatever socket or pipe took the number next. A connection's socket is closed in one place, _forget, once no request is
+under way on it and the transport holds it no more; http.client's closes of it and an answer's close of its own are
+marks that close nothing (_Wire). A request whose send or read close() shut down is said as cut (CUT), whatever the
+shutdown made the send or the read raise, and an answer read so is never handed back: one that ends with its
+connection would seem to end there. Every failure close() made - Closed, or a cut - carries the mark closed, so that a
+caller tells the run's own close from the peer's or the network's by it, never by words. It builds no context and
+reads no setting and no variable.
 """
 
 from __future__ import annotations
@@ -101,7 +107,17 @@ _JSON = "application/json"
 
 
 class TransportError(Exception):
-    """One request's failure in the transport's own words, which never say a header's value."""
+    """One request's failure in the transport's own words, which never say a header's value. closed is the mark of a
+    failure the transport's own close() made: True for Closed, and for the Unreachable or Unknown of a request whose
+    send or read close() cut, said as CUT; False for every other, the peer's or the network's. A copy or a pickle keeps
+    it."""
+
+    closed = False
+
+    def __init__(self, *args: object, closed: bool = False) -> None:
+        super().__init__(*args)
+        if closed:
+            self.closed = True
 
 
 class Unreachable(TransportError):
@@ -133,7 +149,9 @@ class NotMade(TransportError):
 
 class Closed(TransportError):
     """The transport was closed before the request was sent, or before it could be tried again, or given a new
-    connection: nothing more is sent. Said as CLOSED."""
+    connection: nothing more is sent. Said as CLOSED, and marked closed."""
+
+    closed = True
 
 
 # OpenSSL's verify codes for a certificate whose issuer it does not know: the one failure that a root of the person's
@@ -223,34 +241,28 @@ class _Clock:
 
 class _Wire:
     """A connection's TLS socket as http.client is handed it once the connection is made: every send and every read
-    waits at most the read limit, and never past the call's deadline."""
+    waits at most the read limit, and never past the call's deadline. It closes nothing: http.client's close of it, as
+    it lets the socket go (an answer's Connection: close, a connection error), and an answer's close of what it reads
+    are marks that leave the socket open, and the transport's _forget alone closes it, once no request is under way on
+    it and the transport holds it no more, so that no close meets a wait on it, or close()'s shutdown of it."""
 
     def __init__(self, sock: ssl.SSLSocket, read: float, clock: _Clock) -> None:
         self.sock = sock
         self.read = read
         self.clock = clock
-        # An answer http.client is still reading keeps the socket open after the connection lets it go, as a socket's
-        # own makefile does: its Connection: close hands the socket to the answer.
-        self.readers = 0
-        self.closed = False
-        # A request is under way on it, from the moment its thread takes it to the moment that request has ended: set
-        # and unset under the transport's lock, which close() decides under; and whether close() shut it down under one,
-        # whose answer may then end early.
+        # A request is under way on it, from the moment its thread takes it (_take) to the moment that request has
+        # ended (_done), the whole of its answer read: set and unset under the transport's lock, which close() decides
+        # under; and whether close() shut it down under one, whose answer may then seem to end early.
         self.busy = False
         self.cut = False
-
-    def in_use(self) -> bool:
-        """Whether a thread has a request under way on the socket: being written, or its answer read (readers), which
-        http.client may still be reading once the connection has let the socket go."""
-        return self.busy or self.readers > 0
 
     def shut(self) -> None:
         """Wake every wait on the socket at once, from a thread that is not the one using it, and close nothing: the
         system's shutdown of both ways under the TLS socket (socket.socket's own; SSLSocket's would take its TLS state
-        away from under the read still using it), so that the read or the send under way ends with an error, and its
-        own thread closes the socket. A close here would free the socket's number while that wait goes on. An answer
-        read on a socket shut down is cut, and never handed back: a body that ends with its connection would end here
-        too."""
+        away from under the read still using it), so that the read or the send under way ends, and _forget closes the
+        socket once that request has ended. A close here would free the socket's number while that wait goes on. A
+        request whose send or read was shut down is cut, whatever it raised then, and its answer never handed back: a
+        body that ends with its connection would end here too."""
         self.cut = True
         try:
             socket.socket.shutdown(self.sock, socket.SHUT_RDWR)
@@ -271,25 +283,18 @@ class _Wire:
         return self.sock.recv_into(buffer)
 
     def makefile(self, mode: str = "rb") -> io.BufferedReader:
-        self.readers += 1
         return io.BufferedReader(_Reader(self), CHUNK)
 
     def fileno(self) -> int:
         return self.sock.fileno()
 
     def close(self) -> None:
-        self.closed = True
-        if self.readers <= 0:
-            self.sock.close()
-
-    def released(self) -> None:
-        self.readers -= 1
-        if self.closed and self.readers <= 0:
-            self.sock.close()
+        """Nothing: http.client lets the socket go here, and _forget closes it (the class's docstring)."""
 
 
 class _Reader(io.RawIOBase):
-    """An answer's bytes, read from a _Wire: closing it leaves the connection open for the next request."""
+    """An answer's bytes, read from a _Wire: closing it leaves the socket open, for the next request or for
+    _forget."""
 
     def __init__(self, wire: _Wire) -> None:
         self.wire = wire
@@ -299,11 +304,6 @@ class _Reader(io.RawIOBase):
 
     def readinto(self, buffer: Any) -> int:
         return self.wire.recv_into(buffer)
-
-    def close(self) -> None:
-        if not self.closed:
-            super().close()
-            self.wire.released()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -544,14 +544,15 @@ class Transport:
         after it is Closed; one still under way on another thread - a call its caller let go, as a cancelled run's
         thread is left - ends at its first error, at once, never tried again and never given a new connection, so that
         no request leaves once its caller has closed the transport. Its connection is shut down here, which wakes that
-        thread's read or send, and closed by that thread (_done): never closed here under its wait. Decided under the
-        lock a request takes its connection under (_take), so that a connection is either found in use and shut down,
-        or found idle and closed before any request can take it."""
+        thread's read or send, and closed once its request has ended (_done, _forget): never closed here under its
+        wait. Decided under the lock a request takes its connection under (_take), so that a connection is either found
+        in use and shut down, or found idle and closed before any request can take it. Every failure this makes of a
+        request under way is marked closed, and a cut one says CUT."""
         idle: list[http.client.HTTPSConnection] = []
         with self._lock:
             self._closed = True
             for conn, wire in self._held.items():
-                if wire.in_use():
+                if wire.busy:
                     wire.shut()
                 else:
                     idle.append(conn)
@@ -621,7 +622,12 @@ class Transport:
         last: TransportError | Answer | None = None
         for attempt in range(tries):
             if attempt and self._closed:
-                break  # its caller closed the transport: the try that failed is the last
+                # Its caller closed the transport: no further try. A try that close() cut says so; one that failed of
+                # itself, or was answered 502, 503 or 504, would have been tried again, so the close ended the call, as
+                # it does where it comes during the pause (_connection's Closed).
+                if not (isinstance(last, TransportError) and last.closed):
+                    last = Closed(CLOSED)
+                break
             if attempt:
                 pause = PAUSES[min(attempt, len(PAUSES)) - 1]
                 if clock.left() <= pause:
@@ -683,33 +689,39 @@ class Transport:
             # A Ctrl-C, or anything else: the connection may be part way through a request, so it is kept no longer.
             self._done(conn, response, failed=True)
             raise
-        if self._done(conn, response, failed=failure is not None) and failure is None:
-            # close() shut the socket down under the answer, which may have ended there: it is not the server's whole.
-            failure = self._lost(method, CUT)
+        if self._done(conn, response, failed=failure is not None):
+            # close() shut the socket down under the request: whatever its send or read raised then - the shutdown's
+            # own Broken pipe or Connection reset by peer, or the body cut short - or an answer that seemed whole, which
+            # may have ended there, it is the run's own close that ended it, never the peer.
+            failure = self._lost(method, CUT, closed=True)
         if failure is not None:
             raise failure
         return answer
 
     def _done(self, conn: http.client.HTTPSConnection, response: http.client.HTTPResponse | None, failed: bool) -> bool:
-        """The request on conn has ended, on the thread that made it: an answer left part read is closed here, the
-        connection is no longer taken, and it is closed and kept no longer where the request failed, where http.client
-        let its socket go (an answer's Connection: close), or where the transport was closed meanwhile - here, by the
-        thread that used it, which close() only shut it down for. Returns whether close() shut it down under the
-        request."""
+        """The request on conn has ended, on the thread that made it: an answer left part read is closed here (which
+        closes no socket), and the connection is closed and kept no longer where the request failed, where http.client
+        let its socket go (an answer's Connection: close), or where the transport was closed meanwhile - by _forget,
+        which takes it out of what the transport holds before it closes it, so that close(), which only ever shuts down
+        one still taken, never meets that close. One kept is no longer taken. Returns whether close() shut it down
+        under the request."""
         if response is not None:
             response.close()
         with self._lock:
             wire = self._held.get(conn)
-            if wire is not None:
-                wire.busy = False
             cut = wire is not None and wire.cut
             forget = failed or conn.sock is None or self._closed
+            if wire is not None and not forget:
+                wire.busy = False
         if forget:
             self._forget(conn)
         return cut
 
     def _body(self, response: http.client.HTTPResponse, method: str) -> bytes:
-        """The answer's body, at most `most` bytes: TooLarge past that, read no further."""
+        """The answer's body, at most `most` bytes: TooLarge past that, read no further. A body that ends before its
+        Content-Length is cut short, raised as http.client raises an IncompleteRead, which it does for a chunk but not
+        for a length: its read takes the early end for the body's end, says nothing, and leaves what was not read in
+        its length."""
         if method == "HEAD":
             response.read()
             return b""
@@ -721,13 +733,16 @@ class Transport:
             if size > self._most:
                 raise TooLarge(f"the answer ({response.status}) is longer than {self._most} bytes")
             chunks.append(chunk)
+        if response.length:
+            raise http.client.IncompleteRead(b"", response.length)
         return b"".join(chunks)
 
-    def _lost(self, method: str, why: str) -> TransportError | _Again:
-        """A connection dropped once the request was written: a GET or HEAD may try again; any other is Unknown."""
+    def _lost(self, method: str, why: str, closed: bool = False) -> TransportError | _Again:
+        """A connection dropped once the request was written, or its answer cut short: a GET or HEAD may try again;
+        any other is Unknown. closed marks a failure the transport's own close() made."""
         if method in RETRIED:
-            return _Again(Unreachable(why))
-        return Unknown(f"{why}: the request may or may not have been carried out")
+            return _Again(Unreachable(why, closed=closed))
+        return Unknown(f"{why}: the request may or may not have been carried out", closed=closed)
 
     def _late(self, clock: _Clock) -> TimedOut:
         return TimedOut(self._no_answer(clock))
@@ -754,9 +769,10 @@ class Transport:
     def _connection(self, clock: _Clock) -> http.client.HTTPSConnection:
         """This thread's kept connection, where its far end has not closed it; else a new one, its peer checked; either
         taken for this request (_take) while the transport is not closed: Closed, with no connection made, kept or
-        taken, once it is."""
+        taken, once it is. A kept one is taken before its far end is looked at, so that close() shuts it down, and
+        never closes it, under that look."""
         conn = getattr(self._local, "conn", None)
-        if conn is not None and isinstance(conn.sock, _Wire) and not _closed_by_peer(conn.sock) and self._take(conn):
+        if conn is not None and isinstance(conn.sock, _Wire) and self._take(conn) and not _closed_by_peer(conn.sock):
             conn.sock.clock = clock
             return conn
         if conn is not None:
@@ -896,9 +912,11 @@ class Transport:
         return None
 
     def _forget(self, conn: http.client.HTTPSConnection) -> None:
-        """Close conn and its socket, and keep it no longer: only where no request is under way on it - on the thread
-        that used it, or from close() for a connection found idle - so that no wait is left on a socket closed under
-        it."""
+        """Keep conn no longer, and close it and its socket: the one place a connection's socket is closed, and only
+        where no request is under way on it - on the thread that used it, or from close() for a connection found idle -
+        so that no wait is left on a socket closed under it. It is taken out of what the transport holds, under the
+        lock close() decides under, before its socket is closed: close() shuts down only a connection it still finds
+        there, so its shutdown never meets this close."""
         with self._lock:
             wire = self._held.pop(conn, None)
         if wire is None and isinstance(conn.sock, _Wire):

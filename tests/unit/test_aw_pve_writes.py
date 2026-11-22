@@ -14,7 +14,9 @@ tried once; so is one that meets its configuration's file lock, and a clone's ta
 the source. A write whose answer is cut is the transport's Unknown, sent once. A task that fails raises with the last
 lines of its log, made plain; one that ends with warnings is a success, its warnings' lines kept; one that runs past its
 deadline raises then, and is not waited for longer, each poll held to what is left of it; one whose run stops before its
-end is read is Stopped, between polls or during one, and goes on on Proxmox, unfollowed. The log of a task that has
+end is read is Stopped, between polls or during one, and goes on on Proxmox, unfollowed, and a poll that fails once the
+run has stopped is Stopped only where the run's close made it fail (the transport's mark), its own failure, a refusal
+among them, raised as itself otherwise. The log of a task that has
 ended is read within what is left of the same deadline and never decides the outcome: where it cannot be read, a success
 is a success with no lines and a failure TaskFailed with none, the run's stop among what cuts the read. A deletion sends
 destroy-unreferenced-disks alone, and purge only where it is asked for. The rules with a test of their own: a PUT or a
@@ -82,11 +84,12 @@ from claude_vm.pve.client import (
     Token,
     TooOld,
     Unknown,
+    Unverified,
     _file_locked,
     _taken,
 )
 from claude_vm.secret import MARK, Secret
-from claude_vm.vendors.transport import CLOSED, Answer, Closed, TimedOut, Unreachable
+from claude_vm.vendors.transport import CLOSED, CUT, Answer, Closed, TimedOut, Unreachable, Untrusted
 
 # The module's certificate authority, which signs the fake's certificate: cheap enough to make again on each worker
 # (tests/unit/conftest.py).
@@ -611,32 +614,65 @@ def test_a_follow_whose_run_stops_during_a_poll_lets_the_poll_end_and_asks_no_ot
     assert _still_runs(fleet, task)
 
 
-def test_a_poll_that_fails_once_the_run_has_stopped_is_the_stop_and_one_that_fails_before_is_its_own(fleet) -> None:
-    _pve(fleet.base, "PUT", "fake/task-polls", polls=100_000)
-    with fleet.client() as client:
-        task = client.start("pve", 9010)
-        polled = client._get
-        stop = threading.Event()
+class _StoppedAt:
+    """A transport that answers the version, and every poll of a task's status as polled says (an Answer to return, or
+    an error to raise), the run's stop set as it does when stop is given, as a run that stops during the poll."""
 
-        def closed(path: str, *args, **kwargs):
-            # The run stops while the poll is under way, and its client is closed under it, as a run's end may.
-            if path.endswith("/status"):
-                stop.set()
-                raise Unreachable("the connection was closed under the poll")
-            return polled(path, *args, **kwargs)
+    def __init__(self, polled, stop: threading.Event | None) -> None:
+        self.polled, self.stop = polled, stop
+        self.polls = 0
 
-        client._get = closed
+    def request(self, method, path, deadline=None, **kwargs) -> Answer:
+        if path == "version":
+            return VERSION
+        self.polls += 1
+        if self.stop is not None:
+            self.stop.set()
+        return self.polled()
+
+
+def _raising(error: BaseException):
+    def polled():
+        raise error
+
+    return polled
+
+
+# How a poll fails: through the run's own close of its client, the poll cut or its transport found closed (the
+# transport's mark, closed), which once the run has stopped is the stop; or of itself, the network's, the transport's
+# or the host's, which is the poll's own, whether the run has stopped or not (review/code/C22.md 5).
+POLL_FAILS = {
+    "cut": (_raising(Unreachable(CUT, closed=True)), Unreachable, True),
+    "found closed": (_raising(Closed(CLOSED)), Closed, True),
+    "dropped": (_raising(Unreachable("the connection was dropped: Connection reset by peer")), Unreachable, False),
+    "timed out": (_raising(TimedOut("no answer within 30 s")), TimedOut, False),
+    "Denied": (lambda: Answer(403, (), b"", "Forbidden"), Denied, False),
+    "Unverified": (_raising(Untrusted("certificate has expired", 10)), Unverified, False),
+    "Malformed": (lambda: Answer(200, (), b"no json", "OK"), Malformed, False),
+}
+
+
+@pytest.mark.parametrize("stopping", [True, False], ids=["the run stopping", "the run going on"])
+@pytest.mark.parametrize(("polled", "raised", "by_close"), POLL_FAILS.values(), ids=POLL_FAILS.keys())
+def test_a_poll_that_fails_once_the_run_has_stopped_is_the_stop_only_where_the_run_s_close_made_it_fail(
+    pki, polled, raised, by_close, stopping
+) -> None:
+    """Once the run has stopped, a poll that its close made fail is Stopped, the task left before its end, its cause
+    kept; any other failure is the poll's own and raised as itself, a refusal among them - Denied, Unverified,
+    Malformed say what the host said, which Stopped would hide. While the run goes on, every failure is the poll's
+    own. One poll either way."""
+    stop = threading.Event()
+    client = _logged(pki, _StoppedAt(polled, stop if stopping else None))
+    task = answers.task(UPID, "pve", "start", 9010)
+    if stopping and by_close:
         with pytest.raises(Stopped) as stopped:
             client.follow(task, stop=stop)
-        assert stopped.value.task == task and isinstance(stopped.value.__cause__, Unreachable)
-
-        def cut(path: str, *args, **kwargs):
-            raise Unreachable("the connection was cut")
-
-        # The same failure while the run goes on is the poll's own.
-        client._get = cut
-        with pytest.raises(Unreachable):
-            client.follow(task, stop=threading.Event())
+        assert stopped.value.task == task and isinstance(stopped.value.__cause__, raised)
+    else:
+        with pytest.raises(raised) as failed:
+            client.follow(task, deadline=600, stop=stop)
+        assert not isinstance(failed.value, Stopped)
+    assert client._transport.polls == 1
 
 
 def test_a_follow_whose_run_is_already_stopping_asks_nothing(fleet) -> None:
@@ -809,6 +845,21 @@ def test_a_failed_task_whose_log_cannot_be_read_is_task_failed_with_no_lines(pki
     assert (failed.value.task, failed.value.error, failed.value.lines) == (task, "start failed: no room", ())
     assert str(failed.value) == "Proxmox's start task for VM 9010 failed: start failed: no room"
     assert len(logged.logs()) == 1
+
+
+@pytest.mark.parametrize("log", LOG_FAILS.values(), ids=LOG_FAILS.keys())
+def test_a_log_whose_read_could_not_be_made_has_no_lines_as_one_with_none(pki, log) -> None:
+    """No caller tells a log whose read could not be made - it failed, no time was left, or the run had stopped - from
+    one that had no lines: each is (), never None."""
+    task = answers.task(UPID, "pve", "start", 9010)
+    client = _logged(pki, _Logged(WARNED, log))
+    stopped = threading.Event()
+    stopped.set()
+    assert client._last_lines(task, time.monotonic() + 5, None) == ()
+    assert client._last_lines(task, time.monotonic() - 1, None) == ()
+    assert client._last_lines(task, time.monotonic() + 5, stopped) == ()
+    empty = _logged(pki, _Logged(WARNED, lambda deadline: _data([])))
+    assert empty._last_lines(task, time.monotonic() + 5, None) == ()
 
 
 @pytest.mark.parametrize("status", [WARNED, FAILED], ids=["warned", "failed"])

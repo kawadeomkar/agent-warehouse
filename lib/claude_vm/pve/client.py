@@ -21,7 +21,7 @@ again, EDITS times at most. A PUT or a POST to a configuration's path that carri
 sent, in the one function every request passes, the path read as Proxmox reads it, its %-escapes decoded. A clone, a
 resize, a start, a shutdown, a stop, a conversion to a template and a deletion each answer a Task, which follow() polls
 to its end within a deadline of its kind, or until the run that follows it stops (Stopped, a task left before its end,
-which Proxmox goes on with); a task that ended OK, or with warnings, which Proxmox counts a success, is a success, its
+which Proxmox may go on with); a task that ended OK, or with warnings, which Proxmox counts a success, is a success, its
 warnings' lines kept for the workflow to say; one that ended otherwise is TaskFailed with the last lines of its log,
 whatever stopped the run then, one whose VMID another took is Exists, one that found the VM locked is Locked. Proxmox
 answers every refusal of a write with a 500, so its words tell them apart: a lock (Locked, which a workflow may try
@@ -280,7 +280,7 @@ class TaskTimedOut(ProxmoxError):
 
 class Stopped(ProxmoxError):
     """The run stopped while a task was followed, and follow() left the task before its end: no status it read said
-    the task had ended, and Proxmox goes on with it, so the workflow reads the VM to know where it was left. A task
+    the task had ended, and Proxmox may go on with it, so the workflow reads the VM to know where it was left. A task
     whose end follow() read is never Stopped: it is the success, or the failure, it ended in."""
 
     def __init__(self, task: Task) -> None:
@@ -552,7 +552,7 @@ class Proxmox:
         """Close every connection kept, and both transports: nothing more is sent. A request started after is the
         transport's Closed; one still under way on another thread, as a cancelled wait leaves its poll, ends at its
         first error, at once - its socket shut down under it and closed by that thread, never closed under its read -
-        never tried again and never on a new connection."""
+        never tried again and never on a new connection, cut (the transport's CUT), its error marked closed."""
         self._transport.close()
         self._agent.close()
 
@@ -941,9 +941,12 @@ class Proxmox:
     def follow(self, task: Task, deadline: float | None = None, stop: threading.Event | None = None) -> TaskStatus:
         """Poll task's status until it ends, within deadline seconds (DEADLINES' for its kind where None), and never
         longer: each poll is held to what is left of it. stop, the run's Context.stopping where it is given, is read
-        before each poll and waited on between them: once it is set, Stopped is raised and the task goes on on Proxmox,
-        unfollowed; a poll already sent is never cut, and ends within its own limit; one that fails once it is set (its
-        client closed under it) is Stopped too. A phase that must finish, a deletion inside a shield, passes none.
+        before each poll and waited on between them: once it is set, Stopped is raised and the task may go on on
+        Proxmox, unfollowed; a poll already sent is never cut by it, and ends within its own limit; one that the run's
+        stop made fail, its client closed under it (the transport's error marked closed: Closed, or the poll cut), is
+        Stopped too, and any other failure is the poll's own, raised as itself though the run has stopped - Denied,
+        Unverified or Malformed say what the host said. A phase that must finish, a deletion inside a shield, passes
+        none.
         Returns the status of a task that ended a success: OK, or WARNINGS: <n>, which Proxmox counts one (its worker
         logged a warning and went on), with the last lines of its log in lines then, for the workflow to say. Raises
         TaskTimedOut where it still runs at the deadline; for one that ended otherwise, Exists for a clone whose VMID
@@ -975,9 +978,11 @@ class Proxmox:
                     self._get(f"nodes/{task.node}/tasks/{task.upid}/status", deadline=left), task.node, task.upid
                 )
             except Exception as error:
-                # A poll that failed once the run stopped - its client closed under it, as a run's end may - is the
-                # stop, never the poll's own error: the task goes on on Proxmox either way.
-                if stop is not None and stop.is_set():
+                # A poll the run's stop made fail - its client closed under it, as a run's end may, the poll cut or its
+                # transport found closed (the transport's mark, closed) - is the stop, never the poll's own error: the
+                # task may go on on Proxmox either way. Any other failure is the poll's own, whether the run has
+                # stopped or not: a refusal (Denied, Unverified, Malformed) says what the host said.
+                if stop is not None and stop.is_set() and isinstance(error, TransportError) and error.closed:
                     raise Stopped(task) from error
                 if not isinstance(error, TimedOut):
                     raise
@@ -997,7 +1002,7 @@ class Proxmox:
             if not status.warnings:
                 return status
             # The task's success is Proxmox's answer, read; its lines are a courtesy, never a reason to fail it.
-            return dataclasses.replace(status, lines=self._last_lines(task, end, stop) or ())
+            return dataclasses.replace(status, lines=self._last_lines(task, end, stop))
         error = status.entry.get("exitstatus")
         said = self._words(error if isinstance(error, str) else "", 400)
         if task.kind == "clone" and _taken(said, task.vmid):
@@ -1010,23 +1015,23 @@ class Proxmox:
             raise Locked(held, FILE, f"its {task.kind} task")
         # The task's failure is Proxmox's answer, read: whatever the log's read meets, the run's stop among them, the
         # task is said failed, never Stopped, which is for a task left before its end.
-        raise TaskFailed(task, said, self._last_lines(task, end, stop) or ())
+        raise TaskFailed(task, said, self._last_lines(task, end, stop))
 
-    def _last_lines(self, task: Task, end: float, stop: threading.Event | None) -> tuple[str, ...] | None:
+    def _last_lines(self, task: Task, end: float, stop: threading.Event | None) -> tuple[str, ...]:
         """The last LOG_LAST lines of an ended task's log, read LOG_PAGE lines a request and LOG_PAGES requests at
         most, each one line of plain text with the token's secret struck; each request held to what is left of
-        follow()'s deadline, which ends at end (time.monotonic()'s), and stop read before it. None, and no line, where
-        a request failed, none of the deadline was left, or the run stopped: lines read before then are not the last
-        ones."""
+        follow()'s deadline, which ends at end (time.monotonic()'s), and stop read before it. No line, (), where a
+        request failed, none of the deadline was left, or the run stopped, as for a log with none: lines read before
+        then are not the last ones, and no caller tells the two apart."""
         kept: list[str] = []
         for page in range(LOG_PAGES):
             left = end - time.monotonic()
             if left <= 0 or (stop is not None and stop.is_set()):
-                return None
+                return ()
             try:
                 read = self.task_log(task.node, task.upid, page * LOG_PAGE, LOG_PAGE, deadline=left)
             except (TransportError, ProxmoxError):
-                return None
+                return ()
             kept = (kept + list(read.lines))[-LOG_LAST:]
             if len(read.lines) < LOG_PAGE:
                 break
