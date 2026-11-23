@@ -317,6 +317,8 @@ def test_a_pytest_process_ended_by_a_kill_or_a_hangup_ends_its_run_whole(tmp_pat
             str(REPO / "pyproject.toml"),
             "--rootdir",
             str(REPO),
+            "--basetemp",
+            str(tmp_path / "basetemp"),
             "-q",
             *(["-n", str(workers)] if workers else []),
             str(suite),
