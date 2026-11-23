@@ -11,7 +11,7 @@ just test                     # just lint, then everything below but the last tw
 just test unit                # pytest over tests/unit/, a worker per CPU (plain pytest: one test at a time), no network
 just test unit --shard 2/6    # one of six shards of those, as CI splits them: the tests that share a run together
 just test engine              # only the new engine's tests, tests/unit/test_aw_*.py, which unit runs too: seconds
-just test --short             # lint, the engine's tests and today's that read the tree: for a change to no file of main's but CLAUDE.md and docs/
+just test --short             # lint, the engine's tests and today's that read the tree: for a change to no file of main's but CLAUDE.md, docs/ and zensical.toml
 just test molecule            # every Molecule (Docker) scenario: the three below
 just test molecule --jobs 4   # the same, four at a time: each in a log of its own (needs the disk and memory for four)
 just test role                # each role's scenario, incl. idempotence; --role common,dev_tools for some of them
@@ -38,9 +38,9 @@ folder your own `AGENT_WAREHOUSE_HOME` names, if you exported one. In a checkout
 opens no file there.
 
 The new engine's tests are the files `tests/unit/test_aw_*.py`, every test of which is marked `engine`, and
-`just test engine` runs them alone, in seconds. For a change that touches no file of `main`'s but `CLAUDE.md` and
-`docs/`, `just test --short` lints and runs them with the tests of today's suite that read the tree, in minutes, and
-refuses any other change, naming its files ([§11.1](../architecture/testing.md#111-unit--just-test-unit)). Write one with `tests/unit/aw_kit.py`: the `home` fixture for the
+`just test engine` runs them alone, in seconds. For a change that touches no file of `main`'s but `CLAUDE.md`,
+`docs/` and `zensical.toml`, and adds none to a folder today's product reads whole, `just test --short` lints and runs
+them with the tests of today's suite that read the tree, in minutes, and refuses any other change, naming its files ([§11.1](../architecture/testing.md#111-unit--just-test-unit)). Write one with `tests/unit/aw_kit.py`: the `home` fixture for the
 test's own home, and `run_aw` (or `aw_at_a_terminal`) to run `tools/aw`, never a `subprocess` call of your own, which
 `tests/unit/test_aw_guards.py` refuses. A run inherits only the variables it names and fails its test if it calls a
 browser opener, a clipboard, or this machine's `tailscale`, `gh`, `claude`, `ssh` or `ansible-playbook`; no test

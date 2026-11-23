@@ -2800,12 +2800,12 @@ SHORT = ["-p", "live_pytest", "tests/unit", "-m", "engine or tree", "-n", "auto"
 
 def _branches(tmp_path: Path) -> dict[str, str]:
     """A repository of the two branches the short set compares, as a card's worktree has them: main, with a file of
-    today's, CLAUDE.md, a page and a test of today's; base-first, which adds a module of the new engine; and the card's
-    branch from base-first's tip, checked out. The environment that points git at it (GIT_DIR, GIT_WORK_TREE), so a
-    recipe run reads it and never this checkout."""
+    today's, CLAUDE.md, a page, the pages' navigation and a test of today's; base-first, which adds a module of the new
+    engine; and the card's branch from base-first's tip, checked out. The environment that points git at it (GIT_DIR,
+    GIT_WORK_TREE), so a recipe run reads it and never this checkout."""
     work = tmp_path / "repo"
     env = {**GIT_ENV, "GIT_DIR": str(work / ".git"), "GIT_WORK_TREE": str(work)}
-    for name in ("justfile", "CLAUDE.md", "docs/README.md", "tests/unit/test_today.py"):
+    for name in ("justfile", "CLAUDE.md", "docs/README.md", "zensical.toml", "tests/unit/test_today.py"):
         (work / name).parent.mkdir(parents=True, exist_ok=True)
         (work / name).write_text(f"{name}, as main has it\n")
     _git(work, env, "init", "-q", "-b", "main")
@@ -2852,6 +2852,18 @@ def _change(work: Path, env: dict[str, str], change: str) -> None:
         (work / "CLAUDE.md").write_text("changed\n")
         (work / "docs" / "README.md").write_text("changed\n")
         (work / "docs" / "new.md").write_text("new\n")
+    elif change == "a new page and its line in the navigation":
+        (work / "docs" / "new.md").write_text("new\n")
+        (work / "zensical.toml").write_text("changed\n")
+    elif change == "the system layer's own Ansible":
+        # The new engine's Ansible is under lib/claude_vm/guest/ansible/, whose folders are named as today's are.
+        for name in ("playbooks/layer.yml", "roles/layer/tasks/main.yml"):
+            (work / "lib" / "claude_vm" / "guest" / "ansible" / name).parent.mkdir(parents=True, exist_ok=True)
+            (work / "lib" / "claude_vm" / "guest" / "ansible" / name).write_text("new\n")
+    elif change == "new engine tests whose names git quotes":
+        # A newline in a name makes no second path.
+        (work / "tests" / "unit" / 'test_aw_q"x.py').write_text("new\n")
+        (work / "tests" / "unit" / "test_aw_n\nl.py").write_text("new\n")
     elif change == "a file of main's, not committed":
         (work / "justfile").write_text("changed\n")
     elif change == "a file of main's, committed":
@@ -2889,6 +2901,9 @@ def _change(work: Path, env: dict[str, str], change: str) -> None:
         ("a new engine test", 1),
         ("a new helper of the tests", 1),
         ("CLAUDE.md and the pages", 3),
+        ("a new page and its line in the navigation", 2),
+        ("the system layer's own Ansible", 2),
+        ("new engine tests whose names git quotes", 2),
     ],
 )
 def test_the_short_set_takes_a_change_that_touches_no_file_of_main_s_but_claude_md_and_the_pages(
@@ -2900,7 +2915,7 @@ def test_the_short_set_takes_a_change_that_touches_no_file_of_main_s_but_claude_
     assert check.returncode == 0, check.stdout + check.stderr
     assert check.stdout == (
         f"just test --short: {count} of the tree's paths differ from base-first's tip, none of them main's but"
-        " CLAUDE.md and docs/\n"
+        " CLAUDE.md, docs/ and zensical.toml\n"
     )
 
 
@@ -2931,8 +2946,8 @@ def test_the_short_set_refuses_a_change_to_a_file_of_main_s_naming_it(tmp_path: 
     assert check.returncode == 1, check.stdout + check.stderr
     lines = check.stderr.splitlines()
     assert lines[0] == (
-        "error: just test --short is for a change that touches no file of main's but CLAUDE.md and docs/, and the tree"
-        " here differs from base-first's tip in:"
+        "error: just test --short is for a change that touches no file of main's but CLAUDE.md, docs/ and"
+        " zensical.toml, and the tree here differs from base-first's tip in:"
     )
     assert lines[1:-1] == [f"  {line}" for line in named], check.stderr
     assert lines[-1].startswith("Run the whole set: just lint, just test unit"), check.stderr
@@ -2951,6 +2966,103 @@ def test_the_short_set_names_every_file_of_main_s_a_change_touches(tmp_path: Pat
         f"  tests/unit/test_more.py, {NOT_RUN}",
         f"  tests/unit/test_today.py, {MAIN_HAS}",
     ]
+
+
+# A new file in a folder today's product reads whole, which today's guards of that folder would read, none of them in
+# the short set: review 18's three plants (a playbook's task file, a helper of playbooks/files/, a role's task file),
+# then one in each other such folder.
+NEW_IN_TODAYS = "new in a folder today's product reads whole, whose guards the short set does not run"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "playbooks/tasks/aw_probe.yml",
+        "playbooks/files/aw-probe.txt",
+        "roles/github_projects/tasks/aw_probe.yml",
+        "roles/common/molecule/default/aw_probe.yml",
+        "filter_plugins/aw_probe.py",
+        "callback_plugins/aw_probe.py",
+        "inventory/group_vars/all/aw_probe.yml",
+        "molecule/configure/aw_probe.yml",
+        "tests/molecule/aw_probe.py",
+    ],
+)
+@pytest.mark.parametrize("committed", [False, True], ids=["not-committed", "committed"])
+def test_the_short_set_refuses_a_new_file_in_a_folder_today_s_product_reads_whole(
+    tmp_path: Path, path: str, committed: bool
+) -> None:
+    env = _branches(tmp_path)
+    work = tmp_path / "repo"
+    (work / path).parent.mkdir(parents=True, exist_ok=True)
+    (work / path).write_text("new\n")
+    if committed:
+        _git(work, env, "add", "-A")
+        _git(work, env, "commit", "-q", "-m", "the card")
+    check = _short_check(tmp_path, env)
+    assert check.returncode == 1, check.stdout + check.stderr
+    assert check.stderr.splitlines()[1:-1] == [f"  {path}, {NEW_IN_TODAYS}"], check.stderr
+    assert check.stdout == ""
+
+
+# Names git writes quoted where it is not given -z: a newline, a tab, a double quote or a backslash in them. Each is
+# refused all the same, a control character said as ?.
+QUOTED = [
+    ("tests/unit/test_n\nl.py", f"tests/unit/test_n?l.py, {NOT_RUN}"),
+    ("tests/unit/test_t\tx.py", f"tests/unit/test_t?x.py, {NOT_RUN}"),
+    ('tests/unit/test_q"x.py', f'tests/unit/test_q"x.py, {NOT_RUN}'),
+    ("tests/unit/test_b\\x.py", f"tests/unit/test_b\\x.py, {NOT_RUN}"),
+    ("playbooks/tasks/aw\nprobe.yml", f"playbooks/tasks/aw?probe.yml, {NEW_IN_TODAYS}"),
+]
+
+
+@pytest.mark.parametrize(("path", "named"), QUOTED, ids=["newline", "tab", "quote", "backslash", "in-a-folder"])
+def test_the_short_set_refuses_a_name_git_would_quote_all_the_same(tmp_path: Path, path: str, named: str) -> None:
+    env = _branches(tmp_path)
+    work = tmp_path / "repo"
+    (work / path).parent.mkdir(parents=True, exist_ok=True)
+    (work / path).write_text("new\n")
+    check = _short_check(tmp_path, env)
+    assert check.returncode == 1, check.stdout + check.stderr
+    assert check.stderr.splitlines()[1:-1] == [f"  {named}"], check.stderr
+
+
+def test_the_short_set_names_every_name_git_would_quote_on_a_line_of_its_own(tmp_path: Path) -> None:
+    # Committed, each is one name of the branch's change, a newline in it no second.
+    env = _branches(tmp_path)
+    work = tmp_path / "repo"
+    for path, _ in QUOTED:
+        (work / path).parent.mkdir(parents=True, exist_ok=True)
+        (work / path).write_text("new\n")
+    _git(work, env, "add", "-A")
+    _git(work, env, "commit", "-q", "-m", "the card")
+    check = _short_check(tmp_path, env)
+    assert check.returncode == 1, check.stdout + check.stderr
+    assert check.stderr.splitlines()[1:-1] == sorted(f"  {named}" for _, named in QUOTED), check.stderr
+
+
+@pytest.mark.parametrize("verb", ["ls-tree", "diff", "ls-files"])
+def test_the_short_set_refuses_where_git_fails_to_list_the_names(tmp_path: Path, verb: str) -> None:
+    # Each list of names is read through a pipe, whose status is the last command's: a git that fails there is a
+    # refusal all the same, never a list taken as empty.
+    env = _branches(tmp_path)
+    _change(tmp_path / "repo", env, "a new module")
+    real = shutil.which("git")
+    assert real
+    bin_dir = tmp_path / "git-bin"
+    bin_dir.mkdir()
+    (bin_dir / "git").write_text(
+        "#!/bin/sh\n"
+        f'case " $* " in *" {verb} "*) echo "fatal: {verb} failed" >&2; exit 128 ;; esac\n'
+        f'exec "{real}" "$@"\n'
+    )
+    (bin_dir / "git").chmod(0o755)
+    check = _short_check(tmp_path, {**env, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"})
+    assert check.returncode == 1, check.stdout + check.stderr
+    assert check.stderr == (
+        f"fatal: {verb} failed\nerror: just test --short reads the change with git, and git failed\n"
+    ), check.stderr
+    assert check.stdout == ""
 
 
 @pytest.mark.parametrize("missing", ["base-first", "main"])
