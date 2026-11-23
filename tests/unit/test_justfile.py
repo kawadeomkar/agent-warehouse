@@ -2805,7 +2805,7 @@ def _branches(tmp_path: Path) -> dict[str, str]:
     recipe run reads it and never this checkout."""
     work = tmp_path / "repo"
     env = {**GIT_ENV, "GIT_DIR": str(work / ".git"), "GIT_WORK_TREE": str(work)}
-    for name in ("justfile", "CLAUDE.md", "docs/page.md", "tests/unit/test_today.py"):
+    for name in ("justfile", "CLAUDE.md", "docs/README.md", "tests/unit/test_today.py"):
         (work / name).parent.mkdir(parents=True, exist_ok=True)
         (work / name).write_text(f"{name}, as main has it\n")
     _git(work, env, "init", "-q", "-b", "main")
@@ -2850,7 +2850,7 @@ def _change(work: Path, env: dict[str, str], change: str) -> None:
         (work / "tests" / "unit" / "test_aw_more.py").write_text("new\n")
     elif change == "CLAUDE.md and the pages":
         (work / "CLAUDE.md").write_text("changed\n")
-        (work / "docs" / "page.md").write_text("changed\n")
+        (work / "docs" / "README.md").write_text("changed\n")
         (work / "docs" / "new.md").write_text("new\n")
     elif change == "a file of main's, not committed":
         (work / "justfile").write_text("changed\n")
@@ -2872,6 +2872,10 @@ def _change(work: Path, env: dict[str, str], change: str) -> None:
     elif change == "a new test of today's kind, in a folder":
         (work / "tests" / "unit" / "units").mkdir()
         (work / "tests" / "unit" / "units" / "test_more.py").write_text("new\n")
+    elif change == "a new test of today's kind, named as pytest also takes one":
+        (work / "tests" / "unit" / "more_test.py").write_text("new\n")
+    elif change == "a new helper of the tests":
+        (work / "tests" / "unit" / "aw_more.py").write_text("new\n")
     else:
         raise AssertionError(change)
 
@@ -2883,6 +2887,7 @@ def _change(work: Path, env: dict[str, str], change: str) -> None:
         ("an edit of base-first's own", 1),
         ("a new module", 1),
         ("a new engine test", 1),
+        ("a new helper of the tests", 1),
         ("CLAUDE.md and the pages", 3),
     ],
 )
@@ -2915,6 +2920,8 @@ NOT_RUN = "a test the short set does not run: a test of the new engine is a file
         ("a test of today's", [f"tests/unit/test_today.py, {MAIN_HAS}"]),
         ("a new test of today's kind", [f"tests/unit/test_more.py, {NOT_RUN}"]),
         ("a new test of today's kind, in a folder", [f"tests/unit/units/test_more.py, {NOT_RUN}"]),
+        # pytest's other name for a test file (its python_files: test_*.py and *_test.py).
+        ("a new test of today's kind, named as pytest also takes one", [f"tests/unit/more_test.py, {NOT_RUN}"]),
     ],
 )
 def test_the_short_set_refuses_a_change_to_a_file_of_main_s_naming_it(tmp_path: Path, change: str, named) -> None:
@@ -2948,7 +2955,7 @@ def test_the_short_set_names_every_file_of_main_s_a_change_touches(tmp_path: Pat
 
 @pytest.mark.parametrize("missing", ["base-first", "main"])
 def test_the_short_set_refuses_where_a_branch_it_compares_is_not_there(tmp_path: Path, missing: str) -> None:
-    # As on a lane, whose checkout is main's with a worktree's files laid over it and no base-first: a refusal, never a
+    # As on a machine sent a worktree's files over a checkout of main's, with no base-first: a refusal, never a
     # pass, which a change it could not read would otherwise be.
     env = _branches(tmp_path)
     work = tmp_path / "repo"

@@ -65,20 +65,25 @@ and its terminal gave none of what it wrote.
 the two engines share one suite, a change of the new engine's own files. `tools/check short` compares the tree it runs
 in - the work tree, and what git neither tracks nor ignores - with the tip of `base-first`, the branch the new engine is
 built on, and refuses by name each path that differs and that `main` has, a deleted or renamed one too, and a test file
-of `tests/unit/` that is no engine file, which the set would not run. It compares the tree rather than
-`base-first...HEAD`, since a test lane lays a worktree's files over a checkout of `main` and commits none, and it refuses
-where either branch is not there, never passing a change it could not read. Then it lints, as the gate does, and runs
-in one pytest the new engine's tests and the tests of today's suite that read the tree (`-m "engine or tree"`): those
-`conftest.py`'s `TREE` names, which its hook marks `tree`, whose result a new file or a changed page can change - the
-pages and their links, the anchors of the patterns, the tracked-file guard, the file map, the commands named, the
-package's imports, the ratchets, the key files, the shards and CI's workflow, and the two tests of today's that read a
-file only the engine's branch has (the launcher `aw`, and every tracked file). `TREE` was found by planting the faults
-such a change can make and running the whole suite over them once, and by reading which of today's tests read the
-engine's files: `test_aw_guards.py`'s `FOUND` keeps the tests each fault failed, and fails where one of them is not
-marked or an entry of `TREE` names no test. It takes minutes where the unit suite takes over half an hour. What it gives
-up: a test of today's that the set leaves out and that such a change breaks fails only where the whole suite runs, at
-the health run after every five cards and in the pull request's run, and is found there among the cards since; it then
-joins `TREE`.
+of `tests/unit/` that is no engine file (pytest's `test_*.py` or `*_test.py`), which the set would not run. It compares
+the tree rather than `base-first...HEAD`, since a machine sent a worktree's files over a checkout of `main` has none of
+the branch's commits, and it refuses where either branch is not there, never passing a change it could not read. Then
+it lints, as the gate does, and runs in one pytest the new engine's tests and the tests of today's suite that read the
+tree (`-m "engine or tree"`): those `conftest.py`'s `TREE` names, which its hook marks `tree`, whose result a new file or
+a changed page can change - the pages and their links, the anchors of the patterns, the tracked-file guard, the file
+map, the commands named, the package's imports, the ratchets, the key files, the shards, CI's workflows, the list of
+what the project writes on this machine (every place that writes, `CLAUDE.md`'s words for each, the security model's
+table), and the tests that read every tracked file or every file of `tests/unit/`: the live output's variable, the
+facts read and a run's own `ansible.cfg`, a golden template turned on, a live test's name, `tools/status` run outside
+its harness, the MCP server's package reading the environment, and the launcher `aw`'s Python. `TREE` was found by
+planting the faults such a change can make and running the whole suite over them once, and the launcher's test by
+reading: `test_aw_guards.py`'s `FOUND` keeps the tests each fault failed, and fails where one of them is not marked or an
+entry of `TREE` names no test. It takes minutes where the unit suite takes over half an hour. What it gives up: a test
+of today's that the set leaves out and that such a change breaks - one that runs a playbook, say, through a hook or
+fixture of `tests/unit/aw_kit.py`, which every test loads - fails only where the whole suite runs, `just test unit` or
+CI's shards, and is found there among the changes since; it then joins `TREE`. A new file in a folder today's product
+reads whole (`filter_plugins/`, `inventory/group_vars/all/`, a role's `tasks/`) passes the check: of today's tests it
+meets the file map's and the generated pages' alone.
 
 Most of the new engine's code runs in the test's own process, so that process is guarded as a run is.
 `engine_guard`, a fixture of the kit's that no test asks for, holds every test the `engine` marker selects, and no
