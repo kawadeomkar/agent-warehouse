@@ -17,7 +17,9 @@ options first, `StrictHostKeyChecking=yes` against the product's own known-hosts
 control socket (the master `connections.ensure` opened before) with `ControlMaster=no`, and the hop only where the
 target carries one. The child never takes a key at first use: a target whose identity has no key filed is refused by
 name before anything starts, with the line that files it (`NoKey`), and so is a first use's target. The inventory is a
-source Ansible templates, so a value of it that would open a template is refused, never written.
+source Ansible templates, so a value of it that would open a template is refused, never written. The variables file
+is held first to what guest/variables.py writes, since an extra variable outranks the inventory: no `ansible_` name,
+which would replace the connection's, and every string wrapped, so that none is read as a template.
 
 The child's environment is an allow list (`KEPT`, then the engine's own): `PATH`, `HOME`, `LANG` and `SSH_AUTH_SOCK`
 where the caller's environment has them, `ANSIBLE_CONFIG` naming the generated configuration, the untrusted-template
@@ -54,6 +56,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from claude_vm import checks, text
+from claude_vm.guest import variables as play_variables
 from claude_vm.runs import children, rundir
 from claude_vm.schema import patterns, printer
 from claude_vm.schema.words import Line
@@ -204,6 +207,15 @@ def _file(path: object, what: str) -> Path:
     if not found.is_file():
         raise Refused(f"{what}, {found}, is not a file")
     return found
+
+
+def _variables(path: Path) -> Path:
+    """The variables file held to what guest/variables.py writes: a variable it gives outranks the inventory, so none
+    may name the play's connection (an ansible_ name), and none of its strings may be read as a template."""
+    try:
+        return play_variables.held(path)
+    except play_variables.Refused as refused:
+        raise Refused(str(refused)) from None
 
 
 def _tags(tags: object) -> tuple[str, ...]:
@@ -410,7 +422,8 @@ async def run(
     called once it runs; its exit status and the end of what it printed. name is the name a person chose for the
     machine, and host_flag the host a line that names it names (the printer's). Everything is held before anything is
     written or started: a target that is no machine's, a first use's, or whose identity has no key filed, a play or a
-    variables file that is not there, a part, a flag or a verbosity that is not one."""
+    variables file that is not there, a variables file that is not what guest/variables.py writes, a part, a flag or a
+    verbosity that is not one."""
     import asyncio
     import tempfile
 
@@ -420,7 +433,7 @@ async def run(
     name = _name(name)
     _key_filed(machine, name, host_flag)
     play = _file(play, "the play")
-    variables = None if variables_file is None else _file(variables_file, "the variables file")
+    variables = None if variables_file is None else _variables(_file(variables_file, "the variables file"))
     tags = _tags(tags)
     check, diff, verbosity = _flag(check, "check"), _flag(diff, "diff"), _verbosity(verbosity)
     if not isinstance(env, Mapping):
