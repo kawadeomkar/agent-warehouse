@@ -83,12 +83,14 @@ def whole_fleet(
     node: str = NODE,
     storage: str = STORAGE,
     bridge: str = BRIDGE,
+    fleet: str | None = None,
 ) -> Fleet:
     """A whole fleet folder at home, made by aw init with nobody there against the fake at base, whose state is in
     directory and which serves pki's node certificate (harness.fake_fleet(directory, engine=True,
-    certificate=(pki["cert"], pki["key"]))): see the module's docstring."""
+    certificate=(pki["cert"], pki["key"]))): see the module's docstring. fleet is the fleet's ID the pool's mark is
+    given, a new one unless given: a second host of the fleet at home, called host, is given the fleet's own."""
     port = int(base.rsplit(":", 1)[1])
-    fleet = record.new_id()
+    fleet = fleet or record.new_id()
     mark_pool(base, fleet)
     with_port(port, host)
     token, secret = engine_token(directory)
