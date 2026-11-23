@@ -9,5 +9,7 @@ ansible, lives under guest/ansible/, where the child's own configuration names i
 callback_plugins/aw_events.py. layer1.py starts that child for one machine, variables.py writes the play's variables
 it is given, every string marked unsafe, and events.py hands what its callback writes to the run's emit. bundle.py
 makes the helper's one script, of helper/'s files and the probe's, which a machine's python3 runs from its standard
-input. Imported by engine/; nothing of today's product imports it.
+input; remote.py sends it and reads a verb's answer back, bounded and typed, the one way a program reaches a machine;
+and states.py makes the probe's answer the states layer 2 and status decide from, today's found.py's. Imported by
+engine/; nothing of today's product imports it.
 """

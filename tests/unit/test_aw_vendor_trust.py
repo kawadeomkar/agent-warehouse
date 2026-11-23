@@ -65,6 +65,9 @@ CONTEXTS: dict[str, str] = {
     " credential, by name (pick, presented, shown and its probe of a PEM text, never its store); it makes no context"
     " itself, and holds what it keeps to the client's through pin.kept"
     " (tests/unit/test_aw_engine_certificate.py)",
+    "lib/claude_vm/guest/states.py": "a machine's states as status says them: one name of today's status, found.py's"
+    " ssh_found, which makes no context and imports none of status that does (its engine reads the Proxmox API); it"
+    " makes no context itself",
 }
 # What makes a TLS context or gives one roots, by any written spelling but as a type: the class, the standard library's
 # ready-made contexts and its unverified ones (_create_stdlib_context is another name of one), get_server_certificate,
