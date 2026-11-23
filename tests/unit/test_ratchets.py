@@ -68,6 +68,9 @@ VSCODE_ELSEWHERE = {
     "lib/claude_vm/editors/model.py": 1,
     "lib/claude_vm/editors/registry.py": 5,
     "lib/claude_vm/editors/zed.py": 1,
+    # The new engine's settings table carries today's settings and their sentences, which name the editors as data, by
+    # design: editor's default and choices, and the descriptions of the editor's own settings.
+    "lib/claude_vm/fleet/registry.py": 7,
     "lib/claude_vm/run/recipes.py": 1,
     # The new engine's patterns of the command line name the editors as data, by design: code's --editor.
     "lib/claude_vm/schema/patterns.py": 1,
@@ -177,6 +180,8 @@ ZED_ELSEWHERE = {
     "justfile": 1,
     "lib/claude_vm/editors/model.py": 1,
     "lib/claude_vm/editors/registry.py": 4,
+    # The new engine's settings table names the editors as data, by design: editor's choices and its sentences.
+    "lib/claude_vm/fleet/registry.py": 4,
     "lib/claude_vm/run/recipes.py": 1,
     # The new engine's patterns of the command line name the editors as data, by design: code's --editor.
     "lib/claude_vm/schema/patterns.py": 1,

@@ -1,0 +1,369 @@
+"""The settings table (lib/claude_vm/fleet/registry.py; docs/architecture/engine.md §16.9).
+
+Every row is well formed: a type the reader knows, choices that hold its default, a scope and a home that agree with
+each other, a group and a description of one line that names no command as text, and its marks for a secret and an
+agent; a computed default is one of the module's named functions, reading only rows and what `GIVEN` names; no two
+rows share a name; today's documented settings the engine keeps are 93 rows, and the five older names and the four
+that left have none; `ADDED` holds the settings the engine adds, each where the card placed it, and `CONNECTION` this
+computer's three SSH rows; a row that names a secret is never one an agent may change, and one that would be cannot be
+built; an agent may give claude_code_version a channel or a release alone; a row made from the machine's name is each
+machine's own; the table cannot be changed by a reader; and the module imports the standard library alone. What the
+rows must agree with in today's files is tests/unit/test_aw_fleet_registry_today.py's, which goes with those files at
+the cutover.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import inspect
+import re
+import sys
+from types import MappingProxyType
+
+import pytest
+from aw_kit import imports_of
+
+from claude_vm.fleet import registry
+from claude_vm.fleet.registry import ADDED, CONNECTION, GIVEN, HOMES, ROWS, SCOPES, TYPES, Row, ValueRule
+from claude_vm.vendors import proxy
+
+MODULE = "claude_vm.fleet.registry"
+# The five names today's files still read that get no row: the four 1.0 names of the editor's settings, and
+# tailscale_enabled, the old form of vpn (review/clean-slate/PROPOSAL.md, decision 10).
+OLDER = ("vscode_claude_terminal", "vscode_workspaces_dir", "vscode_session_notes", "vscode_claude_sessions")
+OLDER_VPN = "tailscale_enabled"
+# Four of today's documented settings the engine keeps elsewhere or has no use for: the API's port, the token's user and
+# its ID are fields of each host's host.yml, and the certificate is always checked.
+LEFT = ("proxmox_api_user", "proxmox_api_token_id", "proxmox_api_port", "proxmox_validate_certs")
+GROUP = re.compile(r"[a-z][a-z0-9_]*")
+NAME = re.compile(r"[a-z][a-z0-9_]*")
+
+
+def _of_type(value: object, kind: str) -> bool:
+    """Whether a literal default is a value of a row's type, held as the table holds one: a list as a tuple, a mapping
+    read-only."""
+    if kind == "bool":
+        return isinstance(value, bool)
+    if kind == "int":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if kind in ("str", "path"):
+        return isinstance(value, str)
+    if kind == "list[str]":
+        return isinstance(value, tuple) and all(isinstance(item, str) for item in value)
+    if kind == "dict":
+        return isinstance(value, MappingProxyType) and all(isinstance(key, str) for key in value)
+    return False
+
+
+@pytest.mark.parametrize("each", registry.rows(), ids=lambda each: each.name)
+def test_every_row_is_well_formed(each: Row) -> None:
+    assert NAME.fullmatch(each.name)
+    assert each.type in TYPES
+    assert isinstance(each.choices, tuple) and all(isinstance(choice, str) for choice in each.choices)
+    assert len(set(each.choices)) == len(each.choices)
+    assert each.scope in SCOPES and each.home in HOMES
+    assert GROUP.fullmatch(each.group)
+    assert each.description and each.description == each.description.strip()
+    assert isinstance(each.secret, bool) and isinstance(each.agent, bool)
+    assert each.values is None or (isinstance(each.values, ValueRule) and each.type == "str")
+    if callable(each.default):
+        assert each.default in registry.COMPUTED
+    else:
+        assert _of_type(each.default, each.type), (each.default, each.type)
+        if each.choices:
+            assert each.default in each.choices
+    if each.choices:
+        assert each.type == "str", "choices are a string's"
+
+
+@pytest.mark.parametrize("each", registry.rows(), ids=lambda each: each.name)
+def test_a_row_s_home_holds_its_scope(each: Row) -> None:
+    # The fleet's file holds one value for the fleet, or one machine's in its map machines; a host's file that host's
+    # own; client.yml the computer's own at any scope, at its top level, in its map hosts or in its map machines; and a
+    # value for one run alone is the whole run's.
+    if each.home == "fleet":
+        assert each.scope in ("global", "machine")
+    if each.home == "host":
+        assert each.scope == "host"
+    if each.home == "run":
+        assert each.scope == "global"
+
+
+@pytest.mark.parametrize("each", registry.rows(), ids=lambda each: each.name)
+def test_a_description_is_one_line_of_plain_text_that_names_no_command_as_text(each: Row) -> None:
+    # What a person reads of a setting is printed by the product, which names a command as aw's printer writes it, and
+    # never says just (the owner's word 1): a verb is named alone, as the table of verbs' help names one.
+    assert all(character.isprintable() for character in each.description), each.description
+    assert re.search(r"\bjust\b", each.description) is None, each.description
+
+
+def test_no_two_rows_share_a_name() -> None:
+    names = [each.name for each in registry.rows()]
+    assert sorted(name for name in set(names) if names.count(name) > 1) == []
+
+
+def test_today_s_documented_settings_the_engine_keeps_are_93_rows_and_the_other_nine_have_none() -> None:
+    assert len(ROWS) == 93
+    for name in (*OLDER, OLDER_VPN, *LEFT):
+        with pytest.raises(KeyError):
+            registry.row(name)
+
+
+def test_connection_holds_this_computer_s_three_ssh_rows_counted_apart() -> None:
+    assert [(each.name, each.type, each.scope, each.home) for each in CONNECTION] == [
+        ("ssh_identity_file", "path", "host", "client"),
+        ("ssh_executable", "path", "global", "client"),
+        ("vm_ssh_options", "dict", "machine", "client"),
+    ]
+    assert registry.row("ssh_executable").default == ""
+    assert dict(registry.row("vm_ssh_options").default) == {}
+    assert not {each.name for each in CONNECTION} & {each.name for each in ROWS + ADDED}
+
+
+def test_the_rows_the_card_placed_are_where_it_placed_them() -> None:
+    # One computer's, as the report gives it, and each host's own, never inherited, as today (hosts/kinds.py).
+    domain = registry.row("claude_ssh_host_domain")
+    assert (domain.scope, domain.home) == ("host", "client")
+    pool = registry.row("proxmox_pool")
+    assert (pool.scope, pool.home) == ("host", "host")
+
+
+def test_the_reader_finds_a_row_and_a_group_and_refuses_what_the_table_lacks() -> None:
+    assert registry.rows() == ROWS + ADDED + CONNECTION
+    assert registry.row("vm_cores") is next(each for each in ROWS if each.name == "vm_cores")
+    with pytest.raises(KeyError):
+        registry.row("no_such_setting")
+    tailscale = registry.group("tailscale")
+    assert tailscale and all(each.group == "tailscale" for each in tailscale)
+    assert [each.name for each in tailscale] == [each.name for each in registry.rows() if each.group == "tailscale"]
+    assert registry.group("connection") == CONNECTION
+    with pytest.raises(KeyError):
+        registry.group("no_such_group")
+    assert set(registry.GROUPS) == {each.group for each in registry.rows()}
+    assert sum(len(registry.group(name)) for name in registry.GROUPS) == len(registry.rows())
+
+
+# ---------------------------------------------------------------- the settings the engine adds ----
+
+# Each, as the card places it: its type, scope, home and default, and its choices.
+PLACED = {
+    "vault_key_file": ("path", "global", "client", registry.the_homes_key_file, ()),
+    "vault_key_command": ("list[str]", "global", "client", (), ()),
+    "tls_ca_file": ("path", "global", "client", "", ()),
+    "network_proxy": ("str", "global", "client", "environment", ()),
+    "run_lock": ("str", "global", "client", "machine", ("machine", "fleet")),
+    "run_forks": ("int", "global", "client", 20, ()),
+    "run_detached_limit": ("int", "global", "fleet", 120, ()),
+    "machine_claims": ("str", "global", "fleet", "inform", ("inform", "refuse")),
+    "agents_vm_cap": ("int", "global", "fleet", 5, ()),
+    "proxmox_audit_scope": ("str", "host", "host", "node", ("node", "pool")),
+    "vm_label": ("str", "global", "fleet", "agent-warehouse", ()),
+    "vm_first_boot_upgrade": ("bool", "global", "fleet", True, ()),
+    "destroy_confirm": ("str", "global", "fleet", "yes", ("yes", "names")),
+    "destroy_allow_unrecorded": ("bool", "global", "fleet", False, ()),
+    "github_username": ("str", "global", "fleet", "", ()),
+    "proxmox_vm_force_update": ("bool", "global", "run", False, ()),
+    "configure_wait_for_cloud_init": ("bool", "global", "run", True, ()),
+}
+# The owner's answers to O15: today's behaviour is each one's default, and the stricter form an opt-in.
+TODAY_S_BEHAVIOUR = {
+    "network_proxy": "environment",  # the proxy the environment names, as requests takes it today
+    "proxmox_audit_scope": "node",  # the token reads the node's other VMs, as status shows them today
+    "destroy_confirm": "yes",  # destroy asks for yes, as today
+    "destroy_allow_unrecorded": False,  # today's proxmox_vm_allow_untagged_delete, off unless set
+    "vm_first_boot_upgrade": True,  # Proxmox's own first-boot upgrade, left alone as today
+}
+
+
+def test_the_settings_the_engine_adds_are_where_the_card_placed_them() -> None:
+    assert {each.name: (each.type, each.scope, each.home, each.default, each.choices) for each in ADDED} == PLACED
+    assert not {each.name for each in ADDED} & {each.name for each in ROWS}
+
+
+def test_o15_s_five_rows_keep_today_s_behaviour_by_default() -> None:
+    assert {name: registry.row(name).default for name in TODAY_S_BEHAVIOUR} == TODAY_S_BEHAVIOUR
+    # network_proxy's two words are the proxy's own; any other value is an http:// URL, so it has no choices.
+    assert registry.row("network_proxy").default == proxy.ENVIRONMENT
+    assert re.search(rf"\b{proxy.NONE}, no proxy\b", registry.row("network_proxy").description)
+    for name in ("proxmox_audit_scope", "destroy_confirm"):
+        assert registry.row(name).choices[0] == TODAY_S_BEHAVIOUR[name], "today's behaviour is listed first"
+
+
+def test_a_vm_s_label_is_the_product_s_name_by_default() -> None:
+    label = registry.row("vm_label")
+    assert (label.default, label.scope, label.home, label.type) == ("agent-warehouse", "global", "fleet", "str")
+
+
+def test_the_vault_s_key_file_is_the_home_s_unless_set(tmp_path) -> None:
+    assert registry.row("vault_key_file").default is registry.the_homes_key_file
+    assert registry.the_homes_key_file(key_file=tmp_path / "the-key") == str(tmp_path / "the-key")
+    command = registry.row("vault_key_command")
+    assert (command.type, command.default) == ("list[str]", ())
+
+
+def test_a_path_of_this_computer_s_says_how_it_is_read() -> None:
+    # tls_ca_file was taken against the working directory: ~ is the user's home, a relative path is refused by name,
+    # and "" is unset (the coordinator's ruling of 2026-11-21).
+    paths = [each for each in registry.rows() if each.type == "path"]
+    assert sorted(each.name for each in paths) == [
+        "ssh_executable",
+        "ssh_identity_file",
+        "tls_ca_file",
+        "vault_key_file",
+    ]
+    for each in paths:
+        assert "~ at its start is your home; a relative path is refused by name." in each.description, each.name
+    assert "Empty: none." in registry.row("tls_ca_file").description
+
+
+def test_a_row_for_one_run_alone_is_kept_in_no_file() -> None:
+    assert sorted(each.name for each in registry.rows() if each.home == "run") == [
+        "configure_wait_for_cloud_init",
+        "proxmox_vm_force_update",
+    ]
+    for each in registry.rows():
+        if each.home == "run":
+            assert each.description.endswith("Kept in no file."), each.name
+            assert not each.agent and not each.secret
+
+
+def test_a_row_made_from_the_machine_s_name_is_each_machine_s_own() -> None:
+    # Set for the fleet, it would give every VM one name: today's settings refuses to write one for that reason.
+    made = [
+        each.name
+        for each in registry.rows()
+        if callable(each.default) and "machine" in inspect.signature(each.default).parameters
+    ]
+    assert sorted(made) == ["claude_code_remote_control_name", "tailscale_hostname"]
+    for name in made:
+        assert registry.row(name).scope == "machine", name
+    hostname = registry.row("tailscale_hostname")
+    assert (hostname.default, hostname.home) == (registry.tailnet_label, "fleet")
+
+
+def test_whose_repositories_are_cloned_is_a_setting_of_the_fleet_s_and_no_secret() -> None:
+    each = registry.row("github_username")
+    assert (each.type, each.scope, each.home, each.group, each.default) == (
+        "str",
+        "global",
+        "fleet",
+        "github_projects",
+        "",
+    )
+    assert not each.secret and not each.agent
+
+
+# ---------------------------------------------------------------- a secret, and what an agent may change ----
+
+
+def test_a_row_that_names_a_secret_is_never_one_an_agent_may_change() -> None:
+    assert [each.name for each in registry.rows() if each.secret and each.agent] == []
+    # claude_code_settings may carry an API key in its env, as today's role marks it.
+    assert [each.name for each in registry.rows() if each.secret] == ["claude_code_settings"]
+    assert len([each for each in registry.rows() if each.agent]) == 36
+
+
+@pytest.mark.parametrize(
+    ("marks", "refused"),
+    [
+        ({"secret": True, "agent": True}, "names a secret, so no agent may change it"),
+        ({"values": registry.VERSION_FROM_AN_AGENT}, "has a rule for an agent's values, but no agent may change it"),
+        ({"secret": True, "values": registry.VERSION_FROM_AN_AGENT}, "has a rule for an agent's values"),
+    ],
+)
+def test_a_row_an_agent_may_change_that_names_a_secret_cannot_be_built(marks: dict, refused: str) -> None:
+    with pytest.raises(ValueError, match=re.escape(refused)):
+        Row("made_up", "str", (), "", "global", "fleet", "common", "A setting of no one's.", **marks)
+    for each in registry.rows():
+        with pytest.raises(ValueError):
+            dataclasses.replace(each, secret=True, agent=True)
+    assert Row("made_up", "str", (), "", "global", "fleet", "common", "A setting.", agent=True).agent
+
+
+def test_an_agent_may_give_claude_code_version_a_channel_or_a_release_alone() -> None:
+    assert [each.name for each in registry.rows() if each.values is not None] == ["claude_code_version"]
+    rule = registry.row("claude_code_version").values
+    assert rule is registry.VERSION_FROM_AN_AGENT and registry.row("claude_code_version").agent
+    for value in ("stable", "latest", "2.1.319", "10.0.0"):
+        assert rule.allows(value), value
+    for value in ("npm:other-package", "github:someone/claude-code", "2.1", "2.1.319\n", " latest", "latest ", ""):
+        assert not rule.allows(value), value
+    assert rule.said == "stable, latest or a version as 2.1.319"
+
+
+def test_no_reader_can_change_the_table() -> None:
+    each = registry.row("vm_cores")
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        each.default = 4  # type: ignore[misc]
+    for each in registry.rows():
+        assert not isinstance(each.default, (list, dict, set)), each.name
+    with pytest.raises(TypeError):
+        registry.row("claude_ssh_options").default["ServerAliveInterval"] = "5"  # type: ignore[index]
+
+
+# ---------------------------------------------------------------- the computed defaults ----
+
+
+@pytest.mark.parametrize("function", registry.COMPUTED, ids=lambda function: function.__name__)
+def test_a_computed_default_reads_only_rows_and_what_given_names(function) -> None:
+    names = {each.name for each in registry.rows()}
+    parameters = inspect.signature(function).parameters.values()
+    assert parameters, function.__name__
+    for parameter in parameters:
+        assert parameter.kind is inspect.Parameter.KEYWORD_ONLY, parameter
+        assert parameter.name in names or parameter.name in GIVEN, parameter.name
+    assert [each.name for each in registry.rows() if each.default is function], "a computed default no row uses"
+
+
+def test_the_key_is_this_computer_s_own_public_key_or_none(tmp_path) -> None:
+    ssh = tmp_path / ".ssh"
+    assert registry.this_computers_key(user_home=tmp_path) == []
+    ssh.mkdir()
+    (ssh / "id_ed25519.pub").write_text("ssh-ed25519 AAAAC3Nza you@here\n\n")
+    assert registry.this_computers_key(user_home=tmp_path) == ["ssh-ed25519 AAAAC3Nza you@here"]
+    (ssh / "id_ed25519.pub").write_text(" \n")
+    assert registry.this_computers_key(user_home=tmp_path) == []
+    (ssh / "id_ed25519.pub").unlink()
+    (ssh / "id_ed25519.pub").mkdir()
+    assert registry.this_computers_key(user_home=tmp_path) == []
+    (ssh / "id_ed25519.pub").rmdir()
+    (ssh / "id_ed25519.pub").write_bytes(b"\xff\xfe not text")
+    assert registry.this_computers_key(user_home=tmp_path) == []
+
+
+def test_two_defaults_follow_another_row_and_two_the_machine_s_name() -> None:
+    assert registry.row("vm_memory_min_mb").default is registry.same_as_vm_memory_mb
+    assert registry.same_as_vm_memory_mb(vm_memory_mb=8192) == 8192
+    assert registry.row("claude_code_remote_control_dir").default is registry.same_as_vm_projects_dir
+    assert registry.same_as_vm_projects_dir(vm_projects_dir="/srv/code") == "/srv/code"
+    assert registry.row("claude_code_remote_control_name").default is registry.machine_name
+    assert registry.machine_name(machine="alpha") == "alpha"
+    assert registry.row("tailscale_hostname").default is registry.tailnet_label
+
+
+@pytest.mark.parametrize(
+    ("machine", "label"),
+    [
+        ("alpha", "alpha"),
+        ("Alpha_Lab", "alpha-lab"),
+        ("dev.web--2", "dev-web--2"),
+        ("--edge--", "edge"),
+        ("x" * 62 + "-y", "x" * 62),
+        ("a" * 70, "a" * 63),
+        ("café", "caf"),
+        ("___", ""),
+    ],
+)
+def test_the_tailnet_name_is_one_dns_label(machine: str, label: str) -> None:
+    assert registry.tailnet_label(machine=machine) == label
+
+
+# ---------------------------------------------------------------- what the module imports ----
+
+
+def test_the_table_imports_nothing_outside_the_standard_library(home) -> None:
+    # What importing the package alone loads is taken away: what is left is what the module itself brings.
+    added = imports_of(module=MODULE, home=home) - imports_of(module="claude_vm.fleet", home=home)
+    assert MODULE in added, sorted(added)
+    assert sorted({name.split(".")[0] for name in added} - set(sys.stdlib_module_names) - {"claude_vm"}) == []
+    assert sorted(name for name in added if name.startswith("claude_vm.") and name != MODULE) == []
