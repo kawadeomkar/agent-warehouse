@@ -1627,7 +1627,8 @@ and one rule: of the new engine, only `downloads.py` reaches `openpgp` - by an i
 ## 16.8 `runs/` — a run's record and text log, the locks, a detached run
 
 `lib/claude_vm/runs/` is where a run goes: its one record and its text log, the kernel's file locks the run holds, the
-run's end on a signal, and a run detached as the same program in a session of its own. It imports
+run's end on a signal, a run detached as the same program in a session of its own, and the run as a person reads it,
+from the stages its verb declares and the events it emits. It imports
 `schema/`, the printer of a command among it for the line that cancels a run, and `fleet/`, and nothing of `cli/`,
 `engine/` or `control/`, and no pydantic.
 
@@ -2047,6 +2048,50 @@ and ended, its run ending with its body's own status: one that reads it (SIGTTIN
 first as `readpassphrase` does (SIGTTOU), and `route.py`'s `ssh`; and a run at a pseudo-terminal, its terminal its
 controlling one, whose child of kind `ssh`, in a group of its own in the run's session, asks nothing for three seconds
 starts no `ps`, counted by a stand-in first on its `PATH`.
+
+**A run as a person reads it: `stages.py` and `model.py`.** A verb declares what its run is made of, and its workstream
+writes the declaration: `Declared(title, stages)`, each `Stage` with a key, which the run's events name, the label a
+person reads, its `Step`s (each a key and a label), whether its work is each machine's (its rows mark each machine; the
+template's and the golden template's are the host's and mark none), and whether it is quiet (counted, and drawn only
+once something in it failed). Keys are lower-case words joined by hyphens; a stage declares every step its events may
+name, or none. Pure data. `stages.DEPLOY` is `deploy`'s, with today's labels (`lib/claude_vm/run/recipes.py`): template,
+provision, configure, SSH aliases, sign in (Claude, GitHub, Tailscale), editor (today's window's ten steps), a quiet
+finish, golden template.
+
+`model.Run(declared, now, machines)` takes each event of the run in its own process, `feed(event, now)`, the time given
+by its caller, so nothing in it reads a clock, a file or the terminal, and nothing is kept between two processes; it
+imports nothing of `tui/`, which draws it. The events it reads:
+
+| Event | What the model makes of it |
+|---|---|
+| `stage`, its text a stage's key | No `outcome`: the stage begins. `outcome` done, skipped or failed (with `why`): it ends, and so does whatever of its steps is still open for it |
+| `step`, its text a step's key, `stage` its stage | Begins or ends that step as a stage does; its start begins its stage where it had not begun |
+| `step` that names no stage | A line of a machine's work (each of layer 1's events): kept as that machine's latest line, beginning and ending nothing |
+| `report` | Kept whole, in order, to be printed above the region |
+| `waiting` | Opens the wait of its machine and its `section`, in place of one open; an empty text ends that wait alone |
+| `next` | A line of NEXT STEPS for its machine and `matter`; an empty line removes it |
+| `end` | With a machine: its outcome, the stage it reached, why, and what of it is open ends (done, failed, stopped). With none: the run's end; everything open ends so, and no event is taken after it |
+
+Each of these is for one machine, or with no machine for every machine of the run: a machine with no part of its own in a
+stage or a step reads every machine's part. A wait for the person is one with no section (a short section's wait,
+`locks.section`'s, is for another run); a wait also ends when its machine ends, at the cancel (`cancel(now)`, when a person
+stops the run: nobody is asked any more) and at the run's end. So a clear of one machine's wait, or of a wait with no
+section, never ends another machine's or a section's, where the job's record keeps one wait for the whole run. No count
+of tasks is guessed: a stage or a step is done when its event says so, and one still open at the run's end ends as the run
+did (succeeded: done; failed: failed; cancelled: stopped). An event of a stage the declaration lacks, of a step its stage
+does not declare, of a kind the job lacks, an ending other than done, skipped or failed, a NEXT STEPS line with no matter,
+and anything after the run's end are refused before anything is kept.
+
+What a drawer reads: `state(stage, step)` (to come, running, waiting, done, skipped, failed, stopped), `mark(machine,
+stage, step)` and `marks(stage, step)` (each machine's, none for a stage that is not each machine's), `running()` and
+`running_stage()`, `seconds(now, stage, step, machine)`, the waits (`waiting()`, `waiting_for_you()`, `waited(now, ...)`
+for the person's time), `reports`, `failures` (each said once: a step that ended failed, a stage that did with no step of
+it failed for that machine, a machine or the run that ended failed with nothing failed before), `outcomes` (each
+machine's), the run's `outcome`, `exit` and `why`, `latest`, and `next_steps()`: NEXT STEPS by machine, the run's own
+first, then by matter in today's order, each line once, through `lib/claude_vm/run/next_steps.py` as it stands.
+`tests/unit/test_aw_run_model.py` holds it with canned runs (one machine, three, one failing in configure, one waiting for
+a sign-in, one cancelled), each event's effect, every refusal leaving the model as it was, and a run fed by a job's own
+`emit`.
 
 ## 16.9 `fleet/` — the fleet's files, the settings, the secrets and the fleet's mark
 
