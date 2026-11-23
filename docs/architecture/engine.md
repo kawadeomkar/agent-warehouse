@@ -2175,6 +2175,28 @@ cancelled call each leaving nothing, the words Ansible's own ssh connection gave
 computer's `ssh -G` over a `Host *` that loosens them, and scans that the argument list never holds `key=value` after
 `-e` and that no product code passes the test-only connection.
 
+**A play's variables.** ansible-core loads an extra-variables file as a trusted source, so a string in it that holds
+`{{`, `{%` or `{#` would be rendered as a template: a setting would be code. `lib/claude_vm/guest/variables.py`'s
+`write(path, document, secrets=...)` writes the play's variables as one JSON file, `vars.json` in the run's directory,
+in which every string is `{"__ansible_unsafe": <the string>}` (`wrap`): Ansible's loader reads the file as JSON first,
+and its decoder hands such a string on as text, without the trusted mark. The standard library writes it, at 0600,
+whole, beside the path and then put in its place, never through a link. Nothing is written where a variable names the
+play's connection (any `ansible_` name: an extra variable outranks the inventory, where the SSH runner's options are, so
+no variable of the file names a connection's option), where a key anywhere begins `__ansible`, which the decoder reads
+as its own, or anything else would fail Ansible's JSON decoding (an integer past 64 bits, a float that is not finite, a
+nesting past 32 levels), since its loader then reads the very same text as YAML, where a wrapped string is a plain
+mapping and its string a trusted template; where a string is no text UTF-8 holds, which fails the YAML too; where a
+value is of a type no variable holds, a `Secret` above all; or where the document holds a secret the run opened, in a
+name, a string or the file's text, which the refusal never says back: no secret is ever in this file. `layer1.run` holds
+the file it is given to the same rules (`held`) before anything is written or started. The decoder is under
+`ansible._internal`, so the tests, not Ansible's documentation, hold this across releases:
+`tests/unit/test_aw_variables.py` loads a written file through Ansible's own loader, in a Python of its own, and finds
+no string trusted (the same document unwrapped, every string trusted), and through a real child on a stand-in machine a
+wrapped `{{ 7 * 7 }}` reaches a task as that text, an unwrapped one is templated, with the untrusted-template switch at
+`error` the wrapped one used as a template fails its task, and every kind of value comes back as it went; a walk of
+every file written finds no bare string leaf. They are among the tests that must pass before the ansible-core pin moves
+([§13](toolchain.md)).
+
 **How the engine's tests reach a machine.** A test of the new engine reaches no real machine: it reaches a stand-in,
 a directory of the test's own that `tests/unit/aw_machine.py` makes, through the SSH runner (§16.6) as it reaches a
 VM. `machine()` gives each an identity made for the test (`agent-warehouse-<a UUID>`), an address from RFC 5737's
