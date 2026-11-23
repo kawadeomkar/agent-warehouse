@@ -9,7 +9,9 @@ file is unchanged. A write is a compare-and-swap on the digest the caller read, 
 back as meant and makes a new file private. --set refuses a secret's row, an unknown name, a value the vault holds and
 a value of the wrong type, never saying the value back; a size reads alike in a file, for one run and typed.
 client.yml's fleet_home reads as fleet/paths.py reads it, by its own cases. Nothing in fleet/ writes a file but
-through set and unset, and set_current, which writes client.yml's current_host (tests/unit/test_aw_fleet_hosts.py).
+through set and unset, and set_current, which writes client.yml's current_host (tests/unit/test_aw_fleet_hosts.py),
+files.py's write, fleet.json (tests/unit/test_aw_fleet_mark.py), and hosts.py's write, a host's host.yml and anchor
+(tests/unit/test_aw_fleet_host_writer.py).
 """
 
 from __future__ import annotations
@@ -44,6 +46,8 @@ REPLACES = {
     " by set_current",
     "lib/claude_vm/fleet/files.py": "fleet.json, by record.write through files.write, its one writer of a file, which"
     " makes the file's folder through files.folder first",
+    "lib/claude_vm/fleet/hosts.py": "a host's host.yml and its anchor, by write alone, through _commit"
+    " (tests/unit/test_aw_fleet_host_writer.py holds that)",
 }
 # A proxy's user and password, made up, which no refusal may say; and the sentence network_proxy is refused in for them.
 PROXY_USER = "proxyuser"

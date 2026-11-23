@@ -61,6 +61,10 @@ CONTEXTS: dict[str, str] = {
     " (anchored_context), the one way a context is made from a certificate the host gave; else the vendors' one;"
     " its name check off only where a recorded fingerprint names the one certificate, which the peer check holds:"
     " so a Pin's context is read by pin.py alone (test_a_pin_s_context_is_read_by_pin_py_alone)",
+    "lib/claude_vm/engine/certificate.py": "init's certificate step: today's trust.py's probes, which carry no"
+    " credential, by name (pick, presented, shown and its probe of a PEM text, never its store); it makes no context"
+    " itself, and holds what it keeps to the client's through pin.kept"
+    " (tests/unit/test_aw_engine_certificate.py)",
 }
 # What makes a TLS context or gives one roots, by any written spelling but as a type: the class, the standard library's
 # ready-made contexts and its unverified ones (_create_stdlib_context is another name of one), get_server_certificate,

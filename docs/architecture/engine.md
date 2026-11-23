@@ -463,6 +463,32 @@ nothing; a block the engine cannot read, a record that names another VM's UUID a
 and the label is `vm_label`'s value beside a person's tags. A syntax-tree scan holds that no module of the new engine
 names a description to send but this one, the client, its table and its reader of answers, each with why.
 
+**The API's certificate: `certificate.py`.** Before `init` sends a Proxmox host anything that carries a credential,
+`work_out(host, given, root_ssh, ask)` settles what its API's certificate is held to, by today's `trust.py`'s probes,
+which carry none, and returns `Kept` (the anchor to keep, or none) or a `Refusal`. First what checking uses now: the
+host's anchor, its name checked unless a fingerprint is recorded beside it, which the certificate presented must then
+have, as the client holds it; or, where it keeps none, this computer's certificates, certifi's list with the file
+`tls_ca_file` names added, handed to the probe as their certificates' text, so that `trust.py`'s own idea of a store,
+which reads `REQUESTS_CA_BUNDLE`, is never asked. Where that verifies, nothing changes: a host the computer's
+certificates verify keeps no anchor, and one its CA renews verifies still. Otherwise the host's certificate files read
+over root SSH (`read_over_root_ssh`: one command, each file looked at before it is read, none larger than a certificate
+file is): its CA where what it presents chains to it with the name checked (`trust_kind: ca`, no fingerprint, so the
+CA's renewals verify), else the node's own certificate without its chain (`node`), its fingerprint recorded beside it;
+where neither verifies and what it presents is the host's own under another name, that certificate as the node's own,
+held to its fingerprint and not to a name, which the client then reaches at any address; where what it presents is
+none of the host's, or nothing, a refusal with `token_held`. Where root SSH does not answer, is not tried or reads no
+certificate, nothing on the host vouches for what the address presents: its fingerprint is shown, and it is kept, as
+the node's own, only on the person's yes or where it is `--certificate`'s; with nobody there (`ask` None) and none given,
+a refusal that names `--certificate`. An anchor that no longer verifies is put in place of the one kept only on a yes
+that shows both fingerprints, or where the new one was given. No sentence says to check less. What is kept is made
+through `pve/pin.py`'s `kept` once before it is returned, the one way a context is made here; the probes' contexts are
+`trust.py`'s, and its probe that checks no name (`check_hostname=False`) is handed only an anchor held to a
+fingerprint or the certificate the address presents, never a credential. The caller writes what is kept through
+`fleet/hosts.py`'s `write`, the anchor with its kind and fingerprint. `tests/unit/test_aw_engine_certificate.py` holds
+it against local TLS servers made as Proxmox makes its certificates, each case of today's `init_check.yml` carried, the
+host's files read over root SSH from a stand-in machine (`tests/unit/aw_machine.py`, 16.10), and the rules that nothing
+in `engine/` builds a TLS context but through `pin` and nothing of the new engine reads `trust.py`'s `_store_files`.
+
 ## 16.5 `pve/` — the typed Proxmox client and the one table of privileges
 
 `lib/claude_vm/pve/` is where the typed client of the Proxmox VE API goes, with the one table that names each call's
@@ -1874,12 +1900,14 @@ only while the file's digest is the one its caller read (`expect`), whole and in
 `paths.DIR_MODE`, a link where one goes refused; `set_current` writes
 `client.yml`'s `current_host` the same way. `literals(path)` is the one reader of a file of literals the fleet keeps, a
 host's `host.yml` too. Every refusal is a `Refused`, whose sentence never says a value back. Nothing else in `fleet/`
-writes a file but `files.py`, for `fleet.json`. A machine's recorded choices,
+writes a file but `files.py`, for `fleet.json`, and `hosts.py`'s `write`, a host's `host.yml` and anchor.
+A machine's recorded choices,
 the design's third layer, are in its record, which is not read here. `tests/unit/test_aw_fleet_overrides.py` holds it:
 each layer over the one before, each home's file and none other, the path rule for each path row, the proxy's user and
 password refused at every way in by one check, each refusal with the file unchanged, the compare-and-swap, `--set`'s
 refusals with no value said, a size read alike, the reader of `client.yml` against `paths.py`'s own cases of
-`fleet_home`, and a scan that only `set`, `unset` and `set_current` write, and `files.py`'s `write`.
+`fleet_home`, and a scan that only `set`, `unset` and `set_current` write, and `files.py`'s `write` and `hosts.py`'s
+`write`.
 
 **The hosts: `hosts.py`.** Each host is a folder of the fleet's files, `fleet/hosts/<name>/`, the first included, named
 as any host is (`hosts/model.py`'s `name_refusal`): `host.yml`, its own fields, which travel with the folder;
@@ -1906,10 +1934,23 @@ the template's ID has the table's default, and a host may set its own), taken al
 reader there. It returns the host, its fields and anchor, and with several hosts the others' names and
 addresses a run keeps apart from its machines. What a host's files say is that host's problem, said in its place, and a
 run against another goes on. `make_current` writes `current_host` through `overrides.set_current`, held to a host of the
-fleet that can be used. A `Host`'s `local_file`, `vault_file`, `hosts_file` and `sources` name today's inventory and are
-read by no module of the new engine. `tests/unit/test_aw_fleet_hosts.py` holds it: today's cases of the layout and the
-choice on the new folders, each field's rule with no value said, the anchor beside its kind, the one writer of the
-current host, the literal list of `host.yml`'s fields, and the scan for today's files.
+fleet that can be used. `write(layout, name, expect, change=..., anchor=...)` is `host.yml`'s one writer, and the
+anchor's: a compare-and-swap on the digest of what `Layout.state` read (the host's `host.yml` and its anchor, read under
+the lock a write takes), under `store.locked` on the host's folder, every field held to what the reader takes before
+anything is written, then read back through `fields` and `anchor`; never through a link, its folders made and held
+through `files.py`, which refuses a link where the fleet's, its hosts' or the host's folder goes. `change` edits any
+field but `trust_kind` and `fingerprint`, which go with the anchor alone: an anchor's file is PEM certificates and
+nothing else, at mode 0644. Its steps are planned in `_commit` and each is on disk before the next, in an order a run
+stopped after any step leaves readable: a first anchor is staged beside the host (`.proxmox-trust.pem.new`), then
+`host.yml` written, then the anchor put in place, so that where `host.yml` gives a kind and no anchor is in its place,
+the staged one is it, and where it gives none, the staged one is no anchor; one taken out goes the other way; and one
+put in the place of another leaves the old beside the new kind or the new beside the old, the fingerprint the new one
+records written first and the one it drops last, each holding the host to no more than one of the two. The next write
+puts right what a stopped one left. `tests/unit/test_aw_fleet_host_writer.py` holds it, a run stopped after each step of
+each kind of change among its cases. A `Host`'s `local_file`, `vault_file`, `hosts_file` and `sources` name today's
+inventory and are read by no module of the new engine. `tests/unit/test_aw_fleet_hosts.py` holds it: today's cases of
+the layout and the choice on the new folders, each field's rule with no value said, the anchor beside its kind, the one
+writer of the current host, the literal list of `host.yml`'s fields, and the scan for today's files.
 
 **The fleet's folders: `files.py`.** Every folder of the fleet's and of its state is made by `folder(path)`: where it is
 missing, it and each missing folder above it at 0700, from the top down, the mode set and never left to the umask;
@@ -1919,8 +1960,9 @@ asked for that is there is the person's and taken as it is, a link among them (a
 macOS's `/var`). `write(path, text)` writes a file whole through `store.replace`, its folder made by `folder`, a new
 file at 0600, one that is there keeping its mode, and through a link the file it names replaced: a file is one a person
 may keep elsewhere on purpose, a folder everything beneath it. `fleet.json`, the overrides' folders (`overrides.py`),
-the jobs folder (`runs/job.py`) and the locks folder (`runs/locks.py`) are made through it, and nothing else of
-`fleet/` or `runs/` makes a folder but a job's own, inside the jobs folder, and a run's short-lived directory (16.8).
+a host's folders (`hosts.py`'s `write`), the jobs folder (`runs/job.py`) and the locks folder (`runs/locks.py`) are
+made through it, and nothing else of `fleet/` or `runs/` makes a folder but a job's own, inside the jobs folder, and a
+run's short-lived directory (16.8).
 
 **The fleet's ID and its record: `record.py`.** `fleet/fleet.json` is the computer's own record of a fleet:
 `FleetRecord(format, fleet, stores)`, the format of the file itself, the fleet's ID and the format number of every

@@ -17,8 +17,8 @@ is everything beneath it. A caller that reads the file and writes it from what i
 both.
 
 Every writer of a fleet's folders uses this module: `record.py`'s `fleet.json`, `overrides.py`'s folders of the
-overrides, and `runs/job.py`'s and `runs/locks.py`'s folders of the state. Standard library only, with `store` and
-`text`.
+overrides, `hosts.py`'s folders of a host, and `runs/job.py`'s and `runs/locks.py`'s folders of the state. Standard
+library only, with `store` and `text`.
 """
 
 from __future__ import annotations
