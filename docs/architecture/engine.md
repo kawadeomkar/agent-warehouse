@@ -1024,10 +1024,13 @@ authenticates by public key alone, the Proxmox host's too: today's Ansible conne
 authentication, and those are added only if someone asks. `ControlMaster=no` means a child rides a master the engine
 opened in the shared directory (`connections.py`'s `ensure`), or connects alone where none lives, and is never a master
 itself. The hop's own `ssh`
-keeps `LogLevel=INFO`, which route.py pins because it reads `ssh`'s words, and the new engine's pins `ForwardX11=no` and
-`PermitLocalCommand=no` first on every line it is run with, the `ProxyCommand` a machine is given among them
-(`route.hop_settings`' `pinned`, which today's callers do not pass): a master the hop's open makes, or a `ProxyCommand`'s
-`ssh` that finds none live and becomes one, would otherwise run a person's `LocalCommand` here. `ansible_vars(target)` gives layer 1's
+keeps `LogLevel=INFO`, which route.py pins because it reads `ssh`'s words, and the new engine's pins `ForwardX11=no`,
+`PermitLocalCommand=no` and `ClearAllForwardings=yes` first on every line it is run with, the `ProxyCommand` a machine
+is given among them (`route.hop_settings`' `pinned`, which today's callers do not pass): a master the hop's open makes,
+or a `ProxyCommand`'s `ssh` that finds none live and becomes one, would otherwise run a person's `LocalCommand` here,
+and `-W` clears forwards only where a person's configuration says nothing of it, so their `ClearAllForwardings no`
+would have the `ProxyCommand` and the forward check open each `LocalForward`, `RemoteForward`, `DynamicForward` and
+`Tunnel` they give the host. `ansible_vars(target)` gives layer 1's
 Ansible child the address, the port, the account, the program and `ansible_ssh_common_args` holding exactly the same
 options in the same order, so that its `ssh`, `sftp` and `scp` ride the same master and a jump of the person's reaches
 the file transfers too.
@@ -1101,22 +1104,28 @@ group of their own (`process_group=0`, which today's callers do not pass), so th
 run takes as "finish the step", never kills one and has its silence read as an answer, and `route`, `ensure_hop` and
 `held` are coroutines that run it off the event loop, so that the run takes the Ctrl-C at once and its other tasks go on
 while one of them waits on its `ssh`. Each `ssh` route.py
-starts, the `ssh -G` of `route_settle` and `ssh_shown` too, is started and recorded in one step under the lock
-`route.end_all` takes, and ended by the thread that waits for it, at its limit or when its caller ends; a run that is
-stopped ends them with the rest of its tree, and `end_all`, which ends every one still running and starts none after, so that no
-`ssh -G` goes on to run a person's `Match exec`, is for a caller about to end at once: today's one, `status`, starts
-none of them on its main thread, where Python raises a Ctrl-C and could raise it between a start and its record, and
-starts and records its own probes (`status/reach.py`) in one step under the lock of its own `end_all`, which a run's end
-calls before `route.end_all`. Each of those ends ends the `ssh`
-with its process group, which it leads, so that the program a person's `Match exec` started, or a `ProxyCommand`'s,
-ends with it; today's callers' `ssh`, in their own process's group, is ended by its pid alone. A run watches each for a
-stop at the terminal as it watches its own children (`route.leading`, §16.8). `route(setting, host)`
+starts, the `ssh -G` of `route_settle` and `ssh_shown` too, is checked against the door, started and recorded in one
+step under the lock `route.end_all` takes, and ended by the thread that waits for it, at its limit or when its caller
+ends; a run that is stopped ends them with the rest of its tree, and `end_all`, which shuts the door under the same lock,
+ends every one still running and starts none after, so that no `ssh -G` goes on to run a person's `Match exec`, is for
+a caller about to end at once. Each of route.py's ends ends the `ssh` with its process group, which it leads, so that
+the program a person's `Match exec` started, or a `ProxyCommand`'s, ends with it: one the `Match exec` put in the
+background too, which outlives an `ssh -G` that has exited, since a leader not yet reaped is still ended with its group
+(`route._kill` decides by `returncode`, set once it is reaped, never by `poll()`, which would reap it and leave the
+group running); today's callers' `ssh`, in their own process's group, is ended by its pid alone. An `ssh -G`'s
+standard error is read from a file, as the hop's own `ssh`'s is, so that a program its `Match exec` left holding it
+never holds the answer back to the limit; one left by an `ssh -G` that exited by itself is the person's, as their own
+`ssh` leaves it. Today's one caller of `end_all`, `status`, starts none of them on its main thread, where Python raises
+a Ctrl-C and could raise it between a start and its record, and starts and records its own probes (`status/reach.py`)
+in one step under the lock of its own `end_all`, which a run's end calls before `route.end_all` and which ends a probe by
+its pid. A run watches each of route.py's for a stop at the terminal as it watches its own children (`route.leading`,
+§16.8). `route(setting, host)`
 settles it for the Proxmox host's own `Target` - its account, or `vm_ssh_jump`'s, its port, key and `ssh` - by
 `route.hop_settings` and `route.route_settle`, as `{route, setting, hop, policy, addresses}`, and raises
 `route.HopRefused` as it is, which names `vm_ssh_route: direct`; under `auto` only where the rule would go through the
-host, and where the `ssh -G` that says where `ssh` dials for the host gave no answer - ended by a signal, or out of its
-time, whose kill is a signal too - which settles nothing (`signalled_settles=False`, where today's callers settle from
-the address as written). Where the route goes through the host and the hop's socket would pass `route.SOCKET_MOST` (a
+host, and where the `ssh -G` that says where `ssh` dials for the host gave no answer - ended by a signal, out of its
+time, whose kill is a signal too, or not started, since the run is ending - which settles nothing
+(`signalled_settles=False`, where today's callers settle from the address as written). Where the route goes through the host and the hop's socket would pass `route.SOCKET_MOST` (a
 long home), `route` refuses it in this engine's words (`LONG_HOP`), naming `vm_ssh_route: direct` or a shorter home: the
 hop is one shared connection, and none can be bound there. `target_for(job, machine,
 settled, given)` gives a machine's `Target` the person's own options for it and, where the route goes through the host,
@@ -1168,12 +1177,12 @@ be used stopping the run with nothing dialled, a control directory that is a lin
 refused, a long one connecting alone, said once for the machines and the host together, a first Ctrl-C sent to the
 run's group while `ssh -G` settles the route killing no `ssh` (its stand-in waiting for a file the test writes after
 the Ctrl-C, never for a time), `route`, `ensure_hop` and `held` each waiting on an `ssh` held until a task on the same
-loop lets it go, an `ssh -G` ended by a signal or out of its time settling nothing, the hop's lines holding the two pins
-first, the route through the host refused from a long home while `direct` settles there, a master's open, a machine's
-and the hop's, left out of what a run remembers, and `direct_only`; and three rules by scans: no control command but
-`-O check` in the new subpackages, never `-O exit`;
-nothing in `ssh/` tries a connection again; and only `ensure` opens a master, with the kind that carries no marker,
-an f-string's `ControlMaster` and ssh's flags run together (`-NM`) read too.
+loop lets it go, an `ssh -G` ended by a signal or out of its time settling nothing, the hop's lines holding the three
+pins first, the route through the host refused from a long home while `direct` settles there, a master's open, a
+machine's and the hop's, left out of what a run remembers, and `direct_only`; and three rules by scans: no control
+command but `-O check` in the new subpackages, never `-O exit`; nothing in `ssh/` tries a connection again; and only
+`ensure` opens a master, with the kind that carries no marker, an f-string's `ControlMaster` and ssh's flags run
+together (`-NM`) read too.
 
 ## 16.7 `vendors/` — one HTTPS transport, Tailscale's calls, verified downloads
 

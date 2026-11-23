@@ -1650,15 +1650,20 @@ that takes, and runs nothing of Ansible's.
   where ssh says `Authenticated to` once its login is done). Each reads ssh's exit status and standard error, and of
   the forward's standard output only whether its first bytes are an SSH banner, read as it comes and dropped, kept as a
   yes or no: what a forward carries is the far end's to write. A caller ended meanwhile ends that ssh and waits for it,
-  and `end_all` ends every one still running, the `ssh -G` of `route_settle` and `ssh_shown` among them, one being
-  started too, and starts none after, for a caller about to end at once (`just status`'s Ctrl-C), so that no `ssh -G`
-  is left to run a person's `Match exec`: each is started and recorded in one step, under the lock `end_all` takes. Each
-  of those ends, and the kill at a limit, ends today's callers' ssh by its pid alone, since it shares their own process
-  group, and one the new engine starts in a process group of its own (`process_group=0`) with that group, the program a
-  `Match exec` started with it (`leading` lists those, which the new engine's run watches for a stop at the terminal,
-  [§16.8](engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run)); a failure to
-  make the control directory is said, never raised. `forward_verdict` says the hop unusable only for `administratively
-  prohibited` or ssh's own failure; a far end that refused or said nothing once the login was done is the far end's
+  and `end_all` ends every one still running - among them the `ssh -G` of `route_settle`, which reads the person's
+  configuration and runs its `Match exec`, and of `ssh_shown`, which reads none - one being started too, and starts none
+  after, for a caller about to end at once (`just status`'s Ctrl-C), so that no `ssh -G` is left to run a person's
+  `Match exec`: each is checked against the door, started and recorded in one step under the lock `end_all` takes, which
+  shuts the door under it. Each of those ends, and the kill at a limit, ends today's callers' ssh by its pid alone,
+  since it shares their own process group, and one the new engine starts in a process group of its own
+  (`process_group=0`) with that group, the program a `Match exec` started with it - one it put in the background too,
+  which outlives an `ssh -G` that has exited, since a leader not yet reaped is still ended with its group (`_kill`
+  decides by `returncode`, never by `poll()`, which would reap it) (`leading` lists those, which the new engine's run
+  watches for a stop at the terminal, [§16.8](engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run)).
+  An `ssh -G`'s standard error is read from a file, as the hop's own ssh's is, so that a program a `Match exec` left
+  holding it never holds the answer back to the limit; a failure to make the control directory is said, never raised.
+  `forward_verdict` says the hop unusable only for `administratively prohibited` or ssh's own failure; a far end that
+  refused or said nothing once the login was done is the far end's
   doing, and a forward ended before it, `stalled`, the login's: a second login that waits (a key touched once) beside a
   shared connection that works stops no run, and is never read as the VM's silence. What `VERBOSE` adds is taken out
   of the words (`VERBOSE_ONLY`), so they read as at `INFO`. `hop_unanswered` reads ssh's words for a VM reached
