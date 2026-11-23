@@ -49,6 +49,8 @@ REVEALS: dict[str, str] = {
     "lib/claude_vm/vendors/transport.py": "a request's header or form value, a token's above all, read in _plain alone",
     "lib/claude_vm/ssh/runner.py": "a child's standard input, a password or a sign-in's code above all, read in _bytes"
     " alone and written to the child",
+    "lib/claude_vm/fleet/sealed.py": "the vault's plaintext and its key, each value read in _plain and the key in"
+    " _identity alone, and encrypted in memory before anything is written",
 }
 
 # The fixtures of the engine's test files whose scope is wider than one test, each with why it may be: pytest makes

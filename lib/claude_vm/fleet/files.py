@@ -16,9 +16,9 @@ replaced, as `store.replace` does for today's settings: a file is one a person m
 is everything beneath it. A caller that reads the file and writes it from what it read holds `store.locked` across
 both.
 
-Every writer of a fleet's folders uses this module: `record.py`'s `fleet.json`, `overrides.py`'s folders of the
-overrides, `hosts.py`'s folders of a host, and `runs/job.py`'s and `runs/locks.py`'s folders of the state. Standard
-library only, with `store` and `text`.
+Every writer of a fleet's folders uses this module: `record.py`'s `fleet.json`, `sealed.py`'s `vault.age`,
+`overrides.py`'s folders of the overrides, `hosts.py`'s folders of a host, and `runs/job.py`'s and `runs/locks.py`'s
+folders of the state. Standard library only, with `store` and `text`.
 """
 
 from __future__ import annotations

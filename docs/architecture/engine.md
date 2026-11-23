@@ -1907,8 +1907,8 @@ only while the file's digest is the one its caller read (`expect`), whole and in
 `paths.DIR_MODE`, a link where one goes refused; `set_current` writes
 `client.yml`'s `current_host` the same way. `literals(path)` is the one reader of a file of literals the fleet keeps, a
 host's `host.yml` too. Every refusal is a `Refused`, whose sentence never says a value back. Nothing else in `fleet/`
-writes a file but `files.py`, for `fleet.json`, and `hosts.py`'s `write`, a host's `host.yml` and anchor.
-A machine's recorded choices,
+writes a file but `files.py`, for `fleet.json` and `vault.age`, and `hosts.py`'s `write`, a host's `host.yml` and
+anchor. A machine's recorded choices,
 the design's third layer, are in its record, which is not read here. `tests/unit/test_aw_fleet_overrides.py` holds it:
 each layer over the one before, each home's file and none other, the path rule for each path row, the proxy's user and
 password refused at every way in by one check, each refusal with the file unchanged, the compare-and-swap, `--set`'s
@@ -1966,10 +1966,10 @@ mode, since the data folder already holds `tools/env-run`'s `checkouts/` at the 
 asked for that is there is the person's and taken as it is, a link among them (a `~/.config` kept in a dotfiles folder,
 macOS's `/var`). `write(path, text)` writes a file whole through `store.replace`, its folder made by `folder`, a new
 file at 0600, one that is there keeping its mode, and through a link the file it names replaced: a file is one a person
-may keep elsewhere on purpose, a folder everything beneath it. `fleet.json`, the overrides' folders (`overrides.py`),
-a host's folders (`hosts.py`'s `write`), the jobs folder (`runs/job.py`) and the locks folder (`runs/locks.py`) are
-made through it, and nothing else of `fleet/` or `runs/` makes a folder but a job's own, inside the jobs folder, and a
-run's short-lived directory (16.8).
+may keep elsewhere on purpose, a folder everything beneath it. `fleet.json`, `vault.age` (`sealed.py`), the overrides'
+folders (`overrides.py`), a host's folders (`hosts.py`'s `write`), the jobs folder (`runs/job.py`) and the locks
+folder (`runs/locks.py`) are made through it, and nothing else of `fleet/` or `runs/` makes a folder but a job's own,
+inside the jobs folder, and a run's short-lived directory (16.8).
 
 **The fleet's ID and its record: `record.py`.** `fleet/fleet.json` is the computer's own record of a fleet:
 `FleetRecord(format, fleet, stores)`, the format of the file itself, the fleet's ID and the format number of every
@@ -2002,6 +2002,32 @@ with no mark, a mark of another fleet (naming both IDs), or a mark that names an
 VM: change it there, or retire it", which the base never writes and always refuses.
 `tests/unit/test_aw_fleet_mark.py` holds the three modules, with a scan that nothing else of `fleet/` or `runs/` makes
 a folder, and that each imports the standard library alone.
+
+**The vault: `secrets.py` and `sealed.py`.** The fleet's secrets are one file, `fleet/vault.age`: one JSON document,
+`{"format": 1, "secrets": {"<entry>": "<value>"}}`, encrypted whole with age, armored, to the X25519 recipient of one
+random key, through `pyrage`, which only the functions that need it import. A read decrypts the whole file and returns
+the map, each value a `Secret`, and a write encrypts the whole map again, so no value can be read or swapped inside the
+file without the key; what that gives up, reading one secret without opening the others, a run that holds the key for
+its whole life never needs. The key is handed in, a `Secret` that holds an age identity: `sealed.py` never looks for it.
+The names are a closed list, `secrets.ROWS`, each a `Row(name, scope, kind, description)`: each host's `token`, the
+secret of the engine's one token there; `vm_password`, the VMs' user's, the console's at a create and sudo's where it
+asks; an adopted machine's `become_password`; `anthropic_api_key`; and the optional `github_token`,
+`tailscale_auth_key`, `claude_setup_token`, and the credential that deletes a VM's device at a destroy,
+`tailscale_api_token` or an OAuth client's `tailscale_oauth_client_id` and `tailscale_oauth_client_secret`. No name is a
+setting's. A secret of the fleet's is kept under its name, a host's own as `<name>@<host>` and an adopted machine's as
+`<name>@<machine>` (`entry` makes the key, `parsed` reads one back); a name outside the list is refused, by its name
+only where it has a name's shape, and no refusal says a value. Each value is held to its row's kind (`KINDS`): a token's
+secret a UUID as Proxmox prints one, a password one line with no control character, a vendor's token one word, and
+Tailscale's auth key as today's `init` holds one, never an API token. `fleet.json`'s number for the vault is the one
+`record.refuse_newer` reads, before anything is decrypted, and the vault's own `format` must equal it: a vault whose
+number differs is refused by name. `create` writes an empty vault beside the fleet's record, once; `write` replaces the
+map; `put` and `remove` change one entry. Each holds `store.locked` on the fleet's folder, the lock `fleet.json`'s
+writer holds, across reading `fleet.json`, opening the vault with the key and replacing it through `files.write`, and
+writes it at `fleet.json`'s number, so the two numbers are read and written under one lock; a key that no longer opens
+the vault reads nothing and writes nothing, two writers lose neither change, and a writer killed part way leaves the
+old file. The plaintext is never on disk, and `_plain` and `_identity` alone read a `Secret`'s value there
+(`REVEALS`). `tests/unit/test_aw_fleet_sealed.py` holds it, with every file under a case's own directory read for every
+fake secret and key after the case.
 
 ## 16.10 `guest/` — the helper, the system layer's inputs, layer 2
 

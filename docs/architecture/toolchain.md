@@ -49,6 +49,7 @@ linters' and tests' the `dev` group, and the wiki's the `docs` group; `just inst
 | pytest | `just test unit` |
 | pre-commit | the hooks run on commit, and the file checks CI runs with them |
 | proxmoxer, requests | the `community.proxmox` collection, on the controller |
+| pyrage | the new engine's vault, one age file of named secrets encrypted whole ([§16.9](engine.md#169-fleet--the-fleets-files-the-settings-the-secrets-and-the-fleets-mark)); a `[project]` dependency, which nothing of today's product imports |
 | docsible | `just docs`: each role's reference page - its variables, internal values, tasks and a flowchart of each task file |
 | Zensical | the wiki in `docs/` built as a site (`just docs serve`, `just docs build`) |
 | Markdown, pymdown-extensions | the site's rendering and its heading anchors, kept the ones GitHub makes |
