@@ -2199,23 +2199,42 @@ every file written finds no bare string leaf. They are among the tests that must
 
 **How the engine's tests reach a machine.** A test of the new engine reaches no real machine: it reaches a stand-in,
 a directory of the test's own that `tests/unit/aw_machine.py` makes, through the SSH runner (§16.6) as it reaches a
-VM. `machine()` gives each an identity made for the test (`agent-warehouse-<a UUID>`), an address from RFC 5737's
-documentation ranges, never a real network's, and a directory that holds its home, made for a state as today's
-stand-in VMs make theirs (`tests/unit/test_status_vms.py`), the files the probe reads, and a `bin/` of stand-ins found
-first on its `PATH`: today's `systemctl`, `dpkg-query` and `getent`, the fakes' `gh`, `tailscale` and `claude`, and a
-`sudo` of its own that runs as the same user, records each call's `-n` and `-S`, and, made with a password, refuses
-`-n` for want of one and reads exactly one line on `-S`. `ssh_stand_in()` gives the folder of an `ssh` that a test puts
-first on its own `PATH` (`first_on_path`): it reads the runner's words as `ssh` reads them, refuses with 255 an address
-no machine has and words whose first `StrictHostKeyChecking` or `BatchMode` is not `yes`, records every call in that
-machine's `calls.log` (its words and the names of its variables), and runs the command with `/bin/sh -c` in the
-machine's home, with that home, its `bin/` first on `PATH` and the test's own failing stand-ins next, and nothing else
-of the test's environment, its standard input passed through untouched; `-O check` and `-O stop` answer as a live
-master would, and a forward is recorded and never opened. `planted()` makes a VM of the Proxmox fake that machine: its
-guest agent reports the machine's address on the VM's own card, and its SMBIOS UUID is the identity's. An adopted
-machine is a stand-in made without it. Layer 1 meets a stand-in only in a play of one task over its test-only `local`
-connection (`layer1_host()`), which touches only the machine's directory, since the real roles would run as root on the
-computer running the tests: they converge in a Molecule container. No test of the engine writes an `ssh` stand-in of
-its own but those of the SSH layer itself, which `tests/unit/test_aw_machine.py` names with why.
+VM. `machine()` gives each an identity made for the test (`agent-warehouse-<a UUID>`), a made-up ed25519 host key, an
+address from RFC 5737's documentation ranges, never a real network's, and a directory that holds its home, made for a
+state as today's stand-in VMs make theirs (`tests/unit/test_status_vms.py`), the files the probe reads, `root/`, the
+home a command run under its `sudo` is given, and a `bin/` of stand-ins found first on its `PATH`: today's
+`systemctl`, `dpkg-query` and `getent`, the fakes' `gh`, `tailscale` and `claude`, a `python3` that is the test's own
+Python, on every system (macOS's own is 3.9), and a `sudo` of its own. That `sudo` runs as the same user, with sudo's
+`env_reset` and `secure_path` (`root/` its `HOME`, the machine's `PATH` whatever the caller's), takes `-l`, `-v`, `-k`,
+`-K` and the long options and refuses a shell, records each call's `-n` and `-S`, and, made with a password, refuses
+`-n` for want of one and on `-S` reads a line an attempt, each to its newline or carriage return: a wrong one is
+followed by the next line, up to sudo's three, as experiment M-2 saw sudo do, so a caller that sends anything after the
+password's line before sudo has answered loses it as an attempt. `ssh_stand_in()` gives the folder of an `ssh` that a
+test puts first on its own `PATH` (`first_on_path`): it reads the runner's words as `ssh` reads them, refuses with 255
+an address no machine has and words whose first `StrictHostKeyChecking` is neither `yes` nor `accept-new` or whose
+first `BatchMode` is not `yes`, and checks the key of the machine at the address as `ssh` checks it, under the first
+`HostKeyAlias` (or the address) in the files of the first `UserKnownHostsFile` (or `~/.ssh`'s two, `~` the test's own
+home), never in this computer's own `~/.ssh`: the machine's key filed there passes; none filed is refused under `yes`
+and filed under `accept-new`, as a first use files it; another filed is refused; each refusal in `ssh`'s words. So a
+connection that names one machine's identity at another's address is refused, as the rule that a VM reporting a
+sibling's address is refused rests on. `filed()` files a machine's key under its identity, in the file `target()`
+checks unless given another. The stand-in records every call in that machine's `calls.log` (its words and the names of
+its variables, never their values), and runs the command with `/bin/sh -c` in the machine's home, with no terminal (so
+`/dev/tty` fails at once, as under `sshd`), with that home, its `bin/` first on `PATH` and the test's own failing
+stand-ins next, and nothing else of the test's environment, its standard input passed through untouched; `-O check`
+and `-O stop` answer as a live master would, and a forward is recorded and never opened. `planted()` makes a VM of the
+Proxmox fake that machine: its guest agent reports the machine's address on the VM's own card, and its SMBIOS UUID is
+the identity's. An adopted machine is a stand-in made without it. Layer 1 meets a stand-in only in a play of one task
+over its test-only `local` connection (`layer1_host()`), which touches only the machine's directory, since the real
+roles would run as root on the computer running the tests: they converge in a Molecule container.
+
+What the module's own code writes is under the test's directory, but a machine is a directory, not a confinement: a
+command on one can still write the computer's `/tmp`, reach a file by its absolute path and read its ancestors'
+environment, and finds the system's programs past its `bin/` (on macOS BSD `tar`, and no `timeout`, `sha256sum` or
+`flock`). So each card points the absolute paths and URLs of its steps at the machine's directory or at a fake, and a
+command that needs GNU's tools brings a stand-in for each into the machine's `bin/`, or marks its macOS case with why.
+No test of the engine writes an `ssh` stand-in of its own, or hands the runner one, but the SSH layer's own tests, the
+guard's, and one that tests a child named `ssh`, which `tests/unit/test_aw_machine.py` names with why.
 
 ## 16.11 `control/` — what exists only with a control VM
 
