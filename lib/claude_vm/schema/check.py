@@ -7,14 +7,16 @@ pattern, with patterns.py's `full`; then runs the rules between options its row 
 holds the verb's words to their number. It returns None, or the one sentence of the first refusal. A placeholder's
 sentence says that it stands for a value, which says no value back: the placeholder is aw's own text. A pattern's
 sentence never says the value, since a word typed may be a secret, and says what the value may be, in words
-(patterns.py's `form`), after the option's help; a rule's says back no value that may be a secret, and only one that
-has met its pattern. Values come as the parser gives them and as JSON with exact types, and nothing is coerced: a value
-option's is a string, a flag's a boolean, a repeatable option's a list of strings, a counted option's a whole number;
-a verb's words are a list of strings where it takes several and a string where it takes one, or a list where the parser
-was given more than one, which the rules see as given before the verb's one word is held to its number; and `detach`
-is a flag of every verb whose run is a job. A key the verb has no option for is refused, and one whose value is None is
-taken as not given. `formed(verb, values)` is the check but for the rules between options: what the printer of a
-command holds a line to (printer.py).
+(`form_of`: patterns.py's `form`, with the option's or the words' own words and example where the table gives them),
+after the option's help, but for the words of a verb that refuses any (words.py's `REFUSED_WORDS`), which have no form
+to take; a rule's says back no value that may be a secret, and only one that has met its pattern. Values come as the
+parser gives them and as JSON with exact types, and nothing is coerced: a value option's is a string, a flag's a
+boolean, a repeatable option's a list of strings, a counted option's a whole number; a verb's words are a list of
+strings where it takes several and a string where it takes one, or a list where the parser was given more than one,
+which the rules see as given before the verb's one word is held to its number; and `detach` is a flag of every verb
+whose run is a job. A key the verb has no option for is refused, and one whose value is None is taken as not given.
+`formed(verb, values)` is the check but for the rules between options: what the printer of a command holds a line to
+(printer.py).
 
 Every command a sentence here names, the verb refused and where its options are listed among them, is the printer's,
 through printer.py's `said`, so it is the program as it was started, quoted. `command` names the verb a refusal is
@@ -32,7 +34,18 @@ from collections.abc import Mapping
 
 from claude_vm.schema import printer, rules
 from claude_vm.schema.patterns import form, full
-from claude_vm.schema.words import BEFORE, DETACH, DETACH_AGENT, VERBS, Line, Option, Verb, Words, placeholder
+from claude_vm.schema.words import (
+    BEFORE,
+    DETACH,
+    DETACH_AGENT,
+    REFUSED_WORDS,
+    VERBS,
+    Line,
+    Option,
+    Verb,
+    Words,
+    placeholder,
+)
 
 # A key of JSON's values a sentence may name: a field's name, never a value.
 _NAMEABLE = re.compile(r"[a-z][a-z0-9_]{0,40}")
@@ -92,11 +105,18 @@ def no_option(verb: str, name: str | None) -> str:
     return f"error: {command(verb)} has no{said} option{where} ({help_of(verb)} lists them)"
 
 
+def form_of(item: Option | Words) -> str:
+    """What a value of an option, or a verb's word, may be, as help and a refusal say it after its help: patterns.py's
+    form of its pattern, with the item's own words and example in place of the pattern's where the table gives it any.
+    Only for an item the table holds to a pattern: one that names none raises KeyError, as form does."""
+    return form(item.pattern or "", item.value_words, item.example)
+
+
 def _not_held(verb: str, option: Option) -> str:
     """The sentence of a value outside its option's pattern: the option's help and the form it may take, never the
     value."""
     helped = printer.said(option.help or "")
-    return f"error: {command(verb)} {spelled(option)} takes no such value: {helped} {form(option.pattern or '')}"
+    return f"error: {command(verb)} {spelled(option)} takes no such value: {helped} {form_of(option)}"
 
 
 def _stands_for(verb: str, option: Option) -> str:
@@ -124,7 +144,10 @@ def _wrong_type(verb: str, option: Option) -> str:
 
 
 def _word_not_held(verb: str, words: Words) -> str:
-    return f"error: {command(verb)} takes no such {words.name}: {printer.said(words.help)} {form(words.pattern or '')}"
+    """The sentence of a word outside its pattern: the words' help and the form a word may take, never the word; the
+    help alone for the words of a verb that refuses any, which have no form to take."""
+    sentence = f"error: {command(verb)} takes no such {words.name}: {printer.said(words.help)}"
+    return sentence if words.name == REFUSED_WORDS else f"{sentence} {form_of(words)}"
 
 
 def _words_type(verb: str, words: Words) -> str:

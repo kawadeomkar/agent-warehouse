@@ -15,15 +15,19 @@ justfile's. One pattern here no option takes: `fleet_id`, the ID the pool's mark
 which every reader of either holds a value to here, so that the two never differ.
 
 `form(name)` is how help and a refusal say what a value may be, after the option's or the words' help: its words and
-an example, `[a whole number from 1 to 999, e.g. 8]`, or its words alone where they list the values, where an example
-would be too long to print or where it would say nothing, so a person learns it from aw help <verb> and from the refusal
-of a value outside it alike. Nothing says "or empty": an option not given is not given. The words describe the value
-in prose, never with a pattern's own characters, and may be narrower than the text, never wider: where they differ,
-the text is what holds a value. The text itself is shown where it is read as a definition, the command reference's
-rows (cli/reference.py) and the agents' tools' schemas.
+an example, `[a whole number from 1 to 999 with no leading 0, e.g. 8]`, or its words alone where they list the values,
+where an example would be too long to print or where it would say nothing, so a person learns it from aw help <verb>
+and from the refusal of a value outside it alike. An option or a verb's words of the table may give words or an example
+of their own in place of the pattern's (words.py's `value_words` and `example`), where the pattern is shared with
+values of another kind: `form(name, words, example)` says those, an example only where the pattern shows one. Nothing
+says "or empty": an option not given is not given. The words describe the value in prose, never with a pattern's own
+characters, and may be narrower than the text, never wider, a bound on the digits and the characters taken included,
+the table's own words too: where they differ, the text is what holds a value. The text itself is shown where it is
+read as a definition, the command reference's rows (cli/reference.py).
 
-Standard library only: every command reads it, a refusal and help among them. No records, no registry of operations,
-no coded refusals: a refusal is the check's one sentence, which never says the value back.
+Standard library only: every command reads it, a refusal and help among them. A `Pattern` is a pattern's text with its
+words and examples, and nothing more: no request record, no registry of operations, no coded refusals, since a refusal
+is the check's one sentence, which never says the value back.
 """
 
 from __future__ import annotations
@@ -75,14 +79,21 @@ PATTERNS: dict[str, Pattern] = {
     # host's word: the host to make the current one.
     "current_host": Pattern("[a-z0-9][a-z0-9-]{0,30}", _HOST, ("lab2",)),
     # deploy's --cores, --memory and --disk, for each VM it creates: 1 to 999 cores; memory in MiB, or with M or G; a
-    # disk with G or T. Each a whole number that starts with no 0.
-    "cores": Pattern("([1-9][0-9]{0,2})?", "a whole number from 1 to 999", ("8",)),
+    # disk with G or T. Each a whole number that starts with no 0. A unit is taken capital or small, which the reader of
+    # a size makes one value (the owner's answer of 2026-11-22: review/code/OWNER-11.md 1, in the plan's folder), where
+    # today's justfile and tools/check size take a capital one alone; the examples are capital.
+    "cores": Pattern("([1-9][0-9]{0,2})?", "a whole number from 1 to 999 with no leading 0", ("8",)),
     "memory": Pattern(
-        "([1-9][0-9]{0,6}[MG]?)?",
-        "a whole number of MiB, or a whole number with M or G after it",
+        "([1-9][0-9]{0,6}[MGmg]?)?",
+        "a whole number of MiB, or a whole number with M or G after it, capital or small, the number from 1 to 9999999 "
+        "with no leading 0",
         ("16G", "2048"),
     ),
-    "disk": Pattern("([1-9][0-9]{0,5}[GT])?", "a whole number with G or T after it", ("128G", "1T")),
+    "disk": Pattern(
+        "([1-9][0-9]{0,5}[GTgt])?",
+        "a whole number with G or T after it, capital or small, the number from 1 to 999999 with no leading 0",
+        ("128G", "1T"),
+    ),
     # deploy's --repos: GitHub repositories, comma-separated, each of at most 100 characters and none starting with .
     # or -.
     "repos": Pattern(
@@ -140,21 +151,33 @@ PATTERNS: dict[str, Pattern] = {
     # options, which mcp refuses. An example of any line says nothing the words do not.
     "text": Pattern(r"[^\x00-\x1f\x7f]*", "one line of text, with no control character", ("two words",), shown=False),
     # A path from / or ~, with no control character, or none: mcp's --project-dir and --vault-password-file, which aw
-    # calls --vault-key-file.
-    "path": Pattern(r"([/~][^\x00-\x1f\x7f]*)?", "a path that starts with / or ~", ("~/projects/app", "/srv/aw")),
+    # calls --vault-key-file, a file, which gives an example of its own (words.py).
+    "path": Pattern(
+        r"([/~][^\x00-\x1f\x7f]*)?",
+        "a path that starts with / or ~, with no control character",
+        ("~/projects/app", "/srv/aw"),
+    ),
     # mcp's --attended: whether someone is at the screen, or unset; and aw's --attended before a verb.
     "attended": Pattern("(0|1)?", "0 or 1", ("1",), shown=False),
-    # init's --address.
-    "address": Pattern("[A-Za-z0-9.:-]*", "a host's name or an IP address", ("pve.example", "192.0.2.10")),
+    # init's --address: a host's name, or an IPv4 or IPv6 address with no brackets and no zone.
+    "address": Pattern(
+        "[A-Za-z0-9.:-]*",
+        "a host's name or an IP address: letters, digits, dots, colons and hyphens",
+        ("pve.example", "192.0.2.10"),
+    ),
     # init's --storage, --bridge and --token-id: the names Proxmox gives a storage, a bridge and a token; and aw's init
-    # --pool, a pool's.
+    # --pool, a pool's. The example is a storage's: --bridge, --token-id and --pool give one of their own (words.py).
     "proxmox_id": Pattern(
         "[A-Za-z0-9._-]*",
         "a name as Proxmox gives one: letters, digits, dots, underscores and hyphens",
         ("local-lvm",),
     ),
     # init's --token-user: a user with its realm.
-    "token_user": Pattern("[A-Za-z0-9._@-]*", "a Proxmox user and its realm, joined by @", ("ansible@pve",)),
+    "token_user": Pattern(
+        "[A-Za-z0-9._@-]*",
+        "a Proxmox user and its realm, joined by @: letters, digits, dots, underscores and hyphens",
+        ("ansible@pve",),
+    ),
     # init's --github-user.
     "github_user": Pattern("[A-Za-z0-9-]*", "a GitHub account's name: letters, digits and hyphens", ("octocat",)),
     # init's --token-secret-file; and aw's vault --file, the file that holds one secret.
@@ -166,10 +189,11 @@ PATTERNS: dict[str, Pattern] = {
     ),
     # init's --tailscale.
     "on_off": Pattern("(on|off)?", "on or off", ("on",), shown=False),
-    # init's --certificate: a SHA-256 fingerprint, as openssl prints it.
+    # init's --certificate: a SHA-256 fingerprint, as openssl prints it after "sha256 Fingerprint=".
     "fingerprint": Pattern(
         "(([0-9A-Fa-f]{2}:){31}[0-9A-Fa-f]{2})?",
-        "a SHA-256 fingerprint as openssl prints it: 32 pairs of hex digits joined by colons",
+        "a SHA-256 fingerprint, the part after Fingerprint= as openssl prints it: 32 pairs of hex digits joined by "
+        "colons",
         (":".join(["AB", "CD", "EF", "01", "23", "45", "67", "89"] * 4),),
         shown=False,
     ),
@@ -177,15 +201,16 @@ PATTERNS: dict[str, Pattern] = {
     # --set's: a setting's name, =, and its value for one run, a line of text.
     "assignment": Pattern(
         r"[a-z][a-z0-9_]*=[^\x00-\x1f\x7f]*",
-        "a setting's name, then = and its value for this run",
+        "a setting's name, then = and its value for this run, with no control character",
         ("vm_cores=8",),
     ),
     # vault's word: one of the vault's named secrets.
     "secret_name": Pattern("[a-z][a-z0-9_]*", f"a secret's name in the vault: {_LOWER_NAME}", ("github_token",)),
-    # deploy's --remove-key: one SSH key's SHA256 fingerprint, as ssh-keygen -l prints it.
+    # deploy's --remove-key: one SSH key's SHA256 fingerprint, as ssh-keygen -l prints it between the key's size and its
+    # comment.
     "ssh_fingerprint": Pattern(
         "(SHA256:[A-Za-z0-9+/]{43})?",
-        "an SSH key's fingerprint as ssh-keygen -l prints it: SHA256: and 43 characters of base64",
+        "an SSH key's fingerprint, the second word ssh-keygen -l prints: SHA256: and 43 characters of base64",
         ("SHA256:" + "Ab0+" * 10 + "xyz",),
         shown=False,
     ),
@@ -223,9 +248,14 @@ def full(name: str, value: str) -> bool:
     return compiled.fullmatch(value) is not None
 
 
-def form(name: str) -> str:
+def form(name: str, words: str | None = None, example: str | None = None) -> str:
     """What a value of the pattern PATTERNS names name may be, as help and a refusal say it after the option's or the
-    words' help: [<its words>, e.g. <its first example>], or [<its words>] where the pattern shows no example. A name
-    that is not in PATTERNS raises KeyError, as full does."""
+    words' help: [<its words>, e.g. <its first example>], or [<its words>] where the pattern shows no example. words and
+    example, where given, are an option's or a verb's words' own, in place of the pattern's (words.py's value_words and
+    example): the example said only where the pattern shows one. A name that is not in PATTERNS raises KeyError, as full
+    does."""
     pattern = PATTERNS[name]
-    return f"[{pattern.words}, e.g. {pattern.examples[0]}]" if pattern.shown else f"[{pattern.words}]"
+    said = pattern.words if words is None else words
+    if not pattern.shown:
+        return f"[{said}]"
+    return f"[{said}, e.g. {pattern.examples[0] if example is None else example}]"

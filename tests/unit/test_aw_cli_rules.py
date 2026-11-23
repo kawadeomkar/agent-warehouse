@@ -27,7 +27,7 @@ from harness import REPO, repo_files, repo_texts
 from claude_vm.cli import before, dispatch, habits, parse
 from claude_vm.schema import check as checks
 from claude_vm.schema import printer, rules
-from claude_vm.schema.patterns import form, full
+from claude_vm.schema.patterns import full
 from claude_vm.schema.printer import said
 from claude_vm.schema.words import VERBS
 
@@ -194,7 +194,7 @@ PARSER_REFUSALS: dict[str, tuple[list[str], int, str]] = {
         ["deploy", "--cores=0"],
         1,
         f"error: {AW} deploy --cores takes no such value: Each new VM's vCPU cores, in place of the vm_cores setting"
-        " [a whole number from 1 to 999, e.g. 8]",
+        " [a whole number from 1 to 999 with no leading 0, e.g. 8]",
     ),
     "pattern-2": (
         ["deploy", "--only=check"],
@@ -701,7 +701,7 @@ def _outside(verb: str, field: str) -> str:
     """The sentence of a value outside the pattern of verb's option received as field: it never says the value."""
     option = next(option for option in VERBS[verb].options if option.field == field)
     # The option's help, and what its value may be in words (H25; the owner's ruling, review/code/OWNER-9.md 2).
-    helped = f"{said(option.help or '')} {form(option.pattern or '')}"
+    helped = f"{said(option.help or '')} {checks.form_of(option)}"
     return f"error: aw {verb} {checks.spelled(option)} takes no such value: {helped}"
 
 

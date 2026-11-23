@@ -2,11 +2,12 @@
 statuses beside it (docs/architecture/engine.md §16.2).
 
 Each verb is a row: its words and options, each option with its kind, the name of the pattern its value is held to,
-its help and its fate for an agent's tool; the codes of the rules between its options; its handler, or the card that
-will build it; the locks a run of it takes; whether a run of it is a job, and so can be started detached; and the
-tools of the agents' server that run it, or why none does. The parser, the one check, help and the reference page, the
-printer of a command, the locks and the agents' schemas read it when they run. Written by hand as literals: nothing is
-generated from it into another file or into it from another.
+what a value may be in words and an example of one where its own differ from the pattern's, its help and its fate for
+an agent's tool; the codes of the rules between its options; its handler, or the card that will build it; the locks a
+run of it takes; whether a run of it is a job, and so can be started detached; and the tools of the agents' server
+that run it, or why none does. The parser, the one check, help and the reference page, the printer of a command, the
+locks and the agents' schemas read it when they run. Written by hand as literals: nothing is generated from it into
+another file or into it from another.
 
 Today's verbs keep today's words and help, with aw where they said just, but where a later card changed one. The rules
 are named by code (deploy.4, check.names.1): the sentence is the rule's own, written where the rule is (rules.py).
@@ -81,7 +82,11 @@ class Option:
     name=value, for --set <name>=<value>), None for a flag and a count. until is None, or the card that builds what
     the option does: help and the command reference leave the option out until then, and the parser and the check take
     it all the same, its verb refusing it (install's options of the installed program, H14's and H15's, which a
-    checkout refuses)."""
+    checkout refuses). value_words and example are what its value may be in words and an example of one, the option's
+    own in place of its pattern's, which help and a refusal say after its help (patterns.py's form), where the pattern
+    is shared with values of another kind (init --bridge's vmbr1, not a storage's name): None for the pattern's. Its
+    pattern holds the example, which is said only where the pattern shows one, and the words are never wider than the
+    pattern's text."""
 
     long: str | None
     short: str | None
@@ -92,13 +97,18 @@ class Option:
     agent: Agent
     metavar: str | None = None
     until: str | None = None
+    value_words: str | None = None
+    example: str | None = None
 
 
 @dataclass(frozen=True)
 class Words:
     """The words a verb takes after its options: name is what the usage calls one (deploy [<name>...]), plural whether
     it takes several, field the name the handler receives them by, pattern the pattern each is held to (None where the
-    verb refuses any word: init's), help its sentence, agent its fate for an agent's tool."""
+    verb refuses any word: init's), help its sentence, agent its fate for an agent's tool. value_words and example are
+    what a word may be in words and an example of one, their own in place of the pattern's, as an option's are
+    (release's one machine, not a VM's name): None for the pattern's. A verb's words named REFUSED_WORDS are no word to
+    give: help and a refusal say no form for them."""
 
     name: str
     plural: bool
@@ -106,6 +116,13 @@ class Words:
     pattern: str | None
     help: str
     agent: Agent
+    value_words: str | None = None
+    example: str | None = None
+
+
+# The words a verb takes that are no word to give: init's and mcp's, which each refuse any, as today's EXTRA does. Help
+# leaves them out of a usage line and says no form for them, and nor does the refusal of one outside its pattern.
+REFUSED_WORDS = "extra"
 
 
 @dataclass(frozen=True)
@@ -144,8 +161,11 @@ def _value(
     agent: Agent = PROPERTY,
     short: str | None = None,
     until: str | None = None,
+    *,
+    value_words: str | None = None,
+    example: str | None = None,
 ) -> Option:
-    return Option(long, short, "value", pattern, _field(long), help, agent, metavar, until)
+    return Option(long, short, "value", pattern, _field(long), help, agent, metavar, until, value_words, example)
 
 
 def _flag(long: str, help: str | None, agent: Agent = PROPERTY, until: str | None = None) -> Option:
@@ -253,6 +273,12 @@ ATTENDED = fixed(
 DETACH = "Start the run in a session of its own and say its job's ID once it is under way: it goes on after this ends"
 DETACH_AGENT = fixed(True, "the server starts every run that is a job detached, and follows the job")
 
+# What an adopted machine's name may be, for release's word and its --confirm: one name, where the patterns they are
+# held to are a VM's, and several joined by commas.
+_MACHINE = (
+    "an adopted machine's name: letters, digits, dots, underscores and hyphens, starting with a letter or a digit"
+)
+
 # ---------------------------------------------------------------- the words several verbs share ----
 
 # --host on deploy, code, login, status and destroy.
@@ -265,7 +291,7 @@ SET = Option(
     "assignment",
     "set",
     "One setting's value for this run alone, never a secret, held to its type as settings --value holds it: "
-    "--set name=value, once for each",
+    "--set <name>=<value>, once for each",
     refused(SET_REFUSED),
     "name=value",
 )
@@ -334,6 +360,7 @@ _VERBS: tuple[Verb, ...] = (
                 "proxmox_id",
                 "id",
                 "The API token's ID, the part after its user's !, when it is not ansible",
+                example="automation",
             ),
             _value(
                 "token-secret-file",
@@ -355,6 +382,7 @@ _VERBS: tuple[Verb, ...] = (
                 "proxmox_id",
                 "bridge",
                 "The bridge the template is built on, for local.yml (before the template exists)",
+                example="vmbr1",
             ),
             _value(
                 "tailscale",
@@ -380,7 +408,11 @@ _VERBS: tuple[Verb, ...] = (
                 refused(PRINT_COMMANDS_REFUSED),
             ),
             _value(
-                "pool", "proxmox_id", "pool", "The Proxmox pool that holds the fleet's VMs, when it is not the default"
+                "pool",
+                "proxmox_id",
+                "pool",
+                "The Proxmox pool that holds the fleet's VMs, when it is not the default",
+                example="dev-vms",
             ),
             _flag(
                 "machines",
@@ -760,7 +792,9 @@ _VERBS: tuple[Verb, ...] = (
         group="use",
         doc="End the logins this project made on an adopted machine, remove its alias and this fleet's marker, and "
         "uninstall nothing",
-        words=Words("machine", False, "name", "vm_name", "The one adopted machine to release", PROPERTY),
+        words=Words(
+            "machine", False, "name", "vm_name", "The one adopted machine to release", PROPERTY, value_words=_MACHINE
+        ),
         options=(
             _value(
                 "confirm",
@@ -768,6 +802,8 @@ _VERBS: tuple[Verb, ...] = (
                 "name",
                 "Release without asking, this machine only: the same name as given",
                 fixed(None, CONFIRMED),
+                value_words=_MACHINE,
+                example="alpha",
             ),
             SET,
             VERBOSE,
@@ -917,6 +953,7 @@ _VERBS: tuple[Verb, ...] = (
                 "file",
                 "The file that holds the vault's key, for the runs the server starts with no terminal",
                 refused(NO_TOOL_MCP),
+                example="~/keys/fleet.key",
             ),
         ),
         rules=("mcp.1", "mcp.2"),

@@ -43,9 +43,9 @@ from claude_vm.cli.main import main
 from claude_vm.fleet import paths
 from claude_vm.schema import check as checks
 from claude_vm.schema import rules
-from claude_vm.schema.patterns import PATTERNS, form, full
+from claude_vm.schema.patterns import PATTERNS, full
 from claude_vm.schema.printer import said
-from claude_vm.schema.words import EXITS, VERBS, Verb
+from claude_vm.schema.words import EXITS, REFUSED_WORDS, VERBS, Verb
 
 # Today's justfile's recipes a person runs, whose verb names just <verb> while no card has built it, until the flip.
 TODAYS = {
@@ -196,7 +196,7 @@ def test_a_value_outside_its_pattern_or_with_a_newline_after_it_is_refused_unsai
         # The option's help, and what its value may be in words, which the person reads in aw help too (H25), never
         # the pattern itself (the owner's ruling, review/code/OWNER-9.md 2).
         assert spelling in sentence and said(option.help or "") in sentence, sentence
-        assert sentence.endswith(f" {form(option.pattern)}"), sentence
+        assert sentence.endswith(f" {checks.form_of(option)}"), sentence
         assert PATTERNS[option.pattern].text not in sentence and "[pattern: " not in sentence, sentence
 
 
@@ -206,7 +206,11 @@ def test_a_word_outside_its_pattern_is_refused_unsaid(verb: Verb) -> None:
         sentence = _refused([verb.name, word])
         _said_nothing_typed(sentence)
         assert said(verb.words.help) in sentence, sentence
-        assert sentence.endswith(f" {form(verb.words.pattern)}"), sentence
+        if verb.words.name == REFUSED_WORDS:
+            # mcp refuses any word: its refusal tells no form a word could take (review/code/H29.md 3).
+            assert sentence.endswith(f": {said(verb.words.help)}") and "[" not in sentence, sentence
+        else:
+            assert sentence.endswith(f" {checks.form_of(verb.words)}"), sentence
         assert PATTERNS[verb.words.pattern].text not in sentence and "[pattern: " not in sentence, sentence
 
 

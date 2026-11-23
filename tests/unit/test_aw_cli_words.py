@@ -4,14 +4,16 @@ Every verb has its handler or the card that builds it, the locks a run of it tak
 the tools of the agents' server that run it or why none does; every option a kind, a pattern of schema/patterns.py
 unless it takes no value, a name of what its value is, which help and a line's form write as its placeholder (<cores>),
 and a fate for an agent's tool, by tool where two tools run its verb. Which pattern each option's value and each verb's
-words are held to is the one a map of this file's own names, written by hand, both ways. No verb of the add-on is a
-verb of the base's table, and no word the trims took out of the base is a word of it. Each reason a verb no tool runs
-gives is said with its commands the printer's. Every option and word of a verb a
-tool runs is a property of the tool's schema, but those ruled otherwise, each named here. No option's value is a secret,
-but the two that take free text a person may type one into, which the run layer refuses and never says back; no sentence
-says just, a reason why an agent's tool does not take a word among them; each meaning of an exit status has one number
-and each number one meaning but status's 3, which today gives a read that failed and one a person cancelled; and the
-module imports the standard library alone.
+words are held to is the one a map of this file's own names, written by hand, both ways; and so are the example the
+form of each shows, or none, and the words of an option's own, in maps written beside it. An option's own example is
+held by its pattern, shown, and not its pattern's, and its own words are prose, as a pattern's are; --set's sentence
+names the placeholder its row prints. No verb of the add-on is a verb of the base's table, and no word the trims took
+out of the base is a word of it. Each reason a verb no tool runs gives is said with its commands the printer's. Every
+option and word of a verb a tool runs is a property of the tool's schema, but those ruled otherwise, each named here.
+No option's value is a secret, but the two that take free text a person may type one into, which the run layer refuses
+and never says back; no sentence says just, a reason why an agent's tool does not take a word among them; each meaning
+of an exit status has one number and each number one meaning but status's 3, which today gives a read that failed and
+one a person cancelled; and the module imports the standard library alone.
 """
 
 from __future__ import annotations
@@ -26,7 +28,7 @@ import pytest
 from aw_kit import imports_of
 
 from claude_vm.schema import printer, words
-from claude_vm.schema.patterns import PATTERNS
+from claude_vm.schema.patterns import PATTERNS, full
 from claude_vm.schema.words import (
     BEFORE,
     DETACH,
@@ -271,6 +273,133 @@ PATTERN_OF: dict[str, dict[str, str]] = {
 }
 
 
+# The example the form of each option and words of PATTERN_OF shows after its words in help's row and in the refusal of
+# a value outside its pattern, or None where it shows none, by the same verb and the same spelling: written here by
+# hand, so that an option a later card adds names its example, and an option sharing a pattern with values of another
+# kind shows one of its own kind (H30: init --bridge's vmbr1, never a storage's local-lvm; mcp --vault-key-file's file,
+# never a folder).
+EXAMPLE_OF: dict[str, dict[str, str | None]] = {
+    "": {"--attended": None},
+    "help": {"<recipe>": "deploy"},
+    "init": {
+        "--address": "pve.example",
+        "--host": "lab2",
+        "--token-user": "ansible@pve",
+        "--token-id": "automation",
+        "--token-secret-file": "~/secrets/token",
+        "--github-user": "octocat",
+        "--storage": "local-lvm",
+        "--bridge": "vmbr1",
+        "--tailscale": None,
+        "--certificate": None,
+        "--pool": "dev-vms",
+        "--set": "vm_cores=8",
+    },
+    "install": {"--version": "v3.0.0", "--without": None},
+    "vault": {"<name>": "github_token", "--host": "lab2", "--file": "~/secrets/token"},
+    "deploy": {
+        "<name>": "alpha",
+        "--only": None,
+        "--host": "lab2",
+        "--tags": "claude_code,dev_tools",
+        "--cores": "8",
+        "--memory": "16G",
+        "--disk": "128G",
+        "--repos": "my-app,my-lib",
+        "--remove-key": None,
+        "--set": "vm_cores=8",
+    },
+    "code": {
+        "<name>": "alpha",
+        "--project": "my-app",
+        "--editor": None,
+        "--host": "lab2",
+        "--session": None,
+        "--set": "vm_cores=8",
+    },
+    "login": {"<name>": "alpha", "--host": "lab2", "--only": None, "--set": "vm_cores=8"},
+    "status": {"<name>": "alpha", "--host": "lab2", "--only": None, "--set": "vm_cores=8"},
+    "settings": {"<name>": "vm_cores", "--host": "lab2", "--value": None},
+    "destroy": {"<name>": "alpha", "--confirm": "alpha,beta", "--host": "lab2", "--set": "vm_cores=8"},
+    "release": {"<machine>": "alpha", "--confirm": "alpha", "--set": "vm_cores=8"},
+    "host": {"<name>": "lab2", "--for": "alpha,beta", "--host": "lab2"},
+    "logs": {"<job>": "3f9a0c1e7b2d4a58"},
+    "cancel": {"<job>": "3f9a0c1e7b2d4a58"},
+    "mcp": {
+        "<extra>": None,
+        "--attended": None,
+        "--browser": None,
+        "--project-dir": "~/projects/app",
+        "--vault-key-file": "~/keys/fleet.key",
+    },
+}
+# What an adopted machine's name may be, in release's own words: one machine, never a VM's name nor several joined by
+# commas, which its patterns' words say (review/code/H29.md 2).
+MACHINE_WORDS = (
+    "an adopted machine's name: letters, digits, dots, underscores and hyphens, starting with a letter or a digit"
+)
+# The words of an option's own, or a verb's words' own, in place of its pattern's, by verb and spelling, as EXAMPLE_OF:
+# every other item says its pattern's.
+WORDS_OF: dict[tuple[str, str], str] = {
+    ("release", "<machine>"): MACHINE_WORDS,
+    ("release", "--confirm"): MACHINE_WORDS,
+}
+
+
+def _items() -> dict[tuple[str, str], Option | words.Words]:
+    """Every option and verb's words the table holds to a pattern, by verb ("" before any) and spelling, as PATTERN_OF
+    names them."""
+    items: dict[tuple[str, str], Option | words.Words] = {
+        ("", _spelled(option)): option for option in BEFORE if option.pattern is not None
+    }
+    for name, verb in VERBS.items():
+        if verb.words is not None and verb.words.pattern is not None:
+            items[name, words.placeholder(verb.words)] = verb.words
+        items |= {(name, _spelled(option)): option for option in verb.options if option.pattern is not None}
+    return items
+
+
+def test_every_option_and_word_held_to_a_pattern_shows_the_example_this_file_names() -> None:
+    # Compared one item at a time, so that a difference names the verb and the option.
+    assert {verb: set(named) for verb, named in EXAMPLE_OF.items()} == {
+        verb: set(named) for verb, named in PATTERN_OF.items()
+    }
+    shown = {}
+    for key, item in _items().items():
+        pattern = PATTERNS[item.pattern or ""]
+        shown[key] = (pattern.examples[0] if item.example is None else item.example) if pattern.shown else None
+    assert shown == {(verb, word): example for verb, named in EXAMPLE_OF.items() for word, example in named.items()}
+
+
+def test_an_item_s_own_example_is_held_by_its_pattern_shown_and_not_its_pattern_s() -> None:
+    own = {key: item for key, item in _items().items() if item.example is not None}
+    assert {key for key, item in own.items()} == {
+        ("init", "--token-id"),
+        ("init", "--bridge"),
+        ("init", "--pool"),
+        ("release", "--confirm"),
+        ("mcp", "--vault-key-file"),
+    }
+    for key, item in own.items():
+        pattern = PATTERNS[item.pattern or ""]
+        assert full(item.pattern or "", item.example or ""), key
+        assert pattern.shown and item.example != pattern.examples[0], key
+
+
+def test_the_words_of_an_item_s_own_are_those_this_file_names_and_are_prose() -> None:
+    own = {key: item.value_words for key, item in _items().items() if item.value_words is not None}
+    assert own == WORDS_OF
+    for key, said in own.items():
+        # As a pattern's words are (test_aw_schema.py): none of a pattern's characters, no full stop, no example.
+        assert said and not set("[]{}\\|?*^$") & set(said) and not said.endswith(".") and "e.g." not in said, key
+        assert said != PATTERNS[_items()[key].pattern or ""].words, key
+    # An option of the table that holds no value carries neither.
+    for verb in VERBS.values():
+        for option in (*verb.options, *BEFORE):
+            if option.pattern is None:
+                assert (option.value_words, option.example) == (None, None), option
+
+
 def _patterns_named(options: tuple[Option, ...], held: words.Words | None = None) -> dict[str, str]:
     """The pattern each of options and the words held name, by the option's spelling and the words' placeholder."""
     named = {words.placeholder(held): held.pattern} if held is not None and held.pattern is not None else {}
@@ -482,6 +611,13 @@ def test_no_option_takes_a_secret_as_its_value_but_the_two_of_free_text() -> Non
     assert free == set(SECRET_TEXT) | set(NAMED_TEXT), "a value of free text: say whether a secret may be typed there"
     assert set(SECRET_TEXT) & set(NAMED_TEXT) == set() and all((*SECRET_TEXT.values(), *NAMED_TEXT.values()))
     assert not any(option.pattern in FREE_PATTERNS for option in BEFORE)
+
+
+def test_set_s_sentence_names_the_placeholder_its_row_prints() -> None:
+    # --set <name>=<value>, as words.placeholder writes it, never the bare name=value (review/code/H29.md, H27 (5)).
+    assert words.SET.help is not None
+    assert f"--set {words.placeholder(words.SET)}, once for each" in words.SET.help
+    assert "name=value" not in words.SET.help
 
 
 def test_every_sentence_is_one_line_and_says_aw_never_just() -> None:
