@@ -85,18 +85,19 @@ KINDS: Final[Mapping[str, Kind]] = {
 
 # The same kinds for the new engine's layout (docs/architecture/engine.md §16.9), where every host is a folder of the
 # fleet's files, fleet/hosts/<name>/, the first included, and a run reads no inventory: today's product never reads
-# this table. A host still sets its own node, storage, bridge and template for itself, in its own settings.yml; where
-# its API is and the token it is reached with are fields of its host.yml, and its certificate is always checked, so
-# neither is a setting here. A setting of one network or one machine is a row of scope host in the settings table,
-# which the fleet's settings.yml and client.yml's top level may never hold (the overrides' reader refuses one there by
-# name), so none is ever inherited. Nothing is made from the run's host that a file could set, and each host's secret
-# is its own token in the one vault.
+# this table. A host still sets its own node, storage and bridge for itself, in its own settings.yml, which init
+# writes; it may set its template's ID there too, and where it does not, the table's default holds, as it does for
+# today's first host, since no shared file can supply one any more. Where its API is and the token it is reached with
+# are fields of its host.yml, and its certificate is always checked, so neither is a setting here. A setting of one
+# network or one machine is a row of scope host in the settings table, which the fleet's settings.yml and client.yml's
+# top level may never hold (the overrides' reader refuses one there by name), so none is ever inherited. Nothing is
+# made from the run's host that a file could set, and each host's secret is its own token in the one vault.
 FLEET_KINDS: Final[Mapping[str, Kind]] = {
     "proxmox": Kind(
         key="proxmox",
         name="Proxmox VE",
         group="proxmox",
-        always=("proxmox_node", "proxmox_storage", "proxmox_bridge", "proxmox_template_vmid"),
+        always=("proxmox_node", "proxmox_storage", "proxmox_bridge"),
         never_inherited=(
             "vm_ipconfig",
             "vm_nameservers",

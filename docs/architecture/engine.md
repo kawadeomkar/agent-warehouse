@@ -1774,9 +1774,10 @@ a run that names none is refused, since which one is this computer's to choose. 
 alias records, `# origin:` in the managed SSH config under this computer's home, as today, with `claude_ssh_config` off
 recording none. `reach(layout, request)` decides a run's host by today's rules (`choose.choose`), then keeps the
 refusals that still have a meaning: a host whose files cannot be used, and one whose `settings.yml` does not set each of
-`FLEET_KINDS`' `always` (`hosts/kinds.py`'s second table: the node, storage, bridge and template), taken all the same by
-a lenient request (`settings`, `vault`) that may put it right; a setting the fleet's file may not supply is refused by
-the overrides' reader there. It returns the host, its fields and anchor, and with several hosts the others' names and
+`FLEET_KINDS`' `always` (`hosts/kinds.py`'s second table: the node, the storage and the bridge, which `init` writes;
+the template's ID has the table's default, and a host may set its own), taken all the same by a lenient request
+(`settings`, `vault`) that may put it right; a setting the fleet's file may not supply is refused by the overrides'
+reader there. It returns the host, its fields and anchor, and with several hosts the others' names and
 addresses a run keeps apart from its machines. What a host's files say is that host's problem, said in its place, and a
 run against another goes on. `make_current` writes `current_host` through `overrides.set_current`, held to a host of the
 fleet that can be used. A `Host`'s `local_file`, `vault_file`, `hosts_file` and `sources` name today's inventory and are
