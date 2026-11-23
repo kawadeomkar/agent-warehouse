@@ -4,21 +4,27 @@
 A row is a setting's name; its type, one of `TYPES`, and its choices, empty where any value of the type is taken; its
 default, a literal or, where it is worked out from something else, one of the named functions below; its scope, one
 of `SCOPES`: one value for the fleet, one for each host, or one for each machine; its home, one of `HOMES`: the
-fleet's `settings.yml`, a host's `settings.yml`, or this computer's own `client.yml` (at scope `host` in its map
-`hosts`, by the host's name, and at scope `machine` in its map `machines`, by `<host>/<machine>`); its group, the
-role whose variables `settings <role>` lists it with (`common` for a setting that reaches no role's variable, as
-today's `just settings` places one); and its description, what a person reads of it.
+fleet's `settings.yml` (at scope `machine` in its map `machines`, by `<host>/<machine>`), a host's `settings.yml`, this
+computer's own `client.yml` (at scope `host` in its map `hosts`, by the host's name, and at scope `machine` in its map
+`machines`, by `<host>/<machine>`), or `run`, no file at all: a value given with `--set` for one run alone; its group,
+the role whose variables `settings <role>` lists it with (`common` for a setting that reaches no role's variable, as
+today's `just settings` places one); its description, what a person reads of it; whether its value may hold a secret
+(`secret`), so that it is never shown, never said back and never taken for one run; whether an agent may ask to change
+it (`agent`), which the agents' server reads; and, for such a setting whose type lets more through than an agent may
+give, the values an agent may give it (`values`). A row that names a secret and that an agent may change cannot be
+built.
 
-`ROWS` holds today's documented settings, each under its name, with its type and choices from the argument spec of
-the role variable it feeds, its default from the project's defaults or the role's, and its description from the
-comment above it in today's example file. `CONNECTION` holds the settings of this computer's own SSH that today's
-guides document outside that file, counted apart. Nothing generates this table, and nothing is generated from it into
-a tracked file: a change to a row is a change to this file. What it must agree with in today's files is the cutover's
-check (tests/unit/test_aw_fleet_registry_today.py), which goes with them; tests/unit/test_aw_fleet_registry.py holds
-the table itself.
+`ROWS` holds today's documented settings that the new engine keeps as settings, each under its name, with its type and
+choices from the argument spec of the role variable it feeds, its default from the project's defaults or the role's,
+and its description from the comment above it in today's example file. `ADDED` holds the settings the new engine adds,
+which today's example does not document, counted apart, and `CONNECTION` the settings of this computer's own SSH that
+today's guides document outside that file, counted apart too. Nothing generates this table, and nothing is generated
+from it into a tracked file: a change to a row is a change to this file. What it must agree with in today's files is
+the cutover's check (tests/unit/test_aw_fleet_registry_today.py), which goes with them, and which names today's
+settings that have no row; tests/unit/test_aw_fleet_registry.py holds the table itself.
 
-The overrides, the settings verb and what a play is handed are other modules', which read this one. Standard
-library only.
+The overrides, the settings verb, the agents' server and what a play is handed are other modules', which read this
+one. Standard library only.
 """
 
 from __future__ import annotations
@@ -30,15 +36,30 @@ from pathlib import Path
 from types import MappingProxyType
 
 # The types a row's value takes: a boolean, an integer, a string, a path on this computer, a list of strings, and a
-# mapping of strings to the literals YAML reads.
+# mapping of strings to the literals YAML reads. A path is read on this computer: `~` at its start is the user's home, a
+# path still relative after that is refused by name, and `""` is unset, which each such row's description says the
+# meaning of.
 TYPES = ("bool", "int", "str", "path", "list[str]", "dict")
 # One value for the whole fleet, one for each host, or one for each machine.
 SCOPES = ("global", "host", "machine")
-# Where a value is kept: the fleet's settings.yml, a host's settings.yml, or this computer's client.yml.
-HOMES = ("fleet", "host", "client")
-# What a computed default may read besides the other rows' values, by its parameters' names: the machine's name, and
-# this computer's user home.
-GIVEN = ("machine", "user_home")
+# Where a value is kept: the fleet's settings.yml, a host's settings.yml, this computer's client.yml, or no file: a
+# value given for one run alone, which a file that holds it is refused for.
+HOMES = ("fleet", "host", "client", "run")
+# What a computed default may read besides the other rows' values, by its parameters' names: the machine's name, this
+# computer's user home, and the key file fleet.paths names for the running program's home.
+GIVEN = ("machine", "user_home", "key_file")
+
+
+@dataclass(frozen=True)
+class ValueRule:
+    """The values an agent may give a setting whose type lets more through: those `pattern` matches whole, said to the
+    agent as `said`."""
+
+    pattern: str
+    said: str
+
+    def allows(self, value: str) -> bool:
+        return re.fullmatch(self.pattern, value) is not None
 
 
 @dataclass(frozen=True)
@@ -46,7 +67,8 @@ class Row:
     """One setting: see the module's docstring for what each field holds. A default that is callable is computed: a
     function of this module whose keyword-only parameters name what it reads, each a row's name or one of `GIVEN`.
     A list's default is a tuple and a mapping's a read-only mapping, so that no reader changes the table: a reader
-    that hands one on copies it, as a list or a dict."""
+    that hands one on copies it, as a list or a dict. A row that names a secret is never one an agent may change, and
+    only a row an agent may change has a rule for its values: either is refused as the row is made."""
 
     name: str
     type: str
@@ -56,6 +78,15 @@ class Row:
     home: str
     group: str
     description: str
+    secret: bool = False
+    agent: bool = False
+    values: ValueRule | None = None
+
+    def __post_init__(self) -> None:
+        if self.secret and self.agent:
+            raise ValueError(f"{self.name} names a secret, so no agent may change it")
+        if self.values is not None and not self.agent:
+            raise ValueError(f"{self.name} has a rule for an agent's values, but no agent may change it")
 
 
 # ---------------------------------------------------------------- the defaults that are worked out ----
@@ -94,21 +125,49 @@ def tailnet_label(*, machine: str) -> str:
     return re.sub(r"-+\Z", "", re.sub(r"^-+|-+\Z", "", label)[:63])
 
 
+def the_homes_key_file(*, key_file: Path) -> str:
+    """vault_key_file's default: the key file fleet.paths names for the running program's home, in a folder of this
+    computer's own that is neither the fleet's folder a person copies nor the state folder a cleanup may remove."""
+    return str(key_file)
+
+
 COMPUTED: tuple[Callable[..., object], ...] = (
     this_computers_key,
     same_as_vm_memory_mb,
     same_as_vm_projects_dir,
     machine_name,
     tailnet_label,
+    the_homes_key_file,
 )
+
+
+# ---------------------------------------------------------------- what an agent may give ----
+
+# claude_code_version from an agent: a channel or a release, never another spec, since with npm as the install method
+# the value is the package's version for npm, which installs any spec given there (another package, a repository, a
+# tarball's address) as root on every VM.
+VERSION_FROM_AN_AGENT = ValueRule(r"stable|latest|[0-9]+\.[0-9]+\.[0-9]+", "stable, latest or a version as 2.1.319")
 
 
 # ---------------------------------------------------------------- how a row is written ----
 
 
-def _fleet(name: str, type_: str, default: object, group: str, description: str, choices: tuple = ()) -> Row:
-    """A setting kept in the fleet's settings.yml: one value for the whole fleet."""
-    return Row(name, type_, choices, default, "global", "fleet", group, description)
+def _fleet(
+    name: str,
+    type_: str,
+    default: object,
+    group: str,
+    description: str,
+    choices: tuple = (),
+    scope: str = "global",
+    *,
+    secret: bool = False,
+    agent: bool = False,
+    values: ValueRule | None = None,
+) -> Row:
+    """A setting kept in the fleet's settings.yml: one value for the whole fleet, or at scope machine one for each
+    machine, in the file's map machines."""
+    return Row(name, type_, choices, default, scope, "fleet", group, description, secret, agent, values)
 
 
 def _host(name: str, type_: str, default: object, group: str, description: str, choices: tuple = ()) -> Row:
@@ -117,10 +176,23 @@ def _host(name: str, type_: str, default: object, group: str, description: str, 
 
 
 def _client(
-    name: str, type_: str, default: object, group: str, description: str, choices: tuple = (), scope: str = "global"
+    name: str,
+    type_: str,
+    default: object,
+    group: str,
+    description: str,
+    choices: tuple = (),
+    scope: str = "global",
+    *,
+    agent: bool = False,
 ) -> Row:
     """A setting of this computer's own, kept in its client.yml and never in a file that travels."""
-    return Row(name, type_, choices, default, scope, "client", group, description)
+    return Row(name, type_, choices, default, scope, "client", group, description, agent=agent)
+
+
+def _run(name: str, type_: str, default: object, group: str, description: str) -> Row:
+    """A setting for one run alone, given with --set and kept in no file."""
+    return Row(name, type_, (), default, "global", "run", group, description)
 
 
 # ---------------------------------------------------------------- today's documented settings ----
@@ -160,32 +232,6 @@ ROWS: tuple[Row, ...] = (
         "A pool of the project's own on the host, for a token that reaches nothing else. New VMs, the template and "
         "golden templates are made its members, and init grants the token's role on /pool/<name> in place of /vms, "
         "which reaches every VM of the host (docs/getting-started/proxmox-access.md). Empty: none.",
-    ),
-    _host(
-        "proxmox_api_user",
-        "str",
-        "ansible@pve",
-        "proxmox_vm",
-        "The API user the token belongs to, realm included, as init makes it (docs/getting-started/proxmox-access.md).",
-    ),
-    _host(
-        "proxmox_api_token_id",
-        "str",
-        "ansible",
-        "proxmox_vm",
-        "The API token's name, the part after the ! in user!token, as init makes it "
-        "(docs/getting-started/proxmox-access.md).",
-    ),
-    _host("proxmox_api_port", "int", 8006, "proxmox_vm", "The API's port."),
-    _host(
-        "proxmox_validate_certs",
-        "bool",
-        False,
-        "common",
-        "Check the API's certificate: against the certificate init keeps for the host, in proxmox-trust.pem, or "
-        "without one against this machine's trust store, as a certificate from a public CA needs. init writes this "
-        "itself, with the file it keeps or where the trust store verifies it; set false while the file is there, the "
-        "file alone still turns checking on (docs/getting-started/proxmox-access.md).",
     ),
     _host(
         "proxmox_template_vmid",
@@ -259,6 +305,7 @@ ROWS: tuple[Row, ...] = (
         "agent-warehouse-default",
         "common",
         "The VM a command acts on when no name is given.",
+        agent=True,
     ),
     _fleet(
         "vm_cores",
@@ -266,6 +313,7 @@ ROWS: tuple[Row, ...] = (
         2,
         "proxmox_vm",
         "VM sizing: the cores of every VM a run creates.",
+        agent=True,
     ),
     _fleet(
         "vm_memory_mb",
@@ -273,6 +321,7 @@ ROWS: tuple[Row, ...] = (
         4096,
         "proxmox_vm",
         "VM sizing: the memory of every VM a run creates, in MB.",
+        agent=True,
     ),
     _fleet(
         "vm_memory_min_mb",
@@ -284,6 +333,7 @@ ROWS: tuple[Row, ...] = (
         "passes the target whoever runs it set (80% unless changed; a host setting this project never touches), and "
         "gives it back as that use falls. Keep it above what the VM runs at its busiest. Default: vm_memory_mb, a "
         "fixed allocation.",
+        agent=True,
     ),
     _fleet(
         "vm_disk_size",
@@ -291,6 +341,7 @@ ROWS: tuple[Row, ...] = (
         "32G",
         "proxmox_vm",
         "VM sizing: the root disk of every VM a run creates, with its unit (K, M, G, T).",
+        agent=True,
     ),
     _host(
         "vm_nameservers",
@@ -324,6 +375,7 @@ ROWS: tuple[Row, ...] = (
         "github_projects",
         "Which of your GitHub repositories to clone. Leave it empty to clone every repository of that user; list "
         "names to clone only those.",
+        agent=True,
     ),
     _fleet(
         "github_projects_include_forks",
@@ -331,6 +383,7 @@ ROWS: tuple[Row, ...] = (
         False,
         "github_projects",
         "Also clone repositories that are forks.",
+        agent=True,
     ),
     _fleet(
         "github_projects_include_archived",
@@ -338,6 +391,7 @@ ROWS: tuple[Row, ...] = (
         False,
         "github_projects",
         "Also clone archived repositories.",
+        agent=True,
     ),
     _fleet(
         "github_projects_exclude",
@@ -345,6 +399,7 @@ ROWS: tuple[Row, ...] = (
         (),
         "github_projects",
         "Repository names never cloned, even when github_projects names them.",
+        agent=True,
     ),
     _fleet(
         "github_projects_clone_protocol",
@@ -379,6 +434,7 @@ ROWS: tuple[Row, ...] = (
         True,
         "common",
         "deploy starts the device flow by itself; false asks first, VM by VM.",
+        agent=True,
     ),
     _fleet(
         "github_login_scopes",
@@ -412,18 +468,19 @@ ROWS: tuple[Row, ...] = (
         "common",
         "More packages to install on the VM, on top of the ones every VM has.",
     ),
-    _fleet("dev_tools_install_docker", "bool", True, "dev_tools", "Install Docker Engine on the VM."),
-    _fleet("dev_tools_install_node", "bool", True, "dev_tools", "Install Node.js on the VM."),
-    _fleet("dev_tools_install_uv", "bool", True, "dev_tools", "Install uv on the VM."),
-    _fleet("dev_tools_install_gh", "bool", True, "dev_tools", "Install the GitHub CLI, gh, on the VM."),
+    _fleet("dev_tools_install_docker", "bool", True, "dev_tools", "Install Docker Engine on the VM.", agent=True),
+    _fleet("dev_tools_install_node", "bool", True, "dev_tools", "Install Node.js on the VM.", agent=True),
+    _fleet("dev_tools_install_uv", "bool", True, "dev_tools", "Install uv on the VM.", agent=True),
+    _fleet("dev_tools_install_gh", "bool", True, "dev_tools", "Install the GitHub CLI, gh, on the VM.", agent=True),
     _fleet(
         "dev_tools_install_rust",
         "bool",
         False,
         "dev_tools",
         "Rust: rustup, and a stable toolchain with clippy and rustfmt for the login user. Off by default.",
+        agent=True,
     ),
-    _fleet("dev_tools_node_major", "int", 22, "dev_tools", "The Node.js major version."),
+    _fleet("dev_tools_node_major", "int", 22, "dev_tools", "The Node.js major version.", agent=True),
     # The editor and SSH.
     _client(
         "editor",
@@ -433,6 +490,7 @@ ROWS: tuple[Row, ...] = (
         "The editor code opens, and deploy at its end: one at a time, vscode by default (docs/guides/vscode.md), or "
         "zed (docs/guides/zed.md). For one run, code's --editor.",
         choices=("vscode", "zed"),
+        agent=True,
     ),
     _fleet(
         "vscode_remote",
@@ -522,6 +580,7 @@ ROWS: tuple[Row, ...] = (
         "trusted the folder and allowed automatic tasks. In Zed (docs/guides/zed.md) it writes a task, Claude, which "
         'the window of the projects directory lists under "task: spawn", and the helper it runs: nothing starts by '
         "itself there. Set false to open the bare folder and write none of them.",
+        agent=True,
     ),
     _client(
         "editor_files_dir",
@@ -540,6 +599,7 @@ ROWS: tuple[Row, ...] = (
         "A page about the VM - addresses, what is signed in, the commands - that code writes on the VM. In VS Code it "
         "opens beside the Claude terminal each time the window opens, its sign-in status read from the VM then, so it "
         "needs editor_claude_terminal; in Zed it is written without that refresh, for you to open once.",
+        agent=True,
     ),
     _client(
         "claude_sessions_sync",
@@ -549,6 +609,7 @@ ROWS: tuple[Row, ...] = (
         "Copy this machine's Claude Code sessions of the VM's repositories - matched by git origin - the last 30 days "
         "of them, to the VM on every code, so /resume there lists them (Ctrl+A for every project). Their transcripts "
         "hold whatever their tools printed: false keeps them here, though --session still copies its one session.",
+        agent=True,
     ),
     _client(
         "claude_sessions_sync_max_size",
@@ -559,6 +620,7 @@ ROWS: tuple[Row, ...] = (
         "gigabytes): the newest first, each with its tool results while it fits, and the rest said and left here. 0 "
         "for no bound. It counts what the VM does not have yet: a first copy sends each whole, a later one what "
         "changed.",
+        agent=True,
     ),
     _client(
         "claude_sessions_sync_subagents",
@@ -568,6 +630,7 @@ ROWS: tuple[Row, ...] = (
         "Copy each session's subagent transcripts with it, so a subagent it started can be read, and continued, on "
         "the VM. They count toward the bound above, and a long session's subagents can hold more than its own "
         "transcript.",
+        agent=True,
     ),
     _client(
         "claude_memory_sync",
@@ -578,6 +641,7 @@ ROWS: tuple[Row, ...] = (
         "sessions are - into that checkout's memory folder on the VM on every code, whether or not the sessions go, "
         "with a note saying where this machine's paths are there. A note changed on the VM is never overwritten. "
         "false keeps the notes here.",
+        agent=True,
     ),
     _client(
         "claude_instructions_sync",
@@ -587,6 +651,7 @@ ROWS: tuple[Row, ...] = (
         "Copy this machine's global instructions, ~/.claude/CLAUDE.md, and the files of ~/.claude/rules/ to the VM's, "
         "unless claude_code_global_instructions sets the VM's CLAUDE.md. A file changed on the VM is never "
         "overwritten.",
+        agent=True,
     ),
     _client(
         "claude_settings_sync",
@@ -597,6 +662,7 @@ ROWS: tuple[Row, ...] = (
         "and preferences, the permission rules and mode, and auto mode's rules - never a credential, a program, this "
         "machine's paths, or a key claude_code_settings sets. A setting changed on the VM (/model there) is never "
         "overwritten.",
+        agent=True,
     ),
     _client(
         "claude_settings_sync_keys",
@@ -615,6 +681,7 @@ ROWS: tuple[Row, ...] = (
         "Install on the VM, by its own Claude Code, the plugins installed and enabled for you here from a marketplace "
         "on GitHub - claude plugin install there, never accepting a command a marketplace declares for you. Nothing "
         "is ever uninstalled there.",
+        agent=True,
     ),
     _client(
         "claude_history_sync",
@@ -623,6 +690,7 @@ ROWS: tuple[Row, ...] = (
         "common",
         "Add the prompts typed in the sessions copied to the VM's prompt history, for the up arrow and Ctrl+R there; "
         "with the sessions only, never twice.",
+        agent=True,
     ),
     _client(
         "claude_extensions_sync",
@@ -632,6 +700,7 @@ ROWS: tuple[Row, ...] = (
         "Copy your user-level skills, subagents, commands, output styles, workflows, themes and keybindings "
         "(~/.claude/skills/ and the like) to the VM's, but the skills your account syncs, which the VM downloads at "
         "its own sign-in. A file changed on the VM is never overwritten.",
+        agent=True,
     ),
     _client(
         "vscode_user_settings_file",
@@ -651,6 +720,8 @@ ROWS: tuple[Row, ...] = (
         "Claude Code release channel: stable, latest, or an exact version of 2.1.89 or later, the first release "
         "Anthropic signs, like 2.1.311. A channel is the update setting written into ~/.claude/settings.json; what is "
         "installed is always the release it names, its signature checked here.",
+        agent=True,
+        values=VERSION_FROM_AN_AGENT,
     ),
     _fleet(
         "claude_code_settings",
@@ -658,6 +729,7 @@ ROWS: tuple[Row, ...] = (
         MappingProxyType({}),
         "claude_code",
         "Extra user-level settings merged into ~/.claude/settings.json.",
+        secret=True,
     ),
     _fleet(
         "claude_code_remote_control",
@@ -669,6 +741,7 @@ ROWS: tuple[Row, ...] = (
         "- also the answer when claude_code_settings.env carries a privacy setting such as DISABLE_TELEMETRY or "
         "DO_NOT_TRACK on purpose: those disable Remote Control, so the role leaves the service stopped and says so "
         "until one or the other goes.",
+        agent=True,
     ),
     _fleet(
         "claude_code_login_args",
@@ -690,6 +763,7 @@ ROWS: tuple[Row, ...] = (
         300,
         "claude_code",
         "How long, in seconds, the run waits for your browser to come back to the VM by itself once you authorise.",
+        agent=True,
     ),
     _fleet(
         "claude_code_remote_control_name",
@@ -697,6 +771,7 @@ ROWS: tuple[Row, ...] = (
         machine_name,  # computed: the machine's name
         "claude_code",
         "Session title in the list at claude.ai/code; defaults to the VM name.",
+        scope="machine",
     ),
     _fleet(
         "claude_code_remote_control_dir",
@@ -736,6 +811,7 @@ ROWS: tuple[Row, ...] = (
         "and Tailscale's start by themselves (github_login_auto_start, tailscale_login_auto_start) for every VM but "
         "one whose Claude sign-in nobody answered, and none runs where a vault token or key signs the VM in. A run "
         "with no terminal skips them all. false leaves them to login.",
+        agent=True,
     ),
     _client(
         "deploy_code",
@@ -744,6 +820,7 @@ ROWS: tuple[Row, ...] = (
         "common",
         "Open the VM in the editor at the end of a one-VM deploy; a deploy of several ends with each VM's line for "
         "code.",
+        agent=True,
     ),
     _fleet(
         "destroy_release",
@@ -754,6 +831,7 @@ ROWS: tuple[Row, ...] = (
         "your tailnet, its device deleted with tailscale_api_auth_method. gh's token stays valid: revoking GitHub CLI "
         "at GitHub signs out every gh you have, so the report says where, and destroy does not. A stopped VM is "
         "started for it. false deletes the VMs without releasing them, their sessions still saved first.",
+        agent=True,
     ),
     _fleet(
         "destroy_save_sessions",
@@ -764,6 +842,7 @@ ROWS: tuple[Row, ...] = (
         "the copies code made that were continued there, and their auto memory - into destroy_sessions_dir here, as "
         "the VM had them, plain files and folders only; `claude --resume <path>` continues one. A VM whose save fails "
         "is kept, neither released nor deleted. false deletes them with the VM.",
+        agent=True,
     ),
     _client(
         "destroy_sessions_dir",
@@ -818,6 +897,7 @@ ROWS: tuple[Row, ...] = (
         True,
         "common",
         "deploy starts the web login by itself; false asks first, VM by VM.",
+        agent=True,
     ),
     _fleet(
         "tailscale_api_auth_method",
@@ -889,6 +969,7 @@ ROWS: tuple[Row, ...] = (
         tailnet_label,  # computed: the machine's name made one DNS label
         "tailscale",
         "The machine name, when the VM's own name is not the one you want there.",
+        scope="machine",
     ),
     _fleet(
         "tailscale_up_args",
@@ -907,6 +988,173 @@ ROWS: tuple[Row, ...] = (
 )
 
 
+# ---------------------------------------------------------------- the settings the new engine adds ----
+
+# Settings today's example does not document: the new engine's own, the rows that keep today's behaviour where the
+# design had none (the owner's answers to O15), the label on a VM, a setting today's vault held that is no secret, and
+# two that the repository prints or documents for one run, which are kept in no file.
+ADDED: tuple[Row, ...] = (
+    # The vault's key.
+    _client(
+        "vault_key_file",
+        "path",
+        the_homes_key_file,  # computed: the key file fleet.paths names for the running program's home
+        "common",
+        "The file that holds the key the vault opens with. By default the key file in a folder of this computer's "
+        "own: at the top of the checkout's .aw/, beside client.yml, or in the data folder for the installed program; "
+        "never in the fleet's folder, which you copy, nor in the state folder, which a cleanup may remove. Back it up "
+        "apart from the fleet's folder. ~ at its start is your home; a relative path is refused by name.",
+    ),
+    _client(
+        "vault_key_command",
+        "list[str]",
+        (),
+        "common",
+        "A command of your own whose output is the vault's key, as a list of words run without a shell: a keychain's "
+        "or a password manager's reader, or one that asks at each run. It is asked before the file vault_key_file "
+        "names. Empty: none.",
+    ),
+    # This computer's network.
+    _client(
+        "tls_ca_file",
+        "path",
+        "",
+        "common",
+        "A file of PEM certificates added to the list GitHub, Tailscale and the download servers are checked against, "
+        "and a Proxmox host that keeps no certificate of its own: a company's root, say. It never replaces that list. "
+        "~ at its start is your home; a relative path is refused by name. Empty: none.",
+    ),
+    _client(
+        "network_proxy",
+        "str",
+        "environment",
+        "common",
+        "The proxy the calls to GitHub, Tailscale, the download servers and the Proxmox API go through: environment, "
+        "the one HTTPS_PROXY or ALL_PROXY names but for a host NO_PROXY names (on macOS, the system's network settings "
+        "where the environment names none), as a Python program takes it; none, no proxy whatever the environment "
+        "says; or the http:// URL of a proxy.",
+    ),
+    # Runs.
+    _client(
+        "run_lock",
+        "str",
+        "machine",
+        "common",
+        "What a run that changes something holds while it runs: machine, each machine it changes, so that runs on "
+        "different machines go side by side and one machine is changed by one run at a time; fleet, the whole fleet, "
+        "so that one such run runs at a time.",
+        choices=("machine", "fleet"),
+    ),
+    _client(
+        "run_forks",
+        "int",
+        20,
+        "common",
+        "How many machines one run reaches at once: cloned, booted and configured side by side. --set run_forks=N "
+        "changes it for one run.",
+    ),
+    _fleet(
+        "run_detached_limit",
+        "int",
+        120,
+        "common",
+        "The longest a detached run may last, in minutes: at the limit it stops as a run stops at a Ctrl-C, and its "
+        "record says why. 0: no limit.",
+    ),
+    _fleet(
+        "machine_claims",
+        "str",
+        "inform",
+        "common",
+        "What a run that changes a machine does where another computer's run is changing it, as the machine's record "
+        "says: inform, it goes on, and status shows the other run; refuse, it stands back, and --take-over on that "
+        "one command clears a line a computer left behind.",
+        choices=("inform", "refuse"),
+    ),
+    # Agents.
+    _fleet(
+        "agents_vm_cap",
+        "int",
+        5,
+        "common",
+        "How many VMs on a host agents' runs may have made and still have there: a deploy an agent asks for that "
+        "would make one more is refused, naming this setting. 0: no cap.",
+    ),
+    # Proxmox and the VMs.
+    _host(
+        "proxmox_audit_scope",
+        "str",
+        "node",
+        "common",
+        "What the engine's token may read on the host beyond its pool: node, every VM of the node, read only, so that "
+        "status shows the node's other VMs and a capacity made from all of them; pool, its pool's alone, and status "
+        "then says the others are not read.",
+        choices=("node", "pool"),
+    ),
+    _fleet(
+        "vm_label",
+        "str",
+        "agent-warehouse",
+        "common",
+        "The label each VM this fleet makes carries in Proxmox's list, so that you see the product's VMs there. "
+        "Nothing is decided from it: what is the fleet's is its pool's members with a record.",
+    ),
+    _fleet(
+        "vm_first_boot_upgrade",
+        "bool",
+        True,
+        "common",
+        "A new VM upgrades its packages at its first boot, as Proxmox's cloud-init does by default. false skips that "
+        "upgrade.",
+    ),
+    # Destroy.
+    _fleet(
+        "destroy_confirm",
+        "str",
+        "yes",
+        "common",
+        "What destroy asks you to type before it deletes: yes; or names, the names of the VMs it deletes.",
+        choices=("yes", "names"),
+    ),
+    _fleet(
+        "destroy_allow_unrecorded",
+        "bool",
+        False,
+        "proxmox_vm",
+        "Let destroy delete a member of the fleet's pool that has no record of the fleet's, never a template, nor a VM "
+        "another fleet's record names; a VM outside the pool stays out of reach and is refused, naming the pool. Off, "
+        "such a VM is refused, so that a name collision cannot destroy a VM this fleet never made.",
+    ),
+    # GitHub.
+    _fleet(
+        "github_username",
+        "str",
+        "",
+        "github_projects",
+        "The GitHub account whose repositories are listed and cloned onto the VMs, which init writes from its "
+        "--github-user. Empty: none given yet.",
+    ),
+    # For one run alone.
+    _run(
+        "proxmox_vm_force_update",
+        "bool",
+        False,
+        "proxmox_vm",
+        "Repair VMs that exist, for one run: each VM the run covers has its settings applied again, its size kept as "
+        "it was created, and is started, whether or not it was shut down on purpose; where its cloud-init settings "
+        "change, its next boot is a new cloud-init instance, which makes new SSH host keys. Kept in no file.",
+    ),
+    _run(
+        "configure_wait_for_cloud_init",
+        "bool",
+        True,
+        "common",
+        "Before configuring a VM, wait for cloud-init's first boot to end, and stop where it ended in an error. false, "
+        "for one run, configures a VM repaired by hand after such an error. Kept in no file.",
+    ),
+)
+
+
 # ---------------------------------------------------------------- this computer's own SSH ----
 
 # The settings of this computer's ssh that today's guides document outside the example file: the key and the ssh the
@@ -920,7 +1168,8 @@ CONNECTION: tuple[Row, ...] = (
         "",
         "connection",
         "The key this computer's ssh offers the Proxmox host, for its root SSH and as the hop to its VMs. Empty: the "
-        "one ssh picks, from ~/.ssh/config or its own defaults. A key's path is one computer's, kept for each host.",
+        "one ssh picks, from ~/.ssh/config or its own defaults. A key's path is one computer's, kept for each host. ~ "
+        "at its start is your home; a relative path is refused by name.",
         scope="host",
     ),
     _client(
@@ -928,7 +1177,8 @@ CONNECTION: tuple[Row, ...] = (
         "path",
         "",
         "connection",
-        "The ssh program every connection runs, by its path. Empty: the one found on PATH.",
+        "The ssh program every connection runs, by its path. Empty: the one found on PATH. ~ at its start is your "
+        "home; a relative path is refused by name.",
     ),
     _client(
         "vm_ssh_options",
@@ -945,14 +1195,14 @@ CONNECTION: tuple[Row, ...] = (
 
 # ---------------------------------------------------------------- the reader ----
 
-_ALL = ROWS + CONNECTION
+_ALL = ROWS + ADDED + CONNECTION
 _BY_NAME = {each.name: each for each in _ALL}
 # Each group's name, in the order its first row comes.
 GROUPS = tuple(dict.fromkeys(each.group for each in _ALL))
 
 
 def rows() -> tuple[Row, ...]:
-    """Every row: today's documented settings, then this computer's own SSH."""
+    """Every row: today's documented settings, then the settings the new engine adds, then this computer's own SSH."""
     return _ALL
 
 
