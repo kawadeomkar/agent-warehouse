@@ -2330,17 +2330,26 @@ result than those, and of a result Ansible censored for `no_log` only its kind a
 keeps a censored result's `exception` and `warnings` and hands a callback them whole. A diff is written only in a run
 given `--diff`, never for a task's own `diff: true` alone and never for a censored task. A fault of one of its hooks is
 an event of its own (`fault`, the hook and the error's type), never Ansible's warning alone, under which a result would
-vanish in a run that exits 0. Every string passes through one function, `masked`, the identity until ansible-core 2.22's
-`mask_secrets()` goes there (F5a); a string past 256 KiB keeps its end from a line break, never a part of a line. A pipe
-whose reader has gone ends the writing, and the play goes on, without a traceback. `lib/claude_vm/guest/events.py`'s
-`Heard` reads the pipe in the run's process, a line at most 4 MiB, and hands each event, as it comes, to the job's
-`emit` (§16.8) as a `step` event of the machine, by the name a person chose: its text the task's or the play's name, its
-data a fixed set of fields each held to its type (`status`, `part`, `task`, and where there is one the item, the
-message, the output, the return code, the exception, the warnings, the diff, the attempts, and whether the result was
-censored or its failure ignored). Every string is struck of each secret of the run's redaction list (`redacted`, the
-`Secret`s the run opened, which `layer1.run` is handed), made plain (`text.plain_text`) and struck again, so that a
-secret an escape sequence split is struck once whole, then cut to its field's bound, after the strike. A line that is no
-event, or too long, is said as one that could not be read; a line the child did not finish at the pipe's end is none.
+vanish in a run that exits 0. A result's message, its item and its output are written as the values they are, a
+mapping or a list as one, never as JSON text inside a string, whose escaping would hide a secret holding a quote, a
+backslash, a line break or a character outside ASCII from the strike by its exact text. Every string, a mapping's keys
+among them, passes through one function, `masked`, the identity until ansible-core 2.22's `mask_secrets()` goes there
+(F5a); a string past 256 KiB keeps its end from a line break, never a part of a line. A pipe whose reader has gone ends
+the writing, and the play goes on, without a traceback. `lib/claude_vm/guest/events.py`'s `Heard` reads the pipe in the
+run's process, a line at most 4 MiB, and hands each event, as it comes, to the job's `emit` (§16.8) as a `step` event of
+the machine, keyed by its identity, the one key of a machine in every event of a run, as `job.json`'s `machines` and a
+machine's `end` have it, with the name a person chose beside it (`name`) for what is drawn: its text the task's or the
+play's name, its data a fixed set of fields each held to its type (`status`, `part`, `task`, and where there is one the
+item, the message, the output, the return code, the exception, the warnings, the diff, the attempts, and whether the
+result was censored or its failure ignored). Every string is struck of every secret of the run's redaction list
+(`redacted`, the `Secret`s the run opened, which `layer1.run` is handed), the longest first (`secret.struck_all`), so
+that of two where one holds the other the longer is struck whole; made plain (`text.plain_text`); and struck again, so
+that a secret an escape sequence split is struck once whole; then cut to its field's bound, after the strike. A
+message, an item or an output written as a structure stays one until each of its strings is so made, and is then made
+one text, JSON's form of it, struck once more, then cut. What the strike does not promise: a secret Ansible itself
+writes in another form (through `repr`, as an exception's text quotes a value, base64 or a URL's escapes), one split
+across two strings, or one split by a character `plain_text` keeps (a zero-width space). A line that is no event, or
+too long, is said as one that could not be read; a line the child did not finish at the pipe's end is none.
 `layer1.run` returns, with the exit status, the counts a caller needs (`events.Counts`: the failed, the unreachable, the
 changed), from Ansible's own recap or, where the child ended before it, counted from the results heard; and the end of
 what the child printed, from a line's start, struck and plain the same way, which a person sees line by line, never
@@ -2350,9 +2359,12 @@ with a listener of its own standing for the job's text log: a ping's events, in 
 log and nothing printed on the terminal; a `no_log` task that fails, with a message, an output, an exception and a
 loop's item, absent from the pipe, from `emit` and from the log, where the same failure without `no_log` says both; a
 secret of the redaction list printed by tasks, in a task's name, an output, an item and split by an escape sequence,
-absent from every event, the log and the record; a control sequence reaching the log as plain text; the diff's two
-rules; the pipe closed by its reader before and in the play; a listener's failure; and the reader's own rules on lines
-of its own.
+absent from every event, the log and the record; a secret holding a quote, a backslash, a line break and characters
+outside ASCII in a `debug` and a `fail` whose message is a mapping or a list and in a loop over mappings, absent in every
+form, raw and escaped; of two secrets one inside the other, the longer struck whole in either order; one machine's steps
+and its end keyed by the one identity the record names; a control sequence reaching the log as plain text; the diff's
+two rules; the pipe closed by its reader before and in the play; a listener's failure; and the reader's own rules on
+lines of its own.
 
 **How the engine's tests reach a machine.** A test of the new engine reaches no real machine: it reaches a stand-in,
 a directory of the test's own that `tests/unit/aw_machine.py` makes, through the SSH runner (§16.6) as it reaches a

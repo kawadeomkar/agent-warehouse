@@ -10,8 +10,11 @@ of the test's own stands for it, writing each event's text and strings a line ea
 What is held: a play of one ping hands its events to emit, writes its lines in the text log and prints nothing on the
 terminal; a no_log task that fails leaves its message and its exception text in none of the pipe, emit and the text log,
 where the same task without no_log has both; a secret of the run's redaction list, printed by a task, named in a task's
-name and split by an escape sequence, is in no event, no text log, no record and nothing the child printed; a control
-sequence reaches the text log as plain text; a diff is written only in a run given --diff, and never for a no_log task;
+name and split by an escape sequence, is in no event, no text log, no record and nothing the child printed; a secret
+holding what JSON escapes, in a message or a loop's item that is a mapping or a list, is struck in every form; of two
+secrets one inside the other the longer is struck whole; one machine's steps and its end carry the one key, its
+identity, that the run's record names, with the name a person chose beside it; a control sequence reaches the text log
+as plain text; a diff is written only in a run given --diff, and never for a no_log task;
 the pipe closed by its reader ends the writing and the play goes on without a traceback; a listener that fails ends the
 child; and the reader's own rules - a line that is no event, one too long, a line cut at the pipe's end, the counts, the
 fields kept - on lines of the test's own.
@@ -40,7 +43,7 @@ from claude_vm.fleet import paths
 from claude_vm.guest import events, layer1
 from claude_vm.runs import children, rundir
 from claude_vm.runs import job as jobs
-from claude_vm.secret import MARK, Secret
+from claude_vm.secret import MARK, Secret, struck_all
 
 CALLBACK_FILE = layer1.CALLBACKS / f"{layer1.CALLBACK}.py"
 # The canned values of these tests: one of the run's redaction list, one a no_log task fails with, and one a task
@@ -48,6 +51,15 @@ CALLBACK_FILE = layer1.CALLBACKS / f"{layer1.CALLBACK}.py"
 REDACTED = "f5-canned-value-struck"
 CENSORED = "f5-canned-value-hidden"
 VISIBLE = "f5-plain-value-said"
+# Made-up secrets of the run's redaction list that JSON's text of them escapes: a quote and a backslash, a line break,
+# characters outside ASCII, and all of them at once.
+QUOTED = 'f5-quo"te\\slash-AA'
+LINED = "f5-line\nbreak-BB"
+ACCENTED = "f5-\u00fcn\u00efc\u00f8d\u00e9-CC"
+MIXED = 'f5-"mix\\ed\n\u00e9-DD'
+ESCAPED = (QUOTED, LINED, ACCENTED, MIXED)
+# A machine's identity, as the reader's own tests key its events.
+IDENTITY = "agent-warehouse-00000000-0000-4000-8000-00000000f005"
 # How long a play here may take.
 PLAY_MOST = 120
 # An action plugin beside a play, which raises with what its task says: a failure with an exception, as a module that
@@ -84,7 +96,8 @@ def _heard(job: jobs.Job, log: Path) -> list[jobs.Event]:
     heard: list[jobs.Event] = []
 
     def text_log(event: jobs.Event) -> None:
-        lines = [f"{event.machine} {event.data.get('status')} {event.data.get('part') or '-'}: {event.text}"]
+        # The machine by the name a person chose, which rides beside its identity for what is drawn.
+        lines = [f"{event.data.get('name')} {event.data.get('status')} {event.data.get('part') or '-'}: {event.text}"]
         for key in ("item", "message", "stdout", "stderr", "exception", "diff"):
             value = event.data.get(key)
             if isinstance(value, str):
@@ -220,11 +233,12 @@ def test_a_ping_through_layer1_hands_its_events_to_emit_writes_the_text_log_and_
     ended = _run(made, alpha, _play(tmp_path, {"name": "ping", "ansible.builtin.ping": {}}))
     assert ended.status == 0, ended.said
     assert ended.counts == events.Counts(failed=0, unreachable=0, changed=0, recap=True)
-    # Each a step of the machine, by the name a person chose, as it came: the play, the task, its result, the recap.
+    # Each a step of the machine, keyed by its identity with the name a person chose beside it, as it came: the play,
+    # the task, its result, the recap.
     assert _statuses(heard) == ["play", "task", "ok", "recap"]
-    assert {(event.kind, event.machine) for event in heard} == {("step", "alpha")}
+    assert {(event.kind, event.machine, event.data["name"]) for event in heard} == {("step", alpha.identity, "alpha")}
     assert [event.text for event in heard[1:3]] == ["ping", "ping"]
-    assert heard[2].data == {"status": "ok", "part": None, "task": "ping"}
+    assert heard[2].data == {"name": "alpha", "status": "ok", "part": None, "task": "ping"}
     assert heard[3].data["counts"] == {
         "ok": 1,
         "changed": 0,
@@ -264,6 +278,32 @@ def test_a_role_s_task_says_its_part_and_its_name_without_the_role(made, root, t
         "say it",
         VISIBLE,
     )
+
+
+def test_one_machine_s_steps_and_its_end_carry_the_one_key_its_record_names(home, root, tmp_path) -> None:
+    alpha = _alpha(root)
+    job = jobs.create(
+        paths.jobs_dir(paths.home(REPO)), "deploy", "deploy alpha", "pve", [alpha.identity], {"kind": "terminal"}, True
+    )
+    rundir.make(job)
+    try:
+        heard = _heard(job, tmp_path / "text.log")
+        ended = _run(job, alpha, _play(tmp_path, {"name": "ping", "ansible.builtin.ping": {}}))
+        assert ended.status == 0, ended.said
+        # The machine's end, as the verb that ran layer 1 emits it (G4), by the identity of the target it was handed.
+        job.emit("end", target(alpha).identity, "configured", outcome="succeeded")
+        record = json.loads(job.record.read_text())
+        assert record["machines"] == [alpha.identity]
+        assert {event.machine for event in heard} == {alpha.identity} == set(record["machine_outcomes"])
+        # The name a person chose rides beside the key in every step, for what is drawn.
+        steps = [event for event in heard if event.kind == "step"]
+        assert len(steps) == 4 and {event.data["name"] for event in steps} == {"alpha"}
+        # A name where the identity goes is refused.
+        with pytest.raises(TypeError):
+            events.Heard(job, "alpha", "alpha")
+    finally:
+        rundir.remove(job)
+        jobs.drop(job)
 
 
 # ---------------------------------------------------------------- what is never written ----
@@ -369,6 +409,65 @@ def test_a_secret_of_the_redaction_list_printed_by_a_task_is_struck_from_every_e
     assert (printed.data["stdout"], printed.data["stderr"]) == (MARK, MARK)
 
 
+def _forms(secret: str) -> set[str]:
+    """secret as it is, and as JSON's text of it escapes it: ASCII alone, and not."""
+    return {secret, json.dumps(secret)[1:-1], json.dumps(secret, ensure_ascii=False)[1:-1]}
+
+
+def _strings(value: object) -> list[str]:
+    """Every string of value, a mapping's keys among them, at any depth."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [found for key, each in value.items() for found in _strings(key) + _strings(each)]
+    if isinstance(value, (list, tuple)):
+        return [found for each in value for found in _strings(each)]
+    return []
+
+
+def test_a_secret_in_a_message_or_an_item_that_is_a_structure_is_struck_in_every_form(made, root, tmp_path) -> None:
+    # Each secret holds what JSON's text of it escapes - a quote, a backslash, a line break, characters outside ASCII -
+    # in a debug and a fail whose message is a mapping or a list, and in a loop over mappings: the shapes review 24
+    # found reaching emit escaped, which a strike by exact text never met.
+    alpha = _alpha(root)
+    keyed = {"k": QUOTED, "l": LINED, "u": ACCENTED, "m": MIXED}
+    play = _play(
+        tmp_path,
+        {"name": "says a mapping", "ansible.builtin.debug": {"msg": keyed}},
+        {"name": "says a list", "ansible.builtin.debug": {"msg": list(ESCAPED)}},
+        {
+            "name": "loops on mappings",
+            "ansible.builtin.debug": {"msg": "looped"},
+            "loop": [{"pw": secret} for secret in ESCAPED],
+        },
+        {"name": "fails with a mapping", "ansible.builtin.fail": {"msg": {"why": keyed}}, "ignore_errors": True},
+    )
+    heard = _heard(made, tmp_path / "text.log")
+    ended = _run(made, alpha, play, verbosity=1, redacted=[Secret(secret) for secret in ESCAPED])
+    assert ended.status == 0, ended.said
+    # It was there to strike, and each string is struck before the structure is made text.
+    struck = f'{{"k": "{MARK}", "l": "{MARK}", "u": "{MARK}", "m": "{MARK}"}}'
+    [mapping] = [event for event in _of(heard, "says a mapping") if event.data.get("status") == "ok"]
+    assert mapping.data["message"] == struck
+    [listed] = [event for event in _of(heard, "says a list") if event.data.get("status") == "ok"]
+    assert listed.data["message"] == f'["{MARK}", "{MARK}", "{MARK}", "{MARK}"]'
+    looped = [event.data for event in _of(heard, "loops on mappings") if event.data.get("status") == "ok"]
+    assert [data["item"] for data in looped if "item" in data] == [f'{{"pw": "{MARK}"}}'] * 4
+    [failed] = [event for event in _of(heard, "fails with a mapping") if event.data.get("status") == "failed"]
+    assert failed.data["message"] == f'{{"why": {struck}}}'
+    # In no form, raw or escaped, in any string of any event; but an exception's text, which Ansible writes through
+    # repr (a line break as two characters, as JSON writes it), where the strike promises the raw form alone (§16.10).
+    for event in heard:
+        for field, value in [("text", event.text), ("machine", event.machine), *event.data.items()]:
+            for string in _strings(value):
+                for secret in ESCAPED:
+                    forms = {secret} if field == "exception" else _forms(secret)
+                    assert not [form for form in forms if form in string], (event.text, field)
+    every = [form for secret in ESCAPED for form in _forms(secret)]
+    assert not [form for form in every if form in ended.said]
+    assert searched_for(every, made.folder) == []
+
+
 def test_a_task_that_prints_a_control_sequence_reaches_the_text_log_as_plain_text(made, root, tmp_path) -> None:
     alpha = _alpha(root)
     sequences = "\x1b]0;retitled\x07plain \x1b[31mred\x1b[0m and \x1b]52;c;Y2xpcA==\x07clipboard\x9b2J"
@@ -414,12 +513,12 @@ def test_the_end_of_what_the_child_printed_starts_at_a_line_never_inside_a_secre
     printed = tmp_path / "printed"
     printed.write_bytes(first + body)
     with printed.open("rb") as stream:
-        said = layer1._said(stream, events.Heard(made, "alpha", [Secret(REDACTED)]))
+        said = layer1._said(stream, events.Heard(made, IDENTITY, "alpha", [Secret(REDACTED)]))
     assert REDACTED[5:] not in said and set(said) == {"y"}, said[:80]
     # Short of the bound, all of it, struck.
     printed.write_bytes(first + b"z\n")
     with printed.open("rb") as stream:
-        assert layer1._said(stream, events.Heard(made, "alpha", [Secret(REDACTED)])) == f"{MARK}\nz"
+        assert layer1._said(stream, events.Heard(made, IDENTITY, "alpha", [Secret(REDACTED)])) == f"{MARK}\nz"
 
 
 # ---------------------------------------------------------------- the diff ----
@@ -638,23 +737,26 @@ def _line(**event) -> bytes:
 def test_a_line_that_is_no_event_is_said_as_one_that_could_not_be_read(made) -> None:
     heard: list[jobs.Event] = []
     made.listen(heard.append)
-    reader = events.Heard(made, "alpha")
+    reader = events.Heard(made, IDENTITY, "alpha")
     for line in (b"{not json\n", b"[1, 2]\n", _line(event="exploded"), b"[" * 100000 + b"\n"):
         reader.hand(line)
-    assert [(event.text, event.data) for event in heard] == [(events.NOT_READ, {"status": "unreadable"})] * 4
+    unread = {"name": "alpha", "status": "unreadable"}
+    assert [(event.machine, event.text, event.data) for event in heard] == [(IDENTITY, events.NOT_READ, unread)] * 4
 
 
 def test_the_reader_keeps_only_its_fields_each_held_to_its_type(made) -> None:
     heard: list[jobs.Event] = []
     made.listen(heard.append)
-    reader = events.Heard(made, "alpha")
+    reader = events.Heard(made, IDENTITY, "alpha")
     reader.hand(
         _line(
             event="failed",
             task="t",
             part=7,
-            msg=["not", "a", "string"],
+            msg=["a", "list", {"of": 2}],
             stdout="out",
+            exception=["not", "a", "string"],
+            diff={"nor": "this"},
             rc="3",
             attempts=True,
             ignored="yes",
@@ -663,7 +765,16 @@ def test_the_reader_keeps_only_its_fields_each_held_to_its_type(made) -> None:
         )
     )
     [event] = heard
-    assert event.data == {"status": "failed", "part": None, "task": "t", "stdout": "out", "warnings": ["w"]}
+    # A message that is a structure is made text, JSON's form of it; an exception and a diff are strings or nothing.
+    assert event.data == {
+        "name": "alpha",
+        "status": "failed",
+        "part": None,
+        "task": "t",
+        "message": '["a", "list", {"of": 2}]',
+        "stdout": "out",
+        "warnings": ["w"],
+    }
 
 
 def test_a_line_longer_than_the_bound_is_left_out_whole_and_the_read_goes_on(made) -> None:
@@ -672,7 +783,7 @@ def test_a_line_longer_than_the_bound_is_left_out_whole_and_the_read_goes_on(mad
 
     async def scenario(chunks: list[bytes]) -> events.Counts:
         stream = asyncio.StreamReader(limit=events.LINE_MOST)
-        reader = events.Heard(made, "alpha")
+        reader = events.Heard(made, IDENTITY, "alpha")
         reading = asyncio.ensure_future(reader.read(stream))
         for chunk in chunks:
             stream.feed_data(chunk)
@@ -700,7 +811,7 @@ def test_a_line_longer_than_the_bound_is_left_out_whole_and_the_read_goes_on(mad
 
 
 def test_the_counts_are_the_recap_s_where_there_is_one_else_counted_from_the_results(made) -> None:
-    reader = events.Heard(made, "alpha")
+    reader = events.Heard(made, IDENTITY, "alpha")
     for event in (
         {"event": "failed", "task": "a"},
         {"event": "failed", "task": "b", "ignored": True},
@@ -720,7 +831,7 @@ def test_the_counts_are_the_recap_s_where_there_is_one_else_counted_from_the_res
 
 def test_a_secret_is_struck_before_and_after_the_text_is_made_plain_and_before_it_is_cut(made) -> None:
     secret = Secret(REDACTED)
-    reader = events.Heard(made, "alpha", [secret])
+    reader = events.Heard(made, IDENTITY, "alpha", [secret])
     assert reader.clean(f"a {REDACTED} b") == f"a {MARK} b"
     assert reader.clean(f"{REDACTED[:3]}\x1b[1m{REDACTED[3:]}") == MARK
     # Cut after the strike: the secret straddles where the cut falls, and no part of it is left there, its mark whole.
@@ -732,7 +843,19 @@ def test_a_secret_is_struck_before_and_after_the_text_is_made_plain_and_before_i
     assert reader.clean("a\udcffb") == "a?b"
 
 
+def test_of_two_secrets_one_inside_the_other_the_longer_is_struck_whole_whichever_comes_first(made) -> None:
+    inner, outer = "f5-nested-value", "f5-nested-value-and-its-tail"
+    for order in ((inner, outer), (outer, inner)):
+        secrets = [Secret(secret) for secret in order]
+        assert struck_all(f"x {outer} y {inner} z", secrets) == f"x {MARK} y {MARK} z"
+        reader = events.Heard(made, IDENTITY, "alpha", secrets)
+        assert reader.clean(f"says {outer}") == f"says {MARK}"
+        assert reader.rendered({"k": [outer, inner]}) == f'{{"k": ["{MARK}", "{MARK}"]}}'
+    with pytest.raises(TypeError):
+        struck_all(outer, [outer])
+
+
 @pytest.mark.parametrize("redacted", [[REDACTED], "one", [Secret(REDACTED), b"two"], Secret(REDACTED)])
 def test_the_redaction_list_holds_secrets_alone(made, redacted) -> None:
     with pytest.raises(TypeError):
-        events.Heard(made, "alpha", redacted)
+        events.Heard(made, IDENTITY, "alpha", redacted)
