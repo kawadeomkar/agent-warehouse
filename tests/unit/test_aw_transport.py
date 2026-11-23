@@ -7,18 +7,26 @@ whose handlers answer, redirect, drop a connection, drip or wait, and keep every
 stand-in CONNECT proxy, on loopback too, which keeps what it was asked and every byte it carried, or answers the CONNECT
 itself, dripping. The transport follows no redirect, reads no certificate variable, netrc or proxy variable, takes a
 proxy only as an argument, sends a write once, bounds every body and wait and the whole call, making its connection
-included, and never says a header's value or a peer's words. proxy.choose works out today's proxy from the environment
-it is given, as requests does. The rules at the end hold the new engine's modules to one transport.
+included, and never says a header's value or a peer's words; a body cut short of its length is no answer. Closed, it
+sends nothing more: a request started after is Closed, and one under way ends at its first error, never asked again -
+at once, with no socket closed under its read, so that none that takes the socket's number is read or written by it,
+said as cut (CUT) and marked closed, where a failure of the request's own with the close just after it is not marked;
+and a socket is closed only once the transport holds it no more. proxy.choose works out today's proxy from the
+environment it is given, as requests does. The rules at the end hold the new engine's modules to one transport.
 """
 
 from __future__ import annotations
 
 import ast
 import base64
+import copy
 import dataclasses
+import errno
 import http.server
 import io
 import logging
+import os
+import pickle
 import re
 import socket
 import ssl
@@ -26,6 +34,7 @@ import sys
 import threading
 import time
 import traceback
+import types
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
@@ -38,8 +47,11 @@ from test_aw_layout import NEW
 from claude_vm.secret import Secret
 from claude_vm.vendors import proxy, transport
 from claude_vm.vendors.transport import (
+    CLOSED,
     NOT_MADE,
+    UNKNOWN_ISSUER,
     Answer,
+    Closed,
     NotMade,
     PeerRefused,
     TimedOut,
@@ -62,9 +74,11 @@ PROXY = REPO / "lib" / "claude_vm" / "vendors" / "proxy.py"
 # own settings. Never getproxies or proxy_bypass themselves, which read os.environ, which choose never reads; never an
 # opener.
 URLLIB_READERS = frozenset({"proxy_bypass_environment", "getproxies_macosx_sysconf", "proxy_bypass_macosx_sysconf"})
-# The modules of the new engine that hand the transport a check of the peer's certificate, each with why: empty until
-# the Proxmox client's pin (B2).
-PEER_CHECKS: dict[str, str] = {}
+# The modules of the new engine that hand the transport a check of the peer's certificate, each with why.
+PEER_CHECKS: dict[str, str] = {
+    "lib/claude_vm/pve/pin.py": "the Proxmox client's pin: where the host's anchor is its node's own certificate,"
+    " pin.check refuses one whose SHA-256 fingerprint is not the one recorded, before the token is written",
+}
 CERTIFICATE_VARIABLES = re.compile(r"\b(SSL_CERT_FILE|SSL_CERT_DIR|REQUESTS_CA_BUNDLE|CURL_CA_BUNDLE|NETRC)\b")
 PROXY_VARIABLES = ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy")
 # proxy.py's own readers of the system's settings, before the fixture below stands in for them.
@@ -375,6 +389,13 @@ def test_a_get_with_no_body_sends_no_length_and_a_post_says_its_length_is_none(s
     assert "content-length" not in get.headers and post.headers["content-length"] == "0"
 
 
+def test_an_answer_carries_the_reason_its_status_line_gave(serve, pki) -> None:
+    server = serve(answer(404, b""))
+    with _client(server, pki) as client:
+        got = client.request("GET", "version")
+    assert (got.status, got.reason) == (404, "Not Found")
+
+
 def test_a_redirect_is_an_answer_and_the_second_address_is_never_asked(serve, pki) -> None:
     elsewhere = serve()
     server = serve(answer(302, b"", headers=[("Location", f"{elsewhere.url}/version")]))
@@ -451,6 +472,57 @@ def test_a_proxy_s_credentials_go_to_the_proxy_alone(serve, pki, tunnel) -> None
     assert "proxy-authorization" not in server.asked[0].headers
 
 
+def _canary_as_basic() -> str:
+    """The Basic credentials of the user aw and the canary as its password, as a CONNECT carries them."""
+    return base64.b64encode(f"aw:{CANARY}".encode()).decode()
+
+
+def test_the_proxy_s_password_is_a_secret_wherever_the_transport_holds_it(pki) -> None:
+    held = transport._proxy(f"http://aw:{CANARY}@127.0.0.1:3128")
+    assert held is not None and isinstance(held.credentials, Secret)
+    with Transport(URL, _context(pki["ca"]), AGENT, proxy=f"http://aw:{CANARY}@127.0.0.1:3128") as client:
+        shown = [repr(held), str(held), repr(vars(client)), repr(client)]
+    assert not [text for text in shown if CANARY in text or _canary_as_basic() in text]
+
+
+class _Interrupted:
+    """A connection to a proxy that takes the CONNECT and is interrupted, as by a Ctrl-C, while its answer is awaited:
+    what was sent on it, and whether it was closed."""
+
+    def __init__(self) -> None:
+        self.sent = b""
+        self.closed = False
+
+    def settimeout(self, seconds: float) -> None:
+        pass
+
+    def sendall(self, data: bytes) -> None:
+        self.sent += bytes(data)
+
+    def recv(self, size: int) -> bytes:
+        raise KeyboardInterrupt
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_a_ctrl_c_during_the_connect_closes_its_socket_and_no_frame_holds_the_password(
+    pki, monkeypatch, caplog, capsys
+) -> None:
+    """The credentials go whole to the proxy, revealed only in the call that writes the CONNECT's head, which has
+    ended by the time the answer is read: no frame the interrupt passes through holds them, and the socket is closed,
+    never left to the collector."""
+    caplog.set_level(logging.DEBUG)
+    interrupted = _Interrupted()
+    monkeypatch.setattr(Transport, "_dial", lambda self, host, port, clock: interrupted)
+    with Transport(URL, _context(pki["ca"]), AGENT, proxy=f"http://aw:{CANARY}@127.0.0.1:3128") as client:
+        with pytest.raises(KeyboardInterrupt) as stopped:
+            client.request("GET", "version")
+    assert interrupted.closed
+    assert f"Proxy-Authorization: Basic {_canary_as_basic()}\r\n".encode() in interrupted.sent
+    assert not [text for text in _said(stopped.value, caplog, capsys) if CANARY in text or _canary_as_basic() in text]
+
+
 @pytest.mark.parametrize("url", ["socks5://127.0.0.1:1080", f"socks5h://user:{CANARY}@127.0.0.1:1080", "https://p:443"])
 def test_a_proxy_of_another_scheme_is_refused_by_name(pki, url) -> None:
     with pytest.raises(ValueError) as refused:
@@ -476,10 +548,20 @@ def test_a_certificate_that_does_not_verify_is_untrusted_an_unreachable_that_nam
     with _client(server, pki, context=context, proxy=tunnel.url) as client, pytest.raises(Untrusted) as untrusted:
         client.request(method, "version", headers={"Authorization": Secret(CANARY)})
     assert isinstance(untrusted.value, Unreachable) and untrusted.value.reason
+    assert untrusted.value.code in UNKNOWN_ISSUER
     said = str(untrusted.value)
     assert said.startswith(f"its certificate does not verify ({untrusted.value.reason}): ")
-    assert "tls_ca_file" in said and "PEM" in said and CANARY not in said
+    assert "tls_ca_file" in said and "PEM" in said and "certifi's list" in said and CANARY not in said
     assert tunnel.connections == 1 and server.asked == []
+
+
+@pytest.mark.parametrize("code", [20, 64], ids=["an unknown issuer", "a wrong address"])
+def test_untrusted_survives_a_copy_and_a_pickle_with_its_sentence_once(code) -> None:
+    made = Untrusted("unable to get local issuer certificate", code)
+    assert str(made).count("does not verify") == 1
+    for again in (copy.copy(made), copy.deepcopy(made), pickle.loads(pickle.dumps(made))):
+        assert type(again) is Untrusted and str(again) == str(made) and again.args == made.args
+        assert (again.reason, again.code) == (made.reason, made.code)
 
 
 def test_a_peer_check_that_raises_sends_nothing(serve, pki) -> None:
@@ -530,6 +612,528 @@ def test_a_post_answered_503_is_not_sent_again(serve, pki, fast) -> None:
     assert len(server.asked) == 1
 
 
+def test_a_request_after_the_transport_is_closed_is_closed_and_nothing_is_sent(serve, pki) -> None:
+    server = serve()
+    client = _client(server, pki)
+    assert client.request("GET", "version").status == 200
+    client.close()
+    for method in ("GET", "POST"):
+        with pytest.raises(Closed) as closed:
+            client.request(method, "version")
+        assert str(closed.value) == CLOSED
+    assert len(server.asked) == 1
+
+
+def test_a_get_under_way_when_the_transport_is_closed_ends_at_its_first_error_and_is_never_asked_again(
+    serve, pki, fast
+) -> None:
+    """A caller that let a call go - a cancelled run leaves its thread - closes the transport: the call then ends at the
+    first error its closed connection gives, and is tried on no new connection, so that nothing more is sent."""
+    asked, release = threading.Event(), threading.Event()
+
+    def held(handler, one, nth) -> None:
+        asked.set()
+        release.wait(30)
+        handler.close_connection = True
+
+    server = serve(held)
+    client = _client(server, pki, read=1.0)
+    failed: list[BaseException] = []
+
+    def get() -> None:
+        try:
+            client.request("GET", "version")
+        except (TimedOut, Unreachable) as error:
+            failed.append(error)
+
+    thread = threading.Thread(target=get, daemon=True)
+    thread.start()
+    try:
+        assert asked.wait(10)
+        client.close()
+        thread.join(10)
+        assert not thread.is_alive() and len(failed) == 1
+    finally:
+        release.set()
+    assert len(server.asked) == 1
+    # Said as the run's own close, with its mark: never as the host's dropped connection.
+    assert str(failed[0]) == transport.CUT and failed[0].closed
+
+
+def _closing_after(once: Callable, tries: int = 1) -> Callable:
+    """Transport._once that closes its transport once its tries-th try has ended, failed or answered, as a caller that
+    closes it just then: between that try and the next, or after the call's last."""
+    ended = 0
+
+    def tried(self, *args):
+        nonlocal ended
+        ended += 1
+        try:
+            return once(self, *args)
+        finally:
+            if ended == tries:
+                self.close()
+
+    return tried
+
+
+@pytest.mark.parametrize(
+    "road",
+    ["dropped, closed before its pause", "answered 503, closed before its pause", "dropped, closed during its pause"],
+)
+def test_a_get_whose_next_try_a_close_forestalls_is_closed_and_sends_nothing_more(
+    serve, pki, monkeypatch, road
+) -> None:
+    """A GET that would be tried again - its connection dropped, or answered 503 - whose transport is closed before
+    that try: the close is what ended the call, so it is Closed, marked closed, wherever the close comes, before the
+    pause or during it, and nothing more is sent. During it: the pause is held until the test has closed the
+    transport, so that the close lands inside it whatever the lane's load (review/code/B29.md 5)."""
+    server = serve(answer(503) if road.startswith("answered") else drop)
+    client = _client(server, pki)
+    if road.endswith("before its pause"):
+        monkeypatch.setattr(transport, "PAUSES", (0.01, 0.01))
+        monkeypatch.setattr(Transport, "_once", _closing_after(Transport._once))
+        with pytest.raises(Closed) as closed:
+            client.request("GET", "version")
+        raised = closed.value
+    else:
+        pausing, release = threading.Event(), threading.Event()
+
+        def paused(seconds: float) -> None:
+            # The transport's one sleep, the pause before a GET's next try, stood in for: held until released.
+            pausing.set()
+            release.wait(10)
+
+        monkeypatch.setattr(transport, "time", types.SimpleNamespace(monotonic=time.monotonic, sleep=paused))
+        ended: dict = {}
+
+        def get() -> None:
+            try:
+                client.request("GET", "version")
+            except Closed as error:
+                ended["raised"] = error
+
+        thread = threading.Thread(target=get, daemon=True)
+        thread.start()
+        try:
+            assert pausing.wait(10)  # the first try has ended, and the GET is in its pause
+            client.close()
+        finally:
+            release.set()
+        thread.join(10)
+        assert not thread.is_alive() and "raised" in ended, ended
+        raised = ended["raised"]
+    assert str(raised) == CLOSED and raised.closed
+    assert len(server.asked) == 1
+
+
+# A failure of the request's own, the transport closed just after it and before the call returned: the last try of a
+# GET dropped by the server, and a POST, sent once, dropped by it. Each: its method, the try the close comes after, and
+# what it is.
+OWN_FAILURES = {
+    "a GET's last try dropped, then closed": ("GET", transport.ATTEMPTS, Unreachable),
+    "a POST dropped, then closed": ("POST", 1, Unknown),
+}
+
+
+@pytest.mark.parametrize(("method", "tries", "raised"), OWN_FAILURES.values(), ids=OWN_FAILURES.keys())
+def test_a_failure_the_close_did_not_make_is_unmarked_and_said_in_its_own_words(
+    serve, pki, fast, monkeypatch, method, tries, raised
+) -> None:
+    """review/code/B29.md 4, the mark's other half: only a failure close() made is marked closed. One the server made -
+    the connection dropped, on a GET's last try or a POST's only one - is unmarked and said in its own words, though the
+    transport was closed just after it, before the call ended: a caller that reads the mark at a run's stop then says
+    what the host did, never the run's own close."""
+    server = serve(drop)
+    client = _client(server, pki)
+    monkeypatch.setattr(Transport, "_once", _closing_after(Transport._once, tries))
+    with pytest.raises(raised) as failed:
+        client.request(method, "version")
+    said = str(failed.value)
+    assert client._closed and not failed.value.closed and not isinstance(failed.value, Closed)
+    assert said.startswith("the connection was dropped") and transport.CUT not in said and CLOSED not in said, said
+    if method == "POST":
+        assert said.endswith(": the request may or may not have been carried out"), said
+    assert [one.method for one in server.asked] == [method] * tries
+
+
+def _waiting(sock: socket.socket) -> bytes:
+    """What has been sent to sock and not read yet, read without waiting."""
+    sock.setblocking(False)
+    got = b""
+    while True:
+        try:
+            chunk = sock.recv(4096)
+        except BlockingIOError:
+            return got
+        if not chunk:
+            return got
+        got += chunk
+
+
+# Where a read waits when its transport is closed: for the answer itself; in a body sent with its length, whose answer
+# the connection keeps; and in a body that ends with the connection, which http.client hands the socket to.
+HELD_AT = {
+    "for its answer": None,
+    "in a body sent with its length": ("Content-Length", "100"),
+    "in a body that ends with the connection": ("Connection", "close"),
+}
+
+
+@pytest.mark.parametrize("header", HELD_AT.values(), ids=HELD_AT.keys())
+def test_a_read_left_on_a_closed_transport_ends_at_once_and_touches_no_socket_that_takes_its_number(
+    serve, pki, header
+) -> None:
+    """review/code/B22.md 1. Another thread's read waits on a server that holds what it would send next when the
+    transport is closed: close() returns at once, the read ends at once, well inside its three-second limit, and is not
+    asked again; and the sockets the process opens meanwhile - the first of which takes the number of the socket closed
+    under the read, wherever that was closed - keep every byte sent to them and are sent none. A socket closed while the
+    read still waits on it would leave that read, at its limit, to take another socket's bytes and write a TLS alert
+    onto its connection."""
+    asked, release = threading.Event(), threading.Event()
+
+    def held(handler, one, nth) -> None:
+        if header is not None:
+            handler.send_response(200)
+            handler.send_header(*header)
+            handler.end_headers()
+            handler.wfile.write(b"x" * 10)
+            handler.wfile.flush()
+        asked.set()
+        release.wait(30)
+        handler.close_connection = True
+
+    server = serve(held)
+    client = _client(server, pki, read=3.0)
+    ended: dict = {}
+
+    def get() -> None:
+        try:
+            client.request("GET", "version")
+        except (TimedOut, Unreachable) as error:
+            ended["raised"] = error
+        ended["at"] = time.monotonic()
+
+    thread = threading.Thread(target=get, daemon=True)
+    thread.start()
+    pairs: list[tuple[socket.socket, socket.socket]] = []
+    try:
+        assert asked.wait(10)
+        time.sleep(0.3)  # the read waits on its socket by now
+        closing = time.monotonic()
+        client.close()
+        closed = time.monotonic()
+        # The lowest number free goes first, so the first of these takes the number of a socket closed under the read.
+        for _ in range(8):
+            near, far = socket.socketpair()
+            pairs.append((near, far))
+            near.sendall(b"N" * 37)
+            far.sendall(b"F" * 37)
+        thread.join(10)
+        assert not thread.is_alive()
+        left = [(_waiting(near), _waiting(far)) for near, far in pairs]
+    finally:
+        release.set()
+        for near, far in pairs:
+            near.close()
+            far.close()
+    assert closed - closing < 1.0, closed - closing
+    assert ended["at"] - closed < 1.0, (ended["at"] - closed, ended)
+    assert isinstance(ended.get("raised"), Unreachable), ended
+    # review/code/B26.md 1: whatever the shutdown made the read raise (on Linux, Broken pipe or Connection reset by
+    # peer), it is said as the run's own close, with its mark, never as the host's dropped connection.
+    assert str(ended["raised"]) == transport.CUT and ended["raised"].closed, ended
+    assert left == [(b"F" * 37, b"N" * 37)] * len(pairs)
+    assert len(server.asked) == 1
+
+
+@pytest.mark.parametrize("method", ["GET", "POST"])
+def test_an_answer_read_on_a_socket_close_shut_down_is_never_handed_back_though_it_seemed_to_end(
+    serve, pki, monkeypatch, method
+) -> None:
+    """A body that ends with its connection ends where the connection does, so a read whose socket close() shut down
+    could take the shutdown for the body's end, where a system reads it as an end rather than an error (Linux's says an
+    error): such an answer is never handed back, but said as cut (CUT), a GET's Unreachable and any other method's
+    Unknown (review/code/B26.md 2), each marked closed. The shutdown is stood in for by its mark alone, and the server
+    then ends the connection, so that the read ends as a whole body would."""
+    asked, release = threading.Event(), threading.Event()
+
+    def held(handler, one, nth) -> None:
+        handler.send_response(200)
+        handler.send_header("Connection", "close")
+        handler.end_headers()
+        handler.wfile.write(b"x" * 10)
+        handler.wfile.flush()
+        asked.set()
+        release.wait(30)
+        handler.close_connection = True
+
+    monkeypatch.setattr(transport._Wire, "shut", lambda wire: setattr(wire, "cut", True))
+    server = serve(held)
+    client = _client(server, pki, read=3.0)
+    ended: dict = {}
+
+    def ask() -> None:
+        try:
+            ended["answer"] = client.request(method, "version")
+        except (TimedOut, Unreachable, Unknown) as error:
+            ended["raised"] = error
+
+    thread = threading.Thread(target=ask, daemon=True)
+    thread.start()
+    try:
+        assert asked.wait(10)
+        time.sleep(0.3)
+        client.close()
+    finally:
+        release.set()
+    thread.join(10)
+    assert not thread.is_alive()
+    assert "answer" not in ended and isinstance(ended.get("raised"), Unreachable if method == "GET" else Unknown), ended
+    said = transport.CUT if method == "GET" else f"{transport.CUT}: the request may or may not have been carried out"
+    assert str(ended["raised"]) == said and ended["raised"].closed
+    assert len(server.asked) == 1
+
+
+def test_a_send_left_on_a_closed_transport_ends_at_once_and_touches_no_socket_that_takes_its_number(pki) -> None:
+    """The same for a request still being written: a POST whose body a server reads none of, its send waiting on full
+    buffers when the transport is closed. The send ends at once, Unknown, and no socket the process opens meanwhile is
+    written to or read from: a socket closed under the send would leave it, at its limit, writing TLS records onto
+    whatever took its number."""
+    listener = socket.create_server(("127.0.0.1", 0))
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(pki["cert"], pki["key"])
+    accepted, release = threading.Event(), threading.Event()
+
+    def silent() -> None:
+        raw, _ = listener.accept()
+        with context.wrap_socket(raw, server_side=True):
+            accepted.set()
+            release.wait(30)
+
+    threading.Thread(target=silent, daemon=True).start()
+    client = Transport(f"https://127.0.0.1:{listener.getsockname()[1]}/api2/json", _context(pki["ca"]), AGENT, read=3.0)
+    ended: dict = {}
+
+    def post() -> None:
+        try:
+            client.request("POST", "pools", form={"blob": "x" * (32 << 20)})
+        except (TimedOut, Unreachable, Unknown) as error:
+            ended["raised"] = error
+        ended["at"] = time.monotonic()
+
+    thread = threading.Thread(target=post, daemon=True)
+    thread.start()
+    pairs: list[tuple[socket.socket, socket.socket]] = []
+    try:
+        assert accepted.wait(10)
+        time.sleep(1.0)  # the send waits on full buffers by now
+        client.close()
+        closed = time.monotonic()
+        for _ in range(8):
+            near, far = socket.socketpair()
+            pairs.append((near, far))
+            near.sendall(b"N" * 37)
+            far.sendall(b"F" * 37)
+        thread.join(10)
+        assert not thread.is_alive()
+        left = [(_waiting(near), _waiting(far)) for near, far in pairs]
+    finally:
+        release.set()
+        listener.close()
+        for near, far in pairs:
+            near.close()
+            far.close()
+    assert ended["at"] - closed < 1.0, (ended["at"] - closed, ended)
+    assert isinstance(ended.get("raised"), Unknown), ended
+    said = f"{transport.CUT}: the request may or may not have been carried out"
+    assert str(ended["raised"]) == said and ended["raised"].closed, ended
+    assert left == [(b"F" * 37, b"N" * 37)] * len(pairs)
+
+
+def test_the_mark_of_the_transport_s_own_close_is_kept_by_a_copy_and_a_pickle() -> None:
+    for error in (Unreachable(transport.CUT, closed=True), Unknown(transport.CUT, closed=True), Closed(CLOSED)):
+        for again in (copy.copy(error), pickle.loads(pickle.dumps(error))):
+            assert type(again) is type(error) and str(again) == str(error) and again.closed
+    assert not Unreachable("the connection was dropped").closed and not TimedOut("no answer within 30 s").closed
+    assert not Untrusted("unable to get local issuer certificate", 20).closed
+
+
+class _Spy:
+    """A socket's stand-in under a _Wire: it counts its closes, and is never read or written here."""
+
+    def __init__(self) -> None:
+        self.closes = 0
+
+    def close(self) -> None:
+        self.closes += 1
+
+
+def test_a_wire_closes_nothing_of_itself() -> None:
+    """review/code/B26.md 3: http.client closes the socket it lets go, and an answer the file it reads; neither closes
+    the socket under a _Wire, which _forget alone closes once no request is under way on it, so that no close runs
+    while close() may be shutting it down."""
+    spy = _Spy()
+    wire = transport._Wire(spy, 1.0, transport._Clock(5.0))
+    read = wire.makefile("rb")
+    read.close()
+    wire.close()
+    assert spy.closes == 0
+
+
+def _cut_short(notify: bool) -> Behave:
+    """Answer 200 with a Content-Length of 100 and 10 bytes of it, then end the connection: with TLS's close_notify
+    first where notify says so, else with none."""
+
+    def behave(handler, asked, nth):
+        handler.send_response(200)
+        handler.send_header("Content-Length", "100")
+        handler.end_headers()
+        handler.wfile.write(b"x" * 10)
+        handler.wfile.flush()
+        if notify:
+            handler.connection.settimeout(1.0)
+            try:
+                handler.connection.unwrap()
+            except (OSError, ValueError):
+                pass  # the client went first, as it may: its close is no close_notify
+        handler.close_connection = True
+
+    return behave
+
+
+@pytest.mark.parametrize("notify", [False, True], ids=["with no close_notify", "after a close_notify"])
+def test_a_body_cut_short_of_its_length_is_no_answer_a_get_tried_again_and_a_post_unknown(
+    serve, pki, fast, notify
+) -> None:
+    """review/code/SUMMARY-9.md, "An older fault": http.client's read takes the end of a body that stops before its
+    Content-Length for the body's end, and says nothing. Such a body is cut short, as one that stops part way through a
+    chunk is: a GET is tried again, three times in all, a POST sent once is Unknown, and neither is an answer."""
+    server = serve(_cut_short(notify))
+    with _client(server, pki) as client:
+        with pytest.raises(Unreachable) as get:
+            client.request("GET", "version")
+        with pytest.raises(Unknown) as post:
+            client.request("POST", "pools", form={"poolid": "aw"})
+    assert str(get.value) == "the answer was cut short" and not get.value.closed
+    assert str(post.value) == "the answer was cut short: the request may or may not have been carried out"
+    assert not post.value.closed
+    assert [one.method for one in server.asked] == ["GET"] * transport.ATTEMPTS + ["POST"]
+
+
+def test_a_get_whose_body_was_cut_short_is_answered_whole_on_its_next_try(serve, pki, fast) -> None:
+    short, whole = _cut_short(False), answer(body=b"y" * 100)
+    server = serve(lambda handler, asked, nth: (short if nth == 1 else whole)(handler, asked, nth))
+    with _client(server, pki) as client:
+        got = client.request("GET", "version")
+    assert (got.status, got.body) == (200, b"y" * 100)
+    first, second = server.asked
+    assert first.port != second.port
+
+
+def test_a_kept_connection_is_taken_before_its_far_end_is_looked_at(serve, pki, monkeypatch) -> None:
+    """review/code/B26.md 3 (a): the look at a kept connection's far end is a poll of its socket's number, which a
+    close() that found the connection idle could close under it, so that the poll read another socket's readiness. The
+    connection is taken first: close() then shuts it down, and never closes it, under the look."""
+    looked = transport._closed_by_peer
+    seen: list[bool] = []
+
+    def looking(wire):
+        seen.append(wire.busy)
+        return looked(wire)
+
+    monkeypatch.setattr(transport, "_closed_by_peer", looking)
+    server = serve()
+    with _client(server, pki) as client:
+        for _ in range(3):
+            assert client.request("GET", "version").status == 200
+    assert seen == [True, True] and len({one.port for one in server.asked}) == 1
+
+
+@pytest.mark.parametrize("method", ["GET", "POST"])
+def test_a_close_between_the_look_at_a_kept_connection_and_its_take_is_the_request_s_closed(
+    serve, pki, monkeypatch, method
+) -> None:
+    """review/code/B29.md 1: a close() on another thread that lands as a request has looked its thread's kept connection
+    up, just before the take, finds the connection idle and forgets it, which lets its socket go (http.client's close
+    leaves the connection's socket None). The request is then the transport's Closed, marked closed, with nothing sent:
+    never an AssertionError, nor any error that is not the transport's. Stood in for by running close() to its end, on
+    a thread of its own, at the take's entry, where the interpreter may switch threads."""
+    take = Transport._take
+    taken: list = []
+    let_go: list = []
+
+    def closing_first(self, conn):
+        taken.append(conn)
+        if len(taken) == 2:
+            closer = threading.Thread(target=self.close, daemon=True)
+            closer.start()
+            closer.join(10)
+            let_go.append((closer.is_alive(), conn.sock))
+        return take(self, conn)
+
+    monkeypatch.setattr(Transport, "_take", closing_first)
+    server = serve()
+    client = _client(server, pki)
+    assert client.request("GET", "version").status == 200
+    with pytest.raises(Closed) as closed:
+        client.request(method, "version")
+    assert str(closed.value) == CLOSED and closed.value.closed
+    # The second take was of the kept connection, which close() had let go of: its socket gone, nothing held.
+    assert taken[0] is taken[1] and let_go == [(False, None)] and client._held == {}
+    assert len(server.asked) == 1
+
+
+# The roads on which a connection's socket is let go, or closed: an answer the connection keeps, then the transport
+# closed; an answer's Connection: close, which hands the socket to the answer; a connection dropped before its answer,
+# on which http.client closes the connection and the answer; and a kept connection the server closed, put aside.
+LET_GO = {
+    "kept, then closed": answer(),
+    "Connection: close": answer(headers=[("Connection", "close")], close_after=True),
+    "dropped": drop,
+    "kept, the server's end closed": answer(close_after=True),
+}
+
+
+@pytest.mark.parametrize("behave", LET_GO.values(), ids=LET_GO.keys())
+def test_a_connection_s_socket_is_closed_only_once_the_transport_holds_it_no_more(
+    serve, pki, fast, monkeypatch, behave
+) -> None:
+    """review/code/B26.md 3 (b): every close of a connection's socket is _forget's, once the connection is out of what
+    the transport holds, so that close(), which shuts down only a connection it finds there, never meets it: none is
+    closed by http.client's close of the connection, an answer's close, or the end of a body, while the transport
+    still holds the connection."""
+    server = serve(behave)
+    client = _client(server, pki)
+    wires: list = []
+    made = transport._Wire.__init__
+
+    def recorded(self, sock, read, clock):
+        made(self, sock, read, clock)
+        wires.append(self)
+
+    closing = ssl.SSLSocket.close
+    held: list[str] = []
+
+    def close(sock):
+        # The server's sockets are no wire's: only the client's own, closed on this thread, are looked up.
+        if any(wire.sock is sock for wire in wires) and any(kept.sock is sock for kept in list(client._held.values())):
+            held.append("closed while the transport still held it")
+        closing(sock)
+
+    monkeypatch.setattr(transport._Wire, "__init__", recorded)
+    monkeypatch.setattr(ssl.SSLSocket, "close", close)
+    for _ in range(2):
+        try:
+            client.request("GET", "version")
+        except Unreachable:
+            pass  # dropped: three tries, each on a connection of its own
+        time.sleep(0.2)  # a server that ends its side has done so by the next request
+    client.close()
+    assert wires and held == []
+    assert all(wire.sock.fileno() == -1 for wire in wires)
+
+
 def test_a_get_dropped_once_is_asked_again_on_a_new_connection(serve, pki, fast) -> None:
     server = serve(lambda handler, asked, nth: drop(handler, asked, nth) if nth == 1 else answer()(handler, asked, nth))
     with _client(server, pki) as client:
@@ -565,6 +1169,31 @@ def test_a_connection_nothing_answers_is_unreachable(pki, fast) -> None:
                 with pytest.raises(Unreachable) as unreachable:
                     client.request(method, "version")
             assert "could not be made" in str(unreachable.value) and not isinstance(unreachable.value, Untrusted)
+
+
+def test_an_address_whose_family_the_system_cannot_open_is_passed_over_for_the_next(serve, pki, monkeypatch) -> None:
+    """As socket.create_connection passes over it: the name's first address is IPv6, which the system refuses to open
+    (as a kernel booted with IPv6 off refuses it), and its second the server's. A POST, so that no second try hides a
+    first that failed."""
+    server = serve()
+    port = server.server_address[1]
+    addresses = [
+        (socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("::1", port, 0, 0)),
+        (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("127.0.0.1", port)),
+    ]
+    opened = []
+
+    def open_one(family=socket.AF_INET, kind=socket.SOCK_STREAM, proto=0):
+        opened.append(family)
+        if family == socket.AF_INET6:
+            raise OSError(errno.EAFNOSUPPORT, os.strerror(errno.EAFNOSUPPORT))
+        return socket.socket(family, kind, proto)
+
+    stand_in = {**vars(socket), "socket": open_one, "getaddrinfo": lambda *args, **kwargs: addresses}
+    monkeypatch.setattr(transport, "socket", types.SimpleNamespace(**stand_in))
+    with _client(server, pki) as client:
+        assert client.request("POST", "pools", form={"poolid": "aw"}).status == 200
+    assert opened == [socket.AF_INET6, socket.AF_INET] and [one.method for one in server.asked] == ["POST"]
 
 
 @pytest.mark.parametrize("method", ["GET", "POST"])
@@ -831,15 +1460,44 @@ def test_a_server_that_echoes_the_secret_in_its_status_line_has_none_of_it_said(
     assert server.asked and all(_went_whole(one) for one in server.asked)
 
 
+def _holding_itself() -> list:
+    """A list that holds itself, and then a Secret: each collection is walked once, so the walk ends and finds it."""
+    held: list = []
+    held.append(held)
+    held.append(Secret(CANARY))
+    return held
+
+
 @pytest.mark.parametrize(
     "given",
     [
         {"query": {"t": Secret(CANARY)}},
         {"query": [("t", ["a", Secret(CANARY)])]},
+        {"query": {"t": [["a", Secret(CANARY)]]}},
+        {"query": {"t": {"k": Secret(CANARY)}}},
+        {"query": [(Secret(CANARY), "v")]},
+        {"query": {"t": _holding_itself()}},
         {"json": {"t": Secret(CANARY)}},
         {"form": {"t": {Secret(CANARY)}}},
+        {"form": {"t": [[Secret(CANARY)]]}},
+        {"form": {"t": {"k": Secret(CANARY)}}},
+        {"form": {"t": ("a", {"k": Secret(CANARY)})}},
+        {"form": [(Secret(CANARY), "v")]},
     ],
-    ids=["a query's value", "one of a query's list", "JSON", "a form's set"],
+    ids=[
+        "a query's value",
+        "one of a query's list",
+        "a list in a query's list",
+        "a query's mapping",
+        "a query's name",
+        "a list that holds itself",
+        "JSON",
+        "a form's set",
+        "a list in a form's list",
+        "a form's mapping",
+        "a mapping in a form's tuple",
+        "a form's name",
+    ],
 )
 def test_a_secret_never_goes_in_a_query_or_json_nor_in_a_form_but_as_a_value(serve, pki, given) -> None:
     server = serve()
@@ -1055,7 +1713,55 @@ def test_the_transport_reveals_a_secret_in_one_place() -> None:
     assert TRANSPORT.read_text().count("reveal(") == 1
 
 
+def _hands_a_check(tree: ast.AST) -> bool:
+    """Whether tree calls Transport, by its name, a name it is imported as or an attribute, and hands it a check of the
+    peer: peer_check by keyword, anything but None; a ** mapping or a * sequence, which may hold one; or more than
+    seven arguments by position, the eighth being peer_check."""
+    names = {"Transport"} | {
+        alias.asname
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+        if alias.name == "Transport" and alias.asname
+    }
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        called = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+        if called not in names:
+            continue
+        if len(node.args) > 7 or any(isinstance(arg, ast.Starred) for arg in node.args):
+            return True
+        for keyword in node.keywords:
+            given = keyword.value
+            if keyword.arg is None or (
+                keyword.arg == "peer_check" and not (isinstance(given, ast.Constant) and given.value is None)
+            ):
+                return True
+    return False
+
+
+@pytest.mark.parametrize(
+    ("source", "hands"),
+    [
+        ("Transport(url, context=made, user_agent=AGENT, peer_check=held)", True),
+        ("transport.Transport(url, made, AGENT, 5, 30, MOST, None, held)", True),
+        ("from ..vendors.transport import Transport as Made\nMade(url, made, AGENT, peer_check=held)", True),
+        ("Transport(url, made, AGENT, **given)", True),
+        ("Transport(*given)", True),
+        ("Transport(url, made, AGENT, peer_check=None)", False),
+        ("Transport(url, made, AGENT, 5, 30, MOST, proxy)", False),
+        ('"""This module hands the transport no peer_check."""', False),
+        ("peer_check = held", False),
+    ],
+)
+def test_a_check_handed_to_the_transport_is_found_by_the_call_that_hands_it(source, hands) -> None:
+    assert _hands_a_check(ast.parse(source)) is hands
+
+
 def test_only_the_modules_peer_checks_names_hand_the_transport_a_check() -> None:
-    handing = {_rel(path) for path in _new_engine() if path != TRANSPORT and "peer_check" in path.read_text()}
+    handing = {
+        _rel(path) for path in _new_engine() if path != TRANSPORT and _hands_a_check(ast.parse(path.read_text()))
+    }
     assert handing == set(PEER_CHECKS), "a module that hands the transport a check of the peer is in PEER_CHECKS"
     assert all(reason.strip() for reason in PEER_CHECKS.values())

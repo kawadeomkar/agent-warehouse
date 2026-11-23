@@ -103,6 +103,25 @@ def _context(pem: str | None, cafile: str | None, strict: bool | None, check_hos
     return context
 
 
+def anchored_context(pem) -> ssl.SSLContext:
+    """A client context that verifies the API's certificate against the certificates of ``pem`` alone - the anchor a
+    host keeps, its node's own certificate or its CA - and checks the name it was reached at, with Python 3.13's flags
+    on every Python: strict, and a partial chain, so that the node's own certificate is an anchor of its own. For the
+    Proxmox client of the engine that replaces the playbooks at 3.0 (docs/architecture/custom-code.md §7.16), and made
+    by hand, not by _context: the standard library's ready-made context opens the file SSLKEYLOGFILE names, as it is
+    made, unless Python ignores the environment, and that client logs no session's keys. Raises ValueError where
+    ``pem`` holds no certificate."""
+    ders = _ders(pem)
+    if not ders:
+        raise ValueError("the anchor holds no certificate")
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.check_hostname = True
+    context.verify_mode = ssl.CERT_REQUIRED
+    context.verify_flags |= _STRICT
+    context.load_verify_locations(cadata="".join(ssl.DER_cert_to_PEM_cert(der) for der in ders))
+    return context
+
+
 def _hello(url: str, context: ssl.SSLContext, timeout: float, http: bool = True) -> bytes:
     """The certificate the API presents, as DER, once the handshake ``context`` makes succeeds; then, with ``http``,
     HEAD /version with no token, which Proxmox answers 501 at once, so that the answer is known to be HTTP - a GET with

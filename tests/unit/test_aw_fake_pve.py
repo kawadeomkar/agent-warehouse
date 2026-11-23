@@ -8,21 +8,26 @@ fails the loser in its task, the fake does too: a clone that lost a race for its
 another node's VM holds, and a POST whose task finds a write made since; a clone joins its pool when its task ends; a
 description is read back without its trailing white space; and a running task ends though nobody polls it.
 
-Two rules with a test of their own: a run of today's sends the fake what it sent before these routes, as recorded in
-tests/unit/fake_pve_requests.json from the fake as it was (its methods, paths and parameter names, nothing else); and
-with no fixture set, every answer today's requests get is what it was, as recorded in tests/unit/fake_pve_replies.json
-from the fake before its tasks, digests and locks (_record_replies), but for the one answer card A5 changed.
+Under enforcement a made token is held to the engine's one table of privileges (lib/claude_vm/pve/privileges.py) as
+Proxmox checks each call: a configuration's write key by key, a listing and a storage's disks with either of their
+privileges, a clone's VM.Allocate on the pool it names or on its new VM's path. Today's own tests of the fake and the
+two scenarios that run it hold it for today's product.
+
+And the stand-in pveum and pvesh (tests/molecule/fake_pve_cli.py), which init's script runs over root SSH: a pool made
+with its comment and read with it and its members, an ACL entry that names a token, a token made with privilege
+separation, changed and its secret made again, and deleted with its entries, and the reads that say who made each, each
+command's state afterwards, what Proxmox refuses refused with nothing changed, and the reads a dry run makes changing
+nothing. Today's script against it is tests/unit/test_proxmox_access.py's.
 """
 
 from __future__ import annotations
 
 import ast
-import hashlib
 import http.client
 import json
-import re
 import socket
 import ssl
+import subprocess
 import threading
 import time
 import urllib.error
@@ -33,19 +38,24 @@ from pathlib import Path
 import pytest
 from harness import (
     ENGINE_POOL,
-    ENGINE_PRIVILEGES,
+    ENGINE_ROLE,
+    ENGINE_TOKEN,
+    ENGINE_USER,
     FAKES,
     PVE_SECRET,
-    _fake_pve,
     _pve,
-    _pve_requests,
+    _pve_cli,
+    _pve_cli_calls,
+    _pve_cli_state,
+    _pve_cli_writes,
+    engine_grant,
     engine_token,
     fake_fleet,
 )
 
+from claude_vm.pve import privileges
+
 TODAYS = ("ansible@pve!ansible", PVE_SECRET)
-RECORDED = Path(__file__).with_name("fake_pve_requests.json")
-REPLIES = Path(__file__).with_name("fake_pve_replies.json")
 ROLE = ["VM.Allocate", "VM.Clone", "VM.Config.CPU", "VM.Config.Cloudinit", "VM.Config.Disk", "VM.Config.Memory"]
 ROLE += ["VM.Config.Network", "VM.Config.Options", "VM.PowerMgmt", "VM.Audit", "Datastore.AllocateSpace"]
 ROLE += ["Datastore.Audit", "SDN.Use"]
@@ -138,9 +148,22 @@ def test_a_clone_given_a_pool_is_listed_as_its_member(fleet: str) -> None:
     (pool,) = _ok(fleet, "GET", "pools", poolid="fleet")
     assert [(m["vmid"], m["name"]) for m in pool["members"]] == [(9020, "pooled")]
     assert "comment" not in pool
-    # As before: a clone into a pool nobody made puts it in that pool, which then exists.
-    _ok(fleet, "POST", "nodes/pve/qemu/9000/clone", newid=9021, name="elsewhere", pool="unmade")
+    # Today's token, as before: a clone into a pool nobody made puts it in that pool, which then exists.
+    _ok(fleet, "POST", "nodes/pve/qemu/9000/clone", TODAYS, newid=9021, name="elsewhere", pool="unmade")
     assert [m["vmid"] for m in _ok(fleet, "GET", "pools/unmade")["members"]] == [9021]
+
+
+def test_a_made_token_s_clone_into_a_pool_that_does_not_exist_is_refused_as_check_pool_exist_refuses_it(
+    tmp_path: Path,
+) -> None:
+    for base in fake_fleet(tmp_path, engine=True):
+        token = engine_token(tmp_path)
+        said = (SAID["PERMISSION_REFUSED_STATUS"], SAID["NO_SUCH_POOL"].format(pool="unmade"))
+        assert _call(base, "POST", CLONE, token, newid=9021, name="elsewhere", pool="unmade") == said
+        assert _call(base, "GET", "nodes/pve/qemu/9021/config")[0] == 500
+        # Into the pool POST /pools made, it is made.
+        upid = _ok(base, "POST", CLONE, token, newid=9021, name="pooled", pool=ENGINE_POOL)
+        assert _task(base, upid)["exitstatus"] == "OK"
 
 
 def test_a_guest_of_another_pool_moves_only_with_allow_move_and_a_refusal_writes_nothing(fleet: str) -> None:
@@ -331,6 +354,122 @@ def test_a_pool_s_role_reaches_a_storage_the_pool_holds_without_propagate(fleet:
     assert _permissions(fleet, token, "/storage/local-lvm") == {"/storage/local-lvm": {}}
 
 
+# Five more cases of the same rules, each failing under its own mutation of review/code/A4-mutations.sh in the plan's
+# folder (M12, M13, M14, M15, M20): two of them the engine's own grant shape, which enforcement decides by.
+def test_a_level_whose_entries_do_not_reach_the_path_cuts_nothing_from_above(fleet: str) -> None:
+    _user(fleet, "engine@pve", "VM.Audit,VM.PowerMgmt", path="/")
+    _ok(fleet, "POST", "access/roles", roleid="Above", privs="VM.PowerMgmt")
+    _ok(fleet, "POST", "access/roles", roleid="Below", privs="VM.Audit")
+    token = _token(fleet, "engine@pve", "aw")
+    _ok(fleet, "PUT", "access/acl", path="/", roles="Above", tokens=token[0])
+    _ok(fleet, "PUT", "access/acl", path="/vms", roles="Below", tokens=token[0], propagate=0)
+    # /vms's entry propagates nothing, so below it no level applies but /'s.
+    assert _permissions(fleet, token, "/vms") == {"/vms": {"VM.Audit": 0}}
+    assert _permissions(fleet, token, "/vms/9010") == {"/vms/9010": {"VM.PowerMgmt": 1}}
+
+
+def _engine_shape(base: str, user: str, token: tuple[str, str], vms: bool) -> None:
+    """The engine's grant shape for user and its token: the role R on /pool/fleet (alpha its member), and with vms,
+    VM.Audit on /vms beside it."""
+    _ok(base, "POST", "pools", poolid="fleet")
+    _ok(base, "PUT", "pools", poolid="fleet", vms="9010")
+    _ok(base, "POST", "access/roles", roleid="R", privs="VM.PowerMgmt,VM.Config.Options")
+    _ok(base, "PUT", "access/acl", path="/pool/fleet", roles="R", users=user, tokens=token[0])
+    if vms:
+        _ok(base, "POST", "access/roles", roleid="Reader", privs="VM.Audit")
+        _ok(base, "PUT", "access/acl", path="/vms", roles="Reader", users=user, tokens=token[0])
+
+
+def test_the_engine_s_shape_vm_audit_on_vms_and_the_role_on_the_pool_gives_a_member_both(fleet: str) -> None:
+    _ok(fleet, "POST", "access/users", userid="engine@pve")
+    token = _token(fleet, "engine@pve", "aw")
+    _engine_shape(fleet, "engine@pve", token, vms=True)
+    # A member takes the pool's roles beside its own, at 0; a guest outside it holds VM.Audit alone.
+    held = {"VM.Audit": 1, "VM.PowerMgmt": 0, "VM.Config.Options": 0}
+    assert _permissions(fleet, token, "/vms/9010") == {"/vms/9010": held}
+    assert _permissions(fleet, token, "/vms/9011") == {"/vms/9011": {"VM.Audit": 1}}
+
+
+def test_a_separated_token_s_user_holding_the_role_on_the_pool_alone_gives_the_member_its_privileges(
+    fleet: str,
+) -> None:
+    _ok(fleet, "POST", "access/users", userid="engine@pve")
+    token = _token(fleet, "engine@pve", "aw", privsep=1)
+    _engine_shape(fleet, "engine@pve", token, vms=False)
+    # The user's privileges at the member come from the pool alone, and the token is cut to them.
+    assert _permissions(fleet, token, "/vms/9010") == {"/vms/9010": {"VM.PowerMgmt": 0, "VM.Config.Options": 0}}
+    assert _permissions(fleet, token, "/vms/9011") == {"/vms/9011": {}}
+
+
+def test_a_storage_in_two_pools_takes_both_pools_roles(fleet: str) -> None:
+    _user(fleet, "engine@pve", "Datastore.AllocateSpace,Datastore.Audit", path="/")
+    _ok(fleet, "POST", "access/roles", roleid="Space", privs="Datastore.AllocateSpace")
+    _ok(fleet, "POST", "access/roles", roleid="Seen", privs="Datastore.Audit")
+    token = _token(fleet, "engine@pve", "aw")
+    for pool, role in (("one", "Space"), ("two", "Seen")):
+        _ok(fleet, "POST", "pools", poolid=pool)
+        _ok(fleet, "PUT", "pools", poolid=pool, storage="local-lvm")
+        _ok(fleet, "PUT", "access/acl", path=f"/pool/{pool}", roles=role, tokens=token[0])
+    held = {"Datastore.AllocateSpace": 0, "Datastore.Audit": 0}
+    assert _permissions(fleet, token, "/storage/local-lvm") == {"/storage/local-lvm": held}
+
+
+def test_a_token_without_privilege_separation_holds_its_user_s_and_never_entries_of_its_own(fleet: str) -> None:
+    _user(fleet, "engine@pve", "VM.Audit")
+    _ok(fleet, "POST", "access/roles", roleid="More", privs="VM.PowerMgmt")
+    whole = _token(fleet, "engine@pve", "whole", privsep=0)
+    _ok(fleet, "PUT", "access/acl", path="/vms", roles="More", tokens=whole[0])
+    assert _permissions(fleet, whole, "/vms") == {"/vms": {"VM.Audit": 1}}
+
+
+# NoAccess and the roles Proxmox has from the start (PVE::AccessControl::roles, PVE::RPCEnvironment::compile_acl_path).
+def test_noaccess_beside_another_role_on_one_path_stands_alone(fleet: str) -> None:
+    _user(fleet, "engine@pve", "VM.Audit", path="/")
+    _ok(fleet, "POST", "access/roles", roleid="Reader", privs="VM.Audit")
+    token = _token(fleet, "engine@pve", "aw")
+    _ok(fleet, "PUT", "access/acl", path="/vms", roles="Reader,NoAccess", tokens=token[0])
+    assert _permissions(fleet, token, "/vms") == {"/vms": {}}
+    assert _permissions(fleet, token, "/vms/9010") == {"/vms/9010": {}}
+
+
+def test_a_member_s_own_noaccess_is_never_trumped_by_its_pool_and_a_pool_s_noaccess_trumps_the_member_s_roles(
+    fleet: str,
+) -> None:
+    _user(fleet, "engine@pve", "VM.Audit,VM.PowerMgmt", path="/")
+    _ok(fleet, "POST", "access/roles", roleid="Power", privs="VM.PowerMgmt")
+    _ok(fleet, "POST", "access/roles", roleid="Reader", privs="VM.Audit")
+    token = _token(fleet, "engine@pve", "aw")
+    _ok(fleet, "POST", "pools", poolid="fleet")
+    _ok(fleet, "PUT", "pools", poolid="fleet", vms="9010,9011")
+    _ok(fleet, "PUT", "access/acl", path="/pool/fleet", roles="Power", tokens=token[0])
+    _ok(fleet, "PUT", "access/acl", path="/vms/9010", roles="NoAccess", tokens=token[0])
+    assert _permissions(fleet, token, "/vms/9010") == {"/vms/9010": {}}
+    assert _permissions(fleet, token, "/vms/9011") == {"/vms/9011": {"VM.PowerMgmt": 0}}
+    # NoAccess on the pool: its member holds nothing, though / gives it VM.Audit.
+    _ok(fleet, "PUT", "access/acl", path="/", roles="Reader", tokens=token[0])
+    _ok(fleet, "PUT", "access/acl", path="/pool/fleet", roles="NoAccess", tokens=token[0])
+    assert _permissions(fleet, token, "/vms/9011") == {"/vms/9011": {}}
+    assert _permissions(fleet, token, "/vms/9012") == {"/vms/9012": {"VM.Audit": 1}}
+
+
+def test_the_built_in_roles_are_there_to_grant_and_never_made_again(fleet: str) -> None:
+    _ok(fleet, "POST", "access/users", userid="engine@pve")
+    _ok(fleet, "PUT", "access/acl", path="/", roles="PVEAuditor", users="engine@pve")
+    whole = _token(fleet, "engine@pve", "whole", privsep=0)
+    audited = {"VM.Audit", "Datastore.Audit", "SDN.Audit", "Sys.Audit"}
+    assert set(_permissions(fleet, whole, "/vms/9010")["/vms/9010"]) == audited
+    for built_in in ("NoAccess", "PVEAuditor"):
+        refused = _call(fleet, "POST", "access/roles", roleid=built_in, privs="VM.Audit")
+        assert refused == (500, f"create role failed: role '{built_in}' already exists")
+
+
+@pytest.mark.parametrize("privilege", ["VM.Monitor", "VM.Audt", "Everything"])
+def test_a_role_takes_only_the_privileges_proxmox_ve_9_defines(fleet: str, privilege: str) -> None:
+    refused = _call(fleet, "POST", "access/roles", roleid="Typo", privs=f"VM.Audit,{privilege}")
+    assert refused == (500, "create role failed: " + SAID["INVALID_PRIVILEGE"].format(privilege=privilege))
+    assert _call(fleet, "PUT", "access/acl", path="/vms", roles="Typo", users="root@pam")[1].endswith("does not exist")
+
+
 def test_a_regenerated_token_s_old_secret_is_refused(fleet: str) -> None:
     _user(fleet, "engine@pve", "VM.Audit")
     full_id, old = _token(fleet, "engine@pve", "aw", comment="the engine's")
@@ -374,7 +513,8 @@ def test_the_engine_s_pool_user_and_one_token_are_seeded_on_request(tmp_path: Pa
     for base in fake_fleet(tmp_path, engine=True):
         token = engine_token(tmp_path)
         assert token[0] == "agent-warehouse@pve!aw"
-        held = dict.fromkeys(ENGINE_PRIVILEGES.split(), 1)
+        # The role holds what the engine's table needs on its pool, which init grants (E1).
+        held = dict.fromkeys(privileges.needed("pool"), 1)
         assert _permissions(base, token, f"/pool/{ENGINE_POOL}") == {f"/pool/{ENGINE_POOL}": held}
         assert _permissions(base, token, "/vms") == {"/vms": {}}
         (pool,) = _ok(base, "GET", "pools", token, poolid=ENGINE_POOL)
@@ -398,9 +538,27 @@ CONFIG = "nodes/pve/qemu/9012/config"
 CLONE = "nodes/pve/qemu/9000/clone"
 
 
-def _answer(base: str, method: str, endpoint: str, **params) -> dict:
-    """One request as today's token, its answer whole: the status, the reason, the Content-Type and the body."""
-    return _sent(base, {"method": method, "path": f"/api2/json/{endpoint}", "params": params, "token": "ansible"})
+def _answer(base: str, method: str, endpoint: str, *, auth: tuple[str, str] = TODAYS, **params) -> dict:
+    """One request as the token auth gives, today's unless told, its answer whole: the status, the reason, the
+    Content-Type and the body."""
+    address = urllib.parse.urlsplit(base)
+    unverified = ssl.create_default_context()
+    unverified.check_hostname = False
+    unverified.verify_mode = ssl.CERT_NONE
+    connection = http.client.HTTPSConnection(address.hostname, address.port, timeout=30, context=unverified)
+    form = urllib.parse.urlencode(params)
+    headers = {"Authorization": f"PVEAPIToken={auth[0]}={auth[1]}"}
+    try:
+        if method in ("GET", "HEAD", "DELETE"):
+            connection.request(method, f"/api2/json/{endpoint}" + (f"?{form}" if form else ""), headers=headers)
+        else:
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+            connection.request(method, f"/api2/json/{endpoint}", body=form, headers=headers)
+        answer = connection.getresponse()
+        body = answer.read().decode()
+    finally:
+        connection.close()
+    return {"status": answer.status, "reason": answer.reason, "type": answer.getheader("Content-Type"), "body": body}
 
 
 def _task(base: str, upid: str, part: str = "status") -> object:
@@ -566,6 +724,17 @@ def test_a_post_that_lost_a_race_is_answered_a_task_that_fails_and_writes_nothin
     assert _call(fleet, "PUT", CONFIG, digest=stale, cores=5) == refused
 
 
+def test_the_race_switch_arms_what_it_is_given_and_disarms_what_it_is_given_0(fleet: str) -> None:
+    assert _pve(fleet, "PUT", "fake/clone-race", config=0)["data"] == {"clone": 1, "config": 0}
+    stale = _ok(fleet, "GET", CONFIG)["digest"]
+    _ok(fleet, "PUT", CONFIG, cores=3)
+    refused = (SAID["DIGEST_REFUSED_STATUS"], SAID["DIGEST_REFUSED"])
+    assert _call(fleet, "POST", CONFIG, digest=stale, cores=5) == refused
+    # The armed clone disarmed, unspent: a clone onto a taken VMID is refused at the call again.
+    assert _pve(fleet, "PUT", "fake/clone-race", clone=0, config=0)["data"] == {"clone": 0, "config": 0}
+    assert _call(fleet, "POST", CLONE, newid=9010, name="raced") == (500, SAID["CLONE_EXISTS"].format(newid=9010))
+
+
 def test_a_post_s_task_checks_the_digest_and_the_lock_again_when_it_ends_so_a_write_made_since_stands(
     fleet: str,
 ) -> None:
@@ -586,6 +755,14 @@ def test_a_post_s_task_checks_the_digest_and_the_lock_again_when_it_ends_so_a_wr
     locked = SAID["LOCKED"].format(lock=SAID["DELETION_LOCK"])
     assert _task(fleet, unchecked) == {"status": "stopped", "exitstatus": locked, "upid": unchecked}
     assert _ok(fleet, "GET", CONFIG)["cores"] == cores
+    # One whose VM was deleted while it ran: Proxmox's worker finds no configuration file, and says so.
+    _pve(fleet, "PUT", "fake/task-polls", polls=1)
+    posted = _ok(fleet, "POST", "nodes/pve/qemu/9010/config", cores=8)
+    deletion = _ok(fleet, "DELETE", "nodes/pve/qemu/9010")
+    assert _pve(fleet, "PUT", "fake/task-end", upid=deletion)["data"] == [deletion]
+    gone = "Configuration file 'nodes/pve/qemu-server/9010.conf' does not exist"
+    assert [_task(fleet, posted)["status"] for _ in range(2)] == ["running", "stopped"]
+    assert _task(fleet, posted) == {"status": "stopped", "exitstatus": gone, "upid": posted}
     # With nothing in between, it writes when it ends, its digest still the configuration's.
     beta = "nodes/pve/qemu/9011/config"
     upid = _ok(fleet, "POST", beta, digest=_ok(fleet, "GET", beta)["digest"], cores=6)
@@ -681,9 +858,10 @@ def test_the_fake_answers_one_request_at_a_time(fleet: str) -> None:
     assert answered.is_set()
 
 
-def test_requests_sent_at_once_are_answered_one_at_a_time_so_each_race_has_one_winner(fleet: str) -> None:
-    """The fake serves one request at a time, which is what makes each check and the write after it atomic: four
-    clones onto one VMID, and four writes that read one digest, released together, have one winner each round."""
+def test_of_requests_sent_at_once_each_race_has_one_winner(fleet: str) -> None:
+    """Four clones onto one VMID, and four writes that read one digest, released together, have one winner each round:
+    each check and the write after it are atomic. That the fake serves one request at a time, which makes them so, is
+    test_the_fake_answers_one_request_at_a_time's: this test passes under a threaded server too."""
     for newid in range(9020, 9025):
         clones = _at_once(fleet, "POST", CLONE, [{"newid": newid, "name": f"racer-{i}"} for i in range(4)])
         refused = (500, SAID["CLONE_EXISTS"].format(newid=newid))
@@ -774,6 +952,48 @@ def test_a_task_ends_with_the_error_a_fixture_planted_and_changes_nothing(fleet:
     assert _ok(fleet, "GET", "nodes/pve/qemu/9012/status/current")["status"] == "running"
 
 
+def test_a_task_ends_with_the_warnings_a_fixture_planted_a_success_its_change_made(fleet: str, tmp_path: Path) -> None:
+    """Proxmox counts a task whose worker logged warnings and went on a success: its exit status says how many, and its
+    log each warning, then how many."""
+    _pve(fleet, "PUT", "fake/task-warn", warning="iothread is only valid with virtio\nsecond", type="qmstart")
+    # A task of another type is not the one planted for.
+    other = _ok(fleet, "POST", "nodes/pve/qemu/9011/status/shutdown")
+    assert _task(fleet, other)["exitstatus"] == "OK" and "warnings" not in _tasks(tmp_path)[other]
+    upid = _ok(fleet, "POST", "nodes/pve/qemu/9012/status/start")
+    warned = SAID["TASK_WARNINGS_STATUS"].format(count=2)
+    assert _task(fleet, upid) == {"status": "stopped", "exitstatus": warned, "upid": upid}
+    assert [line["t"] for line in _task(fleet, upid, "log")] == [
+        SAID["TASK_WARN"].format(warning="iothread is only valid with virtio"),
+        SAID["TASK_WARN"].format(warning="second"),
+        SAID["TASK_WARNINGS"].format(count=2),
+    ]
+    assert _ok(fleet, "GET", "nodes/pve/qemu/9012/status/current")["status"] == "running"
+    assert _tasks(tmp_path)[upid]["warnings"] == ["iothread is only valid with virtio", "second"]
+    # Planted once: the next task ends OK.
+    assert _task(fleet, _ok(fleet, "POST", "nodes/pve/qemu/9012/status/stop"))["exitstatus"] == "OK"
+    # With an error planted beside it, the task fails, its warnings logged before its error.
+    _pve(fleet, "PUT", "fake/task-warn", warning="first")
+    _pve(fleet, "PUT", "fake/task-fail", error="start failed")
+    failed = _ok(fleet, "POST", "nodes/pve/qemu/9012/status/start")
+    assert _task(fleet, failed)["exitstatus"] == "start failed"
+    assert [line["t"] for line in _task(fleet, failed, "log")] == ["WARN: first", "TASK ERROR: start failed"]
+    assert _ok(fleet, "GET", "nodes/pve/qemu/9012/status/current")["status"] == "stopped"
+
+
+@pytest.mark.parametrize("agent", ["", "0", "enabled=0", "enabled=0,fstrim_cloned_disks=1", "fstrim_cloned_disks=1"])
+def test_a_vm_whose_configuration_turns_no_guest_agent_on_has_every_agent_call_refused_first(fleet: str, agent) -> None:
+    """As Proxmox's assert_agent_available: before whether the VM runs, and every agent call alike. beta runs, its
+    agent up; gamma is stopped."""
+    for vmid in (9011, 9012):
+        _ok(fleet, "PUT", f"nodes/pve/qemu/{vmid}/config", **({"agent": agent} if agent else {"delete": "agent"}))
+        for call in ("network-get-interfaces", "get-osinfo", "get-fsinfo"):
+            refused = _call(fleet, "GET", f"nodes/pve/qemu/{vmid}/agent/{call}")
+            assert refused == (SAID["AGENT_REFUSED_STATUS"], SAID["NO_AGENT"]), (vmid, call, refused)
+    # Turned on again, as the template has it, the agent of the running VM answers.
+    _ok(fleet, "PUT", "nodes/pve/qemu/9011/config", agent="1,fstrim_cloned_disks=1")
+    assert _call(fleet, "GET", "nodes/pve/qemu/9011/agent/network-get-interfaces")[0] == 200
+
+
 def test_every_task_is_recorded_with_its_type_the_token_that_made_it_and_its_vm(tmp_path: Path) -> None:
     for base in fake_fleet(tmp_path, engine=True):
         token, vm = engine_token(tmp_path), "nodes/pve/qemu/9020"
@@ -826,136 +1046,665 @@ def test_a_clone_takes_a_storage_its_node_has_and_another_node_where_its_storage
     assert _call(fleet, "GET", "nodes/pve/qemu/9022/config")[0] == 500
 
 
-# ---------------------------------------------------------------------------------- today's requests ---
-def _run_of_today_s(tmp_path: Path) -> list[dict]:
-    """test_vm_size.py's test of a VM created with a size, run against the fake: every request it sent, fake_fleet's
-    own first, as the fake logged it - its method, path, parameters and token ID."""
-    import test_vm_size
-
-    for base in fake_fleet(tmp_path):
-        test_vm_size.test_a_vm_is_created_with_the_size_given_and_tagged_as_sized(tmp_path, base)
-    return _pve_requests(tmp_path)
-
-
-def _requests_of_a_run_of_today_s(tmp_path: Path) -> list[list]:
-    """_run_of_today_s's requests as their method, their path and their parameters' names."""
-    return [[sent["method"], sent["path"], sorted(sent["params"])] for sent in _run_of_today_s(tmp_path)]
+# ---------------------------------------------------------------------- the engine's table, enforced ---
+# With PUT /fake/enforce?on=1 the fake holds a made token's every request to lib/claude_vm/pve/privileges.py, deciding
+# each by acl_privileges, which answers GET /access/permissions too: so the rules the cases above hold, hold here.
+def _enforced(directory: Path, storage: bool = True):
+    """The fake with the engine's pool, role, user and token, that token held to the table, and the template and alpha
+    members of the pool; with storage, the engine's storage granted as init grants it. Its URL, and the token."""
+    for base in fake_fleet(directory, engine=True, enforce=True):
+        _ok(base, "PUT", "pools", poolid=ENGINE_POOL, vms="9000,9010")
+        if storage:
+            engine_grant(base, "/storage/local-lvm", ",".join(sorted(privileges.needed("storage"))))
+        yield base, engine_token(directory)
 
 
-def test_a_run_of_today_s_sends_the_fake_what_it_sent_before_its_new_routes(tmp_path: Path) -> None:
-    assert _requests_of_a_run_of_today_s(tmp_path) == json.loads(RECORDED.read_text())
+@pytest.fixture
+def enforced(tmp_path: Path):
+    yield from _enforced(tmp_path)
 
 
-# A UUID, which the fake makes afresh for each clone's SMBIOS and each token's secret: the one part of an answer that is
-# never the same twice, said as <uuid> in a recorded answer.
-UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+def _refused(path: str, *privileges: str) -> tuple[int, str]:
+    """A 403 for want of privilege on path, or of any of privileges there, as Proxmox says it."""
+    said = SAID["PRIVILEGES_JOINED"].join(privileges)
+    return SAID["PERMISSION_REFUSED_STATUS"], SAID["PERMISSION_REFUSED"].format(path=path, privilege=said)
 
 
-def _sent(base: str, request: dict) -> dict:
-    """One request as the fake logged it - method, path, params, token ID, the secret today's - sent again to the fake
-    at base; its answer as the fake gave it: the status, the reason, the Content-Type and the body, its UUIDs said as
-    <uuid> and a configuration's digest, where it is the SHA-1 of the rest of that configuration, said as such."""
-    address = urllib.parse.urlsplit(base)
-    unverified = ssl.create_default_context()
-    unverified.check_hostname = False
-    unverified.verify_mode = ssl.CERT_NONE
-    connection = http.client.HTTPSConnection(address.hostname, address.port, timeout=30, context=unverified)
-    form = urllib.parse.urlencode(request["params"])
-    headers = {"Authorization": f"PVEAPIToken=ansible@pve!{request['token']}={PVE_SECRET}"} if request["token"] else {}
-    try:
-        if request["method"] in ("GET", "HEAD", "DELETE"):
-            connection.request(request["method"], request["path"] + (f"?{form}" if form else ""), headers=headers)
-        else:
-            headers["Content-Type"] = "application/x-www-form-urlencoded"
-            connection.request(request["method"], request["path"], body=form, headers=headers)
-        answer = connection.getresponse()
-        body = answer.read().decode()
-    finally:
-        connection.close()
-    try:
-        data = json.loads(body)["data"]
-    except (ValueError, KeyError, TypeError):
-        data = None
-    if isinstance(data, dict) and isinstance(data.get("digest"), str):
-        rest = json.dumps({key: value for key, value in data.items() if key != "digest"}, sort_keys=True)
-        if data["digest"] == hashlib.sha1(rest.encode()).hexdigest():
-            body = body.replace(data["digest"], "<the SHA-1 of the rest of the configuration>")
-    kind = answer.getheader("Content-Type")
-    return {"status": answer.status, "reason": answer.reason, "type": kind, "body": UUID.sub("<uuid>", body)}
+def _refused_any() -> tuple[int, str]:
+    """A 403 for want of what either of two checks asks, a clone's VM.Allocate on its pool's path or its new VM's."""
+    return SAID["PERMISSION_REFUSED_STATUS"], SAID["PERMISSION_REFUSED_ANY"]
 
 
-def _today_s_other_requests(base: str) -> list[dict]:
-    """After _run_of_today_s's requests, sent to the fake at base, the requests of today's that its run does not send,
-    each made of the answers before it, as the fake logs them, with the answer it was given: a clone onto a VMID that
-    is taken (the provision scenario's converge, run again); a clone as harness._pve_vm makes one, a full one onto a
-    storage and one into a pool (the role, with proxmox_vm_pool), each waited for as proxmox_kvm waits; the notes
-    written (the role's settings call, test_golden_play.py); a template made of a VM (test_vm_repos.py); a VM started
-    and stopped again (destroy.yml, tasks/vm_stop.yml); a deletion refused for protection, then made (proxmox_kvm,
-    test_golden_play.py); the listings after; a node's storages and the cluster's, before and after a fixture lists one
-    Proxmox cannot reach (init_check.yml, just status); and a VM started, then shut down as proxmox_kvm stops one
-    (the role's absent.yml)."""
-    sent: list[dict] = []
-
-    def send(method: str, path: str, **params) -> object:
-        request = {"method": method, "path": f"/api2/json/{path}", "params": params, "token": "ansible"}
-        sent.append({**request, "answer": _sent(base, request)})
-        return json.loads(sent[-1]["answer"]["body"] or "{}").get("data")
-
-    def waited(method: str, path: str, **params) -> None:
-        send("GET", f"nodes/pve/tasks/{send(method, path, **params)}/status")
-
-    send("POST", "nodes/pve/qemu/9000/clone", newid="9010", name="in-the-way")
-    waited("POST", "nodes/pve/qemu/9000/clone", newid="9020", name="delta")
-    waited("POST", "nodes/pve/qemu/9000/clone", newid="9021", name="epsilon", full="1", storage="local-lvm")
-    waited("POST", "nodes/pve/qemu/9000/clone", newid="9022", name="pooled", pool="agent-warehouse")
-    send("PUT", "nodes/pve/qemu/9020/config", tags="agent-warehouse", description="the notes of delta")
-    send("GET", "nodes/pve/qemu/9020/config")
-    waited("POST", "nodes/pve/qemu/9020/template")
-    waited("POST", "nodes/pve/qemu/9021/status/start")
-    send("GET", "nodes/pve/qemu/9021/status/current")
-    waited("POST", "nodes/pve/qemu/9021/status/stop")
-    send("PUT", "nodes/pve/qemu/9021/config", protection="1")
-    send("DELETE", "nodes/pve/qemu/9021")
-    send("PUT", "nodes/pve/qemu/9021/config", delete="protection")
-    waited("DELETE", "nodes/pve/qemu/9021", purge="1")
-    send("GET", "nodes/pve/qemu/9021/config")
-    waited("DELETE", "nodes/pve/qemu/9020")
-    send("GET", "cluster/nextid")
-    send("GET", "cluster/resources")
-    send("GET", "nodes/pve/qemu")
-    send("GET", "nodes/pve/storage")
-    send("GET", "cluster/resources", type="storage")
-    send("PUT", "fake/storages", node="pve", storages="local-lvm:lvmthin,slow:dir:inactive")
-    send("GET", "nodes/pve/storage")
-    send("GET", "cluster/resources", type="storage")
-    waited("POST", "nodes/pve/qemu/9022/status/start")
-    waited("POST", "nodes/pve/qemu/9022/status/shutdown", forceStop="1", timeout="30")
-    send("GET", "nodes/pve/qemu/9022/status/current")
-    return sent
+def _listed(base: str, auth: tuple[str, str]) -> list[int]:
+    return sorted(vm["vmid"] for vm in _ok(base, "GET", "cluster/resources", auth, type="vm"))
 
 
-def _record_replies(tmp_path: Path) -> list[dict]:
-    """Every request of _run_of_today_s, then _today_s_other_requests, sent to a fake of its own, each with the answer
-    it was given: what REPLIES records. Run once, on a lane, from the fake as it was before a change to its answers."""
-    run = [{key: sent[key] for key in ("method", "path", "params", "token")} for sent in _run_of_today_s(tmp_path)]
-    (tmp_path / "again").mkdir()
-    for base in _fake_pve(tmp_path / "again"):
-        recorded = [{**request, "answer": _sent(base, request)} for request in run]
-        recorded += _today_s_other_requests(base)
-    return recorded
+EVERY_GUEST = [8000, 8001, 9000, 9003, 9010, 9011, 9012]
 
 
-def test_with_no_fixture_set_every_answer_today_s_requests_get_is_what_it_was(tmp_path: Path) -> None:
-    """Each request REPLIES records, sent in its order to a fake of its own, is answered as the fake answered it before
-    card A5, byte for byte but for its UUIDs and its digests, which are never the same twice. The one answer A5 changed
-    on purpose: a clone onto a VMID that is taken keeps its 500 and gains Proxmox's words."""
-    recorded = json.loads(REPLIES.read_text())
-    changed = 0
-    for base in _fake_pve(tmp_path):
-        for request in recorded:
-            wanted = request["answer"]
-            if request["path"].endswith("/clone") and wanted["status"] == 500:
-                wanted = {**wanted, "reason": SAID["CLONE_EXISTS"].format(newid=request["params"]["newid"])}
-                changed += 1
-            assert _sent(base, request) == wanted, request
-    assert changed == 1
+def test_the_engine_s_token_clones_into_its_pool_reads_and_writes_its_members_and_no_other_vm(enforced) -> None:
+    base, token = enforced
+    upid = _ok(base, "POST", CLONE, token, newid=9020, name="delta", pool=ENGINE_POOL, description="made")
+    # Its own task, which it reads with no privilege on the node.
+    assert _ok(base, "GET", f"nodes/pve/tasks/{upid}/status", token)["exitstatus"] == "OK"
+    for vmid in (9010, 9020):
+        config = f"nodes/pve/qemu/{vmid}/config"
+        _ok(base, "PUT", config, token, digest=_ok(base, "GET", config, token)["digest"], description="the record")
+        assert _ok(base, "GET", config, token)["description"] == "the record"
+    # A VM outside the pool: never listed, read or written.
+    assert _listed(base, token) == [9000, 9010, 9020]
+    other = "nodes/pve/qemu/9011/config"
+    before = _ok(base, "GET", other)
+    assert _call(base, "GET", other, token) == _refused("/vms/9011", "VM.Audit")
+    assert _call(base, "PUT", other, token, description="not ours") == _refused("/vms/9011", "VM.Config.Options")
+    assert _ok(base, "GET", other) == before
+
+
+def test_with_vm_audit_on_vms_the_engine_s_token_reads_the_node_s_other_vms_and_writes_none(enforced) -> None:
+    base, token = enforced
+    engine_grant(base, "/vms", "VM.Audit")
+    assert _listed(base, token) == EVERY_GUEST
+    other = "nodes/pve/qemu/9011/config"
+    assert _ok(base, "GET", other, token)["name"] == "beta"
+    assert _call(base, "PUT", other, token, description="not ours") == _refused("/vms/9011", "VM.Config.Options")
+    cloned = _call(base, "POST", "nodes/pve/qemu/9011/clone", token, newid=9020, name="beta-2", pool=ENGINE_POOL)
+    assert cloned == _refused("/vms/9011", "VM.Clone")
+    # A guest of another pool is listed with no pool named: the token may not audit that pool (PVE/API2/Cluster.pm).
+    _ok(base, "POST", "pools", poolid="other")
+    _ok(base, "PUT", "pools", poolid="other", vms="9011")
+    listed = {vm["vmid"]: vm for vm in _ok(base, "GET", "cluster/resources", token, type="vm")}
+    assert "pool" not in listed[9011] and listed[9010]["pool"] == ENGINE_POOL
+    assert {vm["vmid"]: vm.get("pool") for vm in _ok(base, "GET", "cluster/resources", type="vm")}[9011] == "other"
+
+
+def test_a_clone_is_refused_without_each_privilege_it_needs_and_nothing_is_made(tmp_path: Path) -> None:
+    for base, token in _enforced(tmp_path, storage=False):
+        _pve(base, "PUT", "fake/storages", node="pve", storages="local-lvm:lvmthin,nas:nfs")
+        for given, refused in [
+            # No pool named: VM.Allocate on the new VM's own path, which the role on the pool alone does not reach; a
+            # pool of no grant: neither its path nor the new VM's.
+            ({}, _refused_any()),
+            ({"pool": "unmade"}, _refused_any()),
+            # The storage named, or with none its source's disk's.
+            ({"pool": ENGINE_POOL, "full": 1, "storage": "nas"}, _refused("/storage/nas", "Datastore.AllocateSpace")),
+            ({"pool": ENGINE_POOL}, _refused("/storage/local-lvm", "Datastore.AllocateSpace")),
+        ]:
+            assert _call(base, "POST", CLONE, token, newid=9020, name="refused", **given) == refused, given
+        assert 9020 not in _vms(base)
+        engine_grant(base, "/storage/local-lvm", "Datastore.AllocateSpace")
+        assert (
+            _task(base, _ok(base, "POST", CLONE, token, newid=9020, name="made", pool=ENGINE_POOL))["exitstatus"]
+            == "OK"
+        )
+        assert _vms(base)[9020] == ("qemu", "pve", "made")
+
+
+def test_a_clone_s_allocate_is_held_on_the_pool_it_names_or_on_its_new_vm_s_path_either_of_which_suffices(
+    tmp_path: Path,
+) -> None:
+    """The clone's declared check is an or of the two (qemu-server's clone_vm): VM.Allocate on /vms/<newid> lets a
+    clone into a pool the token holds nothing on, and one that names no pool, where the role on the engine's pool alone
+    lets one into that pool only."""
+    for base, token in _enforced(tmp_path):
+        _ok(base, "POST", "pools", poolid="other")
+        for given in ({"pool": "other"}, {}):
+            assert _call(base, "POST", CLONE, token, newid=9020, name="refused", **given) == _refused_any(), given
+        assert 9020 not in _vms(base)
+        engine_grant(base, "/vms", "VM.Allocate")
+        for newid, given in ((9020, {"pool": "other"}), (9021, {})):
+            assert _task(base, _ok(base, "POST", CLONE, token, newid=newid, name="made", **given))["exitstatus"] == "OK"
+        pools = {vm["vmid"]: vm.get("pool") for vm in _ok(base, "GET", "cluster/resources", type="vm")}
+        assert (pools[9020], pools[9021]) == ("other", None)
+
+
+def test_a_configuration_s_write_is_held_key_by_key_to_the_privilege_proxmox_checks_each_with(
+    enforced, tmp_path: Path
+) -> None:
+    """qemu-server's check_vm_modify_config_perm: each key a write sends, or deletes, takes its group's privilege, so a
+    token holding VM.Config.Options writes the record's keys and no other, nothing written of a write it refuses;
+    nameserver takes VM.Config.Cloudinit or VM.Config.Network; and a key no row of the write covers is refused and
+    recorded, whatever the token holds."""
+    base, token = enforced
+    config = "nodes/pve/qemu/9011/config"
+    engine_grant(base, "/vms/9011", "VM.Audit,VM.Config.Options")
+    assert _ok(base, "PUT", config, token, description="the record", tags="agent-warehouse") is None
+    before = _ok(base, "GET", config)
+    for sent, privileges_ in [
+        ({"cores": 4}, ("VM.Config.CPU",)),
+        ({"memory": 4096}, ("VM.Config.Memory",)),
+        ({"ciuser": "dev"}, ("VM.Config.Cloudinit",)),
+        ({"ipconfig0": "ip=dhcp"}, ("VM.Config.Cloudinit",)),
+        ({"nameserver": "192.0.2.53"}, ("VM.Config.Cloudinit", "VM.Config.Network")),
+        ({"delete": "cores"}, ("VM.Config.CPU",)),
+        ({"description": "half", "cores": 4}, ("VM.Config.CPU",)),
+    ]:
+        assert _call(base, "PUT", config, token, **sent) == _refused("/vms/9011", *privileges_), sent
+    assert _ok(base, "GET", config) == before
+    engine_grant(base, "/vms/9011", "VM.Config.Network")
+    assert _ok(base, "PUT", config, token, nameserver="192.0.2.53") is None
+    assert _call(base, "PUT", config, token, ciuser="dev") == _refused("/vms/9011", "VM.Config.Cloudinit")
+    # A key no row covers: refused though Proxmox would take it from this token (net0, VM.Config.Network).
+    for sent, key in [({"net0": "virtio,bridge=vmbr0"}, "net0"), ({"delete": "startup"}, "startup")]:
+        said = SAID["NO_KEY"].format(key=key, method="PUT", path=f"/{config}")
+        assert _call(base, "PUT", config, token, **sent) == (SAID["PERMISSION_REFUSED_STATUS"], said), sent
+    assert _ok(base, "GET", config)["net0"] == before["net0"]
+    log = tmp_path / "pve" / "unmatched.log"
+    assert [json.loads(line) for line in log.read_text().splitlines()] == [
+        {"method": "PUT", "path": f"/{config}", "key": "net0"},
+        {"method": "PUT", "path": f"/{config}", "key": "startup"},
+    ]
+    # Read here: the fixture's end holds it empty.
+    log.unlink()
+
+
+def test_a_node_s_storages_and_bridges_and_a_storage_s_disks_take_either_of_their_privileges(enforced) -> None:
+    """Datastore.Audit or Datastore.AllocateSpace on the storage (pve-storage's Status.pm and Content.pm), SDN.Use or
+    SDN.Audit on the bridge (pve-manager's Network.pm); the cluster's own listing of storages takes Datastore.Audit
+    alone (PVE/API2/Cluster.pm)."""
+    base, token = enforced
+    _pve(base, "PUT", "fake/storages", node="pve", storages="local-lvm:lvmthin,nas:nfs,slow:dir")
+    _pve(base, "PUT", "fake/bridges", node="pve", bridges="vmbr0,vmbr1,vmbr2")
+    engine_grant(base, "/storage/nas", "Datastore.AllocateSpace")
+    engine_grant(base, "/sdn/zones/localnetwork/vmbr0", "SDN.Use")
+    engine_grant(base, "/sdn/zones/localnetwork/vmbr1", "SDN.Audit")
+    assert [s["storage"] for s in _ok(base, "GET", "nodes/pve/storage", token)] == ["local-lvm", "nas"]
+    assert [s["storage"] for s in _ok(base, "GET", "cluster/resources", token, type="storage")] == ["local-lvm"]
+    assert _call(base, "GET", "nodes/pve/storage/nas/content", token)[0] == 200
+    assert _call(base, "GET", "nodes/pve/storage/slow/content", token) == _refused(
+        "/storage/slow", "Datastore.Audit", "Datastore.AllocateSpace"
+    )
+    assert [bridge["iface"] for bridge in _ok(base, "GET", "nodes/pve/network", token)] == ["vmbr0", "vmbr1"]
+
+
+def test_a_grant_without_propagate_stops_at_its_path_but_a_pool_s_reaches_its_members(enforced) -> None:
+    base, token = enforced
+    engine_grant(base, "/vms", "VM.Audit", propagate=False)
+    # The role on the pool, again without propagate: it still reaches the pool's members.
+    whom = {"users": ENGINE_USER, "tokens": token[0]}
+    _ok(base, "PUT", "access/acl", path=f"/pool/{ENGINE_POOL}", roles="AgentWarehouse", propagate=0, **whom)
+    assert _ok(base, "GET", "nodes/pve/qemu/9010/config", token)["name"] == "alpha"
+    assert _call(base, "GET", "nodes/pve/qemu/9011/config", token) == _refused("/vms/9011", "VM.Audit")
+    assert _listed(base, token) == [9000, 9010]
+
+
+def test_a_role_on_a_member_s_own_path_wins_over_its_pool_s(enforced) -> None:
+    base, token = enforced
+    _ok(base, "PUT", "access/acl", path="/vms/9010", roles="NoAccess", tokens=token[0])
+    assert _call(base, "GET", "nodes/pve/qemu/9010/config", token) == _refused("/vms/9010", "VM.Audit")
+    assert _listed(base, token) == [9000]
+
+
+def test_a_task_is_read_by_its_owner_and_another_s_only_with_sys_audit_on_its_node(enforced) -> None:
+    base, token = enforced
+    upid = _ok(base, "POST", "nodes/pve/qemu/9012/status/start")
+    for part in ("status", "log"):
+        assert _call(base, "GET", f"nodes/pve/tasks/{upid}/{part}", token) == _refused("/nodes/pve", "Sys.Audit")
+    engine_grant(base, "/nodes/pve", "Sys.Audit")
+    assert _ok(base, "GET", f"nodes/pve/tasks/{upid}/status", token)["exitstatus"] == "OK"
+
+
+def test_a_listing_shows_the_engine_s_token_only_what_its_rows_name_on_each_entry(enforced) -> None:
+    base, token = enforced
+    _pve(base, "PUT", "fake/storages", node="pve", storages="local-lvm:lvmthin,nas:nfs")
+    _ok(base, "POST", "pools", poolid="other")
+    assert [s["storage"] for s in _ok(base, "GET", "nodes/pve/storage", token)] == ["local-lvm"]
+    assert [s["storage"] for s in _ok(base, "GET", "cluster/resources", token, type="storage")] == ["local-lvm"]
+    assert [p["poolid"] for p in _ok(base, "GET", "pools", token)] == [ENGINE_POOL]
+    assert _call(base, "GET", "pools", token, poolid="other") == _refused("/pool/other", "Pool.Audit")
+    assert _ok(base, "GET", "nodes/pve/network", token) == []
+    assert not any("maxcpu" in node for node in _ok(base, "GET", "cluster/resources", token, type="node"))
+    engine_grant(base, "/sdn/zones/localnetwork/vmbr0", "SDN.Use")
+    engine_grant(base, "/nodes/pve", "Sys.Audit")
+    assert [bridge["iface"] for bridge in _ok(base, "GET", "nodes/pve/network", token)] == ["vmbr0"]
+    nodes = _ok(base, "GET", "cluster/resources", token, type="node")
+    assert [node["node"] for node in nodes if "maxcpu" in node] == ["pve"]
+    # A member's pool is named, as the token may audit it.
+    assert {vm["vmid"]: vm.get("pool") for vm in _ok(base, "GET", "cluster/resources", token)}[9010] == ENGINE_POOL
+
+
+def test_a_listing_of_a_type_proxmox_s_schema_refuses_is_a_400_to_a_made_token_and_today_s_keep_their_answer(
+    enforced,
+) -> None:
+    """The cluster's listing takes vm, storage, node and sdn for its type (pve-manager's PVE/API2/Cluster.pm): pool is a
+    type its answer names, never one a request may ask for, and Proxmox's schema refuses it before anything else
+    (pve-common's PVE/JSONSchema.pm). So does the fake to a token made through /access, enforcement on or off; today's
+    tokens keep today's answer, the pools listed, which today's just status reads."""
+    base, token = enforced
+    why = SAID["ENUM_REFUSED"].format(value="pool", values="vm, storage, node, sdn")
+    for on in (1, 0):
+        _pve(base, "PUT", "fake/enforce", on=on)
+        answer = _answer(base, "GET", "cluster/resources", auth=token, type="pool")
+        assert (answer["status"], answer["reason"]) == (SAID["ENUM_REFUSED_STATUS"], "Parameter verification failed.")
+        assert json.loads(answer["body"])["errors"] == {"type": why}
+        assert _call(base, "GET", "cluster/resources", token, type="vm")[0] == 200
+    listed = _ok(base, "GET", "cluster/resources", type="pool")
+    assert {"id": f"/pool/{ENGINE_POOL}", "type": "pool", "pool": ENGINE_POOL} in listed
+
+
+def test_a_key_sent_with_an_empty_value_is_held_to_its_row_as_any_other(enforced, tmp_path: Path) -> None:
+    """Proxmox checks every key of a write's form, one sent empty too (qemu-server's update_vm_api, [keys %$param]):
+    so a token holding VM.Audit alone is refused an empty description, empty tags and an empty key no row covers, the
+    last recorded; given VM.Config.Options, the empty description and tags are taken."""
+    base, token = enforced
+    config = "nodes/pve/qemu/9011/config"
+    engine_grant(base, "/vms/9011", "VM.Audit")
+    before = _ok(base, "GET", config)
+    for key in ("description", "tags"):
+        assert _call(base, "PUT", config, token, **{key: ""}) == _refused("/vms/9011", "VM.Config.Options"), key
+    said = SAID["NO_KEY"].format(key="net0", method="PUT", path=f"/{config}")
+    assert _call(base, "PUT", config, token, net0="") == (SAID["PERMISSION_REFUSED_STATUS"], said)
+    assert _ok(base, "GET", config) == before
+    log = tmp_path / "pve" / "unmatched.log"
+    assert [json.loads(line) for line in log.read_text().splitlines()] == [
+        {"method": "PUT", "path": f"/{config}", "key": "net0"}
+    ]
+    # Read here: the fixture's end holds it empty.
+    log.unlink()
+    engine_grant(base, "/vms/9011", "VM.Config.Options")
+    for key in ("description", "tags"):
+        assert _call(base, "PUT", config, token, **{key: ""}) == (200, None), key
+
+
+@pytest.mark.parametrize("method", ["PUT", "POST"])
+def test_a_write_of_no_key_is_refused_to_a_made_token_as_proxmox_refuses_it_and_today_s_keep_their_answer(
+    enforced, method
+) -> None:
+    """update_vm_api dies "no options specified", a 500, before the digest is read, where a write sends no key and
+    deletes none, digest aside: nothing at all, a digest alone, an empty delete. So does the fake to a token made
+    through /access, enforcement on or off, whatever it holds, nothing written; today's tokens keep today's answer. A
+    configuration's POST is no call of the engine's table, so under enforcement it is refused first as a call no row
+    names (test_a_call_no_row_names_is_refused_and_recorded): it is asked here with enforcement off alone."""
+    base, token = enforced
+    config = "nodes/pve/qemu/9010/config"
+    refused = (SAID["NO_OPTIONS_STATUS"], SAID["NO_OPTIONS"])
+    before = _ok(base, "GET", config)
+    for on in (1, 0) if method == "PUT" else (0,):
+        _pve(base, "PUT", "fake/enforce", on=on)
+        for sent in ({}, {"digest": before["digest"]}, {"delete": ""}, {"digest": before["digest"], "delete": ""}):
+            assert _call(base, method, config, token, **sent) == refused, (on, sent)
+    assert _ok(base, "GET", config) == before
+    assert _call(base, method, config, digest=before["digest"])[0] == 200
+
+
+def test_a_call_no_row_names_is_refused_and_recorded(enforced, tmp_path: Path) -> None:
+    base, token = enforced
+    suspend = "nodes/pve/qemu/9010/status/suspend"
+    for method, endpoint in [("GET", "nodes/pve/qemu/9010/agent/get-osinfo"), ("POST", suspend)]:
+        said = SAID["NO_ROW"].format(method=method, path=f"/{endpoint}")
+        assert _call(base, method, endpoint, token) == (SAID["PERMISSION_REFUSED_STATUS"], said)
+    assert _ok(base, "GET", "nodes/pve/qemu/9010/status/current")["status"] == "running"
+    log = tmp_path / "pve" / "unmatched.log"
+    assert [json.loads(line) for line in log.read_text().splitlines()] == [
+        {"method": "GET", "path": "/nodes/pve/qemu/9010/agent/get-osinfo"},
+        {"method": "POST", "path": f"/{suspend}"},
+    ]
+    # Read here: the fixture's end holds it empty, and that it fails on one is the next test's.
+    log.unlink()
+
+
+def test_a_fleet_whose_engine_token_sent_a_call_no_row_names_fails_at_its_end(tmp_path: Path) -> None:
+    fleet = fake_fleet(tmp_path, engine=True, enforce=True)
+    base = next(fleet)
+    assert _call(base, "GET", "nodes/pve/qemu/9010/agent/get-osinfo", engine_token(tmp_path))[0] == 403
+    with pytest.raises(AssertionError, match="no row of privileges.CALLS names"):
+        next(fleet)
+
+
+def test_the_engine_s_token_adds_no_guest_to_a_pool_and_a_resize_is_held_to_its_disk_s_storage(
+    tmp_path: Path,
+) -> None:
+    """No row of the engine's table writes a pool, so a guest the engine's token holds is still refused it, as a call
+    no row names, and nothing changes; a disk grown needs Datastore.AllocateSpace on the storage its configuration
+    puts it on (qemu-server's resize_vm), as the engine's table says."""
+    for base, token in _enforced(tmp_path, storage=False):
+        engine_grant(base, "/vms/9011", "VM.Allocate,VM.Config.Disk")
+        said = SAID["NO_ROW"].format(method="PUT", path="/pools")
+        assert _call(base, "PUT", "pools", token, poolid=ENGINE_POOL, vms="9011") == (
+            SAID["PERMISSION_REFUSED_STATUS"],
+            said,
+        )
+        assert {vm["vmid"] for vm in _ok(base, "GET", "pools", poolid=ENGINE_POOL)[0]["members"]} == {9000, 9010}
+        # Read here: the fixture's end holds it empty.
+        (tmp_path / "pve" / "unmatched.log").unlink()
+        resize = "nodes/pve/qemu/9011/resize"
+        assert _call(base, "PUT", resize, token, disk="scsi0", size="+1G") == _refused(
+            "/storage/local-lvm", "Datastore.AllocateSpace"
+        )
+        engine_grant(base, "/storage/local-lvm", "Datastore.AllocateSpace")
+        assert _task(base, _ok(base, "PUT", resize, token, disk="scsi0", size="+1G"))["exitstatus"] == "OK"
+
+
+@pytest.mark.parametrize("method", ["PUT", "POST"])
+def test_a_configuration_s_sshkeys_is_taken_only_percent_encoded_whole_as_today_s_sends_it(fleet: str, method) -> None:
+    """As Proxmox's schema, before anything else: once the form is decoded, sshkeys is still percent-encoded, as
+    today's proxmox_kvm sends it (quote(keys, safe="")); a key sent as it is, or half encoded, is refused, nothing
+    written, the value said back under the parameter's name."""
+    keys = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyDoNotUse+/= dev@mac\nssh-ed25519 AAAAOther other"
+    before = _ok(fleet, "GET", CONFIG)
+    for sent in (keys, keys.replace(" ", "%20"), urllib.parse.quote(keys, safe="") + "%2", "a%zz", "a+b"):
+        answer = _answer(fleet, method, CONFIG, sshkeys=sent, cores=7)
+        assert (answer["status"], answer["reason"]) == (
+            SAID["SSHKEYS_REFUSED_STATUS"],
+            "Parameter verification failed.",
+        )
+        assert json.loads(answer["body"])["errors"] == {"sshkeys": SAID["SSHKEYS_REFUSED"].format(value=sent)}
+    assert _ok(fleet, "GET", CONFIG) == before
+    encoded = urllib.parse.quote(keys, safe="")
+    done = _ok(fleet, method, CONFIG, sshkeys=encoded, digest=before["digest"])
+    if method == "POST":
+        assert _task(fleet, done)["exitstatus"] == "OK"
+    assert _ok(fleet, "GET", CONFIG)["sshkeys"] == encoded and urllib.parse.unquote(encoded) == keys
+
+
+def test_today_s_tokens_and_a_made_token_with_enforcement_off_are_answered_as_before(enforced) -> None:
+    base, token = enforced
+    # Today's tokens, enforcement or not: every guest, the agent, and the noagent token refused it alone.
+    assert _listed(base, TODAYS) == EVERY_GUEST
+    agent = "nodes/pve/qemu/9010/agent/network-get-interfaces"
+    assert _call(base, "GET", agent, TODAYS)[0] in (200, 500)
+    assert _call(base, "GET", agent, ("ansible@pve!noagent", PVE_SECRET))[0] == 403
+    assert _ok(base, "GET", "nodes/pve/qemu/9011/config")["name"] == "beta"
+    # Turned off, the made token is answered as a today's token is again.
+    assert _pve(base, "PUT", "fake/enforce", on=0)["data"] == {"on": 0}
+    assert _listed(base, token) == EVERY_GUEST
+    assert _ok(base, "GET", "nodes/pve/qemu/9011/config", token)["name"] == "beta"
+
+
+# ------------------------------------------------------------------- the stand-in pveum and pvesh, for init ---
+# tests/molecule/fake_pve_cli.py, the commands init's script runs over root SSH, as Proxmox VE 9 answers them: a pool
+# with its comment, an ACL entry for a token, a token with privilege separation and its secret made again, and the
+# reads that say who made each. Today's script against it is tests/unit/test_proxmox_access.py's.
+
+CLI_SECRET = "11111111-2222-3333-4444-555555555555"
+FLEET, CLI_ROLE, CLI_USER, CLI_TOKEN = ENGINE_POOL, ENGINE_ROLE, ENGINE_USER, f"{ENGINE_USER}!{ENGINE_TOKEN}"
+MARK = "agent-warehouse fleet=00000000-0000-4000-8000-000000000001 controller=none"
+JSON = ("--output-format", "json")
+
+
+@pytest.fixture
+def host(tmp_path: Path) -> Path:
+    return _pve_cli(tmp_path / "pve", {"next_secret": CLI_SECRET})
+
+
+def _cli(host: Path, command: str, *words: str) -> subprocess.CompletedProcess:
+    """One call of the stand-in command, as root runs it on the host: its exit status and what it printed."""
+    return subprocess.run(
+        [str(host / command), *words], capture_output=True, text=True, stdin=subprocess.DEVNULL, check=False
+    )
+
+
+def _get(host: Path, path: str, *words: str) -> object:
+    done = _cli(host, "pvesh", "get", path, *words, "--output-format", "json")
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+def _pveum(host: Path, *words: str) -> object:
+    done = _cli(host, "pveum", *words)
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout) if done.stdout else None
+
+
+def _refused_unchanged(host: Path, command: str, *words: str) -> str:
+    """A call the stand-in refuses: the state file byte for byte as it was. Returns what it said."""
+    before = (host / "pve-state.json").read_bytes()
+    done = _cli(host, command, *words)
+    assert done.returncode != 0 and done.stdout == "", (words, done.stdout)
+    assert (host / "pve-state.json").read_bytes() == before, words
+    return done.stderr
+
+
+def _made(host: Path) -> None:
+    """The engine's objects as init's script makes them: the pool with its mark, the role, the user, the token with
+    privilege separation, its grants on the pool and on /vms."""
+    _pveum(host, "pool", "add", FLEET, "--comment", MARK)
+    _pveum(host, "role", "add", CLI_ROLE, "--privs", ",".join(sorted(privileges.needed("pool"))))
+    _pveum(host, "user", "add", CLI_USER, "--comment", "agent-warehouse")
+    _pveum(host, "user", "token", "add", CLI_USER, ENGINE_TOKEN, "--privsep", "1", "--comment", "agent-warehouse")
+    _pveum(host, "acl", "modify", f"/pool/{FLEET}", "--tokens", CLI_TOKEN, "--roles", CLI_ROLE)
+    _pveum(host, "acl", "modify", "/vms", "--tokens", CLI_TOKEN, "--roles", "PVEAuditor")
+
+
+def test_a_pool_is_made_with_its_comment_read_with_it_and_given_another_or_none(host: Path) -> None:
+    assert _pveum(host, "pool", "add", FLEET, "--comment", MARK) is None
+    assert _pve_cli_state(host)["pools"] == {FLEET: {"comment": MARK}}
+    assert _get(host, "/pools") == [{"poolid": FLEET, "comment": MARK}]
+    assert _get(host, "/pools", "--poolid", FLEET) == [{"poolid": FLEET, "comment": MARK, "members": []}]
+    # The deprecated read of one pool, which Proxmox VE 9 still answers, and pvesh takes a path with no leading /.
+    assert _get(host, f"pools/{FLEET}") == {"poolid": FLEET, "comment": MARK, "members": []}
+    # A person's note kept beside the mark, then the comment taken away: an empty one is none, as Proxmox reads it.
+    _pveum(host, "pool", "modify", FLEET, "--comment", f"lab pool; {MARK}")
+    assert _get(host, "/pools") == [{"poolid": FLEET, "comment": f"lab pool; {MARK}"}]
+    _pveum(host, "pool", "modify", FLEET, "--comment", "")
+    assert _pve_cli_state(host)["pools"] == {FLEET: {}}
+    assert _get(host, f"pools/{FLEET}") == {"poolid": FLEET, "members": []}
+    # One made with no comment, or an empty one, has none.
+    _pveum(host, "pool", "add", "bare")
+    _pveum(host, "pool", "add", "blank", "--comment", "")
+    assert _get(host, "/pools") == [{"poolid": FLEET}, {"poolid": "bare"}, {"poolid": "blank"}]
+
+
+def test_a_pool_s_members_are_its_guests_as_proxmox_lists_a_pool_s_members(tmp_path: Path) -> None:
+    guests = [
+        {"vmid": 9000, "name": "ubuntu-24.04", "template": 1, "pool": FLEET},
+        {"vmid": 101, "name": "alpha", "template": 0, "tags": "agent-warehouse", "pool": FLEET},
+        {"vmid": 300, "name": "theirs", "template": 0, "pool": "bob"},
+        {"vmid": 301, "name": "loose", "template": 0},
+    ]
+    host = _pve_cli(tmp_path / "pve", {"guests": guests, "pools": {FLEET: {"comment": MARK}, "bob": {}}})
+    member = {"node": "pve", "type": "qemu", "status": "stopped"}
+    alpha = {"id": "qemu/101", "vmid": 101, **member, "name": "alpha", "template": 0}
+    template = {"id": "qemu/9000", "vmid": 9000, **member, "name": "ubuntu-24.04", "template": 1}
+    # By VMID, and never with their pool or tags, which only the cluster's listing names.
+    assert _get(host, "/pools", "--poolid", FLEET) == [{"poolid": FLEET, "comment": MARK, "members": [alpha, template]}]
+    _pveum(host, "pool", "modify", FLEET, "--vms", "301")
+    loose = {"id": "qemu/301", "vmid": 301, **member, "name": "loose", "template": 0}
+    assert _get(host, f"pools/{FLEET}")["members"] == [alpha, loose, template]
+    assert [entry["vmid"] for entry in _get(host, "/pools", "--poolid", "bob")[0]["members"]] == [300]
+
+
+def test_a_pool_proxmox_would_not_make_or_find_is_refused_and_nothing_changes(host: Path) -> None:
+    _pveum(host, "pool", "add", FLEET, "--comment", MARK)
+    said = _refused_unchanged(host, "pveum", "pool", "add", FLEET, "--comment", "again")
+    assert said == f"create pool failed: pool '{FLEET}' already exists\n"
+    assert "pool name must start with a letter" in _refused_unchanged(host, "pveum", "pool", "add", "1st")
+    assert "pool 'gone' does not exist" in _refused_unchanged(host, "pveum", "pool", "modify", "gone", "--comment", "x")
+    assert "pool 'gone' does not exist" in _refused_unchanged(host, "pvesh", "get", "/pools", "--poolid", "gone", *JSON)
+    assert "pool 'gone' does not exist" in _refused_unchanged(host, "pvesh", "get", "pools/gone", *JSON)
+
+
+def test_an_acl_entry_names_a_token_and_is_listed_as_proxmox_lists_one_never_as_its_user_s(host: Path) -> None:
+    _made(host)
+    entry = {"ugid": CLI_TOKEN, "propagate": 1, "type": "token"}
+    assert _get(host, "/access/acl") == [
+        {"path": f"/pool/{FLEET}", "roleid": CLI_ROLE, **entry},
+        {"path": "/vms", "roleid": "PVEAuditor", **entry},
+    ]
+    # The token's entries are no grant of its user's.
+    assert _pveum(host, "user", "permissions", CLI_USER, "--path", f"/pool/{FLEET}") == {f"/pool/{FLEET}": {}}
+    # The same role at the same path again replaces its entry; a user and a token in one call get one each; and
+    # roles, users and tokens are lists, as Proxmox splits them.
+    _pveum(host, "acl", "modify", "/vms", "--tokens", CLI_TOKEN, "--roles", "PVEAuditor", "--propagate", "0")
+    _pveum(host, "acl", "modify", "/nodes/pve", "--users", CLI_USER, "--tokens", CLI_TOKEN, "--roles", "PVEAuditor")
+    acls = [
+        (acl["path"], acl["ugid"], acl["roleid"], acl["propagate"], acl["type"]) for acl in _get(host, "/access/acl")
+    ]
+    assert acls == [
+        (f"/pool/{FLEET}", CLI_TOKEN, CLI_ROLE, 1, "token"),
+        ("/vms", CLI_TOKEN, "PVEAuditor", 0, "token"),
+        ("/nodes/pve", CLI_USER, "PVEAuditor", 1, "user"),
+        ("/nodes/pve", CLI_TOKEN, "PVEAuditor", 1, "token"),
+    ]
+    _pveum(host, "acl", "modify", "/storage/local-lvm", "--tokens", CLI_TOKEN, "--roles", f"{CLI_ROLE};PVEAuditor")
+    storage = [(acl["roleid"], acl["type"]) for acl in _get(host, "/access/acl") if acl["path"] == "/storage/local-lvm"]
+    assert storage == [(CLI_ROLE, "token"), ("PVEAuditor", "token")]
+    assert _pve_cli_writes(host)[-1] == (
+        f"pveum acl modify /storage/local-lvm --tokens {CLI_TOKEN} --roles {CLI_ROLE};PVEAuditor"
+    )
+
+
+@pytest.mark.parametrize(
+    ("words", "said"),
+    [
+        (["--tokens", f"{CLI_USER}!gone", "--roles", CLI_ROLE], f"no such token 'gone' for user '{CLI_USER}'"),
+        (["--tokens", "aw", "--roles", CLI_ROLE], "'aw' is not a valid token ID - not able to split into user"),
+        (["--roles", CLI_ROLE], "users: either 'users', 'groups' or 'tokens' is required."),
+        (["--tokens", CLI_TOKEN], "roles: property is missing and it is not optional"),
+        (["--tokens", CLI_TOKEN, "--roles", "Missing"], "role 'Missing' does not exist"),
+        (["--users", "nobody@pve", "--roles", CLI_ROLE], "user 'nobody@pve' does not exist"),
+        (["--tokens", CLI_TOKEN, "--roles", CLI_ROLE, "--propagate", "maybe"], "unable to parse boolean option"),
+        # The state keeps no groups: a group's grant is refused, never taken as nobody's.
+        (["--groups", "ops", "--roles", CLI_ROLE], "fake pveum: unsupported call"),
+    ],
+)
+def test_an_acl_entry_proxmox_would_refuse_is_refused_and_nothing_changes(host: Path, words, said) -> None:
+    _made(host)
+    assert said in _refused_unchanged(host, "pveum", "acl", "modify", f"/pool/{FLEET}", *words)
+
+
+def test_a_token_is_made_with_privilege_separation_and_its_comment_and_read_back_with_both(host: Path) -> None:
+    _pveum(host, "user", "add", CLI_USER, "--comment", "agent-warehouse")
+    made = _pveum(
+        host, "user", "token", "add", CLI_USER, ENGINE_TOKEN, "--privsep", "1", "--comment", "agent-warehouse"
+    )
+    assert made == {
+        "full-tokenid": CLI_TOKEN,
+        "info": {"privsep": "1", "comment": "agent-warehouse"},
+        "value": CLI_SECRET,
+    }
+    assert _pve_cli_state(host)["tokens"] == {
+        CLI_TOKEN: {"privsep": 1, "secret": CLI_SECRET, "comment": "agent-warehouse"}
+    }
+    info = {"expire": 0, "privsep": 1, "comment": "agent-warehouse"}
+    assert _get(host, f"/access/users/{CLI_USER}/token/{ENGINE_TOKEN}") == info
+    assert _get(host, f"/access/users/{CLI_USER}") == {
+        "enable": 1,
+        "expire": 0,
+        "comment": "agent-warehouse",
+        "groups": [],
+        "tokens": {ENGINE_TOKEN: info},
+    }
+    # Privilege separation unless told otherwise, as Proxmox makes a token, and a boolean read as its command line
+    # reads one: given bare, or as a word.
+    for name, words, privsep in [("plain", [], 1), ("bare", ["--privsep"], 1), ("off", ["--privsep", "off"], 0)]:
+        _pveum(host, "user", "token", "add", CLI_USER, name, *words)
+        assert _get(host, f"/access/users/{CLI_USER}/token/{name}") == {"expire": 0, "privsep": privsep}
+    said = _refused_unchanged(host, "pveum", "user", "token", "add", CLI_USER, "odd", "--privsep", "maybe")
+    assert "unable to parse boolean option" in said
+    assert "Token already exists." in _refused_unchanged(host, "pveum", "user", "token", "add", CLI_USER, ENGINE_TOKEN)
+    assert "no such user ('nobody@pve')" in _refused_unchanged(host, "pveum", "user", "token", "add", "nobody@pve", "t")
+
+
+def test_a_user_and_a_role_are_read_back_with_what_says_who_made_them(host: Path) -> None:
+    privs = sorted(privileges.needed("pool"))
+    _pveum(host, "role", "add", CLI_ROLE, "--privs", ",".join(privs))
+    assert _get(host, f"/access/roles/{CLI_ROLE}") == dict.fromkeys(privs, 1)
+    _pveum(host, "user", "add", CLI_USER, "--comment", "agent-warehouse")
+    _pveum(host, "user", "add", "plain@pve")
+    assert _pve_cli_state(host)["users"][CLI_USER] == {"comment": "agent-warehouse"}
+    assert _pve_cli_state(host)["users"]["plain@pve"] == {}
+    # A user with no token has none, null where read_user takes its tokens from.
+    assert _get(host, "/access/users/plain@pve") == {"enable": 1, "expire": 0, "groups": [], "tokens": None}
+    assert "role 'Gone' does not exist" in _refused_unchanged(host, "pvesh", "get", "/access/roles/Gone", *JSON)
+
+
+def test_a_token_s_secret_is_made_again_and_the_old_one_is_kept_nowhere(host: Path) -> None:
+    _made(host)
+    again = _pveum(host, "user", "token", "modify", CLI_USER, ENGINE_TOKEN, "--regenerate", "--output-format", "json")
+    assert again["value"] != CLI_SECRET and again["full-tokenid"] == CLI_TOKEN
+    assert {key: again[key] for key in again if key not in ("value", "full-tokenid")} == {
+        "expire": 0,
+        "privsep": 1,
+        "comment": "agent-warehouse",
+    }
+    state = json.dumps(_pve_cli_state(host))
+    assert again["value"] in state and CLI_SECRET not in state
+    # Its grants stay: the token is the same, its secret another.
+    assert {acl["ugid"] for acl in _get(host, "/access/acl")} == {CLI_TOKEN}
+    # Asked as a word, the same; told no, the secret stays.
+    assert (
+        _pveum(host, "user", "token", "modify", CLI_USER, ENGINE_TOKEN, "--regenerate", "1")["value"] != again["value"]
+    )
+    kept = _pve_cli_state(host)["tokens"][CLI_TOKEN]["secret"]
+    assert "value" not in _pveum(host, "user", "token", "modify", CLI_USER, ENGINE_TOKEN, "--regenerate", "0")
+    assert _pve_cli_state(host)["tokens"][CLI_TOKEN]["secret"] == kept
+
+
+def test_a_token_s_comment_privsep_and_expire_are_changed_and_its_comment_deleted(host: Path) -> None:
+    _made(host)
+    token = ("user", "token", "modify", CLI_USER, ENGINE_TOKEN)
+    assert _pveum(host, *token, "--comment", "another") == {"expire": 0, "privsep": 1, "comment": "another"}
+    assert _pveum(host, *token, "--comment", "") == {"expire": 0, "privsep": 1}
+    _pveum(host, *token, "--comment", "back")
+    assert _pveum(host, *token, "--delete", "comment") == {"expire": 0, "privsep": 1}
+    assert _pveum(host, *token, "--privsep", "0", "--expire", "4102444800") == {"expire": 4102444800, "privsep": 0}
+    assert _pve_cli_state(host)["tokens"][CLI_TOKEN] == {"privsep": 0, "secret": CLI_SECRET, "expire": 4102444800}
+    assert "delete: unknown option 'privsep'" in _refused_unchanged(host, "pveum", *token, "--delete", "privsep")
+    assert "type check ('integer') failed" in _refused_unchanged(host, "pveum", *token, "--expire", "soon")
+    said = _refused_unchanged(host, "pveum", "user", "token", "modify", CLI_USER, "gone", "--regenerate")
+    assert f"no such token 'gone' for user '{CLI_USER}'" in said
+    assert "no such user ('nobody@pve')" in _refused_unchanged(
+        host, "pveum", "user", "token", "modify", "nobody@pve", ENGINE_TOKEN
+    )
+
+
+def test_a_token_deleted_takes_its_acl_entries_with_it_and_leaves_its_user_s(host: Path) -> None:
+    _made(host)
+    _pveum(host, "acl", "modify", "/nodes/pve", "--users", CLI_USER, "--roles", "PVEAuditor")
+    _pveum(host, "user", "token", "delete", CLI_USER, ENGINE_TOKEN)
+    assert _pve_cli_state(host)["tokens"] == {}
+    assert [(acl["path"], acl["ugid"]) for acl in _get(host, "/access/acl")] == [("/nodes/pve", CLI_USER)]
+    assert _get(host, f"/access/users/{CLI_USER}")["tokens"] is None
+
+
+@pytest.mark.parametrize(
+    "words",
+    [
+        # Proxmox would take a guest out of the pool; the stand-in models no --delete, so it refuses, never adds.
+        ["pveum", "pool", "modify", FLEET, "--vms", "101", "--delete", "1"],
+        ["pveum", "pool", "add", "other", "--storage", "local-lvm"],
+        ["pveum", "user", "add", "someone@pve", "--password", "x"],
+        ["pveum", "user", "token", "add", CLI_USER, "second", "--privsep", "1", "--nope", "1"],
+        ["pveum", "role", "add", "Other", "--privs", "VM.Audit", "--special", "1"],
+        ["pvesh", "get", "/pools", "--type", "qemu", "--output-format", "json"],
+        ["pvesh", "get", f"pools/{FLEET}", "--type", "qemu", "--output-format", "json"],
+        ["pvesh", "get", f"/access/users/{CLI_USER}", "--full", "1", "--output-format", "json"],
+        ["pvesh", "get", f"/access/users/{CLI_USER}/token/{ENGINE_TOKEN}", "--noborder", "--output-format", "json"],
+    ],
+)
+def test_an_option_the_stand_in_does_not_model_is_refused_never_ignored(host: Path, words: list[str]) -> None:
+    _made(host)
+    assert "unsupported call" in _refused_unchanged(host, *words)
+
+
+# What the script's --dry-run and the offer's plan read before anything is made, each object's read.
+READS = [
+    ("pvesh", "get", "/pools"),
+    ("pvesh", "get", "/pools", "--poolid", FLEET),
+    ("pvesh", "get", f"pools/{FLEET}"),
+    ("pvesh", "get", f"/access/roles/{CLI_ROLE}"),
+    ("pvesh", "get", f"/access/users/{CLI_USER}"),
+    ("pvesh", "get", f"/access/users/{CLI_USER}/token/{ENGINE_TOKEN}"),
+    ("pvesh", "get", "/access/acl"),
+    ("pvesh", "get", "/cluster/resources", "--type", "vm"),
+    ("pveum", "user", "permissions", CLI_USER, "--path", f"/pool/{FLEET}"),
+]
+
+
+@pytest.mark.parametrize("made", [False, True], ids=["fresh", "set-up"])
+def test_the_reads_a_dry_run_makes_change_nothing(tmp_path: Path, made: bool) -> None:
+    # On a host that has the objects every read answers, and on one that has none some are refused: on both the state
+    # is as it was, and every call of them was a read. The host's guests are the pool's, so its members are read too.
+    guests = [{"vmid": 101, "name": "alpha", "template": 0, "pool": FLEET}, {"vmid": 102, "name": "beta"}]
+    host = _pve_cli(tmp_path / "pve", {"next_secret": CLI_SECRET, "guests": guests})
+    if made:
+        _made(host)
+    before, logged, writes = (host / "pve-state.json").read_bytes(), len(_pve_cli_calls(host)), _pve_cli_writes(host)
+    done = [_cli(host, *read, "--output-format", "json") for read in READS]
+    if made:
+        assert [run.returncode for run in done] == [0] * len(READS), [run.stderr for run in done]
+    else:
+        assert [run.returncode == 0 for run in done] == [True, False, False, False, False, False, True, True, False]
+    assert (host / "pve-state.json").read_bytes() == before
+    assert _pve_cli_calls(host)[logged:] == [[*read, "--output-format", "json"] for read in READS]
+    assert _pve_cli_writes(host) == writes
