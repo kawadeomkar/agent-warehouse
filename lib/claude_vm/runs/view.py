@@ -3,12 +3,18 @@
 
 `View(run, started_at=...)` gives what a person reads of a run at a terminal and off one, from the model alone: the
 live frame (`frame`: the stages, the running stage's steps, each machine's latest line of work under it, and a
-footer; a run of one stage drawn as its steps), a line as each step and stage ends for output that is no terminal
-(`ended_lines`), what is said above the region (`above`: each report whole, wrapped and never cut, each failure with
-where and why), the summary at the end (`summary`), and the terminal's title (`title_text`). Lines are built with
-tui/screen.py and tui/run.py's module-level functions (MARKS, first_sentence, report_lines, failure_lines) and its
-two helpers for a summary's lines (Run._flow, Run._cut_head), as they stand, so they cut, pad, colour and wrap as
-every live output does; no line of a frame or a summary is wider than the screen.
+footer; a run of one stage drawn as its steps), a line as each step and stage ends and as each wait begins, for output
+that is no terminal (`ended_lines`), what is said above the region (`above`: each report whole, wrapped and never cut,
+each failure with where and why, the run's own among them), the summary at the end (`summary`), and the terminal's
+title (`title_text`). Lines are built with tui/screen.py and tui/run.py's module-level functions (MARKS,
+first_sentence, report_lines, failure_lines) and its two helpers for a summary's lines (Run._flow, Run._cut_head), as
+they stand, so they cut, pad, colour and wrap as every live output does; no line of a frame or a summary is wider than
+the screen.
+
+A machine is said by the name a person chose (the model's `name`), never by its identity, the key its events carry.
+What the events said is made visible before it is drawn, as today's engine makes every report: a wait's words, a line
+of work and a name one line (text.one_line: no line break, tab, control or format character), and each line of a
+report or a failure visible (text.visible_text), its tabs expanded and its blank first and last lines dropped.
 
 The model has no tasks, so there is no count, bar, percentage or window of tasks: a machine's latest line of work
 (`latest`) stands where today's window of tasks stood, and a stage's or a step's row says each machine's mark where
@@ -26,7 +32,7 @@ from collections.abc import Iterable
 
 from claude_vm.runs import model
 from claude_vm.runs.stages import Stage
-from claude_vm.text import one_line
+from claude_vm.text import one_line, visible_text
 from claude_vm.tui import run as drawn
 from claude_vm.tui import screen
 
@@ -66,16 +72,18 @@ class View:
         if not isinstance(run, model.Run):
             raise TypeError("a view draws a runs.model.Run")
         self.run = run
-        self.title = title if title is not None else " ".join([run.declared.title, *run.machines])
+        names = [one_line(run.name(machine), None) for machine in run.machines]
+        self.title = title if title is not None else " ".join([run.declared.title, *names])
         self.started_at = started_at
         self.log = log
         self.host = host
         self.check = check
         # The stages and steps a line off a terminal was printed for, as (stage, step); step None for the stage.
         self._said: set[tuple[str, str | None]] = set()
-        # How many of the model's reports and failures above() has given.
+        # How many of the model's reports and failures above() has given, and of its waits ended_lines() has.
         self._reports = 0
         self._failures = 0
+        self._waits = 0
 
     # --- where it is ------------------------------------------------------------------------------------------
     def _failed_in(self, stage: Stage) -> bool:
@@ -118,6 +126,10 @@ class View:
             each = found.step(step)
             return each.label if each is not None else ""
         return found.label
+
+    def _name(self, machine: str) -> str:
+        """A machine as a person reads it: the name they chose, one line."""
+        return one_line(self.run.name(machine), None)
 
     # --- the live frame ---------------------------------------------------------------------------------------
     def frame(self, now: float, cols: int, rows: int, glyph: str, color: bool = True) -> list[str]:
@@ -168,7 +180,7 @@ class View:
             return []
         parts: Segments = []
         for machine, state in states.items():
-            parts += [(f"{machine} ", ""), _mark(state, glyph), (" · ", "d")]
+            parts += [(f"{self._name(machine)} ", ""), _mark(state, glyph), (" · ", "d")]
         parts = parts[:-1]
         if screen.width(parts) <= room:
             return parts
@@ -188,8 +200,8 @@ class View:
         ]
         first = waits[0]
         said = f"{self._label(stage.key, first.step)}: " if first.step is not None else ""
-        said += first.text
-        machines = list(dict.fromkeys(wait.machine for wait in waits if wait.machine is not None))
+        said += one_line(first.text, None)
+        machines = list(dict.fromkeys(self._name(wait.machine) for wait in waits if wait.machine is not None))
         if machines:
             said += f" · {', '.join(machines)}"
         said += f" · {screen.clock(now - first.since)}"
@@ -258,10 +270,10 @@ class View:
         fleet = len(self.run.machines) >= 2
         lines = []
         for at, _, machine, (mark, style), text, weight in found[-(1 if fold >= 3 else WINDOW) :]:
-            whose = [(f"{machine}  ", "d")] if fleet and machine is not None else []
+            whose = [(f"{self._name(machine)}  ", "d")] if fleet and machine is not None else []
             tail = [*whose, (screen.clock(now - at), style)]
             room = width - 2 - screen.width(tail) - 2
-            line = [(" " * indent, ""), (mark + " ", style), *screen.cut([(text, weight)], room)]
+            line = [(" " * indent, ""), (mark + " ", style), *screen.cut([(one_line(text, None), weight)], room)]
             lines.append(screen.right(line, tail, indent + width))
         return lines
 
@@ -317,9 +329,10 @@ class View:
         )
 
     def ended_lines(self, now: float) -> list[str]:
-        """A line for each step and stage that has ended since the last call, for output that is no terminal: a stage
-        of one step said once, by its step's name; a run of one stage, by its steps alone."""
-        out = []
+        """A line for each step and stage that has ended, and for each wait that has begun, since the last call, for
+        output that is no terminal, in the order they happened: a stage of one step said once, by its step's name; a
+        run of one stage, by its steps alone; a wait once, as it began, with where, whose and what it waits for."""
+        said: list[tuple[float, int, int, str]] = []
         flat = self._flat()
         for stage in self._shown():
             only = len(stage.steps) == 1 and not flat
@@ -327,13 +340,35 @@ class View:
                 if only or (stage.key, step.key) in self._said or not self._over(stage, step.key):
                     continue
                 self._said.add((stage.key, step.key))
-                out.append(self._ended(f"{stage.label} / {step.label}", stage, step.key, now))
+                line = self._ended(f"{stage.label} / {step.label}", stage, step.key, now)
+                said.append((self._ended_at(stage, step.key, now), 0, len(said), line))
             if flat or (stage.key, None) in self._said or not self._over(stage, None):
                 continue
             self._said.add((stage.key, None))
             label = f"{stage.label} / {stage.steps[0].label}" if only else stage.label
-            out.append(self._ended(label, stage, None, now))
-        return out
+            said.append((self._ended_at(stage, None, now), 0, len(said), self._ended(label, stage, None, now)))
+        waits = self.run.waits[self._waits :]
+        self._waits += len(waits)
+        for wait in waits:
+            said.append((wait.since, 1, len(said), self._began(wait)))
+        return [line for *_, line in sorted(said)]
+
+    def _ended_at(self, stage: Stage, step: str | None, now: float) -> float:
+        ended = self.run.progress(stage.key, step).ended()
+        return ended if ended is not None else now
+
+    def _began(self, wait: model.Wait) -> str:
+        """A wait as it began, off a terminal: its stage and step, whose, and what it waits for, in today's columns; a
+        wait for you said so, a short section's (another run's) as its own words say."""
+        where = self._label(wait.stage) or self.run.declared.title
+        if wait.step is not None:
+            where = f"{where} / {self._label(wait.stage, wait.step)}"
+        words = one_line(wait.text, None)
+        if wait.machine is not None:
+            words = f"{self._name(wait.machine)}: {words}"
+        if wait.yours:
+            words = f"waiting for you · {words}"
+        return f"⏸ {where.ljust(28)} {words}"
 
     def _ended(self, label: str, stage: Stage, step: str | None, now: float) -> str:
         state = self.run.state(stage.key, step)
@@ -363,31 +398,33 @@ class View:
                 out += self._failure(item, cols, color)
         return out
 
-    @staticmethod
-    def _report(report: model.Report, cols: int, color: bool) -> list[tuple[str, str]]:
-        """A report, whole: under its machine, which leads unless the report names it itself."""
-        machine = report.machine
-        lines = report.text.split("\n")
-        if machine is not None and lines[0].startswith(machine + ": "):
-            lines[0] = lines[0][len(machine) + 2 :]
-        named = machine is not None and not lines[0].startswith(machine + " ")
-        said = {"host": machine or "", "lines": lines, "styles": [""] * len(lines), "named": named}
+    def _report(self, report: model.Report, cols: int, color: bool) -> list[tuple[str, str]]:
+        """A report, whole: under its machine's name, which leads unless the report names it itself; each line visible,
+        as today's engine makes every report."""
+        lines = _visible(report.text)
+        if not lines:
+            return []
+        name = self._name(report.machine) if report.machine is not None else None
+        if name is not None and lines[0].startswith(name + ": "):
+            lines[0] = lines[0][len(name) + 2 :]
+        named = name is not None and not lines[0].startswith(name + " ")
+        said = {"host": name or "", "lines": lines, "styles": [""] * len(lines), "named": named}
         return drawn.report_lines(said, cols, color)
 
     def _who(self, machine: str | None) -> str:
-        """Whom a failure is about: its machine; with none, the run's one machine, else this machine."""
+        """Whom a failure is about: its machine's name; with none, the run's one machine, else this machine."""
         if machine is not None:
-            return machine
-        return self.run.machines[0] if len(self.run.machines) == 1 else "this machine"
+            return self._name(machine)
+        return self._name(self.run.machines[0]) if len(self.run.machines) == 1 else "this machine"
 
     def _failure(self, failure: model.Failure, cols: int, color: bool) -> list[tuple[str, str]]:
         """A failure, for good above the region: the step or the stage, whose, why and for how long, and the log."""
         where = self._label(failure.stage, failure.step) or self._label(failure.stage) or self.run.declared.title
-        why = failure.why.split("\n")
+        why = _visible(failure.why) or [""]
         record = {
             "where": where,
             "who": self._who(failure.machine),
-            "task": why[0] or "failed",
+            "task": why[0].strip() or "failed",
             "seconds": failure.seconds,
             "how": "failed",
             "said": why[1:],
@@ -414,7 +451,7 @@ class View:
         took = f"{minutes} min {seconds} s" if minutes else f"{seconds} s"
         # The clock it ended at, last: what a head too long for the width loses first (Run._cut_head).
         tail = (f" · {time.strftime('%H:%M', time.localtime(self.started_at + total))}", "")
-        failed = [machine for machine, end in run.outcomes.items() if end.outcome == "failed"]
+        failed = [self._name(machine) for machine, end in run.outcomes.items() if end.outcome == "failed"]
         succeeded = any(end.outcome == "succeeded" for end in run.outcomes.values())
         own = any(failure.machine is None for failure in run.failures)
         if run.outcome == "cancelled":
@@ -430,7 +467,21 @@ class View:
                 first = run.failures[0]
                 where = self._label(first.stage, first.step) or self._label(first.stage)
             said, style = f"failed after {took}{f' at {where}' if where else ''}", "r"
+            # The run's own error, said in place of the clock: what a head too long for the width loses first.
+            ran = self._runs_failure()
+            why = _visible(ran.why) if ran is not None else []
+            if why:
+                tail = (f" · {one_line(why[0], None)}", "r")
         return [("agent-warehouse", "b"), (f"  {self.title}{self._on()} · {said}", style), tail]
+
+    def _runs_failure(self) -> model.Failure | None:
+        """The run's own failure, where the model said its why as one: the last, of no machine and no step, at its
+        end."""
+        run = self.run
+        last = run.failures[-1] if run.outcome == "failed" and run.failures else None
+        if last is not None and (last.machine, last.step, last.at, last.why) == (None, None, run.ended, run.why):
+            return last
+        return None
 
     def summary(self, now: float, cols: int, color: bool = True, next_steps: Iterable[str] | None = None) -> list[str]:
         """The summary at the run's end: how it ended; each stage's mark and time, with each machine's mark where there
@@ -462,7 +513,8 @@ class View:
             if several:
                 states = run.marks(stage.key, step)
                 if states:
-                    parts.append(" · ".join(f"{machine} {_mark(state, '…')[0]}" for machine, state in states.items()))
+                    marks = (f"{self._name(machine)} {_mark(state, '…')[0]}" for machine, state in states.items())
+                    parts.append(" · ".join(marks))
             for each in stage.steps if not flat else ():
                 if run.state(stage.key, each.key) == "to come":
                     continue
@@ -505,9 +557,10 @@ class View:
         said: dict[str | None, list[str]] = {}
         for report in self.run.reports:
             machine = report.machine
+            name = self._name(machine) if machine is not None else None
             text = one_line(report.text, None)
-            unnamed = text[len(machine) + 2 :] if machine is not None and text.startswith(machine + ": ") else text
-            if not unnamed or {text, unnamed, f"{machine}: {unnamed}"} & left_to_do:
+            unnamed = text[len(name) + 2 :] if name is not None and text.startswith(name + ": ") else text
+            if not unnamed or {text, unnamed, f"{name}: {unnamed}"} & left_to_do:
                 continue
             if "\n" in report.text.strip() or len(unnamed) > limit - 2:
                 unnamed = drawn.first_sentence(unnamed)
@@ -520,6 +573,17 @@ class View:
         order += [None] if None in said else []
         lines: list[Segments] = []
         for machine in order:
-            lines += [[], [("THIS MACHINE" if machine is None else machine.upper(), "h")]]
+            lines += [[], [("THIS MACHINE" if machine is None else self._name(machine).upper(), "h")]]
             lines += [screen.cut([(" ", ""), (text, "")], limit) for text in said[machine][-10:]]
         return lines
+
+
+def _visible(text: str) -> list[str]:
+    """text's lines as a person reads them, as today's engine makes a report's: no escape, control or format character
+    (a right-to-left override), tabs expanded, trailing spaces and the blank first and last lines dropped."""
+    lines = [visible_text(line).rstrip().expandtabs(4) for line in text.splitlines()]
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return lines

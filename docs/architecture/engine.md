@@ -2118,27 +2118,36 @@ draws today's model of Ansible's tasks, whose counts, bars and windows of tasks 
 is shared and today's file is unchanged. It gives `frame(now, cols, rows, glyph, color)`: the header (the run's title,
 its host beside a second, the clock it started, a dry run), every stage drawn but a quiet one where nothing failed, each
 row its mark, its label and its time at the right edge and, where the run has two machines or more and the work is each
-machine's, each machine's mark (`alpha ✓ · beta ⠴ · gamma ○`, or their count where they do not fit); under the running
+machine's, each machine's mark (`alpha ✓ · beta ⠴ · gamma ○`, or their count where they do not fit; a machine that has
+ended is to come, `○`, in a stage begun after its end); under the running
 stage its steps, and under the stage or step under way each machine's latest line of work (`latest`, where today's
 window of tasks stood) and each wait for another run's section, with the time since; a wait for you on the stage's row,
 with what the run waits for, whose and since when; folded to the height as today's (the steps to come, then the stages to
 come, on a line each); a run of one stage drawn as its steps; and a footer (the run's clock, the stage or step it is at,
 waiting for you, stopping once a person stopped it, the log). `title_text(now)` says where the run is, waiting for you, or
 how it ended (done, failed, stopped), with no percentage, since nothing counts tasks. `ended_lines(now)` gives a line as
-each step and stage ends, for output that is no terminal, in today's columns: a stage of each machine's work is said once
-every machine of the run is through it or ended (or the run is over), so a fleet whose machines reach a stage one after
-another says it once. `above(cols, color)` gives what is said above the region since its last call, in the order said:
-each report whole, under its machine, wrapped and never cut, and each failure with where, whose, why and the log.
-`summary(now, cols, color, next_steps)` gives how the run ended (done; done with the machines that failed; failed, and
-where; stopped, and where), each stage's mark and time with each machine's mark and its steps' times and your time in
+each step and stage ends, and as each wait begins, for output that is no terminal, in today's columns and the order they
+happened: a stage of each machine's work is said once every machine of the run is through it or ended (or the run is
+over), so a fleet whose machines reach a stage one after another says it once; a wait is said once, with its stage and
+step, whose and what it waits for, a wait for you said so (`⏸ sign in / Claude ... waiting for you · alpha: Approve the
+sign-in in your browser`), a short section's in its own words. `above(cols, color)` gives what is said above the region
+since its last call, in the order said: each report whole, under its machine, wrapped and never cut, and each failure
+with where, whose, why and the log, the run's own among them. `summary(now, cols, color, next_steps)` gives how the run
+ended (done; done with the machines that failed; failed, and where, with the run's own why in place of the clock where
+it failed of its own error; stopped, and where), each stage's mark and time with each machine's mark and its steps' times and your time in
 them, what it never reached, each machine's reports a line each (the run's own under THIS MACHINE) but what NEXT STEPS
 says whole, and the totals; NEXT STEPS itself is the caller's to print after it, as today's run prints it. No line of a
-frame or a summary is wider than `cols - 1`. Nothing in it prints, reads a clock, a file or the terminal: the caller,
-the live view, prints what it gets. Provision's row says no VM ID or address: nothing declared carries them, and the
+frame or a summary is wider than `cols - 1`. A machine is said by the name a person chose (the model's `name`), never by
+its identity, wherever a machine is said: the title, the marks, a line of work, a wait, a report's head, a failure's
+whose and the summary's headings. What the events said is made visible before it is drawn, as today's engine makes every
+report: a wait's words, a line of work and a name one line (`text.one_line`: no line break, tab, control or format
+character), and each line of a report or a failure visible (`text.visible_text`), its tabs expanded and its blank first
+and last lines dropped. Nothing in it prints, reads a clock, a file or the terminal: the caller, the live view, prints
+what it gets. Provision's row says no VM ID or address: nothing declared carries them, and the
 run's report that the machine is up says its address above and under the machine in the summary.
 `tests/unit/test_aw_run_view.py` holds it with canned runs, each timed as the matching run of today's
 `tests/unit/test_run_view.py` and compared with it row for row where the two have the same stages, at every width and
-with `tests/unit/vt.py`, which counts no line wrapped at 80 or 100 columns.
+with `tests/unit/vt.py`, which counts no line wrapped at 80 or 100 columns, and each rule above with a test of its own.
 
 ## 16.9 `fleet/` — the fleet's files, the settings, the secrets and the fleet's mark
 
