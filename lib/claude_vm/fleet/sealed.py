@@ -22,11 +22,13 @@ write, so at format 1 no write of the vault changes `fleet.json`. A vault is alw
 `fleet.json` there is no vault to read, make or write.
 
 **A write needs the key that opens what is there.** `create(where, key)` writes an empty map where there is no vault
-yet; `write(where, key, secrets)` replaces the map whole; `put` and `remove` change one entry. Each opens the vault
-there with the key under the lock before it writes, so a key that no longer opens it (a rotation came between, D13)
-reads nothing and writes nothing. Every name is held to the closed list and every value to its kind before anything is
-written. The file is replaced through `files.write`: written beside it, flushed and renamed over it, a new one at 0600
-and one that is there keeping its mode, so that a writer killed part way leaves the old vault whole.
+yet; `write(where, key, secrets, expect=...)` replaces the map whole, only while the vault still holds `expect`, the map
+the caller read, compared under the lock: a caller that read before another's put is refused (`Changed`) and the put
+kept; `put` and `remove` change one entry of the map they read under the lock. Each opens the vault there with the key
+under the lock before it writes, so a key that no longer opens it (a rotation came between, D13) reads nothing and
+writes nothing. Every name is held to the closed list and every value to its kind before anything is written. The file
+is replaced through `files.write`: written beside it, flushed and renamed over it, a new one at 0600 and one that is
+there keeping its mode, so that a writer killed part way leaves the old vault whole.
 
 Every refusal is a `Refused`, one sentence that names the file and never a value, nor anything of the plaintext but an
 entry the list holds; the key is said by nothing. `pyrage` is imported only inside the functions that need it, and
@@ -67,6 +69,11 @@ class Unreadable(Refused):
 
 class Newer(Unreadable):
     """The vault, or its fleet's record, is in a format newer than this program reads."""
+
+
+class Changed(Refused):
+    """The vault no longer holds the map a write was given as read: another writer came between, and nothing is
+    written. Read it again: its own class, so that a caller offers its change again on this refusal alone."""
 
 
 def path(where: paths.Home) -> Path:
@@ -261,13 +268,26 @@ def read(where: paths.Home, key: Secret) -> dict[str, Secret] | None:
     return _opened(where, _identity(key))
 
 
-def write(where: paths.Home, key: Secret, secrets_map: Mapping[str, Secret]) -> None:
-    """The vault's map replaced whole by secrets_map, sealed to key: each entry held to the closed list and each value
-    to its kind first, and the vault there opened with key under the lock before it is replaced."""
+def _same(found: Mapping[str, Secret], expect: Mapping[str, Secret]) -> bool:
+    """Whether found and expect hold the same entries with the same values, compared by their plain text."""
+    if found.keys() != expect.keys():
+        return False
+    return all(_plain(entry, found[entry]) == _plain(entry, expect[entry]) for entry in found)
+
+
+def write(where: paths.Home, key: Secret, secrets_map: Mapping[str, Secret], *, expect: Mapping[str, Secret]) -> None:
+    """The vault's map replaced whole by secrets_map, sealed to key, only while the vault still holds expect, the map
+    the caller read (compare-and-swap, as the overrides' writer has): each entry of both held to the closed list and
+    each value to its kind first, and the vault there opened with key and compared with expect under the lock before
+    it is replaced. Changed, with nothing written, where another writer came between the caller's read and this."""
     identity = _identity(key)
     checked = _checked(secrets_map)
+    expected = _checked(expect)
     with _locked(where) as number:
-        _there(where, identity, number)
+        if not _same(_there(where, identity, number), expected):
+            raise Changed(
+                f"error: {_said(path(where))} changed since it was read: nothing is written, so read it again"
+            )
         _seal(where, identity, checked, number)
 
 
