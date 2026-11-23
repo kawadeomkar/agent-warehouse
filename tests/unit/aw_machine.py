@@ -1,23 +1,30 @@
 """Stand-in machines for the new engine's tests: directories of a test's own that B3's runner reaches as if over SSH
 (docs/architecture/engine.md §16.10).
 
-- `machine(root, name, **state)` makes one under root: an identity made for the test (agent-warehouse-<a UUID>), an
-  address from RFC 5737's documentation ranges, never one of a real network, and a directory that holds `home/`, its
-  HOME, made for a state as today's stand-in VMs make theirs (tests/unit/test_status_vms.py's `_vms`, held equal by a
-  test), `system/`, the files the probe reads, made by the same `_tree`, and `bin/`, the stand-ins a command finds
-  first: today's systemctl, dpkg-query and getent, tests/molecule's fake gh, tailscale and claude, and a sudo of its
-  own. That sudo runs the command as the same user and records each call's -n and -S in the machine's `sudo.log`;
-  made with `sudo_password=`, it refuses -n for want of one and reads exactly one line on -S, kept as a digest only.
+- `machine(root, name, **state)` makes one under root: an identity made for the test (agent-warehouse-<a UUID>), a
+  made-up ed25519 host key of its own, an address from RFC 5737's documentation ranges, never one of a real network,
+  and a directory that holds `home/`, its HOME, made for a state as today's stand-in VMs make theirs
+  (tests/unit/test_status_vms.py's `_vms`, held equal by a test), `system/`, the files the probe reads, made by the
+  same `_tree`, `root/`, the home a command run under sudo is given, and `bin/`, the stand-ins a command finds first:
+  today's systemctl, dpkg-query and getent, tests/molecule's fake gh, tailscale and claude, a python3 that is the
+  test's own Python, and a sudo of its own. That sudo runs the command as the same user, with root/ as its HOME and its
+  secure_path as its PATH, and records each call's -n and -S in the machine's `sudo.log`; made with `sudo_password=`,
+  it refuses -n for want of one and on -S reads a line an attempt, up to sudo's three, each kept as a digest only.
 - `ssh_stand_in(root, machines)` gives the folder of an `ssh` for the first place on a run's PATH
   (`engine_guard.first_on_path`, or `first_on_path=` for a run of the kit's). It reads B3's words as ssh reads them;
-  refuses with status 255 an address no machine has, and words whose first StrictHostKeyChecking or BatchMode is not
-  yes; appends its words and the names of its environment's variables to that machine's `calls.log`; runs the command
-  after the address with /bin/sh -c in the machine's home, with that HOME, its bin/ first on PATH, the test's own
-  failing stand-ins next and the system's folders last, and nothing else of the test's environment; and passes its
-  standard input through untouched. -O check and -O stop answer as a live master would; a forward (-L) is recorded
-  and never opened. It never runs this computer's ssh, and refuses a command that names this computer's own sudo by
-  its path, which would run as root on the runner.
-- `target(machine)` is the machine as B3's runner reaches it, its key checked strictly.
+  refuses with status 255 an address no machine has, and words whose first StrictHostKeyChecking is neither yes nor
+  accept-new or whose first BatchMode is not yes; checks the key of the machine at the address, under the first
+  HostKeyAlias (or the address), in the files of the first UserKnownHostsFile, as ssh checks it: one filed passes, none
+  filed is refused under yes and filed under accept-new, another filed is refused, each in ssh's words; appends its
+  words and the names of its environment's variables to that machine's `calls.log`; runs the command after the address
+  with /bin/sh -c in the machine's home, with no terminal, that HOME, its bin/ first on PATH, the test's own failing
+  stand-ins next and the system's folders last, and nothing else of the test's environment; and passes its standard
+  input through untouched. -O check and -O stop answer as a live master would; a forward (-L) is recorded and never
+  opened. It never runs this computer's ssh, never reads or writes this computer's own ~/.ssh, and refuses a command
+  that names a sudo by its path, which on a lane would be this computer's own and run as root on the runner.
+- `filed(machine, path)` files the machine's key under its identity in the known-hosts file at path, as B5 files one;
+  `target(machine)` is the machine as B3's runner reaches it, its key checked strictly in the file `filed` writes by
+  default.
 - `planted(fake, vmid, machine)` makes the Proxmox fake's VM vmid that machine: its guest agent reports the machine's
   address on the VM's own network card, and its SMBIOS UUID is the identity's, so that a VM made against the fake is
   reached at the stand-in. An adopted machine is one made without it, reached at the address machine() gave it, under
@@ -26,20 +33,27 @@
   touches only the machine's own directory. The real roles never run on a stand-in: they would run as root on the
   runner (F6's Molecule scenario converges them).
 
-Nothing here reaches a network, this computer's ~/.ssh, ~/.claude, browser, clipboard or terminal: every file is under
-the test's own directory, and a machine's command meets the test's own failing stand-ins ahead of the system's
-programs, whose reach fails the test as engine_guard's do. No test of the new engine writes an ssh stand-in of its own
-but the files tests/unit/test_aw_machine.py names, which test the ssh layer itself.
+What this module's own code writes is under the test's own directory, and it reaches no network, this computer's
+~/.ssh, ~/.claude, browser, clipboard or terminal. A machine is a directory, not a confinement: a command run on one
+can still write the computer's /tmp, reach a file by its absolute path, read its ancestors' environment through /proc
+and run the system's programs past its bin/ (on macOS, BSD tar and no timeout, sha256sum or flock), and a step's
+absolute path written as root fails or lands on the computer itself. So each card points the absolute paths and URLs
+of its steps at the machine's directory (as `_vms` points today's role at markers/) or at a fake, and a command that
+needs GNU's tools brings a stand-in for each into the machine's bin/, or marks its macOS case with why. No test of the
+new engine writes an ssh stand-in of its own, or hands the runner one, but the files tests/unit/test_aw_machine.py
+names: the SSH layer's own tests, the guard's, and one that tests a child named ssh.
 """
 
 from __future__ import annotations
 
+import base64
 import dataclasses
 import hashlib
 import ipaddress
 import json
 import os
 import re
+import struct
 import sys
 import uuid
 from collections.abc import Iterable, Mapping
@@ -69,6 +83,8 @@ FIRST = ipaddress.IPv4Address("203.0.113.10")
 NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,62}")
 # The account a machine is reached under, unless it is made with another: the VM user's.
 ACCOUNT = "dev"
+# The type of every machine's made-up host key: the one key a machine shows, as a VM's sshd shows its ed25519 one first.
+KEY_TYPE = "ssh-ed25519"
 # The control directory of a stand-in's target: short, as a socket's path must be, and never made, since the stand-in
 # opens no socket.
 CONTROL = Path("/aw-machines/cp")
@@ -76,22 +92,41 @@ CONTROL = Path("/aw-machines/cp")
 SYSTEM_PATH = ("/usr/bin", "/bin", "/usr/sbin", "/sbin")
 # The stand-ins of a machine's bin/, by name: each a program of the machines' shared folder (PROGRAMS), linked, as
 # today's harness keeps one copy of each, since macOS scans each program it has not run before.
-TOOLS = ("systemctl", "dpkg-query", "getent", "gh", "tailscale", "claude", "sudo")
+TOOLS = ("systemctl", "dpkg-query", "getent", "gh", "tailscale", "claude", "sudo", "python3")
 PROGRAMS = ".programs"
 SSH_FOLDER = ".ssh-stand-in"
 
 # The stand-in sudo: the same user, every call a JSON line of the machine's sudo.log - its -n and -S, the lines it
 # read and what it did, never a line's text. Where the machine asks a password (its machine.json holds the digest of
-# one), -n is refused for want of it, and -S reads exactly one line, as far as its newline and no further, so that the
-# rest of standard input reaches the command untouched; where it asks none, -S reads nothing, as sudo does.
+# one), -n is refused for want of it, and -S reads a line an attempt, each as far as its newline or carriage return
+# and no further, as sudo's tgetpass reads one: a right one runs the command, with the rest of standard input
+# untouched; a wrong one is followed by "Sorry, try again." and the next line, up to sudo's three attempts
+# (passwd_tries), and the third ends with sudo's words, as experiment M-2 saw sudo 1.9.9 to 1.9.15 do. A standard
+# input that ends first is "no password was provided" (read from sudo's source, not run). Where it asks none, -S reads
+# nothing, as sudo does. The command runs as sudo's env_reset and secure_path leave it: HOME the target's (root/, or
+# the account's home for -u <account>), PATH the machine's (its bin/, the test's failing stand-ins, the system's
+# folders) whatever the caller's was, USER and LOGNAME the target, SUDO_USER the account, and STAND_IN, the stand-ins'
+# own, kept; -E keeps the caller's variables but PATH, and --preserve-env=<names> those named. -l lists, -v validates,
+# -k and -K with no command end at once, and the long options are sudo's; -i and -s, a shell, are refused.
 SUDO = r"""
-import hashlib, json, os, sys
+import hashlib, json, os, shutil, sys
 
 machine, args = sys.argv[1], sys.argv[2:]
 with open(os.path.join(machine, "machine.json")) as made:
-    asks = json.load(made)["sudo"]
-VALUED = set("pugCDhRrtTU")
-FLAGS = set("ABbEHKknPSs")
+    record = json.load(made)
+asks, account = record["sudo"], record["account"]
+# sudo's options that take a value, and those that take none, as sudo(8) gives them, and its long options by the
+# short one each stands for.
+VALUED = set("CDghpRrTtUu")
+FLAGS = set("ABbEHiKklnPSsv")
+LONG = {
+    "askpass": "A", "bell": "B", "background": "b", "close-from": "C", "chdir": "D", "preserve-env": "E",
+    "group": "g", "set-home": "H", "host": "h", "login": "i", "remove-timestamp": "K", "reset-timestamp": "k",
+    "list": "l", "non-interactive": "n", "preserve-groups": "P", "prompt": "p", "chroot": "R", "role": "r",
+    "stdin": "S", "shell": "s", "type": "t", "command-timeout": "T", "other-user": "U", "user": "u", "validate": "v",
+}
+TRIES = 3
+USAGE = "usage: sudo [-nS] [-p prompt] [-u user] command"
 
 
 def log(entry):
@@ -104,11 +139,41 @@ def said(text):
     sys.stderr.flush()
 
 
-flags, valued = set(), {}
+def ended(entry, outcome, *words):
+    log({**entry, "outcome": outcome})
+    for text in words:
+        said(text)
+    sys.exit(1)
+
+
+flags, valued, preserved = set(), {}, None
 while args and args[0].startswith("-") and args[0] != "-":
     word = args.pop(0)
     if word == "--":
         break
+    if word.startswith("--"):
+        name, equals, value = word[2:].partition("=")
+        letter = LONG.get(name)
+        if letter is None:
+            said(f"sudo: unrecognized option '{word}'")
+            said(USAGE)
+            sys.exit(1)
+        if letter == "E":
+            flags.add("E")
+            preserved = value.split(",") if equals else None
+        elif letter in VALUED:
+            if not equals:
+                if not args:
+                    said(f"sudo: option '--{name}' requires an argument")
+                    sys.exit(1)
+                value = args.pop(0)
+            valued.setdefault(letter, []).append(value)
+        elif equals:
+            said(f"sudo: option '--{name}' doesn't allow an argument")
+            sys.exit(1)
+        else:
+            flags.add(letter)
+        continue
     for at, letter in enumerate(word[1:], 1):
         if letter in VALUED:
             value = word[at + 1:] or (args.pop(0) if args else None)
@@ -122,41 +187,91 @@ while args and args[0].startswith("-") and args[0] != "-":
             sys.exit(1)
         flags.add(letter)
 entry = {"n": "n" in flags, "S": "S" in flags, "read": 0}
-if not args:
-    log({**entry, "outcome": "refused: no command"})
-    said("usage: sudo [-nS] [-p prompt] [-u user] command")
-    sys.exit(1)
+if flags & {"i", "s"}:
+    ended(entry, "refused: a shell", "stand-in sudo: refused: it runs a command as given, never a shell or a login"
+          " shell (-i, -s)")
+if flags & {"K", "k"} and not args:
+    log({**entry, "outcome": "timestamp"})
+    sys.exit(0)
+if not args and not flags & {"l", "v"}:
+    ended(entry, "refused: no command", USAGE)
+user = (valued.get("u") or ["root"])[0]
+if user not in ("root", account):
+    ended(entry, "refused: another user", f"sudo: unknown user {user}")
+
+
+def line():
+    # One line of standard input, as tgetpass reads one: to its newline or carriage return; None where it ends first.
+    got, any_byte = bytearray(), False
+    while (byte := os.read(0, 1)) not in (b"", b"\n", b"\r"):
+        got += byte
+        any_byte = True
+    if byte == b"" and not any_byte:
+        return None
+    return bytes(got)
+
+
 if asks is not None:
     if "n" in flags:
-        log({**entry, "outcome": "refused: a password is required"})
-        said("sudo: a password is required")
-        sys.exit(1)
+        ended(entry, "refused: a password is required", "sudo: a password is required")
     if "S" not in flags:
-        log({**entry, "outcome": "refused: no terminal to ask at"})
-        said("sudo: a terminal is required to read the password; either use the -S option to read from standard input"
-             " or configure an askpass helper")
-        sys.exit(1)
-    prompt = valued.get("p", ["[sudo] password for %p: "])[0].replace("%p", os.environ.get("USER", "dev"))
-    if prompt:
-        sys.stderr.write(prompt)
-        sys.stderr.flush()
-    line = bytearray()
-    while (byte := os.read(0, 1)) not in (b"", b"\n"):
-        line += byte
-    entry["read"] = 1
-    if hashlib.sha256(bytes(line)).hexdigest() != asks:
-        log({**entry, "outcome": "refused: a wrong password"})
-        said("Sorry, try again.\nsudo: 1 incorrect password attempt")
-        sys.exit(1)
+        ended(entry, "refused: no terminal to ask at", "sudo: a terminal is required to read the password; either use"
+              " the -S option to read from standard input or configure an askpass helper",
+              "sudo: a password is required")
+    prompt = valued.get("p", ["[sudo] password for %p: "])[0].replace("%p", account)
+    for attempt in range(1, TRIES + 1):
+        if attempt > 1:
+            said("Sorry, try again.")
+        if prompt:
+            sys.stderr.write(prompt)
+            sys.stderr.flush()
+        given = line()
+        if given is None:
+            failed = attempt - 1
+            counted = [f"sudo: {failed} incorrect password attempt{'s' if failed != 1 else ''}"] if failed else []
+            ended(entry, "refused: no password", "sudo: no password was provided", *counted)
+        entry["read"] = attempt
+        if hashlib.sha256(given).hexdigest() == asks:
+            break
+    else:
+        ended(entry, "refused: a wrong password", f"sudo: {TRIES} incorrect password attempts")
+home = os.path.join(machine, "home" if user == account else "root")
+if "E" in flags and preserved is None:
+    env = dict(os.environ)
+    if "H" in flags:
+        env["HOME"] = home
+else:
+    env = {name: os.environ[name] for name in (preserved or []) if name in os.environ}
+    env["HOME"] = home
+env.update({"PATH": record["path"], "USER": user, "LOGNAME": user, "SUDO_USER": account})
+if "STAND_IN" in os.environ:
+    env["STAND_IN"] = os.environ["STAND_IN"]
+if "v" in flags and not args:
+    log({**entry, "outcome": "validated"})
+    sys.exit(0)
+if "l" in flags:
+    if not args:
+        log({**entry, "outcome": "listed"})
+        print(f"User {account} may run the following commands on {record['name']}:")
+        print("    (ALL : ALL) " + ("ALL" if asks is not None else "NOPASSWD: ALL"))
+        sys.exit(0)
+    found = shutil.which(args[0], path=env["PATH"])
+    if found is None:
+        ended(entry, "refused: not found", f"sudo: {args[0]}: command not found")
+    log({**entry, "outcome": "listed"})
+    print(" ".join([found, *args[1:]]))
+    sys.exit(0)
+if shutil.which(args[0], path=env["PATH"]) is None:
+    ended(entry, "refused: not found", f"sudo: {args[0]}: command not found")
 log({**entry, "outcome": "ran"})
-os.execvp(args[0], args)
+os.execvpe(args[0], args, env)
 """
 
 # The stand-in ssh: its route table, machines.json, beside it. Every call to a machine is a JSON line of that
 # machine's calls.log - its words, the names of its environment's variables and what it did - and a call to an address
 # no machine has, or one that asks ssh -G, a line of unrouted.log beside it.
 SSH = r'''
-import json, os, re, subprocess, sys, time
+import base64, binascii, fcntl, hashlib, hmac, json, os, pwd, re, shlex, subprocess, sys, termios, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(HERE, "machines.json")) as table:
@@ -164,6 +279,8 @@ with open(os.path.join(HERE, "machines.json")) as table:
 # ssh's own options that take a value, and those that take none, as ssh(1) gives them.
 VALUED = set("BbcDEeFIiJLlmOopQRSWw")
 FLAGS = set("46AaCfGgKkMNnqsTtVvXxYy")
+# The policies of StrictHostKeyChecking a connection to a machine may have: strict, or a first use's.
+POLICIES = ("yes", "accept-new")
 argv = sys.argv[1:]
 
 
@@ -226,6 +343,88 @@ def first(options, name):
     return next((value for key, value in options if key == name), None)
 
 
+def named_by(field, name):
+    """Whether a known-hosts line's first field names name, as ssh reads one: a name ssh hashed (|1|salt|hash, an
+    HMAC-SHA1 of the name), or names and patterns split by commas, * and ? wildcards, in any case, ! excluding."""
+    if field.startswith("|1|"):
+        salt_text, _, digest_text = field[3:].partition("|")
+        try:
+            salt = base64.b64decode(salt_text, validate=True)
+            digest = base64.b64decode(digest_text, validate=True)
+        except (binascii.Error, ValueError):
+            return False
+        return hmac.compare_digest(hmac.new(salt, name.encode(), "sha1").digest(), digest)
+    found = False
+    for pattern in field.split(","):
+        excluded = pattern.startswith("!")
+        shape = "".join(".*" if ch == "*" else "." if ch == "?" else re.escape(ch) for ch in pattern[excluded:].lower())
+        if re.fullmatch(shape, name, re.S):
+            if excluded:
+                return False
+            found = True
+    return found
+
+
+def looked_up(files, name, kind, body):
+    """What ssh finds for the machine's key under name in files: ("known", None) where a line holds that very key;
+    ("changed", (file, line)) where a line of the key's type holds another, the first such named; else ("new", None).
+    A comment, a marker's line and a key of another type are passed over, as ssh passes them."""
+    offending = None
+    for path in files:
+        try:
+            with open(path, "rb") as kept:
+                text = kept.read().decode("utf-8", "replace")
+        except OSError:
+            continue
+        for number, each in enumerate(text.splitlines(), 1):
+            fields = each.split()
+            if len(fields) < 3 or fields[0].startswith(("#", "@")) or fields[1] != kind:
+                continue
+            if not named_by(fields[0], name):
+                continue
+            if fields[2] == body:
+                return "known", None
+            offending = offending or (path, number)
+    return ("changed", offending) if offending else ("new", None)
+
+
+def take(path, name, kind, body):
+    """The key added at the end of path under name, as ssh adds one at a first use: the line ended where the file's
+    last is not, ~/.ssh made 0700 where the file is in it and it is not there. Where it cannot be written, ssh says so
+    only at INFO, which LogLevel=ERROR keeps back, and goes on."""
+    folder = os.path.dirname(path)
+    if folder == os.path.join(os.path.expanduser("~"), ".ssh") and not os.path.isdir(folder):
+        os.mkdir(folder, 0o700)
+    try:
+        with open(path, "a+b") as kept:
+            kept.seek(0, os.SEEK_END)
+            if kept.tell():
+                kept.seek(-1, os.SEEK_END)
+                if kept.read(1) != b"\n":
+                    kept.write(b"\n")
+            kept.write(f"{name} {kind} {body}\n".encode())
+    except OSError:
+        pass
+
+
+def no_terminal():
+    """The command's controlling terminal dropped before it starts, as sshd starts one with no terminal: /dev/tty then
+    fails at once. Its process group is kept, so that the runner's kill of the ssh's group ends it too. A Python whose
+    termios has no TIOCNOTTY leaves it, which the test of the terminal then says."""
+    request = getattr(termios, "TIOCNOTTY", None)
+    try:
+        handle = os.open("/dev/tty", os.O_RDWR | os.O_NOCTTY)
+    except OSError:
+        return
+    try:
+        if request is not None:
+            fcntl.ioctl(handle, request)
+    except OSError:
+        pass
+    finally:
+        os.close(handle)
+
+
 flags, valued, options, destination, command = words()
 unrouted = os.path.join(HERE, "unrouted.log")
 if "G" in flags:
@@ -245,16 +444,17 @@ if machine is None:
     log(unrouted, "refused: no machine has the address")
     said(f"ssh: connect to host {address} port {port}: No route to host", 255)
 calls = os.path.join(machine["directory"], "calls.log")
-held = [(first(options, name) or "").lower() == "yes" for name in ("stricthostkeychecking", "batchmode")]
-if not all(held):
-    log(calls, "refused: not StrictHostKeyChecking=yes and BatchMode=yes")
-    said("stand-in ssh: refused: a connection to a machine checks its host key strictly and never asks"
-         " (StrictHostKeyChecking=yes and BatchMode=yes, the first value of each), and this one does not", 255)
-if account != machine["account"]:
-    log(calls, "refused: another account")
-    said(f"{account}@{address}: Permission denied (publickey).", 255)
+policy = (first(options, "stricthostkeychecking") or "").lower()
+if policy not in POLICIES or (first(options, "batchmode") or "").lower() != "yes":
+    log(calls, "refused: not StrictHostKeyChecking=yes or accept-new, and BatchMode=yes")
+    said("stand-in ssh: refused: a connection to a machine checks its host key strictly, or takes it at a first use,"
+         " and never asks (StrictHostKeyChecking=yes or accept-new, and BatchMode=yes, the first value of each), and"
+         " this one does not", 255)
 control = (valued.get("O") or [None])[0]
 if control is not None:
+    if account != machine["account"]:
+        log(calls, "refused: another account")
+        said(f"{account}@{address}: Permission denied (publickey).", 255)
     if control == "check":
         log(calls, "-O check")
         said(f"Master running (pid={os.getpid()})\r", 0)
@@ -263,6 +463,54 @@ if control is not None:
         said("Stop listening request sent.\r", 0)
     log(calls, f"refused: -O {control}")
     said(f"stand-in ssh: -O {control} is not answered: a stand-in master answers check and stop alone", 255)
+# The host key, as ssh checks it at every connection before any account is tried: under the first HostKeyAlias, else
+# the address ([address]:port off port 22), in the files of the first UserKnownHostsFile, else ~/.ssh's two, with ~ the
+# test's own HOME (ssh's is the account's, from the account database). The system's own known-hosts files are never
+# read: a made-up key is in none.
+alias = first(options, "hostkeyalias")
+name = shlex.split(alias)[0] if alias else (address if port == "22" else f"[{address}]:{port}")
+listed = first(options, "userknownhostsfile")
+listed = shlex.split(listed) if listed is not None else ["~/.ssh/known_hosts", "~/.ssh/known_hosts2"]
+files = [] if [each.lower() for each in listed] == ["none"] else [os.path.expanduser(each) for each in listed]
+try:
+    own_ssh = os.path.join(os.path.realpath(pwd.getpwuid(os.getuid()).pw_dir), ".ssh")
+except KeyError:
+    # An account the account database does not know has no home of its own to keep out.
+    own_ssh = None
+if own_ssh and any((os.path.realpath(each) + os.sep).startswith(own_ssh + os.sep) for each in files):
+    log(calls, "refused: this computer's own ~/.ssh")
+    said("stand-in ssh: refused: a known-hosts file in this computer's own ~/.ssh, which no test reads or writes", 255)
+kind, body = machine["key"].split()
+found, offending = looked_up(files, name, kind, body)
+label = kind.removeprefix("ssh-").upper()
+if found == "changed":
+    path, number = offending
+    fingerprint = base64.b64encode(hashlib.sha256(base64.b64decode(body)).digest()).decode().rstrip("=")
+    log(calls, "refused: another host key is filed under the name")
+    said("\n".join([
+        "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@",
+        "@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @",
+        "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@",
+        "IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!",
+        "Someone could be eavesdropping on you right now (man-in-the-middle attack)!",
+        "It is also possible that a host key has just been changed.",
+        f"The fingerprint for the {label} key sent by the remote host is",
+        f"SHA256:{fingerprint}.",
+        "Please contact your system administrator.",
+        f"Add correct host key in {files[0]} to get rid of this message.",
+        f"Offending {label} key in {path}:{number}",
+        f"{label} host key for {name} has changed and you have requested strict checking.",
+        "Host key verification failed.",
+    ]), 255)
+if found == "new" and policy == "yes":
+    log(calls, "refused: no host key is filed under the name")
+    said(f"No {label} host key is known for {name} and you have requested strict checking.\n"
+         "Host key verification failed.", 255)
+if found == "new" and files:
+    take(files[0], name, kind, body)
+if account != machine["account"]:
+    log(calls, "refused: another account")
+    said(f"{account}@{address}: Permission denied (publickey).", 255)
 if valued.get("L") and "f" in flags:
     # Gone to the background with its forwards, which are never opened.
     log(calls, "forward, never opened")
@@ -279,17 +527,24 @@ if not command:
     log(calls, "refused: no command")
     said("stand-in ssh: no command given: a stand-in machine runs a command, never a shell", 255)
 line = " ".join(command)
-# A sudo named by its path, however the command quotes it: never the machine's own, which its PATH finds.
+# A check that the line names no sudo by its path as a word - one whose last part starts with sudo (sudo-rs, sudo.ws),
+# but the machine's own, which its PATH finds - and no command -p, which takes the system's default PATH: it catches a
+# caller naming /usr/bin/sudo, as today's plays do, and not a shell that builds the path.
 own = os.path.join(machine["directory"], "bin", "sudo")
 named = re.findall(r"[^\s'\"`;|&()<>]+", line)
-if any(word.startswith("/") and word.endswith("/sudo") and word != own for word in named):
+by_path = [word for word in named if word.startswith("/") and os.path.basename(word).startswith("sudo") and word != own]
+default_path = [
+    word for word, after in zip(named, named[1:]) if word == "command" and re.fullmatch(r"-[a-zA-Z]*p[a-zA-Z]*", after)
+]
+if by_path or default_path:
     log(calls, "refused: this computer's own sudo")
-    said("stand-in ssh: refused: the command names a sudo by its path, which would be this computer's own and run as"
-         " root on it: a stand-in machine's sudo is the one its PATH finds", 255)
+    said("stand-in ssh: refused: the command names a sudo by its path, or command -p, which would be this computer's"
+         " own and run as root on it: a stand-in machine's sudo is the one its PATH finds", 255)
 log(calls, "forward, never opened" if valued.get("L") else "ran")
 env = {"HOME": machine["home"], "PATH": machine["path"], "STAND_IN": machine["home"]}
 stdin = subprocess.DEVNULL if "n" in flags else None
-status = subprocess.Popen(["/bin/sh", "-c", line], cwd=machine["home"], env=env, stdin=stdin).wait()
+process = subprocess.Popen(["/bin/sh", "-c", line], cwd=machine["home"], env=env, stdin=stdin, preexec_fn=no_terminal)
+status = process.wait()
 # A command ended by a signal has no status ssh can pass on: 255, as ssh exits.
 sys.exit(255 if status < 0 else status)
 '''
@@ -297,11 +552,12 @@ sys.exit(255 if status < 0 else status)
 
 @dataclasses.dataclass(frozen=True)
 class Machine:
-    """A stand-in machine: its name, its identity, the address it is reached at, the account it takes, its directory,
-    and whether its sudo asks a password."""
+    """A stand-in machine: its name, its identity, its host key, the address it is reached at, the account it takes,
+    its directory, and whether its sudo asks a password."""
 
     name: str
     identity: str
+    key: str
     address: str
     account: str
     directory: Path
@@ -313,8 +569,18 @@ class Machine:
         return self.identity.removeprefix("agent-warehouse-")
 
     @property
+    def line(self) -> str:
+        """The known-hosts line that files its key under its identity, as B5 files one: `<identity> <type> <base64>`."""
+        return f"{self.identity} {self.key}"
+
+    @property
     def home(self) -> Path:
         return self.directory / "home"
+
+    @property
+    def root_home(self) -> Path:
+        """The HOME a command run under its sudo is given, as sudo gives root's."""
+        return self.directory / "root"
 
     @property
     def system(self) -> Path:
@@ -349,6 +615,9 @@ def _programs(root: Path) -> Path:
         "tailscale": (FAKES / "fake_tailscale.sh").read_text(),
         "claude": (FAKES / "fake_claude.sh").read_text(),
         "python": STAND_INS["python"],
+        # The test's own Python, as a machine's python3: one Python on every system, never macOS's own 3.9. Plain, as
+        # a machine's is: today's python wrapper would take its HOME from its own folder, bin/.
+        "python3": f'#!/bin/sh\nexec "{sys.executable}" "$@"\n',
         # The machine's directory, from the path the link in its bin/ was run by, which the kernel hands the shell.
         "sudo": f'#!/bin/sh\nexec "{sys.executable}" -I "{folder / "sudo.py"}" "$(dirname "$(dirname "$0")")" "$@"\n',
     }
@@ -380,6 +649,13 @@ def _address(root: Path, given: str | None) -> str:
         if address not in taken:
             return address
     pytest.fail(f"every address of 203.0.113.0/24 a stand-in takes is taken under {root}")
+
+
+def _made_up_key() -> str:
+    """A made-up ed25519 public key, as OpenSSH writes one: its type, then the base64 of the type's name and 32 bytes
+    of the test's own, which no machine anywhere holds the private half of."""
+    blob = struct.pack(">I", len(KEY_TYPE)) + KEY_TYPE.encode() + struct.pack(">I", 32) + os.urandom(32)
+    return f"{KEY_TYPE} {base64.b64encode(blob).decode()}"
 
 
 def _home(home: Path, *, claude, login, units, gh, ts, marker, projects) -> None:
@@ -435,7 +711,7 @@ def machine(
     """A stand-in machine named name under root, a folder of the test's own: its state as one of
     tests/unit/test_status_vms.py's CASES gives one - claude (the version its link names, or none), login, units, gh,
     ts, marker, tree (_tree's), projects - reached under account at address (the next free one of RFC 5737's), its sudo
-    asking sudo_password where one is given. Its identity is made for the test."""
+    asking sudo_password where one is given. Its identity and its host key are made for the test."""
     if not NAME.fullmatch(name):
         pytest.fail(f"a stand-in machine is named as a VM is, a word of a-z, 0-9 and -: {name!r}")
     if sudo_password is not None and (not isinstance(sudo_password, str) or "\n" in sudo_password):
@@ -448,6 +724,7 @@ def machine(
     made = Machine(
         name=name,
         identity=f"agent-warehouse-{uuid.uuid4()}",
+        key=_made_up_key(),
         address=reached_at,
         account=account,
         directory=directory,
@@ -457,6 +734,7 @@ def machine(
     for tool in TOOLS:
         (made.bin / tool).symlink_to(programs / tool)
     made.home.mkdir()
+    made.root_home.mkdir()
     _home(
         made.home,
         claude=claude,
@@ -473,7 +751,16 @@ def machine(
     (made.home / "python").symlink_to(programs / "python")
     _tree(made.system, **dict(tree or {}))
     digest = None if sudo_password is None else hashlib.sha256(sudo_password.encode()).hexdigest()
-    record = {"name": name, "identity": made.identity, "address": made.address, "account": account, "sudo": digest}
+    record = {
+        "name": name,
+        "identity": made.identity,
+        "key": made.key,
+        "address": made.address,
+        "account": account,
+        "sudo": digest,
+        # sudo's secure_path on the machine: the PATH a command run under its sudo has, whatever the caller's.
+        "path": machine_path(made),
+    }
     (directory / "machine.json").write_text(json.dumps(record))
     return made
 
@@ -504,6 +791,8 @@ def ssh_stand_in(root: Path, machines: Iterable[Machine]) -> Path:
             pytest.fail(f"two stand-in machines have {made.address}")
         table[made.address] = {
             "name": made.name,
+            "identity": made.identity,
+            "key": made.key,
             "directory": str(made.directory),
             "home": str(made.home),
             "account": made.account,
@@ -520,11 +809,33 @@ def unrouted(folder: Path) -> list[dict]:
     return harness._json_lines(folder / "unrouted.log")
 
 
+def known_hosts(made: Machine) -> Path:
+    """The known-hosts file a target of made's checks its key in unless it is given another: one beside the machines,
+    which filed writes by default."""
+    return made.directory.parent / "known_hosts"
+
+
+def filed(made: Machine, path: Path | None = None) -> Path:
+    """made's key filed under its identity in the known-hosts file at path (known_hosts(made) unless given), as B5
+    files one and a first use leaves it: the line `<identity> <type> <base64>` (Machine.line), added once at the file's
+    end, the file made 0600 where it is not there. path."""
+    where = known_hosts(made) if path is None else Path(path)
+    where.parent.mkdir(parents=True, exist_ok=True)
+    text = where.read_text() if where.exists() else ""
+    if made.line not in text.splitlines():
+        handle = os.open(where, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        try:
+            os.write(handle, (("\n" if text and not text.endswith("\n") else "") + made.line + "\n").encode())
+        finally:
+            os.close(handle)
+    return where
+
+
 def target(made: Machine, **over) -> runner.Target:
-    """made as B3's runner reaches it: its identity, address and account, its key checked strictly against a
-    known-hosts file beside the machines (the stand-in checks no key), and a control directory that is never made.
-    over goes to runner.machine (first_use, given, ...)."""
-    given = {"known_hosts": made.directory.parent / "known_hosts", **over}
+    """made as B3's runner reaches it: its identity, address and account, its key checked strictly against
+    known_hosts(made), where a test files it with filed(made), and a control directory that is never made. over goes
+    to runner.machine (first_use, known_hosts, given, ...)."""
+    given = {"known_hosts": known_hosts(made), **over}
     return runner.machine(made.identity, made.address, made.account, CONTROL, **given)
 
 
