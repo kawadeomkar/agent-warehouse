@@ -2,7 +2,10 @@
 check, before anything is imported or sent (docs/architecture/engine.md §16.3).
 
 - A VM's name with `_`, which Proxmox refuses in a name, is taken with `-` in its place, and said in today's words
-  (the justfile's hyphenate_names); and `alpha,beta` is two names, as two words are.
+  (the justfile's hyphenate_names); and `alpha,beta` is two names, as two words are, an empty one dropped. Each name
+  a word is split into is held to the names' pattern with patterns.py's `full`, as the word was: the pattern takes
+  `alpha,-b` whole, and `-b` is no name, so it is refused here, in the one check's sentence of a word outside its
+  pattern, before anything is said or asked and before any handler, the one place every verb's names pass.
 - The two meanings of no names (docs/reference/commands.md, the words a recipe takes): with none, `deploy`, `deploy
   --only provision` and `destroy` act on the default VM, and the commands that read VMs or configure them again on
   every VM the fleet made. Resolved into one field, `default_vm`, given only where a verb that takes several names was
@@ -18,7 +21,8 @@ check, before anything is imported or sent (docs/architecture/engine.md §16.3).
   runs again on what it comes to. The sentences of its three refusals are today's (deploy.1 to deploy.3), each command
   in them the printer's.
 
-Standard library only, the printer of a command, and the menu's modules of lib/claude_vm/tui/, imported only to ask.
+Standard library only, schema/ (the printer of a command, the one check and the patterns' `full`), and the menu's
+modules of lib/claude_vm/tui/, imported only to ask.
 """
 
 from __future__ import annotations
@@ -29,7 +33,8 @@ from typing import TextIO
 
 from claude_vm.cli.parse import Refused
 from claude_vm.schema import printer
-from claude_vm.schema.check import check, one_word
+from claude_vm.schema.check import check, one_word, word_not_held
+from claude_vm.schema.patterns import full
 from claude_vm.schema.words import Verb
 
 # The pattern of the words that name VMs, the ones these habits apply to.
@@ -51,14 +56,16 @@ def _default_vm(verb: Verb, values: dict[str, object]) -> bool:
 
 def names(verb: Verb, values: dict[str, object]) -> tuple[dict[str, object], list[str]]:
     """values with the VMs' names as the verb takes them, and default_vm where a verb that takes several was given none;
-    and what to say of each name taken with a hyphen. Raises Refused where names that came to more than one were given
-    to a verb that takes one."""
+    and what to say of each name taken with a hyphen. Raises Refused where a name a word was split into is no VM's name
+    (alpha,-b), and where names that came to more than one were given to a verb that takes one."""
     words = verb.words
     if words is None or words.pattern != VM_NAMES:
         return values, []
     given = values.get(words.field)
     typed = [given] if isinstance(given, str) else list(given) if isinstance(given, list) else []
     split = [name for word in typed for name in word.split(",") if name]
+    if not all(full(VM_NAMES, name) for name in split):
+        raise Refused(word_not_held(verb.name, words))
     said = [HYPHENATED.format(name=name, changed=name.replace("_", "-")) for name in split if "_" in name]
     taken = [name.replace("_", "-") for name in split]
     out = {key: value for key, value in values.items() if key != words.field}
@@ -143,14 +150,10 @@ def _as_stage(values: Mapping[str, object], stage: str, rest: list[str]) -> dict
 
 def _lines(values: Mapping[str, object], stages: list[str], rest: list[str]) -> dict[str, str]:
     """The command line each answer runs, as the printer of a command writes it: the stage, where one was given, and
-    the VMs so named. Nothing has taken the values yet, so a value of --set is not said back. Refused, in the check's
-    sentence, where a name the names habit split a word into is not one the names' pattern takes (alpha,-b): no line
-    gives it."""
-    try:
-        stage = _deploy(_as_stage(values, stages[0], rest)) if len(stages) == 1 else ""
-        return {"stage": stage, "vms": _deploy(values)}
-    except ValueError as error:
-        raise Refused(str(error)) from None
+    the VMs so named. Nothing has taken the values yet, so a value of --set is not said back. Every name is one the
+    names habit held to its pattern, so the printer refuses none."""
+    stage = _deploy(_as_stage(values, stages[0], rest)) if len(stages) == 1 else ""
+    return {"stage": stage, "vms": _deploy(values)}
 
 
 def answered(verb: Verb, values: Mapping[str, object], answer: str) -> dict[str, object]:

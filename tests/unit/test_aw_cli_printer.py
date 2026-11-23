@@ -619,7 +619,9 @@ def test_a_rule_between_options_is_the_run_s_to_say() -> None:
 def _given_back() -> list[tuple[str, list[str], dict[str, object], str]]:
     """Each placeholder the printer or help writes, given back to aw as a word: every option that takes a value, of
     every verb and before one, and every verb's words, <name> and, where the verb takes several, <name>...; each with
-    the verb, the words typed after aw, the values as JSON and the sentence that refuses them, aw's own text."""
+    the verb, the words typed after aw, the values as JSON and the sentence that refuses them, aw's own text. The words
+    of a verb that refuses any (Words.refused: init's and mcp's <extra>) are no word to put in a placeholder's place:
+    the verb's own rule refuses theirs, as any word (test_aw_cli_help.py)."""
     cases = []
     for option in BEFORE:
         if option.kind == "value":
@@ -636,7 +638,7 @@ def _given_back() -> list[tuple[str, list[str], dict[str, object], str]]:
             sentence = f"error: aw {name} {spelled}: {shown} stands for the value: put yours in its place"
             cases.append((name, [name, spelled, shown], {option.field: value}, sentence))
         words = verb.words
-        if words is not None:
+        if words is not None and not words.refused:
             one = placeholder(words)
             sentence = f"error: aw {name}: {one} stands for the {words.name}: put yours in its place"
             cases.append((name, [name, one], {words.field: [one] if words.plural else one}, sentence))
@@ -666,8 +668,8 @@ def test_a_placeholder_given_back_is_refused_as_a_word_and_as_json(verb, words, 
 
 def test_only_the_values_of_free_text_would_pass_their_own_pattern_as_a_placeholder() -> None:
     # Which is why the check refuses a placeholder before the pattern (review/code/OWNER-9.md 1, "What it gives"):
-    # settings --value and mcp --browser take one as text, and so do the words of init and mcp, which their rules
-    # refuse whatever they are; every other placeholder its pattern refuses too.
+    # settings --value and mcp --browser take one as text; every other placeholder its pattern refuses too. The words
+    # of init and mcp, which their rules refuse whatever they are, are not given back here.
     passing = []
     for verb, words, values, _ in GIVEN_BACK:
         row = VERBS.get(verb)
@@ -676,7 +678,7 @@ def test_only_the_values_of_free_text_would_pass_their_own_pattern_as_a_placehol
         held = [item for item in (*row.options, *([row.words] if row.words else [])) if item.field in values]
         if all(item.pattern is None or full(item.pattern, words[-1]) for item in held):
             passing.append(" ".join(words))
-    assert sorted(passing) == ["init <extra>", "mcp --browser <browser>", "mcp <extra>", "settings --value <value>"]
+    assert sorted(passing) == ["mcp --browser <browser>", "settings --value <value>"]
 
 
 def test_a_masked_line_and_a_form_line_each_print_a_placeholder() -> None:

@@ -34,14 +34,8 @@ from typing import TextIO
 from claude_vm.schema import check as checks
 from claude_vm.schema import printer
 from claude_vm.schema.printer import said
-from claude_vm.schema.words import BEFORE, EXITS, REFUSED_WORDS, SET, VERBOSE, VERBS, Option, Verb, placeholder
+from claude_vm.schema.words import BEFORE, EXITS, SET, VERBOSE, VERBS, Option, Verb, placeholder
 
-# The verbs whose one word is needed, which a usage line shows without brackets, each with why: the table says how many
-# words a verb takes, not whether it needs one.
-NEEDS_ITS_WORD = {
-    "code": "it opens one VM, and refuses none (rules.py's code.1), as today's command reference shows it",
-    "release": "it releases one adopted machine, as the design's table of words writes it: release <machine>",
-}
 # The heading of the verbs, of the options given before any verb, and of a verb's options and words.
 LISTING = "Available commands:"
 # What the listing shows after a verb that has options to show.
@@ -71,11 +65,11 @@ _GLUE = "\x00"
 
 def _taken(verb: Verb) -> list[str]:
     """The words a verb takes, as its usage line shows them: [<name>...] for several, [<name>] for one, <name> for one
-    it needs, nothing where it takes none or refuses any."""
+    it needs (the table's Words.needed), nothing where it takes none or refuses any (Words.refused)."""
     words = verb.words
-    if words is None or words.name == REFUSED_WORDS:
+    if words is None or words.refused:
         return []
-    if verb.name in NEEDS_ITS_WORD:
+    if words.needed:
         return [placeholder(words)]
     return [f"[{placeholder(words)}...]" if words.plural else f"[{placeholder(words)}]"]
 
@@ -183,7 +177,7 @@ def of(name: str) -> str:
         lines += ["", OPTIONS, *_rows(rows, "  ", "  ")]
     if verb.words is not None:
         words = said(verb.words.help)
-        if verb.words.pattern is not None and verb.words.name != REFUSED_WORDS:
+        if verb.words.pattern is not None and not verb.words.refused:
             words = f"{words} {checks.form_of(verb.words)}"
         lines += ["", WORDS, *_rows([(placeholder(verb.words), words)], "  ", "  ")]
     return "\n".join(lines) + "\n"

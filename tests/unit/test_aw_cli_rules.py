@@ -6,9 +6,11 @@ Every rule of rules.py is named by a verb of the table, and every code a verb na
 a habit, and each of the parser's own, is run end to end, through the launcher, at a pseudo-terminal of its own where
 deploy's question is answered, and gives the status and the sentence written beside its words here; each case of a
 rule is refused by the rule its code names, and each of the parser's own is the sentence the parser gives in this
-process. The check gives the same answer to the same values as words and as JSON, and refuses a JSON string where a
-number is wanted. deploy's question is asked as a menu at a pseudo-terminal opened through
-harness._at_a_pseudo_terminal, typed where the terminal cannot draw one, and refused with no terminal. No rule says back
+process. --repos' 2000 characters are held at the bound, and host --for's names and each name the names habit splits a
+verb's words into are held to the one pattern of a VM's name, before any handler. The check gives the same answer to the
+same values as words and as JSON, and refuses a JSON string where a number is wanted. deploy's question is asked as a
+menu at a pseudo-terminal opened through harness._at_a_pseudo_terminal, typed where the terminal cannot draw one, and
+refused with no terminal. No rule says back
 a value that may be a secret, and one it says back has met its pattern first. No file of the tree names the recorded
 contract of v2.7.0's command line, which was taken out of the tree (H26).
 """
@@ -18,6 +20,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import sys
 
 import pytest
@@ -26,7 +29,7 @@ from harness import REPO, repo_files, repo_texts
 
 from claude_vm.cli import before, dispatch, habits, parse
 from claude_vm.schema import check as checks
-from claude_vm.schema import printer, rules
+from claude_vm.schema import patterns, printer, rules
 from claude_vm.schema.patterns import full
 from claude_vm.schema.printer import said
 from claude_vm.schema.words import VERBS
@@ -443,11 +446,14 @@ def test_the_question_names_each_answer_s_command_line_as_the_printer_writes_it(
     )
 
 
-def test_a_name_no_line_can_give_is_refused_at_the_question() -> None:
-    # The names habit splits alpha,-b into a piece that is no name: the question's lines cannot give it, so it is
-    # refused there in the check's sentence, saying nothing typed, and nothing is asked.
-    sentence, said = _typed(["deploy", "alpha,-b", "configure"], "v\n")
-    assert sentence == checks.check("deploy", {"names": ["-b"]}) and said == ""
+def test_a_name_no_line_can_give_is_refused_before_the_question(monkeypatch) -> None:
+    # The names habit splits alpha,-b into a piece that is no name, and refuses it in the check's sentence, saying
+    # nothing typed: the question, whose lines could not give it, is never reached (review/code/H21.md 4).
+    asked: list[object] = []
+    monkeypatch.setattr(habits, "_ask", lambda *args: asked.append(args) or "v")
+    with pytest.raises(parse.Refused) as refused:
+        _typed(["deploy", "alpha,-b", "configure"], "v\n")
+    assert refused.value.sentence == checks.check("deploy", {"names": ["-b"]}) and asked == []
 
 
 def test_the_answer_meets_the_rules_and_says_no_default_where_names_are_left() -> None:
@@ -676,6 +682,69 @@ def test_host_for_s_names_are_split_at_its_commas_and_an_empty_one_is_dropped() 
         {"for_": "alpha,-b"}
     )
     assert rules.RULES["check.names.1"].check({"for_": "alpha,-b"}).endswith("(got: [-b])")
+
+
+def test_repos_may_be_2000_characters_and_not_one_more() -> None:
+    # check.repos.2's bound, today's tools/check's test "${#2}" -le 2000 (review/code/H21.md 2): a list of exactly 2000
+    # characters of names its pattern takes is taken, through the parser too, and one of 2001 is refused.
+    at = ",".join(["r" * 100] * 19 + ["r" * 81])
+    past = f"{at}r"
+    assert (len(at), len(past)) == (2000, 2001) and full("repos", at) and full("repos", past)
+    assert checks.check("deploy", {"names": ["alpha"], "repos": at}) is None
+    assert parse.read(["deploy", "alpha", f"--repos={at}"]).values == {"names": ["alpha"], "repos": at}
+    sentence = REFUSALS["check.repos.2-1"][2]
+    assert checks.check("deploy", {"names": ["alpha"], "repos": past}) == sentence
+    with pytest.raises(parse.Refused) as refused:
+        parse.read(["deploy", "alpha", f"--repos={past}"])
+    assert refused.value.sentence == sentence
+
+
+# The verbs whose words are VMs' names, which the names habit splits at their commas: code's are refused a comma first,
+# by its rule code.2.
+SPLIT = [
+    name for name, verb in VERBS.items() if verb.words and verb.words.pattern == habits.VM_NAMES and name != "code"
+]
+
+
+def test_the_verbs_whose_names_the_habit_splits_are_those_named() -> None:
+    assert SPLIT == ["deploy", "login", "status", "destroy", "release"]
+    assert checks.check("code", {"name": "alpha,-b"}) == rules.RULES["code.2"].check({"name": "alpha,-b"})
+
+
+@pytest.mark.parametrize("verb", SPLIT)
+def test_each_name_the_names_habit_splits_a_word_into_is_held_to_its_pattern_before_any_handler(
+    home, monkeypatch, verb
+) -> None:
+    # The pattern takes alpha,-b whole, and -b is no VM's name: the names habit, which every verb's names pass, refuses
+    # it in the check's sentence of a word outside its pattern, never saying it (review/code/H21.md 4: the one place).
+    monkeypatch.setattr(printer, "_program", printer.PROGRAM)
+    words = VERBS[verb].words
+    assert words is not None
+    sentence = checks.word_not_held(verb, words)
+    assert sentence == checks.check(verb, {words.field: ["-b"] if words.plural else "-b"})
+    for word in ("alpha,-b", "alpha,_b", "alpha,.b"):
+        reading = parse.read([verb, word])
+        with pytest.raises(parse.Refused) as refused:
+            habits.names(VERBS[verb], reading.values)
+        assert refused.value.sentence == sentence, word
+    # Through the launcher: the sentence alone, the underscore's warning not said first, and no handler reached.
+    result = run_launcher(verb, "alpha_x,_b", home=home, cwd=home, first_on_path=(on_path(home),))
+    assert (result.returncode, result.stdout, result.stderr) == (1, "", sentence + "\n")
+    # An empty name is dropped, as today's word splitting drops it, and every other name taken.
+    kept, taken = ("alpha,,beta,", ["alpha", "beta"]) if words.plural else ("alpha,", "alpha")
+    assert habits.names(VERBS[verb], parse.read([verb, kept]).values)[0][words.field] == taken
+
+
+def test_host_for_s_names_and_the_names_habit_hold_a_name_to_the_one_pattern(monkeypatch) -> None:
+    # Neither writes a VM name's pattern of its own (review/code/H21.md 3 and 4): the one pattern narrowed in
+    # patterns.py narrows both.
+    assert rules.RULES["check.names.1"].check({"for_": "alpha,beta9"}) is None
+    assert habits.names(DEPLOY, {"names": ["alpha,beta9"]})[0] == {"names": ["alpha", "beta9"]}
+    monkeypatch.setitem(patterns._COMPILED, habits.VM_NAMES, re.compile("[a-z]+"))
+    narrowed = rules.RULES["check.names.1"].check({"for_": "alpha,beta9"})
+    assert narrowed is not None and narrowed.endswith("(got: [beta9])"), narrowed
+    with pytest.raises(parse.Refused):
+        habits.names(DEPLOY, {"names": ["alpha,beta9"]})
 
 
 # ---------------------------------------------------------------- each option's rules ----

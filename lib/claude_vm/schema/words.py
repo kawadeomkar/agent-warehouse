@@ -107,8 +107,12 @@ class Words:
     it takes several, field the name the handler receives them by, pattern the pattern each is held to (None where the
     verb refuses any word: init's), help its sentence, agent its fate for an agent's tool. value_words and example are
     what a word may be in words and an example of one, their own in place of the pattern's, as an option's are
-    (release's one machine, not a VM's name): None for the pattern's. A verb's words named REFUSED_WORDS are no word to
-    give: help and a refusal say no form for them."""
+    (release's one machine, not a VM's name): None for the pattern's. needed and refused say, side by side, what the
+    number does not: needed, that the verb needs its one word (code's VM, release's machine), which a usage line then
+    shows without brackets (aw code <name>); refused, that the words are no word to give, as today's EXTRA is (init's
+    and mcp's, which each refuse any): help leaves them out of a usage line and the command reference out of its rows,
+    and says no form for them, nor does the refusal of one outside its pattern, and the one check refuses no
+    placeholder of them, which the verb's own rule refuses as any word."""
 
     name: str
     plural: bool
@@ -118,11 +122,8 @@ class Words:
     agent: Agent
     value_words: str | None = None
     example: str | None = None
-
-
-# The words a verb takes that are no word to give: init's and mcp's, which each refuse any, as today's EXTRA does. Help
-# leaves them out of a usage line and says no form for them, and nor does the refusal of one outside its pattern.
-REFUSED_WORDS = "extra"
+    needed: bool = False
+    refused: bool = False
 
 
 @dataclass(frozen=True)
@@ -348,6 +349,7 @@ _VERBS: tuple[Verb, ...] = (
             None,
             "Nothing: any word after the options is refused, unsaid",
             refused(INIT_EXTRA_LEFT_OUT),
+            refused=True,
         ),
         options=(
             _value("address", "address", "address", "The Proxmox host's address, for its hosts.yml"),
@@ -613,7 +615,7 @@ _VERBS: tuple[Verb, ...] = (
         group="use",
         doc="Open a VM in your editor, VS Code by default, with Claude on the VM and this machine's recent Claude "
         "sessions copied there",
-        words=Words("name", False, "name", "vm_name", "The one VM to open", PROPERTY),
+        words=Words("name", False, "name", "vm_name", "The one VM to open", PROPERTY, needed=True),
         options=(
             _value(
                 "project",
@@ -793,7 +795,14 @@ _VERBS: tuple[Verb, ...] = (
         doc="End the logins this project made on an adopted machine, remove its alias and this fleet's marker, and "
         "uninstall nothing",
         words=Words(
-            "machine", False, "name", "vm_name", "The one adopted machine to release", PROPERTY, value_words=_MACHINE
+            "machine",
+            False,
+            "name",
+            "vm_name",
+            "The one adopted machine to release",
+            PROPERTY,
+            value_words=_MACHINE,
+            needed=True,
         ),
         options=(
             _value(
@@ -911,6 +920,7 @@ _VERBS: tuple[Verb, ...] = (
             "text",
             "Nothing: any word after the options is refused",
             refused(NO_TOOL_MCP),
+            refused=True,
         ),
         options=(
             _flag(
@@ -987,7 +997,9 @@ EXITS: dict[str, int] = {
 # read that failed, and a read a person cancelled. A refusal of status before it reads anything exits 1, as today, and
 # says so in its one sentence. Today's status gives 3 for a read that failed and for one a person cancelled
 # (lib/claude_vm/status/engine.py's _end_for_an_interrupt, and status/hosts.py's run with several hosts), and a script
-# may read it: so 3 keeps both meanings here, the one number of these two mappings that has two.
+# may read it: so 3 keeps both meanings here, the one number of these two mappings that has two. A status cancelled
+# before its read starts ends as any verb's run does, with EXITS' cancelled, 130, as today's recipe does in its checks
+# before tools/status reads anything: so a cancelled status exits 130 before its read and 3 during it.
 STATUS_EXITS: dict[str, int] = {
     # The report: nothing is wrong.
     "nothing_wrong": 0,
