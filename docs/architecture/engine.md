@@ -2149,6 +2149,38 @@ run's report that the machine is up says its address above and under the machine
 `tests/unit/test_run_view.py` and compared with it row for row where the two have the same stages, at every width and
 with `tests/unit/vt.py`, which counts no line wrapped at 80 or 100 columns, and each rule above with a test of its own.
 
+**The live view: `live.py`.** A run draws itself, in its own process, from the events it emits: no event file, and no
+other process redraws it (following a run from another terminal reads its text log). `Live(job, declared, stream)`, made
+in the run's thread once its job exists, listens to the job's events, feeds each to the model at its own clock
+(`time.monotonic()`, never the event's wall-clock time) and says the run in one of three ways, decided at its start.
+Where the stream is a terminal that can take the region (`live_region.can_draw`), the view's frame is drawn on the
+stream through the one live region every live output shares (`tui/live_region.py`'s `LiveRegion`, given a small
+`Display` of its own, as the status engine gives it one: a lock, `display()` and the two prompt methods, which refuse,
+since a run's questions are asked by a module of their own that steps the region aside): redrawn after each event and
+ten times a second for the spinner, the terminal's title saying where the run is, the echo off while it draws; what is
+said above (`View.above`: each report whole, each failure) printed above the region after each event; and while it
+draws, standard error said above the region too, a whole line at a time, so that the ladder's `stopping` line at a
+Ctrl-C, or a warning, never lands inside the region. Where the stream is no terminal, what is said above and a line as
+each step and stage ends (`View.ended_lines`). With any `-v` (`RunWords.verbosity`), each event as one line, its kind,
+machine, text and data (`streamed`), and nothing drawn, as today any `-v` gives the stream. At the run's own end (the
+`end` event with no machine, which `attached.py` emits last, after the terminal is put back) the region goes and the
+echo comes back, standard error is the run's own again, and the summary is printed with NEXT STEPS after it, whole, in
+the `#` block every run ends with (`text.banner`, in the palette's yellow); with `-v`, NEXT STEPS alone. A wait for you
+that begins rings the bell, and so does the end. A person's stop (the run's `Context.cancelled`, which the first Ctrl-C
+sets and no event carries) reaches the model at the next event or frame (`Run.cancel`), so the footer says the run is
+stopping. An event the model refuses (an undeclared step, a malformed end) is said in one line on standard error and
+left out: the run goes on, and every listener after the view still hears it. Nothing in `runs/` writes an escape
+sequence or reads the terminal itself: the region, the palette, the title and the echo are `tui/`'s. The model's
+machines are the job's own, `job.json`'s `machines`, by identity, the key every event of a machine names, each with the
+name a person chose where the caller gives it (`names`): the record keeps identities alone, and the view says a machine
+by its name. `tests/unit/test_aw_live.py` holds it at a pseudo-terminal, a run made by `runs.run` in a child process
+emitting a canned run: each redraw one write, no line wrapped at 80 or 100 columns, the echo off while it draws and back
+after a return, a Ctrl-C, a SIGTERM and a SIGHUP, a report and a failure said above and left there, the stopping line
+above the region and the footer saying so, the summary and then NEXT STEPS once; piped, a line as each step ends; with
+`-v`, each event a line; in its own process, with a clock of its own, that what a run says off a terminal is exactly
+what the view gives after each event, a refused event said once with the run going on, a person's stop reaching the
+model, and nothing said after the end; and by a scan, that no module of `runs/` names an escape sequence or `/dev/tty`.
+
 ## 16.9 `fleet/` — the fleet's files, the settings, the secrets and the fleet's mark
 
 `lib/claude_vm/fleet/` is where a fleet's files and its state go. `paths.py`, below, says where they are; the hosts as

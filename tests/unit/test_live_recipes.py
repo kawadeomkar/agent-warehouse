@@ -286,6 +286,8 @@ def test_every_part_test_runs_is_a_stage_of_its_declaration_listed_in_its_order(
 # as a dict's key or a call's argument (`"key"`), or a key given a constant (`"key": False`).
 LIVE_TESTS = {
     "test_deploy_live.py": (),
+    # The new engine's live view, which runs no playbook: its runs are the engine's own, of canned events.
+    "test_aw_live.py": (),
     # login.yml as test_sign_in_plays.py runs it: its stand-in VMs and extra vars, which keep every sign-in off this
     # machine's browser, clipboard and terminal.
     "test_login_live.py": ("from test_sign_in_plays import", "_extra(", "_hosts("),
