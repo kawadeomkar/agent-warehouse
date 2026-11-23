@@ -4,8 +4,9 @@ client, by which `deploy` and `status` judge alike (docs/architecture/engine.md 
 Every VM of the fleet is a full clone of the base template, so the template is what each VM starts as.
 engine/template.py's `compare` reads the template through the API with the engine's one token and judges what it read
 here; `status`, which may not import the engine (card G15), reads it through its own client and judges it by these same
-functions (card G16), so both say the same outcome in the same lines. Nothing here reads or sends anything: it imports
-nothing of engine/ and not the client (tests/unit/test_aw_engine_template.py).
+functions (card G16), so both say the same outcome in the same lines, the record's UUID held here whichever reader read
+it, and each field's form by the reader (below). Nothing here reads or sends anything: it imports nothing of engine/
+and not the client (tests/unit/test_aw_engine_template.py).
 
 `wanted(settings)` is what a build makes, field by field, in the fields today's lib/claude_vm/proxmox.py compares a
 template on (`TEMPLATE_FIELDS`): first the settings every clone inherits from it, its CPU type, OS type, bridge and
@@ -21,12 +22,17 @@ a test holds equal to the role's defaults/main.yml.
 `judge(base, entry, config, found, want, readable=)` says what the guest at the base template's ID is: `base` the
 template the settings name (`Base.of`), `entry` its entry in the cluster's listing (None where none is listed at the
 ID, `at`), `config` its configuration, `found` its record and `want` what a build makes. `found` is what reading the
-record by engine/record.py's rules gave: its fields, as pve/record.py's `parse` gives them or engine/record.py's
-`Record.fields` renders them, None where the notes hold no record of this engine's, or the Unreadable the read raised,
-a `Copy` among them. `listed(base, entry, readable=)` is what the listing alone says, and None where the guest's
-configuration is to be read, so that a reader reads a configuration only where it is judged: a qemu guest at the ID, in
-the fleet's pool, on `proxmox_node`. `custom(listing, config, ...)` judges a template of the person's own. Each says
-one of `OUTCOMES`, in a `Compared`:
+record gave, by either reader: its fields, as pve/record.py's `parse` gives them or engine/record.py's `Record.fields`
+renders them, None where the notes hold no record of this engine's, or the Unreadable the read raised, a `Copy` among
+them. Whichever reader made it, `judge` holds the record to the guest's own UUID itself, by pve/record.py's rules: one
+that names none (only a VM's first form may, `first_form`) or another guest's (a copy, `copied`) is refused with the
+sentence engine/record.py's `read` gives it. Each field's form is the reader's: engine/record.py's `read` holds every
+one; `parse` holds a block's shape alone, so a value of the wrong form that it passes is judged as it stands.
+
+`listed(base, entry, readable=)` is what the listing alone says, and None where the guest's configuration is to be
+read, so that a reader reads a configuration only where it is judged: a qemu guest at the ID, in the fleet's pool, on
+`proxmox_node`. `custom(listing, config, ...)` judges a template of the person's own. Each says one of `OUTCOMES`, in a
+`Compared`:
 
 - `missing`: no guest has the template's ID, which is said only where the token may read that ID (`readable`), so
   that a guest there would have been listed: with `proxmox_audit_scope: node`, its default, the token holds `VM.Audit`
@@ -71,7 +77,7 @@ from ..schema.printer import said
 from ..schema.words import Line
 from ..text import one_line
 from .answers import Resource, VmConfig
-from .record import Unreadable
+from .record import NO_UUID, Copy, Unreadable, copied, first_form
 
 __all__ = [
     "BUILD",
@@ -371,8 +377,9 @@ def judge(
 ) -> Compared:
     """What the guest at base's ID is, from its listing entry, its configuration and its record, against want (what
     a build makes, wanted): listed's verdict where the listing alone decides, else the configuration's and the
-    record's. config is needed only where listed gives None, and found is what reading its record by engine/record.py's
-    rules gave (the module's docstring); readable, whether the token may read the ID, only where nothing is listed."""
+    record's. config is needed only where listed gives None, and found is what reading its record gave, by either
+    reader (the module's docstring), held here to the guest's own UUID; readable, whether the token may read the ID,
+    only where nothing is listed."""
     decided = listed(base, entry, readable=readable)
     if decided is not None:
         return decided
@@ -385,6 +392,13 @@ def judge(
             f"{base.template_id}) or choose another proxmox_template_vmid."
         )
     named = f'The template "{base.name}" ({base.template_id})'
+    # Whichever reader made the record, it is this guest's only where it names the guest's own UUID: one that names
+    # none, but a VM's first form, or another's, a copy, is refused as engine/record.py's read refuses it.
+    whose = f"VM {config.vmid}'s"
+    if isinstance(found, Mapping) and not found.get("uuid") and not first_form(found):
+        found = Unreadable(NO_UUID, whose)
+    elif isinstance(found, Mapping) and copied(found, config.identity):
+        found = Copy(whose)
     if isinstance(found, Unreadable):
         return base.refused(f"{named} is never rebuilt or cloned: {found}.")
     if found is None:

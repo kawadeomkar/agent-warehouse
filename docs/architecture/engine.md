@@ -505,7 +505,8 @@ template's ID, what the token may read there (GET /access/permissions, which nee
 listing names a guest there that the judgement reads further, its configuration with the record in its notes, read by
 `read` above, so that a block it cannot read, a copy and a template's record that names no UUID are each refused. It
 judges what it read by `pve/template.py`'s functions (16.5), which say the outcome and its lines; `status`, which may
-not import the engine, judges by the same functions what its own client read, so the two say the same. `wanted`,
+not import the engine, judges by the same functions what its own client read, so the two say the same: the judgement
+holds the record to the guest's own UUID whichever reader read it, and each field's form is the reader's. `wanted`,
 `BUILD`, `OPTIONS`, `Compared` and the six outcomes are that module's, given here as the comparison's.
 
 `tests/unit/test_aw_engine_template.py` holds it: `wanted` is today's role's under its defaults, and its options are
@@ -515,8 +516,8 @@ difference, the fake's own template with this engine's record as this version bu
 and the engine's own beside them, a person's template with a record that names no UUID pasted into its notes and the
 record a build would write before it knew the template's UUID among them, each leaving the template as it was; an ID
 outside the pool is `unseen` under `pool`, never `missing`; the judgement, given what `status`'s reads give and the
-record by the plain `parse`, says what `compare` says, and imports nothing of the engine and not the client; and
-`compare` sends nothing but GETs.
+record by the plain `parse`, says what `compare` says, a template's record that names no UUID and a copy of another's
+refused among them, and imports nothing of the engine and not the client; and `compare` sends nothing but GETs.
 
 **The API's certificate: `certificate.py`.** Before `init` sends a Proxmox host anything that carries a credential,
 `work_out(host, given, root_ssh, ask)` settles what its API's certificate is held to, by today's `trust.py`'s probes,
@@ -802,10 +803,11 @@ byte for byte and never parsed: a person's own lines, and the lines today's prod
 
 - `parse(notes)` gives the block's fields, each value a string and the three lists a tuple each, or none where the
   notes hold no block. `copied(fields, identity)` says whether they name a UUID that is not the VM's own: a copy, which
-  `engine/record.py`'s `read` refuses and `status` reads by the same function; a VM's first form alone names none. A
-  block of a format this program does not read, a line that is no field of its format, a field twice, two blocks, or a
-  start with no end, is `Unreadable`: refused, and never rewritten, so that what a newer program or a person wrote is
-  never lost to an older one.
+  `engine/record.py`'s `read` refuses and `status` reads by the same function; a VM's first form alone names none
+  (`first_form`), and any other record that names none is refused with `NO_UUID`'s sentence. A block of a format this
+  program does not read, a line that is no field of its format, a field twice, two blocks, or a start with no end, is
+  `Unreadable`: refused, and never rewritten, so that what a newer program or a person wrote is never lost to an older
+  one.
 - `render(notes, fields)` gives the notes with that block alone written from the fields, or added last after a blank
   line, every other line as it was. It writes only what `parse` reads back as it was given: no value on more than one
   line, or with a control, a format or a separator character, none with white space at an end, no item of a list with
@@ -839,11 +841,14 @@ of `engine/` and not the client.
 - `judge(base, entry, config, found, want, readable=)` says what the guest at the base template's ID is, from its entry
   in the cluster's listing, its configuration, its record and `want`, what a build makes; `base` is the template the
   settings name, its name and ID, the node, the fleet's pool, whether a difference rebuilds it and the line that does
-  (`Base.of`). `found` is what reading the record by `engine/record.py`'s rules gave: its fields, as `parse` gives them
-  or the typed record renders them, none, or the `Unreadable` the read raised, a copy among them. `listed(base, entry,
-  readable=)` is the part the listing alone decides, and none where the guest's configuration is to be read, so that a
-  reader reads one only where it is judged: a qemu guest at the ID, in the pool, on `proxmox_node`. `custom` judges a
-  template of the person's own.
+  (`Base.of`). `found` is what reading the record gave, by either reader: its fields, as `parse` gives them or the
+  typed record renders them, none, or the `Unreadable` the read raised, a copy among them. Whichever reader made it,
+  `judge` holds the record to the guest's own UUID itself: one that names none, which only a VM's first form may
+  (`first_form`), or another guest's (`copied`) is refused with the sentence `engine/record.py`'s `read` gives it. Each
+  field's form is the reader's: the typed record holds every one, and `parse` a block's shape alone, so a value of the
+  wrong form that it passes is judged as it stands. `listed(base, entry, readable=)` is the part the listing alone
+  decides, and none where the guest's configuration is to be read, so that a reader reads one only where it is judged:
+  a qemu guest at the ID, in the pool, on `proxmox_node`. `custom` judges a template of the person's own.
 - The six outcomes. `missing`: nothing has the ID, said only where the token may read it, which Proxmox says (GET
   /access/permissions), not the setting, so a token that holds less than its setting says reads `unseen`. `unseen`:
   under `proxmox_audit_scope: pool` a guest outside the pool is invisible, so missing cannot be told from another's

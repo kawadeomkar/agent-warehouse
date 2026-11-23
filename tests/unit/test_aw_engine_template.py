@@ -4,8 +4,9 @@ lib/claude_vm/pve/template.py, which judges what was read (card E11, docs/archit
 What a build makes is wanted(settings), today's role's proxmox_template_wanted as a function: the same fields, the
 role's own defaults for the options no row of the settings table names, held equal to its files here, and BUILD
 beside it. compare reads the template through the API with the engine's token and says what it found, by the judgement
-status calls too (card G16): given what status's own reads give, with the record by pve/record.py's plain parse, it
-says what compare says, and it imports nothing of the engine and not the client.
+status calls too (card G16): given what status's own reads give, with the record's fields as pve/record.py's plain
+parse gives them, it says what compare says, a template's record that names no UUID and a copy of another's refused
+among them, and it imports nothing of the engine and not the client.
 
 Against the fake Proxmox (tests/molecule/fake_pve_api.py), the engine's token held to its table of privileges, with
 VM.Audit on /vms as init grants it under proxmox_audit_scope: node, or without it, under pool: each outcome; the fake's
@@ -215,12 +216,12 @@ class Fleet:
     def judged(self, settings: dict[str, object]) -> template.Compared:
         """What status says (card G16), which may not import the engine: pve/template.py's judgement alone, given the
         listing and the template's configuration as read (status makes the same answers from its own client's reads,
-        by pve/answers.py's parsers) and the record by pve/record.py's plain parse, never engine/record.py's read."""
+        by pve/answers.py's parsers) and the record's fields as pve/record.py's plain parse gives them, as they are:
+        never engine/record.py's read, and nothing checked of them first."""
         base = judging.Base.of(settings, pool=ENGINE_POOL, host_flag="")
         with Proxmox(self.base, pin.kept(self.pki["ca"]), self.token) as client:
             listing, config = client.resources("vm"), client.config("pve", base.template_id)
         fields = block.parse(config.description)
-        assert not block.copied(fields or {}, config.identity), "status reads a copy as Copy, never as the VM's own"
         return judging.judge(base, judging.at(listing, base.template_id), config, fields, judging.wanted(settings))
 
     def methods(self) -> set[str]:
@@ -542,6 +543,32 @@ def test_status_judges_by_the_same_function_and_says_what_compare_says(fleet, ho
     fleet.built(**recorded)
     given = _settings(**settings)
     assert fleet.judged(given) == fleet.compare(given)
+
+
+def test_through_the_plain_reader_a_template_s_record_naming_no_uuid_is_refused_as_compare_refuses_it(
+    fleet, home
+) -> None:
+    # parse takes the block as a record; the judgement holds it to the template's own UUID itself, whichever reader
+    # read it, so status says what deploy says, and E12's road over root SSH judges no such block a template to rebuild.
+    fleet.plant(description=block.render(fleet.config().get("description", ""), UUIDLESS))
+    fleet.member(TEMPLATE)
+    assert block.parse(fleet.config()["description"])["kind"] == "template"
+    judged = fleet.judged(_settings(proxmox_bridge="vmbr2"))
+    assert (judged.outcome, judged.refused, judged.usable) == (template.REFUSED, True, False)
+    assert "never rebuilt or cloned" in judged.said() and "a VM's first form" in judged.said()
+    assert judged == fleet.compare(_settings(proxmox_bridge="vmbr2"))
+
+
+def test_through_the_plain_reader_a_copy_of_another_vm_s_record_is_refused_as_compare_refuses_it(fleet, home) -> None:
+    # beta's UUID in the template's record, as a clone made without a description of its own carries its source's:
+    # parse takes it, copied would call it a copy, and the judgement asks copied itself.
+    fleet.built(uuid=fleet.identity(9011))
+    fields = block.parse(fleet.config()["description"])
+    assert block.copied(fields, fleet.identity())
+    judged = fleet.judged(_settings())
+    assert (judged.outcome, judged.refused, judged.usable) == (template.REFUSED, True, False)
+    assert "never rebuilt or cloned" in judged.said() and "written for another VM" in judged.said()
+    assert judged == fleet.compare(_settings())
 
 
 def test_the_judgement_imports_nothing_of_the_engine_nor_the_client(home) -> None:
