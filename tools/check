@@ -22,6 +22,8 @@
 #                                        one 2.1 removed with WireGuard; a name 1.1 gave a new one is still
 #                                        read, and said; and no VPN chosen, and the API's certificate not
 #                                        checked, are said, but --asking (just init, which sets both up)
+#   tools/check short <base> <main>    just test --short: the tree differs from <base>'s tip in no file of <main>'s
+#                                        but CLAUDE.md and docs/, nor in a test file the short set does not run
 set -eu
 # The character sets below are spelt out rather than written as ranges, so
 # no locale can widen them (a UTF-8 one may collate accented letters into
@@ -496,8 +498,49 @@ if hosts and not validate and not trusted and not os.environ.get("ASKING"):
 sys.exit(1 if found else 0)
 PYTHON
   ;;
+short)
+  # just test --short, the short set (docs/architecture/testing.md §11.1): for a change that touches no file of main's
+  # but CLAUDE.md and docs/. The change is where the tree here differs from the integration branch's tip, <base>: the
+  # work tree, and what git neither tracks nor ignores, as a test run reads them - for a branch on that tip, its commits
+  # and what is not committed yet. Never <base>...HEAD: a lane lays a worktree's files over a checkout of main and
+  # commits none, so HEAD there is main's. Each changed path <main> has is refused by name, but CLAUDE.md and docs/,
+  # a deleted or renamed one too (--no-renames); and so is a test file of tests/unit/ that is no engine file
+  # (test_aw_*.py), which the set would not run. A branch it cannot read is a refusal, never a pass.
+  base=$2 main=$3
+  top=$(git rev-parse --show-toplevel) || { echo "error: just test --short reads the change with git, and this is no git work tree" >&2; exit 1; }
+  cd "$top"
+  for ref in "$base" "$main"; do
+    git rev-parse --quiet --verify "refs/heads/$ref^{commit}" >/dev/null || {
+      echo "error: just test --short compares the tree with the branches $base and $main, and this repository has no branch $ref: fetch it first" >&2
+      exit 1
+    }
+  done
+  said="error: just test --short reads the change with git, and git failed"
+  ours=$(git --no-optional-locks -c core.quotePath=false ls-tree --full-tree -r --name-only "refs/heads/$main") || { echo "$said" >&2; exit 1; }
+  changed=$(git --no-optional-locks -c core.quotePath=false diff --no-renames --name-only "refs/heads/$base" --) || { echo "$said" >&2; exit 1; }
+  new=$(git --no-optional-locks -c core.quotePath=false ls-files -o --exclude-standard) || { echo "$said" >&2; exit 1; }
+  paths=$(printf '%s\n%s\n' "$changed" "$new" | LC_ALL=C sort -u | sed '/^$/d')
+  count=$(printf '%s' "$paths" | awk 'END { print NR }')
+  # main's paths, then a line no path can be, then the changed ones: each refused one, on a line of its own.
+  refused=$(printf '%s\n//\n%s\n' "$ours" "$paths" | awk -v name="$main" '
+    $0 == "//" { past = 1; next }
+    !past { main[$0] = 1; next }
+    $0 == "" { next }
+    $0 == "CLAUDE.md" || /^docs\// { next }
+    $0 in main { print "  " $0 ", which " name " has"; next }
+    /^tests\/unit\/(.*\/)?test_[^\/]*\.py$/ && !/(^|\/)test_aw_[^\/]*$/ {
+      print "  " $0 ", a test the short set does not run: a test of the new engine is a file tests/unit/test_aw_*.py"
+    }')
+  if [ -n "$refused" ]; then
+    echo "error: just test --short is for a change that touches no file of $main's but CLAUDE.md and docs/, and the tree here differs from $base's tip in:" >&2
+    printf '%s\n' "$refused" >&2
+    echo "Run the whole set: just lint, just test unit and the scenarios that run what changed. A branch not on $base's tip differs in what landed there since: rebase it first." >&2
+    exit 1
+  fi
+  echo "just test --short: $count of the tree's paths differ from $base's tip, none of them $main's but CLAUDE.md and docs/"
+  ;;
 *)
-  echo "usage: tools/check checkout <directory> | host <bin> <action> ... | vault <file>... | collections <bin> | names <name>... | project <name> | session <id> | sections <list> | settings <bin> <file>... | lock <file> <pid> <title> | unheld <file>" >&2
+  echo "usage: tools/check checkout <directory> | host <bin> <action> ... | vault <file>... | collections <bin> | names <name>... | project <name> | session <id> | sections <list> | settings <bin> <file>... | lock <file> <pid> <title> | unheld <file> | short <base> <main>" >&2
   exit 2
   ;;
 esac
