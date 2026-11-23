@@ -28,6 +28,7 @@ from aw_kit import aw_at_a_terminal, on_path, run_aw, run_launcher
 from harness import REPO, repo_files, repo_texts
 
 from claude_vm.cli import before, dispatch, habits, parse
+from claude_vm.fleet import paths
 from claude_vm.schema import check as checks
 from claude_vm.schema import patterns, printer, rules
 from claude_vm.schema.patterns import full
@@ -668,11 +669,21 @@ def test_a_token_file_relative_to_a_folder_whose_path_has_a_space_is_taken(home)
     assert "init.4" not in VERBS["init"].rules and "init.4" not in rules.RULES
     assert parse.read(["init", "--token-secret-file=secret"]).values == {"token_secret_file": "secret"}
     assert checks.check("init", {"token_secret_file": "secret"}) is None
-    # Through the launcher, from such a folder: the words reach the dispatch.
+    # Through the launcher, from such a folder: the words reach init (E4), which makes the file's path absolute from
+    # there and looks at it before anything is made.
     spaced = home / "a b"
     spaced.mkdir()
     result = run_launcher("init", "--token-secret-file=secret", home=home, cwd=spaced, first_on_path=(on_path(home),))
-    assert (result.returncode, result.stdout, result.stderr) == (1, "", dispatch.not_built(VERBS["init"]) + "\n")
+    drives = f"aw drives the fleet in {paths.home(REPO).root}, which {paths.VARIABLE} names\n"
+    said = f"error: --token-secret-file names {spaced / 'secret'}, which is not a file\n"
+    assert (result.returncode, result.stdout, result.stderr) == (1, "", drives + said)
+    assert not paths.fleet_dir(paths.home(REPO)).exists()
+    # The file there, it is read: the run goes on to what it lacks, the host's address, and writes nothing.
+    (spaced / "secret").write_text("01234567-89ab-cdef-0123-456789abcdef\n")
+    result = run_launcher("init", "--token-secret-file=secret", home=home, cwd=spaced, first_on_path=(on_path(home),))
+    assert result.returncode == 1 and result.stdout == "", result
+    assert result.stderr.startswith(drives + "error: the host pve has no address yet: give it, as aw init --address")
+    assert not paths.fleet_dir(paths.home(REPO)).exists()
 
 
 def test_host_for_s_names_are_split_at_its_commas_and_an_empty_one_is_dropped() -> None:

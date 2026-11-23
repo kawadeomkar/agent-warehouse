@@ -556,7 +556,7 @@ node's own certificate, byte for byte, or one the host's CA signed, and nothing 
 own, held to its fingerprint and not to a name, which the client then reaches at any address. The node's file is read
 for its first certificate alone: a custom certificate is served with its chain, and an intermediate of it taken for an
 anchor would pass whatever it issued, for any name, for the host's own. Where what it presents is none of the host's, or
-nothing, a refusal with `token_held`. Where root SSH does not answer, is not tried or reads no certificate, nothing on
+nothing, a refusal marked `impostor`. Where root SSH does not answer, is not tried or reads no certificate, nothing on
 the host vouches for what the address presents: its fingerprint is shown, and it is kept, as the node's own, only on the
 person's yes or where it is `--certificate`'s; with nobody there (`ask` None) and none given, a refusal that names
 `--certificate`. An anchor that no longer verifies is put in place of the one kept only on a yes that shows both
@@ -565,11 +565,40 @@ fingerprints, or where the new one was given. No sentence says to check less. Wh
 `trust.py`'s, and its probe that checks no name (`check_hostname=False`), which carries no credential, is handed only an
 anchor held to a fingerprint, the certificate the address presents, or, inside `proxmox_trust_presented`, the host's CA
 as root SSH read it: never the node's file, whose chain would make an anchor of each intermediate. A yes is the person's
-answer `True` and nothing else. The caller writes what is kept through `fleet/hosts.py`'s `write`, the anchor with its
-kind and fingerprint. `tests/unit/test_aw_engine_certificate.py` holds it against local TLS servers made as Proxmox
+answer `True` and nothing else. A `Kept` carries the `Pin` made of what it keeps (`pinned`), the one connection its
+caller sends the token through, so that no caller makes it again from what it wrote or read back; a `Refusal` carries
+none, and its `impostor` says only why. The caller writes what is kept through `fleet/hosts.py`'s `write`, the anchor
+with its kind and fingerprint. `tests/unit/test_aw_engine_certificate.py` holds it against local TLS servers made as Proxmox
 makes its certificates, each case of today's `init_check.yml` carried, the host's files read over root SSH from a
 stand-in machine (`tests/unit/aw_machine.py`, 16.10), and the rules that nothing in `engine/` builds a TLS context but
 through `pin` and nothing of the new engine reads `trust.py`'s `_store_files`.
+
+**`init` with nobody there: `init.py`.** `aw init --no-prompt`, or `aw init` with no terminal, asks nothing and makes
+nothing on Proxmox. It takes one typed mapping, `Given`: each value held to its kind by today's `init.init_answer` and
+Proxmox's own format of a name, and the token's secret from `--token-secret-file`, made absolute from the folder `init`
+was started in, or from `AGENT_WAREHOUSE_TOKEN_SECRET`, never from the command line and never both; a word after the
+options is the one check's refusal, never said. As its run, under the fleet's lock, `unattended` reads what is set (the
+host's folder, the three files of overrides, `fleet.json` and the vault, opened as `vaultkey.py` finds its key: a fleet
+with no key file yet has its key made once every check has passed, and a key named elsewhere for a fleet with no vault
+yet is `NoVaultYet`'s refusal); refuses a value given that differs from the one set, naming both, the secret unsaid,
+with nothing written; works out the API's certificate with `certificate.py`'s `work_out` and nobody to ask, the host's
+own certificates read over root SSH where nothing else vouches for them; and, where the secret was given, reads the
+pool with it through the `Pin` the `Kept` carries. Holding a token Proxmox takes for a pool whose comment carries a mark
+with `controller=none` is the authority: `fleet.json` takes the mark's fleet ID. A mark that names a control VM, another
+fleet than `fleet.json`'s, none or none that reads, and a pool or a token Proxmox refuses, are refusals with nothing
+written; with no secret given the fleet keeps its ID, or a new one gets one. Then each file through its one writer,
+none of whose locks is held around another's, each only where nothing is set: the key (`vaultkey.make_key` at
+`vault_key_file`'s place), `fleet.json`, the vault (`sealed.create`, then the secret as the host's `token`), `host.yml`
+and its anchor (`hosts.write`), with `made` recording by ID the pool, the user and the token the administrator made by
+hand where the secret was given, the host's storage, bridge and pool (`aw-fleet` where none is given or set), the
+fleet's `github_username` and `vpn`, and `client.yml`'s current host. The names written where none is given are the
+engine's own: the user `agent-warehouse@pve`, the token `aw`, the pool `aw-fleet`, and the first host `pve`. A run
+stopped after any write goes on from what it wrote, and the same run again writes nothing. The modes other cards build
+(`--check`, `--print-commands`, `--machines`) and the questions at a terminal are refused by name until each lands.
+`tests/unit/test_aw_engine_init.py` holds it against the fake Proxmox, through `tools/aw` with a refusing `ssh` first on
+`PATH` and in this process with root SSH a reader of the test's own; with the invariant that no file under the fleet's
+home holds the secret in clear and the vault on disk is sealed. `tests/unit/fleet_fixture.py` gives any other test a
+whole fleet folder in one call, made by this run.
 
 ## 16.5 `pve/` — the typed Proxmox client and the one table of privileges
 
@@ -2142,7 +2171,7 @@ the template's ID has the table's default, and a host may set its own), taken al
 reader there. It returns the host, its fields and anchor, and with several hosts the others' names and
 addresses a run keeps apart from its machines. What a host's files say is that host's problem, said in its place, and a
 run against another goes on. `make_current` writes `current_host` through `overrides.set_current`, held to a host of the
-fleet that can be used. `write(layout, name, expect, change=..., anchor=...)` is `host.yml`'s one writer, and the
+fleet that can be used; `init` writes it there too, for the host it sets up where none is current. `write(layout, name, expect, change=..., anchor=...)` is `host.yml`'s one writer, and the
 anchor's: a compare-and-swap on the digest of what `Layout.state` read (the host's `host.yml` and its anchor, read under
 the lock a write takes), under `store.locked` on the host's folder, every field held to what the reader takes before
 anything is written, then read back through `fields` and `anchor`; never through a link, its folders made and held
@@ -2154,8 +2183,11 @@ stopped after any step leaves readable: a first anchor is staged beside the host
 the staged one is it, and where it gives none, the staged one is no anchor; one taken out goes the other way; and one
 put in the place of another leaves the old beside the new kind or the new beside the old, the fingerprint the new one
 records written first and the one it drops last, each holding the host to no more than one of the two. The next write
-puts right what a stopped one left. `tests/unit/test_aw_fleet_host_writer.py` holds it, a run stopped after each step of
-each kind of change among its cases. A `Host`'s `local_file`, `vault_file`, `hosts_file` and `sources` name today's
+puts right what a stopped one left. A `host.yml` that gives a kind beside no anchor and none staged, whose anchor a hand
+took out, every reader refuses, naming `init` as the way back; `Layout.state` gives it as a host that keeps none, so
+that a write that keeps an anchor, or none, mends it, and a write that leaves the anchor as it is is refused.
+`tests/unit/test_aw_fleet_host_writer.py` holds it, a run stopped after each step of each kind of change among its
+cases. A `Host`'s `local_file`, `vault_file`, `hosts_file` and `sources` name today's
 inventory and are read by no module of the new engine. `tests/unit/test_aw_fleet_hosts.py` holds it: today's cases of
 the layout and the choice on the new folders, each field's rule with no value said, the anchor beside its kind, the one
 writer of the current host, the literal list of `host.yml`'s fields, and the scan for today's files.

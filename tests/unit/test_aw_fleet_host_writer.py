@@ -371,6 +371,32 @@ def test_the_staged_anchor_is_read_only_beside_a_kind_and_no_anchor_in_its_place
         _layout().state("lab")
 
 
+@pytest.mark.parametrize("kept", [None, Anchor(NEW, "ca")], ids=["no anchor", "an anchor"])
+def test_a_kind_whose_anchor_a_hand_took_out_is_mended_by_a_write_that_keeps_one_or_none(home, kept) -> None:
+    # Review 20 (E3.md 5): the reader names init as the way back, so the state such a host has is one init can write
+    # against: its fields and no anchor. Every reader of the host still refuses it until it is mended.
+    _set_up(anchor=Anchor(OLD, "node", OLD_FINGERPRINT))
+    folder, layout = _folder(), _layout()
+    (folder / "proxmox-trust.pem").unlink()
+    with pytest.raises(Refused, match="gives a trust_kind, and .* is not there: aw init --host lab keeps"):
+        reach(layout, Request())
+    state = layout.state("lab")
+    assert (state.fields.trust_kind, state.fields.fingerprint, state.anchor) == ("node", OLD_FINGERPRINT, None)
+    # A write that leaves the anchor as it is cannot mend it: nothing is written.
+    before = _files()
+    with pytest.raises(Refused, match="would give a trust_kind with no anchor"):
+        hosts.write(layout, "lab", state.digest, change=lambda raw: raw.update(api_port=8443))
+    assert _files() == before
+    digest = hosts.write(layout, "lab", state.digest, anchor=kept)
+    fields, anchor = _read()
+    if kept is None:
+        assert anchor is None and (fields.trust_kind, fields.fingerprint) == (None, "")
+        assert sorted(_files()) == ["host.yml", "settings.yml"]
+    else:
+        assert anchor == NEW and (fields.trust_kind, fields.fingerprint) == ("ca", "")
+    assert reach(layout, Request()).anchor == anchor and layout.state("lab").digest == digest
+
+
 # ---------------------------------------------------------------- the one writer, held ----
 
 
