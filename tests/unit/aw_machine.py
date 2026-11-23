@@ -181,7 +181,8 @@ def said(text, status):
 def words():
     """argv read as ssh reads it: its flags, each other option's values in their order, -o's as (name in lower case,
     value), the destination, and the command's words: everything after the destination once -- was given, else from
-    the first word after it that is no option. A destination's user@ counts as a -l where it comes."""
+    the first word after it that is no option. A destination's user@, and a -o User= (as Ansible's ssh connection names
+    the account), count as a -l where they come, a value's double quotes taken off as ssh takes them off."""
     flags, valued, options, destination, i, ended = set(), {}, [], None, 0, False
     while i < len(argv):
         word = argv[i]
@@ -200,6 +201,8 @@ def words():
                     if letter == "o":
                         name, _, rest = value.replace("=", " ", 1).partition(" ")
                         options.append((name.strip().lower(), rest.strip()))
+                        if name.strip().lower() == "user":
+                            valued.setdefault("l", []).append(rest.strip().strip('"'))
                     else:
                         valued.setdefault(letter, []).append(value)
                     break
@@ -232,7 +235,8 @@ if "G" in flags:
 if destination is None:
     log(unrouted, "refused: no destination")
     said("usage: ssh [options] destination [command]", 255)
-# ssh keeps the first account given, by -l or as the destination's user@, and this computer's own where none is.
+# ssh keeps the first account given, by -l, -o User= or as the destination's user@, and this computer's own where none
+# is.
 address = destination.rpartition("@")[2]
 account = (valued.get("l") or [os.environ.get("USER", "")])[0]
 port = (valued.get("p") or ["22"])[0]

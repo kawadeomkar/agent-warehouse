@@ -275,7 +275,9 @@ lib/claude_vm/fleet/              a fleet's files: where they are, the hosts, th
                                   files.py, the one maker of the fleet's folders, a link refused where one goes;
                                   record.py, fleet.json: the fleet's ID and every store's format number;
                                   mark.py, the pool's mark and the one rule a changing run reads it by
-lib/claude_vm/guest/              inside a machine: the helper, the system layer's inputs, layer 2
+lib/claude_vm/guest/              inside a machine: the helper, the system layer's inputs, layer 2; layer1.py,
+                                  one ansible-playbook for one machine, its configuration, inventory and
+                                  environment made by the engine
 lib/claude_vm/control/            the add-on's, with a control VM only: nothing of the base writes here
 lib/claude_vm/secret.py           the new engine's Secret: a value shown as a mark wherever it is shown, never pickled
                                   or turned into JSON, read only by reveal() in the modules a test names (§16.1)

@@ -186,16 +186,20 @@ def test_words_that_take_a_key_on_first_use_ask_or_name_another_account_are_refu
     no_batch = _stand_in(folder, _without(words, "BatchMode=yes"))
     # ssh keeps the first value given: a yes after a no makes up for nothing.
     earlier = _stand_in(folder, ["-o", "StrictHostKeyChecking=no", *words])
-    # The account the machine was made with is the one it takes.
+    # The account the machine was made with is the one it takes: given by -l, or by -o User=, as Ansible's ssh
+    # connection gives it, quoted, before the runner's own -l.
     other = _stand_in(folder, ["-l", "root", *words])
+    named = _stand_in(folder, ["-o", 'User="root"', *words])
     for refused in (no_batch, earlier):
         assert refused.returncode == 255 and "StrictHostKeyChecking=yes and BatchMode=yes" in refused.stderr
-    assert other.returncode == 255 and f"root@{alpha.address}: Permission denied (publickey)." in other.stderr
+    for refused in (other, named):
+        assert refused.returncode == 255 and f"root@{alpha.address}: Permission denied (publickey)." in refused.stderr
     assert not (alpha.home / "landed").exists()
     assert [call["outcome"] for call in alpha.calls()] == [
         "refused: not StrictHostKeyChecking=yes and BatchMode=yes",
         "refused: not StrictHostKeyChecking=yes and BatchMode=yes",
         "refused: not StrictHostKeyChecking=yes and BatchMode=yes",
+        "refused: another account",
         "refused: another account",
     ]
 

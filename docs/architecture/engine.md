@@ -1958,9 +1958,46 @@ a folder, and that each imports the standard library alone.
 
 `lib/claude_vm/guest/` is where what the engine does inside a machine goes: the helper, which is sent to the machine
 and never installed there, and the inputs of the system layer, which Ansible converges as a child with built-in modules
-only, and layer 2, the rest of the work, in plain code. It imports `ssh/`, `schema/` and `fleet/`, and
-nothing of `engine/`, `cli/` or `control/`, and no pydantic. A plugin of that Ansible child is the one code of the new
-engine that imports `ansible`. It lives under `guest/ansible/`, where the child's own configuration names it.
+only, and layer 2, the rest of the work, in plain code. It imports `ssh/`, `schema/`, `fleet/` and `runs/` (the one
+starter of a child, and the run's directory), and nothing of `engine/`, `cli/` or `control/`, and no pydantic. A plugin
+of that Ansible child is the one code of the new engine that imports `ansible`. It lives under `guest/ansible/`, where
+the child's own configuration names it.
+
+**Layer 1's child.** `lib/claude_vm/guest/layer1.py`'s `run` converges one machine with one `ansible-playbook`, started
+through `children.start` as an `ansible` child of the run, in a session of its own: it has no terminal, a terminal's
+Ctrl-C reaches the run alone, and the run's ladder hands it on as SIGINT to the child's group (§16.8). Its standard
+input is `/dev/null` and its one pipe is the events', whose write end goes over through `start`'s descriptors and whose
+read end the run reads while the child runs; what it prints goes to a file of its own, never the terminal, and its last
+64 KiB come back, plain, with its exit status. Two files go into the run's directory: `layer1.cfg`, one for the run, and
+an inventory of one host for each machine, `inventory-<identity>.yml`. The configuration names one stdout callback and
+no other, one fork, facts kept under `ansible_facts`, pipelining, the `yaml` inventory plugin alone, this checkout's
+`roles/`, Ansible's local temporary files in the run's directory, and `ssh_args` set empty, since Ansible's default
+would put `ControlMaster=auto` ahead of the host's options and make the child a connection's master; no collections path,
+since layer 1 calls `ansible.builtin` alone. Until the product's callback is written, the one named is Ansible's own
+`default`, its output in the child's file. The one host is named by the machine's identity, never the name a person
+chose, which is the variable `aw_name`; its variables are the address and the account, `/usr/bin/python3` and
+`/usr/bin/sudo` by their paths, and the connection as the SSH runner makes it (`runner.ansible_vars`, §16.6): its
+options first, `StrictHostKeyChecking=yes` against the product's own known-hosts file under the identity, the shared
+socket with `ControlMaster=no`, so that the child rides the master the run opened, and the hop only where the target
+carries one. Ansible's ssh connection puts words of its own ahead of them, none of them the host key's: the port, the
+account, a connect timeout of 10 s, keyboard-interactive and password authentication off, and `PreferredAuthentications`
+with GSSAPI and host-based ahead of public keys, which outranks the runner's public keys alone.
+The child never takes a key: a target whose identity has no key filed is refused by name before anything is written,
+naming the line that files it, and so is a first use's target, the Proxmox host, an identity that does not start
+`agent-warehouse-`, and an inventory value that would open a template, since Ansible templates an inventory's values.
+The environment is an allow list: `PATH`, `HOME`, `LANG` and `SSH_AUTH_SOCK` of the caller's, then `ANSIBLE_CONFIG`
+naming the configuration, the untrusted-template switch at `error`, the events pipe's descriptor
+(`AGENT_WAREHOUSE_EVENTS`), `ANSIBLE_VERBOSITY` only for a run given `-v`, and the job's marker; no other `ANSIBLE_*`,
+`PYTHON*` or exported stdout callback reaches it. The command line gives the variables only as `-e @<file>`, never
+`key=value`, `--tags` with the parts asked for, and `--check` and `--diff` where asked. A call that ends while its child
+runs (cancelled) ends the child with its tree (`claude_vm.proc`), its detached task worker among it. Only a test passes
+`test_connection`, the host variables of a test-only connection: `local` for a play of one task on a stand-in machine,
+`community.docker.docker` for a Molecule container. `tests/unit/test_aw_layer1.py` holds it: the configuration read back
+by `ansible-config dump --only-changed`, a play of one ping on a stand-in with its child in the run's registry, the
+environment as a task's module sees it, each refusal before anything is written, SIGINT to the child's group and a
+cancelled call each leaving nothing, the words Ansible's own ssh connection gave the stand-in `ssh` held by this
+computer's `ssh -G` over a `Host *` that loosens them, and scans that the argument list never holds `key=value` after
+`-e` and that no product code passes the test-only connection.
 
 **How the engine's tests reach a machine.** A test of the new engine reaches no real machine: it reaches a stand-in,
 a directory of the test's own that `tests/unit/aw_machine.py` makes, through the SSH runner (§16.6) as it reaches a
