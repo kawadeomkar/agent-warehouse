@@ -33,8 +33,9 @@ at offset 0 by one pwrite, never truncated (on NFS a truncate costs about 3 ms a
 and believes it only for a job that still runs by its own lock (job.py's `state`) and names the lock in its record. So a
 refusal names the holder's job, its command, its start and the line that cancels it, printed by the one printer of a
 command; and where it cannot tell (the holder's record unread, its job starting or ending, a start no clock can say,
-an error reading its job's lock), it says so and never fails on what it reads. A fleet's lock held shared names no one
-holder: runs on machines of this fleet are under way. The names of the locks a run holds go into its record.
+an error reading its job's folder or lock), it says so and never fails on what it reads. A fleet's lock held shared
+names no one holder: runs on machines of this fleet are under way. The names of the locks a run holds go into its
+record.
 
 `exclusive(state, command)` holds the fleet's lock exclusively for one write of a verb that is no run (`host <name>`,
 `vault --rotate`): its command, as typed, is written as the holder's record for a person who reads the file, and the
@@ -250,8 +251,8 @@ def _when(started: float) -> str:
 def _running(state: Path, name: str, record: dict) -> tuple[str, str, str] | None:
     """The job a lock's record names, its command and its start as a sentence says it, where that job still runs by its
     own lock and its record names the lock; None for anything else: no job, one that is starting or ending, a record
-    that vanished while it was read, or a start that is no time a clock can say. An error reading the job, its lock
-    above all, is raised as itself (job.py's lock_held), for the refusal to say."""
+    that vanished while it was read, or a start that is no time a clock can say. An error reading the job, its folder
+    (job.py's find) or its lock (lock_held), is raised as itself, for the refusal to say."""
     job_id = record.get("job")
     if not isinstance(job_id, str) or not patterns.full("job_id", job_id):
         return None

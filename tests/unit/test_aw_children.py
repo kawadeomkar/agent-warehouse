@@ -3,15 +3,16 @@
 Each child here is a real process, a probe that reports what it was given: its environment's marker, its process group
 and session, the signals it ignores or blocks (as Python reads them, and on Linux as the kernel shows a program that is
 not Python), and the descriptors it has open. A child meant to outlive its run is outlive's: unmarked, in a session of
-its own, its standard streams /dev/null, in no registry. A run started with another job's marker carries none, and nor
-do the children it starts outside start (route.py's ssh, proc.py's ps). A child the terminal stopped is asking's,
-route.py's ssh in a process group of its own among them, and one stopped for any other reason is not. The rules with a
-test of their own: in the new engine's code a child process is started only through children.py, the SSH runner's among
-them, by a scan for every way Python starts one; close_fds is never turned off; no process is forked without an exec (a
-forked child keeps every lock the run holds, since a descriptor that is not inheritable is closed only at an exec);
-pass_fds and set_inheritable(..., True), and every other way to make a descriptor inheritable, appear only in
-children.start; and every module of runs/ that takes a kernel lock is one children.HOLDERS reads, so that its locks are
-refused too.
+its own, its standard streams /dev/null, in no registry. A run started with another job's marker carries none from the
+moment its program hands the verb on, and nor do the children it starts outside start (route.py's ssh, proc.py's ps). A
+child the terminal stopped is asking's, route.py's ssh in a process group of its own among them, and one stopped for any
+other reason is not. The rules with a test of their own: what a forked child runs before its exec is signal's two calls
+alone; in the new engine's code a child process is started only through children.py, the SSH runner's among them, by a
+scan for every way Python starts one, the standard library's own in platform among them; close_fds is never turned
+off; no process is forked without an exec (a forked child keeps every lock the run holds, since a descriptor that is
+not inheritable is closed only at an exec); pass_fds and set_inheritable(..., True), and every other way to make a
+descriptor inheritable, appear only in children.start; and every module of runs/ that takes a kernel lock is one
+children.HOLDERS reads, so that its locks are refused too.
 """
 
 from __future__ import annotations
@@ -575,9 +576,19 @@ def test_a_run_started_with_another_job_s_marker_carries_none_and_nor_do_childre
 
     # The control: a run that keeps what it was handed hands it on.
     assert children_said() == [OTHER_JOB, OTHER_JOB]
-    # The program takes it out of its environment at its start, as tools/aw runs it.
+    # The program takes it out of its environment at its start, as tools/aw runs it: read at the moment main hands the
+    # verb on, where children may start, so a drop made only as main returns fails (review/code/C23.md 4).
+    handed_on: list[list[str]] = []
+    dispatch = main.dispatch.dispatch
+
+    def handing_on(*given, **named):
+        handed_on.append(children_said())
+        return dispatch(*given, **named)
+
+    monkeypatch.setattr(main.dispatch, "dispatch", handing_on)
     assert main.main([str(AW), "help"]) == 0
     capsys.readouterr()
+    assert handed_on == [["none", "none"]]
     assert children.MARKER not in os.environ
     assert children_said() == ["none", "none"]
     # A child started through start carries the run's own marker.
@@ -694,8 +705,9 @@ STARTERS = {
     "lib/claude_vm/runs/children.py": "the one way a run starts a child",
 }
 # What starts a child process, by the name it is imported under: each of subprocess's and asyncio's ways, the os
-# module's and posix's under it, pty's spawn, the fork and exec under subprocess, a browser's opener, and a pool of
-# processes or multiprocessing's, which fork by default on Linux before 3.14.
+# module's and posix's under it, pty's spawn, the fork and exec under subprocess, a browser's opener, the standard
+# library's own starts of `file` (platform.architecture) and of `uname -p` (platform.processor, and platform.platform,
+# which asks it), and a pool of processes or multiprocessing's, which fork by default on Linux before 3.14.
 STARTS = {
     "subprocess.Popen",
     "subprocess.run",
@@ -716,6 +728,9 @@ STARTS = {
     "concurrent.futures.ProcessPoolExecutor",
     "concurrent.futures.process.ProcessPoolExecutor",
     "_posixsubprocess.fork_exec",
+    "platform.architecture",
+    "platform.processor",
+    "platform.platform",
 }
 STARTS_PREFIXES = ("os.spawn", "multiprocessing.", "posix.", "webbrowser.")
 # The modules that start a child, which a name built at run time could reach: imported by a name (importlib's, or
@@ -920,6 +935,36 @@ def test_pass_fds_and_set_inheritable_appear_only_in_children_start() -> None:
     assert _hands_over(children_py.read_text())
 
 
+def test_what_a_forked_child_runs_before_its_exec_is_two_calls_of_signal_s_and_nothing_else() -> None:
+    # children._default_signals is every start's preexec_fn: Python runs it in a child forked beside the run's threads,
+    # where a lock another thread held at the fork stays held for good, so it calls signal.signal and
+    # signal.pthread_sigmask alone, which take none - no import, no log, no print, no file (review/code/C23.md 3).
+    children_py = REPO / "lib" / "claude_vm" / "runs" / "children.py"
+    tree = ast.parse(children_py.read_text())
+    names = _names(tree)
+    [function] = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == children._default_signals.__name__
+    ]
+    calls = {
+        _dotted(node.func, names) or ast.unparse(node.func) for node in ast.walk(function) if isinstance(node, ast.Call)
+    }
+    assert calls == {"signal.signal", "signal.pthread_sigmask"}, calls
+    assert not [
+        node for node in ast.walk(function) if isinstance(node, (ast.Import, ast.ImportFrom, ast.With, ast.Global))
+    ]
+    # And it is what every start in the module hands Python to run there: no other function is run before an exec.
+    given = [
+        keyword.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        for keyword in node.keywords
+        if keyword.arg == "preexec_fn"
+    ]
+    assert len(given) == 2 and all(isinstance(each, ast.Name) and each.id == function.name for each in given), given
+
+
 def test_every_module_of_runs_that_takes_a_lock_is_one_holders_reads() -> None:
     # A lock taken in a module whose locks the refusal never reads could be handed to a child. A flock is found as the
     # locks' own scan finds one, by any import of it (review/code/C6.md 6).
@@ -960,6 +1005,11 @@ def test_every_module_of_runs_that_takes_a_lock_is_one_holders_reads() -> None:
         ("import _posixsubprocess\n_posixsubprocess.fork_exec()", ["line 2: _posixsubprocess.fork_exec"]),
         ("import webbrowser\nwebbrowser.open(url)", ["line 2: webbrowser.open"]),
         ("import webbrowser\nwebbrowser.get().open(url)", ["line 2: webbrowser.get"]),
+        ("import platform\nplatform.architecture()", ["line 2: platform.architecture"]),
+        ("from platform import architecture\narchitecture(sys.executable)", ["line 2: platform.architecture"]),
+        ("import platform\nplatform.processor()", ["line 2: platform.processor"]),
+        ("import platform\nplatform.platform()", ["line 2: platform.platform"]),
+        ("import platform\nplatform.machine()", []),
         (
             "import importlib\nimportlib.import_module('subprocess').run(['x'])",
             ["line 2: subprocess imported by its name"],
