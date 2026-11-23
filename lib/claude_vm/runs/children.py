@@ -22,9 +22,10 @@ The children a run started are kept, by kind, in memory for the run's end (runs/
 SSH runner's `ssh` children among them, and `live` gives those still running. `watched` gives them with route.py's
 `ssh` that runs in a process group of its own (the new engine's calls), this process's children too though `start`
 starts none of them, and `asking` those of them the terminal stopped for reading it or changing it. A shared master is
-entered nowhere, since no run ever ends one; while its open runs it is kept apart
-(`opening`), so that a run's end, which remembers the tree under it at a Ctrl-C, remembers nothing of the open's: the
-master it leaves behind keeps its `ProxyCommand` in the open's group, and ending that ends the master. A child meant to
+entered nowhere, since no run ever ends one; while its open runs it is kept apart (`opening`) - a machine's, which
+`start` starts as `MASTER`, and the hop's, which route.py starts in a group of its own - so that a run's end, which
+remembers the tree under it at a Ctrl-C, remembers nothing of the open's: the master it leaves behind keeps its
+`ProxyCommand` in the open's group, and ending that ends the master. A child meant to
 outlive its run - the editor, a page's opener - is `outlive`'s: unmarked, in a session of its own, entered in no
 registry, and left out of the tree a run's end remembers and ends (`outliving`), so that no end of the run reaches it.
 Nothing here reads the process table, and nothing is written to a file.
@@ -103,6 +104,9 @@ class Child:
 _CHILDREN: dict[str, list[Child]] = {}
 # The shared masters' opens this process started, entered in no registry: opening() gives those still running.
 _OPENING: list[Process] = []
+# The word of route.py's open of the hop's master that no other ssh of route.py's carries (hop_open_argv's, where every
+# other line asks for ControlMaster=auto or none): what tells that open among route.leading()'s.
+HOP_OPEN = "ControlMaster=yes"
 # The children meant to outlive their run that this process started, entered in no registry: outliving() gives those
 # still running. Kept, so that none is collected while it runs.
 _OUTLIVING: list[subprocess.Popen] = []
@@ -205,10 +209,15 @@ def live(job: jobs.Job, kind: str | None = None) -> list[Child]:
 
 def opening() -> list[int]:
     """The pids of the shared masters' opens still running, each the root of a tree a run's end remembers nothing of
-    (attached.py's remember). One that has ended is let go of: the master it left is no child of the run."""
+    (attached.py's remember): a machine's, which `start` started as MASTER, then the hop's, route.py's open of its
+    master in a process group of its own (route.leading, its line hop_open_argv's, the one of route.py's that asks ssh
+    for a master: ControlMaster=yes). One that has ended is let go of: the master it left is no child of the run."""
+    from claude_vm import route
+
     running = [process for process in _OPENING if process.returncode is None]
     _OPENING[:] = running
-    return [process.pid for process in running]
+    hop = [process for process in route.leading() if process.returncode is None and HOP_OPEN in process.args]
+    return [process.pid for process in [*running, *hop]]
 
 
 def outliving() -> list[int]:
