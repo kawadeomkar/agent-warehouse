@@ -125,7 +125,13 @@ def unmarked(env: Mapping[str, str]) -> dict[str, str]:
 
 def _default_signals() -> None:
     """In the child, before it runs: every signal of CATCHABLE at its default, and none blocked, whatever the run
-    ignored or held. One the system will not take a handler for is passed over: nothing here may stop the start."""
+    ignored or held. One the system will not take a handler for is passed over: nothing here may stop the start.
+
+    It is a preexec_fn, so it runs in a child forked beside the run's threads, before the exec, where only the forking
+    thread lives on: a lock another thread held at the fork stays held there for good. So it calls signal.signal and
+    signal.pthread_sigmask alone, which take no lock (two system calls each), and nothing else: no import, no log, no
+    print, no file. Python makes the forking thread the child's main thread, so signal.signal works there whatever
+    thread forked. tests/unit/test_aw_children.py holds it to those two calls."""
     for number in CATCHABLE:
         try:
             signal.signal(number, signal.SIG_DFL)

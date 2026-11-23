@@ -1379,7 +1379,11 @@ it.
 
 **Reading and dropping.** `find(jobs_dir, job_id)` takes only what the pattern `job_id` holds, sixteen hex digits,
 and `listed(jobs_dir)` gives every job newest first. Each passes over a folder whose `job.json` is not there yet, or is gone, and a job that vanishes
-while it is read is never an error. A run refused at its locks leaves no job, and its drop never fails the refusal it
+while it is read is never an error. `find` reads strictly, as `pathlib` did before Python 3.14: no record is one that is
+not there (no such file, a folder that is no directory, a loop of links) or is no file, and any other error of its look,
+a folder whose mode forbids it among them, is raised as itself, where 3.14's `Path.is_file()` takes every error for no
+file and a refusal at the locks would say the holder was starting or ending; `listed` never refuses. A run refused at
+its locks leaves no job, and its drop never fails the refusal it
 comes before: `drop(job)` removes `job.json` first, under `store.locked` as every change is, so a writer that holds the
 record (a `cancel` recording a stop) lands its change before it and one that comes after is refused, and readers pass
 over the folder from then on; then it closes the lock; then it removes the folder, leaving what it cannot remove, since
@@ -1408,7 +1412,11 @@ ends with its run, the SSH runner's `ssh` children among them, a coroutine over 
   would take what the person types.
 - The child gets the marker whatever environment it is handed, and a master loses it. Before it runs, every signal a
   handler can be given is put back to its default and none is blocked: a process starts with what its parent ignored
-  still ignored, a run started under `nohup` or with `&` ignores SIGINT, and Python ignores SIGPIPE.
+  still ignored, a run started under `nohup` or with `&` ignores SIGINT, and Python ignores SIGPIPE. That is a
+  `preexec_fn`, which Python runs in a child forked beside the run's threads, before its exec, where a lock another
+  thread held at the fork stays held for good: so it calls `signal.signal` and `signal.pthread_sigmask` alone, two
+  system calls each that take no lock, and nothing else, no import, log or file, which a test holds; Python makes the
+  forking thread the child's main thread, so `signal.signal` works there whatever thread forked.
 - Every descriptor is closed in the child but its standard streams and those `pass_fds` names, which is how a pipe is
   handed over on purpose. A descriptor of one of the run's locks, or any duplicate of one (the same file), is refused
   with the lock's name before anything starts, a standard stream given as `None`, which the child inherits from the
@@ -1443,11 +1451,14 @@ before Python 3.13) none is found.
 Nothing is written to a file, and nothing reads the process table. `tests/unit/test_aw_children.py` holds it, with real
 children that report what they were given (on Linux, a program that is not Python shows the kernel's own masks of the
 signals ignored and blocked), and holds four rules by scans of the new engine's code: a child process is started only
-through this module, by any of Python's ways, `posix`'s, a browser's opener and a module or an attribute asked for by
-its name among them; `close_fds` is never anything but `True`; no process is forked without an exec (`os.fork`,
+through this module, by any of Python's ways, `posix`'s, a browser's opener, the standard library's own starts of
+`file` in `platform.architecture()` and of `uname -p` in `platform.processor()` and `platform.platform()`, and a module
+or an attribute asked for by its name among them; `close_fds` is never anything but `True`; no process is forked
+without an exec (`os.fork`,
 `os.forkpty`, `pty.fork`, `posix`'s, a `fork` start method or context, or one named by a variable), since a forked child
 keeps every lock until it execs; and `pass_fds` and `set_inheritable(..., True)` appear only in `start`, and nothing
-else makes a descriptor inheritable (`os.dup2`, `F_SETFD`, `F_DUPFD`, `os.pipe2`).
+else makes a descriptor inheritable (`os.dup2`, `F_SETFD`, `F_DUPFD`, `os.pipe2`). A syntax-tree test holds what a
+forked child runs before its exec to `signal`'s two calls.
 
 **A run's short-lived directory: `rundir.py`.** A run's generated files, the layer-1 child's configuration, its
 inventory and its variables, go in one directory of the run's own, and so does a machine's first use's scratch
@@ -1606,10 +1617,12 @@ ladder:
 On every path but SIGKILL, the terminal's settings are put back as the run found them, its echo among them (where
 anything changed them, SIGTTOU held off); every child of the registry has ended or been ended before the loop closes,
 since asyncio kills an `ansible-playbook` it still holds when its loop closes and leaves the playbook's detached task
-workers running; the run's directory is removed; and the exit record is written last, with the signals held off and then
-taken as notes only, so that a late one changes nothing but what the process dies of. "The tree" is everything under the
-run's process, ended by `proc.end_under(pid, remembered, signum)`, which signals every process under a process and what
-was remembered of it, by each one's start, with their groups, and never the process, its group or the caller's: today's
+workers running; the body's asynchronous generators still suspended are closed, for `SETTLE` seconds at most, so that
+one whose `finally` does not return holds the run no longer; the run's directory is removed; and the exit record is
+written last, with the signals held off and then taken as notes only, so that a late one changes nothing but what the
+process dies of. "The tree" is everything under the run's process, ended by `proc.end_under(pid, remembered, signum)`,
+which signals every process under a process and what was remembered of it, by each one's start, with their groups, and
+never the process, its group or the caller's: today's
 `end` signals the root too, which here is the run. A shared SSH master daemonises out of the tree, so no end reaches it,
 and its open, while it runs, is left out of what is remembered (`children.opening`), since the master it leaves keeps
 its `ProxyCommand` in the open's group; a second Ctrl-C during an open ends that open, and the master it was making. A
@@ -1625,14 +1638,22 @@ which a run never answers and where it would wait, stopped and silent, holding i
 the terminal stops the reader's whole process group, so a reader in such a child's group, as the jump's `ssh` of a
 person's `ProxyJump` is, stops the child too. What the watch sees is the run's own children and `route.py`'s `ssh`,
 read by `waitid`: a program that made a group of its own under one of them stops alone, its parent waiting on it, and
-is no child of the run's for `waitid` to read, so it is not seen. The run never reads the process table to find one:
-nothing the engine runs makes such a reader; `ps`, the one way to see it, says no signal, so it cannot tell a terminal's
-stop from a person's SIGSTOP and would end what a person paused; and it would read every process there is, each 0.8
-seconds, through every run at a terminal with an `ssh` child. If a program the engine runs ever makes such a reader, the
-look comes back with that program as its test. Each child seen is said at once on standard error, in one line that names
-its program and what to do (hold the key in an agent, `ssh-add`, or give a `ProxyJump` of the person's own what it asks
-for in its own settings), and ended with what is under it and its group, within a second; the step that waited on it
-sees it killed, its machine's failure. Giving such a question the terminal, so that it reaches the person, is the
+is no child of the run's for `waitid` to read, so it is not seen. Nothing the engine starts makes such a reader, but a
+program of the person's own ssh configuration may, since the runner reads `~/.ssh/config`: a `ProxyCommand` under GNU
+`timeout` without `--foreground`, which makes a group of its own to signal its command's. Its step then waits in
+silence until its own bound ends it (the runner's 20 seconds to say anything, `route.py`'s 5 to 20) or a Ctrl-C does,
+and fails as a silence, not as a question with its remedy; once its parent is ended, the kernel ends the reader's
+orphaned group with it. The run never reads the process table to find one: the process table, the one way to see it,
+says no signal, so it cannot tell a terminal's stop from a person's SIGSTOP and would end what a person paused; and it
+would read every process there is, each 0.8 seconds, through every run at a terminal with an `ssh` child. If a program
+the engine runs ever makes such a reader, the look comes back with that program as its test. Each child seen is said at
+once on standard error, in one line that names its program, the leader of the group the terminal stopped, which is
+what `waitid` sees (the runner's `ssh`, for a question the `ssh` of its jump asked inside its group), and the question
+it may be (a passphrase, a host key to accept, a password); what to do is said only where that program is `ssh`: hold
+the key in an agent (`ssh-add`), give a `ProxyJump` of the person's own what it asks for in its own settings, or
+connect through it once by hand to accept its host key. It is ended with what is under it and its group, within a
+second; the step that waited on it sees it killed, its machine's failure. Giving such a question the terminal, so that
+it reaches the person, is the
 owner's to ask for.
 
 **Nothing holds the process once its record is written.** The engine's blocking calls (`asyncio.to_thread`, a
@@ -1647,15 +1668,22 @@ with the status.
 `exec`, so a program a call in a thread starts with `subprocess` - `route.py`'s `ssh`, the hop's shared master among
 them, which outlives the run, or a vendor's tool - would take no Ctrl-C, hangup or kill with SIGINT, SIGTERM or SIGHUP
 blocked. So each of the executor's calls runs with no signal blocked, whatever its maker held (a thread starts with its
-maker's mask, which the run's thread blocks while it closes), and so does every program it starts; `children.start` and
-`outlive` clear the mask in their children all the same. A signal the kernel hands another thread still runs its
-handler in the run's thread, wherever that is; so while the run reads the process table and signals what it leads to,
-and while it closes, it holds the interrupts off (`_held`): blocked in the run's thread, and the handler, which a signal
-handed another thread still runs there, only takes note; once the outermost hold ends, each signal noted is handled as
-it came. The hold is real whatever thread is alive, a body's own pool and asyncio's watcher thread on macOS among them.
+maker's mask, which the run's thread blocks while it holds the interrupts), and so does every program it starts;
+`children.start` and `outlive` clear the mask in their children all the same. A signal the kernel hands another thread
+still runs its handler in the run's thread, wherever that is; so while the run reads the process table and signals what
+it leads to, and while it takes its outcome and writes its record, it holds the interrupts off (`_held`): blocked in the
+run's thread, and the handler, which a signal handed another thread still runs there, only takes note; once the
+outermost hold ends, each signal noted is handled as it came, and a hold inside another hands on nothing. The hold is
+real whatever thread is alive, a body's own pool and asyncio's watcher thread on macOS among them. No hold runs the
+loop: the close's loop, which ends the watch and closes the body's generators, runs unheld, so no code of the body's
+runs with the interrupts blocked and nothing it starts takes them so; a second Ctrl-C there ends the tree, and a SIGTERM
+or SIGHUP is what the run dies of, as anywhere else.
 
 **A question.** `typed(fd)` reads what the person types on the loop (`add_reader`), never in a thread, which would hold
-the process as above: a line in a terminal's cooked mode, a key in raw mode. While it waits a question is up, and the
+the process as above: a line in a terminal's cooked mode, a key in raw mode. It reads from a terminal or a pipe: any
+other descriptor, a regular file or `/dev/null` as standard input is in a detached run, an agent's job or under
+`< file`, is refused before anything waits, in a sentence of `aw`'s own, since Linux's epoll cannot wait on it and
+macOS's kqueue would end the read at once. While it waits a question is up, and the
 first Ctrl-C ends the run there, its read raising `asyncio.CancelledError` as the run stops, so one Ctrl-C at a prompt
 ends the run with 130 rather than leaving it to wait for an answer through the grace; the line that the run is stopping
 then begins on a line of its own. A prompt that reads the terminal raw, where Ctrl-C is a byte, sends the run SIGINT for
@@ -1663,10 +1691,12 @@ it. No question is begun once the run is stopping, and one descriptor is read fo
 questions, a line, a menu or a hidden answer, are built on it.
 
 **What Python and asyncio say.** While the ladder runs, an `Abandoned` that Python drops where it cannot raise one (a
-fork's hook) is dropped unsaid (`sys.unraisablehook`), since the run's end is taken by its wake, and the loop's
-exception handler keeps asyncio's own reports, a callback's error or a task destroyed pending, off the person's terminal
-(the run's text log takes them once there is one). Work that will not take its cancel, still pending once the run has
-settled, gets one line of `aw`'s own and is kept until the process ends.
+fork's hook) is dropped unsaid (`sys.unraisablehook`, Python's own again once the run has returned), since the run's
+end is taken by its wake, and the loop's exception handler keeps the loop's own reports of what the ladder ended or
+left - a task destroyed pending, a callback a cut left half done, a body's own callback - off the person's terminal (the
+run's text log takes them once there is one). An error of the ladder's own callbacks, a Ctrl-C's stop, the grace's end
+or the wake, is never handed it: each says its own at once, in one line of `aw`'s own. Work that will not take its
+cancel, still pending once the run has settled, gets one line of `aw`'s own.
 
 `tests/unit/test_aw_attached.py` holds it, with runs in child processes whose bodies start four stand-in Ansible
 children (one that ends on SIGINT, one that ignores it, one with a grandchild in a session of its own, one that records
@@ -1675,18 +1705,25 @@ each signal it gets, with when, and ends on none): every way out but SIGKILL, a 
 nothing running, read once the run has ended and before the test's own cleanup; the ways walk every signal whose handler
 is the ladder's as a running body finds them and every outcome. Ctrl-C twice ends the tree from the handler while the
 body holds the loop; a call in a thread holds the process no longer than the ladder takes, on a daemon thread that
-blocks no signal, a program it starts (`route.py`'s `ssh`) with none blocked (on Linux, its `SigBlk`) and ended by a
-SIGTERM, and a SIGTERM the kernel hands that thread while the table is read is handled after the read, and one during
-the close of a Ctrl-C's run only after its record, which still says the Ctrl-C; a call in a thread handed `stopping` has
-it within a moment of a first Ctrl-C and of a SIGTERM, and at the close of a body that returned; an Ansible child
-started in a shield has its SIGINT once the shield is done; a SIGTERM after a Ctrl-C whose body returned ends the run
-within `SETTLE`, recorded as itself; one Ctrl-C at a question ends the run at a pseudo-terminal, cooked or raw; a ladder
-that cannot be built leaves no job; a record that cannot be written is said; asyncio's reports stay off the terminal;
-the grace, the stop recorded, a shielded phase, a signal ignored on the way in, and the echo at a pseudo-terminal after
-each end; a page's opener meant to outlive the run alive and unmarked after each end; and a child that asks a question
-at a pseudo-terminal said within a second and ended, its run ending with its body's own status: one that reads it
-(SIGTTIN), one that turns the echo off first as `readpassphrase` does (SIGTTOU), and `route.py`'s `ssh`; and a run at a
-pseudo-terminal whose child of kind `ssh`, in a group of its own in the run's session, asks nothing for three seconds
+blocks no signal, a program it starts (`route.py`'s `ssh`) with none blocked, made by the run's thread as it is or while
+it holds the signals off (as the program reads its own mask, and on Linux its `SigBlk`), and ended by a SIGTERM; a
+SIGTERM the kernel hands that thread while the table is read is handled after the read, a SIGTERM and then a SIGHUP
+there in the order they came, one noted in a hold inside another only once the outer hold has ended the tree, and one
+during the record of a Ctrl-C's run only after its record, which still says the Ctrl-C; a call in a thread handed
+`stopping` has it within a moment of a first Ctrl-C and of a SIGTERM, and at the close of a body that returned; the
+close runs a body's generator unheld, a program its `finally` starts with no signal blocked, and for `SETTLE` at most;
+an Ansible child started in a shield has its SIGINT once the shield is done, the phase held on a file the test removes;
+a SIGTERM after a Ctrl-C whose body returned ends the run within `SETTLE`, recorded as itself; one Ctrl-C at a question
+ends the run at a pseudo-terminal, cooked or raw, a question on `/dev/null` or a regular file is refused in `aw`'s own
+words, and a second question on a descriptor while the first waits is refused; a ladder that cannot be built leaves no
+job; a record that cannot be written is said; asyncio's reports stay off the terminal, an error of the ladder's own
+callbacks is said in `aw`'s own words, and Python's unraisable hook is back once the run has returned; the grace, the
+stop recorded, one a cancel recorded first kept, a shielded phase, a signal ignored on the way in, and the echo at a
+pseudo-terminal after each end; a page's opener meant to outlive the run alive and unmarked after each end; and a child
+that asks a question at a pseudo-terminal said within a second, named, given `ssh`'s remedies only where it is `ssh`,
+and ended, its run ending with its body's own status: one that reads it (SIGTTIN), an `ssh` that turns the echo off
+first as `readpassphrase` does (SIGTTOU), and `route.py`'s `ssh`; and a run at a pseudo-terminal, its terminal its
+controlling one, whose child of kind `ssh`, in a group of its own in the run's session, asks nothing for three seconds
 starts no `ps`, counted by a stand-in first on its `PATH`.
 
 ## 16.9 `fleet/` — the fleet's files, the settings, the secrets and the fleet's mark
