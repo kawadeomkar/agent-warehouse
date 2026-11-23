@@ -32,7 +32,9 @@ Every unit test runs with `AGENT_WAREHOUSE_HOME` in a directory of its own (the 
 `tests/unit/conftest.py`), every run the harness starts is given it, and a run of the suite fails, naming each path,
 if a test made, changed or removed one of the names `paths.py` owns in a fleet folder of yours: the installed
 program's three, this checkout's `.aw/`, the main worktree's `.aw/` when the suite runs from another worktree, and the
-folder your own `AGENT_WAREHOUSE_HOME` names, if you exported one. It reads their names alone and opens no file there.
+folder your own `AGENT_WAREHOUSE_HOME` names, if you exported one. In a checkout's `.aw/` it watches `client.yml`,
+`fleet/` and the key, not `state/`, so your own `aw` runs there while a suite runs. It reads their names alone and
+opens no file there.
 
 The new engine's tests are the files `tests/unit/test_aw_*.py`, every test of which is marked `engine`, and
 `just test engine` runs them alone, in seconds. Write one with `tests/unit/aw_kit.py`: the `home` fixture for the

@@ -37,8 +37,8 @@ NEW_MODULES = (*NEW, "secret")
 # imports, though REUSED's modules bring some of them in (REACHED).
 REUSED = {
     "plugin": "tools/aw checks with plugin.own that the claude_vm imported is this checkout's",
-    "store": "a file replaced atomically under a lock on its folder, for the fleet's files and the settings",
-    "text": "what a machine printed made plain before a message quotes it",
+    "store": "a file replaced whole under a lock on its folder: the fleet's files, the settings, a job's record",
+    "text": "what a machine printed made plain before a message quotes it, or a run's event or record keeps it",
     "trust": "which certificate makes the Proxmox API verify, for init's anchor and the client's pin",
     "proxmox": "a guest agent's output, a VM's tags, a refused token and a settings drift, read as today",
     "route": "how this machine reaches a host's VMs, and the hop's ssh under hard limits, for the SSH runner",

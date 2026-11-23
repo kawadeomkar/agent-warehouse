@@ -5,7 +5,7 @@ detached run's start prints and the session notes on a machine all print through
 `argv(verb, values)` is the line as its words, and `line(verb, values)` the same line as one string a person pastes,
 each value quoted with shlex.quote where a shell would read it otherwise. Both read the one table
 (lib/claude_vm/schema/words.py) and nothing else, in this order: the program, aw, always; the words given before the
-verb (`before`: --no-lock, --attended=1, --detached-run), in the table's order; the verb, deploy's whole chain as its
+verb (`before`: --attended=1, --detached-run), in the table's order; the verb, deploy's whole chain as its
 one verb; its options in the table's order, --detach last as the parser gives it: a value as --long=value, so that one
 that starts with - is read as a value, a flag bare, a counted option in one word, -v repeated (-vvv), a repeatable one
 once for each value; then the verb's words as given; and last `host_flag`, where it is given: ` --host <name>`, as

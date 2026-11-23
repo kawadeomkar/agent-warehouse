@@ -89,13 +89,23 @@ TOUCHED = pytest.StashKey[list]()
 SESSION_HOME = pytest.StashKey[str]()
 
 
-def footprint(folders) -> dict[str, tuple]:
-    """Each name the new engine's fleet/paths.py owns in each of folders, and everything beneath one that is a
-    folder, as lstat sees it: a name made, changed or removed shows as a difference. Nothing else there is looked at
-    (a sign-in on a machine the product configured writes the names paths.RESERVED_ON_A_MACHINE reserves into the
-    same folder), and no file is opened: the key file is the developer's secret."""
+# The names the session watches at the top of a folder of the developer's: every name paths owns, and the names
+# beneath the state folder, which are at the top of the installed program's state folder (WHOLE). In a checkout's own
+# .aw/, its fleet's files, client.yml and the key alone (CHECKOUT): not its state folder, which the developer's own aw
+# run from that checkout writes its jobs, locks and logs into while a suite runs, and which can be made again
+# (review/code/D1.md, finding 11). The installed program's folders stay watched whole until H14 decides for them.
+WHOLE = (*paths.OWN, *paths.BENEATH_STATE)
+CHECKOUT = tuple(name for name in paths.OWN if name != paths.STATE)
+
+
+def footprint(watched) -> dict[str, tuple]:
+    """watched maps each folder to the names watched there: each of those names in its folder, and everything beneath
+    one that is a folder, as lstat sees it, so that a name made, changed or removed shows as a difference. Nothing
+    else there is looked at (a sign-in on a machine the product configured writes the names
+    paths.RESERVED_ON_A_MACHINE reserves into the same folder), and no file is opened: the key file is the
+    developer's secret."""
     found = {}
-    for top in (Path(folder) / name for folder in folders for name in (*paths.OWN, *paths.BENEATH_STATE)):
+    for top in (Path(folder) / name for folder, names in watched.items() for name in names):
         beneath = [Path(root) / entry for root, dirs, files in os.walk(top) for entry in (*dirs, *files)]
         for path in (top, *beneath):
             try:
@@ -125,21 +135,23 @@ def _main_worktree(root: Path) -> Path | None:
     return common.parent if found.returncode == 0 and common.is_absolute() and common.name == ".git" else None
 
 
-def developers_folders(environ, root: Path = ROOT) -> tuple[Path, ...]:
-    """The developer's own fleet folders, which no test touches: the installed program's three (the config, the state
-    and the data folder's agent-warehouse/), this checkout's .aw/ and the main worktree's, and the folder
-    AGENT_WAREHOUSE_HOME names where the developer exported it. Each by its name alone: no file of theirs is opened,
-    so no fleet_home is followed."""
-    folders = [*paths.installed(environ), root / paths.CHECKOUT_HOME]
+def developers_folders(environ, root: Path = ROOT) -> dict[Path, tuple[str, ...]]:
+    """The developer's own fleet folders, which no test touches, each with the names watched there: the installed
+    program's three (the config, the state and the data folder's agent-warehouse/) whole, this checkout's .aw/ and the
+    main worktree's but for their state folders, and the folder AGENT_WAREHOUSE_HOME names where the developer
+    exported it, whole unless it is one of those .aw/ folders. Each by its name alone: no file of theirs is opened, so
+    no fleet_home is followed."""
+    watched = dict.fromkeys(paths.installed(environ), WHOLE)
+    watched[root / paths.CHECKOUT_HOME] = CHECKOUT
     main = _main_worktree(root)
     if main is not None:
-        folders.append(main / paths.CHECKOUT_HOME)
+        watched[main / paths.CHECKOUT_HOME] = CHECKOUT
     if environ.get(paths.VARIABLE):
         try:
-            folders.append(paths.home(root, environ).root)
+            watched.setdefault(paths.home(root, environ).root, WHOLE)
         except paths.Refused:
             pass  # A home paths refuses is one the new engine never writes in.
-    return tuple(dict.fromkeys(folders))
+    return watched
 
 
 def watch_the_developers_folders(config, environ, root: Path = ROOT) -> None:

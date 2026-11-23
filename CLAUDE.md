@@ -656,9 +656,11 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - The session fails if a name `paths` owns (`OWN`, `BENEATH_STATE`) was made, changed or removed in a fleet
       folder of the developer's (`developers_folders`): the installed program's three, the checkout's own `.aw/` -
       their real fleet, its key included, whenever they work from a checkout - and the main worktree's where the suite
-      runs from another, and the `AGENT_WAREHOUSE_HOME` they exported, read before the session replaces it. It
-      watches nothing else there: a sign-in on a machine the product configured writes `RESERVED_ON_A_MACHINE`'s
-      names into that same folder, and no file there is opened, so no `fleet_home` is followed.
+      runs from another, and the `AGENT_WAREHOUSE_HOME` they exported, read before the session replaces it. In a
+      checkout's `.aw/` it watches `client.yml`, `fleet/` and the key alone (`CHECKOUT`), never its `state/`, where
+      the developer's own `aw` run from that checkout writes its jobs while a suite runs. It watches nothing else
+      there: a sign-in on a machine the product configured writes `RESERVED_ON_A_MACHINE`'s names into that same
+      folder, and no file there is opened, so no `fleet_home` is followed.
     - A home is the installed program's by the real path of both, never their text, so its key never lands in the
       config folder through a link; a home inside the installed program's state folder is refused.
     - Only `paths.py` names those folders and `AGENT_WAREHOUSE_HOME`; code on a machine names the folder there as
@@ -972,6 +974,47 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       context, so one made elsewhere could check nothing.
     - `tests/unit/test_aw_transport.py` holds the transport and the proxy, and `tests/unit/test_aw_vendor_trust.py`
       the vendors' trust and `CONTEXTS`.
+- **A job's state is derived from its record and its own kernel lock, never stored.** Read
+  [§16.8](docs/architecture/engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run) first.
+    - Every run of the new engine is a job, `jobs/<id>/` in the state folder (`lib/claude_vm/runs/job.py`). `create`
+      takes `flock(LOCK_EX)` on the job's `lock` before `job.json` is written and keeps the descriptor, which no child
+      inherits, for the life of the process that made the job: the kernel lets the lock go when that process ends,
+      however it ends, and nothing is ever left to clear.
+    - `state` reads `running` while that lock is held (`cancelling` with a stop recorded), the outcome the record holds,
+      and `lost` where it holds none and the lock is free; `lost` is never written. Where the record is gone it is
+      `None`, no such job, as `find` says, whatever the lock: a handle taken before a drop never reads `running` or
+      `lost` after it. It asks the lock before it reads the record, since a run writes its outcome before it ends:
+      asked the other way round, a run that ends just after its record was read would read `lost`. A job the reading
+      process made itself is read from what it holds, a shortcut, not a need: closing a second descriptor of a lock
+      file does not let the first's lock go, since a `flock` belongs to its open file description, as experiment 40
+      measured on Linux, on NFSv3 and NFSv4.2 as on a local disk (macOS's half is not measured yet). No module of
+      `runs/` decides a state from a pid, a process's start or the process table; the record's `pid` and `started` are
+      information, written by `create` alone, so that a pid `cancel` signals is the one `create` recorded.
+    - Every string the record and an event hold is made plain (`text.plain_text`), and a `Secret` is refused before
+      anything is written or heard. Only `create` writes a record from nothing. A change reads it strictly: one whose
+      record is gone, or is no record, raises `Gone`, and any other error of the read is raised as itself, so that
+      `Gone` is never said of a run that runs; a reader is never refused. A job dropped goes `job.json` first, unlinked
+      under `store.locked` as every change is, so a writer lands before it or is refused; then its lock; then its
+      folder, what cannot be removed left as it is, so that a refused run's refusal is never lost to a traceback, and
+      `drop` returns the line that says where the record is left, if it is. Removed with the lock still open, NFS keeps
+      the folder.
+    - `tests/unit/test_aw_job.py` holds it, each state made by a run in a child process, with a scan of `runs/`.
+- **Every process a run starts carries the job's marker, but a shared SSH master; no child is handed a lock.** Read
+  [§16.8](docs/architecture/engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run) first.
+    - A child of the new engine is started by `lib/claude_vm/runs/children.py`'s `start`, or by the SSH runner, which
+      marks its children with `children.env` and enters them with `register`: never another `Popen`,
+      `create_subprocess_exec` or any other of Python's ways. `start` gives the child `AGENT_WAREHOUSE_JOB`, the job's
+      ID, whatever environment it is handed, and takes it from a shared master, which other runs may ride after this
+      one ends; a process group or a session of its own; SIGINT, SIGTERM, SIGHUP and SIGQUIT at their defaults and
+      unblocked, since a run started under `nohup` ignores SIGINT; and standard input named, `/dev/null` in a session.
+    - Every descriptor is closed in a child but its standard streams and those `pass_fds` names, which is how a pipe
+      goes over on purpose; one of a lock the run holds, or a duplicate of it, is refused by the lock's name before
+      anything starts, since a child that held it would keep it past the run. A module of `runs/` that takes a lock
+      gives `children.HOLDERS` a function that lists them. Never `close_fds=False`, and never a fork with no exec
+      (`os.fork`, `os.forkpty`, `pty.fork`, a `fork` start method of `multiprocessing`): a forked child keeps every lock
+      until it execs. `pass_fds` and `set_inheritable(..., True)` appear only in `start`.
+    - `tests/unit/test_aw_children.py` holds it, with real children that report what they were given, and scans of the
+      new engine's code for each rule.
 
 ## Architecture, and why it looks like this
 
@@ -1177,7 +1220,12 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   anything is signalled (`lib/claude_vm/proc.py`), as `harness._end` and a part's second Ctrl-C
   (`lib/claude_vm/ansible/parts.py`) do; every pytest process takes SIGTERM and SIGHUP as a Ctrl-C, once
   (`tests/unit/interrupts.py`). `test_processes.py` holds all three, under xdist too
-  ([§11.1](docs/architecture/testing.md#111-unit--just-test-unit)).
+  ([§11.1](docs/architecture/testing.md#111-unit--just-test-unit)). The new engine's run ends its own tree with
+  `proc.end_under`, which signals everything under a process and what was remembered of it, and never the process, its
+  group or the caller's: `lib/claude_vm/runs/attached.py`'s ladder, on Ctrl-C, a hangup, a kill and an error, before
+  its loop closes, since asyncio kills an `ansible-playbook` it still holds and leaves its task workers
+  ([§16.8](docs/architecture/engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run));
+  `tests/unit/test_aw_attached.py` holds it.
 - **A scenario's container is still booting when Molecule's create returns.** The boot empties `/tmp`
   (`systemd-tmpfiles-setup.service`, from `D /tmp` in the image's `tmp.conf`), where a module's payload is unpacked
   and read from while it runs: on a busy CI round five scenarios failed at their first fact gathering,

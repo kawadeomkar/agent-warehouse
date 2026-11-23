@@ -87,14 +87,14 @@ one, whether it takes several, the name the handler receives them by, their patt
 of the rules between its options, as the contract of today's command line names them (`deploy.4`, `check.names.1`),
 which the one check runs in that order; its handler, as `module:function`, or none while no change has built the verb,
 and then the card that builds it; the locks a run of it takes, one of `machines`, `fleet`, `none` or `words`, where the
-kind depends on the words given; whether a run of it is a job, with its own record, text log and locks; and the tools of
+kind depends on the words given (16.8, `lock_sets.py`); whether a run of it is a job, with its own record, text log and locks; and the tools of
 the agents' server that run it, or why none does. An option has its spellings, its kind (`value`, `flag`, `repeatable`
 for `--set`, `counted` for `-v`, `optional-value` for `--migrate`), the name of its pattern, the name the handler
 receives it by (the long option in lowercase with `_` for `-`, as the agents' tools name it today, and `for_` for
 `host --for`), its help, the name help gives its value (`--host ON`, as `just --usage` prints it today), and its fate
 for an agent's tool: a property of the tool's schema, a value the server always gives, or refused with the reason; where
 two tools run one verb (`settings` and `settings_set`), a fate for each. `BEFORE` holds the words given before any verb:
-`--no-lock`, `--attended`, and `--detached-run`, which no person types. `--detach` is no row's option: the parser gives
+`--attended`, and `--detached-run`, which no person types. `--detach` is no row's option: the parser gives
 it, with the one sentence `DETACH`, to every verb whose run is a job, and the agents' server starts every such run
 detached.
 
@@ -156,7 +156,7 @@ only ever runs as a child, nor `control/` or pydantic. `tools/aw` imports it, an
 once it is built; that server runs `aw` as a child for every run.
 
 **Reading the words: `parse.py`.** `read(words)` takes the words typed after `aw`: first the words before the verb
-(`--no-lock`, `--attended`, the hidden `--detached-run`), then the verb, then its words and options, split by
+(`--attended`, the hidden `--detached-run`), then the verb, then its words and options, split by
 `argparse` into the table's slots for the one verb typed only. No verb is `help`, as `just` alone lists the recipes.
 `argparse` is set as the design requires: abbreviations off, so a prefix of an option is an option the verb has not
 got; its own help off; its errors raised rather than printed and exited on; and its colours off from Python 3.14. An
@@ -183,10 +183,10 @@ terminal, and for any answer but the stage or the VMs, it is refused in today's 
 130.
 
 **The run's own words: `before.py`.** `RunWords` is one frozen record every handler receives first: `-v`'s count and
-the `--set` words as typed, from after the verb; `--detach`; `--no-lock`, the one word for a run that takes no lock,
-at the person's own risk; `--attended=1`, the agents' server's word that someone is at the screen with no terminal;
-`--detached-run`; and `LOG_DIR` and `LOG_RETENTION_DAYS`, read from the environment as today. Nothing else is read from
-the environment: an exported `RUN_LOCK` or `ATTENDED` changes nothing.
+the `--set` words as typed, from after the verb; `--detach`; `--attended=1`, the agents' server's word that someone is
+at the screen with no terminal; `--detached-run`; and `LOG_DIR` and `LOG_RETENTION_DAYS`, read from the environment as
+today. Nothing else is read from the environment: an exported `RUN_LOCK` or `ATTENDED` changes nothing, and no word
+makes a run take no lock (16.8).
 
 **The dispatch: `dispatch.py`.** The handler the verb's row names, `module:function` under `claude_vm`, is imported only
 when that verb runs and called with the run's own words and then the verb's values as keyword arguments; what it returns
@@ -428,7 +428,277 @@ the new engine only the modules `CONTEXTS` names, each with why, make a TLS cont
 
 `lib/claude_vm/runs/` is where a run goes: its one record and its text log, the kernel's file locks the run holds, the
 run's end on a signal, and a run detached as the same program in a session of its own. It imports
-`schema/` and `fleet/`, and nothing of `engine/`, `cli/` or `control/`, and no pydantic.
+`schema/` and `fleet/`, of `cli/` only the printer of a command (`cli/inverse.py`) for the line that cancels a run, and
+nothing of `engine/` or `control/`, and no pydantic.
+
+**A job: `job.py`.** Every run is a job, at a terminal or detached. `create(jobs_dir, verb, command, host, machines,
+starter, attached)` makes `jobs/<id>/` in the state folder (`paths.jobs_dir`), with any folder above it that is
+missing, at mode 0700, the ID sixteen hex digits as today's MCP jobs have. Before anything else is written it opens the
+job's `lock` (0600) and takes `flock(LOCK_EX)` on it; then it writes `job.json` (0600). The descriptor stays open for
+the life of the process that made the job, and, as Python opens every descriptor, no child inherits it: the kernel lets
+the lock go when that process ends, however it ends, so nothing is ever left to clear. Every value is checked before
+anything is made, and the module is the standard library alone, with `store`, `text`, `secret` and the patterns.
+
+| Field of `job.json` | Holds |
+|---|---|
+| `id`, `verb`, `command` | The job's ID, the verb, and the command as typed, with no secret |
+| `inputs` | The run's resolved inputs, a typed `--set` value among them |
+| `starter` | What started it: `{"kind": "terminal"}`, `{"kind": "detach"}`, or `{"kind": "mcp", "server": <id>}`, that server's own ID |
+| `host`, `machines` | The host the run is on, and the machines it names, by identity |
+| `locks` | The names of the locks it holds |
+| `attached` | Whether it runs at a terminal |
+| `pid`, `started` | Its process and when it started: information for a person and for a machine's `job` line, never read to decide a state |
+| `deadline`, `stop` | When a detached run is stopped; a stop asked for, `{"by", "at"}` |
+| `directory`, `log` | The run's short-lived directory, and its plain-text log |
+| `waiting` | What it waits for, such as a page in the browser, or nothing |
+| `next` | NEXT STEPS, records `{machine, matter, line}`, a line removed once nothing is left |
+| `machine_outcomes` | Each machine's outcome, the stage it reached, and why |
+| `outcome`, `exit`, `ended`, `why` | At the end: `succeeded`, `failed` or `cancelled`, the exit status, when, and why |
+
+`update(**fields)` reads the record, merges the fields and replaces it whole with `store.replace` under
+`store.locked`, so the run and another process recording a stop lose neither change. A name `FIELDS` lacks is refused,
+and so are `id`, `pid` and `started` (`CREATED`), which only `create` writes: `cancel` signals the recorded pid only
+while the job's lock is held, which holds only while nothing else writes it. Only `create` writes a record from
+nothing. A change reads the record strictly: where it is gone (the job dropped) or is no record (it does not parse, or
+is not a mapping), `Gone` is raised and nothing is written; any other error of the read (a descriptor limit, a disk's
+error, NFS's `ESTALE`) is raised as itself, so that `Gone`, which `cancel` says as "no such job", is never said of a run
+that runs. A reader is never refused: `read` gives `{}` for a record it cannot read. The record has no schema of its
+own and no event file beside it: `events.jsonl` is the add-on's.
+
+**The states are derived, never stored.** `state(job)` reads `running` while the job's lock is held, which a
+`LOCK_SH | LOCK_NB` attempt on the file finds (let go at once where it was taken), and `cancelling` while it is held
+and a stop is recorded; the outcome where the record has one; and `lost` where it has none and the lock is free: a run
+killed outright, or one that ended without saying how. Where the record is gone (not written yet, or the job dropped)
+there is no state: `state` is `None`, no such job, as `find` says, whatever the lock, so a job read through a handle
+taken before its drop is, from the record's unlink on, neither `running` with an empty record nor `lost`, which a test
+holds with the drop made by another process. A record that is there and cannot be read is read as `{}`. It asks the
+lock before it reads the record: a run writes its outcome before it ends, so a lock found free means any outcome is
+already there, and a run that ends just after its record is read reads `running`, never `lost`, which a test holds. A
+job the reading process made itself is read from what it holds, a shortcut that saves a probe and no rule: a probe
+reads the same, since a `flock` belongs to its open file description and closing a second descriptor of a lock file
+does not let the first's lock go, as experiment 40 measured on Linux, on NFSv3 and NFSv4.2, where Linux emulates
+`flock` with POSIX locks, as on a local disk (macOS's half is not measured yet); a test probes the run's own lock from
+its own process. No module of `runs/` keeps a pid to decide a state, reads a process's start or reads the process table
+for one, which a scan in the test holds.
+
+**Events.** `emit(kind, machine, text, **data)` hands one event, with its time, to each listener the run registered
+with `listen` (the live view and the text log), in order and in the run's own process. The kinds are `stage`, `step`,
+`report`, `waiting`, `next` and `end`; another is refused, `child` among them, since a child the run started is its
+registry's (`children.py`). Every string an event carries goes through
+`text.plain_text`, and a `Secret` anywhere in one is refused before anything is written or heard. What an agent and
+`logs` read is also kept in the record: a `waiting` (empty text: nothing), a `next` with its `matter` (an empty line
+removes it), a machine's `end` with its outcome and the stage its last `stage` event named, and the run's `end` (no
+machine) with its outcome and exit status. Only the process that made a job emits its events, listens to them or drops
+it.
+
+**Reading and dropping.** `find(jobs_dir, job_id)` takes only what the pattern `job_id` holds, sixteen hex digits,
+and `listed(jobs_dir)` gives every job newest first. Each passes over a folder whose `job.json` is not there yet, or is gone, and a job that vanishes
+while it is read is never an error. A run refused at its locks leaves no job, and its drop never fails the refusal it
+comes before: `drop(job)` removes `job.json` first, under `store.locked` as every change is, so a writer that holds the
+record (a `cancel` recording a stop) lands its change before it and one that comes after is refused, and readers pass
+over the folder from then on; then it closes the lock; then it removes the folder, leaving what it cannot remove, since
+a folder with no record is no job. Removed while the lock file is still open, the file would be renamed `.nfsXXXX` on
+NFS and the folder would stay. `drop` returns `None` where no record of the job is left, and otherwise one line that
+says where the record is left and why, for the refusal to say: a record left whole is a job that reads `lost` for good,
+a run that never ran. Only a record already gone is no error of the unlink's, and whether one is left is read after the
+folder's removal. `tests/unit/test_aw_job.py` holds it all, each state made by a run in a child process: a SIGKILL
+reads `lost` with nothing written after it, a child that outlives its killed run holds no lock, and the record is
+unlinked while the drop holds the folder's lock.
+
+**A run's children: `children.py`.** Every process a run starts carries the job's marker, `AGENT_WAREHOUSE_JOB`, the
+name today's MCP jobs set, with the job's ID: whatever reads it matches the ID, never the name alone. `start` gives it
+whatever environment it is handed; `unmarked(env)` takes it away, for the one kind of child that must not carry it, a
+shared SSH master, which other runs may ride after this one ends. Only the process that made a job marks a child with
+it. `start(job, argv, own, env, stdin, stdout, stderr, kind, pass_fds=())`
+is the one way the engine starts a child, a coroutine over asyncio's own:
+
+- `own` is `group`, a process group of its own, so that the terminal's Ctrl-C reaches the run alone; or `session`, a
+  session of its own, its standard input `/dev/null`. Standard input is always named: a child in a group of its own
+  that read the terminal would be stopped, and one in a session of its own would take what the person types.
+- The child gets the marker whatever environment it is handed, and a master loses it. Before it runs, SIGINT, SIGTERM,
+  SIGHUP and SIGQUIT are put back to their defaults and unblocked: a process starts with what its parent ignored still
+  ignored, and a run started under `nohup` or with `&` ignores SIGINT.
+- Every descriptor is closed in the child but its standard streams and those `pass_fds` names, which is how a pipe is
+  handed over on purpose. A descriptor of one of the run's locks, or any duplicate of one (the same file), is refused
+  with the lock's name before anything starts: the kernel lets a lock go only once every descriptor of it is closed,
+  so a child that held one would keep it past its run's end. The locks are read from `HOLDERS`, one function of each
+  module of `runs/` that takes a lock, which gives the descriptors it holds them by.
+- The kinds are `ssh`, the SSH runner's bounded and held children, a forward among them; `ansible`, layer 1's
+  `ansible-playbook`; `program`, a program of the computer's own (`rsync`, an opener, the editor); and `master`.
+
+The children a run started are kept by kind, in memory, for the run's end (`attached.py`): `start` enters each, and
+`live(job, kind)` gives those still running, in the order they started. A master is entered nowhere, since no run ever
+ends one.
+Nothing is written to a file, and nothing reads the process table. `tests/unit/test_aw_children.py` holds it, with real
+children that report what they were given, and holds four rules by scans of the new engine's code: a child process is
+started only through this module and the SSH runner, by any of Python's ways; `close_fds=False` appears nowhere; no
+process is forked without an exec (`os.fork`, `os.forkpty`, `pty.fork`, a `fork` start method or context), since a
+forked child keeps every lock until it execs; and `pass_fds` and `set_inheritable(..., True)` appear only in `start`.
+
+**A run's short-lived directory: `rundir.py`.** A run's generated files, the layer-1 child's configuration, its
+inventory and its variables, go in one directory of the run's own. `make(job)` makes it with `tempfile.mkdtemp` under
+the per-user temporary directory (`TMPDIR` where it is set, as on macOS, else `/tmp`), at mode 0700 whatever the umask,
+named `aw-run-`, the job's ID, a dash and mkdtemp's letters, and writes its path into the job's record as `directory`;
+where the record cannot take it, the job dropped, the directory is removed again. It is never made inside
+`XDG_RUNTIME_DIR`, compared by the real paths of both: systemd removes that directory at the person's last logout
+while a detached run may still live, so where the temporary directory lies inside it, the run's goes in `/tmp`. The ID
+in the name tells which job left a directory, and is in the command line of every child that reads a file there.
+`made(job)` gives it back to the process that made it, and `path_for(job, name)` the path of one plain file name there,
+each writing nothing: the module makes and removes
+the directory and writes no file in it. Only the process that made a job makes its directory, one a run, or names a
+file in it. `remove(job)` deletes the directory with what it holds, says whether anything was left, and is safe to
+call twice: the run removes the one it made, even once its job is dropped; any other process removes only the one the
+record names, held to the form `make` gives it (absolute, the job's ID in its name, a real directory of this account's
+and not a link), and never while the job's lock is held, since a living run's directory is its own, nor where the job
+is no job by the time its state is asked (its run dropped it since the record was read, and removes what it made
+itself). No secret is ever written there: a secret travels on standard input or stays in memory, as today, and every
+workflow's tests search the directory for the secrets they gave (`aw_kit.searched_for`). No socket is made there
+either: a shared connection lives in the one control directory. `tests/unit/test_aw_rundir.py` holds it, with a scan
+that finds no write in the module.
+
+**The locks: `locks.py`.** Two runs are kept apart by the kernel's file locks, `flock` on files of the state folder's
+`locks/` (`paths.locks_dir`), each opened in this module alone at mode 0600, never through a link, and kept open for as
+long as it is held. As Python opens every descriptor, no child inherits one, and `children.start` refuses one by its
+name (`HOLDERS` reads `locks_held`). The kernel lets a lock go when its process ends, however it ends, so nothing is
+ever released by hand and nothing is left to clear; no pid and no process's start is read to decide a lock. That rests
+on one rule: **a lock file is never removed**, nor `locks/`, nor the state folder that holds it, and every cleanup keeps
+`locks/`, a few empty files. A `flock` is held on the file, not on its name: once a file is unlinked under its holder,
+the next run makes a new one of the same name and takes the same lock beside the first, so two runs would act on one
+machine. Nothing in `runs/` removes one.
+
+| Lock file | Taken |
+|---|---|
+| `fleet` | Shared by a run that names machines; exclusively by a run that names none, by every run under `run_lock: fleet`, and by `exclusive` |
+| `machine-<host>@<name>` | Exclusively, one for each machine a run names: `<host>` is the Proxmox host's name, or `machines` for an adopted machine, which `hosts/model.py`'s `RESERVED` keeps from every host; `@` is in neither name's pattern. A host and a name exist before the VM does, so a run that makes `alpha` and one that configures it take one lock, from before the VM exists to its deletion. The name is folded to lower case, so `Alpha` and `alpha` are one lock on every disk, as they are on macOS's: it only ever refuses more |
+| a short section, `<word>-<host>` | Waited for, by `section`: `nextid-<host>`, the next free VMID asked of the host with the clone sent onto it, exclusively; `template-<host>`, the host's template, exclusively around a build, a rebuild or a collection and shared around a clone. Their words are `lock_sets.py`'s, and no other is taken |
+
+`take(job, kind, machines, policy)` takes a run's locks once, for the job this process made: the kind is `machines`
+(the fleet's lock shared and each machine's, or with no machine named the fleet's exclusively), `fleet` (the fleet's
+exclusively, whatever is named) or `none`, as `lock_sets.locks_for` works it out from the table; the machines are
+`(host, name)` pairs, a machine named twice taken once; the policy is the setting `run_lock`'s, `machine` or `fleet`,
+under which every run that takes a lock takes the fleet's exclusively, today's one lock (`policy_of` holds it to the
+two). Nothing waits: each lock is tried with `LOCK_NB`, and all or none: on the first refused, what was taken is let go
+and `Held` is raised. They are tried in the order of the files' names, whatever order the machines were given in, **so
+that of two runs over overlapping machines one always goes on**: the run refused at a lock was refused by a holder that
+is past it, so a chain of refusals ends in a run that went on, where `deploy a,b` beside `deploy b,a`, each in its own
+order, would each take its first machine and both be refused at their second. A test starts the two with a pause after
+the first lock and finds one through every time. A run writes its job's ID into each file it holds exclusively, one
+line at offset 0 by one `pwrite`, never truncated, since on NFS a truncate costs about 3 ms a lock (experiment 40); a
+reader takes the first line and believes it only for a job that still runs by its own lock and names the lock in its
+record, the names of the locks a run holds being written into its record (`fleet:shared`,
+`machine-pve@alpha:exclusive`). So a refusal names the holder's job, its command, when it started, and the line that
+cancels it, printed by the printer:
+
+    error: alpha on pve is held by job 3f2a9c4d5e6b7a80, `aw deploy alpha`, started Sun Nov 8 14:02:10 2026 UTC: `aw cancel 3f2a9c4d5e6b7a80` stops it
+
+A refusal never fails on what it reads: where the holder's record cannot be read, names a job that is starting or
+ending (one refused a moment later under all or none, which experiment 40 met in up to 13% of its refusals), or gives a
+start no clock can say (not finite, or out of the platform's range), it says the lock "is held by a run that is
+starting or ending: try again". The fleet's lock held shared, refused to a run that needs the whole fleet, names no one
+holder: runs on machines of this fleet are under way, and `aw logs` lists them.
+
+`exclusive(state, command)` is for a verb that is no run but must have the fleet to itself for one write, `host <name>`
+and `vault --rotate`: it takes the fleet's lock exclusively without waiting, writes the command as typed in place of a
+job's ID, for a person who reads the file, refuses with `Held` where any run holds the fleet's lock, and lets it go at
+the block's end. A refusal never names that command: the record stays after the write ends, and the fleet's lock is
+also held for microseconds by holders that write no record of their own (the probe of `changing_run_lives`, a run in the
+moment before it writes its job's ID), so a run refused while the fleet is held with no running job named is told that
+"the fleet is held for one write, or by a run that is starting or ending: try again", with no line to cancel it.
+`changing_run_lives(state)`, which `clean` asks, says whether any run holds the fleet's lock, by an exclusive attempt
+let go at once where it is taken; a run whose kind is `none` holds none and is not seen.
+
+`section(ctx, name, shared=False, machine=None)` is an asynchronous context for one short section: it takes the
+section's lock and, where another run holds it, waits, with a `waiting` event that names the section (and the machine
+it is about, or the whole run), and once the lock is taken clears that wait alone: the clear names the section, and
+the record clears only a wait of that section and that machine, never another machine's or a later one's. The wait ends
+once the run is stopping (`asyncio.CancelledError`), so a section is entered outside any shield: a Ctrl-C sets the
+run's stop inside a shield too, and would end the wait the shield was there to outlast. The lock is let go when the
+block ends, however it ends, a block that raises among them. **The sections nest one way: `nextid` outside
+`template`** (the next free VMID taken, then the template's section shared around the clone inside it), never the
+other way round: they have no time limit, and two runs that nested them in opposite orders would each wait for the
+other until a person stopped one. It waits by trying again every 20 ms, since a thread blocked in `flock` cannot be
+cancelled, so the sections keep no queue: a stream of clones can keep a template's build waiting, which the sections'
+shortness makes acceptable. The writes of the managed SSH config and the known-hosts file, of the overrides and of the
+vault are short sections too, under `store.locked`, which their owners take. `tests/unit/test_aw_locks.py` holds it,
+each run a child process of the test: two runs on two machines go side by side, a second on one machine is refused
+naming the first, a run that makes `alpha` and one that configures it take one lock, and so do `Alpha` and `alpha`;
+twenty runs at once on one machine let exactly one through, two runs over the same two machines given in opposite
+orders never both refuse, a holder killed with SIGKILL holds nothing, the sections wait, end their wait on a stop, clear
+only their own and are let go when their block raises, and `take` of twenty machines beside 400 lock files stays under a
+tenth of a second; with scans that the module keeps no pid, removes no file, never truncates a record in any spelling
+and names a machine's lock from its host and name alone, that only it and `job.py` take a `flock` (by any import of it)
+or a POSIX lock, and only it names the locks' folder (by `paths`' names or the literal `locks`), that nothing of the
+new engine asks `F_GETLK`, which does not see a `flock` on Linux, and that no module of the new engine but
+`cli/before.py` and `schema/words.py` names `RUN_LOCK` or `ATTENDED` in code.
+
+**Each verb's locks: `lock_sets.py`.** Which locks a run of a verb takes is a column of the table of verbs (16.2,
+`locks`), one of four words: three are the kinds `take` acts on (`KINDS`), and `words` says the kind is worked out from
+the words given, by the function of this module that has the verb's name (`BY_WORDS`). `locks_for(verb, values)` reads
+the verb's row and returns its kind, from the verb's values as the dispatch hands them, and `runs.run` hands it to
+`take` with the machines the draft names, in the words' order:
+
+| Verb | Kind |
+|---|---|
+| `login`, `code`, `destroy`, `release` | `machines` |
+| `init` (every mode), `install` | `fleet` |
+| `deploy` | `words`: `--check`, a dry run of configuration, takes `none`; any other run `machines`. So `deploy --only template`, which names no machine, takes the fleet's lock exclusively and is refused while any run lives, as today's one lock refuses it; a `deploy <name>` that finds while it runs that it must rebuild the template takes no more lock of a run for it, and waits in the template's section instead |
+| `host` | `words`: a host named, to switch to it or to remove it, `fleet`; the list, `none` |
+| `vault` | `words`: `--rotate`, `fleet`, so that no run writes the vault under the key it read before a rotation; the list, a put, a removal and the editor, `none` |
+| `status`, `logs`, `settings` (a read or a write), `help`, `cancel`, `mcp` | `none` |
+
+`host` and `vault` are no runs (the table's `changes`): where their kind is `fleet`, their own handler holds the fleet's
+lock for its one write through `exclusive`, and makes no job; `runs.run` refuses a verb whose run is no job before
+anything is made. `control` is the add-on's, and adds its row with the fleet's lock when it is built. The two sections
+are named here once, `nextid` and `template` (`SECTIONS`, in the order they nest), and `section_name(word, host)` gives
+the file a run passes to `locks.section`; `section` takes no other word. The other short sections, each write of the
+managed SSH config, of the known-hosts file, of the overrides and of the vault under `store.locked` by their owners, are
+why `settings` and a vault's put take no lock of a run, as today. No word of the command line makes a run take no lock.
+There is no desk: two runs that sign in at once go side by side, since a port another run holds makes Claude's forward
+fall back to the paste, as today, two pages open in two tabs, and a device code copied over another is also printed at
+the terminal. `tests/unit/test_aw_lock_sets.py` holds the table of every verb and its kind, a function for every `words`
+row and a row for every function, `locks_for` over each verb's words, `vault --rotate` and `host <name>` refused through
+`exclusive` while a run holds the fleet's lock, `deploy --only template` refused while a run lives and `deploy --check`
+going on beside one, the writes under `store.locked` going on beside a run and waiting for each other, and that the
+table holds no `control` and no word for a run that takes no lock.
+
+**A run, and its end: `run` and `attached.py`.** `runs.run(draft, body)` is the one entry a verb whose run is a job
+calls, at a terminal or detached, and refuses any other verb before anything is made: it makes the job its `Draft`
+describes (`create`'s arguments), which takes the job's own lock, makes the run's directory, takes the locks the table
+gives the verb (`lock_sets.locks_for` over the draft's `values`, which are always given, then `take` with
+`lock_machines` and `lock_policy`), and hands the job to `attached.run(job, body)`. A run whose locks are refused, or
+whose directory cannot be made, drops its job, as a run that never began, and where the drop leaves the record the refusal's sentence, or the
+error's note, says where. From before the job is made until the ladder's handlers are set, the signals the ladder takes
+are held off and then given to it, so that a Ctrl-C, a hangup or a kill in that window ends the run as the ladder says,
+never leaving a job that reads `lost`. `attached.run` runs the body, a coroutine function, in the command's own process on one `asyncio` loop, and
+gives it a `Context`: the job, for the SSH runner and `children.start`; `cancelled`, an event a workflow checks
+between its steps or waits on; `shield(reason)`, for a phase that cannot be cancelled, such as a deletion already
+sent; `emit`; `live(kind)`, the children it still holds; and the run's directory. Its handlers take SIGINT, SIGTERM
+and SIGHUP, but one ignored on the way in, as `nohup` or a shell's `&` leaves one, which stays ignored. The ladder:
+
+| The end | What happens | The record | The process |
+|---|---|---|---|
+| Ctrl-C, once | `cancelled` set; the tree under the run remembered with `proc.snapshot`, the interrupts held off while the table is read; SIGINT to each Ansible child's group; a line on standard error that the run is stopping, or that it stops once the shielded phase is finished. Once the body and every child it started have ended, what is left is ended at once; 30 seconds after the Ctrl-C (`STOP_GRACE`, today's MCP jobs' grace) whatever still runs is ended and the body cancelled, but a shielded phase is waited for | `cancelled`, `Ctrl-C` | exits 130 |
+| Ctrl-C, twice | the tree ended at once from the signal's handler itself, then `Abandoned`, a `KeyboardInterrupt`, raised there while the loop runs, so that a step stuck in it cannot hold the end | `cancelled`, `Ctrl-C twice` | exits 130 |
+| SIGHUP or SIGTERM | the tree ended with that signal from the handler, as above; what ignores it is killed after five seconds | `cancelled`, the signal's name, exit 128 and its number | its handler put back to the default, and dies of it |
+| An error the body did not handle | the tree ended | `failed`, the error | the error raised again |
+| The body returns | what it still holds of its children ended | `succeeded` for 0, `cancelled` for 130, else `failed` with the status | exits with the status |
+| SIGKILL | nothing | none: the job reads `lost` once its lock is free | killed |
+
+On every path but SIGKILL, the terminal's settings are put back as the run found them, its echo among them (where
+anything changed them, SIGTTOU held off); every child of the registry has ended or been ended before the loop closes,
+since asyncio kills an `ansible-playbook` it still holds when its loop closes and leaves the playbook's detached task
+workers running; the run's directory is removed; and the exit record is written last, with the signals held off and
+then taken as notes only, so that a late one changes nothing but what the process dies of. "The tree" is everything
+under the run's process, ended by `proc.end_under(pid, remembered, signum)`, which signals every process under a process
+and what was remembered of it, by each one's start, with their groups, and never the process, its group or the
+caller's: today's `end` signals the root too, which here is the run. A shared SSH master daemonises out of the tree, so
+no end reaches it; no child subreaper and no systemd scope are adopted, since under a subreaper one run's end would cut
+another run's connection through the host. The ladder is built against stand-ins; experiment 37 tries it with real
+children, and if a foreground run cannot end its tree by itself, `runs.run` is where a small watcher would go.
+`tests/unit/test_aw_attached.py` holds it, with runs in child processes whose bodies start three stand-in Ansible
+children (one that ends on SIGINT, one that ignores it, one with a grandchild in a session of its own): every way out but
+SIGKILL leaves its exit record, its status and nothing running, and the ways walk every signal the run takes and every
+outcome; the grace, a shielded phase, a signal ignored on the way in, and the echo at a pseudo-terminal after each end.
 
 ## 16.9 `fleet/` — the fleet's files, the settings, the secrets and the fleet's mark
 
@@ -496,8 +766,10 @@ for a module's run, and `harness.PASSED_ON` passes it to every run. The session 
 developer's fleet folders before the first test and after the last, from their metadata alone, and fails if one was
 made, changed or removed. Those folders (`developers_folders`) are the installed program's three, the checkout's own
 `.aw/` and, where the suite runs from a worktree, the main worktree's (git's common directory), and the
-`AGENT_WAREHOUSE_HOME` the developer exported, read before the session replaces it. No file there is opened, so no
-`fleet_home` is followed. `tests/unit/test_aw_fleet_paths.py` holds the homes, the pointer, the key's place, the names,
+`AGENT_WAREHOUSE_HOME` the developer exported, read before the session replaces it. In a checkout's `.aw/` only
+`client.yml`, `fleet/` and the key are watched, never `state/`: the developer's own `aw` run from that checkout writes
+its jobs there while a suite runs, and state can be made again. No file there is opened, so no `fleet_home` is
+followed. `tests/unit/test_aw_fleet_paths.py` holds the homes, the pointer, the key's place, the names,
 the scans for who names the folders and the key, and the guard, a child `pytest` among its tests.
 
 ## 16.10 `guest/` — the helper, the system layer's inputs, layer 2
