@@ -6,7 +6,11 @@ justfile, and refuses each value it takes with a newline after it: `full` holds 
 Each has its form in words and its examples: every example is held by its pattern and a near miss of each, written
 here, is not; no words hold a pattern's own characters; and `form` says the words and the first example, or the words
 alone where the pattern shows none, never the pattern itself (the owner's ruling of 2026-11-22, review/code/OWNER-9.md
-2, in the plan's folder). The module imports the standard library alone.
+2, in the plan's folder), and an option's own words and example in their place where it gives them. Which patterns show
+no example is a set written here. The words are never wider than the text: each value a reviewer read the words as
+taking and the text refuses (review/code/H29.md 1) is refused, and its words say why, in a clause written here. A size's
+unit is taken capital or small (the owner's answer, review/code/OWNER-11.md 1). The module imports the standard library
+alone.
 """
 
 from __future__ import annotations
@@ -96,10 +100,18 @@ CASES: dict[str, tuple[list[str], list[str]]] = {
     "host_name": (["", "nuc", "pve-2", "a" * 31], ["a" * 32, "Nuc", "-nuc", "nuc.lan", "nuc_2", "$(x)"]),
     # ONE_WORD's nuc; the rest this file's own.
     "current_host": (["nuc", "pve-2", "0", "a" * 31], ["", "a" * 32, "-nuc", "Nuc", "nuc.lan"]),
-    # test_vm_size.py: the recipe's options, test_a_size_just_refuses_by_its_pattern and tools/check size.
-    "cores": (["8", "2", "4", "999", ""], ["0", "-4", "1000", '8, "x": 1']),
-    "memory": (["16G", "3072", "512M", "8G", ""], ["8T", "12345678"]),
-    "disk": (["64G", "1T", ""], ["64", "064G", "1234567G"]),
+    # test_vm_size.py: the recipe's options, test_a_size_just_refuses_by_its_pattern and tools/check size; and this
+    # file's own, a unit small as well as capital, which aw takes and today's justfile refuses (the owner's answer,
+    # OWNER-11.md 1), and the near misses of a size beside them.
+    "cores": (["8", "2", "4", "999", ""], ["0", "-4", "1000", '8, "x": 1', "08"]),
+    "memory": (
+        ["16G", "3072", "512M", "8G", "", "16g", "2048m", "512m"],
+        ["8T", "12345678", "16GB", "16gb", "1.5g", "16k", "0g", "16 g", "08G", "0", "16GiB", "16Mg"],
+    ),
+    "disk": (
+        ["64G", "1T", "", "128g", "1t"],
+        ["64", "064G", "1234567G", "16GB", "16gb", "1.5g", "16k", "0g", "16 g", "128", "1tb", "16m"],
+    ),
     "repos": (
         # test_vm_repos.py: the recipe's option and tools/check repos. Twenty names of a hundred characters, 2019 in
         # all, are taken by the pattern and refused by tools/check's cap of 2000, a rule of the check's.
@@ -383,13 +395,69 @@ NEAR_MISSES: dict[str, dict[str, str]] = {
 }
 # What a pattern is written with, which no words may hold: a person reads the words, never a regular expression.
 PATTERN_CHARACTERS = "[]{}\\|?*^$"
-# What help and a refusal say for the owner's five rows of "Before and after" (OWNER-9.md 2), as worded here.
+# What help and a refusal say for the owner's five rows of "Before and after" (OWNER-9.md 2), as worded here: cores',
+# memory's, the certificate's and --set's as H30 reworded them, so that the words say no more than the text takes,
+# memory's unit capital or small (OWNER-11.md 1).
 BEFORE_AND_AFTER = {
-    "cores": "[a whole number from 1 to 999, e.g. 8]",
-    "memory": "[a whole number of MiB, or a whole number with M or G after it, e.g. 16G]",
-    "fingerprint": "[a SHA-256 fingerprint as openssl prints it: 32 pairs of hex digits joined by colons]",
+    "cores": "[a whole number from 1 to 999 with no leading 0, e.g. 8]",
+    "memory": "[a whole number of MiB, or a whole number with M or G after it, capital or small, the number from 1 to "
+    "9999999 with no leading 0, e.g. 16G]",
+    "fingerprint": "[a SHA-256 fingerprint, the part after Fingerprint= as openssl prints it: 32 pairs of hex digits "
+    "joined by colons]",
     "stage": "[one of template, provision, configure, ssh-config]",
-    "assignment": "[a setting's name, then = and its value for this run, e.g. vm_cores=8]",
+    "assignment": "[a setting's name, then = and its value for this run, with no control character, e.g. vm_cores=8]",
+}
+# The patterns whose form shows no example, written here by hand, so that the hand-set shown of patterns.py is held:
+# the words list the values, an example would be too long to print, or it says nothing (review/code/H29.md 5).
+SHOWS_NONE = {
+    "stage",
+    "sign_in",
+    "sections",
+    "session",
+    "fleet_id",
+    "editor",
+    "text",
+    "attended",
+    "on_off",
+    "fingerprint",
+    "ssh_fingerprint",
+    "dependency_group",
+}
+# The values a reviewer read the words as taking and the text refuses (review/code/H29.md 1, and its probe), with
+# others of the same kind, each by its pattern, and the clause of the words that says why it is refused: the words
+# never say more than the text takes. A value a later change to the words lets through, or a clause it drops, fails.
+NOT_IN_THE_WORDS: dict[str, dict[str, str]] = {
+    "cores": {"08": "from 1 to 999 with no leading 0", "0": "from 1 to 999 with", "1000": "from 1 to 999 with"},
+    "memory": {
+        "0": "from 1 to 9999999 with",
+        "08G": "from 1 to 9999999 with no leading 0",
+        "10000000": "from 1 to 9999999 with",
+        "99999999": "from 1 to 9999999 with",
+        "1.5G": "a whole number",
+        "0g": "from 1 to 9999999 with",
+    },
+    "disk": {
+        "0G": "from 1 to 999999 with",
+        "064G": "from 1 to 999999 with no leading 0",
+        "1000000G": "from 1 to 999999 with",
+        "128": "with G or T after it",
+        "1.5T": "a whole number",
+    },
+    "address": {
+        "pve_1.lan": "letters, digits, dots, colons and hyphens",
+        "[2001:db8::1]": "letters, digits, dots, colons and hyphens",
+        "fe80::1%eth0": "letters, digits, dots, colons and hyphens",
+        "https://pve.example": "letters, digits, dots, colons and hyphens",
+    },
+    "token_user": {
+        "first+last@pve": "letters, digits, dots, underscores and hyphens",
+        "ansible@pve!tok": "letters, digits, dots, underscores and hyphens",
+    },
+    # The whole line each program prints, of which the words say which part is the value.
+    "fingerprint": {"sha256 Fingerprint=" + EXAMPLE_FINGERPRINT: "the part after Fingerprint="},
+    "ssh_fingerprint": {f"256 {EXAMPLE_SSH_FINGERPRINT} someone (ED25519)": "the second word"},
+    "path": {"/a\nb": "with no control character", "~/a\tb": "with no control character"},
+    "assignment": {"vm_cores=a\x01b": "with no control character", "vm_cores=a\nb": "with no control character"},
 }
 
 
@@ -435,6 +503,47 @@ def test_the_form_is_the_words_and_the_first_example_or_the_words_alone(name: st
 
 def test_the_owner_s_before_and_after_reads_as_written() -> None:
     assert {name: form(name) for name in BEFORE_AND_AFTER} == BEFORE_AND_AFTER
+
+
+def test_the_patterns_that_show_no_example_are_those_this_file_names() -> None:
+    # The hand-set shown, each flip of it failing here (review/code/H29.md 5): sign_in shown, session shown, job_id not.
+    assert {name for name, pattern in PATTERNS.items() if not pattern.shown} == SHOWS_NONE
+    assert [name for name in SHOWS_NONE if "e.g." in form(name)] == []
+    shown = set(PATTERNS) - SHOWS_NONE
+    assert [name for name in shown if not form(name).endswith(f", e.g. {PATTERNS[name].examples[0]}]")] == []
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "clause"),
+    [
+        pytest.param(name, value, clause, id=f"{name}-{n}")
+        for name, refused in NOT_IN_THE_WORDS.items()
+        for n, (value, clause) in enumerate(refused.items())
+    ],
+)
+def test_a_value_the_text_refuses_is_one_the_words_say_is_refused(name: str, value: str, clause: str) -> None:
+    # The words may be narrower than the text, never wider (patterns.py): the value is refused, and its words hold the
+    # clause that says so.
+    assert not full(name, value), (name, value)
+    assert clause in PATTERNS[name].words, (name, clause)
+
+
+@pytest.mark.parametrize("name", ["memory", "disk"])
+def test_a_size_s_unit_is_taken_capital_or_small_and_its_example_is_capital(name: str) -> None:
+    # The owner's answer of 2026-11-22 (OWNER-11.md 1): 16g as 16G, 2048m as 2048M; nothing else of the form changes.
+    units = {"memory": "MG", "disk": "GT"}[name]
+    for unit in units:
+        assert full(name, f"16{unit}") and full(name, f"16{unit.lower()}"), unit
+    assert "capital or small" in PATTERNS[name].words
+    assert [example for example in PATTERNS[name].examples if example != example.upper()] == []
+
+
+def test_form_says_an_option_s_own_words_and_example_in_place_of_its_pattern_s() -> None:
+    assert form("proxmox_id", example="vmbr1") == f"[{PATTERNS['proxmox_id'].words}, e.g. vmbr1]"
+    assert form("vm_names", "one name", "alpha") == "[one name, e.g. alpha]"
+    assert form("vm_names", "one name") == f"[one name, e.g. {PATTERNS['vm_names'].examples[0]}]"
+    # An example only where the pattern shows one.
+    assert form("text", "a browser's command", "firefox") == "[a browser's command]"
 
 
 def test_form_with_a_name_it_does_not_have_raises() -> None:
