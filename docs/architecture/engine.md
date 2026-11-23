@@ -2271,8 +2271,9 @@ an inventory of one host for each machine, `inventory-<identity>.yml`. The confi
 no other, one fork, facts kept under `ansible_facts`, pipelining, the `yaml` inventory plugin alone, this checkout's
 `roles/`, Ansible's local temporary files in the run's directory, and `ssh_args` set empty, since Ansible's default
 would put `ControlMaster=auto` ahead of the host's options and make the child a connection's master; no collections path,
-since layer 1 calls `ansible.builtin` alone. Until the product's callback is written, the one named is Ansible's own
-`default`, its output in the child's file. The one host is named by the machine's identity, never the name a person
+since layer 1 calls `ansible.builtin` alone. The one callback named is the product's, `aw_events`, in
+`lib/claude_vm/guest/ansible/callback_plugins/`, which only this configuration names. The one host is named by the
+machine's identity, never the name a person
 chose, which is the variable `aw_name`; its variables are the address and the account, `/usr/bin/python3` and
 `/usr/bin/sudo` by their paths, and the connection as the SSH runner makes it (`runner.ansible_vars`, §16.6): its
 options first, `StrictHostKeyChecking=yes` against the product's own known-hosts file under the identity, the shared
@@ -2318,6 +2319,40 @@ wrapped `{{ 7 * 7 }}` reaches a task as that text, an unwrapped one is templated
 `error` the wrapped one used as a template fails its task, and every kind of value comes back as it went; a walk of
 every file written finds no bare string leaf. They are among the tests that must pass before the ansible-core pin moves
 ([§13](toolchain.md)).
+
+**Layer 1's events.** The product's stdout callback (`guest/ansible/callback_plugins/aw_events.py`) writes each event
+of the play as one line of JSON on the events pipe, whose descriptor `AGENT_WAREHOUSE_EVENTS` names and which it makes
+non-inheritable at once, and nothing on the terminal; a child started without the pipe refuses to start. The events are
+a play's start, a task's, each result (`ok`, `changed`, `failed`, `skipped`, `unreachable`, a loop's item with `item`),
+a retry, a diff and the recap, each with its task's name and its part, the role it is in. A result says its message,
+and where it failed, was unreachable or the run was given `-v`, its output, return code and exception: never more of a
+result than those, and of a result Ansible censored for `no_log` only its kind and its task, since ansible-core 2.21
+keeps a censored result's `exception` and `warnings` and hands a callback them whole. A diff is written only in a run
+given `--diff`, never for a task's own `diff: true` alone and never for a censored task. A fault of one of its hooks is
+an event of its own (`fault`, the hook and the error's type), never Ansible's warning alone, under which a result would
+vanish in a run that exits 0. Every string passes through one function, `masked`, the identity until ansible-core 2.22's
+`mask_secrets()` goes there (F5a); a string past 256 KiB keeps its end from a line break, never a part of a line. A pipe
+whose reader has gone ends the writing, and the play goes on, without a traceback. `lib/claude_vm/guest/events.py`'s
+`Heard` reads the pipe in the run's process, a line at most 4 MiB, and hands each event, as it comes, to the job's
+`emit` (§16.8) as a `step` event of the machine, by the name a person chose: its text the task's or the play's name, its
+data a fixed set of fields each held to its type (`status`, `part`, `task`, and where there is one the item, the
+message, the output, the return code, the exception, the warnings, the diff, the attempts, and whether the result was
+censored or its failure ignored). Every string is struck of each secret of the run's redaction list (`redacted`, the
+`Secret`s the run opened, which `layer1.run` is handed), made plain (`text.plain_text`) and struck again, so that a
+secret an escape sequence split is struck once whole, then cut to its field's bound, after the strike. A line that is no
+event, or too long, is said as one that could not be read; a line the child did not finish at the pipe's end is none.
+`layer1.run` returns, with the exit status, the counts a caller needs (`events.Counts`: the failed, the unreachable, the
+changed), from Ansible's own recap or, where the child ended before it, counted from the results heard; and the end of
+what the child printed, from a line's start, struck and plain the same way, which a person sees line by line, never
+whole. A listener that fails while the child runs ends the child with its tree, and its error is raised. Nothing is
+drawn here, and NEXT STEPS are not derived. `tests/unit/test_aw_layer1_events.py` holds it on the pinned ansible-core,
+with a listener of its own standing for the job's text log: a ping's events, in order, handed to `emit`, written in the
+log and nothing printed on the terminal; a `no_log` task that fails, with a message, an output, an exception and a
+loop's item, absent from the pipe, from `emit` and from the log, where the same failure without `no_log` says both; a
+secret of the redaction list printed by tasks, in a task's name, an output, an item and split by an escape sequence,
+absent from every event, the log and the record; a control sequence reaching the log as plain text; the diff's two
+rules; the pipe closed by its reader before and in the play; a listener's failure; and the reader's own rules on lines
+of its own.
 
 **How the engine's tests reach a machine.** A test of the new engine reaches no real machine: it reaches a stand-in,
 a directory of the test's own that `tests/unit/aw_machine.py` makes, through the SSH runner (§16.6) as it reaches a
