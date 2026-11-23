@@ -120,9 +120,6 @@ PROXMOX_ELSEWHERE = {
     "inventory/group_vars/all/local.yml.example": 4,
     "inventory/group_vars/all/vault.yml.example": 2,
     "lib/claude_vm/ansible/engine.py": 4,
-    # The new engine's settings table, as literal data, has a row for each setting today documents, the API's three
-    # among them, each named once by design (docs/architecture/engine.md §16.9).
-    "lib/claude_vm/fleet/registry.py": 3,
     "lib/claude_vm/mcp/confirm.py": 4,
     "lib/claude_vm/refs.py": 3,
     "lib/claude_vm/run/model.py": 4,
