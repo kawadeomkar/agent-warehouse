@@ -600,9 +600,9 @@ the `ssh` children a run holds. It imports `schema/`, and nothing of `engine/`, 
 
 `lib/claude_vm/vendors/` is where the vendors' side goes: one HTTPS transport, which the Proxmox client uses too,
 the computer's certificates, which it uses too where a host keeps no anchor, Tailscale's calls, and downloads held to
-their vendor's signature or digest. It
-imports `schema/`, `secret.py` and, of today's modules, what `REUSED` names (`text`, to make what a peer said one
-line); of other packages, `certifi`, in `trust.py` alone. It imports nothing of `engine/`, `cli/` or `control/`, and no
+their vendor's signature or digest. It imports `schema/`, `secret.py` and, of today's modules, what `REUSED` names
+(`text`, to make what a peer said one line, and `openpgp`, to check a vendor's signature, in `downloads.py` alone); of
+other packages, `certifi`, in `trust.py` alone. It imports nothing of `engine/`, `cli/` or `control/`, and no
 pydantic.
 
 **One transport: `transport.py`.** Every HTTPS request the engine sends goes through
@@ -794,6 +794,90 @@ ready-made and unverified ones, `get_server_certificate`, `load_verify_locations
 one), set one of its checks (`CHECKS`: `check_hostname`, `verify_mode`, `verify_flags`, `hostname_checks_common_name`),
 or import today's modules that do (`TODAYS_CONTEXTS`, `trust` and `status`, which a test holds to every reused module
 that makes a context or imports one that does).
+
+**Tailscale's calls: `tailscale.py`.** `Tailscale(base_url, tls_ca_file=None, proxy=None)` is the client of Tailscale's
+API at the address its caller gives (today's `tailscale_api_url`, `https://api.tailscale.com`), on the one transport,
+with the context `trust.context(tls_ca_file)` makes and the proxy `proxy.choose` gave. It makes the three calls today's
+release makes (`roles/tailscale/tasks/api_delete.yml`), and no other:
+
+- `access_token(client_id, client_secret)`: `POST /api/v2/oauth/token`, the OAuth client's ID and secret as form
+  fields with `grant_type=client_credentials`, OAuth's grant for a client's own credentials, which Tailscale's own Go
+  client sends too and today's release leaves out. The access token it answers, which lasts an hour, is a `Secret`
+  from the moment it is read. The client secret is a `Secret`, and so may the ID be, as the vault holds it: each is a
+  form's value the transport reveals, so this module adds no entry to `REVEALS`.
+- `device(token, node_id)`: `GET /api/v2/device/<node ID>`, the device as a `Device(node_id, name, hostname)`, its
+  MagicDNS name and its host name each made one line of plain text; `None` for a 404, a device that is not there.
+- `delete_device(token, node_id)`: `DELETE /api/v2/device/<node ID>`, sent once: `True` where it deleted the device
+  (200, 204), `False` for a 404, a device deleted already or in a tailnet the token does not reach.
+
+The token of the last two is the one an OAuth client was exchanged for, or an API access token held as it is, a
+`Secret` either way, sent as a Bearer token.
+
+- **The node's ID** is what a machine reported, and an access token may delete any device of the tailnet: it goes
+  into a path only once it is held whole, with `fullmatch`, to `NODE_ID`, letters and digits, the pattern of today's
+  `tailscale_node_id_pattern`, so that no `/` or `..` takes the token to another endpoint. One that is not is
+  `NotANodeId`, with nothing sent, whose sentence shows what was given as JSON, cut, so that a newline is seen.
+- **Refusals.** A 401 or a 403 is `Denied`, by its status alone; for a device, a 403 says why it may be: an access
+  token an OAuth client was exchanged for reaches only the devices with that client's tags. Any other answer but the
+  call's own is `Refused`, with Tailscale's words - its JSON's `message`, an OAuth error's `error_description` or
+  `error`, else its status line's - the secrets the call sent struck from them as they came and again once made plain,
+  before they are cut (`Secret.struck`), so that a peer that echoes one has none of it said. A 3xx is one, never
+  followed. A 200 that is not the answer asked for is `Malformed`, and never quoted: an exchange's body holds a token.
+  The transport's own errors pass as they are: a deletion that left with no answer is its `Unknown`, never sent again,
+  which the workflow settles by reading the device.
+- **Not here.** Which device a release may delete (today's rules of its name), which credential is used where none is
+  held (open, in the standalone resolutions' section 7), and what is said to a person are the release workflow's. No
+  key is minted for a join: a join takes the vault's `tailscale_auth_key`, as today.
+
+`tests/unit/test_aw_tailscale_api.py` runs each call against `tests/molecule/fake_tailscale_api.py`, which serves
+HTTPS when given a certificate and its key (`--tls`) and plain HTTP to today's tests as before, its certificate's CA
+standing in for one of `certifi`'s roots: the exchange, the read, the deletion and its 404, and each refusal. It holds
+that an ID with a slash, a newline or a dot never reaches the fake (its `/fake/asked` lists every request made of the
+API), that `NODE_ID` is the role's pattern by its text and by its answer for every ID tried, and that a certificate
+that does not verify sends nothing; and, through a stand-in transport, a redirect, a body that is no answer, and
+Tailscale's words echoing the client secret or a token, which no error says.
+
+**Verified downloads: `keys.py` and `downloads.py`.** What a machine installs that its vendor signs is held to the
+signature here, on the computer, before a digest from it goes anywhere, as today's roles hold it
+([§7.15](custom-code.md#715-libclaude_vmopenpgppy--a-vendors-signature-checked-here)). Their two task files are the
+specification, `roles/claude_code/tasks/install_native.yml` and `roles/proxmox_template/tasks/image_signature.yml`:
+their URLs, caps, first signed release and order of checks are kept, and `lib/claude_vm/openpgp.py` is called
+directly, where they call it as a filter. Nothing is downloaded on a machine here, installed or imported: the steps
+that do call these two functions, and never `openpgp` themselves.
+
+- **The keys.** `keys.py` is a table of each vendored key file and the fingerprint its key is found by: Anthropic's
+  Claude Code release key and Ubuntu's cloud image key, read when a key is asked for from where today's roles keep
+  them, `roles/claude_code/files/claude-code.asc` and `roles/proxmox_template/files/ubuntu-cloudimage.asc`. The
+  cutover moves the files, and this table is the one place that changes; `tests/unit/test_pins.py` holds it to the
+  files and fingerprints it holds the vendors' to.
+- **Claude Code.** `claude_release(base, wanted, *, key, tls_ca_file, proxy)` takes a channel, `stable` or `latest`,
+  or a version, and returns a `Release(version, checksums)`: the SHA-256 of each platform's binary, by the manifest's
+  name for the platform, read-only. A version asked for is held to the release's pattern and to 2.1.89, the first
+  release whose manifest Anthropic signed, before anything is fetched. A channel's pointer, at most 255 bytes, names a
+  version held the same way: it is signed by nobody and needs no signature, since whatever it names must still verify.
+  Then the release's `manifest.json` and, once it is in hand, `manifest.json.sig`, each under 1 MiB; `openpgp.verify`
+  with the vendored key; and only then is the manifest read, which must name the version it was fetched as.
+- **Ubuntu.** `ubuntu_digest(base, release, file_name, *, key, tls_ca_file, proxy)` fetches `SHA256SUMS` in the
+  release's folder under `base` (`noble/release`, say) and then `SHA256SUMS.gpg` beside it, each under 1 MiB, where
+  today's list was read whole, and verifies them the same way. It returns the digest of the one line that names the
+  image, read as today's role reads it, or `NotListed` where no line or more than one does. A caller's own key is the
+  one an image of one's own is signed by, as today's image key setting names it.
+- **Bounded, and nothing unverified.** Every document is read on one transport whose `most` is 1 MiB, so none is read
+  past it, and an answer's status is read before the document's own cap, so that an error page, longer than a
+  channel's pointer, is said as the status it came with. A document one byte past its cap is `Oversized`, and nothing
+  after it is fetched. A 3xx is an answer, never followed (`NotServed`, as is any answer but 200), and the transport's
+  own errors pass as they are. Nothing is returned from a document whose signature has not verified (`Unverified`, with
+  `openpgp`'s reason), and of a document only its version and digests are. What a server named is said through
+  `plain_text`, cut, as JSON.
+
+`tests/unit/test_aw_downloads.py` serves every document from `tests/molecule/fake_downloads.py` over TLS, its root
+standing in for one of `certifi`'s, signed by keys `tests/unit/signing.py` makes or as the vendors published them
+(`tests/unit/openpgp/`). It holds each refusal, with the fake's log of requests showing nothing fetched after it: a
+document changed by one byte, a signature by another key or dated more than a day ahead, a version below the first
+signed release, a document one byte past its cap, a list with no line or two for the image, a redirect, a certificate
+that does not verify. It holds the release's pattern, the first signed release, the caps, the files' names and the line
+of a list equal to today's roles', and one rule: of the new engine, only `downloads.py` imports `openpgp`, and only
+`keys.py` names a vendored key file.
 
 ## 16.8 `runs/` — a run's record and text log, the locks, a detached run
 
