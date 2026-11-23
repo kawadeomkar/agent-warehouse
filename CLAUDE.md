@@ -40,6 +40,7 @@ just test                            # lint, then every test: unit and every Mol
 just test unit                       # pytest over tests/unit/, a worker per CPU (pytest-xdist loadgroup)
 just test unit --shard 2/6           # one of the six shards CI runs (tests/unit/durations.json balances them)
 just test engine                     # only the new engine's tests (tests/unit/test_aw_*.py, marked engine): seconds
+just test --short                    # lint, the engine's tests and today's that read the tree: for a change to no file of main's but CLAUDE.md and docs/
 just test --role proxmox_vm          # one role scenario (role: every role; molecule: every scenario)
 just test molecule --jobs 4          # the scenarios four at a time, the longest first, each in .logs/<stamp>-test-<scenario>.log
 just test provision                  # one playbook scenario (integration is the configure scenario)
@@ -406,6 +407,12 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - `tests/unit/test_hosts.py` runs the resolver on made-up layouts, the token rule through ansible-playbook, and
       the project's playbooks through an overlay against two fake Proxmox hosts with different secrets; the
       `provision` scenario's `second_host.yml` provisions, aliases and destroys a VM through one.
+    - The new engine's hosts are a folder each, the first included, `fleet/hosts/<name>/` with its `host.yml`,
+      `settings.yml` and anchor, read by `lib/claude_vm/fleet/hosts.py` as a second layout that today's core
+      (`hosts/choose.py`, `hosts/model.py`) reads as it stands; the current host is `client.yml`'s `current_host`,
+      written by `overrides.set_current` alone. `host.yml` holds no field of one computer's (a key's path is
+      `client.yml`'s, for that host), held by a literal list of its fields, and no module of the new engine reads a
+      `Host`'s `local_file`, `vault_file`, `hosts_file` or `sources`: `tests/unit/test_aw_fleet_hosts.py` holds both.
 - **The project writes exactly four things outside the repo on the controller, and has VS Code's own CLI
   write a fifth, and Claude Code's own CLI a sixth.** Read [On the controller](docs/architecture/security-model.md#on-the-controller) and
   [§4.8](docs/architecture/lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml) first.
@@ -1047,7 +1054,10 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       answer; of a proxy's answer only its status.
     - The proxy is `lib/claude_vm/vendors/proxy.py`'s `choose`: from the environment under `requests`' rule, at
       `network_proxy: environment`, with `none` the opt-in. It reads only the environment it is given, and of
-      `urllib.request` only `proxy_bypass_environment` and macOS's two readers of the system's settings.
+      `urllib.request` only `proxy_bypass_environment` and macOS's two readers of the system's settings. A URL the
+      setting names has no user or password: `setting_refusal` is the one check, which `choose` makes and
+      `fleet/overrides.py`'s `typed` makes of every value a file or `--set` gives it; a proxy that needs them is given
+      as `HTTPS_PROXY`, under `environment`.
     - The vendors' TLS context, and the Proxmox client's where a host keeps no anchor, is
       `lib/claude_vm/vendors/trust.py`'s alone: `certifi`'s file by its path, and then the file the setting
       `tls_ca_file` names, which adds to `certifi`'s list and never replaces it; never the system's store or a

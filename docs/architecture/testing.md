@@ -61,6 +61,30 @@ not strictly, the children's test of a stopped child, which failed once; and the
 that reaches the dispatch expects a failure on macOS in one outcome alone, not strictly, the run ended with its status
 and its terminal gave none of what it wrote.
 
+`just test --short` is the short set, for a change that touches no file of `main`'s but `CLAUDE.md` and `docs/`: while
+the two engines share one suite, a change of the new engine's own files. `tools/check short` compares the tree it runs
+in - the work tree, and what git neither tracks nor ignores - with the tip of `base-first`, the branch the new engine is
+built on, and refuses by name each path that differs and that `main` has, a deleted or renamed one too, and a test file
+of `tests/unit/` that is no engine file (pytest's `test_*.py` or `*_test.py`), which the set would not run. It compares
+the tree rather than `base-first...HEAD`, since a machine sent a worktree's files over a checkout of `main` has none of
+the branch's commits, and it refuses where either branch is not there, never passing a change it could not read. Then
+it lints, as the gate does, and runs in one pytest the new engine's tests and the tests of today's suite that read the
+tree (`-m "engine or tree"`): those `conftest.py`'s `TREE` names, which its hook marks `tree`, whose result a new file or
+a changed page can change - the pages and their links, the anchors of the patterns, the tracked-file guard, the file
+map, the commands named, the package's imports, the ratchets, the key files, the shards, CI's workflows, the list of
+what the project writes on this machine (every place that writes, `CLAUDE.md`'s words for each, the security model's
+table), and the tests that read every tracked file or every file of `tests/unit/`: the live output's variable, the
+facts read and a run's own `ansible.cfg`, a golden template turned on, a live test's name, `tools/status` run outside
+its harness, the MCP server's package reading the environment, and the launcher `aw`'s Python. `TREE` was found by
+planting the faults such a change can make and running the whole suite over them once, and the launcher's test by
+reading: `test_aw_guards.py`'s `FOUND` keeps the tests each fault failed, and fails where one of them is not marked or an
+entry of `TREE` names no test. It takes minutes where the unit suite takes over half an hour. What it gives up: a test
+of today's that the set leaves out and that such a change breaks - one that runs a playbook, say, through a hook or
+fixture of `tests/unit/aw_kit.py`, which every test loads - fails only where the whole suite runs, `just test unit` or
+CI's shards, and is found there among the changes since; it then joins `TREE`. A new file in a folder today's product
+reads whole (`filter_plugins/`, `inventory/group_vars/all/`, a role's `tasks/`) passes the check: of today's tests it
+meets the file map's and the generated pages' alone.
+
 Most of the new engine's code runs in the test's own process, so that process is guarded as a run is.
 `engine_guard`, a fixture of the kit's that no test asks for, holds every test the `engine` marker selects, and no
 other, from setup to teardown: `HOME` and the XDG folders in the test's own home, the directory `aw_home` names
@@ -320,7 +344,8 @@ pytest over `tests/unit/`, file by file:
   `engine` job runs `just test engine` on the other jobs' Ubuntu and on a macOS runner named by its version,
   never `macos-latest`, each on `requires-python`'s floor and the setup action's default Python, held whole: no
   key but its name, runner, 30 minutes, matrix and three steps, so no job-level `if:` skips it and no `env:`
-  narrows it.
+  narrows it; and above the jobs, the workflow's own `env:` holds the two colour variables alone, it has no
+  `defaults:`, and its `on:` takes every pull request.
 - **The shards** (`test_shards.py`): `--shard` collected as each CI shard collects it - two, three and six
   shards that between them run every test exactly once, and the tests that share a fixture's run in one; every
   name an `EACH_WORKER` lists a module-scoped fixture of its own module.
@@ -654,9 +679,9 @@ pytest over `tests/unit/`, file by file:
   assignment, `self` passes on every setting, and its
   `minimum-version`, `just_pin` and CI's `JUST_VERSION` are one version, every SHA256 of the setup action beside
   it; the action's step run for each runner's system against a stand-in `curl` and `tar` - each system's archive
-  held to its own SHA256 by the step's own comparison with `shasum -a 256`'s digest, beside the `sha256sum` each
-  runner has (on macOS a stand-in that passes a line it cannot read, as macOS 26's own does, held to what that one
-  did), never unpacked when it is not that one or when its pin is empty or a digit short, and a runner with no
+  held to its own SHA256 by the step's own comparison with `shasum -a 256`'s digest, beside a `sha256sum` that only
+  records its words, since the step asks none and any call of it shows in the calls each run is held to, never
+  unpacked when it is not that one or when its pin is empty or a digit short, and a runner with no
   archive pinned failed before anything is downloaded. Run: the vault and collections
   checks, each before any playbook, and the rules with `JUST_NO_DEPS` set; a run from another checkout
   refused, and run from a subdirectory, from the checkout spelt in another case and from a copy inside

@@ -89,6 +89,15 @@ TODAY_READS = {
 }
 # A spec's type, and a list's elements, as the table writes it.
 SPEC_TYPES = {"bool": "bool", "int": "int", "str": "str", "path": "path", "dict": "dict"}
+# A row's type as today's spec states it, where the table's is narrower: a size with its unit is a string today.
+TODAY_S_TYPE = {"size": "str"}
+# The paths on this computer whose literal default today is "", which reads as a string: typed path, so that the path
+# rule reaches them (review 12, D3.md 4).
+PATHS_OF_THIS_COMPUTER = {
+    "claude_ssh_identity_file": "the key each alias names, a file of this computer's, as ssh_identity_file is",
+    "vscode_user_settings_file": "the editor's settings file, read on this computer",
+    "destroy_sessions_dir": "the folder destroy saves a VM's sessions into, on this computer",
+}
 
 
 @functools.cache
@@ -174,7 +183,9 @@ def test_a_row_s_type_and_choices_are_its_role_variable_s_or_its_literal_default
     defaults, _feeds, _specs = _today()
     fed = _fed(each.name)
     if fed:
-        assert each.type in {_spec_type(spec) for _var, spec in fed}, [(var, _spec_type(spec)) for var, spec in fed]
+        stated_types = {_spec_type(spec) for _var, spec in fed}
+        today = "str" if each.name in PATHS_OF_THIS_COMPUTER else TODAY_S_TYPE.get(each.type, each.type)
+        assert today in stated_types, [(var, _spec_type(spec)) for var, spec in fed]
         stated = [tuple(spec["choices"]) for _var, spec in fed if spec.get("choices")]
         assert all(set(choices) == set(each.choices) for choices in stated), stated
         assert stated or each.choices == ()
@@ -183,6 +194,9 @@ def test_a_row_s_type_and_choices_are_its_role_variable_s_or_its_literal_default
     if each.name in READS_A_1_0_NAME:
         default = defaults[READS_A_1_0_NAME[each.name]]
     literal = registry.row(each.name).default if _expression(default) else default
+    if each.name in PATHS_OF_THIS_COMPUTER:
+        assert (each.type, literal) == ("path", ""), each.name
+        return
     assert each.type == _literal_type(_plain(literal))
     if each.name in catalogue.CHOICES:
         listed, also = catalogue.CHOICES[each.name]
@@ -241,8 +255,9 @@ def test_a_setting_each_host_sets_for_itself_today_is_each_host_s_own() -> None:
     own = [name for name in (*kind.always, *kind.never_inherited) if name not in LEFT]
     for name in own:
         assert rows[name].scope == "host", name
-    # The computer's own of them is kept in client.yml's map of hosts; the rest in the host's settings.yml.
-    assert sorted(name for name in own if rows[name].home == "client") == ["claude_ssh_host_domain"]
+    # The computer's own of them is kept in client.yml's map of hosts: a name this computer's resolver knows, and how
+    # this computer reaches the host's VMs (review 12, D3.md 3); the rest in the host's settings.yml.
+    assert sorted(name for name in own if rows[name].home == "client") == ["claude_ssh_host_domain", "vm_ssh_route"]
     # The four with no row are each a setting a host sets for itself today.
     assert sorted(name for name in kind.always if name in LEFT) == sorted(LEFT)
 

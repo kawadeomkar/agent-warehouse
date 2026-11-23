@@ -9,9 +9,10 @@ Then a table of the options given before any verb, but the hidden one. The usage
 (help.py), each sentence is said as help says it (words.py's `said`), and each cell is escaped as tools/docs.py escapes
 one, so a placeholder such as <name> reads as text on GitHub and on the site: tests/unit/test_aw_cli_help.py holds the
 two escapes equal. Where the table holds an option's value or the words to a pattern, the cell ends as help's row does,
-with what a value may be in words (patterns.py's `form`), and then, as a definition, the pattern itself as code: a
-code span, or an HTML code element with each | written &#124; where the pattern has one, since a | splits a GitHub
-table's cell and \\| inside a code span shows its backslash on the site, as tools/docs.py writes a value with one.
+with what a value may be in words (the check's `form_of`, the item's own words and example where the table gives
+them), and then, as a definition, the pattern itself as code: a code span, or an HTML code element with each | written
+&#124; where the pattern has one, since a | splits a GitHub table's cell and \\| inside a code span shows its backslash
+on the site, as tools/docs.py writes a value with one.
 
 Standard library, schema/ (the printer among it) and help.py only.
 """
@@ -22,9 +23,10 @@ import html
 import re
 
 from claude_vm.cli import help as helps
-from claude_vm.schema.patterns import PATTERNS, form
+from claude_vm.schema import check as checks
+from claude_vm.schema.patterns import PATTERNS
 from claude_vm.schema.printer import said
-from claude_vm.schema.words import BEFORE, VERBS, placeholder
+from claude_vm.schema.words import BEFORE, VERBS, Option, Words, placeholder
 
 # Spans left as they are: Markdown code, an HTML code element, a Markdown link's target (tools/docs.py's CODE).
 CODE = re.compile(r"(`+)(?:.+?)\1|<code>.*?</code>|\]\([^)]*\)")
@@ -64,13 +66,13 @@ def code(text: str) -> str:
     return f"`{text}`"
 
 
-def described(help: str, pattern: str | None) -> str:
+def described(item: Option | Words) -> str:
     """The cell of an option or a verb's words: its help said, and where the table holds a value to a pattern, what the
     value may be in words, as help says it, then the pattern itself as code."""
-    text = said(help)
-    if pattern is None:
+    text = said(item.help or "")
+    if item.pattern is None:
         return cell(text)
-    return f"{cell(f'{text} {form(pattern)}')}{HELD_TO}{code(PATTERNS[pattern].text)}"
+    return f"{cell(f'{text} {checks.form_of(item)}')}{HELD_TO}{code(PATTERNS[item.pattern].text)}"
 
 
 def _table(heading: str, head: tuple[str, str], rows: list[str]) -> list[str]:
@@ -87,14 +89,10 @@ def commands() -> str:
         rows = groups.setdefault(verb.group or OTHER, [])
         rows.append(f"| `{helps.usage(verb)}` | {cell(said(verb.doc))} |")
         for option in helps.options(verb):
-            rows.append(f"| {INDENT_CELL}`{helps.shown(option)}` | {described(option.help or '', option.pattern)} |")
+            rows.append(f"| {INDENT_CELL}`{helps.shown(option)}` | {described(option)} |")
         if verb.words is not None and verb.words.name != helps.REFUSED_WORDS:
             words = verb.words
-            rows.append(f"| {INDENT_CELL}`{placeholder(words)}` | {described(words.help, words.pattern)} |")
+            rows.append(f"| {INDENT_CELL}`{placeholder(words)}` | {described(words)} |")
     out = [line for group, rows in groups.items() for line in _table(group, VERB_HEAD, rows)]
-    before = [
-        f"| `{helps.shown(option)}` | {described(option.help, option.pattern)} |"
-        for option in BEFORE
-        if option.help is not None
-    ]
+    before = [f"| `{helps.shown(option)}` | {described(option)} |" for option in BEFORE if option.help is not None]
     return "\n".join(out + _table(BEFORE_ANY, BEFORE_HEAD, before))

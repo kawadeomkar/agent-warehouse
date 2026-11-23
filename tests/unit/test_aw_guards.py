@@ -66,6 +66,8 @@ WIDER_THAN_A_TEST: dict[str, str] = {
     " the fake's, made the same way",
     "test_aw_pve_writes.py::pki": "a certificate authority made in process with cryptography, for the fake Proxmox: it"
     " starts nothing and reaches nothing",
+    "test_aw_record.py::pki": "a certificate authority made in process with cryptography, for the fake Proxmox: it"
+    " starts nothing and reaches nothing",
     "test_aw_transport.py::pki": "a certificate authority made in process with cryptography: it starts nothing and"
     " reaches nothing",
     "test_aw_transport.py::other_pki": "another such authority, made the same way",
@@ -140,6 +142,173 @@ def test_every_engine_test_is_marked_and_runs_in_its_own_home(tmp_path) -> None:
     # conftest.py's own aw_home, made for each test: never one a file defines over it, nor one shared by a module.
     homes = [item for item in engine if item["home"] != ["conftest", "function"]]
     assert homes == [], "use conftest.py's aw_home: never define one in a test file, nor give it another scope"
+
+
+# The tests of today's suite that failed when the faults a short-set change can make were planted and the whole suite
+# was run over them once, on a test machine (docs/architecture/testing.md §11.1): by fault, each test by its file and
+# its name, every case of it. Each must be marked `tree` through conftest.py's TREE, so that just test --short runs it.
+# Planted too, and failing nothing but the file map or a generated page: a new playbook, group_vars file, tool and
+# scenario file, a new task file of a role, and a new engine test that tests/unit/durations.json does not name.
+FOUND: dict[str, set[str]] = {
+    "a pattern that ends in a dollar, held with match, in a new module": {
+        "test_anchors.py::test_every_pattern_that_holds_a_value_ends_at_the_end_of_the_text",
+        "test_claude_vm.py::test_a_vm_name_is_matched_whole_wherever_the_core_checks_one",
+    },
+    "a link to a page, and one to an anchor, that are not there": {
+        "test_docs.py::test_the_site_builds_strictly",
+        "test_docs.py::test_every_heading_reaches_its_built_page",
+        "test_docs.py::test_every_page_renders_the_same_on_github_and_on_the_site",
+        "test_docs.py::test_every_mermaid_fence_becomes_a_diagram",
+    },
+    "a page under docs/ that does not exist, named in a new module": {
+        "test_docs.py::test_every_docs_page_the_repository_names_exists",
+    },
+    "a path that does not exist, in a code span of CLAUDE.md": {
+        "test_docs.py::test_every_repository_path_in_a_code_span_is_a_file_or_one_git_ignores",
+    },
+    "a closing tag in a code span": {"test_docs.py::test_no_code_span_holds_a_closing_tag"},
+    "a section cited with no link": {"test_docs.py::test_every_cross_page_section_reference_is_a_link"},
+    "a page in no nav, and one at the top of docs/": {
+        "test_docs.py::test_every_page_is_in_the_nav_and_every_nav_entry_is_a_page",
+    },
+    "a generated section edited by hand, and a new task file of a role": {
+        "test_docs.py::test_generated_sections_are_up_to_date",
+    },
+    "a new file in tools/, tests/molecule/, filter_plugins/, playbooks/ and inventory/group_vars/all/": {
+        "test_docs.py::test_the_file_map_names_every_file_of_the_folders_it_lists",
+    },
+    "an aw command line no verb takes, and a just one no recipe takes, on a page": {
+        "test_commands.py::test_every_aw_command_named_is_one_the_table_accepts",
+        "test_commands.py::test_every_just_command_named_is_one_the_justfile_accepts",
+    },
+    "a new core module that loads subprocess when imported": {
+        "test_claude_vm.py::test_no_core_module_loads_ansible_yaml_asyncio_or_subprocess_when_imported",
+    },
+    "a second package in lib/": {"test_claude_vm.py::test_lib_holds_the_one_package_claude_vm"},
+    "a filter plugin that loads the core when Ansible loads it": {
+        "test_claude_vm.py::test_every_adapter_loads_no_core_module_and_each_filter_is_the_core_s_of_its_name",
+    },
+    "Proxmox's name for a machine's ID, VS Code and Zed, each named in a new module": {
+        "test_ratchets.py::test_proxmox_is_read_outside_its_own_files_no_more_than_it_is_now",
+        "test_ratchets.py::test_vs_code_is_named_outside_its_own_files_no_more_than_it_is_now",
+        "test_ratchets.py::test_zed_is_named_outside_its_own_files_no_more_than_it_is_now",
+    },
+    "a new module that takes a machine's host key on first use (StrictHostKeyChecking=accept-new)": {
+        "test_controller_writes.py::test_every_place_that_makes_a_row_s_write_is_one_of_its_sources",
+    },
+    "CLAUDE.md's words for one of the controller's writes changed": {
+        "test_controller_writes.py::test_the_invariant_names_every_row",
+    },
+    "the security model's list of the controller's writes edited by hand": {
+        "test_controller_writes.py::test_the_notes_and_the_security_model_read_the_list",
+        "test_docs.py::test_generated_sections_are_up_to_date",
+    },
+    "a new module that names the live output's variable": {
+        "test_deploy_live.py::test_no_other_test_or_scenario_draws_a_run",
+    },
+    "a fact read as a top-level variable, in a new file of the system layer's": {
+        "test_gathered_facts.py::test_no_tracked_file_reads_a_fact_as_a_top_level_variable",
+    },
+    "a new engine test that names Ansible's settings file for a run of its own": {
+        "test_gathered_facts.py::test_every_run_a_test_makes_leaves_facts_out_of_the_top_level",
+    },
+    "a new engine test that turns golden templates on": {
+        "test_golden.py::test_golden_templates_stay_off_wherever_a_test_or_the_vagrantfile_runs_a_deploy",
+    },
+    "a new engine test named as a live test, test_aw_*_live.py": {
+        "test_live_recipes.py::test_every_live_test_runs_a_real_playbook_only_as_its_own_tests_do",
+    },
+    "a new module of the MCP server's that reads the environment": {
+        "test_mcp_tools.py::test_the_server_reads_nothing_of_its_environment_but_through_the_allow_list",
+    },
+    "a new engine test that names tools/status without the harness's status_root": {
+        "test_status.py::test_every_status_run_in_a_test_writes_into_its_own_directory",
+    },
+    "a workflow whose checkout leaves its token in git's config": {
+        "test_ci.py::test_no_checkout_leaves_the_workflow_s_token_in_git_s_config",
+    },
+    "EACH_WORKER written as a call, in a new engine test": {
+        "test_shards.py::test_every_fixture_made_on_each_worker_is_a_module_fixture_of_its_own_module",
+    },
+    "a file the tracked-file guard refuses (.aw/, a page at the top of docs/), added by force": {
+        "test_tracked_files.py::test_guard_passes_on_the_real_repository",
+        "test_tracked_files.py::test_no_tracked_file_is_gitignored",
+    },
+    "a key file the pins do not hold": {"test_pins.py::test_every_vendored_signing_key_is_its_vendor_s"},
+}
+# A test file of today's that reads no tree, which conftest.py must leave unmarked: one that is cheap to collect.
+UNTREED = UNIT / "test_vt.py"
+
+# Loaded into a collection of its own, as PROBE is: each test's file, its name without its case, and its marks.
+TREE_PROBE = """
+import json
+import os
+
+
+def pytest_collection_finish(session):
+    seen = [
+        {
+            "file": item.path.name,
+            "test": getattr(item, "originalname", item.name),
+            "tree": item.get_closest_marker("tree") is not None,
+            "engine": item.get_closest_marker("engine") is not None,
+        }
+        for item in session.items
+    ]
+    with open(os.environ["AW_PROBE"], "w") as out:
+        json.dump(seen, out)
+"""
+
+
+def _tree() -> set[str]:
+    """conftest.py's TREE, as its source holds it: a set literal."""
+    module = ast.parse((UNIT / "conftest.py").read_text())
+    (value,) = [
+        node.value
+        for node in module.body
+        if isinstance(node, ast.Assign) and [getattr(target, "id", "") for target in node.targets] == ["TREE"]
+    ]
+    return ast.literal_eval(value)
+
+
+def test_every_test_a_planted_fault_failed_is_marked_tree_as_tree_names_it_and_no_other(tmp_path) -> None:
+    # Collected as the suite collects them, by tests/unit/conftest.py's hook: the files TREE and FOUND name, and one of
+    # today's that TREE leaves out. An entry that names no test the suite collects (a test renamed, a file gone) leaves
+    # what it stood for unmarked, and so does a hook that stops marking: each fails here.
+    tree = _tree()
+    found = {test for tests in FOUND.values() for test in tests}
+    files = {entry.split("::")[0] for entry in tree | found}
+    assert [name for name in files if name.startswith("test_aw_")] == [], "the engine's tests are marked engine"
+    assert UNTREED.name not in files and not [entry for entry in tree if entry.count("::") > 1], sorted(tree)
+    (tmp_path / "tree_probe.py").write_text(TREE_PROBE)
+    env = {name: value for name, value in os.environ.items() if name in PASSED_ON or name.startswith("LC_")}
+    collected = subprocess.run(
+        [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider", "-p", "tree_probe"]
+        + ["-c", str(REPO / "pyproject.toml"), "--rootdir", str(REPO)]
+        + [str(UNIT / name) for name in sorted(files)]
+        + [str(UNTREED)],
+        cwd=tmp_path,
+        env={**env, "AW_PROBE": str(tmp_path / "seen.json")},
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+    assert collected.returncode == 0, collected.stdout + collected.stderr
+    seen = json.loads((tmp_path / "seen.json").read_text())
+    named = {item["file"] for item in seen} | {f"{item['file']}::{item['test']}" for item in seen}
+    assert sorted((tree | found) - named) == [], "each entry names a test the suite collects"
+    marked = {f"{item['file']}::{item['test']}" for item in seen if item["tree"]}
+    meant = {
+        f"{item['file']}::{item['test']}" for item in seen if {item["file"], f"{item['file']}::{item['test']}"} & tree
+    }
+    assert marked == meant, sorted(marked ^ meant)
+    assert sorted(found - marked) == [], (
+        "a test a planted fault failed is not marked tree: name it in conftest.py's TREE"
+    )
+    assert [item for item in seen if item["file"] == UNTREED.name and item["tree"]] == []
+    assert [item for item in seen if item["engine"]] == []
 
 
 def _wider_fixtures(source: str) -> list[str]:

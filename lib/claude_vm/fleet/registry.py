@@ -10,9 +10,10 @@ computer's own `client.yml` (at scope `host` in its map `hosts`, by the host's n
 the role whose variables `settings <role>` lists it with (`common` for a setting that reaches no role's variable, as
 today's `just settings` places one); its description, what a person reads of it; whether its value may hold a secret
 (`secret`), so that it is never shown, never said back and never taken for one run; whether an agent may ask to change
-it (`agent`), which the agents' server reads; and, for such a setting whose type lets more through than an agent may
-give, the values an agent may give it (`values`). A row that names a secret and that an agent may change cannot be
-built.
+it (`agent`), which the agents' server reads; for such a setting whose type lets more through than an agent may
+give, the values an agent may give it (`values`); and, where its readers need more than its type, the form every value
+of a string must have (`form`) or the least an integer may be (`least`), which fleet/overrides.py holds a value to. A
+row that names a secret and that an agent may change cannot be built.
 
 `ROWS` holds today's documented settings that the new engine keeps as settings, each under its name, with its type and
 choices from the argument spec of the role variable it feeds, its default from the project's defaults or the role's,
@@ -35,11 +36,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 
-# The types a row's value takes: a boolean, an integer, a string, a path on this computer, a list of strings, and a
-# mapping of strings to the literals YAML reads. A path is read on this computer: `~` at its start is the user's home, a
-# path still relative after that is refused by name, and `""` is unset, which each such row's description says the
-# meaning of.
-TYPES = ("bool", "int", "str", "path", "list[str]", "dict")
+# The types a row's value takes: a boolean, an integer, a string, a path on this computer, a list of strings, a
+# mapping of strings to the literals YAML reads, and a size with its unit. A path is read on this computer: `~` at its
+# start is the user's home, a path still relative after that is refused by name, and `""` is unset, which each such
+# row's description says the meaning of. A size is a whole number with G or T after it, capital or small, as deploy's
+# --disk takes one, kept with its unit capital, so that 128g and 128G are one size (fleet/overrides.py's typed).
+TYPES = ("bool", "int", "str", "path", "list[str]", "dict", "size")
 # One value for the whole fleet, one for each host, or one for each machine.
 SCOPES = ("global", "host", "machine")
 # Where a value is kept: the fleet's settings.yml, a host's settings.yml, this computer's client.yml, or no file: a
@@ -52,8 +54,8 @@ GIVEN = ("machine", "user_home", "key_file")
 
 @dataclass(frozen=True)
 class ValueRule:
-    """The values an agent may give a setting whose type lets more through: those `pattern` matches whole, said to the
-    agent as `said`."""
+    """Values a pattern matches whole, said as `said`: the values an agent may give a setting whose type lets more
+    through (a row's `values`), or the form every value of a string must have (a row's `form`)."""
 
     pattern: str
     said: str
@@ -81,12 +83,18 @@ class Row:
     secret: bool = False
     agent: bool = False
     values: ValueRule | None = None
+    form: ValueRule | None = None
+    least: int | None = None
 
     def __post_init__(self) -> None:
         if self.secret and self.agent:
             raise ValueError(f"{self.name} names a secret, so no agent may change it")
         if self.values is not None and not self.agent:
             raise ValueError(f"{self.name} has a rule for an agent's values, but no agent may change it")
+        if self.form is not None and self.type != "str":
+            raise ValueError(f"{self.name} has a form, which only a string's value is held to")
+        if self.least is not None and self.type != "int":
+            raise ValueError(f"{self.name} has a least value, which only an integer's is held to")
 
 
 # ---------------------------------------------------------------- the defaults that are worked out ----
@@ -149,6 +157,19 @@ COMPUTED: tuple[Callable[..., object], ...] = (
 VERSION_FROM_AN_AGENT = ValueRule(r"stable|latest|[0-9]+\.[0-9]+\.[0-9]+", "stable, latest or a version as 2.1.319")
 
 
+# ---------------------------------------------------------------- what a value must be beyond its type ----
+
+# vm_label: one tag as Proxmox takes one (pve-common's pve-tag format), which a , or a ; would make two; held equal to
+# pve/client.py's TAG, which the writes send, by tests/unit/test_aw_fleet_registry.py.
+PROXMOX_TAG = ValueRule(
+    r"[A-Za-z0-9_][A-Za-z0-9_+.-]{0,99}",
+    "one Proxmox tag: letters, digits, _, +, . and -, starting with a letter, a digit or _",
+)
+# github_username: a GitHub account's name as init --github-user takes one (schema/patterns.py's github_user, held
+# equal by the same test), or none.
+GITHUB_USER = ValueRule(r"[A-Za-z0-9-]*", "a GitHub account's name: letters, digits and hyphens")
+
+
 # ---------------------------------------------------------------- how a row is written ----
 
 
@@ -164,10 +185,12 @@ def _fleet(
     secret: bool = False,
     agent: bool = False,
     values: ValueRule | None = None,
+    form: ValueRule | None = None,
+    least: int | None = None,
 ) -> Row:
     """A setting kept in the fleet's settings.yml: one value for the whole fleet, or at scope machine one for each
     machine, in the file's map machines."""
-    return Row(name, type_, choices, default, scope, "fleet", group, description, secret, agent, values)
+    return Row(name, type_, choices, default, scope, "fleet", group, description, secret, agent, values, form, least)
 
 
 def _host(name: str, type_: str, default: object, group: str, description: str, choices: tuple = ()) -> Row:
@@ -185,9 +208,11 @@ def _client(
     scope: str = "global",
     *,
     agent: bool = False,
+    least: int | None = None,
 ) -> Row:
-    """A setting of this computer's own, kept in its client.yml and never in a file that travels."""
-    return Row(name, type_, choices, default, scope, "client", group, description, agent=agent)
+    """A setting of this computer's own, kept in its client.yml (at scope host in its map hosts, by the host's name)
+    and never in a file that travels."""
+    return Row(name, type_, choices, default, scope, "client", group, description, agent=agent, least=least)
 
 
 def _run(name: str, type_: str, default: object, group: str, description: str) -> Row:
@@ -229,9 +254,9 @@ ROWS: tuple[Row, ...] = (
         "str",
         "",
         "proxmox_vm",
-        "A pool of the project's own on the host, for a token that reaches nothing else. New VMs, the template and "
-        "golden templates are made its members, and init grants the token's role on /pool/<name> in place of /vms, "
-        "which reaches every VM of the host (docs/getting-started/proxmox-access.md). Empty: none.",
+        "The pool on the host the fleet's VMs, its template and its golden templates are members of, and where the "
+        "token's role is granted, with VM.Audit on /vms beside it to read the node's other VMs (proxmox_audit_scope). "
+        "Empty: the fleet's own pool, which init makes.",
     ),
     _host(
         "proxmox_template_vmid",
@@ -337,10 +362,10 @@ ROWS: tuple[Row, ...] = (
     ),
     _fleet(
         "vm_disk_size",
-        "str",
+        "size",
         "32G",
         "proxmox_vm",
-        "VM sizing: the root disk of every VM a run creates, with its unit (K, M, G, T).",
+        "VM sizing: the root disk of every VM a run creates, a whole number with its unit, G or T, capital or small.",
         agent=True,
     ),
     _host(
@@ -350,12 +375,12 @@ ROWS: tuple[Row, ...] = (
         "proxmox_vm",
         "The nameservers cloud-init gives the VMs. Empty leaves them out.",
     ),
-    _fleet(
+    _host(
         "vm_searchdomain",
         "str",
         "",
         "proxmox_vm",
-        "The DNS search domain cloud-init gives the VMs. Empty leaves it out.",
+        "The DNS search domain cloud-init gives the VMs. Empty leaves it out. One network's, so each host's own.",
     ),
     _host(
         "vm_ipconfig",
@@ -530,11 +555,11 @@ ROWS: tuple[Row, ...] = (
     ),
     _client(
         "claude_ssh_identity_file",
-        "str",
+        "path",
         "",
         "common",
         "The key each alias names (IdentityFile). Empty lets ssh pick, which finds the default key vm_ssh_public_keys "
-        "reads.",
+        "reads. ~ at its start is your home; a relative path is refused by name.",
     ),
     _client(
         "claude_ssh_forward_agent",
@@ -552,7 +577,7 @@ ROWS: tuple[Row, ...] = (
         'Extra "Key value" lines written into each alias, as they are. ServerAliveInterval keeps the editor\'s '
         "connection from going stale behind a NAT or a laptop that slept.",
     ),
-    _host(
+    _client(
         "vm_ssh_route",
         "str",
         "auto",
@@ -560,8 +585,10 @@ ROWS: tuple[Row, ...] = (
         "How this machine reaches the VMs. auto: through the Proxmox host's own sshd, as a forward, where the host is "
         "reached on a tailnet (ssh dials it at a 100.64.0.0/10 or fd7a:115c:a1e0::/48 address), straight to each "
         "VM's address otherwise. host: always through it; direct: never. Through the host the aliases carry it as a "
-        "ProxyJump line, and claude_ssh_host_domain is not used (docs/guides/remote-access.md).",
+        "ProxyJump line, and claude_ssh_host_domain is not used (docs/guides/remote-access.md). This computer's own "
+        "for each host: another computer that copies the fleet's folder reaches the VMs its own way.",
         choices=("auto", "direct", "host"),
+        scope="host",
     ),
     _fleet(
         "vm_projects_dir",
@@ -704,12 +731,12 @@ ROWS: tuple[Row, ...] = (
     ),
     _client(
         "vscode_user_settings_file",
-        "str",
+        "path",
         "",
         "common",
         "The VS Code settings read (never written) to say whether the terminal starts on its own. Empty: where stock "
         "VS Code keeps them on macOS and Linux; set it for Insiders, VSCodium, or a VS Code on Windows driven from "
-        "WSL.",
+        "WSL. ~ at its start is your home; a relative path is refused by name.",
     ),
     # Claude Code.
     _fleet(
@@ -846,12 +873,12 @@ ROWS: tuple[Row, ...] = (
     ),
     _client(
         "destroy_sessions_dir",
-        "str",
+        "path",
         "",
         "common",
-        "A folder per VM and run, <name>-<YYYYMMDD-HHMMSS>, 0700, in an absolute path or one starting with ~. Empty: "
-        ".sessions/ in this checkout (git-ignored). The transcripts hold whatever their tools printed, and stay until "
-        "you delete them.",
+        "A folder per VM and run, <name>-<YYYYMMDD-HHMMSS>, 0700. Empty: .sessions/ in this checkout (git-ignored). "
+        "The transcripts hold whatever their tools printed, and stay until you delete them. ~ at its start is your "
+        "home; a relative path is refused by name.",
     ),
     _fleet(
         "destroy_sessions_max_size",
@@ -976,7 +1003,7 @@ ROWS: tuple[Row, ...] = (
         "list[str]",
         (),
         "tailscale",
-        "More flags for a join.",
+        "More flags for a join. Never an auth key, which the vault holds: these flags are shown and recorded.",
     ),
     _fleet(
         "tailscale_daemon_flags",
@@ -1032,7 +1059,8 @@ ADDED: tuple[Row, ...] = (
         "The proxy the calls to GitHub, Tailscale, the download servers and the Proxmox API go through: environment, "
         "the one HTTPS_PROXY or ALL_PROXY names but for a host NO_PROXY names (on macOS, the system's network settings "
         "where the environment names none), as a Python program takes it; none, no proxy whatever the environment "
-        "says; or the http:// URL of a proxy.",
+        "says; or the http:// URL of a proxy, with a host and no user or password: a proxy that needs them is given as "
+        "HTTPS_PROXY in the environment, under environment.",
     ),
     # Runs.
     _client(
@@ -1050,8 +1078,9 @@ ADDED: tuple[Row, ...] = (
         "int",
         20,
         "common",
-        "How many machines one run reaches at once: cloned, booted and configured side by side. --set run_forks=N "
-        "changes it for one run.",
+        "How many machines one run reaches at once, at least 1: cloned, booted and configured side by side. --set "
+        "run_forks=N changes it for one run.",
+        least=1,
     ),
     _fleet(
         "run_detached_limit",
@@ -1096,8 +1125,9 @@ ADDED: tuple[Row, ...] = (
         "str",
         "agent-warehouse",
         "common",
-        "The label each VM this fleet makes carries in Proxmox's list, so that you see the product's VMs there. "
-        "Nothing is decided from it: what is the fleet's is its pool's members with a record.",
+        "The label each VM this fleet makes carries in Proxmox's list, so that you see the product's VMs there: one "
+        "Proxmox tag. Nothing is decided from it: what is the fleet's is its pool's members with a record.",
+        form=PROXMOX_TAG,
     ),
     _fleet(
         "vm_first_boot_upgrade",
@@ -1133,6 +1163,7 @@ ADDED: tuple[Row, ...] = (
         "github_projects",
         "The GitHub account whose repositories are listed and cloned onto the VMs, which init writes from its "
         "--github-user. Empty: none given yet.",
+        form=GITHUB_USER,
     ),
     # For one run alone.
     _run(

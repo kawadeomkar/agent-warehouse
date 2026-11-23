@@ -8,7 +8,10 @@ by a name, a suffix, `*`, or, for a host that is an IPv4 address, the address or
 environment names no proxy at all, macOS's network settings are read as the standard library reads them, their
 exceptions included; Linux has no such settings. That is the setting `network_proxy` at `environment`, its default.
 At `none` there is no proxy whatever the environment says, the stricter form and an opt-in; at an `http://` URL, that
-proxy.
+proxy. A URL the setting names names no user and no password, which a file of settings, a run's record and what
+`settings` prints would hold in the clear: a proxy that needs them is given as `HTTPS_PROXY` in the environment, which
+`environment` reads and the transport holds them from as a `Secret`. `setting_refusal` is that one check of the setting,
+which `choose` makes and the overrides' `typed` (fleet/overrides.py) makes of every value a file or `--set` gives it.
 
 `choose` reads only the `environ` it is given, never this process's, so of `urllib.request` it calls only the readers
 that take what they read as an argument or read the system's settings: `proxy_bypass_environment`, given the proxies
@@ -28,19 +31,45 @@ from collections.abc import Mapping
 # The setting network_proxy's two words; any other value is an http:// URL.
 ENVIRONMENT = "environment"
 NONE = "none"
+# What network_proxy's value is refused for, each said after the setting's name and never with the value: a URL that
+# names a user, with or without a password; and one that is neither word nor an http:// URL with a host.
+CREDENTIALS = (
+    "takes no user or password: give a proxy that needs them as HTTPS_PROXY in the environment, which network_proxy:"
+    " environment reads"
+)
+NOT_ONE = f"is {ENVIRONMENT}, {NONE} or an http:// URL with a host"
+
+
+def setting_refusal(setting: str) -> str | None:
+    """What the setting ``network_proxy`` is refused for, said after its name, or None where it is one: ``environment``,
+    ``none``, or an ``http://`` URL with a host, a port where it names one, and no user or password, a %-escaped ``@``
+    among them. The one check of the setting: ``choose`` makes it, and so does the overrides' ``typed`` of every value a
+    file or ``--set`` gives it. It never says the value."""
+    if setting in (ENVIRONMENT, NONE):
+        return None
+    try:
+        parts = urllib.parse.urlsplit(setting)
+        port = parts.port
+    except ValueError:
+        return NOT_ONE
+    if "@" in urllib.parse.unquote(parts.netloc):
+        return CREDENTIALS
+    if parts.scheme != "http" or not parts.hostname or port == 0:
+        return NOT_ONE
+    return None
 
 
 def choose(setting: str, environ: Mapping[str, str], url: str) -> str | None:
     """The proxy a request to ``url`` goes through, as an ``http://`` URL (or the scheme the environment gave, which
     the transport refuses by name), or None to go straight to it: by the setting ``network_proxy``, reading only
-    ``environ`` (the module's docstring has the rule). Raises ValueError for a setting that is neither word nor an
-    ``http://`` URL."""
+    ``environ`` (the module's docstring has the rule). Raises ValueError, in ``setting_refusal``'s words, for a setting
+    that is neither word nor an ``http://`` URL with a host and no user or password."""
+    refused = setting_refusal(setting)
+    if refused is not None:
+        raise ValueError(f"network_proxy {refused}")
     if setting == NONE:
         return None
     if setting != ENVIRONMENT:
-        parts = urllib.parse.urlsplit(setting)
-        if parts.scheme != "http" or not parts.hostname:
-            raise ValueError(f"network_proxy is {ENVIRONMENT}, {NONE} or an http:// URL")
         return setting
     parts = urllib.parse.urlsplit(url)
     host = parts.hostname

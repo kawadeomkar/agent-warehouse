@@ -27,6 +27,40 @@ ROOT = Path(__file__).resolve().parents[2]
 pytest_plugins = ("aw_kit",)
 # The new engine's tests: every test of a file named so, which `just test engine` runs alone (-m engine).
 ENGINE_FILES = "test_aw_"
+# The tests of today's suite that read the tree, whose result a new file or a changed page can change, marked `tree`:
+# `just test --short` runs them beside the engine's (-m "engine or tree"), for a change that touches no file of main's
+# but CLAUDE.md and docs/ (docs/architecture/testing.md §11.1). Each a file, every test of it, or a file and a test's
+# name, every case of that test. Found by planting the faults such a change can make and running the whole suite over
+# them once (test_aw_guards.py's FOUND holds what each fault failed), and by reading which of today's tests read a file
+# only the new engine's branch has (the launcher aw); a test of today's that a short-set change broke all the same joins
+# it. A set literal: test_aw_guards.py reads it with ast.literal_eval.
+TREE = {
+    "test_anchors.py",
+    "test_ci.py",
+    "test_claude_vm.py",
+    "test_commands.py",
+    # What the project writes on this machine: every file that makes a write, CLAUDE.md's invariant, the security model.
+    "test_controller_writes.py",
+    # Every tracked file, for the live output's variable: a new module of the engine's could name it.
+    "test_deploy_live.py::test_no_other_test_or_scenario_draws_a_run",
+    "test_docs.py",
+    "test_gathered_facts.py",
+    # Every file of tests/unit/, for a golden template turned on.
+    "test_golden.py::test_golden_templates_stay_off_wherever_a_test_or_the_vagrantfile_runs_a_deploy",
+    # The launcher at the checkout's top, aw, names the managed Python the justfile and CI's setup do.
+    "test_justfile.py::test_the_managed_python_is_one_version",
+    # Every test file named as a live test, test_*_live.py, an engine's among them.
+    "test_live_recipes.py::test_every_live_test_runs_a_real_playbook_only_as_its_own_tests_do",
+    # Every module of the MCP server's package, a new one among them.
+    "test_mcp_tools.py::test_the_server_reads_nothing_of_its_environment_but_through_the_allow_list",
+    # The key files, and the new engine's table of them, lib/claude_vm/vendors/keys.py.
+    "test_pins.py",
+    "test_ratchets.py",
+    "test_shards.py",
+    # Every test file that names tools/status.
+    "test_status.py::test_every_status_run_in_a_test_writes_into_its_own_directory",
+    "test_tracked_files.py",
+}
 # What the modules in playbooks/library/ share, for the tests that load one by its path: Ansible puts a playbook's
 # module_utils folder on the path it builds the playbook's modules from, and nothing does in this process.
 ansible.module_utils.__path__.append(str(ROOT / "playbooks" / "module_utils"))
@@ -269,11 +303,14 @@ def pytest_collection_modifyitems(config, items):
     EACH_WORKER names the fixtures cheap enough to make again on each worker that needs one - a fake server - which
     join nothing. Only this project's fixtures count: pytest's own tmp_path rests on a session-scoped one, made per
     worker anyway. First, so that xdist's own hook, which turns the marks into groups, sees them, and pytest's own,
-    which selects by -m, sees the new engine's tests marked `engine` (every test of a file ENGINE_FILES names).
+    which selects by -m, sees the new engine's tests marked `engine` (every test of a file ENGINE_FILES names) and the
+    tests of today's that read the tree marked `tree` (TREE).
     """
     for item in items:
         if item.path.name.startswith(ENGINE_FILES):
             item.add_marker(pytest.mark.engine)
+        if {item.path.name, f"{item.path.name}::{getattr(item, 'originalname', item.name)}"} & TREE:
+            item.add_marker(pytest.mark.tree)
     reached = {id(item): _shared(item) for item in items}
     whole = {item.module.__name__ for item in items if reached[id(item)] is None}
     parent: dict[str, str] = {}

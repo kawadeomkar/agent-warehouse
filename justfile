@@ -1182,6 +1182,7 @@ lint ALL_HOOKS='' *PARTS:
 # for a machine with the room, which runs them that many at a time
 # (tools/molecule-lanes): every scenario took 28 minutes one after another and
 # 7.5 four at a time on an 8-core runner.
+[arg('SHORT', long='short', value='yes', help="The short set, for a change that touches no file of main's but CLAUDE.md and docs/, any other refused naming the file (tools/check short): lint, the new engine's tests and the tests of today's suite that read the tree (tests/unit/conftest.py's TREE), in minutes where unit takes half an hour; a set of its own, with no part or other option")]
 [arg('JOBS', long='jobs', pattern='[1-9]?', help="Run the Molecule scenarios this many at a time, the longest first, each one's whole output in a log of its own and a line as each ends; one at a time without it, as their images share one disk (just test molecule --jobs 4)")]
 [arg('ROLES', long='role', pattern='[a-z_,]*', help="Only these roles' scenarios, comma-separated: on its own it means the role part (just test --role common,claude_code)")]
 [arg('SHARD', long='shard', pattern='([1-9][0-9]*/[1-9][0-9]*)?', help='Only the I-th of N shards of the unit tests, each group of tests whole, as CI splits them: on its own it means the unit part (just test unit --shard 2/3)')]
@@ -1191,12 +1192,16 @@ lint ALL_HOOKS='' *PARTS:
 [no-exit-message]
 [positional-arguments]
 [script]
-test ROLES='' SHARD='' JOBS='' *PARTS:
+test ROLES='' SHARD='' JOBS='' SHORT='' *PARTS:
     {{ guard }}
-    roles=$1 shard=$2 jobs=$3
-    shift 3
-    # The words as typed, for the run's title: --role and --shard below stand for the parts they choose.
+    roles=$1 shard=$2 jobs=$3 short=$4
+    shift 4
+    # The words as typed, for the run's title: --role, --shard and --short below stand for the parts they choose.
     asked=$*
+    if [ -n "$short" ]; then
+      [ "$#" -eq 0 ] && [ -z "$roles$shard$jobs" ] || { echo "error: --short is a set of its own, with no part or other option: just test --short" >&2; exit 1; }
+      set -- short
+    fi
     if [ -n "$shard" ]; then
       [ "${shard%/*}" -le "${shard#*/}" ] || { echo "error: --shard takes I/N with I no more than N (got: [$shard])" >&2; exit 1; }
       [ -z "$roles" ] || { echo "error: --shard splits the unit tests and --role narrows the role scenarios: one at a time" >&2; exit 1; }
@@ -1219,6 +1224,8 @@ test ROLES='' SHARD='' JOBS='' *PARTS:
       set -- role
     fi
     if [ "$#" -eq 0 ]; then name=test lint=yes; set -- unit role integration provision; else name="test-$(IFS=-; printf %s "$*")" lint=; fi
+    # The short set lints first, as the gate does.
+    [ -z "$short" ] || lint=yes
     parts=" $* "
     case "$parts" in *" molecule "*) parts="$parts role integration provision " ;; esac
     runs() { case "$parts" in *" $1 "*) ;; *) return 1 ;; esac; }
@@ -1226,6 +1233,9 @@ test ROLES='' SHARD='' JOBS='' *PARTS:
       echo "error: --jobs runs Molecule scenarios side by side, and unit has none: just test molecule --jobs $jobs" >&2
       exit 1
     fi
+    # The short set holds only a change that touches no file of main's but CLAUDE.md and docs/: base-first, the
+    # integration branch the new engine is built on, against main (docs/architecture/testing.md §11.1).
+    if runs short; then tools/check short base-first main; fi
     # The scenarios --jobs runs side by side, the longest first: the parts' own, where that is more than one.
     lanes=
     if [ "${jobs:-1}" -gt 1 ]; then
@@ -1255,11 +1265,11 @@ test ROLES='' SHARD='' JOBS='' *PARTS:
     if [ -z {{ quote(live_run) }} ]; then
       stages=
       [ -z "$lint" ] || stages=lint
-      for part in unit engine role integration provision; do
+      for part in unit engine short role integration provision; do
         if runs "$part" && { [ -z "$lanes" ] || [ "$part" = unit ] || [ "$part" = engine ]; }; then stages="$stages $part"; fi
       done
       [ -z "$lanes" ] || stages="$stages molecule"
-      AGENT_WAREHOUSE_LIVE="test${roles:+ --role $roles}${shard:+ --shard $shard}${asked:+ $asked}"
+      AGENT_WAREHOUSE_LIVE="test${roles:+ --role $roles}${shard:+ --shard $shard}${short:+ --short}${asked:+ $asked}"
       state={{ quote(live_state) }}
       AGENT_WAREHOUSE_LIVE_STATE=${state:+$state-test-$$.json}
       AGENT_WAREHOUSE_LIVE_STAGES=$stages
@@ -1277,6 +1287,10 @@ test ROLES='' SHARD='' JOBS='' *PARTS:
     # The new engine's tests alone: those conftest.py marks engine, every test of tests/unit/test_aw_*.py.
     if runs engine; then
       part engine --read pytest -- "$bin/pytest" -p live_pytest tests/unit -m engine -n auto --dist loadgroup
+    fi
+    # The short set, after lint: the new engine's tests and today's that read the tree (conftest.py's TREE), one run.
+    if runs short; then
+      part short --read pytest -- "$bin/pytest" -p live_pytest tests/unit -m 'engine or tree' -n auto --dist loadgroup
     fi
     if [ -n "$lanes" ]; then
       # shellcheck disable=SC2086 # the scenarios' names, one word each

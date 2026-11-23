@@ -8,11 +8,13 @@ named on the verbs the table gives it. `aw help <verb>` prints one verb: its usa
 writes a recipe's (`aw deploy [<name>...]`) and its doc, each option with its value's placeholder (`--cores <cores>`,
 words.py's `placeholder`) and its help, `--detach` last on a verb whose run is a job, then the words it takes with
 theirs. After the help of each option and of the words that the table holds to a pattern comes what a value may be,
-in words and with an example (patterns.py's `form`: `[a whole number from 1 to 999, e.g. 8]`), never the pattern
-itself, as the refusal of a value outside it says it too, but for the words of a verb that refuses any. An option the
-table marks as a later card's (`until`) is left out until that card. A verb no card has built yet is listed and helped
-as today: it is refused only when it runs. A second word after the verb is refused before this runs, in today's
-sentence (rules.py's help.1); a word that is no verb is refused here in the one check's sentence, which never says it.
+in words and with an example (the check's `form_of`: `[a whole number from 1 to 999 with no leading 0, e.g. 8]`), the
+option's or the words' own where the table gives them (init --bridge's `e.g. vmbr1`, not a storage's name), never the
+pattern itself, as the refusal of a value outside it says it too, but for the words of a verb that refuses any. An
+option the table marks as a later card's (`until`) is left out until that card. A verb no card has built yet is listed
+and helped as today: it is refused only when it runs. A second word after the verb is refused before this runs, in
+today's sentence (rules.py's help.1); a word that is no verb is refused here in the one check's sentence, which never
+says it.
 
 Every command help prints is the program as it was started, quoted, as the printer writes it: the usage lines, which
 begin with the check's `command` (the program and the verb) and whose words and options' spellings are help's own and
@@ -31,14 +33,9 @@ from typing import TextIO
 
 from claude_vm.schema import check as checks
 from claude_vm.schema import printer
-from claude_vm.schema.patterns import form
 from claude_vm.schema.printer import said
-from claude_vm.schema.words import BEFORE, EXITS, SET, VERBOSE, VERBS, Option, Verb, placeholder
+from claude_vm.schema.words import BEFORE, EXITS, REFUSED_WORDS, SET, VERBOSE, VERBS, Option, Verb, placeholder
 
-# The words a verb takes that are no word to give: init's and mcp's, which each refuse any, as today's EXTRA does. A
-# usage line leaves them out, as today's command reference does; aw help <verb> says them with why, as just --usage
-# does.
-REFUSED_WORDS = "extra"
 # The verbs whose one word is needed, which a usage line shows without brackets, each with why: the table says how many
 # words a verb takes, not whether it needs one.
 NEEDS_ITS_WORD = {
@@ -109,7 +106,7 @@ def helped(option: Option) -> str:
     """An option's help as aw help says it: its sentence said, and the form its value may take where the table holds
     it to a pattern."""
     text = said(option.help or "")
-    return f"{text} {form(option.pattern)}" if option.pattern is not None else text
+    return f"{text} {checks.form_of(option)}" if option.pattern is not None else text
 
 
 def _named(names: list[str]) -> str:
@@ -187,7 +184,7 @@ def of(name: str) -> str:
     if verb.words is not None:
         words = said(verb.words.help)
         if verb.words.pattern is not None and verb.words.name != REFUSED_WORDS:
-            words = f"{words} {form(verb.words.pattern)}"
+            words = f"{words} {checks.form_of(verb.words)}"
         lines += ["", WORDS, *_rows([(placeholder(verb.words), words)], "  ", "  ")]
     return "\n".join(lines) + "\n"
 

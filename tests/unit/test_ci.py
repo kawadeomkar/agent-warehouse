@@ -174,6 +174,16 @@ def test_the_engine_job_runs_on_linux_and_on_macos_pinned_by_its_version_on_the_
     assert run == {"name": "Engine tests", "run": "just test engine"}
 
 
+def test_nothing_at_the_workflow_s_level_narrows_or_skips_the_jobs_it_runs():
+    # Above every job's keys, the workflow's own: its env: reaches each job (a PYTEST_ADDOPTS there would narrow the
+    # engine's suite and the unit shards with every test green), its defaults: would run each step under another
+    # shell, and an on: without pull_request, or one that filters them, would leave CI result unsaid on a pull request.
+    assert set(WORKFLOW["env"]) == {"PY_COLORS", "ANSIBLE_FORCE_COLOR"}, WORKFLOW["env"]
+    assert "defaults" not in WORKFLOW, WORKFLOW["defaults"]
+    assert "pull_request" in WORKFLOW["on"], WORKFLOW["on"]
+    assert WORKFLOW["on"]["pull_request"] is None, WORKFLOW["on"]["pull_request"]
+
+
 @pytest.mark.parametrize("runs_on", ["macos-latest", "macos-latest-large", "macos-26-xlarge", "macos-26\n", "macos"])
 def test_a_macos_runner_named_by_anything_but_its_version_is_not_taken(runs_on):
     # The names GitHub gives the runners that move under a workflow (latest) or are larger, paid ones.
