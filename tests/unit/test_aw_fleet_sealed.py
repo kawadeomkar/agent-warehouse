@@ -5,9 +5,10 @@ The closed list of names, each with its scope and kind, and the entry a host's o
 put, a read and a removal with keys the test makes, the file armored age at 0600 beside `fleet.json`; a file sealed to
 another key refused with one sentence, and a file changed by one byte, at any byte, refused and never opened; an unknown
 name refused, by its name only where it has a name's shape, the value never in the message; a value outside its kind
-refused; two writers under the lock lose neither change; a writer killed before its rename leaves the old file; a newer
-format refused by the vault's name, and a vault whose own number differs from `fleet.json`'s refused by name. A key
-that no longer opens the file reads nothing and writes nothing.
+refused; two writers under the lock lose neither change; a write of the whole map from what its caller read is refused
+where another call's put or removal came between, and that change kept; a writer killed before its rename leaves the old
+file; a newer format refused by the vault's name, and a vault whose own number differs from `fleet.json`'s refused by
+name. A key that no longer opens the file reads nothing and writes nothing.
 
 The invariant with its own test: the plaintext is never on disk. After each case every file under the test's own
 directory, its home among them, is read for every fake secret and every key the case used, and none is in anything the
@@ -280,8 +281,65 @@ def test_a_put_a_read_and_a_removal(fleet, key: Secret) -> None:
     before = sealed.path(fleet).read_bytes()
     assert sealed.remove(fleet, key, "become_password", machine="pi") is False
     assert sealed.path(fleet).read_bytes() == before, "a removal of what is not there writes nothing"
-    sealed.write(fleet, key, {"vm_password": Secret(PASSWORD)})
+    sealed.write(fleet, key, {"vm_password": Secret(PASSWORD)}, expect=sealed.read(fleet, key))
     assert _revealed(sealed.read(fleet, key)) == {"vm_password": PASSWORD}
+
+
+@pytest.mark.parametrize(
+    "between",
+    [
+        lambda fleet, key: sealed.put(fleet, key, "token", Secret(TOKEN), host="lab2"),
+        lambda fleet, key: sealed.put(fleet, key, "github_token", Secret(OTHER_WORD)),
+        lambda fleet, key: sealed.remove(fleet, key, "github_token"),
+    ],
+    ids=["another-entry-put", "the-same-entry-put-again", "an-entry-removed"],
+)
+def test_a_write_from_an_earlier_read_is_refused_and_another_call_s_change_between_is_kept(
+    fleet, key: Secret, between, seen
+) -> None:
+    # The lost put of review 21 (D7.md 1): a read, another call's put (or removal), then a write of the whole map from
+    # the read. Unchecked, the write put back the map read before the other's change, and lost it.
+    sealed.create(fleet, key)
+    sealed.put(fleet, key, "github_token", Secret(WORD))
+    read = sealed.read(fleet, key)
+    between(fleet, key)
+    kept = sealed.path(fleet).read_bytes()
+    after = _revealed(sealed.read(fleet, key))
+    with pytest.raises(sealed.Changed) as refused:
+        sealed.write(fleet, key, {**read, "tailscale_auth_key": Secret(AUTH_KEY)}, expect=read)
+    assert _refused(refused, seen) == (
+        f"error: {sealed.path(fleet)} changed since it was read: nothing is written, so read it again"
+    )
+    assert sealed.path(fleet).read_bytes() == kept
+    assert _revealed(sealed.read(fleet, key)) == after
+    # Read again, the write goes through, and what came between is in what it read.
+    again = sealed.read(fleet, key)
+    sealed.write(fleet, key, {**again, "tailscale_auth_key": Secret(AUTH_KEY)}, expect=again)
+    assert _revealed(sealed.read(fleet, key)) == {**after, "tailscale_auth_key": AUTH_KEY}
+
+
+def test_a_write_compares_the_map_it_was_given_as_read_by_its_entries_and_values(fleet, key: Secret, seen) -> None:
+    sealed.create(fleet, key)
+    sealed.put(fleet, key, "github_token", Secret(WORD))
+    # The same entries and values, each a Secret of its own: the same map, and the write goes through.
+    sealed.write(fleet, key, {"vm_password": Secret(PASSWORD)}, expect={"github_token": Secret(WORD)})
+    assert _revealed(sealed.read(fleet, key)) == {"vm_password": PASSWORD}
+    before = sealed.path(fleet).read_bytes()
+    # A value that differs, an entry missing, an entry more: each another map, and nothing is written.
+    for expect in (
+        {"vm_password": Secret(WORD)},
+        {},
+        {"vm_password": Secret(PASSWORD), "github_token": Secret(WORD)},
+    ):
+        with pytest.raises(sealed.Changed) as refused:
+            sealed.write(fleet, key, {"github_token": Secret(WORD)}, expect=expect)
+        assert "changed since it was read: nothing is written" in _refused(refused, seen)
+    # What it was given as read is held to the list and its kinds as the map it writes is, before anything is opened.
+    with pytest.raises(sealed.Refused) as refused:
+        sealed.write(fleet, key, {}, expect={"nonesuch": Secret(WORD)})
+    assert not isinstance(refused.value, sealed.Changed)
+    assert _refused(refused, seen).startswith("error: nonesuch is no secret the vault keeps: it keeps ")
+    assert sealed.path(fleet).read_bytes() == before
 
 
 def test_the_file_is_one_armored_age_file_of_the_whole_map_at_0600_beside_fleet_json(fleet, key: Secret) -> None:
@@ -314,7 +372,7 @@ def test_a_vault_is_made_once_and_beside_its_fleet_s_record(home, key: Secret, s
     for attempt in (
         lambda: sealed.create(where, key),
         lambda: sealed.put(where, key, "github_token", Secret(WORD)),
-        lambda: sealed.write(where, key, {}),
+        lambda: sealed.write(where, key, {}, expect={}),
         lambda: sealed.remove(where, key, "github_token"),
     ):
         with pytest.raises(sealed.Refused) as refused:
@@ -328,7 +386,7 @@ def test_a_vault_is_made_once_and_beside_its_fleet_s_record(home, key: Secret, s
     # A record and no vault: a write is refused, and the vault is made by create alone, once.
     for attempt in (
         lambda: sealed.put(where, key, "github_token", Secret(WORD)),
-        lambda: sealed.write(where, key, {}),
+        lambda: sealed.write(where, key, {}, expect={}),
         lambda: sealed.remove(where, key, "github_token"),
     ):
         with pytest.raises(sealed.Refused) as refused:
@@ -378,7 +436,7 @@ def test_a_file_sealed_to_another_key_is_refused_with_one_sentence_and_nothing_i
     for attempt in (
         lambda: sealed.read(fleet, theirs),
         lambda: sealed.put(fleet, theirs, "github_token", Secret(OTHER_WORD)),
-        lambda: sealed.write(fleet, theirs, {"github_token": Secret(OTHER_WORD)}),
+        lambda: sealed.write(fleet, theirs, {"github_token": Secret(OTHER_WORD)}, expect={}),
         lambda: sealed.remove(fleet, theirs, "github_token"),
     ):
         with pytest.raises(sealed.Unreadable) as refused:
@@ -483,9 +541,13 @@ def test_a_key_and_a_value_are_each_a_secret(fleet, key: Secret) -> None:
     with pytest.raises(TypeError):
         sealed.put(fleet, key, "github_token", WORD)
     with pytest.raises(TypeError):
-        sealed.write(fleet, key, {"github_token": WORD})
+        sealed.write(fleet, key, {"github_token": WORD}, expect={})
     with pytest.raises(TypeError):
-        sealed.write(fleet, key, [("github_token", Secret(WORD))])
+        sealed.write(fleet, key, [("github_token", Secret(WORD))], expect={})
+    with pytest.raises(TypeError):
+        sealed.write(fleet, key, {}, expect={"github_token": WORD})
+    with pytest.raises(TypeError):
+        sealed.write(fleet, key, {}, expect=[("github_token", Secret(WORD))])
 
 
 # ---------------------------------------------------------------- names and values ----
@@ -513,7 +575,7 @@ def test_a_write_holds_each_name_to_the_list_and_each_value_to_its_kind(fleet, k
     sealed.put(fleet, key, "github_token", Secret(WORD))
     before = sealed.path(fleet).read_bytes()
     with pytest.raises(sealed.Refused) as refused:
-        sealed.write(fleet, key, {"anthropic_api_key": Secret(OTHER_WORD), **given})
+        sealed.write(fleet, key, {"anthropic_api_key": Secret(OTHER_WORD), **given}, expect=sealed.read(fleet, key))
     assert _refused(refused, seen).startswith(said)
     assert sealed.path(fleet).read_bytes() == before
 
@@ -555,7 +617,7 @@ def test_a_newer_vault_is_refused_by_name_before_anything_is_decrypted(fleet, ke
     for attempt in (
         lambda: sealed.read(fleet, key),
         lambda: sealed.put(fleet, key, "github_token", Secret(WORD)),
-        lambda: sealed.write(fleet, key, {}),
+        lambda: sealed.write(fleet, key, {}, expect={}),
         lambda: sealed.remove(fleet, key, "github_token"),
         # Never decrypted: a key that would not open it is refused for the format all the same.
         lambda: sealed.read(fleet, _key(seen)),
@@ -646,23 +708,36 @@ sys.path.insert(0, {lib!r})
 from claude_vm.fleet import paths, sealed
 from claude_vm.secret import Secret
 where = paths.home({repo!r})
-side = sys.argv[1]
+side, how = sys.argv[1], sys.argv[2]
 key = Secret(sys.stdin.readline().strip())
 for n in range({count}):
-    sealed.put(where, key, "token", Secret(f"00000000-0000-4000-8000-{{side}}{{n:011d}}"), host=f"{{side}}{{n}}")
+    value = Secret(f"00000000-0000-4000-8000-{{side}}{{n:011d}}")
+    if how == "put":
+        sealed.put(where, key, "token", value, host=f"{{side}}{{n}}")
+        continue
+    while True:
+        read = sealed.read(where, key)
+        try:
+            sealed.write(where, key, {{**read, f"token@{{side}}{{n}}": value}}, expect=read)
+            break
+        except sealed.Changed:
+            pass
 """
 
 
-def test_two_writers_under_the_lock_lose_neither_change(home, fleet, key: Secret) -> None:
+@pytest.mark.parametrize("hows", [("put", "put"), ("put", "write")], ids=["two-puts", "a-put-and-a-write"])
+def test_two_writers_under_the_lock_lose_neither_change(home, fleet, key: Secret, hows) -> None:
     # Each puts thirty hosts' tokens of its own, at once: a put reads and writes under one lock, so each reads what the
     # other last wrote. Unlocked, a writer would put back the map it read before the other's last put, and lose it.
+    # A write of the whole map from what its writer read, beside the puts, is refused where one came between, and
+    # tried again from a new read: unchecked, it would put back the map read before the other's put, and lose it.
     sealed.create(fleet, key)
     script = WRITER.format(lib=str(LIB), repo=str(REPO), count=WRITERS)
     writers = [
         subprocess.Popen(
-            [sys.executable, "-I", "-c", script, side], stdin=subprocess.PIPE, text=True, env=environment(home)
+            [sys.executable, "-I", "-c", script, side, how], stdin=subprocess.PIPE, text=True, env=environment(home)
         )
-        for side in "ab"
+        for side, how in zip("ab", hows, strict=True)
     ]
     try:
         for each in writers:

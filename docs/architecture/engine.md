@@ -2021,13 +2021,15 @@ secret a UUID as Proxmox prints one, a password one line with no control charact
 Tailscale's auth key as today's `init` holds one, never an API token. `fleet.json`'s number for the vault is the one
 `record.refuse_newer` reads, before anything is decrypted, and the vault's own `format` must equal it: a vault whose
 number differs is refused by name. `create` writes an empty vault beside the fleet's record, once; `write` replaces the
-map; `put` and `remove` change one entry. Each holds `store.locked` on the fleet's folder, the lock `fleet.json`'s
+map, only while the vault still holds `expect`, the map its caller read, compared under the lock, so a caller that read
+before another's put is refused (`Changed`) and the put kept, as the overrides' writer is; `put` and `remove` change one
+entry of the map they read under the lock. Each holds `store.locked` on the fleet's folder, the lock `fleet.json`'s
 writer holds, across reading `fleet.json`, opening the vault with the key and replacing it through `files.write`, and
 writes it at `fleet.json`'s number, so the two numbers are read and written under one lock; a key that no longer opens
-the vault reads nothing and writes nothing, two writers lose neither change, and a writer killed part way leaves the
-old file. The plaintext is never on disk, and `_plain` and `_identity` alone read a `Secret`'s value there
-(`REVEALS`). `tests/unit/test_aw_fleet_sealed.py` holds it, with every file under a case's own directory read for every
-fake secret and key after the case.
+the vault reads nothing and writes nothing, two writers lose neither change, and a writer killed part way leaves the old
+file. The plaintext is never on disk, and `_plain` and `_identity` alone read a `Secret`'s value there (`REVEALS`).
+`tests/unit/test_aw_fleet_sealed.py` holds it, with every file under a case's own directory read for every fake secret
+and key after the case.
 
 ## 16.10 `guest/` — the helper, the system layer's inputs, layer 2
 
