@@ -28,7 +28,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from aw_machine import machine, ssh_stand_in, target
+from aw_machine import filed, machine, ssh_stand_in, target
 from harness import GH_CALLS, REPO
 from test_status_vms import CASES, EDITORS, _calls, _files, _vms
 
@@ -369,6 +369,7 @@ def _over_ssh(job: jobs.Job, at: runner.Target, command: list[str], text: str) -
 def test_the_script_sent_through_the_runner_prints_today_s_document(tmp_path, engine_guard, job) -> None:
     root = tmp_path / "machines"
     alpha = machine(root, "alpha", **CASES["ready"])
+    filed(alpha)
     engine_guard.first_on_path(ssh_stand_in(root, [alpha]))
     asked = _asked(alpha.home, alpha.system)
     # The machine's own interpreter as today's stand-ins have it: this checkout's Python, its HOME the machine's home.
