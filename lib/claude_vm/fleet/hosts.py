@@ -14,7 +14,15 @@ It holds:
 - `settings.yml`, its overrides (fleet/overrides.py): its node, storage, bridge, pool and every other row of home
   `host`, which no other host reads.
 - `proxmox-trust.pem`, where it keeps one: the anchor its API's certificate is verified against (card E3), there only
-  beside a `trust_kind`, and a `trust_kind` only beside it.
+  beside a `trust_kind`, and a `trust_kind` only beside it; or, where host.yml gives a `trust_kind` and that file is
+  not there, the anchor `write` staged beside it (`STAGED`), which a write stopped before its last step left.
+
+`write(layout, name, expect, change=..., anchor=...)` is host.yml's one writer, and its anchor's: compare-and-swap on
+the digest of what the caller read (`Layout.state`), under `store.locked` on the host's folder, held to what the reader
+takes before anything is written and read back through `fields` and `anchor` after. Its anchor and the anchor's kind
+and fingerprint are written by it alone, in an order a run stopped at any point leaves readable: a new anchor is
+staged first and host.yml written before it is put in place, so that host.yml never names a kind with no anchor to
+read, nor is an anchor ever there with no kind (`_commit`).
 
 The current host is this computer's, `current_host` in client.yml, which never travels: `Layout.current_name` reads
 it, and `make_current` writes it through fleet/overrides.py's one writer. With one host and none current, a run reaches
@@ -34,17 +42,21 @@ A Host record of this layout never names today's inventory files: its `local_fil
 `local` is the host's resolved settings, the rows of scope `host`; its `first` marks the fleet's one host.
 
 Standard library, the table and today's hosts core at import; the YAML reader is the overrides', imported by the
-functions that read a file.
+functions that read or write a file.
 """
 
 from __future__ import annotations
 
+import copy
+import hashlib
 import os
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from claude_vm import store
+from claude_vm.fleet import files as fleet_files
 from claude_vm.fleet import overrides, paths, registry
 from claude_vm.hosts import choose, model
 from claude_vm.hosts.kinds import FLEET_KINDS
@@ -56,6 +68,15 @@ from claude_vm.schema.words import PLACEHOLDER, Line
 HOSTS_REL = "fleet/hosts"
 HOST_FILE = "host.yml"
 ANCHOR = "proxmox-trust.pem"
+# A new anchor as write stages it beside the host's before it is put in place: read only where host.yml gives a kind
+# and the anchor's own file is not there, and otherwise left for the next write to take out.
+STAGED = f".{ANCHOR}.new"
+# An anchor's file and host.yml as write makes them: an anchor holds certificates alone, which are no secret, and
+# host.yml travels with the fleet's folder as its other files do.
+ANCHOR_MODE = 0o644
+# What an anchor's text is, whole: PEM certificates one after the other and nothing else - no key, no comment. Whether
+# each is a certificate is pve/pin.py's context to say.
+CERTIFICATES = re.compile(r"(?:-----BEGIN CERTIFICATE-----\n[A-Za-z0-9+/=\n]{64,16384}-----END CERTIFICATE-----\n)+")
 # The one kind of host a folder of the fleet's is: a machine that is no Proxmox host is in machines.yml.
 KIND = FLEET_KINDS["proxmox"]
 # What host.yml holds, one and all, as a refusal says it.
@@ -135,6 +156,39 @@ class Reached:
     anchor: str | None
     others: tuple[model.OtherHost, ...]
     notes: tuple[model.Note, ...]
+
+
+@dataclass(frozen=True)
+class Anchor:
+    """An anchor a host keeps: its PEM certificates, which kind it is (one of TRUST_KINDS), and the SHA-256 fingerprint
+    recorded beside it, "" for none (card E3's to work out, pve/pin.py's to hold)."""
+
+    pem: str
+    kind: str
+    fingerprint: str = ""
+
+
+@dataclass(frozen=True)
+class State:
+    """A host's host.yml and anchor as one read found them, under the lock a write takes: its fields (None where it has
+    no host.yml yet), its anchor's text (None where it keeps none), and the digest a write compares (MISSING for
+    neither)."""
+
+    fields: HostFile | None
+    anchor: str | None
+    digest: str
+
+
+class _Unchanged:
+    """The anchor write leaves as it is."""
+
+    def __repr__(self) -> str:
+        return "UNCHANGED"
+
+
+UNCHANGED = _Unchanged()
+# The digest of a host with neither host.yml nor an anchor: one not set up yet, which a write may make.
+MISSING = overrides.MISSING
 
 
 def _init(name: str) -> str:
@@ -233,6 +287,58 @@ def _made(value: object) -> tuple[Made, ...]:
     return tuple(found)
 
 
+def _file_bytes(path: Path, what: str = "the host's anchor") -> bytes | None:
+    """A file of the host's folder as bytes, at most one more than overrides.MOST of them; None where it is not there.
+    Refused where it cannot be read, saying that what it holds is not known."""
+    try:
+        with open(path, "rb") as stream:
+            return stream.read(overrides.MOST + 1)
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        raise Refused(f"{path} cannot be read ({error.strerror or error}): {what} is not known") from None
+
+
+def _digest(host: bytes | None, anchor: bytes | None) -> str:
+    """What a write compares: host.yml's bytes and the anchor's, each with whether it is there; MISSING for neither."""
+    if host is None and anchor is None:
+        return MISSING
+    made = hashlib.sha256()
+    for part in (host, anchor):
+        made.update(b"-" if part is None else b"+%d:" % len(part))
+        made.update(part or b"")
+    return made.hexdigest()
+
+
+def _host_file(raw: dict, lines: Mapping[tuple[str, ...], int], path: Path, name: str) -> HostFile:
+    """host.yml's mapping, read from path, each field held to what it takes: the HostFile it is. Refused, by its path
+    and line and the field's name, never its value, where it holds what it may not or lacks what it must give."""
+    settings = {row.name for row in registry.rows()}
+    kept: dict[str, object] = {}
+    for key, value in raw.items():
+        at = f"{path} line {lines.get((key,), 1) if isinstance(key, str) else 1}"
+        if key not in FIELDS:
+            named = isinstance(key, str) and patterns.full("setting_name", key)
+            if named and key in settings:
+                raise Refused(f"{at}: {key} is a setting, not a field of the host's: {_belongs(key)}")
+            raise Refused(f"{at}: {key if named else 'a key'} is no field of the host's: {', '.join(FIELDS)} are")
+        if value is None:
+            raise Refused(f"{at}: {key} is empty there: give it a value, or take its line out")
+        try:
+            kept[key] = HELD[key](value)
+        except ValueError as error:
+            raise Refused(f"{at}: {key} {error}") from None
+    missing = [field for field in REQUIRED if field not in kept]
+    if missing:
+        raise Refused(f"{path} does not give {', '.join(missing)}: {_init(name)} writes {_them(missing)}")
+    if kept.get("fingerprint") and "trust_kind" not in kept:
+        raise Refused(
+            f"{path} line {lines.get(('fingerprint',), 1)}: fingerprint is the anchor's, and it gives no"
+            " trust_kind: say which kind of anchor the host keeps, or take the line out"
+        )
+    return HostFile(**kept)
+
+
 # How each field of host.yml is held: a function that returns it as kept, or raises ValueError with what it takes.
 HELD: dict[str, Callable[[object], object]] = {
     "address": _address,
@@ -298,44 +404,17 @@ class Layout:
             raw, lines = overrides.literals(path, HOST_FIELDS)
         except overrides.Refused as error:
             raise Refused(str(error)) from None
-        settings = {row.name for row in registry.rows()}
-        kept: dict[str, object] = {}
-        for key, value in raw.items():
-            at = f"{path} line {lines.get((key,), 1) if isinstance(key, str) else 1}"
-            if key not in FIELDS:
-                named = isinstance(key, str) and patterns.full("setting_name", key)
-                if named and key in settings:
-                    raise Refused(f"{at}: {key} is a setting, not a field of the host's: {_belongs(key)}")
-                raise Refused(f"{at}: {key if named else 'a key'} is no field of the host's: {', '.join(FIELDS)} are")
-            if value is None:
-                raise Refused(f"{at}: {key} is empty there: give it a value, or take its line out")
-            try:
-                kept[key] = HELD[key](value)
-            except ValueError as error:
-                raise Refused(f"{at}: {key} {error}") from None
-        missing = [field for field in REQUIRED if field not in kept]
-        if missing:
-            raise Refused(f"{path} does not give {', '.join(missing)}: {_init(name)} writes {_them(missing)}")
-        if kept.get("fingerprint") and "trust_kind" not in kept:
-            raise Refused(
-                f"{path} line {lines.get(('fingerprint',), 1)}: fingerprint is the anchor's, and it gives no"
-                " trust_kind: say which kind of anchor the host keeps, or take the line out"
-            )
-        return HostFile(**kept)
+        return _host_file(raw, lines, path, name)
 
     def anchor(self, name: str, fields: HostFile) -> str | None:
         """The host's anchor, proxmox-trust.pem's text, where its host.yml gives a trust_kind; None where it keeps
-        none. Refused where one is there and the other is not, or the file cannot be read as text."""
+        none. Where host.yml gives one and that file is not there, the anchor write staged beside it is the host's: a
+        write that put host.yml in place and was stopped before the anchor. Refused where the anchor is there and the
+        kind is not, or the kind is and no anchor is, or the file cannot be read as text."""
         path = self.hosts_dir / name / ANCHOR
-        try:
-            with open(path, "rb") as stream:
-                data = stream.read(overrides.MOST + 1)
-        except FileNotFoundError:
-            data = None
-        except OSError as error:
-            raise Refused(
-                f"{path} cannot be read ({error.strerror or error}): the host's anchor is not known"
-            ) from None
+        data = _file_bytes(path)
+        if data is None and fields.trust_kind is not None:
+            data = _file_bytes(self.hosts_dir / name / STAGED)
         if data is None:
             if fields.trust_kind is not None:
                 raise Refused(
@@ -354,6 +433,36 @@ class Layout:
             return data.decode("ascii")
         except UnicodeDecodeError:
             raise Refused(f"{path} is not the text of PEM certificates") from None
+
+    def state(self, name: str) -> State:
+        """The host's host.yml and anchor as one read finds them, read under the lock a write takes, so that a write is
+        seen whole or not at all: the State whose digest write compares. A host with no folder yet has neither.
+        Refused as fields and anchor refuse, but for a host.yml that is not there."""
+        refusal = model.name_refusal(name)
+        if refusal:
+            raise Refused(f"that is no host's folder: {refusal}")
+        folder = self.hosts_dir / name
+        if not folder.is_dir():
+            return State(None, None, MISSING)
+        with store.locked(folder / HOST_FILE):
+            return self._state(name)
+
+    def _state(self, name: str) -> State:
+        """state, its caller holding the lock."""
+        folder = self.hosts_dir / name
+        host = _file_bytes(folder / HOST_FILE, "the host's fields")
+        if host is None:
+            # Not set up yet: a staged anchor is a first write's that was stopped before host.yml, and no anchor; one in
+            # its place is no host's, and nothing says which kind it is.
+            if (folder / ANCHOR).exists():
+                raise Refused(
+                    f"{folder / ANCHOR} is there, and {folder / HOST_FILE} is not: take the file out, and "
+                    f"{_init(name)} keeps the host's anchor again"
+                )
+            return State(None, None, MISSING)
+        fields = self.fields(name)
+        anchor = self.anchor(name, fields)
+        return State(fields, anchor, _digest(host, None if anchor is None else anchor.encode("ascii")))
 
     def other(self, name: str) -> model.Host:
         """The host in fleet/hosts/<name>, with what keeps it from being used, if anything: what is known of it, each
@@ -528,3 +637,192 @@ def make_current(layout: Layout, name: str, expect: str) -> str:
         return overrides.set_current(layout.home, host.name, expect, environ=layout.environ)
     except overrides.Refused as error:
         raise Refused(str(error)) from None
+
+
+# ---------------------------------------------------------------- host.yml's one writer ----
+
+
+def _anchor_held(anchor: Anchor) -> Anchor:
+    """anchor held to what the reader takes beside a kind: PEM certificates alone, as ASCII and within the bound, a kind
+    of TRUST_KINDS, and a fingerprint as openssl prints one or none; Refused otherwise, with nothing said of its text.
+    The fingerprint is kept in upper case, as pve/pin.py compares it."""
+    if not isinstance(anchor, Anchor):
+        raise Refused("an anchor to keep is an Anchor, or None for none: nothing was written")
+    pem = anchor.pem
+    if not isinstance(pem, str) or not pem.isascii() or len(pem) > overrides.MOST or not CERTIFICATES.fullmatch(pem):
+        raise Refused("an anchor holds PEM certificates and nothing else, a key least of all: nothing was written")
+    try:
+        kind = _trust_kind(anchor.kind)
+        fingerprint = _fingerprint(anchor.fingerprint).upper() if anchor.fingerprint else ""
+    except ValueError as error:
+        raise Refused(f"an anchor's kind or fingerprint {error}: nothing was written") from None
+    return Anchor(pem=pem, kind=kind, fingerprint=fingerprint)
+
+
+def _unlinked(folder: Path) -> None:
+    """No file of the host's folder that a write touches is a link: a write never goes through one, to a file that
+    does not travel with the fleet's folder or to another host's. Refused otherwise. The folder itself, and those above
+    it, are _folders'."""
+    for path in (folder / HOST_FILE, folder / ANCHOR, folder / STAGED):
+        if path.is_symlink():
+            raise Refused(f"{path} is a link, which a write never goes through: nothing was written")
+
+
+def _folders(layout: Layout, folder: Path) -> None:
+    """The folders a host's files are written in, the home's, the fleet's, its hosts' and the host's own, through
+    fleet/files.py's folder: each made at paths.DIR_MODE where it is not there, and each that is there held to be a
+    folder itself, so that a link where one goes is refused as files.py refuses one, and nothing is written through
+    it."""
+    for each in dict.fromkeys((layout.home.root, paths.fleet_dir(layout.home), layout.hosts_dir, folder)):
+        try:
+            fleet_files.folder(each)
+        except fleet_files.Unsafe as unsafe:
+            raise Refused(str(unsafe).removeprefix("error: ")) from None
+        except OSError as error:
+            raise Refused(f"{each} cannot be made ({error.strerror or error}): nothing was written") from None
+
+
+def _synced(folder: Path) -> None:
+    """The folder's entries on disk, so that a rename lands before the next step does, a crash included."""
+    descriptor = os.open(folder, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _commit(folder: Path, kind_now: bool, text: str | None, pem: str | None | _Unchanged, fingerprinted: bool) -> None:
+    """Every write of a file hosts.py makes, in the one order a run stopped after any step leaves readable, its caller
+    holding the folder's lock: host.yml's new text (None: as it is), and the anchor (UNCHANGED, None for none, or its
+    new text). kind_now is whether host.yml gives a trust_kind now; fingerprinted whether the new one records a
+    fingerprint. Each step is on disk, its folder synced, before the next.
+
+    First a write a stopped run left is put right, as the reader already reads it: a staged anchor beside a kind and no
+    anchor is put in place, and one beside an anchor or no kind is taken out. Then:
+
+    - a first anchor: staged, then host.yml, then put in place. Stopped between, host.yml gives no kind and the staged
+      file is no anchor; or it gives one and the staged file is the anchor.
+    - no anchor any more: the anchor moved to the staged name, then host.yml, then the staged file taken out. Stopped
+      between, the staged file is the anchor while host.yml gives its kind, and none once it does not.
+    - another anchor in place of one: both are always there, so a stop leaves the old anchor beside the new kind or the
+      new beside the old, either of which holds the host to no more than one of the two: where the new records a
+      fingerprint, host.yml first, so that no state between lacks it beside the new anchor; where it records none, the
+      anchor first, so that the old fingerprint goes last.
+    """
+    host, live, staged = folder / HOST_FILE, folder / ANCHOR, folder / STAGED
+    # Each step: put (a file written whole, with the mode a new one takes), move (a rename) or drop, and its paths.
+    steps: list[tuple[str, Path, Path | str | None, int]] = []
+    had = live.exists() or (kind_now and staged.exists())
+    if staged.exists():
+        steps.append(("move", live, staged, 0) if kind_now and not live.exists() else ("drop", staged, None, 0))
+    put_host = [] if text is None else [("put", host, text, paths.FILE_MODE)]
+    if isinstance(pem, _Unchanged):
+        steps += put_host
+    elif pem is None:
+        steps += [("move", staged, live, 0), *put_host, ("drop", staged, None, 0)] if had else put_host
+    else:
+        steps.append(("put", staged, pem, ANCHOR_MODE))
+        put_in_place = [("move", live, staged, 0)]
+        steps += [*put_host, *put_in_place] if not had or fingerprinted else [*put_in_place, *put_host]
+    for step, path, source, mode in steps:
+        if step == "put":
+            store.replace(path, str(source), mode_if_new=mode)
+        elif step == "move":
+            os.replace(str(source), path)
+        else:
+            path.unlink(missing_ok=True)
+        _synced(folder)
+
+
+def _target(
+    raw: dict,
+    change: Callable[[dict], None] | None,
+    held: Anchor | None | _Unchanged,
+    anchor_now: str | None,
+    path: Path,
+    name: str,
+) -> tuple[dict, str | None, HostFile]:
+    """What host.yml and the anchor become: host.yml's mapping once change and the anchor's kind and fingerprint are in
+    it, the anchor's text, and the HostFile the reader will take it for. Refused, with nothing written, where change
+    touches the anchor's kind or fingerprint, or the reader would refuse what would be written."""
+    after = copy.deepcopy(raw)
+    if change is not None:
+        change(after)
+    if any(after.get(key) != raw.get(key) for key in ("trust_kind", "fingerprint")):
+        raise Refused("a change of host.yml leaves trust_kind and fingerprint to the anchor's: nothing was written")
+    pem = anchor_now
+    if isinstance(held, Anchor):
+        after.update(trust_kind=held.kind, fingerprint=held.fingerprint)
+        if not held.fingerprint:
+            del after["fingerprint"]
+        pem = held.pem
+    elif held is None:
+        after.pop("trust_kind", None)
+        after.pop("fingerprint", None)
+        pem = None
+    try:
+        meant = _host_file(after, {}, path, name)
+    except Refused as error:
+        raise Refused(f"what would be written is not what the reader takes ({error}): nothing written") from None
+    if (meant.trust_kind is None) != (pem is None):
+        raise Refused(f"{path} would give a trust_kind with no anchor, or an anchor with none: nothing was written")
+    return after, pem, meant
+
+
+def write(
+    layout: Layout,
+    name: str,
+    expect: str,
+    *,
+    change: Callable[[dict], None] | None = None,
+    anchor: Anchor | None | _Unchanged = UNCHANGED,
+) -> str:
+    """Write the host called name's host.yml, and its anchor: the one writer of both. change edits host.yml's mapping
+    in place (any field but trust_kind and fingerprint, which are the anchor's); anchor is the Anchor to keep, None to
+    keep none, or UNCHANGED. Compare-and-swap on expect, the digest of the host's files as the caller read them
+    (Layout.state's, MISSING for a host not set up yet, whose folders it makes through fleet/files.py's folder, which
+    refuses a link where one goes, as it does for a host that is there); under store.locked on the host's folder;
+    host.yml written whole, with every field held to what the reader takes before anything is written, and the anchor
+    with its kind and fingerprint in an order no stop after any step leaves the one without the other (_commit); then
+    read back through fields and anchor. Never through a link. Refused, with nothing written, where the files changed
+    since they were read or what would be written is not what the reader takes. Returns the digest after it."""
+    refusal = model.name_refusal(name)
+    if refusal:
+        raise Refused(f"that is no host's folder: {refusal}: nothing was written")
+    held = anchor if isinstance(anchor, _Unchanged) or anchor is None else _anchor_held(anchor)
+    folder = layout.hosts_dir / name
+    path = folder / HOST_FILE
+    changed = f"{path} changed since it was read: nothing was written, so read it again"
+    if not folder.is_dir():
+        if expect != MISSING:
+            raise Refused(changed)
+        # A host not set up: what it would hold is held first, so that a refusal makes no folder.
+        _target({}, change, held, None, path, name)
+    _folders(layout, folder)
+    _unlinked(folder)
+    with store.locked(path):
+        before = layout._state(name)
+        if before.digest != expect:
+            raise Refused(changed)
+        try:
+            raw, _lines = overrides.literals(path, HOST_FIELDS)
+        except overrides.Refused as error:
+            raise Refused(str(error)) from None
+        after, pem, meant = _target(raw, change, held, before.anchor, path, name)
+        text = None if after == raw and before.fields is not None else overrides._dumped(after)
+        if text is None and pem == before.anchor and not (folder / STAGED).exists():
+            return before.digest
+        try:
+            _commit(
+                folder,
+                raw.get("trust_kind") is not None,
+                text,
+                UNCHANGED if pem == before.anchor else pem,
+                bool(meant.fingerprint),
+            )
+        except OSError as error:
+            raise Refused(f"{folder} could not be written ({error.strerror or error}): read it again") from None
+        again = layout.fields(name)
+        if again != meant or layout.anchor(name, again) != pem:
+            raise Refused(f"{path} does not read back as it was written: read it again")
+        return layout._state(name).digest

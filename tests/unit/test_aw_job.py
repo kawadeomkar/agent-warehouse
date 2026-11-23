@@ -609,6 +609,25 @@ def test_listed_is_newest_first_and_find_takes_only_sixteen_hex_digits(jobs_dir)
             jobs.drop(job)
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads what a folder's mode forbids")
+def test_find_says_a_job_folder_it_cannot_read_as_that_error_never_as_no_such_job(jobs_dir, made) -> None:
+    # Python 3.14's Path.is_file() takes every error for no file, where 3.12 and 3.13 raised it: a job whose folder's
+    # mode forbids the look is that error on every version, never "no such job" or "starting or ending"
+    # (review/code/C23.md 7). What is not there is still none: no such file, and a folder that is no directory.
+    made.folder.chmod(0)
+    try:
+        with pytest.raises(PermissionError):
+            jobs.find(jobs_dir, made.id)
+        # A listing still passes over it: a reader is never refused.
+        assert jobs.listed(jobs_dir) == []
+    finally:
+        made.folder.chmod(0o700)
+    found = jobs.find(jobs_dir, made.id)
+    assert found is not None and found.folder == made.folder
+    assert jobs.find(jobs_dir, "0123456789abcdef") is None
+    assert jobs.find(made.record, made.id) is None
+
+
 def test_drop_removes_the_record_then_closes_the_lock_then_the_folder(jobs_dir, made, monkeypatch) -> None:
     # Removing the folder while the lock file is still open makes NFS rename that file .nfsXXXX, and the folder stays
     # (experiment 40, item 3).

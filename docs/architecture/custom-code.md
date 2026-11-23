@@ -1579,6 +1579,11 @@ Never a `GET`: Proxmox holds the 401 of one with no token back three seconds, wh
   sent after the handshake: what answers sees which request carries no token, and could say nothing to this one. So
   where root SSH read the host's certificates and none verified, `just init` holds the token unless what is presented
   is the host's, a certificate read or not.
+- **`proxmox_trust_shown(url)`** reads what the address presents the same way and gives it whole, as PEM with its
+  fingerprint: for the new engine's `init` (`lib/claude_vm/engine/certificate.py`,
+  [§16.4](engine.md#164-engine--the-workflows-one-module-a-verb)), which keeps it as the host's anchor only where a
+  person vouched for it by its fingerprint, or root SSH showed it to be the host's own. Nothing of today's product
+  calls it.
 - **`anchored_context(pem)`** is the one public way to a context of the module's, for the new engine's Proxmox client
   (`lib/claude_vm/pve/pin.py`, [§16.5](engine.md#165-pve--the-typed-proxmox-client-and-the-one-table-of-privileges)),
   so that there stays one way to make a context from a certificate the host gave: a client context over the

@@ -188,6 +188,31 @@ def proxmox_trust_holds(pem, url, timeout=10) -> dict:
     return {"verified": not why, "why": why, "fingerprint": pem_fingerprint(pem) if pem else ""}
 
 
+def _presented(url: str, timeout: float) -> bytes:
+    """The certificate the API at ``url`` presents, as DER, read with a context that checks nothing, so that a
+    certificate no candidate verifies can still be named, and with nothing sent after the handshake. Raises what the
+    handshake raised."""
+    reading = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    reading.check_hostname = False
+    reading.verify_mode = ssl.CERT_NONE
+    return _hello(url, reading, timeout, http=False)
+
+
+def proxmox_trust_shown(url, timeout=10) -> dict:
+    """What the API at ``url`` presents, read with no check and no token, whole: {"pem", "fingerprint", "why"}, the
+    certificate as PEM and its SHA-256 fingerprint, or "" for each and why nothing was read. For the init of the engine
+    that replaces the playbooks at 3.0 (docs/architecture/engine.md §16.4), which keeps it as the host's anchor only
+    where a person vouched for it by its fingerprint, or root SSH showed it to be the host's own; nothing of today's
+    product calls it."""
+    try:
+        presented = _presented(str(url), float(timeout))
+    except (OSError, ssl.SSLError, ValueError) as error:
+        return {"pem": "", "fingerprint": "", "why": str(error) or type(error).__name__}
+    if not presented:
+        return {"pem": "", "fingerprint": "", "why": "it presented no certificate"}
+    return {"pem": ssl.DER_cert_to_PEM_cert(presented), "fingerprint": _fingerprint(presented), "why": ""}
+
+
 def proxmox_trust_presented(candidates, url, timeout=10) -> dict:
     """What the API at ``url`` presents, read with no check and no token, and whether it is the host's own, as the
     host's files read over root SSH say (``candidates``, the store's left out: a certificate any public CA signed proves
@@ -195,12 +220,8 @@ def proxmox_trust_presented(candidates, url, timeout=10) -> dict:
     name it holds. {"fingerprint", "host", "why"}: a certificate that is the host's under another name is a name to fix;
     one that is not is something else answering at the address. The certificate alone decides, never what follows the
     handshake: what answers sees which request carries no token, and may say nothing to it."""
-    # Read only: a context that checks nothing, so that a certificate no candidate verifies can still be named.
-    reading = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    reading.check_hostname = False
-    reading.verify_mode = ssl.CERT_NONE
     try:
-        presented = _hello(str(url), reading, float(timeout), http=False)
+        presented = _presented(str(url), float(timeout))
     except (OSError, ssl.SSLError, ValueError) as error:
         return {"fingerprint": "", "host": False, "why": str(error) or type(error).__name__}
     if not presented:

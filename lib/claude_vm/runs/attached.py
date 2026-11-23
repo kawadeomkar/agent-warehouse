@@ -22,34 +22,42 @@ and a kill (docs/architecture/engine.md §16.8).
 - SIGKILL: nothing is written, and the job reads `lost` once its lock is free (runs/job.py).
 
 While the run lives, a child the terminal stopped for asking a question there (runs/children.py's asking: SIGTTIN or
-SIGTTOU, a passphrase or a second factor asked by the `ssh` of a person's own ProxyJump, a question of `git`'s or
-`sudo`'s; route.py's `ssh` too, in a group of its own) is said at once, in a line that names its program and what to
-do, and ended with what is under it: a run answers no question at the terminal, and a child stopped there would hold
-its step to the run's end. The step that waited on it sees it killed, its machine's failure. A program that made a
-process group of its own under one is not seen: it is no child of the run's for waitid to read, and the run reads no
-process table for it; nothing the engine runs makes one. A child meant to outlive the run (children.outlive: the
-editor, a page's opener) is never ended: it is left out of every tree the ladder remembers and ends.
+SIGTTOU, a passphrase, a host key to accept or a second factor asked by the `ssh` of a person's own ProxyJump, a
+question of `git`'s or `sudo`'s; route.py's `ssh` too, in a group of its own) is said at once, in a line that names
+its program, the leader of the group the terminal stopped, and, where that is `ssh`, what to do; and it is ended with
+what is under it: a run answers no question at the terminal, and a child stopped there would hold its step to the
+run's end. The step that waited on it sees it killed, its machine's failure. A program that made a process group of
+its own under one is not seen: it is no child of the run's for waitid to read, and the run reads no process table for
+it. Nothing the engine starts makes one, but a program of the person's own ssh configuration may (a ProxyCommand under
+GNU `timeout` without --foreground): its step then waits in silence until its own bound ends it, or a Ctrl-C does, and
+fails as a silence, not as a question. A child meant to outlive the run (children.outlive: the editor, a page's opener)
+is never ended: it is left out of every tree the ladder remembers and ends.
 
 On every path but SIGKILL the terminal is put back as it was found, its echo with it; every child of the registry has
 ended or been ended before the loop closes, since asyncio kills an `ansible-playbook` it still holds when its loop
-closes and leaves the playbook's detached task workers running; the run's directory is removed; and the exit record is
-written last. Then nothing holds the process: the engine's blocking calls (asyncio.to_thread) run on daemon threads of
-the ladder's own, the loop's default executor, which are never joined, and where one is still in a call the process
-ends at once (os._exit) once its streams are flushed, an error first said as Python says one. A signal ignored on the
-way in, as `nohup` or a shell's `&` leaves one, stays ignored. No child subreaper and no systemd scope: a shared
-connection's master daemonises out of the tree, so no end here reaches it, where under a subreaper one run's end
-would cut another run's connection.
+closes and leaves the playbook's detached task workers running; the body's asynchronous generators still suspended are
+closed, for SETTLE seconds at most; the run's directory is removed; and the exit record is written last. Then nothing
+holds the process: the engine's blocking calls (asyncio.to_thread) run on daemon threads of the ladder's own, the
+loop's default executor, which are never joined, and where one is still in a call the process ends at once (os._exit)
+once its streams are flushed, an error first said as Python says one. A signal ignored on the way in, as `nohup` or a
+shell's `&` leaves one, stays ignored. No child subreaper and no systemd scope: a shared connection's master daemonises
+out of the tree, so no end here reaches it, where under a subreaper one run's end would cut another run's connection.
 
 The tree is the process table's (claude_vm.proc), read with the interrupts held off, and only to end it: nothing here
 decides a job's state from it. No thread blocks a signal: a process forked from a thread starts with that thread's
 mask, which stays through exec, so a program a call in a thread starts (route.py's `ssh`, a vendor's tool) would never
 take a Ctrl-C, a hangup or a kill. A signal the kernel hands another thread still runs its handler in the run's thread,
-wherever that is; so while the table is read and what it leads to signalled, and while the run closes, the handler
-only takes note, and each signal noted is handled as it came once that is done (`_held`): the hold is real whatever
-thread is alive, a body's own pool and asyncio's watcher on macOS among them. While the ladder runs, Python's and
-asyncio's own messages stay off the person's terminal: an end Python drops (an Abandoned raised in a fork's hook) and
-asyncio's reports of a callback's error or a task left pending. Standard library only; asyncio, termios and
-claude_vm.proc are imported inside the functions that use them.
+wherever that is; so while the table is read and what it leads to signalled, and while the run takes its outcome and
+writes its record, the handler only takes note, and each signal noted is handled as it came once that is done
+(`_held`): the hold is real whatever thread is alive, a body's own pool and asyncio's watcher on macOS among them. No
+hold runs the loop, so no code of the body's runs held, and nothing it starts takes the interrupts blocked: the close's
+loop, which ends the watch and closes the body's generators, runs unheld, where a second Ctrl-C ends the tree and a
+SIGTERM or SIGHUP is what the run dies of, as anywhere else. While the ladder runs, Python's and asyncio's own messages
+stay off the person's terminal: an end Python drops (an Abandoned raised in a fork's hook) and the loop's reports of
+what the ladder ended or left (a task left pending, a callback a cut left half done), which the run's text log (card
+C12) takes. An error of the ladder's own callbacks (a Ctrl-C's stop, the grace's end, the wake) is never one of them:
+each says its own, in a line of aw's own. Standard library only; asyncio, termios and claude_vm.proc are imported
+inside the functions that use them.
 """
 
 from __future__ import annotations
@@ -97,11 +105,21 @@ FINISHING = "aw: stopping once {reason} is finished: Ctrl-C again ends it now"
 LEFT = "aw: the run's work did not end within {settle} s of being stopped, and is left unfinished"
 # How often the run looks for a child the terminal has stopped, and what it says of one.
 ASKING_POLL = 0.2
+# The program named is the leader of the group the terminal stopped, which is what the watch sees; what to do is said
+# for `ssh` alone, whose questions are the person's own keys and jumps.
 ASKED = (
-    "aw: {child} stopped at the terminal to ask a question there (a key's passphrase, a second factor), which a run"
-    " never answers: it is ended, and its machine fails. Hold the key in an agent (ssh-add), or give a ProxyJump of"
-    " yours what it asks for in its own settings, then run it again"
+    "aw: {child} stopped at the terminal to ask a question there (a passphrase, a host key to accept, a password),"
+    " which a run never answers: it is ended, and its machine fails"
 )
+ASKED_BY_SSH = (
+    ". Hold the key in an agent (ssh-add), give a ProxyJump of yours what it asks for in its own settings, or connect"
+    " through it once by hand to accept its host key; then run it again"
+)
+# What a question is read from: a terminal or a pipe, which Linux's epoll can wait on. A regular file or /dev/null it
+# refuses, where macOS's kqueue would take either and the read end at once.
+UNASKABLE = "a question is read from a terminal or a pipe: descriptor {fd} is {what}, which nothing can be typed into"
+# What the ladder says where one of its own callbacks failed.
+OWN_ERROR = "aw: the run's own {what} failed: {error}"
 # Why a run ended as it did, in its record.
 BY_CTRL_C = "Ctrl-C"
 BY_CTRL_C_TWICE = "Ctrl-C twice"
@@ -110,10 +128,6 @@ DONE = "done"
 BY_TERMINAL = "terminal"
 
 Body = Callable[["Context"], Awaitable["int | None"]]
-
-# A body's work still pending when its run ended, kept until the process ends: asyncio reports a task it destroys
-# pending, and the run has said its own line for it.
-_LEFT: list[asyncio.Task] = []
 
 
 class Abandoned(KeyboardInterrupt):
@@ -239,10 +253,15 @@ class Context:
 
     async def typed(self, fd: int = 0, most: int = TYPED) -> bytes:
         """What the person types on fd, read on the loop, never in a thread: the bytes there once fd can be read - a
-        line in a terminal's cooked mode, a key in raw mode - or b"" at its end. A question is up while it waits: the
-        first Ctrl-C ends the run there, as the owner's answer 4 says, the read raising asyncio.CancelledError and the
-        run stopping, rather than waiting on for an answer. A prompt that reads the terminal raw, where Ctrl-C is a
-        byte, sends this process SIGINT for it. Never begun once the run is stopping: asyncio.CancelledError."""
+        line in a terminal's cooked mode, a key in raw mode - or b"" at its end, where fd is a terminal or a pipe. Any
+        other descriptor - a regular file, /dev/null, as standard input is in a detached run or under `< file` - is
+        refused before anything waits, ValueError in a sentence of aw's own (UNASKABLE): Linux's epoll cannot wait on
+        it, and macOS's kqueue would end the read at once, so the two systems would differ. A question is up while it
+        waits: the first Ctrl-C ends the run there, as the owner's answer 4 says, the read raising
+        asyncio.CancelledError and the run stopping, rather than waiting on for an answer. A prompt that reads the
+        terminal raw, where Ctrl-C is a byte, sends this process SIGINT for it. Never begun once the run is stopping:
+        asyncio.CancelledError. One question at a time on a descriptor: a second, while the first waits, is
+        RuntimeError."""
         import asyncio
 
         if isinstance(fd, bool) or not isinstance(fd, int) or fd < 0:
@@ -251,6 +270,9 @@ class Context:
             raise ValueError("a question's read takes at least one byte")
         if self.cancelled.is_set():
             raise asyncio.CancelledError("the run is stopping: no question is asked")
+        what = _unaskable(fd)
+        if what is not None:
+            raise ValueError(UNASKABLE.format(fd=fd, what=what))
         reading = self._ladder.reading
         if fd in reading:
             raise RuntimeError(f"descriptor {fd} is already read for a question: one question at a time")
@@ -278,10 +300,36 @@ class Context:
             loop.remove_reader(fd)
 
 
+def _unaskable(fd: int) -> str | None:
+    """What fd is, where a question cannot be read from it; None for a terminal, a pipe or a socket, which every loop
+    can wait on."""
+    import stat
+
+    found = os.fstat(fd)
+    if stat.S_ISFIFO(found.st_mode) or stat.S_ISSOCK(found.st_mode) or os.isatty(fd):
+        return None
+    if stat.S_ISREG(found.st_mode):
+        return "a regular file"
+    null = os.stat(os.devnull)
+    if (found.st_dev, found.st_ino) == (null.st_dev, null.st_ino):
+        return os.devnull
+    if stat.S_ISDIR(found.st_mode):
+        return "a directory"
+    return "a device that is no terminal"
+
+
 def _say(line: str) -> None:
     """line on standard error, where a terminal that has gone cannot fail the run's end."""
     with contextlib.suppress(Exception):
         print(line, file=sys.stderr, flush=True)
+
+
+def asked_line(program: str) -> str:
+    """The line said of a child the terminal stopped to ask a question there: program, the leader of the group it
+    stopped, and what to do where that is ssh, by its program's name, which is the SSH runner's kind's (children.SSH):
+    never for a child of that kind that runs another program."""
+    said = ASKED.format(child=plain_text(program))
+    return said + ASKED_BY_SSH if program == children.SSH else said
 
 
 def _terminal() -> tuple[int, list] | None:
@@ -350,8 +398,10 @@ def _end_now(status: int, error: BaseException | None) -> None:
 
 
 def _unsaid(_loop: asyncio.AbstractEventLoop, _context: dict[str, Any]) -> None:
-    """The loop's exception handler: asyncio's own reports - a callback's error, a task destroyed pending - kept off the
-    person's terminal while the run is on; the run's text log (card C12) takes them."""
+    """The loop's exception handler: the loop's own reports of what the ladder ended or left - a task destroyed
+    pending, a callback a cut left half done (asyncio's transport of a child whose start a second Ctrl-C cut), a body's
+    own callback - kept off the person's terminal while the run is on; the run's text log (card C12) takes them. No
+    error of the ladder's own callbacks reaches it: each says its own (_Ladder._own)."""
 
 
 def _dropping(previous: Callable[[Any], object]) -> Callable[[Any], object]:
@@ -401,10 +451,11 @@ class _Ladder:
         self.interrupted: set[children.Child] = set()
         # The questions up, each read's future by its descriptor.
         self.reading: dict[int, asyncio.Future[bytes]] = {}
-        # From the first moment of its close, a run's handler only takes note.
+        # From the first moment of its close, a run's handler begins no stop and raises no end at once: it ends the
+        # tree, and takes note of what to die of.
         self.closing = False
-        # While the table is read and what it leads to signalled, or the run closes (_held): how deep, and each signal
-        # whose handler ran meanwhile, to be handled as it came once nothing holds them.
+        # While the table is read and what it leads to signalled, or the record written (_held): how deep, and each
+        # signal whose handler ran meanwhile, to be handled as it came once nothing holds them.
         self.holding = 0
         self.noted: list[int] = []
         # What could not read the process table, or record the stop, said at the end.
@@ -427,7 +478,7 @@ class _Ladder:
             self.interrupts += 1
             if self.interrupts == 1:
                 if not ending:
-                    self._soon(self.stop)
+                    self._soon(self.stop, "stop at a Ctrl-C")
                 return
             if self.interrupts > 2:
                 return
@@ -442,21 +493,31 @@ class _Ladder:
             return
         if self.cut is None:
             self.cut = signum
-        self._soon(self.wake)
+        self._soon(self.wake, "end at once")
         # Only out of the loop: anywhere else the run's own code is about to take note of the end.
         if self.loop.is_running():
             raise Abandoned(signum)
 
-    def _soon(self, callback: Callable[[], None]) -> None:
+    def _soon(self, callback: Callable[[], None], what: str) -> None:
         with contextlib.suppress(RuntimeError):  # a loop already closed
-            self.loop.call_soon_threadsafe(callback)
+            self.loop.call_soon_threadsafe(self._own, callback, what)
+
+    def _own(self, callback: Callable[[], None], what: str) -> None:
+        """callback, one of the ladder's own, as the loop runs it: an error of its own said at once in a line of aw's
+        own, what it is named by what, never left to the loop's handler, which says nothing it is handed (_unsaid). An
+        end at once (Abandoned) goes through, as it would from the loop."""
+        try:
+            callback()
+        except Exception as error:
+            _say(OWN_ERROR.format(what=what, error=plain_text(f"{type(error).__name__}: {error}")))
 
     @contextlib.contextmanager
     def _held(self) -> Iterator[None]:
         """The interrupts held off, in the run's thread, while the table is read and what it leads to signalled, or the
-        run closes: blocked in this thread, and the handler, which a signal the kernel handed another thread still runs
-        here, only taking note meanwhile, so that no end begins inside another half way. Once the outermost hold ends,
-        each signal noted is handled as it came."""
+        run's outcome taken and its record written: blocked in this thread, and the handler, which a signal the kernel
+        handed another thread still runs here, only taking note meanwhile, so that no end begins inside another half
+        way. Once the outermost hold ends, each signal noted is handled as it came. Never around the loop: a body's code
+        run inside a hold, and what it started, would take the interrupts blocked."""
         held = signal.pthread_sigmask(signal.SIG_BLOCK, TAKEN)
         self.holding += 1
         try:
@@ -549,7 +610,7 @@ class _Ladder:
         else:
             _say(at + STOPPING.format(grace=STOP_GRACE))
         self.deadline = self.loop.time() + STOP_GRACE
-        self.loop.call_at(self.deadline, self.grace_over)
+        self.loop.call_at(self.deadline, self._own, self.grace_over, "end of the grace")
         for waiting in list(self.reading.values()):
             # The first Ctrl-C at a prompt ends the run there (the owner's answer 4): no answer is waited for.
             waiting.cancel("the run was stopped at its question")
@@ -594,7 +655,7 @@ class _Ladder:
                     if child in self.asked:
                         continue
                     self.asked.add(child)
-                    _say(ASKED.format(child=plain_text(child.program)))
+                    _say(asked_line(child.program))
                     with self._held():
                         proc.end(child.pid, signum=signal.SIGKILL, blind=self.blind.append)
             except Exception as error:
@@ -672,9 +733,9 @@ class _Ladder:
 
     def _left(self) -> None:
         """The body's work still pending once settled - one that would not take its cancel - said in a line of aw's
-        own, and kept until the process ends."""
+        own. asyncio's own report of it, once it is destroyed pending, goes to the loop's handler, which says nothing
+        (_unsaid)."""
         if self.task is not None and not self.task.done():
-            _LEFT.append(self.task)
             _say(LEFT.format(settle=SETTLE))
 
     def _raised(self) -> BaseException | None:
@@ -725,8 +786,14 @@ class _Ladder:
         return found
 
     def _close_loop(self) -> None:
+        """The loop closed, once the body's asynchronous generators still suspended are closed, for SETTLE seconds at
+        most: one whose `finally` does not return is left as it is, as a body's work that will not take its cancel is,
+        and asyncio's report of it goes to the loop's handler (_unsaid)."""
+        import asyncio
+
         with contextlib.suppress(Exception):
-            self.loop.run_until_complete(self.loop.shutdown_asyncgens())
+            closing = self.loop.create_task(self.loop.shutdown_asyncgens())
+            self.loop.run_until_complete(asyncio.wait({closing}, timeout=SETTLE))
         self.loop.close()
 
     def _end(self, outcome: str, status: int, why: str) -> None:
@@ -770,13 +837,16 @@ class _Ladder:
         finally:
             self.closing = True
             try:
-                # The close held as a read of the table is: a signal meanwhile, in whichever thread, is noted, then
+                # A call in a thread still waiting stops at its next look.
+                self.ctx.stopping.set()
+                # The loop's last runs, unheld: what of the body's runs there (a task left pending, a generator's
+                # close) runs with no signal blocked, as everything it starts does, and a signal meanwhile is the
+                # handler's at once, which from here only ends the tree and takes note of what to die of (closing).
+                self._unwatch()
+                self._close_loop()
+                # The record held as a read of the table is: a signal meanwhile, in whichever thread, is noted, then
                 # handled once the record is written, which takes note of what to die of.
                 with self._held():
-                    # A call in a thread still waiting stops at its next look.
-                    self.ctx.stopping.set()
-                    self._unwatch()
-                    self._close_loop()
                     outcome, status, why, error = self.outcome()
                     _put_back(found)
                     self._end(outcome, status, why)

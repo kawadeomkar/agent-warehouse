@@ -940,6 +940,24 @@ def test_a_refusal_whose_holder_s_lock_cannot_be_read_says_the_error_and_never_f
     assert holder.wait() == 0
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads what a folder's mode forbids")
+def test_a_refusal_whose_holder_s_job_folder_cannot_be_read_says_the_error_on_every_python(start, state) -> None:
+    # The holder's job folder at mode 0: on Python 3.14 Path.is_file() took that for no record, and the refusal said
+    # "starting or ending" where 3.12 and 3.13 said the error (review/code/C23.md 7, job.py's find).
+    holder = start("holder", machines=[("pve", "alpha")], steps=[{}])
+    folder = state / paths.JOBS / holder.first("taken")["taken"]
+    folder.chmod(0)
+    try:
+        refused = start("refused", machines=[("pve", "alpha")])
+        said = refused.first("refused")
+        assert (said["refused"], said["job"]) == (UNREAD.format(why="Permission denied"), None)
+        assert refused.wait() == 1 and "Traceback" not in refused.err
+    finally:
+        folder.chmod(0o700)
+    holder.go(0)
+    assert holder.wait() == 0
+
+
 def test_a_refusal_whose_holder_s_lock_meets_a_descriptor_limit_says_so(start, own_job, state, monkeypatch) -> None:
     holder = start("holder", machines=[("pve", "alpha")], steps=[{}])
     held = os.fspath(state / paths.JOBS / holder.first("taken")["taken"] / jobs.LOCK)

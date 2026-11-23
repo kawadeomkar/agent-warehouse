@@ -410,7 +410,11 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - The new engine's hosts are a folder each, the first included, `fleet/hosts/<name>/` with its `host.yml`,
       `settings.yml` and anchor, read by `lib/claude_vm/fleet/hosts.py` as a second layout that today's core
       (`hosts/choose.py`, `hosts/model.py`) reads as it stands; the current host is `client.yml`'s `current_host`,
-      written by `overrides.set_current` alone. `host.yml` holds no field of one computer's (a key's path is
+      written by `overrides.set_current` alone. `host.yml` and the anchor are written by `hosts.write` alone, a
+      compare-and-swap under the folder's lock, the anchor with its `trust_kind` and `fingerprint` in an order a run
+      stopped after any step leaves readable (`tests/unit/test_aw_fleet_host_writer.py`); what the anchor is, `init`'s
+      `lib/claude_vm/engine/certificate.py` works out with no credential sent, by today's `trust.py`'s probes, and makes
+      no TLS context but through `pin.kept` (`tests/unit/test_aw_engine_certificate.py`). `host.yml` holds no field of one computer's (a key's path is
       `client.yml`'s, for that host), held by a literal list of its fields, and no module of the new engine reads a
       `Host`'s `local_file`, `vault_file`, `hosts_file` or `sources`: `tests/unit/test_aw_fleet_hosts.py` holds both.
 - **The project writes exactly four things outside the repo on the controller, and has VS Code's own CLI
@@ -1170,7 +1174,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `children.py` is a starter. `start` gives the child `AGENT_WAREHOUSE_JOB`, the job's
       ID, whatever environment it is handed, and takes it from a shared master, which other runs may ride after this
       one ends; a process group or a session of its own; every signal a handler can be given at its default and none
-      blocked, since a run started under `nohup` ignores SIGINT and Python ignores SIGPIPE; and standard input named,
+      blocked, since a run started under `nohup` ignores SIGINT and Python ignores SIGPIPE (by a `preexec_fn` of
+      `signal.signal` and `signal.pthread_sigmask` alone: it runs in a child forked beside the run's threads, where a
+      lock another thread held stays held); and standard input named,
       never the run's own descriptor 0, `/dev/null` in a session. The children `start` does not start are `route.py`'s
       `ssh` (the hop, `ssh -G`) and `proc.py`'s `ps`: a run carries no marker it inherited, which the launcher at the
       checkout's top unsets and `cli/main.py` takes out of the environment at once, so they carry none.
@@ -1189,10 +1195,13 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       turns the echo off before it reads: the `ssh` of a person's own `ProxyJump`, a question of `git`'s or `sudo`'s),
       which `children.asking` reads with `waitid`'s `WNOWAIT` - the registry's children and `route.py`'s `ssh` in a
       process group of its own (`children.watched`, `route.leading`) - is said by the run within a second, naming its
-      program and what to do, and ended: never left stopped and silent. What the watch does not see is a program that
-      made a process group of its own under one of them, which stops alone and is no child of the run's for `waitid`
-      to read: the run never reads the process table for it, since nothing the engine runs makes one and `ps` cannot
-      tell a terminal's stop from a person's SIGSTOP.
+      program, the leader of the group the terminal stopped, and, only where that is `ssh`, what to do, and ended: never
+      left stopped and silent. What the watch does not see is a program that made a process group of its own under one
+      of them, which stops alone and is no child of the run's for `waitid` to read: the run never reads the process
+      table for it, since nothing the engine starts makes one and the table cannot tell a terminal's stop from a
+      person's SIGSTOP. A program of the person's own `~/.ssh/config` may make one (a `ProxyCommand` under GNU `timeout`
+      without `--foreground`): its step then waits in silence until its own bound ends it (the runner's 20 s,
+      `route.py`'s 5 to 20 s) or a Ctrl-C does, and fails as a silence, not as a question.
     - `tests/unit/test_aw_children.py` holds it, with real children that report what they were given, and scans of the
       new engine's code for each rule; `tests/unit/test_aw_attached.py` the opener, the question at a terminal, and a
       run at one that starts no `ps`.
@@ -1455,12 +1464,16 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   executor, never joined, and where one is still in a call once the record is written the process ends by `os._exit`,
   since Python joins a `ThreadPoolExecutor`'s threads at exit. No thread blocks a signal - each call runs with none
   blocked, whatever its maker held - since a program a call in a thread starts (`route.py`'s `ssh`) keeps its thread's
-  mask through `exec`; while the run reads the process table and signals what it leads to, and while it closes, the
-  handler, which runs in the run's thread whatever thread the kernel handed the signal to, only takes note, and each
-  signal noted is handled once that is done (`_held`). A call in a thread that waits is handed the run's
+  mask through `exec`; while the run reads the process table and signals what it leads to, and while it takes its
+  outcome and writes its record, the handler, which runs in the run's thread whatever thread the kernel handed the
+  signal to, only takes note, and each signal noted is handled in the order it came once the outermost hold is done
+  (`_held`). No hold runs the loop: the close's loop, where a body's generators are closed (for `SETTLE` at most), runs
+  unheld, so nothing of the body's runs with the interrupts blocked. An error of the ladder's own callbacks is said in
+  a line of `aw`'s own, never dropped with the loop's reports. A call in a thread that waits is handed the run's
   `Context.stopping` (the Proxmox client's `follow`), set at a first Ctrl-C, at an end at once (a second, a SIGTERM, a
   SIGHUP), at the grace's end and at the close, never a phase inside a shield; a question reads on the loop
-  (`Context.typed`), never in a thread, and one Ctrl-C there ends the run. `tests/unit/test_aw_attached.py` holds it,
+  (`Context.typed`), never in a thread, from a terminal or a pipe alone (`/dev/null` or a file refused before it waits,
+  in `aw`'s own words), one at a time, and one Ctrl-C there ends the run. `tests/unit/test_aw_attached.py` holds it,
   each rule by a test that fails without it.
 - **A scenario's container is still booting when Molecule's create returns.** The boot empties `/tmp`
   (`systemd-tmpfiles-setup.service`, from `D /tmp` in the image's `tmp.conf`), where a module's payload is unpacked

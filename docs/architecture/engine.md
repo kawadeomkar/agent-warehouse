@@ -463,6 +463,39 @@ nothing; a block the engine cannot read, a record that names another VM's UUID a
 and the label is `vm_label`'s value beside a person's tags. A syntax-tree scan holds that no module of the new engine
 names a description to send but this one, the client, its table and its reader of answers, each with why.
 
+**The API's certificate: `certificate.py`.** Before `init` sends a Proxmox host anything that carries a credential,
+`work_out(host, given, root_ssh, ask)` settles what its API's certificate is held to, by today's `trust.py`'s probes,
+which carry none, and returns `Kept` (the anchor to keep, or none) or a `Refusal`. First what checking uses now: the
+host's anchor, its name checked unless a fingerprint is recorded beside it, which the certificate presented must then
+have, as the client holds it; or, where it keeps none, this computer's certificates, certifi's list with the file
+`tls_ca_file` names added, handed to the probe as their certificates' text, so that `trust.py`'s own idea of a store,
+which reads `REQUESTS_CA_BUNDLE`, is never asked. Where that verifies, nothing changes: a host the computer's
+certificates verify keeps no anchor, and one its CA renews verifies still. A `--certificate` given is compared there
+too, with the kept anchor's own fingerprint or, where the host keeps none, with what the address presents: a match is
+said and keeps no anchor where there was none, and a mismatch is a refusal that names both. Otherwise the host's
+certificate files read over root SSH (`read_over_root_ssh`: one command, each file looked at before it is read, none
+larger than a certificate file is): its CA where what it presents chains to it with the name checked (`trust_kind: ca`,
+no fingerprint, so the CA's renewals verify), else the node's own certificate without its chain (`node`), its
+fingerprint recorded beside it; where neither verifies and what it presents is the host's own under another name (the
+node's own certificate, byte for byte, or one the host's CA signed, and nothing else), that certificate as the node's
+own, held to its fingerprint and not to a name, which the client then reaches at any address. The node's file is read
+for its first certificate alone: a custom certificate is served with its chain, and an intermediate of it taken for an
+anchor would pass whatever it issued, for any name, for the host's own. Where what it presents is none of the host's, or
+nothing, a refusal with `token_held`. Where root SSH does not answer, is not tried or reads no certificate, nothing on
+the host vouches for what the address presents: its fingerprint is shown, and it is kept, as the node's own, only on the
+person's yes or where it is `--certificate`'s; with nobody there (`ask` None) and none given, a refusal that names
+`--certificate`. An anchor that no longer verifies is put in place of the one kept only on a yes that shows both
+fingerprints, or where the new one was given. No sentence says to check less. What is kept is made through
+`pve/pin.py`'s `kept` once before it is returned, the one way a context is made here; the probes' contexts are
+`trust.py`'s, and its probe that checks no name (`check_hostname=False`), which carries no credential, is handed only an
+anchor held to a fingerprint, the certificate the address presents, or, inside `proxmox_trust_presented`, the host's CA
+as root SSH read it: never the node's file, whose chain would make an anchor of each intermediate. A yes is the person's
+answer `True` and nothing else. The caller writes what is kept through `fleet/hosts.py`'s `write`, the anchor with its
+kind and fingerprint. `tests/unit/test_aw_engine_certificate.py` holds it against local TLS servers made as Proxmox
+makes its certificates, each case of today's `init_check.yml` carried, the host's files read over root SSH from a
+stand-in machine (`tests/unit/aw_machine.py`, 16.10), and the rules that nothing in `engine/` builds a TLS context but
+through `pin` and nothing of the new engine reads `trust.py`'s `_store_files`.
+
 ## 16.5 `pve/` — the typed Proxmox client and the one table of privileges
 
 `lib/claude_vm/pve/` is where the typed client of the Proxmox VE API goes, with the one table that names each call's
@@ -1379,7 +1412,11 @@ it.
 
 **Reading and dropping.** `find(jobs_dir, job_id)` takes only what the pattern `job_id` holds, sixteen hex digits,
 and `listed(jobs_dir)` gives every job newest first. Each passes over a folder whose `job.json` is not there yet, or is gone, and a job that vanishes
-while it is read is never an error. A run refused at its locks leaves no job, and its drop never fails the refusal it
+while it is read is never an error. `find` reads strictly, as `pathlib` did before Python 3.14: no record is one that is
+not there (no such file, a folder that is no directory, a loop of links) or is no file, and any other error of its look,
+a folder whose mode forbids it among them, is raised as itself, where 3.14's `Path.is_file()` takes every error for no
+file and a refusal at the locks would say the holder was starting or ending; `listed` never refuses. A run refused at
+its locks leaves no job, and its drop never fails the refusal it
 comes before: `drop(job)` removes `job.json` first, under `store.locked` as every change is, so a writer that holds the
 record (a `cancel` recording a stop) lands its change before it and one that comes after is refused, and readers pass
 over the folder from then on; then it closes the lock; then it removes the folder, leaving what it cannot remove, since
@@ -1408,7 +1445,11 @@ ends with its run, the SSH runner's `ssh` children among them, a coroutine over 
   would take what the person types.
 - The child gets the marker whatever environment it is handed, and a master loses it. Before it runs, every signal a
   handler can be given is put back to its default and none is blocked: a process starts with what its parent ignored
-  still ignored, a run started under `nohup` or with `&` ignores SIGINT, and Python ignores SIGPIPE.
+  still ignored, a run started under `nohup` or with `&` ignores SIGINT, and Python ignores SIGPIPE. That is a
+  `preexec_fn`, which Python runs in a child forked beside the run's threads, before its exec, where a lock another
+  thread held at the fork stays held for good: so it calls `signal.signal` and `signal.pthread_sigmask` alone, two
+  system calls each that take no lock, and nothing else, no import, log or file, which a test holds; Python makes the
+  forking thread the child's main thread, so `signal.signal` works there whatever thread forked.
 - Every descriptor is closed in the child but its standard streams and those `pass_fds` names, which is how a pipe is
   handed over on purpose. A descriptor of one of the run's locks, or any duplicate of one (the same file), is refused
   with the lock's name before anything starts, a standard stream given as `None`, which the child inherits from the
@@ -1443,11 +1484,14 @@ before Python 3.13) none is found.
 Nothing is written to a file, and nothing reads the process table. `tests/unit/test_aw_children.py` holds it, with real
 children that report what they were given (on Linux, a program that is not Python shows the kernel's own masks of the
 signals ignored and blocked), and holds four rules by scans of the new engine's code: a child process is started only
-through this module, by any of Python's ways, `posix`'s, a browser's opener and a module or an attribute asked for by
-its name among them; `close_fds` is never anything but `True`; no process is forked without an exec (`os.fork`,
+through this module, by any of Python's ways, `posix`'s, a browser's opener, the standard library's own starts of
+`file` in `platform.architecture()` and of `uname -p` in `platform.processor()` and `platform.platform()`, and a module
+or an attribute asked for by its name among them; `close_fds` is never anything but `True`; no process is forked
+without an exec (`os.fork`,
 `os.forkpty`, `pty.fork`, `posix`'s, a `fork` start method or context, or one named by a variable), since a forked child
 keeps every lock until it execs; and `pass_fds` and `set_inheritable(..., True)` appear only in `start`, and nothing
-else makes a descriptor inheritable (`os.dup2`, `F_SETFD`, `F_DUPFD`, `os.pipe2`).
+else makes a descriptor inheritable (`os.dup2`, `F_SETFD`, `F_DUPFD`, `os.pipe2`). A syntax-tree test holds what a
+forked child runs before its exec to `signal`'s two calls.
 
 **A run's short-lived directory: `rundir.py`.** A run's generated files, the layer-1 child's configuration, its
 inventory and its variables, go in one directory of the run's own, and so does a machine's first use's scratch
@@ -1606,10 +1650,12 @@ ladder:
 On every path but SIGKILL, the terminal's settings are put back as the run found them, its echo among them (where
 anything changed them, SIGTTOU held off); every child of the registry has ended or been ended before the loop closes,
 since asyncio kills an `ansible-playbook` it still holds when its loop closes and leaves the playbook's detached task
-workers running; the run's directory is removed; and the exit record is written last, with the signals held off and then
-taken as notes only, so that a late one changes nothing but what the process dies of. "The tree" is everything under the
-run's process, ended by `proc.end_under(pid, remembered, signum)`, which signals every process under a process and what
-was remembered of it, by each one's start, with their groups, and never the process, its group or the caller's: today's
+workers running; the body's asynchronous generators still suspended are closed, for `SETTLE` seconds at most, so that
+one whose `finally` does not return holds the run no longer; the run's directory is removed; and the exit record is
+written last, with the signals held off and then taken as notes only, so that a late one changes nothing but what the
+process dies of. "The tree" is everything under the run's process, ended by `proc.end_under(pid, remembered, signum)`,
+which signals every process under a process and what was remembered of it, by each one's start, with their groups, and
+never the process, its group or the caller's: today's
 `end` signals the root too, which here is the run. A shared SSH master daemonises out of the tree, so no end reaches it,
 and its open, while it runs, is left out of what is remembered (`children.opening`), since the master it leaves keeps
 its `ProxyCommand` in the open's group; a second Ctrl-C during an open ends that open, and the master it was making. A
@@ -1625,14 +1671,22 @@ which a run never answers and where it would wait, stopped and silent, holding i
 the terminal stops the reader's whole process group, so a reader in such a child's group, as the jump's `ssh` of a
 person's `ProxyJump` is, stops the child too. What the watch sees is the run's own children and `route.py`'s `ssh`,
 read by `waitid`: a program that made a group of its own under one of them stops alone, its parent waiting on it, and
-is no child of the run's for `waitid` to read, so it is not seen. The run never reads the process table to find one:
-nothing the engine runs makes such a reader; `ps`, the one way to see it, says no signal, so it cannot tell a terminal's
-stop from a person's SIGSTOP and would end what a person paused; and it would read every process there is, each 0.8
-seconds, through every run at a terminal with an `ssh` child. If a program the engine runs ever makes such a reader, the
-look comes back with that program as its test. Each child seen is said at once on standard error, in one line that names
-its program and what to do (hold the key in an agent, `ssh-add`, or give a `ProxyJump` of the person's own what it asks
-for in its own settings), and ended with what is under it and its group, within a second; the step that waited on it
-sees it killed, its machine's failure. Giving such a question the terminal, so that it reaches the person, is the
+is no child of the run's for `waitid` to read, so it is not seen. Nothing the engine starts makes such a reader, but a
+program of the person's own ssh configuration may, since the runner reads `~/.ssh/config`: a `ProxyCommand` under GNU
+`timeout` without `--foreground`, which makes a group of its own to signal its command's. Its step then waits in
+silence until its own bound ends it (the runner's 20 seconds to say anything, `route.py`'s 5 to 20) or a Ctrl-C does,
+and fails as a silence, not as a question with its remedy; once its parent is ended, the kernel ends the reader's
+orphaned group with it. The run never reads the process table to find one: the process table, the one way to see it,
+says no signal, so it cannot tell a terminal's stop from a person's SIGSTOP and would end what a person paused; and it
+would read every process there is, each 0.8 seconds, through every run at a terminal with an `ssh` child. If a program
+the engine runs ever makes such a reader, the look comes back with that program as its test. Each child seen is said at
+once on standard error, in one line that names its program, the leader of the group the terminal stopped, which is
+what `waitid` sees (the runner's `ssh`, for a question the `ssh` of its jump asked inside its group), and the question
+it may be (a passphrase, a host key to accept, a password); what to do is said only where that program is `ssh`: hold
+the key in an agent (`ssh-add`), give a `ProxyJump` of the person's own what it asks for in its own settings, or
+connect through it once by hand to accept its host key. It is ended with what is under it and its group, within a
+second; the step that waited on it sees it killed, its machine's failure. Giving such a question the terminal, so that
+it reaches the person, is the
 owner's to ask for.
 
 **Nothing holds the process once its record is written.** The engine's blocking calls (`asyncio.to_thread`, a
@@ -1647,15 +1701,22 @@ with the status.
 `exec`, so a program a call in a thread starts with `subprocess` - `route.py`'s `ssh`, the hop's shared master among
 them, which outlives the run, or a vendor's tool - would take no Ctrl-C, hangup or kill with SIGINT, SIGTERM or SIGHUP
 blocked. So each of the executor's calls runs with no signal blocked, whatever its maker held (a thread starts with its
-maker's mask, which the run's thread blocks while it closes), and so does every program it starts; `children.start` and
-`outlive` clear the mask in their children all the same. A signal the kernel hands another thread still runs its
-handler in the run's thread, wherever that is; so while the run reads the process table and signals what it leads to,
-and while it closes, it holds the interrupts off (`_held`): blocked in the run's thread, and the handler, which a signal
-handed another thread still runs there, only takes note; once the outermost hold ends, each signal noted is handled as
-it came. The hold is real whatever thread is alive, a body's own pool and asyncio's watcher thread on macOS among them.
+maker's mask, which the run's thread blocks while it holds the interrupts), and so does every program it starts;
+`children.start` and `outlive` clear the mask in their children all the same. A signal the kernel hands another thread
+still runs its handler in the run's thread, wherever that is; so while the run reads the process table and signals what
+it leads to, and while it takes its outcome and writes its record, it holds the interrupts off (`_held`): blocked in the
+run's thread, and the handler, which a signal handed another thread still runs there, only takes note; once the
+outermost hold ends, each signal noted is handled as it came, and a hold inside another hands on nothing. The hold is
+real whatever thread is alive, a body's own pool and asyncio's watcher thread on macOS among them. No hold runs the
+loop: the close's loop, which ends the watch and closes the body's generators, runs unheld, so no code of the body's
+runs with the interrupts blocked and nothing it starts takes them so; a second Ctrl-C there ends the tree, and a SIGTERM
+or SIGHUP is what the run dies of, as anywhere else.
 
 **A question.** `typed(fd)` reads what the person types on the loop (`add_reader`), never in a thread, which would hold
-the process as above: a line in a terminal's cooked mode, a key in raw mode. While it waits a question is up, and the
+the process as above: a line in a terminal's cooked mode, a key in raw mode. It reads from a terminal or a pipe: any
+other descriptor, a regular file or `/dev/null` as standard input is in a detached run, an agent's job or under
+`< file`, is refused before anything waits, in a sentence of `aw`'s own, since Linux's epoll cannot wait on it and
+macOS's kqueue would end the read at once. While it waits a question is up, and the
 first Ctrl-C ends the run there, its read raising `asyncio.CancelledError` as the run stops, so one Ctrl-C at a prompt
 ends the run with 130 rather than leaving it to wait for an answer through the grace; the line that the run is stopping
 then begins on a line of its own. A prompt that reads the terminal raw, where Ctrl-C is a byte, sends the run SIGINT for
@@ -1663,10 +1724,12 @@ it. No question is begun once the run is stopping, and one descriptor is read fo
 questions, a line, a menu or a hidden answer, are built on it.
 
 **What Python and asyncio say.** While the ladder runs, an `Abandoned` that Python drops where it cannot raise one (a
-fork's hook) is dropped unsaid (`sys.unraisablehook`), since the run's end is taken by its wake, and the loop's
-exception handler keeps asyncio's own reports, a callback's error or a task destroyed pending, off the person's terminal
-(the run's text log takes them once there is one). Work that will not take its cancel, still pending once the run has
-settled, gets one line of `aw`'s own and is kept until the process ends.
+fork's hook) is dropped unsaid (`sys.unraisablehook`, Python's own again once the run has returned), since the run's
+end is taken by its wake, and the loop's exception handler keeps the loop's own reports of what the ladder ended or
+left - a task destroyed pending, a callback a cut left half done, a body's own callback - off the person's terminal (the
+run's text log takes them once there is one). An error of the ladder's own callbacks, a Ctrl-C's stop, the grace's end
+or the wake, is never handed it: each says its own at once, in one line of `aw`'s own. Work that will not take its
+cancel, still pending once the run has settled, gets one line of `aw`'s own.
 
 `tests/unit/test_aw_attached.py` holds it, with runs in child processes whose bodies start four stand-in Ansible
 children (one that ends on SIGINT, one that ignores it, one with a grandchild in a session of its own, one that records
@@ -1675,18 +1738,25 @@ each signal it gets, with when, and ends on none): every way out but SIGKILL, a 
 nothing running, read once the run has ended and before the test's own cleanup; the ways walk every signal whose handler
 is the ladder's as a running body finds them and every outcome. Ctrl-C twice ends the tree from the handler while the
 body holds the loop; a call in a thread holds the process no longer than the ladder takes, on a daemon thread that
-blocks no signal, a program it starts (`route.py`'s `ssh`) with none blocked (on Linux, its `SigBlk`) and ended by a
-SIGTERM, and a SIGTERM the kernel hands that thread while the table is read is handled after the read, and one during
-the close of a Ctrl-C's run only after its record, which still says the Ctrl-C; a call in a thread handed `stopping` has
-it within a moment of a first Ctrl-C and of a SIGTERM, and at the close of a body that returned; an Ansible child
-started in a shield has its SIGINT once the shield is done; a SIGTERM after a Ctrl-C whose body returned ends the run
-within `SETTLE`, recorded as itself; one Ctrl-C at a question ends the run at a pseudo-terminal, cooked or raw; a ladder
-that cannot be built leaves no job; a record that cannot be written is said; asyncio's reports stay off the terminal;
-the grace, the stop recorded, a shielded phase, a signal ignored on the way in, and the echo at a pseudo-terminal after
-each end; a page's opener meant to outlive the run alive and unmarked after each end; and a child that asks a question
-at a pseudo-terminal said within a second and ended, its run ending with its body's own status: one that reads it
-(SIGTTIN), one that turns the echo off first as `readpassphrase` does (SIGTTOU), and `route.py`'s `ssh`; and a run at a
-pseudo-terminal whose child of kind `ssh`, in a group of its own in the run's session, asks nothing for three seconds
+blocks no signal, a program it starts (`route.py`'s `ssh`) with none blocked, made by the run's thread as it is or while
+it holds the signals off (as the program reads its own mask, and on Linux its `SigBlk`), and ended by a SIGTERM; a
+SIGTERM the kernel hands that thread while the table is read is handled after the read, a SIGTERM and then a SIGHUP
+there in the order they came, one noted in a hold inside another only once the outer hold has ended the tree, and one
+during the record of a Ctrl-C's run only after its record, which still says the Ctrl-C; a call in a thread handed
+`stopping` has it within a moment of a first Ctrl-C and of a SIGTERM, and at the close of a body that returned; the
+close runs a body's generator unheld, a program its `finally` starts with no signal blocked, and for `SETTLE` at most;
+an Ansible child started in a shield has its SIGINT once the shield is done, the phase held on a file the test removes;
+a SIGTERM after a Ctrl-C whose body returned ends the run within `SETTLE`, recorded as itself; one Ctrl-C at a question
+ends the run at a pseudo-terminal, cooked or raw, a question on `/dev/null` or a regular file is refused in `aw`'s own
+words, and a second question on a descriptor while the first waits is refused; a ladder that cannot be built leaves no
+job; a record that cannot be written is said; asyncio's reports stay off the terminal, an error of the ladder's own
+callbacks is said in `aw`'s own words, and Python's unraisable hook is back once the run has returned; the grace, the
+stop recorded, one a cancel recorded first kept, a shielded phase, a signal ignored on the way in, and the echo at a
+pseudo-terminal after each end; a page's opener meant to outlive the run alive and unmarked after each end; and a child
+that asks a question at a pseudo-terminal said within a second, named, given `ssh`'s remedies only where it is `ssh`,
+and ended, its run ending with its body's own status: one that reads it (SIGTTIN), an `ssh` that turns the echo off
+first as `readpassphrase` does (SIGTTOU), and `route.py`'s `ssh`; and a run at a pseudo-terminal, its terminal its
+controlling one, whose child of kind `ssh`, in a group of its own in the run's session, asks nothing for three seconds
 starts no `ps`, counted by a stand-in first on its `PATH`.
 
 ## 16.9 `fleet/` — the fleet's files, the settings, the secrets and the fleet's mark
@@ -1837,12 +1907,14 @@ only while the file's digest is the one its caller read (`expect`), whole and in
 `paths.DIR_MODE`, a link where one goes refused; `set_current` writes
 `client.yml`'s `current_host` the same way. `literals(path)` is the one reader of a file of literals the fleet keeps, a
 host's `host.yml` too. Every refusal is a `Refused`, whose sentence never says a value back. Nothing else in `fleet/`
-writes a file but `files.py`, for `fleet.json`. A machine's recorded choices,
+writes a file but `files.py`, for `fleet.json`, and `hosts.py`'s `write`, a host's `host.yml` and anchor.
+A machine's recorded choices,
 the design's third layer, are in its record, which is not read here. `tests/unit/test_aw_fleet_overrides.py` holds it:
 each layer over the one before, each home's file and none other, the path rule for each path row, the proxy's user and
 password refused at every way in by one check, each refusal with the file unchanged, the compare-and-swap, `--set`'s
 refusals with no value said, a size read alike, the reader of `client.yml` against `paths.py`'s own cases of
-`fleet_home`, and a scan that only `set`, `unset` and `set_current` write, and `files.py`'s `write`.
+`fleet_home`, and a scan that only `set`, `unset` and `set_current` write, and `files.py`'s `write` and `hosts.py`'s
+`write`.
 
 **The hosts: `hosts.py`.** Each host is a folder of the fleet's files, `fleet/hosts/<name>/`, the first included, named
 as any host is (`hosts/model.py`'s `name_refusal`): `host.yml`, its own fields, which travel with the folder;
@@ -1869,10 +1941,23 @@ the template's ID has the table's default, and a host may set its own), taken al
 reader there. It returns the host, its fields and anchor, and with several hosts the others' names and
 addresses a run keeps apart from its machines. What a host's files say is that host's problem, said in its place, and a
 run against another goes on. `make_current` writes `current_host` through `overrides.set_current`, held to a host of the
-fleet that can be used. A `Host`'s `local_file`, `vault_file`, `hosts_file` and `sources` name today's inventory and are
-read by no module of the new engine. `tests/unit/test_aw_fleet_hosts.py` holds it: today's cases of the layout and the
-choice on the new folders, each field's rule with no value said, the anchor beside its kind, the one writer of the
-current host, the literal list of `host.yml`'s fields, and the scan for today's files.
+fleet that can be used. `write(layout, name, expect, change=..., anchor=...)` is `host.yml`'s one writer, and the
+anchor's: a compare-and-swap on the digest of what `Layout.state` read (the host's `host.yml` and its anchor, read under
+the lock a write takes), under `store.locked` on the host's folder, every field held to what the reader takes before
+anything is written, then read back through `fields` and `anchor`; never through a link, its folders made and held
+through `files.py`, which refuses a link where the fleet's, its hosts' or the host's folder goes. `change` edits any
+field but `trust_kind` and `fingerprint`, which go with the anchor alone: an anchor's file is PEM certificates and
+nothing else, at mode 0644. Its steps are planned in `_commit` and each is on disk before the next, in an order a run
+stopped after any step leaves readable: a first anchor is staged beside the host (`.proxmox-trust.pem.new`), then
+`host.yml` written, then the anchor put in place, so that where `host.yml` gives a kind and no anchor is in its place,
+the staged one is it, and where it gives none, the staged one is no anchor; one taken out goes the other way; and one
+put in the place of another leaves the old beside the new kind or the new beside the old, the fingerprint the new one
+records written first and the one it drops last, each holding the host to no more than one of the two. The next write
+puts right what a stopped one left. `tests/unit/test_aw_fleet_host_writer.py` holds it, a run stopped after each step of
+each kind of change among its cases. A `Host`'s `local_file`, `vault_file`, `hosts_file` and `sources` name today's
+inventory and are read by no module of the new engine. `tests/unit/test_aw_fleet_hosts.py` holds it: today's cases of
+the layout and the choice on the new folders, each field's rule with no value said, the anchor beside its kind, the one
+writer of the current host, the literal list of `host.yml`'s fields, and the scan for today's files.
 
 **The fleet's folders: `files.py`.** Every folder of the fleet's and of its state is made by `folder(path)`: where it is
 missing, it and each missing folder above it at 0700, from the top down, the mode set and never left to the umask;
@@ -1882,8 +1967,9 @@ asked for that is there is the person's and taken as it is, a link among them (a
 macOS's `/var`). `write(path, text)` writes a file whole through `store.replace`, its folder made by `folder`, a new
 file at 0600, one that is there keeping its mode, and through a link the file it names replaced: a file is one a person
 may keep elsewhere on purpose, a folder everything beneath it. `fleet.json`, the overrides' folders (`overrides.py`),
-the jobs folder (`runs/job.py`) and the locks folder (`runs/locks.py`) are made through it, and nothing else of
-`fleet/` or `runs/` makes a folder but a job's own, inside the jobs folder, and a run's short-lived directory (16.8).
+a host's folders (`hosts.py`'s `write`), the jobs folder (`runs/job.py`) and the locks folder (`runs/locks.py`) are
+made through it, and nothing else of `fleet/` or `runs/` makes a folder but a job's own, inside the jobs folder, and a
+run's short-lived directory (16.8).
 
 **The fleet's ID and its record: `record.py`.** `fleet/fleet.json` is the computer's own record of a fleet:
 `FleetRecord(format, fleet, stores)`, the format of the file itself, the fleet's ID and the format number of every
@@ -1921,9 +2007,46 @@ a folder, and that each imports the standard library alone.
 
 `lib/claude_vm/guest/` is where what the engine does inside a machine goes: the helper, which is sent to the machine
 and never installed there, and the inputs of the system layer, which Ansible converges as a child with built-in modules
-only, and layer 2, the rest of the work, in plain code. It imports `ssh/`, `schema/` and `fleet/`, and
-nothing of `engine/`, `cli/` or `control/`, and no pydantic. A plugin of that Ansible child is the one code of the new
-engine that imports `ansible`. It lives under `guest/ansible/`, where the child's own configuration names it.
+only, and layer 2, the rest of the work, in plain code. It imports `ssh/`, `schema/`, `fleet/` and `runs/` (the one
+starter of a child, and the run's directory), and nothing of `engine/`, `cli/` or `control/`, and no pydantic. A plugin
+of that Ansible child is the one code of the new engine that imports `ansible`. It lives under `guest/ansible/`, where
+the child's own configuration names it.
+
+**Layer 1's child.** `lib/claude_vm/guest/layer1.py`'s `run` converges one machine with one `ansible-playbook`, started
+through `children.start` as an `ansible` child of the run, in a session of its own: it has no terminal, a terminal's
+Ctrl-C reaches the run alone, and the run's ladder hands it on as SIGINT to the child's group (§16.8). Its standard
+input is `/dev/null` and its one pipe is the events', whose write end goes over through `start`'s descriptors and whose
+read end the run reads while the child runs; what it prints goes to a file of its own, never the terminal, and its last
+64 KiB come back, plain, with its exit status. Two files go into the run's directory: `layer1.cfg`, one for the run, and
+an inventory of one host for each machine, `inventory-<identity>.yml`. The configuration names one stdout callback and
+no other, one fork, facts kept under `ansible_facts`, pipelining, the `yaml` inventory plugin alone, this checkout's
+`roles/`, Ansible's local temporary files in the run's directory, and `ssh_args` set empty, since Ansible's default
+would put `ControlMaster=auto` ahead of the host's options and make the child a connection's master; no collections path,
+since layer 1 calls `ansible.builtin` alone. Until the product's callback is written, the one named is Ansible's own
+`default`, its output in the child's file. The one host is named by the machine's identity, never the name a person
+chose, which is the variable `aw_name`; its variables are the address and the account, `/usr/bin/python3` and
+`/usr/bin/sudo` by their paths, and the connection as the SSH runner makes it (`runner.ansible_vars`, §16.6): its
+options first, `StrictHostKeyChecking=yes` against the product's own known-hosts file under the identity, the shared
+socket with `ControlMaster=no`, so that the child rides the master the run opened, and the hop only where the target
+carries one. Ansible's ssh connection puts words of its own ahead of them, none of them the host key's: the port, the
+account, a connect timeout of 10 s, keyboard-interactive and password authentication off, and `PreferredAuthentications`
+with GSSAPI and host-based ahead of public keys, which outranks the runner's public keys alone.
+The child never takes a key: a target whose identity has no key filed is refused by name before anything is written,
+naming the line that files it, and so is a first use's target, the Proxmox host, an identity that does not start
+`agent-warehouse-`, and an inventory value that would open a template, since Ansible templates an inventory's values.
+The environment is an allow list: `PATH`, `HOME`, `LANG` and `SSH_AUTH_SOCK` of the caller's, then `ANSIBLE_CONFIG`
+naming the configuration, the untrusted-template switch at `error`, the events pipe's descriptor
+(`AGENT_WAREHOUSE_EVENTS`), `ANSIBLE_VERBOSITY` only for a run given `-v`, and the job's marker; no other `ANSIBLE_*`,
+`PYTHON*` or exported stdout callback reaches it. The command line gives the variables only as `-e @<file>`, never
+`key=value`, `--tags` with the parts asked for, and `--check` and `--diff` where asked. A call that ends while its child
+runs (cancelled) ends the child with its tree (`claude_vm.proc`), its detached task worker among it. Only a test passes
+`test_connection`, the host variables of a test-only connection: `local` for a play of one task on a stand-in machine,
+`community.docker.docker` for a Molecule container. `tests/unit/test_aw_layer1.py` holds it: the configuration read back
+by `ansible-config dump --only-changed`, a play of one ping on a stand-in with its child in the run's registry, the
+environment as a task's module sees it, each refusal before anything is written, SIGINT to the child's group and a
+cancelled call each leaving nothing, the words Ansible's own ssh connection gave the stand-in `ssh` held by this
+computer's `ssh -G` over a `Host *` that loosens them, and scans that the argument list never holds `key=value` after
+`-e` and that no product code passes the test-only connection.
 
 **How the engine's tests reach a machine.** A test of the new engine reaches no real machine: it reaches a stand-in,
 a directory of the test's own that `tests/unit/aw_machine.py` makes, through the SSH runner (§16.6) as it reaches a

@@ -29,11 +29,13 @@ as `find` and `listed` pass over it.
 
 from __future__ import annotations
 
+import errno
 import fcntl
 import json
 import os
 import secrets
 import shutil
+import stat
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -479,11 +481,22 @@ def state(job: Job) -> str | None:
 
 def find(jobs_dir: str | os.PathLike, job_id: str) -> Job | None:
     """The job of that ID, which is sixteen hex digits and nothing else; None where there is none, or its record is
-    not written yet."""
+    not written yet. Read strictly, as pathlib did before Python 3.14: no record is a record that is not there (no
+    such file, a folder that is no directory, a loop of links) or is no file; any other error of the look (a folder
+    whose mode forbids it, a disk's error) is raised as itself, never said as no such job, where Python 3.14's
+    Path.is_file() takes every error for no file."""
     if not _is_id(job_id):
         return None
     job = Job(Path(jobs_dir) / job_id)
-    return job if job.record.is_file() else None
+    try:
+        found = os.stat(job.record)
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    except OSError as error:
+        if error.errno == errno.ELOOP:
+            return None
+        raise
+    return job if stat.S_ISREG(found.st_mode) else None
 
 
 def listed(jobs_dir: str | os.PathLike) -> list[Job]:
