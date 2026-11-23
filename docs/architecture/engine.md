@@ -456,25 +456,29 @@ and only when it dispatches a verb that changes something. No client imports it.
 **A VM's record: `record.py`.** What the engine keeps of a VM is one record in its notes in Proxmox, where the VM cannot
 write: what it is of (`vm`, `build`, `golden` or `template`), the SMBIOS UUID it was written for, the name the run asked
 for, its stage (`cloning`, `unfinished` or `finished`), `provisioned` once its first start went well, its own list of
-repositories, the size it was created with, the digest of its image, the VPNs a login of which was seen on it
-(`joined`), the digest it last converged to, whether an agent's run made it, and the run on it now (`job`). `Record` is
-a frozen dataclass over those fields, each held as it is made: the kind and the stage to the format's words, the UUID
-to the form Proxmox gives a VM's, the name, the size and the repositories to the command line's patterns
-(`schema/patterns.py`), the digests to SHA-256's hex, the VPNs to today's mark of one (`vpn/model.py`), and every text
-to one line of plain text. Every record names the UUID it is written for, but a VM's first form, which its clone carries
-before its UUID can be read; and a VM's names its stage.
+repositories, the size it was created with, a template's build, the digest of its image, a template's image's URL and
+the packages put into that image, the VPNs a login of which was seen on it (`joined`), the digest it last converged to,
+whether an agent's run made it, and the run on it now (`job`). `Record` is a frozen dataclass over those fields, each
+held as it is made: the kind and the stage to the format's words, the UUID to the form Proxmox gives a VM's, the name,
+the size and the repositories to the command line's patterns (`schema/patterns.py`), the digests to SHA-256's hex, a
+template's build to a whole number, its image's URL to an http or https URL and its packages to Debian's names, the VPNs
+to today's mark of one (`vpn/model.py`), and every text to one line of plain text. Every record names the UUID it is
+written for, but a VM's first form, which its clone carries before its UUID can be read; and a VM's names its stage.
 
 - `read(config)` is the record a VM's configuration holds, or none where its notes hold no block of the engine's,
   whatever else they hold: a VM, a template or a golden with none is not this engine's. A block it cannot read, or one
-  whose value is not what its field may be, is `Unreadable`, which names the VM.
+  whose value is not what its field may be, is `Unreadable`, which names the VM. One that names a UUID that is not the
+  VM's own is `Copy`, an `Unreadable` of its own kind: a clone made without a description of its own carries its
+  source's notes, record and all (experiment 6), so a copy is never read as the VM's own, and no reader makes that
+  check itself. A first form, which names no UUID, cannot be told from a copy of one.
 - `write(client, vm, change)` is the one writer. It reads the VM's configuration, applies `change` to the record its
   notes hold, renders the notes with that block alone changed (`pve/record.py`), and writes them with the digest of that
   read through the client's `edit_config`: where another writer, a person in Proxmox's page among them, changed the
   configuration in between, the write is refused and read and applied again, three times at most, so `change` is a
   function of the record it is given alone. Notes that, as Proxmox will give them back, are those it read send
   nothing, so a second run of the same change sends no write. It never writes a record that names a UUID other than
-  the VM's own, never rewrites a block it cannot read, and never sends notes past 8192 characters (`TooLong`), each
-  said before anything is sent.
+  the VM's own, never rewrites a block it cannot read or a copy, and never sends notes past 8192 characters
+  (`TooLong`), each said before anything is sent.
 - `label(client, vm, value)` gives a VM the one label it carries in Proxmox's list, the setting `vm_label`'s value,
   `agent-warehouse` by default, beside a person's tags, under the same digest. Nothing decides anything from it: what is
   the fleet's is its pool's members with a record.
@@ -486,9 +490,47 @@ any line break, or anything else that is not plain text on one line, is refused;
 characters; and `tests/unit/test_vm_repos.py`'s cases of a VM's own list are carried. Against the fake Proxmox under
 enforcement: a record written reads back field for field; of two writers the second is refused, reads again and lands
 with the first's change kept, as does a write a person's edit came between; a second write of the same record sends
-nothing; a block the engine cannot read, a record that names another VM's UUID and notes past the bound send nothing;
-and the label is `vm_label`'s value beside a person's tags. A syntax-tree scan holds that no module of the new engine
-names a description to send but this one, the client, its table and its reader of answers, each with why.
+nothing; a block the engine cannot read, a copy's record, a record that names another VM's UUID and notes past the
+bound send nothing; and the label is `vm_label`'s value beside a person's tags. A syntax-tree scan holds that no module
+of the new engine names a description to send but this one, the client, its table, its reader of answers, and the
+template's comparison below, which sends nothing, each with why.
+
+**The base template: `template.py`.** Every VM is a full clone of the base template, so `deploy`, as its first link, and
+`status` ask one function whether the template is what its settings would build, and say the same lines.
+
+- `wanted(settings)` is what a build makes, in the fields today's `lib/claude_vm/proxmox.py` compares a template on
+  (`TEMPLATE_FIELDS`): the settings every clone inherits (its CPU type, OS type, bridge and storage, and the SCSI
+  controller, guest agent, serial port and display every build gives it), then what went into its disk, which its
+  configuration cannot show and its record keeps: `BUILD`, the build steps' version, raised whenever a change to them
+  changes what a template is, the image's URL, and the packages put into the image, none without the guest agent. It
+  is the one definition the build makes a template from and the comparison holds one to. Its settings are a run's
+  against one host, every row's value as `fleet/overrides.py` resolves them; the roles' options no row names
+  (`OPTIONS`) are read where the settings give them and are otherwise the roles' own defaults, which a test holds equal
+  to the roles' files, and the template's bridge and storage are the rows `proxmox_bridge` and `proxmox_storage`'s
+  unless their options name others, as today's inventory wires them.
+- `compare(client, settings, pool=, host_flag=)` reads the template through the API with the engine's one token, by
+  GETs alone: the cluster's listing, the guest at the template's ID with the record in its notes, and, where nothing is
+  listed there, what the token may read at that ID. It says one of six outcomes. `missing`: nothing has the ID, said
+  only where the token may read it, which Proxmox says (GET /access/permissions, which needs no privilege), not the
+  setting, so a token that holds less than its setting says reads `unseen`. `unseen`: under `proxmox_audit_scope: pool`
+  a guest outside the pool is invisible, so missing cannot be told from another's guest, and the build asks the host
+  over root SSH first. `same`, and `different` with a line for each difference, `<field> <has> → <wanted>`, from today's
+  `proxmox_template_drift`, which stays where it is and is handed the record's template fields as the line of notes it
+  reads; the image's digest is kept and never compared. Under `proxmox_template_rebuild: false` a difference is only
+  said, with the `deploy --only template` line, printed by the printer of a command. `refused`: a container at the ID,
+  a guest that is no member of the fleet's pool, a template on another node than `proxmox_node`, a VM that is no
+  template, a template of another name, and a template whose notes hold no record of this engine's build, one it cannot
+  read, a copy, or a record of another kind, each said in one sentence with the way on and left as it is, never rebuilt:
+  so no VM of the new engine stands on a template it may not rebuild, and a person's own template at the ID is never
+  destroyed. `custom`: `proxmox_template_custom` names a template of the person's own, only read and cloned, held by
+  today's `custom_template_problems` to what a clone needs. Whether it is a template, and its name, are read from the
+  guest's own configuration, never from the listing, which lags what a run just did.
+
+`tests/unit/test_aw_engine_template.py` holds it: `wanted` is today's role's under its defaults, and its options are
+the roles' own; against the fake Proxmox under enforcement, with `VM.Audit` on `/vms` and without it, each outcome, each
+difference, the fake's own template with this engine's record as this version builds it, each refusal of the role's
+scenario that a comparison makes, and the engine's own beside them, each leaving the template as it was; an ID outside
+the pool is `unseen` under `pool`, never `missing`; and `compare` sends nothing but GETs.
 
 **The API's certificate: `certificate.py`.** Before `init` sends a Proxmox host anything that carries a credential,
 `work_out(host, given, root_ssh, ask)` settles what its API's certificate is held to, by today's `trust.py`'s probes,
@@ -772,8 +814,9 @@ names their format, `agent-warehouse record (format 1)`, and `end of agent-wareh
 first line, with a format number this program reads, is a record; anything else in the notes is a person's text, kept
 byte for byte and never parsed: a person's own lines, and the lines today's product writes.
 
-- `parse(notes)` gives the block's fields, each value a string and the two lists a tuple each, or none where the notes
-  hold no block. A block of a format this program does not read, a line that is no field of its format, a field twice,
+- `parse(notes)` gives the block's fields, each value a string and the three lists a tuple each, or none where the
+  notes hold no block. `copied(fields, identity)` says whether they name a UUID that is not the VM's own: a copy, which
+  `engine/record.py`'s `read` refuses and `status` reads by the same function. A block of a format this program does not read, a line that is no field of its format, a field twice,
   two blocks, or a start with no end, is `Unreadable`: refused, and never rewritten, so that what a newer program or a
   person wrote is never lost to an older one.
 - `render(notes, fields)` gives the notes with that block alone written from the fields, or added last after a blank
