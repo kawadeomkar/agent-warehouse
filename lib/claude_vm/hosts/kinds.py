@@ -1,7 +1,9 @@
 """The kinds of host a checkout's hosts can be, as literal data: for each, the inventory group its hosts.yml fills, the
 settings that are each host's own, the vault names of its secret, what just init --host asks and what just host shows.
 The resolver, just host, just init and just settings read this table and name no kind's setting themselves: a second
-kind is a row here and its roles' entry points (docs/architecture/custom-code.md §7.14). Stdlib only."""
+kind is a row here and its roles' entry points (docs/architecture/custom-code.md §7.14). FLEET_KINDS, beside it, is
+the same kinds for the new engine's fleet of host folders (docs/architecture/engine.md §16.9), which today's product
+never reads. Stdlib only."""
 
 from __future__ import annotations
 
@@ -76,6 +78,35 @@ KINDS: Final[Mapping[str, Kind]] = {
             "proxmox_api_validate",
             "proxmox_api_ca_path",
         ),
+        shown=(("NODE", "proxmox_node"),),
+    ),
+}
+
+
+# The same kinds for the new engine's layout (docs/architecture/engine.md §16.9), where every host is a folder of the
+# fleet's files, fleet/hosts/<name>/, the first included, and a run reads no inventory: today's product never reads
+# this table. A host still sets its own node, storage, bridge and template for itself, in its own settings.yml; where
+# its API is and the token it is reached with are fields of its host.yml, and its certificate is always checked, so
+# neither is a setting here. A setting of one network or one machine is a row of scope host in the settings table,
+# which the fleet's settings.yml and client.yml's top level may never hold (the overrides' reader refuses one there by
+# name), so none is ever inherited. Nothing is made from the run's host that a file could set, and each host's secret
+# is its own token in the one vault.
+FLEET_KINDS: Final[Mapping[str, Kind]] = {
+    "proxmox": Kind(
+        key="proxmox",
+        name="Proxmox VE",
+        group="proxmox",
+        always=("proxmox_node", "proxmox_storage", "proxmox_bridge", "proxmox_template_vmid"),
+        never_inherited=(
+            "vm_ipconfig",
+            "vm_nameservers",
+            "proxmox_template_custom",
+            "claude_ssh_host_domain",
+            "vm_ssh_route",
+        ),
+        secret_shared="token",
+        secret_host="token",
+        from_host=(),
         shown=(("NODE", "proxmox_node"),),
     ),
 }
