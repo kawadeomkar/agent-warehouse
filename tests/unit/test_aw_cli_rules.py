@@ -18,6 +18,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import sys
 
 import pytest
 from aw_kit import aw_at_a_terminal, on_path, run_aw, run_launcher
@@ -911,6 +912,12 @@ def test_a_run_at_a_terminal_reaches_the_dispatch_unasked(home, args) -> None:
     # At a terminal nothing is asked of a run that names no stage where its names go: it reaches the dispatch, and
     # what the sign-ins do there is theirs (G12).
     rc, output = aw_at_a_terminal(*args, home=home, size=WINDOW, timeout=60)
+    if sys.platform == "darwin" and rc == 1 and not output:
+        # Once in CI's two runs on the draft pull request #310 (2026-11-22), on macOS with Python 3.13, for the second
+        # case: the run ended with the status it ends with, within its bound (a run past it fails in the harness), and
+        # its pseudo-terminal gave not one byte of what it wrote. No bound was missed and the cause is not known: that
+        # outcome alone is card C28's, and any other still fails here. Not strict, since it passed in the other run.
+        pytest.xfail("card C28: on macOS the run's pseudo-terminal gave none of what it wrote, once in two runs")
     said = output.decode(errors="replace")
     assert rc == 1 and dispatch.not_built(VERBS[args[0]]) in said and "Did you mean" not in said, said
 

@@ -50,6 +50,17 @@ tests, selected with `-m engine` on the same workers and groups as the unit part
 take seconds; `just test unit` still runs them with the rest. Their kit is `tests/unit/aw_kit.py`, which `conftest.py`
 registers.
 
+CI's `engine` job runs them on macOS too, and where macOS does otherwise than Linux the test says so by name. A socket
+bound and never listening is refused at once on Linux and dropped in silence on macOS, so the transport's test of a port
+nothing answers expects there what the transport says of a silent one, no connection within its limit, and tries a port
+bound and closed beside it, which both refuse. A test macOS fails for a cause not yet known is marked an expected
+failure there alone, its reason naming the card that finds the cause, and strict where it failed in every run, so that
+a pass fails the mark. On Python 3.14 the kit's `STOP_UNSEEN` marks, strictly, the stopped-asking test's two rows of a
+child the run started itself, stopped by SIGTTIN or SIGTTOU, which the watch did not say there, and its `STOP_GONE`,
+not strictly, the children's test of a stopped child, which failed once; and the test of a run at a pseudo-terminal
+that reaches the dispatch expects a failure on macOS in one outcome alone, not strictly, the run ended with its status
+and its terminal gave none of what it wrote.
+
 Most of the new engine's code runs in the test's own process, so that process is guarded as a run is.
 `engine_guard`, a fixture of the kit's that no test asks for, holds every test the `engine` marker selects, and no
 other, from setup to teardown: `HOME` and the XDG folders in the test's own home, the directory `aw_home` names
