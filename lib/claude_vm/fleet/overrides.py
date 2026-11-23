@@ -75,7 +75,9 @@ EXPRESSION = "takes a value, never an expression ({{ }}, {% %} or {# #})"
 # Typed text for a boolean, in either case, as today's settings take it.
 TRUE = ("true", "yes", "on", "y", "t", "1")
 FALSE = ("false", "no", "off", "n", "f", "0")
-WHOLE = re.compile(r"[+-]?[0-9]+")
+# A whole number typed: at most 18 digits, more than any setting takes, so that int() never meets Python's limit of
+# digits, whose error says the value.
+WHOLE = re.compile(r"[+-]?[0-9]{1,18}")
 # A size with its unit, as deploy's --disk reads one, the unit in either case: a whole number that starts with no 0.
 SIZE = re.compile(r"(?P<number>[1-9][0-9]{0,5})(?P<unit>[GTgt])")
 # One machine's name in a map's key, after its host's and a /.
@@ -404,10 +406,15 @@ def run_values(
 
 # ---------------------------------------------------------------- reading a file ----
 
+# What YAML reads but cannot make a value of, as a refusal says it, never with the value: `!!int x`, `!!bool x`, a
+# date that is none (`2026-02-30`), a number past Python's limit of digits, a nesting past its recursion.
+UNREADABLE = "found a value YAML cannot read"
+
 
 def _loader():
     """PyYAML's safe loader, refusing an anchor, an alias, a merge and a key given twice: a file of literals has none,
-    and an alias is how a small file is made to read as a large one."""
+    and an alias is how a small file is made to read as a large one; and a scalar it cannot make a value of
+    (UNREADABLE), by its line."""
     import yaml
 
     class Literals(yaml.SafeLoader):
@@ -428,14 +435,35 @@ def _loader():
                 seen.append(key)
             return super().construct_mapping(node, deep=deep)
 
+        def construct_object(self, node, deep=False):
+            # The safe constructor raises Python's own error, which may say the value, for a scalar it cannot make one
+            # of: refused here, by the node's line. An integer past Python's limit of digits is one: written in
+            # hexadecimal, octal or binary it is read past the limit, and a write of the file or a printer fails on it.
+            try:
+                data = super().construct_object(node, deep=deep)
+                if type(data) is int:
+                    str(data)
+            except yaml.YAMLError:
+                raise
+            except Exception:
+                raise yaml.constructor.ConstructorError(None, None, UNREADABLE, node.start_mark) from None
+            return data
+
     return Literals
 
 
 def _construct(text: str) -> object:
-    """text read as one YAML document of literals: None where it is empty."""
+    """text read as one YAML document of literals: None where it is empty. What YAML raises but its own errors - a
+    nesting past Python's recursion while it composes, say - is one of its errors here, which says no value."""
+    import yaml
+
     loader = _loader()(text)
     try:
         return loader.get_single_data()
+    except yaml.YAMLError:
+        raise
+    except Exception:
+        raise yaml.MarkedYAMLError(problem=UNREADABLE) from None
     finally:
         loader.dispose()
 

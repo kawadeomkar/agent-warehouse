@@ -416,6 +416,52 @@ def test_a_file_that_is_not_text_or_too_large_is_refused(home) -> None:
         overrides.read(where, None)
 
 
+# Deeper than Python's recursion lets YAML compose: three of its frames, at least, for each level.
+DEEP = 400
+# What YAML's safe reader cannot make a value of, each a Python error of its own, which may say the value, with the line
+# its refusal names (None where YAML knows none): an integer, a float, a boolean and a date of a tag's that are none, a
+# plain date that is none, alone and in a list, a number past Python's limit of digits, one in hexadecimal that is read
+# past it and that nothing could write back, and a mapping and a list nested past Python's recursion.
+CANNOT_BE_MADE = [
+    pytest.param("vm_cores: !!int abc\n", 1, id="int"),
+    pytest.param("vm_cores: !!float abc\n", 1, id="float"),
+    pytest.param("vm_cores: 2\ngithub_auth: !!bool maybe\n", 2, id="bool"),
+    pytest.param("vm_user: !!timestamp abc\n", 1, id="timestamp"),
+    pytest.param("vm_user: dev\ngit_user_name: 2026-02-30\n", 2, id="a plain date"),
+    pytest.param("vm_extra_packages:\n  - jq\n  - 2026-02-30\n", 3, id="a date in a list"),
+    pytest.param(f"vm_cores: {'9' * 5000}\n", 1, id="5000 digits"),
+    pytest.param(f"vm_cores: 0x{'f' * 4000}\n", 1, id="4000 hexadecimal digits"),
+    pytest.param(
+        "claude_code_settings:\n" + "".join(f"{'  ' * level}a:\n" for level in range(1, DEEP)) + f"{'  ' * DEEP}b: 1\n",
+        None,
+        id="a mapping nested 400 deep",
+    ),
+    pytest.param("vm_extra_packages: " + "[" * DEEP + "]" * DEEP + "\n", None, id="a list nested 400 deep"),
+]
+
+
+@pytest.mark.parametrize(("text", "line"), CANNOT_BE_MADE)
+def test_a_value_yaml_cannot_make_is_refused_by_its_path_and_line_at_every_way_in(home, text: str, line) -> None:
+    # Read, resolved, or under a write, the sentence is the same, says no part of the value, and leaves the file be.
+    where = _where()
+    path = _put(_fleet_file(where), text)
+    before = path.read_bytes()
+    digest = hashlib.sha256(before).hexdigest()
+    at = "" if line is None else f" line {line}"
+    said = f"{path}{at}: this is not a file of settings (found a value YAML cannot read)"
+    ways = {
+        "read": lambda: overrides.read(where, None),
+        "resolve": lambda: overrides.resolve(where, None),
+        "set": lambda: overrides.set(where, "vm_user", "me", None, digest),
+        "unset": lambda: overrides.unset(where, "vm_cores", None, digest),
+    }
+    for way, call in ways.items():
+        with pytest.raises(Refused) as refused:
+            call()
+        assert str(refused.value) == said, way
+    assert path.read_bytes() == before
+
+
 # ---------------------------------------------------------------- client.yml's fleet_home ----
 
 
@@ -598,6 +644,48 @@ def test_every_caller_of_run_values_names_the_vault_s_secrets() -> None:
 def test_set_given_twice_for_one_setting_is_refused() -> None:
     with pytest.raises(Refused, match="--set gives vm_cores more than once"):
         overrides.run_values(["vm_cores=2", "vm_cores=4"], secrets=())
+
+
+A_MAPPING_NOT_YAML = (
+    "claude_ssh_options takes a mapping, as YAML ({key: value}) or key=value,key=value: what is typed is not YAML:"
+    " the value given is not one"
+)
+A_LIST_NOT_YAML = (
+    "vm_extra_packages takes a list of strings: comma-separated (a,b) or as YAML ([a, b]): what is typed is not YAML:"
+    " the value given is not one"
+)
+
+
+@pytest.mark.parametrize(
+    ("text", "said"),
+    [
+        pytest.param(f"claude_ssh_options={{a: !!int {TYPED}}}", A_MAPPING_NOT_YAML, id="int"),
+        pytest.param(f"claude_ssh_options={{a: !!float {TYPED}}}", A_MAPPING_NOT_YAML, id="float"),
+        pytest.param(f"claude_ssh_options={{a: !!bool {TYPED}}}", A_MAPPING_NOT_YAML, id="bool"),
+        pytest.param(f"claude_ssh_options={{a: !!timestamp {TYPED}}}", A_MAPPING_NOT_YAML, id="timestamp"),
+        pytest.param("vm_extra_packages=[jq, 2026-02-30]", A_LIST_NOT_YAML, id="a plain date"),
+        pytest.param(f"claude_ssh_options={{a: {'9' * 5000}}}", A_MAPPING_NOT_YAML, id="5000 digits in a mapping"),
+        pytest.param(f"claude_ssh_options={{a: 0x{'f' * 4000}}}", A_MAPPING_NOT_YAML, id="4000 hexadecimal digits"),
+        pytest.param(
+            f"vm_cores={'9' * 5000}", "vm_cores takes a whole number: the value given is not one", id="5000 digits"
+        ),
+        pytest.param(
+            "claude_ssh_options=" + "{a: " * DEEP + "b" + "}" * DEEP, A_MAPPING_NOT_YAML, id="a mapping nested 400 deep"
+        ),
+        pytest.param("vm_extra_packages=" + "[" * DEEP + "]" * DEEP, A_LIST_NOT_YAML, id="a list nested 400 deep"),
+    ],
+)
+def test_set_refuses_a_value_yaml_cannot_make_with_no_value_said(text: str, said: str) -> None:
+    with pytest.raises(Refused) as refused:
+        overrides.run_values([text], secrets=())
+    assert str(refused.value) == said
+
+
+def test_a_whole_number_typed_has_at_most_18_digits() -> None:
+    assert overrides.run_values([f"vm_cores={'9' * 18}"], secrets=()) == {"vm_cores": int("9" * 18)}
+    with pytest.raises(Refused) as refused:
+        overrides.run_values([f"vm_cores={'9' * 19}"], secrets=())
+    assert str(refused.value) == "vm_cores takes a whole number: the value given is not one"
 
 
 # ---------------------------------------------------------------- a write ----
