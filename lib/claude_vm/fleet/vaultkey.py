@@ -23,11 +23,11 @@ settings:
 
 `ANSIBLE_VAULT_PASSWORD_FILE`, which opens today's ansible-vault file, is never read and is no refusal.
 
-**A key file another account can read is refused, as ssh refuses such a private key.** Whichever place it is, a file
-whose mode gives the group or others the right to read it (`READABLE_BY_OTHERS`) is refused before anything of it is
-read, in one sentence that names its mode and says `chmod 600 <file>` (`Failed`): the key opens every secret of the
-fleet, so it is taken only from a file this account alone can read. `make_key` makes its file so. A file others may
-write and not read is taken, as the rule is about who can read the key.
+**A key file open to another account is refused, as ssh refuses such a private key.** Whichever place it is, a file
+whose mode gives the group or others any right to it, to read, write or run (`OPEN_TO_OTHERS`, ssh's own 077), is
+refused before anything of it is read, in one sentence that names its mode and says `chmod 600 <file>` (`Failed`): the
+key opens every secret of the fleet, so it is taken only from a file this account alone can read, and one who could
+write it could put a key of theirs in its place. `make_key` makes its file so.
 
 **A new fleet's vault is sealed to its own key file's key.** Where the fleet has no vault yet, a key is given back only
 from the key file (`place`), which `aw init` makes: the variable's file and a command are refused there, in one
@@ -38,7 +38,7 @@ runs there.
 **One sentence when the vault cannot be opened.** `open(where, ...)` returns the key, a `Secret`, once the fleet's vault
 opens with it (where there is no vault yet, once the key file holds an age key), or raises one of three sentences:
 nothing here can open the vault, with what would, the key file `vault_key_file` names (`NoKey`); the place that exists
-failed, in its own words made one line, or is a file another account can read (`Failed`); the place answered and what
+failed, in its own words made one line, or is a file open to another account (`Failed`); the place answered and what
 it gave does not open this vault (`WrongKey`). A place that exists and fails is a refusal: the next place is never
 tried, and nothing is tried again. The vault's own refusals (no `fleet.json`, a newer format, a file that is no vault)
 are sealed.py's, raised as they are.
@@ -70,9 +70,10 @@ VARIABLE = "AGENT_WAREHOUSE_VAULT_KEY_FILE"
 OVERRIDE, COMMAND, FILE = "variable", "command", "file"
 # The most of a key's file that is read: an age key is one line of 74 characters.
 MOST = 1024
-# What of a key file's mode lets another account read it: the group's read bit and others'. A file with either is
-# refused before anything of it is read, as ssh refuses a private key that others can read.
-READABLE_BY_OTHERS = stat.S_IRGRP | stat.S_IROTH
+# What of a key file's mode opens it to another account: any bit of the group's or others', to read, to write or to
+# run, as ssh refuses a private key (its 077). A file with any is refused before anything of it is read: one who could
+# read it has every secret, and one who could write it could put a key of theirs in its place.
+OPEN_TO_OTHERS = 0o077
 
 
 # The key cannot be found, read or used: one sentence, never the key. One class with the vault's own refusals.
@@ -205,21 +206,21 @@ def source(
     return Source(FILE, found, default=found == paths.key_file(where))
 
 
-def _readable_by_others(found: Source, mode: int) -> str:
-    """The sentence for a key file another account can read: its mode, and the chmod that makes it this account's
-    alone, as ssh says of a private key it refuses."""
+def _open_to_others(found: Source, mode: int) -> str:
+    """The sentence for a key file open to another account: its mode, and the chmod that makes it this account's alone,
+    as ssh says of a private key it refuses."""
     assert found.path is not None
     return (
-        f"error: {found.said()} can be read by other accounts (its mode is {mode:04o}), and the vault's key is read"
-        f" only from a file you alone can read, as ssh reads a private key: chmod 600 {quoted(_shown(found.path))};"
-        " nothing else is tried"
+        f"error: {found.said()} is open to other accounts (its mode is {mode:04o}), and the vault's key is read only"
+        " from a file you alone can read or change, as ssh reads a private key: chmod 600"
+        f" {quoted(_shown(found.path))}; nothing else is tried"
     )
 
 
 def _read(found: Source) -> bytes:
     """What the file of found holds, at most MOST and a byte: Failed, in the system's words, where it cannot be read or
-    is no file, and before anything of it is read where another account can read it (READABLE_BY_OTHERS). Opened to
-    read and never run, whatever its run bits, and without waiting on a pipe."""
+    is no file, and before anything of it is read where it is open to another account (OPEN_TO_OTHERS). Opened to
+    read and never run, whatever its owner's run bit, and without waiting on a pipe."""
     assert found.path is not None
     try:
         handle = os.open(found.path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
@@ -229,8 +230,8 @@ def _read(found: Source) -> bytes:
         status = os.fstat(handle)
         if not stat.S_ISREG(status.st_mode):
             raise Failed(f"error: {found.said()} is not a file: nothing else is tried")
-        if status.st_mode & READABLE_BY_OTHERS:
-            raise Failed(_readable_by_others(found, stat.S_IMODE(status.st_mode)))
+        if status.st_mode & OPEN_TO_OTHERS:
+            raise Failed(_open_to_others(found, stat.S_IMODE(status.st_mode)))
         data = b""
         while len(data) <= MOST:
             more = os.read(handle, MOST + 1 - len(data))

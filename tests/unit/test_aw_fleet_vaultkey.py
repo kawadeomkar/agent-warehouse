@@ -4,14 +4,14 @@ docs/architecture/engine.md §16.9).
 The key is made once, `O_EXCL` at 0600, at paths.key_file by default, and never written over. A run finds it in one
 order: AGENT_WAREHOUSE_VAULT_KEY_FILE, the one override, which names a file read and never run, even where it may be
 run; then vault_key_command, whose running is not built yet and refuses; then the file vault_key_file names, "" the
-default. A key file that the group or others may read is refused, whichever place it is, as ssh refuses such a key,
-before anything of it is read, in one sentence that says chmod 600 <file>. A place that exists and fails is a refusal
-and the next is never tried; with no place, the first sentence says what would open the vault, by vault_key_file and
-never the variable; a place that answers with what does not open the vault is the third. With no vault yet a key
-comes only from the key file: the variable's file and a command are refused there in one sentence, nothing read or
-run, and the key file left as it is. ANSIBLE_VAULT_PASSWORD_FILE is never read. A key file named in the fleet's
-folder, the state folder or the installed program's config folder is refused by name. A vault made by sealed.py under a
-key made here opens in a child with no terminal and standard input from /dev/null.
+default. A key file open to the group or others, to read, write or run (ssh's 077), is refused, whichever place it
+is, as ssh refuses such a key, before anything of it is read, in one sentence that says chmod 600 <file>. A place
+that exists and fails is a refusal and the next is never tried; with no place, the first sentence says what would open
+the vault, by vault_key_file and never the variable; a place that answers with what does not open the vault is the
+third. With no vault yet a key comes only from the key file: the variable's file and a command are refused there in
+one sentence, nothing read or run, and the key file left as it is. ANSIBLE_VAULT_PASSWORD_FILE is never read. A key
+file named in the fleet's folder, the state folder or the installed program's config folder is refused by name. A vault
+made by sealed.py under a key made here opens in a child with no terminal and standard input from /dev/null.
 
 The invariant with its own test: only vaultkey.py names the variable, and only paths.py and vaultkey.py the key file's
 name, so a run reads the key only through vaultkey.open; and no sentence holds the key or anything a file held: every
@@ -344,8 +344,8 @@ def test_the_key_s_line_may_end_in_white_space_of_either_system(home: Path, tmp_
 
 def test_a_file_the_variable_names_is_read_and_never_run(home: Path, tmp_path: Path, fleet, made, seen) -> None:
     # Even where it may be run: a file that would leave a mark if it were run holds no key, and leaves none; a key in a
-    # file that may be run is read as the key. Each is the person's alone (0700); one that others may read as well
-    # (0755) is refused for that before anything of it is read, and is never run either.
+    # file that may be run is read as the key. Each is the person's alone (0700); one open to others as well (0755) is
+    # refused for that before anything of it is read, and is never run either.
     mark = tmp_path / "ran"
     script = _put(tmp_path / "a-script", f"#!/bin/sh\n: > {mark}\necho {made.reveal()}\n", mode=0o700)
     with pytest.raises(vaultkey.WrongKey, match="holds no age key"):
@@ -355,26 +355,27 @@ def test_a_file_the_variable_names_is_read_and_never_run(home: Path, tmp_path: P
     assert _open(fleet, home, "", **{VARIABLE: str(runnable)}).reveal() == made.reveal()
     for each in (script, runnable):
         each.chmod(0o755)
-        with pytest.raises(vaultkey.Failed, match=r"can be read by other accounts \(its mode is 0755\)"):
+        with pytest.raises(vaultkey.Failed, match=r"is open to other accounts \(its mode is 0755\)"):
             _open(fleet, home, "", **{VARIABLE: str(each)})
     assert not mark.exists()
 
 
 def _open_to_others(found: str, path: Path, mode: int) -> str:
-    """The sentence for a key file the group or others may read: found as the sentence names the place."""
+    """The sentence for a key file open to the group or others: found as the sentence names the place."""
     return (
-        f"error: {found} can be read by other accounts (its mode is {mode:04o}), and the vault's key is read only"
-        f" from a file you alone can read, as ssh reads a private key: chmod 600 {quoted(str(path))}; nothing else is"
-        " tried"
+        f"error: {found} is open to other accounts (its mode is {mode:04o}), and the vault's key is read only from a"
+        f" file you alone can read or change, as ssh reads a private key: chmod 600 {quoted(str(path))}; nothing else"
+        " is tried"
     )
 
 
-def test_a_key_file_other_accounts_can_read_is_refused_before_anything_of_it_is_read(
+def test_a_key_file_open_to_other_accounts_is_refused_before_anything_of_it_is_read(
     home: Path, tmp_path: Path, fleet, made, monkeypatch, seen
 ) -> None:
     # The owner's answer of 2026-11-23 to review 23 (D8.md 2): the key that opens every secret is taken only from a file
-    # this account alone can read, as ssh takes a private key, whichever place names it. Each file below holds the key
-    # that opens the vault, so the refusal is the mode's alone; nothing of the file is read, and it is left as it is.
+    # this account alone can read or change, as ssh takes a private key (any of 077 refused), whichever place names it:
+    # one who could write it could put a key of theirs in its place. Each file below holds the key that opens the
+    # vault, so the refusal is the mode's alone; nothing of the file is read, and it is left as it is.
     given = _put(tmp_path / "given-key", made.reveal() + "\n")
     named = _put(tmp_path / "a folder of mine" / "named key", made.reveal() + "\n")
     places = {
@@ -390,7 +391,8 @@ def test_a_key_file_other_accounts_can_read_is_refused_before_anything_of_it_is_
 
     for case, (found, path, key_file, more) in places.items():
         before = path.read_bytes()
-        for mode in (0o640, 0o604, 0o644):
+        # Readable by the group or by others; writable by them and not readable; runnable by them.
+        for mode in (0o640, 0o604, 0o644, 0o620, 0o602, 0o711):
             path.chmod(mode)
             reads.clear()
             with monkeypatch.context() as patched:
@@ -400,23 +402,24 @@ def test_a_key_file_other_accounts_can_read_is_refused_before_anything_of_it_is_
             assert _refused(refused, seen) == _open_to_others(found, path, mode), case
             assert reads == [], f"{case} at {mode:04o} was read"
             assert path.read_bytes() == before and stat.S_IMODE(path.stat().st_mode) == mode, case
-        # The person's alone, to read and write or to read alone: taken.
-        for mode in (0o600, 0o400):
+        # The person's alone, to read and write, to read alone, or to run too: taken.
+        for mode in (0o600, 0o400, 0o700):
             path.chmod(mode)
             assert _open(fleet, home, key_file, **more).reveal() == made.reveal(), (case, mode)
     # A path a shell would split is said as one word, as chmod is to be given it.
     assert "chmod 600 '" in _open_to_others("x", named, 0o644)
 
 
-def test_every_mode_that_lets_the_group_or_others_read_a_key_file_is_refused(
+def test_every_mode_that_gives_the_group_or_others_any_bit_of_a_key_file_is_refused(
     home: Path, tmp_path: Path, fleet, made, seen
 ) -> None:
-    # Every one of the 64 modes the group's and others' bits make, beside the person's own read and write: refused
-    # where either may read, and taken where neither may, the bits to write or run aside.
+    # Every one of the 256 modes in which the person may read the file, the group's and others' 64 beside each of the
+    # person's own four: refused where the group or others have any bit, to read, write or run (ssh's 077), and taken
+    # only where they have none, whatever the person's own bits.
     given = _put(tmp_path / "given-key", made.reveal() + "\n")
+    modes = list(range(0o400, 0o1000))
     refused, taken = [], []
-    for others in range(0o100):
-        mode = 0o600 | others
+    for mode in modes:
         given.chmod(mode)
         try:
             assert _open(fleet, home, "", **{VARIABLE: str(given)}).reveal() == made.reveal()
@@ -425,13 +428,16 @@ def test_every_mode_that_lets_the_group_or_others_read_a_key_file_is_refused(
             refused.append(mode)
         else:
             taken.append(mode)
-    assert refused == [0o600 | others for others in range(0o100) if others & 0o044]
-    assert len(refused) == 48 and len(taken) == 16 and 0o600 in taken and 0o644 in refused
+    # Writable by the group or by others and not readable, or runnable by them, as readable: each refused.
+    named = {0o620, 0o602, 0o711, 0o640, 0o604, 0o644}
+    assert named <= set(refused), sorted(f"{mode:04o} taken" for mode in named - set(refused))
+    assert taken == [0o400, 0o500, 0o600, 0o700], [f"{mode:04o}" for mode in taken]
+    assert refused == [mode for mode in modes if mode & 0o077] and len(refused) == 252
 
 
 def test_the_key_file_made_here_is_taken_whatever_the_umask(home: Path, fleet, seen) -> None:
     # make_key makes its file the person's alone, so the rule never refuses the key init makes, under a umask that would
-    # have made any other file readable by all.
+    # have made any other file open to all.
     was = os.umask(0)
     try:
         key = _saw(seen, vaultkey.make_key(paths.key_file(fleet)))
