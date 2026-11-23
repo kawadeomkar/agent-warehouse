@@ -231,7 +231,7 @@ def test_a_word_the_trims_took_out_of_the_base_is_absent(verb: str, word: str) -
 # option that takes no value names none, nor do init's words, which init refuses whatever they are: neither is here.
 PATTERN_OF: dict[str, dict[str, str]] = {
     "": {"--attended": "attended"},
-    "help": {"<recipe>": "verb"},
+    "help": {"<command>": "verb"},
     "init": {
         "--address": "address",
         "--host": "host_name",
@@ -293,7 +293,7 @@ PATTERN_OF: dict[str, dict[str, str]] = {
 # never a folder).
 EXAMPLE_OF: dict[str, dict[str, str | None]] = {
     "": {"--attended": None},
-    "help": {"<recipe>": "deploy"},
+    "help": {"<command>": "deploy"},
     "init": {
         "--address": "pve.example",
         "--host": "lab2",

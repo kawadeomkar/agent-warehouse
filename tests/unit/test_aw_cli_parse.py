@@ -18,7 +18,9 @@ project's virtualenv, not a module planted there; with no environment yet it mak
 stand-in uv given today's just install's words, once, puts the git hook in place and then runs the program; aw install
 --lock is uv lock alone; core.hooksPath set, no hook; --install-env only from a job; a virtualenv of the person's own is
 never installed into unasked; a Python that cannot be run, no uv and a uv that made no Python are its own sentences;
-and its Python version is the justfile's.
+every line it says that names a path or the program is said through printf as it is, from folders a shell would split
+or whose names hold a backslash, and the program as the printer quotes a word, a path typed that starts with = among
+them; and its Python version is the justfile's.
 """
 
 from __future__ import annotations
@@ -42,7 +44,7 @@ from claude_vm.cli import before, dispatch, habits, parse
 from claude_vm.cli.main import main
 from claude_vm.fleet import paths
 from claude_vm.schema import check as checks
-from claude_vm.schema import rules
+from claude_vm.schema import printer, rules
 from claude_vm.schema.patterns import PATTERNS, full
 from claude_vm.schema.printer import said
 from claude_vm.schema.words import EXITS, VERBS, Verb
@@ -528,7 +530,7 @@ def test_an_environment_without_the_packages_names_aw_install_but_for_install_an
         dispatch.dispatch(REPO, VERBS["install"], before.RunWords(), {})
     assert refused.value.sentence == dispatch.not_built(VERBS["install"])
     # help, built (H6), prints the table without them.
-    assert dispatch.dispatch(REPO, VERBS["help"], before.RunWords(), {"recipe": "deploy"}) == EXITS["done"]
+    assert dispatch.dispatch(REPO, VERBS["help"], before.RunWords(), {"command": "deploy"}) == EXITS["done"]
     assert capsys.readouterr().out.startswith("Usage: aw deploy [<name>...]\n")
 
 
@@ -1008,6 +1010,102 @@ def test_the_launcher_says_where_there_is_no_uv_and_where_uv_made_no_python(home
         f"error: uv made no Python at {python}: run {shlex.quote(str(checkout / 'aw'))} install again, and read what it"
         " says"
     )
+
+
+# Folders a checkout may be in whose names the launcher's lines must say as they are: a ' and a space, which a shell
+# would split and end at; and a backslash before n, t and c, which dash's echo, and macOS's sh's, read as a newline, a
+# tab and the end of the line (review/code/H27.md 2 and 3).
+AWKWARD_FOLDERS = {
+    "quote-and-space": "it's a co",
+    "backslash-n": "co\\nfolder",
+    "backslash-t": "co\\tfolder",
+    "backslash-c": "co\\cfolder",
+}
+
+
+@pytest.mark.parametrize("folder", list(AWKWARD_FOLDERS.values()), ids=list(AWKWARD_FOLDERS))
+def test_every_line_the_launcher_says_holds_a_path_and_the_program_as_they_are(home, tmp_path, folder) -> None:
+    # Each line that names a path or the program through printf '%s\n', never echo, and its three sentences that say
+    # what to run with the program as the printer quotes a word, so that each line equals the printer's.
+    checkout = _checkout(tmp_path, folder)
+    program = printer.quoted(str(checkout / "aw"))
+    assert program == shlex.quote(str(checkout / "aw")) != str(checkout / "aw")
+    _uv(tmp_path)
+    data = subprocess.check_output([checkout / "tools" / "env-run", "--data"], env=environment(home), text=True)
+    venv = data.removesuffix("\n") + "/venv"
+    made_first = (
+        f"This checkout has no Python environment yet: it is made first, from uv.lock, as {program} install makes it."
+    )
+    installing = (
+        f"Installing into this checkout's own environment, {venv}: PYTHON is unset and python3 is no virtualenv."
+    )
+    on_path_hint = (
+        "To run aw from any folder, link it into ~/.local/bin and have that folder on your PATH: mkdir -p ~/.local/bin"
+        f" && ln -s {printer.quoted(str(checkout.resolve() / 'aw'))} ~/.local/bin/aw"
+    )
+    # --install-env with no job's marker: the first sentence.
+    env = {"PYTHON": sys.executable, "UV": str(tmp_path / "uv-bin" / "uv"), **NO_GIT_CONFIG}
+    refused = run_launcher("--install-env", home=home, launcher=checkout / "aw", env=env)
+    assert (refused.returncode, refused.stdout) == (1, "")
+    assert refused.stderr.splitlines() == [
+        f"error: --install-env is a step that {program} install's run starts: run {program} install"
+    ]
+    # A uv named by a path in that folder that is not there.
+    no_uv = run_launcher("status", home=home, launcher=checkout / "aw", **_managed(tmp_path, UV=str(checkout / "uv")))
+    assert no_uv.stderr.splitlines() == [
+        made_first,
+        f"error: no {checkout / 'uv'}: install uv (https://docs.astral.sh/uv/getting-started/installation/), or name it"
+        " with UV=",
+    ]
+    # A uv that makes no environment: the second sentence, the environment by its path, the hook, the line that puts aw
+    # on PATH and the third sentence.
+    makes_nothing = tmp_path / "makes-nothing" / "uv"
+    makes_nothing.parent.mkdir()
+    makes_nothing.write_text("#!/bin/sh\nexit 0\n")
+    makes_nothing.chmod(0o755)
+    nothing = run_launcher("status", home=home, launcher=checkout / "aw", **_managed(tmp_path, UV=str(makes_nothing)))
+    assert (nothing.returncode, nothing.stdout) == (1, "")
+    assert nothing.stderr.splitlines() == [
+        made_first,
+        installing,
+        "Installed git's pre-commit hook.",
+        on_path_hint,
+        f"error: uv made no Python at {venv}/bin/python: run {program} install again, and read what it says",
+    ]
+    # The stand-in uv makes it: the same lines but the hook's, now in place, and then the program runs.
+    made = run_launcher("status", home=home, launcher=checkout / "aw", **_managed(tmp_path))
+    assert made.returncode == 0, made.stderr
+    assert made.stderr.splitlines() == [made_first, installing, on_path_hint]
+    assert _ran(made)["argv"][1:] == ["status"]
+    # A Python named by a path in that folder that cannot be run.
+    python = str(checkout / "no-python")
+    unrunnable = run_launcher("status", home=home, launcher=checkout / "aw", env={"PYTHON": python})
+    assert unrunnable.stderr.splitlines() == [
+        f"error: the Python {python} cannot be run: set PYTHON to a virtualenv's python, or leave it unset and aw makes"
+        " this checkout's own"
+    ]
+
+
+def test_a_program_typed_as_a_path_that_starts_with_equals_is_said_quoted(home, tmp_path) -> None:
+    # The launcher's word quotes a word that starts with =, which zsh expands to a command's path, as the printer's
+    # quoted does: only a path typed from the folder above, whose first folder's name starts with =, reaches it
+    # (review/code/H27.md 3).
+    _checkout(tmp_path, "=co")
+    env = {"PYTHON": sys.executable, "AGENT_WAREHOUSE_JOB": ""}
+    result = run_launcher("--install-env", home=home, launcher="=co/aw", cwd=tmp_path, env=env)
+    program = printer.quoted("=co/aw")
+    assert program == "'=co/aw'" and shlex.quote("=co/aw") == "=co/aw"
+    assert (result.returncode, result.stdout) == (1, "")
+    assert result.stderr.splitlines() == [
+        f"error: --install-env is a step that {program} install's run starts: run {program} install"
+    ]
+
+
+def test_the_launcher_says_nothing_through_echo() -> None:
+    # printf '%s\n' says a line as it is; dash's echo reads a backslash in it (review/code/H27.md 2).
+    code = [line for line in LAUNCHER.read_text().splitlines() if not line.lstrip().startswith("#")]
+    assert [line for line in code if re.search(r"(?<![\w-])echo(?![\w-])", line)] == []
+    assert sum("printf '%s\\n'" in line for line in code) >= 10
 
 
 def test_the_launcher_s_python_version_is_the_justfile_s() -> None:

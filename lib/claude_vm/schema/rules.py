@@ -258,8 +258,8 @@ _ALL: tuple[Rule, ...] = (
     Rule(
         "help.1",
         ("help",),
-        "error: {help} shows one recipe's options at a time (got: [{words}])",
-        _count("recipe", 1),
+        "error: {help} shows one command's options at a time (got: [{words}])",
+        _count("command", 1),
         {"help": Line("help")},
     ),
     Rule(
@@ -272,7 +272,7 @@ _ALL: tuple[Rule, ...] = (
         _any_word("extra"),
         {
             "init": Line("init"),
-            "help_init": Line("help", {"recipe": "init"}),
+            "help_init": Line("help", {"command": "init"}),
             "secret_file": Line("init", {"token_secret_file": PLACEHOLDER}),
         },
     ),
@@ -405,7 +405,7 @@ _ALL: tuple[Rule, ...] = (
         ("mcp",),
         "error: {mcp} takes only its options ({help_mcp}), and nothing after them",
         _any_word("extra"),
-        {"mcp": Line("mcp"), "help_mcp": Line("help", {"recipe": "mcp"})},
+        {"mcp": Line("mcp"), "help_mcp": Line("help", {"command": "mcp"})},
     ),
     Rule(
         "mcp.2",

@@ -41,6 +41,7 @@ import pytest
 from aw_kit import LAUNCHER, imports_of, on_path, run_aw, run_launcher
 from harness import REPO
 from test_aw_cli_parse import SAMPLES
+from test_aw_cli_rules import REFUSALS
 from test_aw_cli_words import SECRET_TEXT
 from test_aw_layout import NEW
 
@@ -281,7 +282,7 @@ def test_a_line_is_the_program_the_verb_its_words_then_its_options_in_the_table_
     assert _line("deploy", {"default_vm": True}) == "aw deploy"
     assert _line("status", {"default_vm": False}) == "aw status"
     assert _argv("deploy", {"default_vm": True, "cores": None}) == ["aw", "deploy"]
-    assert _line("help", {"recipe": "deploy"}) == "aw help deploy"
+    assert _line("help", {"command": "deploy"}) == "aw help deploy"
     # A value that starts with - or is empty is given as --long=value, which the parser reads as a value.
     assert _line("deploy", {"cores": "", "names": ["alpha"]}) == "aw deploy alpha --cores="
     assert _argv("deploy", {"cores": "", "names": ["alpha"]}) == ["aw", "deploy", "alpha", "--cores="]
@@ -321,7 +322,7 @@ def test_a_placeholder_is_the_name_help_gives_it() -> None:
     assert _line("destroy", {"names": PLACEHOLDER, "confirm": PLACEHOLDER}) == "aw destroy <name>... --confirm <names>"
     assert _line("code", {"name": PLACEHOLDER}) == "aw code <name>"
     assert _line("settings", {"name": PLACEHOLDER, "value": PLACEHOLDER}) == "aw settings <name> --value <value>"
-    assert _line("help", {"recipe": PLACEHOLDER}) == "aw help <recipe>"
+    assert _line("help", {"command": PLACEHOLDER}) == "aw help <command>"
     assert _line("deploy", {"names": PLACEHOLDER, "set": PLACEHOLDER}) == "aw deploy <name>... --set <name>=<value>"
     assert _line("init", {"token_secret_file": PLACEHOLDER}) == "aw init --token-secret-file <file>"
     assert _line("code", {"name": "alpha", "host": PLACEHOLDER}) == "aw code alpha --host <host>"
@@ -468,40 +469,55 @@ def test_a_line_from_values_no_run_took_never_says_a_value_of_free_text_back() -
 
 # ---------------------------------------------------------------- the printer's names, by any road ----
 
-# The printer's module, by its dotted name.
+# The printer's module and the check's, by their dotted names.
 PRINTER_MODULE = "claude_vm.schema.printer"
+CHECK_MODULE = "claude_vm.schema.check"
 
 
-def _bindings(tree: ast.AST) -> tuple[set[str], dict[str, str]]:
-    """The names a module binds to the printer's module (printer, as schema/'s own modules name it, among them), and to
-    a name of the printer's, each by its name there: every import, absolute or relative, under any alias."""
-    modules, names = {"printer"}, {}
+def _bindings(tree: ast.AST, module: str = PRINTER_MODULE) -> tuple[set[str], set[str], dict[str, str]]:
+    """The names a module binds to module (its last part, printer or check, as schema/'s own modules name them, among
+    them), to the package that holds it (from claude_vm import schema), and to a name of module's, each by its name
+    there: every import, absolute or relative, under any alias."""
+    package, _, short = module.rpartition(".")
+    parent, _, package_name = package.rpartition(".")
+    modules, packages, names = {short}, set(), {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            modules |= {alias.asname for alias in node.names if alias.name == PRINTER_MODULE and alias.asname}
+            modules |= {alias.asname for alias in node.names if alias.name == module and alias.asname}
+            packages |= {alias.asname for alias in node.names if alias.name == package and alias.asname}
         elif isinstance(node, ast.ImportFrom):
-            module = node.module or ""
+            source = node.module or ""
             for alias in node.names:
-                if alias.name == "printer" and (module.endswith("schema") or (node.level and not module)):
-                    modules.add(alias.asname or alias.name)
-                elif module == "printer" or module.endswith(".printer"):
-                    names[alias.asname or alias.name] = alias.name
-    return modules, names
+                bound = alias.asname or alias.name
+                if alias.name == short and (source.endswith(package_name) or (node.level and not source)):
+                    modules.add(bound)
+                elif alias.name == package_name and (source == parent or (node.level and not source)):
+                    packages.add(bound)
+                elif source == short or source.endswith(f".{short}"):
+                    names[bound] = alias.name
+    return modules, packages, names
 
 
-def _of_printer(node: ast.AST, modules: set[str]) -> bool:
-    """Whether node is the printer's module: a name bound to it, or claude_vm.schema.printer written whole."""
-    return (isinstance(node, ast.Name) and node.id in modules) or ast.unparse(node) == PRINTER_MODULE
+def _of_module(node: ast.AST, modules: set[str], packages: set[str], module: str) -> bool:
+    """Whether node is module: a name bound to it, an attribute of a name bound to its package, or its dotted name
+    written whole."""
+    if isinstance(node, ast.Name):
+        return node.id in modules
+    if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id in packages:
+        return node.attr == module.rpartition(".")[2]
+    return ast.unparse(node) == module
 
 
-def _references(tree: ast.AST, wanted: tuple[str, ...], own: bool) -> list[ast.AST]:
-    """Each node of tree that reaches one of the printer's names in wanted: an attribute of its module, a name imported
-    from it under any alias, and in the printer's own source (own) the name itself."""
-    modules, names = _bindings(tree)
+def _references(tree: ast.AST, wanted: tuple[str, ...], own: bool, module: str = PRINTER_MODULE) -> list[ast.AST]:
+    """Each node of tree that reaches one of module's names in wanted (the printer's, unless another is named): an
+    attribute of the module, a name imported from it under any alias, and in the module's own source (own) the name
+    itself."""
+    modules, packages, names = _bindings(tree, module)
     found: list[ast.AST] = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.Attribute) and node.attr in wanted and _of_printer(node.value, modules):
-            found.append(node)
+        if isinstance(node, ast.Attribute) and node.attr in wanted:
+            if _of_module(node.value, modules, packages, module):
+                found.append(node)
         elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
             if names.get(node.id) in wanted or (own and node.id in wanted):
                 found.append(node)
@@ -696,6 +712,69 @@ def test_a_masked_line_and_a_form_line_each_print_a_placeholder() -> None:
     for printed in (masked, form):
         with pytest.raises(parse.Refused, match="stands for"):
             parse.read(shlex.split(printed.replace("<", "'<").replace(">", ">'"))[1:])
+
+
+def _forms(monkeypatch) -> list[str]:
+    """Each form schema/ writes, as a person reads it: every Line a rule's sentence names whatever the values, and as
+    each case of test_aw_cli_rules.py's REFUSALS breaks its rule, and the table's own (LINES), said; help's usage lines;
+    and deploy's question's lines, with two values of --set masked (cli/habits.py's) - each that holds a placeholder."""
+    lines = [line for rule in rules.RULES.values() for line in rule.lines.values()] + list(LINES.values())
+    for key, (words, _, _) in REFUSALS.items():
+        rule = rules.RULES.get(key.rpartition("-")[0])
+        if rule is None:
+            continue
+        try:
+            values = _read(words, monkeypatch, with_rules=False).values
+        except parse.Refused:
+            continue
+        lines += [filled for filled in (rule.breaks(values) or {}).values() if isinstance(filled, Line)]
+    forms = {said("{line}", {"line": line}) for line in lines} | {helps.usage(verb) for verb in VERBS.values()}
+    for values in ({"names": ["configure", "alpha"]}, {"only": "configure"}, {"names": ["alpha"], "verbosity": 2}):
+        forms.add(printer.line("deploy", {**values, "set": ["a=b", "c=d"]}, host_flag="", refused=True))
+    return sorted(form for form in forms if "<" in form)
+
+
+# What a shell leaves of a form, where its folder holds a file named as each placeholder, by the form, wherever it is a
+# command aw takes: host --remove's form leaves aw host, a read that lists the hosts, which the shell writes into a file
+# named --remove. Every other form is no line a shell reads, or leaves words aw refuses (docs/architecture/engine.md
+# §16.2; review/code/H27.md 4).
+TAKEN_WHEN_PASTED = {"{program} host <name> --remove": ["host"]}
+
+
+def test_a_form_pasted_at_a_shell_runs_nothing_or_words_aw_refuses_but_one_read(tmp_path, monkeypatch) -> None:
+    said_to = tmp_path / "said"
+    stand_in = tmp_path / "bin" / "aw"
+    stand_in.parent.mkdir()
+    stand_in.write_text(f'#!/bin/sh\nfor word in "$@"; do printf \'%s\\n\' "$word"; done > "{said_to}"\n')
+    stand_in.chmod(0o755)
+    monkeypatch.setattr(printer, "_program", printer.PROGRAM)
+    printer.started_as(str(stand_in))
+    program = printer.quoted(str(stand_in))
+    forms = _forms(monkeypatch)
+    assert len(forms) >= 10 and all(form.startswith(f"{program} ") for form in forms), forms
+    names = sorted({name for form in forms for name in re.findall(r"<([^<>]+)>", form)})
+    taken: dict[str, list[str]] = {}
+    for index, (shell, form) in enumerate(itertools.product(("/bin/sh", "bash"), forms)):
+        empty, held = tmp_path / f"empty-{index}", tmp_path / f"held-{index}"
+        empty.mkdir()
+        held.mkdir()
+        for name in names:
+            (held / name).write_text("x\n")
+        for folder in (empty, held):
+            said_to.unlink(missing_ok=True)
+            subprocess.run([shell, "-c", form], cwd=folder, stdin=subprocess.DEVNULL, capture_output=True, timeout=30)
+            left = said_to.read_text().splitlines() if said_to.exists() else None
+            if folder == empty:
+                # Its first < finds no file: nothing runs, and nothing is made or emptied.
+                assert left is None and list(empty.iterdir()) == [], (shell, form)
+            elif left is not None:
+                key = form.replace(program, "{program}", 1)
+                try:
+                    parse.read(left)
+                except parse.Refused:
+                    continue
+                taken[key] = left
+    assert taken == TAKEN_WHEN_PASTED
 
 
 # ---------------------------------------------------------------- zsh's =word ----
@@ -1018,6 +1097,114 @@ def test_the_module_the_review_planted_fails_every_guard() -> None:
     assert _printer_calls(PLANTED) == [(20, False)]
 
 
+# ---------------------------------------------------------------- the check's command, by any road ----
+
+CHECK = "lib/claude_vm/schema/check.py"
+# The modules that may use the check's command, the program and a verb as the printer writes them, each with why: each
+# refuses, and help writes its usage lines and its closing paragraph's program with it. Anywhere else, words of a
+# module's own joined after it make a command line no other scan sees, its values unquoted, unmasked and held by no
+# check (review/code/H27.md 1): a line to run is the printer's line, and a sentence names a command as a Line, said.
+COMMAND_USERS = {
+    CHECK: "the one check's refusals, each naming the command it refuses and where its options are listed",
+    PRINTER: "the printer's refusals of a line it will not write, raised as ValueError, each naming the verb's command",
+    "lib/claude_vm/cli/parse.py": "the parser's refusals, argparse's errors said in the project's own sentences, and "
+    "the parser's prog, which nothing prints: every error of argparse's is said by those sentences",
+    "lib/claude_vm/cli/dispatch.py": "not_built's refusal of a verb no card has built yet",
+    "lib/claude_vm/cli/help.py": "aw help's usage lines, the program and the verb before the words in brackets "
+    "(aw deploy [<name>...]), a form no line of the printer's writes, and the program alone its closing paragraph "
+    "names",
+}
+
+
+def _command_uses(source: str, own: bool = False) -> list[int]:
+    """The line of each use of the check's command in source: an attribute of the check's module by any name a module
+    binds to it or its package, or the dotted name, a name imported from it under any alias, and in the check's own
+    source (own) the name itself; a call, or any other use, a name bound to it among them."""
+    return sorted(node.lineno for node in _references(ast.parse(source), ("command",), own, CHECK_MODULE))
+
+
+def test_only_the_modules_that_refuse_and_help_use_the_check_s_command() -> None:
+    # review/code/H27.md 1, the third road H25.md 1 named: f"{checks.command('cancel')} {job}" is a command written by
+    # hand, the program quoted and the rest not, and passes every scan of strings above.
+    using = {}
+    for path in _new_modules():
+        where = path.relative_to(REPO).as_posix()
+        if lines := _command_uses(path.read_text(), own=where == CHECK):
+            using[where] = lines
+    outside = {where: lines for where, lines in using.items() if where not in COMMAND_USERS}
+    assert outside == {}, "print the line with the printer's line, or name it in a sentence as a Line said through said"
+    assert set(using) == set(COMMAND_USERS), "a module named that uses the check's command no more: take it out"
+    assert all(why.strip() for why in COMMAND_USERS.values())
+
+
+@pytest.mark.parametrize(
+    ("source", "lines"),
+    [
+        # The roads review/code/H27.md 1 planted, through every binding: the module by an alias, as schema/'s own name
+        # it, relatively, by its package and by its whole dotted name; the function imported under any alias; a name
+        # bound to it, which a later call reaches.
+        ("from claude_vm.schema import check as checks\nx = f\"{checks.command('login')} {vm} --only github\"", [2]),
+        ("from claude_vm.schema import check\nx = f\"{check.command('')} cancel {job}\"", [2]),
+        ("from ..schema import check as c\nx = c.command('cancel') + ' ' + job", [2]),
+        ("from claude_vm import schema\nx = schema.check.command('x')", [2]),
+        ("import claude_vm.schema as s\nx = s.check.command('x')", [2]),
+        ("import claude_vm.schema.check\nx = claude_vm.schema.check.command('x')", [2]),
+        ("import claude_vm.schema.check as c\nx = c.command('x')", [2]),
+        ("from claude_vm.schema.check import command as said_as\nx = said_as('cancel')", [2]),
+        ("from .check import command\nx = command('cancel')", [2]),
+        ("from claude_vm.schema import check as checks\nnamed = checks.command\nx = named('x')", [2]),
+        # Not the check's: today's claude_vm.checks, a command of the module's own, another of the check's names.
+        ("from claude_vm import checks\nx = checks.command('x')", []),
+        ("x = command('x')", []),
+        ("from claude_vm.schema import check as checks\nx = checks.help_of('x')", []),
+    ],
+)
+def test_the_scan_of_the_check_s_command_follows_every_name(source: str, lines: list) -> None:
+    assert _command_uses(source) == lines
+
+
+def test_the_check_s_own_command_is_read_by_its_name() -> None:
+    assert _command_uses("def command(verb):\n    return verb\n\nx = command('x')", own=True) == [4]
+
+
+# The module review/code/H27.md 1 planted, by its four plain roads: the check's command, and the program alone, with
+# words of the module's own after it; and a line and a sentence the printer made, with words of the module's own joined
+# to them. The first two fail the guard above; the last two pass every guard, which is what no scan sees (§16.2).
+PLANTED_COMMAND = """
+from claude_vm.schema import check as checks
+from claude_vm.schema import printer
+from claude_vm.schema.words import Line
+
+
+def by_the_command(vm):
+    return f"{checks.command('login')} {vm} --only github"
+
+
+def by_the_program_alone(job):
+    return f"{checks.command('')} cancel {job}"
+
+
+def by_a_line_and_words(job):
+    return printer.line("cancel", {}, refused=False) + " " + job
+
+
+def by_a_sentence_and_words(value):
+    return printer.said("{line} vm_note --value " + value, {"line": Line("settings")})
+"""
+
+
+def test_the_module_h27_s_review_planted_fails_the_guard_of_the_check_s_command() -> None:
+    assert _command_uses(PLANTED_COMMAND) == [8, 12]
+    # The printer's own output with words joined to it: no guard sees it, as §16.2 and CLAUDE.md say.
+    seen = (
+        _names_program(PLANTED_COMMAND),
+        _program_fields(PLANTED_COMMAND),
+        _commands_built(PLANTED_COMMAND),
+        [said_it for _, said_it in _printer_calls(PLANTED_COMMAND)],
+    )
+    assert seen == (False, [], [], [True])
+
+
 @pytest.mark.parametrize(
     ("source", "found"),
     [
@@ -1093,7 +1280,7 @@ def test_the_check_s_sentences_name_the_command_as_the_printer_writes_it() -> No
     assert checks.help_of("") == _line("help", {})
     for name in VERBS:
         assert checks.command(name) == _line(name, {}), name
-        assert checks.help_of(name) == _line("help", {"recipe": name}), name
+        assert checks.help_of(name) == _line("help", {"command": name}), name
 
 
 # ---------------------------------------------------------------- what schema/ imports ----

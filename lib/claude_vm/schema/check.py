@@ -22,7 +22,9 @@ a command holds a line to (printer.py).
 Every command a sentence here names, the verb refused and where its options are listed among them, is the printer's,
 through printer.py's `said`, so it is the program as it was started, quoted. `command` names the verb a refusal is
 about, the program alone for the words before any verb, and is the only name outside the printer that fills a
-sentence's program field: never a line to run, which the printer writes whole.
+sentence's program field: never a line to run, which the printer writes whole. Only the modules that refuse, and help
+for its usage lines and the program its closing paragraph names, use it (tests/unit/test_aw_cli_printer.py's
+COMMAND_USERS): words of another module's own joined after it would make a command line no scan sees.
 
 Standard library only, and schema/: every command reads it, a refusal among them. It and the printer call each other,
 each importing the other as a module (schema/__init__.py).
@@ -69,13 +71,14 @@ def spelled(option: Option) -> str:
 
 def command(verb: str) -> str:
     """The command a refusal is about: the program and the verb, or the program alone for the words before any verb, as
-    the printer writes them, the program quoted."""
+    the printer writes them, the program quoted. For a refusal and help's usage line alone, never with words joined
+    after it into a line to run, which is the printer's line."""
     return printer.said("{line}", {"line": Line(verb, host_flag="")}) if verb else printer.said("{program}")
 
 
 def help_of(verb: str) -> str:
     """Where a sentence sends a person for a verb's options, or for the verbs: aw help <verb>, or aw help."""
-    return printer.said("{line}", {"line": Line("help", {"recipe": verb} if verb else {})})
+    return printer.said("{line}", {"line": Line("help", {"command": verb} if verb else {})})
 
 
 def no_such_command() -> str:

@@ -204,7 +204,7 @@ class Line:
 # The commands the table's own sentences name, by the field each names one with.
 LINES: dict[str, Line] = {
     "help": Line("help"),
-    "help_of_one": Line("help", {"recipe": PLACEHOLDER}),
+    "help_of_one": Line("help", {"command": PLACEHOLDER}),
     "hosts": Line("host"),
     "vault": Line("vault"),
     "mcp": Line("mcp"),
@@ -328,8 +328,10 @@ _VERBS: tuple[Verb, ...] = (
     Verb(
         name="help",
         group=None,
-        doc="Show the recipes, or the options of one: {help_of_one}",
-        words=Words("recipe", False, "recipe", "verb", "The one recipe whose options to show", refused(NO_TOOL_HELP)),
+        doc="Show the commands, or the options of one: {help_of_one}",
+        words=Words(
+            "command", False, "command", "verb", "The one command whose options to show", refused(NO_TOOL_HELP)
+        ),
         options=(),
         rules=("help.1",),
         handler="cli.help:main",
