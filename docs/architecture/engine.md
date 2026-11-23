@@ -1028,10 +1028,14 @@ given. With the setting `network_proxy` at `environment`, its default, it is the
   with their exceptions. Linux has no such settings.
 
 With `none` there is no proxy, whatever the environment says: the stricter form, and an opt-in. With an `http://` URL,
-it is that proxy. Of `urllib.request` it calls only the readers that take what they read as an argument
-(`proxy_bypass_environment`) or read the system's settings (macOS's `getproxies_macosx_sysconf` and
-`proxy_bypass_macosx_sysconf`). It never calls `getproxies` or `proxy_bypass` themselves, which read the process's own
-environment, and it never uses an opener.
+it is that proxy. A URL the setting names has a host and no user or password, which a file of settings, a run's record
+and what `settings` prints would hold in the clear: `setting_refusal`, the one check of the setting, which `choose`
+makes and `fleet/overrides.py`'s `typed` makes of every value a file or `--set` gives it, refuses one by the setting's
+name and never says it. A proxy that needs them is given as `HTTPS_PROXY` in the environment, read at `environment`,
+whose user and password the transport holds as a `Secret`. Of `urllib.request` it calls only the readers that take what
+they read as an argument (`proxy_bypass_environment`) or read the system's settings (macOS's `getproxies_macosx_sysconf`
+and `proxy_bypass_macosx_sysconf`). It never calls `getproxies` or `proxy_bypass` themselves, which read the process's
+own environment, and it never uses an opener.
 
 `tests/unit/test_aw_transport.py` runs the transport against TLS servers it starts on loopback, with the certificates
 `tests/unit/pki.py` makes, and against a stand-in CONNECT proxy, which also refuses a tunnel, or drips its answer to the
@@ -1671,42 +1675,51 @@ its jobs there while a suite runs, and state can be made again. No file there is
 followed. `tests/unit/test_aw_fleet_paths.py` holds the homes, the pointer, the key's place, the names,
 the scans for who names the folders and the key, and the guard, a child `pytest` among its tests.
 
-**The settings table: `registry.py`.** One typed row for every setting a person may write, written by hand as
-literals, standard library only: `ROWS`, the 93 settings today's `local.yml.example` documents that the engine keeps as
-settings (not its five older names - the four 1.0 names of the editor's settings, and `tailscale_enabled`, the old form
-of `vpn` - nor the API's port, the token's user and its ID, which are fields of each host's `host.yml`, nor whether the
-API's certificate is checked, which it always is); `ADDED`, counted apart, the settings the engine adds: the vault's
-key file and command, `tls_ca_file`, `network_proxy`, `run_lock`, `run_forks`, `run_detached_limit`,
-`machine_claims`, `agents_vm_cap`, `proxmox_audit_scope`, `vm_label`, `vm_first_boot_upgrade`, `destroy_confirm`,
+**The settings table: `registry.py`.** One typed row for every setting a person may write, written by hand as literals,
+standard library only: `ROWS`, the 93 settings today's `local.yml.example` documents that the engine keeps as settings
+(not its five older names - the four 1.0 names of the editor's settings, and `tailscale_enabled`, the old form of
+`vpn` - nor the API's port, the token's user and its ID, which are fields of each host's `host.yml`, nor whether the
+API's certificate is checked, which it always is); `ADDED`, counted apart, the settings the engine adds: the vault's key
+file and command, `tls_ca_file`, `network_proxy`, `run_lock`, `run_forks`, `run_detached_limit`, `machine_claims`,
+`agents_vm_cap`, `proxmox_audit_scope`, `vm_label`, `vm_first_boot_upgrade`, `destroy_confirm`,
 `destroy_allow_unrecorded`, `github_username`, and two for one run alone; and `CONNECTION`, counted apart, this
 computer's own SSH that today's guides document outside the example (`ssh_identity_file`, `ssh_executable`,
-`vm_ssh_options`). A `Row` is the setting's name; its type (`TYPES`: `bool`, `int`, `str`, `path`, `list[str]`,
-`dict`, `size`; a `path` is this computer's, `~` at its start the user's home, a relative one refused by name, `""`
-unset; a `size`, `vm_disk_size`'s alone, a whole number with G or T after it, in either case, as `deploy --disk` takes
-one, and kept with its unit capital) and choices, the argument spec's of the role variable it feeds, or for one
-that feeds none its literal default's type and
-the choices today's checks hold it to; its default, a literal, or where today's is an expression one of the module's
-named functions (`COMPUTED`), whose keyword-only parameters name what it reads, each a row or one of `GIVEN`, the
-machine's name, this computer's user home and the key file `paths.py` names; its scope (`SCOPES`: `global`, `host`,
-`machine`); its home (`HOMES`: the fleet's `settings.yml`, which holds a row of scope `machine` in its map `machines`, a
-host's, `client.yml`, which holds a row of scope `host` in its map `hosts` and one of scope `machine` in its map
-`machines`, or `run`, no file, a value given with `--set` for one run alone); its group, the role today's
-`just settings` lists it with, `common` for a setting that reaches no role's variable; its description, today's
-comment above it, which names a verb alone and says nothing of an older version; `secret`, whether its value may hold a
-secret
+`vm_ssh_options`). A `Row` is the setting's name; its type (`TYPES`: `bool`, `int`, `str`, `path`, `list[str]`, `dict`,
+`size`; a `size`, `vm_disk_size`'s alone, a whole number with G or T after it, in either case, as `deploy --disk` takes
+one, and kept with its unit capital; a `path`, of which there are seven, is a path on this computer, and `overrides.py`
+reads one, typed or in a file, with `~` at its start the user's home, refuses one still relative, `~user` among them, by
+the setting's name, and keeps `""` as unset, never the working folder) and choices, the argument spec's of the role
+variable it feeds, or for one that feeds none its literal default's type (`path` for the three of today's whose literal
+is `""` that the cutover's check names with why) and the choices today's checks hold it to; its default, a literal, or
+one of the module's named functions (`COMPUTED`) where it is worked out from something else, whose keyword-only
+parameters name what it reads, each a row or one of `GIVEN`, the machine's name, this computer's user home and the key
+file `paths.py` names; its scope (`SCOPES`: `global`, `host`, `machine`); its home (`HOMES`: the fleet's `settings.yml`,
+which holds a row of scope `machine` in its map `machines`, a host's, `client.yml`, which holds a row of scope `host` in
+its map `hosts` and one of scope `machine` in its map `machines`, or `run`, no file, a value given with `--set` for one
+run alone); its group, the role today's `just settings` lists it with, `common` for a setting that reaches no role's
+variable; its description, today's comment above it for today's settings and written here for the added ones, which
+names a verb alone and says nothing of an older version; `secret`, whether its value may hold a secret
 (`claude_code_settings`, whose role marks it `no_log`); `agent`, whether an agent may ask to change it, the 36 the
-agents' server allows today; and `values`, a `ValueRule` for what an agent may give a setting whose type lets more
-through (`claude_code_version`: a channel or a release, never another spec for npm). A row that names a secret and that
-an agent may change, or that has a rule for an agent's values and that no agent may change, raises as it is made. A
-setting each host sets for itself today, or that the shared files may never supply, is each host's own; a setting whose
-default is made from the machine's name is each machine's own. A list's default is a tuple and a mapping's read-only,
-so no reader changes the table. `rows()`, `row(name)` and `group(name)` read it. Nothing generates it, and nothing is
-generated from it into a tracked file. `tests/unit/test_aw_fleet_registry.py` holds the table;
-`tests/unit/test_aw_fleet_registry_today.py`, the cutover's check, which goes with today's files, holds it to them:
-every documented setting has exactly one row but the nine, each named with where it went, each type, choice, literal
-default and group as today's, a secret where the role variable is `no_log`, the rows an agent may change today's
-`ALLOWED` with `VALUES`' rule, every name of `ALLOWED` and `REFUSED` a row but the nine, `run_forks` as many as
-`ansible.cfg`'s `forks`, and a setting added to the example without a row fails by its name.
+agents' server allows today; `values`, a `ValueRule` for what an agent may give a setting whose type lets more through
+(`claude_code_version`: a channel or a release, never another spec for npm); and, where its readers need more than its
+type, `form`, a `ValueRule` every value of a string must match (`vm_label` one Proxmox tag, which a `,` or a `;` would
+make two, held equal to `pve/client.py`'s `TAG`; `github_username` a GitHub account's name, as `init --github-user`
+takes one), or `least`, the least an integer may be (`run_forks` 1). `run_lock`'s choices are `runs/locks.py`'s
+`POLICIES`, and `network_proxy` is held by `vendors/proxy.py`'s one check of it (§16.7). A row that names a secret and
+that an agent may change, that has a rule for an agent's values and that no agent may change, or that has a form or a
+least value its type has not, raises as it is made. A setting each host sets for itself today, or that the shared files
+may never supply, is each host's own, and so is `vm_searchdomain`, one network's as the nameservers are; of them
+`claude_ssh_host_domain` and `vm_ssh_route`, how this computer finds and reaches a host's VMs, are this computer's, in
+`client.yml`'s map `hosts`, so that another computer that copies the fleet's folder reaches them its own way. A setting
+whose default is made from the machine's name is each machine's own. A list's default is a tuple and a mapping's
+read-only, so no reader changes the table. `rows()`, `row(name)` and `group(name)` read it. Nothing generates it, and
+nothing is generated from it into a tracked file. `tests/unit/test_aw_fleet_registry.py` holds the table, with the place
+of each of today's settings in two literal sets (this computer's, by scope, and each host's, by home), every other one
+the fleet's; `tests/unit/test_aw_fleet_registry_today.py`, the cutover's check, which goes with today's files, holds it
+to them: every documented setting has exactly one row but the nine, each named, and the four that left with where each
+went, each type, choice, literal default and group as today's, a secret where the role variable is `no_log`, the rows an
+agent may change today's `ALLOWED` with `VALUES`' rule, every name of `ALLOWED` and `REFUSED` a row but the nine,
+`run_forks` as many as `ansible.cfg`'s `forks`, and a setting added to the example without a row fails by its name.
 
 **The overrides: `overrides.py`.** What a person sets is kept in plain files of literals, written by hand or by the
 engine, never sealed, each a YAML mapping of setting names to values and nothing else: no expression, no anchor, alias,
@@ -1722,20 +1735,22 @@ returns the three files of a host's run (`Layers`, each a `File` with its digest
 row's `Value` with the layer that set it (`LAYERS`: `default`, `fleet`, `host`, `client`, `run`): the value given for
 the run, else its home's file's, else the table's default, a default worked out from another row, the machine's name
 (none with no machine named), this computer's home or the home's key file worked out there. `typed(row, text)` holds
-typed text to its row's type, choices and form, refusing an expression and a control character in the text and again in
-the value YAML's escapes make of it; a value in a file is held the same way, so `vm_disk_size: 128g` in a file,
-`--set vm_disk_size=128g` and `128G` typed are one value. `run_values(texts, secrets=...)` types the words of `--set`: a
-name that is no row's is refused unsaid, a row that may hold a secret is never given for one run, and a value that holds
-one of the vault's secrets (every caller names them, each a `Secret`, struck and never revealed) is refused in the text
-and in the value; the result is what a run records as its inputs and `resolve`'s top layer. `set` and `unset` write one
-value into the file of its home, under `store.locked`, only while the file's digest is the one its caller read
-(`expect`), whole and in ASCII, read back as meant before `store.replace` puts it in place, a new file at
-`paths.FILE_MODE` in folders at `paths.DIR_MODE`. Every refusal is a `Refused`, whose sentence never says a value back.
-Nothing else in `fleet/` writes a file. A machine's recorded choices, the design's third layer, are in its record, which
-is not read here. `tests/unit/test_aw_fleet_overrides.py` holds it: each layer over the one before, each home's file and
-none other, each refusal with the file unchanged, the compare-and-swap, `--set`'s refusals with no value said, a size
-read alike, the reader of `client.yml` against `paths.py`'s own cases of `fleet_home`, and a scan that only `set` and
-`unset` write.
+typed text to its row's type, choices, form and least value, a path by the path rule and `network_proxy` by
+`vendors/proxy.py`'s one check, which refuses a user and a password, refusing an expression and a control character in
+the text and again in the value YAML's escapes make of it; a value in a file is held the same way, so
+`vm_disk_size: 128g` in a file, `--set vm_disk_size=128g` and `128G` typed are one value.
+`run_values(texts, secrets=...)` types the words of `--set`: a name that is no row's is refused unsaid, a row that may
+hold a secret is never given for one run, and a value that holds one of the vault's secrets (every caller names them,
+each a `Secret`, struck and never revealed) is refused in the text and in the value; the result is what a run records as
+its inputs and `resolve`'s top layer. `set` and `unset` write one value into the file of its home, under `store.locked`,
+only while the file's digest is the one its caller read (`expect`), whole and in ASCII, read back as meant before
+`store.replace` puts it in place, a new file at `paths.FILE_MODE` in folders at `paths.DIR_MODE`. Every refusal is a
+`Refused`, whose sentence never says a value back. Nothing else in `fleet/` writes a file. A machine's recorded choices,
+the design's third layer, are in its record, which is not read here. `tests/unit/test_aw_fleet_overrides.py` holds it:
+each layer over the one before, each home's file and none other, the path rule for each path row, the proxy's user and
+password refused at every way in by one check, each refusal with the file unchanged, the compare-and-swap, `--set`'s
+refusals with no value said, a size read alike, the reader of `client.yml` against `paths.py`'s own cases of
+`fleet_home`, and a scan that only `set` and `unset` write.
 
 ## 16.10 `guest/` — the helper, the system layer's inputs, layer 2
 

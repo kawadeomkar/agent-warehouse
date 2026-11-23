@@ -1047,7 +1047,10 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       answer; of a proxy's answer only its status.
     - The proxy is `lib/claude_vm/vendors/proxy.py`'s `choose`: from the environment under `requests`' rule, at
       `network_proxy: environment`, with `none` the opt-in. It reads only the environment it is given, and of
-      `urllib.request` only `proxy_bypass_environment` and macOS's two readers of the system's settings.
+      `urllib.request` only `proxy_bypass_environment` and macOS's two readers of the system's settings. A URL the
+      setting names has no user or password: `setting_refusal` is the one check, which `choose` makes and
+      `fleet/overrides.py`'s `typed` makes of every value a file or `--set` gives it; a proxy that needs them is given
+      as `HTTPS_PROXY`, under `environment`.
     - The vendors' TLS context, and the Proxmox client's where a host keeps no anchor, is
       `lib/claude_vm/vendors/trust.py`'s alone: `certifi`'s file by its path, and then the file the setting
       `tls_ca_file` names, which adds to `certifi`'s list and never replaces it; never the system's store or a

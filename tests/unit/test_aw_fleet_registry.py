@@ -25,6 +25,9 @@ from aw_kit import imports_of
 
 from claude_vm.fleet import registry
 from claude_vm.fleet.registry import ADDED, CONNECTION, GIVEN, HOMES, ROWS, SCOPES, TYPES, Row, ValueRule
+from claude_vm.pve import client as pve_client
+from claude_vm.runs import locks
+from claude_vm.schema import patterns
 from claude_vm.vendors import proxy
 
 MODULE = "claude_vm.fleet.registry"
@@ -68,12 +71,18 @@ def test_every_row_is_well_formed(each: Row) -> None:
     assert each.description and each.description == each.description.strip()
     assert isinstance(each.secret, bool) and isinstance(each.agent, bool)
     assert each.values is None or (isinstance(each.values, ValueRule) and each.type == "str")
+    assert each.form is None or (isinstance(each.form, ValueRule) and each.type == "str")
+    assert each.least is None or (type(each.least) is int and each.type == "int")
     if callable(each.default):
         assert each.default in registry.COMPUTED
     else:
         assert _of_type(each.default, each.type), (each.default, each.type)
         if each.choices:
             assert each.default in each.choices
+        if each.form is not None:
+            assert each.form.allows(each.default), each.name
+        if each.least is not None:
+            assert each.default >= each.least, each.name
     if each.choices:
         assert each.type == "str", "choices are a string's"
 
@@ -123,11 +132,76 @@ def test_connection_holds_this_computer_s_three_ssh_rows_counted_apart() -> None
 
 
 def test_the_rows_the_card_placed_are_where_it_placed_them() -> None:
-    # One computer's, as the report gives it, and each host's own, never inherited, as today (hosts/kinds.py).
-    domain = registry.row("claude_ssh_host_domain")
-    assert (domain.scope, domain.home) == ("host", "client")
-    pool = registry.row("proxmox_pool")
-    assert (pool.scope, pool.home) == ("host", "host")
+    # One computer's, as the report gives it, and each host's own, never inherited, as today (hosts/kinds.py); and how
+    # this computer reaches a host's VMs, which a second computer that copies the fleet's folder decides for itself
+    # (review 12, D3.md 3).
+    for name in ("claude_ssh_host_domain", "vm_ssh_route"):
+        assert (registry.row(name).scope, registry.row(name).home) == ("host", "client"), name
+    for name in ("proxmox_pool", "vm_searchdomain"):
+        assert (registry.row(name).scope, registry.row(name).home) == ("host", "host"), name
+
+
+# Where each of today's documented settings is kept, with why (review 12, D3.md 2): a row moved by mistake changes
+# where a person may write it, which nothing else would see. This computer's own, in client.yml: the report's
+# seventeen, the carry's eight, and vm_ssh_route, how this computer reaches a host's VMs; by scope, global at
+# client.yml's top, host in its map hosts.
+OF_THIS_COMPUTER = {
+    "editor": "global",
+    "claude_ssh_config": "global",
+    "claude_ssh_config_include": "global",
+    "claude_ssh_host_domain": "host",
+    "claude_ssh_identity_file": "global",
+    "claude_ssh_forward_agent": "global",
+    "claude_ssh_options": "global",
+    "vm_ssh_route": "host",
+    "editor_claude_terminal": "global",
+    "editor_files_dir": "global",
+    "editor_session_notes": "global",
+    "claude_sessions_sync": "global",
+    "claude_sessions_sync_max_size": "global",
+    "claude_sessions_sync_subagents": "global",
+    "claude_memory_sync": "global",
+    "claude_instructions_sync": "global",
+    "claude_settings_sync": "global",
+    "claude_settings_sync_keys": "global",
+    "claude_plugins_sync": "global",
+    "claude_history_sync": "global",
+    "claude_extensions_sync": "global",
+    "vscode_user_settings_file": "global",
+    "deploy_sign_in": "global",
+    "deploy_code": "global",
+    "destroy_sessions_dir": "global",
+    "login_desktop": "global",
+}
+# Each host's own, by home: what kinds.py has each host set for itself or never inherit, the pool, and the search
+# domain, one network's as the nameservers are; the two of this computer's in client.yml's map hosts.
+EACH_HOST_S = {
+    "proxmox_node": "host",
+    "proxmox_storage": "host",
+    "proxmox_bridge": "host",
+    "proxmox_pool": "host",
+    "proxmox_template_vmid": "host",
+    "proxmox_template_custom": "host",
+    "vm_nameservers": "host",
+    "vm_searchdomain": "host",
+    "vm_ipconfig": "host",
+    "claude_ssh_host_domain": "client",
+    "vm_ssh_route": "client",
+}
+# Each machine's own, in the fleet's map machines: the two whose default is the machine's name.
+EACH_MACHINE_S = ("claude_code_remote_control_name", "tailscale_hostname")
+
+
+def test_each_of_today_s_settings_is_kept_where_its_reason_puts_it() -> None:
+    assert {each.name: each.scope for each in ROWS if each.home == "client"} == OF_THIS_COMPUTER
+    assert {each.name: each.home for each in ROWS if each.scope == "host"} == EACH_HOST_S
+    assert sorted(each.name for each in ROWS if each.scope == "machine") == sorted(EACH_MACHINE_S)
+    assert [registry.row(name).home for name in EACH_MACHINE_S] == ["fleet", "fleet"]
+    # Every other one is the fleet's, one value for every host and machine.
+    placed = {*OF_THIS_COMPUTER, *EACH_HOST_S, *EACH_MACHINE_S}
+    assert [(each.name, each.scope, each.home) for each in ROWS if each.name not in placed] == [
+        (each.name, "global", "fleet") for each in ROWS if each.name not in placed
+    ]
 
 
 def test_the_reader_finds_a_row_and_a_group_and_refuses_what_the_table_lacks() -> None:
@@ -208,14 +282,45 @@ def test_a_path_of_this_computer_s_says_how_it_is_read() -> None:
     # and "" is unset (the coordinator's ruling of 2026-11-21).
     paths = [each for each in registry.rows() if each.type == "path"]
     assert sorted(each.name for each in paths) == [
+        "claude_ssh_identity_file",
+        "destroy_sessions_dir",
         "ssh_executable",
         "ssh_identity_file",
         "tls_ca_file",
         "vault_key_file",
+        "vscode_user_settings_file",
     ]
     for each in paths:
         assert "~ at its start is your home; a relative path is refused by name." in each.description, each.name
     assert "Empty: none." in registry.row("tls_ca_file").description
+
+
+def test_four_rows_are_held_to_more_than_their_type_by_one_rule_each() -> None:
+    # Their readers need more than a type (review 12, D4.md 5): one Proxmox tag, which a , or a ; would make two; a
+    # GitHub account's name, as init --github-user takes it; at least one machine at once; and the two policies of the
+    # run's locks. network_proxy is held by vendors/proxy.py's one check (tests/unit/test_aw_fleet_overrides.py).
+    assert {each.name: each.form for each in registry.rows() if each.form is not None} == {
+        "vm_label": registry.PROXMOX_TAG,
+        "github_username": registry.GITHUB_USER,
+    }
+    assert registry.PROXMOX_TAG.pattern == pve_client.TAG.pattern
+    assert registry.GITHUB_USER.pattern == patterns.PATTERNS["github_user"].text
+    for tag in ("a,b", "a;b", "a b", "-a", "", "a" * 101):
+        assert not registry.PROXMOX_TAG.allows(tag), tag
+    assert {each.name: each.least for each in registry.rows() if each.least is not None} == {"run_forks": 1}
+    assert registry.row("run_lock").choices == locks.POLICIES
+
+
+@pytest.mark.parametrize(
+    ("type_", "marks", "refused"),
+    [
+        ("int", {"form": registry.GITHUB_USER}, "has a form, which only a string's value is held to"),
+        ("str", {"least": 1}, "has a least value, which only an integer's is held to"),
+    ],
+)
+def test_a_form_is_a_string_s_and_a_least_value_an_integer_s(type_: str, marks: dict, refused: str) -> None:
+    with pytest.raises(ValueError, match=re.escape(refused)):
+        Row("made_up", type_, (), "", "global", "fleet", "common", "A setting of no one's.", **marks)
 
 
 def test_the_one_size_with_a_unit_is_the_disk_s_which_deploy_s_disk_stands_for() -> None:
