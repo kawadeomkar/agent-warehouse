@@ -120,6 +120,8 @@ PROXMOX_ELSEWHERE = {
     "inventory/group_vars/all/local.yml.example": 4,
     "inventory/group_vars/all/vault.yml.example": 2,
     "lib/claude_vm/ansible/engine.py": 4,
+    # The new engine's one writer of a VM's record, which reaches a VM by its node and its VMID, as every workflow will.
+    "lib/claude_vm/engine/record.py": 3,
     "lib/claude_vm/mcp/confirm.py": 4,
     "lib/claude_vm/refs.py": 3,
     "lib/claude_vm/run/model.py": 4,

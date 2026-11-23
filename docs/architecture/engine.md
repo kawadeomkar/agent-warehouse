@@ -426,10 +426,48 @@ clients (`pve/`, `ssh/` and `vendors/`), and `runs/`, `fleet/`, `guest/` and `sc
 `control/`, pydantic or today's `claude_vm.ansible`, and it runs Ansible only as a child process. `cli/` imports it,
 and only when it dispatches a verb that changes something. No client imports it.
 
+**A VM's record: `record.py`.** What the engine keeps of a VM is one record in its notes in Proxmox, where the VM cannot
+write: what it is of (`vm`, `build`, `golden` or `template`), the SMBIOS UUID it was written for, the name the run asked
+for, its stage (`cloning`, `unfinished` or `finished`), `provisioned` once its first start went well, its own list of
+repositories, the size it was created with, the digest of its image, the VPNs a login of which was seen on it
+(`joined`), the digest it last converged to, whether an agent's run made it, and the run on it now (`job`). `Record` is
+a frozen dataclass over those fields, each held as it is made: the kind and the stage to the format's words, the UUID
+to the form Proxmox gives a VM's, the name, the size and the repositories to the command line's patterns
+(`schema/patterns.py`), the digests to SHA-256's hex, the VPNs to today's mark of one (`vpn/model.py`), and every text
+to one line of plain text. Every record names the UUID it is written for, but a VM's first form, which its clone carries
+before its UUID can be read; and a VM's names its stage.
+
+- `read(config)` is the record a VM's configuration holds, or none where its notes hold no block of the engine's,
+  whatever else they hold: a VM, a template or a golden with none is not this engine's. A block it cannot read, or one
+  whose value is not what its field may be, is `Unreadable`, which names the VM.
+- `write(client, vm, change)` is the one writer. It reads the VM's configuration, applies `change` to the record its
+  notes hold, renders the notes with that block alone changed (`pve/record.py`), and writes them with the digest of that
+  read through the client's `edit_config`: where another writer, a person in Proxmox's page among them, changed the
+  configuration in between, the write is refused and read and applied again, three times at most, so `change` is a
+  function of the record it is given alone. Notes that, as Proxmox will give them back, are those it read send
+  nothing, so a second run of the same change sends no write. It never writes a record that names a UUID other than
+  the VM's own, never rewrites a block it cannot read, and never sends notes past 8192 characters (`TooLong`), each
+  said before anything is sent.
+- `label(client, vm, value)` gives a VM the one label it carries in Proxmox's list, the setting `vm_label`'s value,
+  `agent-warehouse` by default, beside a person's tags, under the same digest. Nothing decides anything from it: what is
+  the fleet's is its pool's members with a record.
+
+No other module of the new engine sends a VM's description to Proxmox. `tests/unit/test_aw_record.py` holds it: every
+field round-trips; a person's lines beside the block are kept byte for byte, today's record lines among them; a block
+of a format this program does not read, and every other it cannot read, is refused and never rewritten; a value with
+any line break, or anything else that is not plain text on one line, is refused; the notes' bound is counted in
+characters; and `tests/unit/test_vm_repos.py`'s cases of a VM's own list are carried. Against the fake Proxmox under
+enforcement: a record written reads back field for field; of two writers the second is refused, reads again and lands
+with the first's change kept, as does a write a person's edit came between; a second write of the same record sends
+nothing; a block the engine cannot read, a record that names another VM's UUID and notes past the bound send nothing;
+and the label is `vm_label`'s value beside a person's tags. A syntax-tree scan holds that no module of the new engine
+names a description to send but this one, the client, its table and its reader of answers, each with why.
+
 ## 16.5 `pve/` — the typed Proxmox client and the one table of privileges
 
 `lib/claude_vm/pve/` is where the typed client of the Proxmox VE API goes, with the one table that names each call's
-privilege, which `init` grants from and the permission check reads, and the wait for a started VM's address. It imports `vendors/` for its one HTTPS transport,
+privilege, which `init` grants from and the permission check reads, the wait for a started VM's address, and a VM's
+record as the text of its notes. It imports `vendors/` for its one HTTPS transport,
 `schema/`, `secret.py` and, of today's modules, what `REUSED` names: `trust` for the anchor's context, `proxmox` for
 its parsers as they stand, `checks` for the names Proxmox gives, and `text`. It imports nothing of `engine/`, `cli/` or
 `control/`, and no pydantic. It is Proxmox's own folder in `tests/unit/test_ratchets.py`'s `PROXMOX_OWN`, beside
@@ -668,6 +706,30 @@ address, type and prefix where each is a plain value, and nothing the VM nests d
   after a start. At the deadline it raises `NoAddress`, which says what the last poll met. It ends with
   `asyncio.CancelledError` once the run's `cancelled` is set, between polls or during one; that poll's thread is not
   read, ends within its bound, and, once the run has closed its client, at its first error, sending nothing more.
+
+**A VM's record as text: `record.py`.** The record is one block of a VM's notes, `key: value` lines between a line that
+names their format, `agent-warehouse record (format 1)`, and `end of agent-warehouse record`. Only a block under that
+first line, with a format number this program reads, is a record; anything else in the notes is a person's text, kept
+byte for byte and never parsed: a person's own lines, and the lines today's product writes.
+
+- `parse(notes)` gives the block's fields, each value a string and the two lists a tuple each, or none where the notes
+  hold no block. A block of a format this program does not read, a line that is no field of its format, a field twice,
+  two blocks, or a start with no end, is `Unreadable`: refused, and never rewritten, so that what a newer program or a
+  person wrote is never lost to an older one.
+- `render(notes, fields)` gives the notes with that block alone written from the fields, or added last after a blank
+  line, every other line as it was. It writes only what `parse` reads back as it was given: no value on more than one
+  line, or with a control, a format or a separator character, none with white space at an end, no item of a list with
+  a comma. Both read the notes as Proxmox gives them back, their white space at the end taken off (`kept`), so a block
+  rendered again from the same fields is the same text.
+- A VM's own list of repositories keeps today's rule, as `lib/claude_vm/proxmox.py` reads its line of repositories:
+  names split on commas, each kept only where it is a repository's name, so a mangled list is still the VM's own and
+  clones nothing it does not name, and an empty one is a list of none, where a line left out is no list.
+- The notes hold at most `MOST`, 8192 characters, counted in characters and not bytes, with whatever a person typed
+  there: Proxmox VE 9.2's bound on a configuration write's description (experiment 6), which a clone's does not have.
+  `render` refuses notes past it (`TooLong`), so nothing is sent that Proxmox would refuse.
+
+It imports the standard library and `text.py` alone, so that `status` reads a record with no other part of the engine
+loaded, which `tests/unit/test_aw_record.py` reads from a fresh interpreter.
 
 `status` moves onto the client in its own workstream. `tests/unit/test_aw_pve_reads.py` runs every read against the fake
 Proxmox, which serves a node's certificate from `tests/unit/pki.py` (`harness.fake_fleet`'s `certificate`), with the

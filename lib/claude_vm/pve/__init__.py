@@ -1,5 +1,5 @@
-"""The typed client of the Proxmox VE API, and the one table that names each of its calls' privilege, which init grants
-from and the permission check reads (docs/architecture/engine.md §16.5).
+"""The typed client of the Proxmox VE API, the one table that names each of its calls' privilege, which init grants from
+and the permission check reads, and a VM's record as the text of its notes (docs/architecture/engine.md §16.5).
 
 It imports vendors/ for its one HTTPS transport, schema/, and of today's lib/claude_vm/ only what
 tests/unit/test_aw_layout.py's REUSED names; nothing of engine/, cli/ or control/, no pydantic, and never today's
