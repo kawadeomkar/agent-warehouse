@@ -251,7 +251,7 @@ lib/claude_vm/engine/             the workflows, one module a verb, in place of 
                                   the API's certificate worked out with no credential: an anchor where the computer's
                                   certificates do not verify the host, read over root SSH or vouched for by a person;
                                   template.py, the base template compared with what its settings would build, by GETs
-                                  alone
+                                  alone; init.py, init with nobody there: a whole fleet folder written, the vault sealed
 lib/claude_vm/pve/                the typed Proxmox VE client, and the one table of each call's privilege; client.py,
                                   Proxmox, the one class that sends the token, and its reads and writes; answers.py,
                                   each answer's frozen record and its parsing function; pin.py, the connection the token

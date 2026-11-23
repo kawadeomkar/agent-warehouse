@@ -436,8 +436,11 @@ class Layout:
 
     def state(self, name: str) -> State:
         """The host's host.yml and anchor as one read finds them, read under the lock a write takes, so that a write is
-        seen whole or not at all: the State whose digest write compares. A host with no folder yet has neither.
-        Refused as fields and anchor refuse, but for a host.yml that is not there."""
+        seen whole or not at all: the State whose digest write compares. A host with no folder yet has neither. A
+        host.yml that gives a trust_kind beside no anchor and none staged, whose anchor a hand took out, is given as a
+        host that keeps none, so that a write that keeps an anchor, or none, puts it right (init's, the one way back
+        the reader's refusal names); every reader of the host still refuses it. Refused as fields and anchor refuse,
+        but for a host.yml that is not there."""
         refusal = model.name_refusal(name)
         if refusal:
             raise Refused(f"that is no host's folder: {refusal}")
@@ -461,6 +464,9 @@ class Layout:
                 )
             return State(None, None, MISSING)
         fields = self.fields(name)
+        if fields.trust_kind is not None and not any(os.path.lexists(folder / each) for each in (ANCHOR, STAGED)):
+            # A kind with nothing to read beside it: given as no anchor, which a write that keeps one, or none, mends.
+            return State(fields, None, _digest(host, None))
         anchor = self.anchor(name, fields)
         return State(fields, anchor, _digest(host, None if anchor is None else anchor.encode("ascii")))
 

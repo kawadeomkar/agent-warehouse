@@ -358,12 +358,12 @@ _VERBS: tuple[Verb, ...] = (
             _value(
                 "host", "host_name", "host", "Set up another host of this checkout, by its name ({hosts} lists them)"
             ),
-            _value("token-user", "token_user", "user", "The API token's user, when it is not ansible@pve"),
+            _value("token-user", "token_user", "user", "The API token's user, when it is not agent-warehouse@pve"),
             _value(
                 "token-id",
                 "proxmox_id",
                 "id",
-                "The API token's ID, the part after its user's !, when it is not ansible",
+                "The API token's ID, the part after its user's !, when it is not aw",
                 example="automation",
             ),
             _value(
@@ -415,7 +415,7 @@ _VERBS: tuple[Verb, ...] = (
                 "pool",
                 "proxmox_id",
                 "pool",
-                "The Proxmox pool that holds the fleet's VMs, when it is not the default",
+                "The Proxmox pool that holds the fleet's VMs, when it is not aw-fleet",
                 example="dev-vms",
             ),
             _flag(
@@ -427,7 +427,7 @@ _VERBS: tuple[Verb, ...] = (
             VERBOSE,
         ),
         rules=("init.1",),
-        handler=None,
+        handler="engine.init:init",
         card="E4",
         locks="fleet",
         changes=True,
