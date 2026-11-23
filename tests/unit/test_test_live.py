@@ -152,7 +152,7 @@ def test_the_gate_is_one_run_lint_its_first_stage_and_every_stage_to_come_listed
     assert passed.rc == 0, passed.text
     passed.assert_drawn_and_gone()
     first = next(frame for frame in passed.frames if " lint " in frame)
-    for stage in ("unit", "role", "integration", "provision"):
+    for stage in ("unit", "role", "integration", "provision", "system"):
         assert re.search(rf"^ ○ {stage}\b", first, re.M), (stage, first)
     assert any(re.search(r"^ \S unit .* \d/3 ", frame, re.M) for frame in passed.frames), "pytest's count"
     assert any(re.search(r"^     \S common ", frame, re.M) for frame in passed.frames), "a scenario a step"
@@ -173,6 +173,7 @@ def test_the_gate_is_one_run_lint_its_first_stage_and_every_stage_to_come_listed
         "role",
         "integration",
         "provision",
+        "system",
     ], table
     assert passed.screen.titles[-1] == "test · done" and passed.state == []
 

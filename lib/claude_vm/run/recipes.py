@@ -326,6 +326,7 @@ RECIPES = {
             Stage("role"),
             Stage("integration"),
             Stage("provision"),
+            Stage("system"),
             Stage("molecule"),
         ],
         window=3,

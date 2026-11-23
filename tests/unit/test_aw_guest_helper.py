@@ -338,7 +338,18 @@ def test_sources_is_the_one_function_outside_status_that_names_playbooks_module_
             continue
         for function in _module_utils_named(path.read_text()):
             naming.setdefault(where, set()).add(function)
-    assert naming == {"lib/claude_vm/guest/bundle.py": {"sources"}}
+    # Beside sources, layer1.py names Ansible's setting module_utils once, a key of its configuration's plugin folders
+    # (PLUGIN_FOLDERS), which it points at an empty folder of the run's own: a key, never the folder.
+    layer1 = ast.parse((LIB / "guest" / "layer1.py").read_text())
+    keys = [
+        node.value
+        for node in ast.walk(layer1)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and "module_utils" in node.value.replace(os.sep, "/").split("/")
+    ]
+    assert keys == ["module_utils"]
+    assert naming == {"lib/claude_vm/guest/bundle.py": {"sources"}, "lib/claude_vm/guest/layer1.py": {""}}
     # status/ is today's: reach.py's bundler, which this one stands beside until the cutover.
     assert _module_utils_named((LIB / "status" / "reach.py").read_text()) == [""]
 

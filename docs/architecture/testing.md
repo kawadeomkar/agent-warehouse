@@ -835,10 +835,21 @@ that no build started.
 | `provision` | `provision.yml`, `discover.yml` and `just status`'s engine end to end against the fake API, for a two-VM fleet, plus `destroy.yml` and `deploy.yml`'s template check as child runs; discovery runs in a stage of its own, finding the VMs by their tag, so a later `just deploy --only configure` needs nothing stored locally |
 | `image` | a golden template's image and scrub in a container, then the real `configure.yml` over it: configure has nothing left to install but Tailscale, which is never baked, and a sign-in left in the image fails the build. Run with `configure`, under `just test integration` |
 | `configure` | `configure.yml` end to end against a container standing in for a provisioned VM; then the sign-ins, `just code`'s session handoff with the real `claude` against a stand-in Messages API - copies resumed as the VM's own, `--continue` never picking one up, the records of requests sent left unsent, a saved copy resumed by its path - and `just destroy`'s pause of Remote Control around its save, with the real systemd |
+| `system` | the new engine's system play, `playbooks/system.yml`, against a container standing in for a machine, converged by its layer-1 child as the engine starts one, never by Molecule's own Ansible: `just test system` ([§16.10](engine.md#1610-guest--the-helper-the-system-layers-inputs-layer-2)) |
 
-Both symlink the **real** `inventory/group_vars/all/defaults.yml` into the scenario inventory, so the
-actual variable wiring is exercised rather than a copy. Test overrides live in `host_vars/`. The
-symlink must survive checkout — clone the repo, do not download a zip.
+The `provision` and `configure` scenarios symlink the **real** `inventory/group_vars/all/defaults.yml` into the
+scenario inventory, so the actual variable wiring is exercised rather than a copy. Test overrides live in
+`host_vars/`. The symlink must survive checkout — clone the repo, do not download a zip.
+
+The `system` scenario runs no play of Molecule's own on its container. Its `converge.yml` is one task on this machine,
+`molecule/system/converge.py`, which makes a job and its run's directory in a fleet home of the scenario's own,
+writes the play's variables through `lib/claude_vm/guest/system.py`, files a made-up key under the machine's identity
+(layer 1 asks for one, and the test-only connection never reads it), and starts layer 1's child through `layer1.run`
+with its test-only connection, `community.docker.docker` to the container, and the folder of collections the
+scenario's own Ansible was given, since the child's configuration names none of its own. The task is changed exactly
+when the play changed something, so that the idempotence stage holds the second converge to no change; `verify.yml`
+reads the driver's record of each converge, the first having changed the container, then what the three roles left
+there.
 
 The `provision` scenario's checks are four files `verify.yml` imports in turn: `seeds.yml`, the fixtures
 below; `fleet.yml`, discovery, `just status`, the playbooks where they must refuse or report, `destroy.yml` and
@@ -1119,8 +1130,8 @@ runs next. `test_justfile.py` holds both.
 
 ## 11.6 Which scenarios need the network
 
-`common`, `vscode_server`, `dev_tools`, `claude_code`, `github_projects`, `tailscale` and the `configure` scenario
-install packages inside the container and need working Docker DNS. `proxmox_vm`, `proxmox_template` and the
+`common`, `vscode_server`, `dev_tools`, `claude_code`, `github_projects`, `tailscale` and the `configure` and `system`
+scenarios install packages inside the container and need working Docker DNS. `proxmox_vm`, `proxmox_template` and the
 `provision` scenario talk only to local fakes and still run offline.
 
 The packages are real downloads, so those scenarios need internet access. The `configure` scenario

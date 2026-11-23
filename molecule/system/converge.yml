@@ -1,0 +1,18 @@
+---
+# The system play converged as the new engine converges a machine: converge.py, run here, writes the play's variables
+# and starts layer 1's child against the container, with the child's test-only connection to it. The task is changed
+# exactly when the play changed something on the container, so that the idempotence stage holds the second converge to
+# no change at all.
+- name: Converge the container's system layer through layer 1's child
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Run the system play on the container through layer 1's child
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_playbook_python }}"
+          - -I
+          - "{{ playbook_dir }}/converge.py"
+          - "{{ groups['claude_vms'] | first }}"
+      register: system_converged
+      changed_when: (system_converged.stdout_lines | last | from_json).changed > 0

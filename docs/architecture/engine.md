@@ -2428,9 +2428,16 @@ read end the run reads while the child runs; what it prints goes to a file of it
 64 KiB come back, plain, with its exit status. Two files go into the run's directory: `layer1.cfg`, one for the run, and
 an inventory of one host for each machine, `inventory-<identity>.yml`. The configuration names one stdout callback and
 no other, one fork, facts kept under `ansible_facts`, pipelining, the `yaml` inventory plugin alone, this checkout's
-`roles/`, Ansible's local temporary files in the run's directory, and `ssh_args` set empty, since Ansible's default
-would put `ControlMaster=auto` ahead of the host's options and make the child a connection's master; no collections path,
-since layer 1 calls `ansible.builtin` alone. The one callback named is the product's, `aw_events`, in
+`roles/`, Ansible's local temporary files in the run's directory, and every folder Ansible searches for a plugin or a
+collection: the product's own (the callback's, and today's `filter_plugins/`, whose `plain_text` and `sshd_match_spec`
+the roles call) and, for every other kind and for the collections, an empty folder of the run's directory, Python's path
+not scanned for collections, so that nothing under the caller's home or `/usr/share/ansible` is searched (a vars plugin
+in `~/.ansible/plugins/vars` runs without being enabled). Ansible still adds the play's own folders beside it
+(`playbooks/library/`, `action_plugins/` and `module_utils/`, today's) and each role's. `ssh_args`, the one place ahead
+of Ansible's own words to `ssh`, holds `-o PreferredAuthentications=publickey -o GSSAPIAuthentication=no -o
+HostbasedAuthentication=no`, a key and no other way to log in, as the SSH runner offers, and never Ansible's default,
+which would put `ControlMaster=auto` ahead of the host's options and make the child a connection's master. The one
+callback named is the product's, `aw_events`, in
 `lib/claude_vm/guest/ansible/callback_plugins/`, which only this configuration names. The one host is named by the
 machine's identity, never the name a person
 chose, which is the variable `aw_name`; its variables are the address and the account, `/usr/bin/python3` and
@@ -2438,24 +2445,55 @@ chose, which is the variable `aw_name`; its variables are the address and the ac
 options first, `StrictHostKeyChecking=yes` against the product's own known-hosts file under the identity, the shared
 socket with `ControlMaster=no`, so that the child rides the master the run opened, and the hop only where the target
 carries one. Ansible's ssh connection puts words of its own ahead of them, none of them the host key's: the port, the
-account, a connect timeout of 10 s, keyboard-interactive and password authentication off, and `PreferredAuthentications`
-with GSSAPI and host-based ahead of public keys, which outranks the runner's public keys alone.
+account, a connect timeout of 10 s, keyboard-interactive and password authentication off, and a
+`PreferredAuthentications` with GSSAPI and host-based ahead of public keys, which the configuration's `ssh_args`, ahead
+of it, outrank.
 The child never takes a key: a target whose identity has no key filed is refused by name before anything is written,
 naming the line that files it, and so is a first use's target, the Proxmox host, an identity that does not start
 `agent-warehouse-`, and an inventory value that would open a template, since Ansible templates an inventory's values.
 The environment is an allow list: `PATH`, `HOME`, `LANG` and `SSH_AUTH_SOCK` of the caller's, then `ANSIBLE_CONFIG`
-naming the configuration, the untrusted-template switch at `error`, the events pipe's descriptor
+naming the configuration, the untrusted-template switch at `ignore`, Ansible's own default pinned (an untrusted template
+is handed back as its text and never rendered; `error` would fail every task that reads a machine's output holding `{{`,
+for no protection more), the events pipe's descriptor
 (`AGENT_WAREHOUSE_EVENTS`), `ANSIBLE_VERBOSITY` only for a run given `-v`, and the job's marker; no other `ANSIBLE_*`,
 `PYTHON*` or exported stdout callback reaches it. The command line gives the variables only as `-e @<file>`, never
 `key=value`, `--tags` with the parts asked for, and `--check` and `--diff` where asked. A call that ends while its child
 runs (cancelled) ends the child with its tree (`claude_vm.proc`), its detached task worker among it. Only a test passes
 `test_connection`, the host variables of a test-only connection: `local` for a play of one task on a stand-in machine,
-`community.docker.docker` for a Molecule container. `tests/unit/test_aw_layer1.py` holds it: the configuration read back
-by `ansible-config dump --only-changed`, a play of one ping on a stand-in with its child in the run's registry, the
+`community.docker.docker` for a Molecule container, with the folder of collections that connection is found in beside it
+(`test_collections`). `tests/unit/test_aw_layer1.py` holds it: the configuration read back by `ansible-config dump
+--only-changed`, every folder ansible-core's own definitions search under its home named, a vars plugin under the
+caller's home never run, a play of one ping on a stand-in with its child in the run's registry, the
 environment as a task's module sees it, each refusal before anything is written, SIGINT to the child's group and a
 cancelled call each leaving nothing, the words Ansible's own ssh connection gave the stand-in `ssh` held by this
-computer's `ssh -G` over a `Host *` that loosens them, and scans that the argument list never holds `key=value` after
-`-e` and that no product code passes the test-only connection.
+computer's `ssh -G` over a `Host *` that loosens them, a key alone among them, and scans that the argument list never
+holds `key=value` after `-e` and that no product code passes the test-only connection or its folder of collections.
+
+**The system play.** `playbooks/system.yml` is layer 1's one play: one play over the one host of the inventory the
+engine writes, which runs today's three system roles, `common`, `vscode_server` and `dev_tools`, as they stand and under
+today's tags (`lib/claude_vm/guest/system.py`'s `PARTS`: a part asked for is a `--tags`, and Ansible checks every role's
+arguments against its spec under any tag), after the opening tasks of today's guest play in `playbooks/configure.yml` -
+the wait, the base's check by `raw`, the facts, cloud-init's wait and root's temporary directory - copied as they stand.
+Its first task is today's check of the options in effect (`playbooks/tasks/host_keys.yml`'s), made whole: each variable
+of the connection - every variable of Ansible's ssh connection and of `sudo`, the connection's name, the interpreter and
+become's own, held to ansible-core's own documentation - is the inventory's the engine wrote, as written, or set
+nowhere. It is read as the host's own variables are, so that an extra variable, a variables file beside the play or a
+vars plugin that would loosen the host key's checking or replace the program fails it by name before anything
+connects; the play's own vars and its roles' are none of those, and the ratchet holds every file the play reaches to
+setting no `ansible_` variable. `system.variables(path, document, secrets=...)` writes the play's variables through
+`variables.write` alone, after refusing by its name a setting the engine cannot serve yet: `common_user_passwordless_sudo`
+other than true, which needs a become password that no play is handed before F24. Layer 1 is held to state modules:
+`tests/unit/test_aw_layer1_ratchet.py` walks every task file the play reaches (`golden.reached`'s walker, the roles'
+handlers with them) and fails on a `command`, `shell`, `raw`, `script` or `expect` its list gives no reason, on a module
+outside `ansible.builtin` but the three F6a replaces with built-in ones (`ansible.posix.authorized_key`,
+`ansible.posix.sysctl`, `community.general.npm`), and on any file that sets an `ansible_` variable. Until F6a those three
+need their collections, which the product's child is never given: only a test's, the scenario's. The `system` scenario
+(`molecule/system/`, [§11.3](testing.md#113-playbook-scenarios--just-test-integration-and-provision)) converges a
+container through `layer1.run` with the test-only `community.docker.docker` connection, twice, the second changing
+nothing. `tests/unit/test_aw_layer1_play.py` holds the opening tasks equal to the guest play's, a part asked for running
+that role alone, the check passing the inventory the engine wrote and failing a fact or a variables file beside the play
+by the variable's name, a machine's output holding `{{` read as its text by a message, a fact, a condition and an
+assert, and the refusal.
 
 **A play's variables.** ansible-core loads an extra-variables file as a trusted source, so a string in it that holds
 `{{`, `{%` or `{#` would be rendered as a template: a setting would be code. `lib/claude_vm/guest/variables.py`'s

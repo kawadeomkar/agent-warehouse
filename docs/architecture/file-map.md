@@ -71,6 +71,9 @@ playbooks/
                                   then tailscale in a rescued block, then the Proxmox record of each Tailscale login,
                                   then an SSH alias per configured VM on the controller, and a last play failing what
                                   the rescue recorded
+  system.yml                      the new engine's system play, which its layer-1 child runs on one machine: a check
+                                  that the connection is the one the engine wrote, configure.yml's opening tasks
+                                  copied as they stand, then common → vscode_server → dev_tools (§16.10)
   destroy.yml                     confirm, verify ownership, save each VM's own Claude sessions, release (Claude, GitHub,
                                   Tailscale), delete in parallel, forget each alias
   ssh_config.yml                  refresh every alias from the fleet; fleet-wide, prune the vanished
@@ -295,7 +298,8 @@ lib/claude_vm/guest/              inside a machine: the helper, the system layer
                                   JSON file, every string marked unsafe; events.py, its events read from the pipe
                                   and handed to the run's emit, every secret the run opened struck from them;
                                   ansible/callback_plugins/aw_events.py, its stdout callback, each event of the
-                                  play a line of JSON on that pipe
+                                  play a line of JSON on that pipe; system.py, the system play (playbooks/system.yml),
+                                  its parts, and its variables' writer, which refuses what the engine cannot serve yet
 lib/claude_vm/control/            the add-on's, with a control VM only: nothing of the base writes here
 lib/claude_vm/secret.py           the new engine's Secret: a value shown as a mark wherever it is shown, never pickled
                                   or turned into JSON, read only by reveal() in the modules a test names (§16.1)
@@ -374,6 +378,8 @@ molecule/
   provision/                      provision.yml + discover.yml against the fake API
   configure/                      configure.yml end to end in a container
                                   (in both, group_vars/all/defaults.yml is a symlink to the real one; keep it a git checkout)
+  system/                         the new engine's system play in a container, converged by its layer-1 child from
+                                  converge.py, the scenario's driver, over the child's test-only connection
 .config/molecule/config.yml       driver, shared provisioner settings, the dependency step off
 .config/ansible-lint-rules/       agent_warehouse_module_utils.py, no rule: puts playbooks/module_utils/ on the
                                   path in ansible-lint's own process, where its args rule imports the modules in

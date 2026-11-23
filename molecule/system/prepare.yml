@@ -1,0 +1,3 @@
+---
+- name: Wait for the containers to boot
+  ansible.builtin.import_playbook: ../../tests/molecule/boot_wait.yml

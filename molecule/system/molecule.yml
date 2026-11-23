@@ -1,0 +1,18 @@
+---
+# The new engine's system play, playbooks/system.yml, against a container standing in for a machine: converged by
+# layer 1's child as the engine starts one, from converge.py beside this file, never by Molecule's own Ansible
+# (docs/architecture/testing.md §11.3). The idempotence stage converges it twice, and the second changes nothing.
+platforms:
+  - name: agent-warehouse-system
+    groups: [claude_vms]
+    image: "${MOLECULE_IMAGE:-geerlingguy/docker-ubuntu2404-ansible@sha256:29e6f9d736c3401815d98f626a41c55a54a4ef1edb9d1d1223018746d3acba14}"
+    pre_build_image: true
+    command: ""
+    privileged: true
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+provisioner:
+  inventory:
+    links:
+      group_vars: group_vars
