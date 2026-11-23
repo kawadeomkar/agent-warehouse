@@ -18,13 +18,16 @@ by name, with the line it is on and where it belongs.
 
 `read(home, host)` returns the three files of a host; `resolve(home, host, run)` the value of every row with the
 layer that set it, one of `LAYERS`: the table's default, then the file of the row's home, then the run's. `typed(row,
-text)` holds typed text to a row's type, choices and form, and `run_values(texts, secrets=...)` the words of `--set`;
+text)` holds typed text to a row's type, choices, form and least value, a path's rule (`~` the user's home, a path
+still relative refused by name, `""` unset) and `network_proxy` to vendors/proxy.py's one check of it, which refuses a
+user and a password; a file's value is held the same way. `run_values(texts, secrets=...)` holds the words of `--set`;
 `set` and `unset` write one value under `store.locked`, compare-and-swap on the digest of the file as the caller read
 it. Every refusal is a `Refused`, whose sentence never says a value back: a secret pasted in the wrong place would be
 on the screen. A machine's recorded choices, the design's third layer, are in the machine's record, which is not read
 here.
 
-Standard library and the table at import; the YAML reader is imported by the functions that read or write a file.
+Standard library and the table at import; the YAML reader is imported by the functions that read or write a file, and
+vendors/proxy.py by the one that holds network_proxy.
 """
 
 from __future__ import annotations
@@ -94,7 +97,16 @@ class Refused(ValueError):
 
 
 class _Off(ValueError):
-    """What a value lacks, said after the setting's name: the caller says where the value came from."""
+    """What a value lacks, said after the setting's name: the caller says where the value came from, but where the
+    sentence ends with its own way out (``ends``)."""
+
+    def __init__(self, said: str, *, ends: bool = False) -> None:
+        super().__init__(said)
+        self.ends = ends
+
+
+# The one setting held by another module's check: the proxy's, which vendors/proxy.py's choose makes too.
+NETWORK_PROXY = "network_proxy"
 
 
 @dataclass(frozen=True)
@@ -202,6 +214,8 @@ def _held(row: Row, value: object, environ: Mapping[str, str]) -> object:
     if kind == "int":
         if not isinstance(value, int) or isinstance(value, bool):
             raise takes
+        if row.least is not None and value < row.least:
+            raise _Off(f"takes {_takes(row)} of at least {row.least}")
         return value
     if kind == "list[str]":
         if not isinstance(value, (list, tuple)) or not all(isinstance(item, str) for item in value):
@@ -225,11 +239,30 @@ def _held(row: Row, value: object, environ: Mapping[str, str]) -> object:
         return size["number"] + size["unit"].upper()
     if row.choices and value not in row.choices:
         raise takes
+    if row.form is not None and not row.form.allows(value):
+        raise takes
+    if row.name == NETWORK_PROXY:
+        _proxy_held(value)
     return value
 
 
+def _proxy_held(value: str) -> None:
+    """network_proxy's value held by the one check of the setting, vendors/proxy.py's setting_refusal: a URL that names
+    a user or a password refused with its own way out, and anything but its two words and an http:// URL with a host
+    refused. Imported here alone, for this one setting."""
+    from claude_vm.vendors import proxy
+
+    refused = proxy.setting_refusal(value)
+    if refused == proxy.CREDENTIALS:
+        raise _Off(refused, ends=True)
+    if refused is not None:
+        raise _Off(refused)
+
+
 def _takes(row: Row) -> str:
-    return f"one of {', '.join(row.choices)}" if row.choices else TAKES[row.type]
+    if row.choices:
+        return f"one of {', '.join(row.choices)}"
+    return row.form.said if row.form is not None else TAKES[row.type]
 
 
 def typed(row: Row, text: str, *, environ: Mapping[str, str] | None = None) -> object:
@@ -258,7 +291,7 @@ def typed(row: Row, text: str, *, environ: Mapping[str, str] | None = None) -> o
             value = text
         return _held(row, value, env)
     except _Off as off:
-        raise Refused(f"{row.name} {off}: the value given is not one") from None
+        raise Refused(f"{row.name} {off}" + ("" if off.ends else ": the value given is not one")) from None
 
 
 def _items(text: str) -> list[str]:
@@ -544,7 +577,7 @@ def _settings(
         try:
             found[key] = _held(row, value, environ)
         except _Off as off:
-            raise Refused(f"{line}: {key} {off}: the value there is not one") from None
+            raise Refused(f"{line}: {key} {off}" + ("" if off.ends else ": the value there is not one")) from None
     return found
 
 
@@ -714,7 +747,7 @@ def resolve(
         try:
             given[name] = _held(row, value, env)
         except _Off as off:
-            raise Refused(f"{name} {off}: the value given for this run is not one") from None
+            raise Refused(f"{name} {off}" + ("" if off.ends else ": the value given for this run is not one")) from None
     found: dict[str, Value] = {}
     for row in registry.rows():
         if row.name in given:
