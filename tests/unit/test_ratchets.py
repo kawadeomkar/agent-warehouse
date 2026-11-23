@@ -69,6 +69,10 @@ VSCODE_ELSEWHERE = {
     "lib/claude_vm/editors/registry.py": 5,
     "lib/claude_vm/editors/zed.py": 1,
     "lib/claude_vm/run/recipes.py": 1,
+    # The new engine's patterns of the command line name the editors as data, by design: code's --editor.
+    "lib/claude_vm/schema/patterns.py": 1,
+    # The new engine's table of verbs carries today's help sentences, which name the editors: code's and --editor's.
+    "lib/claude_vm/schema/words.py": 2,
     "playbooks/code.yml": 14,
     "playbooks/configure.yml": 1,
     "playbooks/destroy.yml": 1,
@@ -172,6 +176,10 @@ ZED_ELSEWHERE = {
     "lib/claude_vm/editors/model.py": 1,
     "lib/claude_vm/editors/registry.py": 4,
     "lib/claude_vm/run/recipes.py": 1,
+    # The new engine's patterns of the command line name the editors as data, by design: code's --editor.
+    "lib/claude_vm/schema/patterns.py": 1,
+    # The new engine's table of verbs carries today's help sentences, which name the editors: --editor's.
+    "lib/claude_vm/schema/words.py": 1,
     "playbooks/code.yml": 2,
     "playbooks/tasks/session_read.yml": 2,
     "roles/vscode_server/meta/argument_specs.yml": 1,

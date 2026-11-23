@@ -9,31 +9,46 @@ Six parts, in this order:
 - recipes: the thirteen a person runs (the group use, and help), in the justfile's order (its --summary --unsorted),
   each with its group, its [doc], the words it takes as the command reference prints them (tools/docs.py's usage), and
   its parameters in order: name, long and short option, flag value, patterns, help, whether it is the recipe's words
-  and whether those are plural (lib/claude_vm/mcp/recipes.py's words()). Read from its --json (harness.just_json). The
-  developer's recipes (lint, test, docs, vagrant, clean) stay the task runner's own and are left out.
+  and whether those are plural (lib/claude_vm/mcp/recipes.py's words()), and its default (just's, '' for every option
+  today: not given). Read from its --json (harness.just_json). The developer's recipes (lint, test, docs, vagrant,
+  clean) stay the task runner's own and are left out.
 - settings: the five a release promises and the two read from the command line alone, and apart from them STATUS_DIR
   and LIVE_DIR, which the justfile also reads with env() but a release does not promise: each with its default (its
   --evaluate in an empty environment, this checkout written <checkout>) and its line.
 - rules: every refusal the justfile says, and those of tools/check's word checks, by code (RULES below):
   <recipe>.<n>, check.<label>.<n>, and just.<label> for a sentence of the task runner's own; each with the sentence
-  as written and its line.
-- cases: at least one runnable case for each rule, and the exit statuses (CASES below): the words typed (or, for a
-  check no recipe's words reach, the check's own command line, from tools/check), whether a terminal is on standard
-  input, what else the run was given, and the status and the sentence a run gave, measured.
+  as written and its line. Every line of the use recipes' scripts, and of the six word checks, that exits with a
+  status other than 0 is a rule's, or one of NOT_RULES (unruled_exits).
+- cases: at least one runnable case for each rule, the exit statuses, and a setting given empty before the recipe
+  (CASES below): the words typed (or, for a check no recipe's words reach, the check's own command line, from
+  tools/check), whether a terminal is on standard input, what else the run was given, and the status and the sentence a
+  run gave, measured. A setting's case, and a Ctrl-C's at a prompt, has for its sentence what the run was seen to do
+  (OBSERVED): at a prompt, in Ansible's own words.
 - examples: every example command line of docs/reference/commands.md, and every command test_commands.py's scan finds
-  in the sources it lists, with its file.
-- exits: the statuses a person can rely on; the one a Ctrl-C gives is the one its case measured.
+  in the sources it lists, with its file. They are kept as held, the 1,175 the contract was first written with first,
+  in their order: only --scan adds a line, after them, and none is ever dropped, so a page edited later leaves them as
+  they are.
+- exits: the statuses a person can rely on; those a Ctrl-C gives are the ones their cases measured. One Ctrl-C while a
+  task runs, outside a prompt, is ansible-playbook's own status for it (99), since the recipe ends in the playbook;
+  before the playbook starts it is the script's own (130). At one of the playbook's prompts a Ctrl-C ends nothing:
+  Ansible asks Continue or Abort, C goes on with the run (0, where the prompt was its last task) and A ends it as a
+  failed task (2), measured with a real ansible-playbook at a pseudo-terminal, the keys typed there.
 
 Made again with the project's Python:
 
     tools/env-run python tests/unit/cli_contract.py --write     # every part, keeping what the cases measured
     tools/env-run python tests/unit/cli_contract.py --measure   # the same, with every case run again
+    tools/env-run python tests/unit/cli_contract.py --write --scan   # and the example lines a fresh scan finds added
 
 --write runs no recipe: it asks the justfile for its --json, --summary and --evaluate, and reads files. --measure
 runs each case's recipe against stand-ins, as the test does: run it where the tests run. A rule or a case is added to
-RULES or CASES by hand; a code once written is never given to another, and a recipe's new rule takes its next
-number. The recipes' part of v2.7.0 can also be made by hand from the tag, git show v2.7.0:justfile, read with its
---json; no test reads a tag or main.
+RULES or CASES by hand; a code once written is never given to another (a rule taken out goes to RETIRED), and a
+recipe's new rule takes its next number. The recipes' part of v2.7.0 can also be made by hand from the tag, git show
+v2.7.0:justfile, read with its --json; no test reads a tag or main.
+
+A parity test replays a case through measure() and CASES, which hold what the file does not: how each case is run.
+The examples are command lines as the scan found them, prose after the command and the developer's recipes among them:
+a reader takes what it needs from each.
 """
 
 from __future__ import annotations
@@ -140,7 +155,19 @@ RULES = [
     ("check.sections.2", None, "tools/check", "the report has no section"),
     ("just.unknown-option", None, "just", None),
     ("just.pattern", None, "just", None),
+    ("just.repeated-option", None, "just", None),
 ]
+# The codes of rules taken out of RULES, which no rule is given again.
+RETIRED: list[str] = []
+
+# The use recipes' scripts and the six word checks of tools/check, where every line that exits with a status other
+# than 0 is a rule's: its sentence on that line or the one above it, or the said= that a line echoes. These are the
+# lines that are not, each by a piece of it that is on one line of that file and no other, and why.
+NOT_RULES = [
+    ("justfile", "printf '%s\\n' \"$added\" >&2; exit 1", "claude mcp add's own words, printed as it said them"),
+]
+# The labels of tools/check whose refusals are rules here: the six word checks.
+CHECKED = ("names", "size", "repos", "project", "session", "sections")
 
 
 def case(code: str, *words: str, setup: str = "just", terminal: bool = False, given: str | None = None, **how) -> dict:
@@ -338,13 +365,60 @@ CASES = [
     case("just.pattern-1", "deploy", "--cores=0"),
     case("just.pattern-2", "deploy", "--only=check", given="a stage deploy has not got"),
     case("just.pattern-3", "destroy", "alpha;beta", given="a VM name outside its characters"),
+    case("just.repeated-option-1", "deploy", "--cores=8", "--cores=4", "alpha", given="an option given twice"),
+    case("just.repeated-option-2", "deploy", "--check", "--check", given="a flag given twice"),
     case(
         "exit.ctrl-c-1",
         "deploy",
         "alpha",
         setup="interrupt",
         terminal=True,
-        given="one Ctrl-C (SIGINT to the run's process group) while ansible-playbook, a stand-in, waits",
+        given="one Ctrl-C (SIGINT to the run's process group) while ansible-playbook, a stand-in that does on it what "
+        "ansible-playbook does (PLAYBOOK_INTERRUPTED), runs",
+    ),
+    case(
+        "exit.ctrl-c-2",
+        "deploy",
+        "alpha",
+        setup="interrupt-before",
+        terminal=True,
+        given="one Ctrl-C (SIGINT to the run's process group) before the playbook starts, while the last check reads "
+        "the settings (<tmp>/local.yml) with the environment's Python, a stand-in that dies of it as Python does",
+    ),
+    case(
+        "exit.ctrl-c-3",
+        "deploy",
+        "alpha",
+        setup="prompt",
+        terminal=True,
+        key="c",
+        given="one Ctrl-C typed at the terminal while the playbook waits at a prompt, a pause's (a real "
+        "ansible-playbook on a local one-task play, PROMPT_PLAY), then C typed at Ansible's question",
+    ),
+    case(
+        "exit.ctrl-c-4",
+        "deploy",
+        "alpha",
+        setup="prompt",
+        terminal=True,
+        key="a",
+        given="one Ctrl-C typed at the terminal while the playbook waits at a prompt, a pause's (a real "
+        "ansible-playbook on a local one-task play, PROMPT_PLAY), then A typed at Ansible's question",
+    ),
+    case(
+        "setting.run-lock-1",
+        "RUN_LOCK=",
+        "deploy",
+        "alpha",
+        setup="lock",
+        given="a copy of the checkout whose own run lock (its .cache/run.lock) a live run holds",
+    ),
+    case(
+        "setting.run-lock-2",
+        "deploy",
+        "alpha",
+        setup="lock",
+        given="a copy of the checkout whose own run lock (its .cache/run.lock) a live run holds: without RUN_LOCK=",
     ),
     case("exit.report-ok-1", "status", setup="report", rc=0, given="the report's engine, a stand-in, exits 0"),
     case("exit.report-problem-1", "status", setup="report", rc=1, given="the report's engine, a stand-in, exits 1"),
@@ -413,6 +487,7 @@ def _option(parameter: dict) -> dict:
         "help": parameter["help"],
         "words": words,
         "plural": words and parameter["name"].endswith("S"),
+        "default": parameter["default"],
     }
 
 
@@ -534,12 +609,19 @@ def _written(line: str, piece: str) -> str:
     raise ValueError(f"no end to the sentence holding {piece!r} in: {line.strip()}")
 
 
+def _one_line(where: str, piece: str, lines: list[str]) -> tuple[int, str]:
+    found = [(at, line) for at, line in enumerate(lines, 1) if piece in line]
+    if len(found) != 1:
+        raise ValueError(
+            f"{where}: {piece!r} is on {len(found)} lines, where it must be on one: where its words changed, change "
+            f"its piece in RULES or NOT_RULES (tests/unit/cli_contract.py) to the new words, then --write"
+        )
+    return found[0]
+
+
 def rule_at(where: str, piece: str) -> tuple[int, str]:
     """The line a rule's sentence is on, and the sentence as written there."""
-    found = [(at, line) for at, line in enumerate(_lines(where), 1) if piece in line]
-    if len(found) != 1:
-        raise ValueError(f"{where}: {piece!r} is on {len(found)} lines, where it must be on one")
-    ((number, line),) = found
+    number, line = _one_line(where, piece, _lines(where))
     return number, _written(line, piece)
 
 
@@ -559,6 +641,71 @@ def rules(cases: list[dict]) -> list[dict]:
             line, sentence = rule_at(where, piece)
         out.append({"code": code, "recipe": recipe, "sentence": sentence, "line": line, "by": where})
     return out
+
+
+# A line that exits with a status other than 0.
+EXITS_NONZERO = re.compile(r"\bexit [1-9][0-9]*\b")
+NAME = r"[A-Za-z_][A-Za-z0-9_]*"
+
+
+def _scripts(lines: list[str], recipes: list[str]) -> set[int]:
+    """The lines of these recipes' scripts in a justfile's lines, by number from 1, with the line of every assignment
+    a script interpolates and of each assignment that one names, all the way down."""
+    assigned = {m.group(1): at for at, line in enumerate(lines, 1) if (m := re.match(rf"({NAME}) := ", line))}
+    found: set[int] = set()
+    names: list[str] = []
+    for recipe in recipes:
+        (header,) = [at for at, line in enumerate(lines, 1) if re.fullmatch(rf"{re.escape(recipe)}(?: [^:]*)?:", line)]
+        at = header + 1
+        while at <= len(lines) and (not lines[at - 1] or lines[at - 1][0] in " \t"):
+            found.add(at)
+            for interpolated in re.findall(r"\{\{(.*?)\}\}", lines[at - 1]):
+                names += re.findall(NAME, interpolated)
+            at += 1
+    while names:
+        name = names.pop()
+        if name in assigned and assigned[name] not in found:
+            found.add(assigned[name])
+            value = lines[assigned[name] - 1].split(" := ", 1)[1]
+            names += re.findall(NAME, re.sub(r"'[^']*'|\"(?:\\.|[^\"\\])*\"", "", value))
+    return found
+
+
+def _branches(lines: list[str], labels: tuple[str, ...]) -> set[int]:
+    """The lines of these branches of tools/check's case, by number from 1: from the label to its ;;."""
+    found: set[int] = set()
+    for label in labels:
+        start = lines.index(f"{label})") + 1
+        end = lines.index("  ;;", start) + 1
+        found |= set(range(start, end + 1))
+    return found
+
+
+def _said_by(lines: list[str], at: int) -> int | None:
+    """The line whose sentence an exit at line at ends: that line, or the one above it, where it writes to standard
+    error; for an echo of one variable, the line that set it, above."""
+    said = next((n for n in (at, at - 1) if n >= 1 and ">&2" in lines[n - 1]), None)
+    if said is None:
+        return None
+    echoed = re.search(rf'echo "\$({NAME})" >&2', lines[said - 1])
+    if echoed:
+        return next((n for n in range(said - 1, 0, -1) if re.match(rf"\s*{echoed.group(1)}=", lines[n - 1])), None)
+    return said
+
+
+def unruled_exits(where: str, recipes: list[str], text: str | None = None) -> list[tuple[int, str]]:
+    """Each line that exits with a status other than 0, in the scripts of these recipes (where is the justfile) or in
+    the six word checks (tools/check), whose sentence is no rule's and which is none of NOT_RULES: its number and its
+    text. The rules' and NOT_RULES' lines are found in the text by their pieces, so a line moved is still theirs."""
+    lines = (text if text is not None else (REPO / where).read_text()).splitlines()
+    scanned = _scripts(lines, recipes) if where == "justfile" else _branches(lines, CHECKED)
+    ruled = {_one_line(where, piece, lines)[0] for _, _, by, piece in RULES if by == where}
+    known = {_one_line(where, piece, lines)[0] for by, piece, _ in NOT_RULES if by == where}
+    return [
+        (at, lines[at - 1].strip())
+        for at in sorted(scanned)
+        if EXITS_NONZERO.search(lines[at - 1]) and at not in known and _said_by(lines, at) not in ruled
+    ]
 
 
 # --------------------------------------------------------------------------------------------------- the cases ----
@@ -753,13 +900,131 @@ def _check(item: dict, words: list[str], tmp: Path) -> tuple[int, str]:
     return result.returncode, result.stderr + result.stdout
 
 
+# What ansible-playbook does on one Ctrl-C (ansible-core's CLI.cli_executor, on KeyboardInterrupt): it says so through
+# its display, as an error, and exits ExitCode.KEYBOARD_INTERRUPT - once it has ended its workers, a moment after the
+# signal, so that just, which waits for a recipe under [continue], exits as the playbook does. test_cli_contract.py
+# holds the stand-in below to ansible-core's own.
+PLAYBOOK_INTERRUPTED = (99, "[ERROR]: User interrupted execution")
+
+
+def playbook_interrupted(started: Path) -> str:
+    """The body of a stand-in ansible-playbook that marks started and waits, and on one Ctrl-C does what
+    ansible-playbook does: a second later, says what it says and exits its status. A stand-in that ended within a
+    millisecond of the signal would race just's own reading of it, and just would exit 130 whatever it exited."""
+    status, says = PLAYBOOK_INTERRUPTED
+    return f'trap \'sleep 1; echo "{says}" >&2; exit {status}\' INT\ntouch "{started}"\nsleep 20'
+
+
 def _interrupt(item: dict, words: list[str], tmp: Path) -> tuple[int, str]:
-    """One Ctrl-C to the run, at a terminal of its own, while ansible-playbook (a stand-in) waits."""
+    """One Ctrl-C to the run, at a terminal of its own, while ansible-playbook (a stand-in that does on it what
+    ansible-playbook does) runs."""
     import test_justfile as tj
 
     started = tmp / "started"
-    settings = tj._recording(tmp, playbook_body=f'touch "{started}"; sleep 20')
+    settings = tj._recording(tmp, playbook_body=playbook_interrupted(started))
     return tj._interrupted(started, *settings, *words)
+
+
+def _interrupt_before(item: dict, words: list[str], tmp: Path) -> tuple[int, str]:
+    """One Ctrl-C to the run, at a terminal of its own, before its playbook starts: while the last check before it,
+    tools/check settings, reads <tmp>/local.yml with the environment's Python - a stand-in that waits there and, with no
+    handler for the signal, dies of it as a Python program does."""
+    import test_justfile as tj
+
+    started = tmp / "started"
+    settings = tj._recording(tmp)
+    (tmp / "local.yml").write_text("{}\n")
+    python = tmp / "bin" / "python"
+    python.write_text(
+        "#!/bin/sh\n"
+        f'if [ "$1" = -I ] && [ "$2" = - ]; then touch "{started}"; exec sleep 20; fi\n'
+        f'exec "{sys.executable}" "$@"\n'
+    )
+    return tj._interrupted(started, *settings, *words)
+
+
+# What Ansible says at one of its prompts once a Ctrl-C was typed there (ansible-core's pause action, which the
+# sign-ins' prompts are): the question it asks, and what the task fails with when A answers it. test_cli_contract.py
+# holds both to ansible-core's own source.
+GO_ON = "Press 'C' to continue the play or 'A' to abort"
+ABORTED = "user requested abort!"
+# The one task of the play the prompt's cases run: a pause that waits for a key, as Claude's sign-in waits for its code.
+PROMPT = "alpha: paste the code here, or press Enter to skip"
+PROMPT_PLAY = f"""- name: Wait at one of the playbook's prompts
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Ask for the code
+      ansible.builtin.pause:
+        prompt: "{PROMPT}"
+"""
+
+
+def _prompt(item: dict, words: list[str], tmp: Path) -> tuple[int, str]:
+    """One Ctrl-C typed at one of the playbook's prompts, then the case's key typed at Ansible's question: just at a
+    pseudo-terminal of its own whose controlling terminal it is, as a person runs it, drawn as today's runs are; its
+    ansible-playbook the real one, on a local one-task play with a pause (PROMPT_PLAY) in a HOME of the run's own, the
+    Galaxy collections found where the recipe says. Says, in Ansible's own words, what it asked, and whether it said the
+    run was aborted."""
+    import live_kit as kit
+    import test_justfile as tj
+    from harness import ANSIBLE_PLAYBOOK
+
+    home, play, inventory = tmp / "home", tmp / "prompt.yml", tmp / "inventory.yml"
+    home.mkdir()
+    play.write_text(PROMPT_PLAY)
+    inventory.write_text(
+        "all:\n  hosts:\n    localhost:\n      ansible_connection: local\n"
+        f'      ansible_python_interpreter: "{sys.executable}"\n'
+    )
+    body = f'HOME="{home}"; export HOME; exec "{ANSIBLE_PLAYBOOK}" -i "{inventory}" "{play}"'
+    argv = [JUST, f"--justfile={JUSTFILE}", "RUN_LOCK=", *tj._recording(tmp, playbook_body=body), *words]
+    # A terminal a run is drawn at: its type set, as a person's is.
+    ran = kit.at_a_terminal(
+        argv, tmp, tj._env({"TERM": "xterm-256color"}), prompts={PROMPT: b"\x03", GO_ON: item["key"].encode()}
+    )
+    asked = f'asked "{GO_ON}"' if GO_ON in ran.text else "asked nothing"
+    said = f'said "{ABORTED}"' if ABORTED in ran.text else "said nothing of an abort"
+    return ran.rc, f"{ran.text}\n{OBSERVED}the playbook {asked}, and {said}\n"
+
+
+# A setting's case says what the run was seen to do, on a line of its own that starts so: its sentence in the file.
+OBSERVED = "observed: "
+
+
+def _lock(item: dict, words: list[str], tmp: Path) -> tuple[int, str]:
+    """A copy of the checkout whose own run lock, its .cache/run.lock, a live run holds: just run there as typed, so
+    that the lock is the one a run there takes unless the words give RUN_LOCK=. The holder is a process of its own,
+    never an ancestor of the run, which would make the run the holder's own. Says whether the playbook ran, and whether
+    the lock is as it was."""
+    import test_hosts as th
+    import test_justfile as tj
+    import test_run_lock as tr
+
+    root = th._checkout_copy(tmp)
+    lock = root / ".cache" / "run.lock"
+    lock.parent.mkdir(exist_ok=True)
+    holder = subprocess.Popen(["sleep", "120"])
+    try:
+        tr._record(lock, holder.pid, tr._started(holder.pid), "deploy beta")
+        held = lock.read_bytes()
+        result = subprocess.run(
+            [JUST, f"GIT_HOOK={tj._hooks_dir()}/pre-commit", *tj._recording(tmp), *words],
+            cwd=root,
+            env=tj._env(),
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=120,
+        )
+        kept = "as it was" if lock.read_bytes() == held else "changed"
+    finally:
+        holder.kill()
+        holder.wait()
+    ran = "ran" if tj._runs(tmp, "ansible-playbook") else "did not run"
+    seen = f"{OBSERVED}the playbook {ran}, and the lock another run holds is {kept}"
+    return result.returncode, f"{result.stderr}{result.stdout}{seen}\n"
 
 
 def _report(item: dict, words: list[str], tmp: Path) -> tuple[int, str]:
@@ -780,17 +1045,26 @@ SETUPS = {
     "elsewhere": _elsewhere,
     "check": _check,
     "interrupt": _interrupt,
+    "interrupt-before": _interrupt_before,
+    "prompt": _prompt,
+    "lock": _lock,
     "report": _report,
 }
 
 
+def observed(output: str) -> str | None:
+    """What a setup saw the run do, where it says so (OBSERVED); None for every other case."""
+    seen = [line.removeprefix(OBSERVED) for line in output.splitlines() if line.startswith(OBSERVED)]
+    return seen[-1] if seen else None
+
+
 def measure(item: dict, tmp: Path) -> tuple[int, str | None, str]:
-    """Run one case in tmp: its exit status, the sentence of its rule it printed (None for an exit status's case), and
-    everything it printed, tmp written <tmp>."""
+    """Run one case in tmp: its exit status, the sentence of its rule it printed (for a setting's case what the run was
+    seen to do, and None for an exit status's), and everything it printed, tmp written <tmp>."""
     rule = {code: (sentence, by) for code, _, by, sentence in _rule_rows()}.get(_rule_of(item["code"]))
     status, output = SETUPS[item["setup"]](item, _given(item["words"], tmp), tmp)
     output = _anonymous(output, tmp)
-    sentence = said(rule[0], rule[1], output) if rule else None
+    sentence = said(rule[0], rule[1], output) if rule else observed(output)
     return status, sentence, output
 
 
@@ -843,19 +1117,57 @@ def _reference() -> list[str]:
     return found
 
 
-def examples() -> list[dict]:
-    """The reference's examples, then every command test_commands.py's scan finds in its sources: each command line
-    once, with the first file it was found in."""
+@functools.cache
+def _setting() -> str:
+    """test_commands.py's pattern of a setting before the recipe, which also takes an empty value, as RUN_LOCK= is
+    given: its scan's blind spot, which stays the 2.x test's own."""
+    import test_commands as tc
+
+    empty = tc.SETTING.replace(r"[^\s`'\"]+)", r"[^\s`'\"]*)")
+    if empty == tc.SETTING:
+        raise ValueError("test_commands.SETTING changed: take its unquoted value empty here again")
+    return empty
+
+
+@functools.cache
+def command() -> re.Pattern:
+    """test_commands.py's pattern of a just command, a setting before the recipe allowed to be empty."""
+    import test_commands as tc
+
+    return re.compile(tc.COMMAND.pattern.replace(tc.SETTING, _setting()))
+
+
+def matches(text: str):
+    """Each just command in text, as test_commands.py's _matches gives one, a setting given empty among them: the file
+    (none), its line, the settings before the recipe, the recipe, and its words."""
+    import test_commands as tc
+
+    text = tc._normalized(text)
+    for match in command().finditer(text):
+        line = text[: match.start()].count("\n") + 1
+        settings = re.findall(rf"(?<!\S){_setting()}", match.group(1))
+        yield "", line, [s.split("=", 1)[0] for s in settings], match.group(2), match.group(3).split()
+
+
+def scan() -> list[dict]:
+    """A fresh scan: the reference's examples, then every command test_commands.py's scan finds in its sources, a
+    setting given empty before the recipe among them: each command line once, with the first file it was found in."""
     import test_commands as tc
     from harness import public_recipes
 
     found = [{"line": line, "source": "docs/reference/commands.md"} for line in _reference()]
     for source, text in tc._sources(tc.REFUSED_ON_PURPOSE | OWN):
-        for match in tc.COMMAND.finditer(tc._normalized(text)):
+        for match in command().finditer(tc._normalized(text)):
             if match.group(2) in public_recipes():
                 found.append({"line": " ".join(match.group(0).split()), "source": source})
+    return examples([], found)
+
+
+def examples(held: list[dict], found: list[dict] | None = None) -> list[dict]:
+    """The examples as held; and given found, a fresh scan's (--scan), each line of it not held yet, after them. None is
+    ever dropped, and a line is held once."""
     seen, out = set(), []
-    for example in found:
+    for example in [*held, *(found or [])]:
         if example["line"] not in seen:
             seen.add(example["line"])
             out.append(example)
@@ -890,7 +1202,29 @@ def exits(all_cases: list[dict]) -> list[dict]:
         },
         {
             "status": status.get("exit.ctrl-c-1"),
-            "meaning": "one Ctrl-C while the playbook runs, which the playbook does not survive (case exit.ctrl-c-1)",
+            "meaning": "one Ctrl-C while a task runs, outside a prompt: ansible-playbook's own status for it, which "
+            "the recipe ends in (case exit.ctrl-c-1). aw's 130 for a cancelled run is a change against it, which "
+            "tests/unit/cli_contract_changes.py's CHANGED names",
+            "recipes": ["deploy"],
+        },
+        {
+            "status": status.get("exit.ctrl-c-3"),
+            "meaning": "one Ctrl-C at one of the playbook's prompts ends nothing: Ansible asks Continue or Abort, and "
+            "C goes on with the run, which ends as it would have without the Ctrl-C (case exit.ctrl-c-3). aw ends the "
+            "run there with 130, as anywhere else, which tests/unit/cli_contract_changes.py's BEHAVIOURS names",
+            "recipes": ["deploy"],
+        },
+        {
+            "status": status.get("exit.ctrl-c-4"),
+            "meaning": "one Ctrl-C at one of the playbook's prompts, then A at Ansible's question: the task fails, and "
+            "the run ends with ansible-playbook's status for it (case exit.ctrl-c-4). aw ends the run there with 130, "
+            "as anywhere else, which tests/unit/cli_contract_changes.py's BEHAVIOURS names",
+            "recipes": ["deploy"],
+        },
+        {
+            "status": status.get("exit.ctrl-c-2"),
+            "meaning": "one Ctrl-C before the playbook starts, while a check runs: the recipe's script ends of it "
+            "(case exit.ctrl-c-2)",
             "recipes": ["deploy"],
         },
     ]
@@ -903,8 +1237,9 @@ def load() -> dict:
     return json.loads(CONTRACT.read_text()) if CONTRACT.exists() else {}
 
 
-def build(kept: dict, measured: dict[str, tuple[int, str | None]] | None = None) -> dict:
-    """The whole contract: every part made again, the cases' status and sentence as measured or as kept."""
+def build(kept: dict, measured: dict[str, tuple[int, str | None]] | None = None, scanned: bool = False) -> dict:
+    """The whole contract: every part made again, the cases' status and sentence as measured or as kept, and the
+    examples as kept, with what a fresh scan finds added only where scanned."""
     kept_cases = {item["code"]: item for item in kept.get("cases", [])}
     all_cases = cases(kept_cases, measured)
     return {
@@ -912,7 +1247,7 @@ def build(kept: dict, measured: dict[str, tuple[int, str | None]] | None = None)
         "settings": settings(),
         "rules": rules(all_cases),
         "cases": all_cases,
-        "examples": examples(),
+        "examples": examples(kept.get("examples", []), scan() if scanned else None),
         "exits": exits(all_cases),
     }
 
@@ -933,6 +1268,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--write", action="store_true", help="make every part again, keeping what the cases measured")
     parser.add_argument("--measure", action="store_true", help="make every part again, every case run again")
+    parser.add_argument(
+        "--scan", action="store_true", help="with either: add the example lines a fresh scan finds, after those held"
+    )
     args = parser.parse_args()
     if not (args.write or args.measure):
         parser.error("give --write or --measure")
@@ -944,7 +1282,7 @@ def main() -> int:
                 status, sentence, _ = measure(item, Path(name))
             measured[item["code"]] = (status, sentence)
             print(f"{item['code']}: {status} {sentence or ''}".rstrip())
-    CONTRACT.write_text(text(build(load(), measured)))
+    CONTRACT.write_text(text(build(load(), measured, scanned=args.scan)))
     print(f"wrote {CONTRACT.relative_to(REPO)}")
     return 0
 

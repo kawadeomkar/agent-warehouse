@@ -2,9 +2,11 @@
 
 Each test here is a rule a later change could break. Every test of a file tests/unit/test_aw_*.py is marked `engine`,
 which `just test engine` runs alone, and runs with AGENT_WAREHOUSE_HOME in its own directory (conftest.py's aw_home).
-No test runs tools/aw but through tests/unit/aw_kit.py, whose runs inherit a list of names, start with failing
-stand-ins first on PATH, and fail their test when one was reached. A secret the engine holds is a `Secret`, never
-said, and only the modules REVEALS names read its value.
+In its own process, aw_kit's engine_guard keeps it as a run is kept: its home for HOME and the XDG folders, failing
+stand-ins first on PATH, a list of names for its environment, and loopback alone for its connections; a stand-in
+reached or a connection refused fails it. No test runs tools/aw but through tests/unit/aw_kit.py, whose runs inherit
+that list of names, start with the stand-ins first on PATH, and fail their test when one was reached; a test's env=
+never lifts one. A secret the engine holds is a `Secret`, never said, and only the modules REVEALS names read its value.
 """
 
 from __future__ import annotations
@@ -19,13 +21,15 @@ import os
 import pickle
 import re
 import shutil
+import socket
 import subprocess
 import sys
 from pathlib import Path
 
+import aw_kit
 import harness
 import pytest
-from aw_kit import AW, ENTRY, aw_at_a_terminal, environment, imports_of, run_aw, searched_for, stand_ins
+from aw_kit import AW, ENTRY, Offline, aw_at_a_terminal, environment, imports_of, run_aw, searched_for, stand_ins
 from harness import PASSED_ON, REPO, repo_files
 
 from claude_vm.fleet import paths
@@ -94,7 +98,8 @@ def test_every_engine_test_is_marked_and_runs_in_its_own_home(tmp_path) -> None:
     assert [item for item in engine if not item["engine"]] == [], "every test of a test_aw_*.py file is marked engine"
     assert [item for item in seen if item["file"] == UNMARKED.name and item["engine"]] == []
     # conftest.py's own aw_home, made for each test: never one a file defines over it, nor one shared by a module.
-    assert [item for item in engine if item["home"] != ["conftest", "function"]] == []
+    homes = [item for item in engine if item["home"] != ["conftest", "function"]]
+    assert homes == [], "use conftest.py's aw_home: never define one in a test file, nor give it another scope"
 
 
 def test_the_home_is_the_tests_own_and_so_are_home_and_the_xdg_folders(home, aw_home, tmp_path) -> None:
@@ -106,10 +111,148 @@ def test_the_home_is_the_tests_own_and_so_are_home_and_the_xdg_folders(home, aw_
     assert where.root == home and paths.state(where).is_relative_to(home) and paths.key_file(where).is_relative_to(home)
 
 
+# ---------------------------------------------------------------- an engine test's own process ----
+
+# Two test files run by a pytest of their own under this suite's conftest.py, loaded as a plugin (-p conftest): an
+# engine test's file, whose failures are the ones asserted, and a file of today's, which the guard must leave as it is.
+CHILD_ENGINE = """
+import os
+import socket
+import subprocess
+
+
+def test_runs_ssh_by_name():
+    subprocess.run(["ssh", "-V"], stdin=subprocess.DEVNULL, capture_output=True, check=False)
+
+
+def test_reaches_past_loopback_and_swallows_the_refusal():
+    try:
+        socket.create_connection(("192.0.2.1", 9), timeout=1)
+    except OSError:
+        pass
+
+
+def test_finds_the_sessions_variable_gone(aw_home):
+    assert "GH_TOKEN" not in os.environ and os.environ["HOME"] == str(aw_home)
+"""
+CHILD_TODAY = """
+import os
+
+
+def test_keeps_the_sessions_variable_and_path():
+    assert os.environ["GH_TOKEN"] == "made-up-session-value" and "BROWSER" not in os.environ
+    assert not [entry for entry in os.environ["PATH"].split(os.pathsep) if entry.endswith((".refused", ".desktop"))]
+"""
+
+
+def _child_pytest(tmp_path: Path, files: dict[str, str], env: dict[str, str]) -> subprocess.CompletedProcess:
+    """files, each a test file of tmp_path's, run by a pytest of its own under this suite's conftest.py, with env for
+    its whole session: its status and what it said."""
+    for name, source in files.items():
+        (tmp_path / name).write_text(source)
+    return subprocess.run(
+        [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-p", "conftest", "-c", str(REPO / "pyproject.toml")]
+        + ["--rootdir", str(tmp_path), *(str(tmp_path / name) for name in files)],
+        cwd=tmp_path,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+
+
+def _said(output: str, kind: str) -> set[str]:
+    """The tests the short summary says were of kind (ERROR, FAILED, PASSED), by name."""
+    return set(re.findall(rf"(?m)^{kind} \S+::(\w+)", output))
+
+
+def test_an_engine_test_s_own_process_meets_the_stand_ins_and_its_own_environment(tmp_path, engine_guard) -> None:
+    # The session's environment, as a developer's shell would hand it: a token among it, this process's stand-ins not.
+    path = [entry for entry in os.environ["PATH"].split(os.pathsep) if Path(entry).parent != engine_guard.stand_ins]
+    env = {name: value for name, value in os.environ.items() if name in PASSED_ON or name.startswith("LC_")}
+    env |= {"PATH": os.pathsep.join(path), "GH_TOKEN": "made-up-session-value"}
+    env["PYTHONPATH"] = os.pathsep.join([str(REPO / "tests" / "unit"), str(REPO / "lib")])
+    ran = _child_pytest(tmp_path, {"test_aw_child.py": CHILD_ENGINE, "test_today_child.py": CHILD_TODAY}, env)
+    said = ran.stdout + ran.stderr
+    assert ran.returncode == 1, said
+    # ssh by name met the refusing stand-in, and a connection past loopback failed its test though it was swallowed.
+    assert _said(said, "ERROR") == {"test_runs_ssh_by_name", "test_reaches_past_loopback_and_swallows_the_refusal"}
+    assert re.search(r"(?m)^E\s+ssh -V\s*$", said) and "tests/molecule/" in said, said
+    # The session's own variable is gone from an engine test, and a test of today's keeps it, its PATH untouched: each
+    # test's call passed, and two failed once they had ended.
+    assert _said(said, "FAILED") == set() and re.search(r"\b4 passed, 2 errors\b", said), said
+
+
+def test_path_home_is_the_test_s_own_without_asking_for_home(aw_home) -> None:
+    assert Path.home() == aw_home and Path("~").expanduser() == aw_home and not aw_home.exists()
+    for name in ("XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME"):
+        assert Path(os.environ[name]).is_relative_to(aw_home), name
+
+
+def test_an_engine_test_s_own_process_keeps_the_names_listed_alone(engine_guard, aw_home) -> None:
+    kit = {*aw_kit.home_variables(aw_home), "BROWSER", aw_kit.PYTEST_OWN}
+    assert [name for name in os.environ if name not in PASSED_ON | kit and not name.startswith("LC_")] == []
+    assert os.environ["BROWSER"] == str(engine_guard.stand_ins / ".desktop" / "open")
+
+
+@pytest.mark.parametrize("tool", [*harness.DESKTOP_TOOLS, *harness.GUARDED_TOOLS, *harness.REFUSED_TOOLS])
+def test_a_stand_in_is_first_on_the_test_s_own_path(engine_guard, tool) -> None:
+    found = shutil.which(tool)
+    assert found and Path(found).parent.parent == engine_guard.stand_ins, found
+
+
+@pytest.mark.parametrize(
+    "reach",
+    [
+        lambda: socket.getaddrinfo("example.com", 443),
+        lambda: socket.create_connection(("example.com", 443), timeout=1),
+        lambda: socket.create_connection(("192.0.2.1", 9), timeout=1),
+        lambda: _connect(socket.AF_INET, ("192.0.2.1", 9)),
+        lambda: _connect(socket.AF_INET, ("example.com", 80)),
+        lambda: _connect(socket.AF_INET6, ("2001:db8::1", 9, 0, 0)),
+        lambda: _connect(socket.AF_INET, ("192.0.2.1", 9), ex=True),
+    ],
+)
+def test_an_engine_test_reaches_nothing_past_loopback(engine_guard, reach) -> None:
+    with pytest.raises(Offline, match="tests/molecule/"):
+        reach()
+    assert len(engine_guard.refused) == 1 and "tests/molecule/" in engine_guard.refused[0]
+    # Said, and so this test would fail once it ended: forgotten here, since the refusal is what it asserts.
+    engine_guard.refused.clear()
+
+
+def _connect(family: int, address: tuple, ex: bool = False) -> None:
+    with socket.socket(family, socket.SOCK_STREAM) as sock:
+        sock.settimeout(1)
+        (sock.connect_ex if ex else sock.connect)(address)
+
+
+def test_an_engine_test_reaches_a_fake_on_loopback(engine_guard) -> None:
+    with socket.create_server(("127.0.0.1", 0)) as server:
+        port = server.getsockname()[1]
+        for host in ("127.0.0.1", "localhost"):
+            with socket.create_connection((host, port), timeout=5):
+                pass
+        assert socket.getaddrinfo("localhost", port) and socket.getaddrinfo(None, port)
+    assert engine_guard.refused == []
+
+
+@pytest.mark.parametrize("host", ["::1", "::ffff:127.0.0.1", "127.0.0.2", "localhost", None, b"127.0.0.1"])
+def test_loopback_is_what_the_guard_lets_through(host) -> None:
+    assert aw_kit._loopback(host)
+
+
+@pytest.mark.parametrize("host", ["example.com", "192.0.2.1", "0.0.0.0", "2001:db8::1", "<broadcast>", "localhost."])
+def test_anything_else_is_not_loopback(host) -> None:
+    assert not aw_kit._loopback(host)
+
+
 # ---------------------------------------------------------------- tools/aw only through the kit ----
 
 # What starts a program, or runs a file as one, by the name it is called by: subprocess's, os's, pty's, asyncio's,
-# runpy's, and the harness's own way to a terminal.
+# runpy's, and the suite's own launchers - the harness's ways to a terminal and its fakes' start, live_kit's runs.
 STARTS = {
     "run",
     "Popen",
@@ -127,11 +270,18 @@ STARTS = {
     "create_subprocess_shell",
     "run_path",
     "_at_a_pseudo_terminal",
+    "_run_at_a_terminal",
+    "_start",
+    "_serve",
+    "at_a_terminal",
+    "piped",
 }
 # os.execv and its kind, os.spawnv and its kind.
 STARTS_LIKE = ("exec", "spawn")
-# The kit's ways to the program, which a test calls.
-KIT = {"run_aw", "aw_at_a_terminal", "imports_of"}
+# The kit's ways to the program, which a test calls: the launcher at the checkout's top runs tools/aw too.
+KIT = {"run_aw", "aw_at_a_terminal", "imports_of", "run_launcher"}
+# The kit's names of the program, and of the launcher that runs it.
+KIT_NAMES = ("AW", "LAUNCHER")
 # tools/aw in a string: alone, at the end of a path, or in a command line.
 NAMES_AW = re.compile(r"(?<![\w-])tools/aw(?![\w.-])")
 
@@ -155,7 +305,7 @@ def _two(parts: list[str | None]) -> bool:
 
 def _names_aw(node: ast.AST, bound: set[str]) -> bool:
     """Whether node, or anything in it, names tools/aw: a string, a path built of its parts with / or as a call's
-    arguments (Path("tools", "aw")), a name bound to one, or the kit's AW."""
+    arguments (Path("tools", "aw")), a name bound to one, or the kit's AW or LAUNCHER."""
     for inner in ast.walk(node):
         if isinstance(inner, ast.Constant) and isinstance(inner.value, str) and NAMES_AW.search(inner.value):
             return True
@@ -165,20 +315,20 @@ def _names_aw(node: ast.AST, bound: set[str]) -> bool:
             return True
         if isinstance(inner, ast.Name) and inner.id in bound:
             return True
-        if isinstance(inner, ast.Attribute) and inner.attr == "AW" and getattr(inner.value, "id", "") == "aw_kit":
+        if isinstance(inner, ast.Attribute) and inner.attr in KIT_NAMES and getattr(inner.value, "id", "") == "aw_kit":
             return True
     return False
 
 
 def _bound(tree: ast.AST) -> set[str]:
     """The names a file binds to tools/aw's path, wherever: an assignment, a loop's target, a parameter's default, the
-    kit's AW imported; and so on, through names bound to those."""
+    kit's AW or LAUNCHER imported; and so on, through names bound to those."""
     bound: set[str] = set()
     while True:
         before = set(bound)
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom) and node.module == "aw_kit":
-                bound |= {alias.asname or alias.name for alias in node.names if alias.name == "AW"}
+                bound |= {alias.asname or alias.name for alias in node.names if alias.name in KIT_NAMES}
             elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.For)):
                 value = node.iter if isinstance(node, ast.For) else node.value
                 targets = [node.target] if isinstance(node, (ast.AnnAssign, ast.For)) else node.targets
@@ -236,6 +386,14 @@ def test_no_test_runs_tools_aw_but_through_the_kit() -> None:
         ('program = REPO / "tools/aw"\nwhere = program\nsubprocess.run([where])', True),
         ('for program in (AW_PATH, "tools/aw"):\n    subprocess.run([program])', True),
         ('runpy.run_path(str(REPO / "tools" / "aw"))', True),
+        ('from aw_kit import LAUNCHER\nsubprocess.run([LAUNCHER, "status"])', True),
+        ("import aw_kit\nsubprocess.Popen([str(aw_kit.LAUNCHER), 'help'])", True),
+        ('run_launcher("status", home=home, launcher=checkout / "aw")', False),
+        ('live_kit.at_a_terminal([sys.executable, "-I", str(REPO / "tools" / "aw"), "deploy"], root, env)', True),
+        ('live_kit.piped([sys.executable, "-I", str(REPO / "tools" / "aw"), "status"], root, env)', True),
+        ('harness._start(REPO / "tools" / "aw", "--version")', True),
+        ('for base in harness._serve(REPO / "tools" / "aw"):\n    pass', True),
+        ('harness._run_at_a_terminal(root, REPO / "tools/aw", {}, {})', True),
         ('run_aw("--version", home=home, cwd=REPO, program="tools/aw")', False),
         ('aw_kit.aw_at_a_terminal("help", home=home)', False),
         ('AW = REPO / "tools" / "aw"\nassert AW in new', False),
@@ -292,6 +450,41 @@ def test_a_stand_in_is_first_on_path_and_a_run_that_reached_it_fails_its_test(ho
     # And the next run of the kit's fails the test for it.
     with pytest.raises(pytest.fail.Exception):
         run_aw("--version", home=home)
+    # As the guard of this test's own process would once it ended: forgotten here, since the call is what it asserts.
+    _forget_the_calls(stand_ins(home))
+
+
+def _forget_the_calls(root: Path) -> None:
+    for folder in (".desktop", ".refused"):
+        (root / folder / "calls.log").unlink(missing_ok=True)
+
+
+@pytest.mark.parametrize("name", ["PATH", "HOME", "BROWSER", paths.VARIABLE, "XDG_CONFIG_HOME", "XDG_RUNTIME_DIR"])
+def test_a_test_s_env_never_lifts_a_guard(home, name) -> None:
+    lifted = {name: "/elsewhere"}
+    for run in (
+        lambda: run_aw("--version", home=home, env=lifted),
+        lambda: aw_at_a_terminal("--version", home=home, env=lifted),
+        lambda: imports_of("--version", home=home, env=lifted),
+    ):
+        with pytest.raises(pytest.fail.Exception, match=rf"never sets {name}\b.*first_on_path=\(dir, \.\.\.\)"):
+            run()
+    # Any other variable is the test's to set.
+    assert environment(home, {"AW_TEST_OWN": "yes"})["AW_TEST_OWN"] == "yes"
+
+
+def test_first_on_path_goes_ahead_of_the_stand_ins_and_keeps_them(home, tmp_path) -> None:
+    mine = tmp_path / "mine"
+    mine.mkdir()
+    harness._executable(mine / "ssh", "#!/bin/sh\necho mine\n")
+    env = environment(home, first_on_path=(mine,))
+    assert shutil.which("ssh", path=env["PATH"]) == str(mine / "ssh")
+    for tool in [*harness.DESKTOP_TOOLS, *harness.GUARDED_TOOLS, *harness.REFUSED_TOOLS]:
+        if tool != "ssh":
+            assert Path(shutil.which(tool, path=env["PATH"])).parent.parent == stand_ins(home), tool
+    assert run_aw("--version", home=home, first_on_path=(mine,)).returncode == 0
+    rc, _ = aw_at_a_terminal("--version", home=home, first_on_path=(mine,), timeout=60)
+    assert rc == 0 and ENTRY in imports_of("--version", home=home, first_on_path=(str(mine),))
 
 
 def test_the_browser_is_a_stand_in_too(home) -> None:
@@ -307,6 +500,28 @@ def test_imports_of_lists_what_a_run_loaded(home) -> None:
     loaded = imports_of("--version", home=home)
     assert ENTRY in loaded and "claude_vm.fleet" not in loaded
     assert not {name for name in loaded if name.split(".")[0] in ("ansible", "yaml", "asyncio", "subprocess")}
+
+
+def test_imports_of_lists_what_importing_one_module_loaded(home) -> None:
+    loaded = imports_of(module="claude_vm.fleet.paths", home=home)
+    assert {"claude_vm", "claude_vm.fleet", "claude_vm.fleet.paths", "dataclasses"} <= loaded, sorted(loaded)
+    assert ENTRY not in loaded and "claude_vm.secret" not in loaded
+
+
+@pytest.mark.parametrize(
+    ("module", "words"),
+    [
+        pytest.param("claude_vm.fleet; import os", (), id="code-after-the-name"),
+        pytest.param("claude_vm..fleet", (), id="an-empty-part"),
+        pytest.param("claude_vm.fleet\n", (), id="a-newline"),
+        pytest.param("", (), id="empty"),
+        pytest.param("claude_vm.fleet", ("--version",), id="words-beside-it"),
+        pytest.param("claude_vm.no_such_module", (), id="an-import-that-fails"),
+    ],
+)
+def test_imports_of_fails_a_module_it_cannot_list(home, module: str, words: tuple[str, ...]) -> None:
+    with pytest.raises(pytest.fail.Exception):
+        imports_of(*words, module=module, home=home)
 
 
 # ---------------------------------------------------------------- the canary search ----
@@ -397,15 +612,20 @@ def test_a_secret_holds_a_string_and_reveal_alone_reads_it() -> None:
 
 
 def _reveals(source: str) -> list[int]:
-    """The lines where source reads a Secret's value: a call of reveal, or reveal reached by its name (getattr)."""
+    """The lines where source reads a Secret's value: reveal reached as an attribute, called or kept to call later
+    (token.reveal, partial(token.reveal)), a call of reveal by its name, or reveal named to getattr or methodcaller."""
     return sorted(
-        node.lineno
-        for node in ast.walk(ast.parse(source))
-        if isinstance(node, ast.Call)
-        and (
-            _callee(node) == "reveal"
-            or (_callee(node) == "getattr" and any(getattr(arg, "value", None) == "reveal" for arg in node.args[1:2]))
-        )
+        {
+            node.lineno
+            for node in ast.walk(ast.parse(source))
+            if (isinstance(node, ast.Attribute) and node.attr == "reveal")
+            or (isinstance(node, ast.Call) and _callee(node) == "reveal")
+            or (
+                isinstance(node, ast.Call)
+                and _callee(node) in ("getattr", "methodcaller")
+                and any(getattr(arg, "value", None) == "reveal" for arg in node.args[:2])
+            )
+        }
     )
 
 
@@ -432,6 +652,9 @@ def test_only_the_modules_reveals_names_read_a_secret_s_value() -> None:
         ("token.reveal()", True),
         ("headers = {'Authorization': f'PVEAPIToken={secret.reveal()}'}", True),
         ("getattr(secret, 'reveal')()", True),
+        ("send = token.reveal\nsend()", True),
+        ("functools.partial(token.reveal)", True),
+        ("operator.methodcaller('reveal')(token)", True),
         ("def reveal(self):\n    return self.value", False),
         # A word of VS Code's tasks, which lib/claude_vm/editors/vscode.py writes.
         ("presentation = {'reveal': 'always'}", False),

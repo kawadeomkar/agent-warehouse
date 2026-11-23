@@ -1,19 +1,30 @@
-"""What the new engine's tests share: tools/aw run as a person runs it, kept off this machine.
+"""What the new engine's tests share: each test kept off this machine in its own process, and tools/aw run as a person
+runs it.
 
 A test of the new engine is a file tests/unit/test_aw_*.py. tests/unit/conftest.py marks every test there `engine`,
-which `just test engine` runs alone, and registers this kit, so that its fixture is every test's. A test reaches the
-program through this kit and no other way (tests/unit/test_aw_guards.py reads every test file's syntax tree for one):
+which `just test engine` runs alone, and registers this kit, so that its fixtures are every test's:
 
-- `home`, a fixture: the test's own fleet home, conftest.py's `aw_home` (AGENT_WAREHOUSE_HOME), made, with HOME and the
-  XDG folders in it too, set in this process for the test's length, so that code run in process reaches none of the
-  developer's folders either;
+- `engine_guard`, which no test asks for: for every test the marker selects, and no other, its own process gets HOME
+  and the XDG folders in the test's own home (conftest.py's `aw_home`, AGENT_WAREHOUSE_HOME), failing stand-ins first
+  on PATH and BROWSER one of them, every variable gone but harness.PASSED_ON's and the kit's own, and no connection
+  over IP but to loopback; once the test ends, a stand-in that was reached or a connection that was refused fails it;
+- `home`: that home, made.
+
+A test reaches the program through this kit and no other way (tests/unit/test_aw_guards.py reads every test file's
+syntax tree for one):
+
 - `run_aw(*words, home=...)`: tools/aw under `python -I`, in an environment built from a list of names
   (`harness.PASSED_ON`) and the home's own, never this process's whole one; with failing stand-ins first on PATH, for
   a browser opener, a clipboard and this machine's tailscale, gh and claude (`harness._desktop`), and for its ssh,
-  ansible-playbook and login keychain (`harness._refused`); stdin /dev/null unless a test gives one, a process group of
-  its own, ended whole on a timeout; and a test that fails if the run reached a stand-in;
+  ansible-playbook and login keychain (`harness._refused`), and a test's own programs ahead of them only by
+  `first_on_path`; stdin /dev/null unless a test gives one, a process group of its own, ended whole on a timeout; and a
+  test that fails if the run reached a stand-in;
 - `aw_at_a_terminal(*words, home=...)`: the same at a pseudo-terminal of its own (`harness._at_a_pseudo_terminal`);
-- `imports_of(*words, home=...)`: the modules a run loaded, from python's `-X importtime`;
+- `run_launcher(*words, home=...)`: the launcher at the checkout's top, aw, which runs tools/aw, run by its path as a
+  person runs it, in run_aw's environment and with the suite's own Python as PYTHON unless a test names another: this
+  checkout's, a link to it, or a copy of it in a checkout a test made, and never this checkout's asked to install;
+- `imports_of(*words, home=...)`: the modules a run loaded, from python's `-X importtime`; and with `module=`, what
+  importing that one module of this checkout's lib/ loaded;
 - `searched_for(secrets, *paths)`: which files hold one of the secrets, failing a search that read nothing.
 
 docs/architecture/testing.md §11.1 says how the suite holds them.
@@ -21,7 +32,12 @@ docs/architecture/testing.md §11.1 says how the suite holds them.
 
 from __future__ import annotations
 
+import dataclasses
+import errno
+import ipaddress
 import os
+import re
+import socket
 import subprocess
 import sys
 from collections.abc import Iterable, Iterator, Mapping
@@ -35,8 +51,17 @@ from claude_vm.fleet import paths
 from claude_vm.secret import Secret
 
 AW = harness.REPO / "tools" / "aw"
+# The launcher at the checkout's top, which runs tools/aw with the Python of the environment the checkout runs.
+LAUNCHER = harness.REPO / "aw"
 # The module every run of tools/aw imports, whatever it was asked: a list of imports without it read nothing.
 ENTRY = "claude_vm.cli.main"
+# A module imports_of is asked about: a dotted name, each part an identifier, held whole before it goes into -c.
+MODULE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*")
+# What a test's env= never sets, beside every XDG_ variable: what points a run at its home or finds the stand-ins. The
+# home is home=, and a program of the test's own goes first on PATH by first_on_path.
+HELD = frozenset({"PATH", "HOME", "BROWSER", paths.VARIABLE})
+# pytest's own, which it sets again for each phase of a test: kept in an engine test's process, never passed to a run.
+PYTEST_OWN = "PYTEST_CURRENT_TEST"
 
 
 def home_variables(home: Path) -> dict[str, str]:
@@ -51,14 +76,10 @@ def home_variables(home: Path) -> dict[str, str]:
     }
 
 
-@pytest.fixture
-def home(aw_home: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """This test's own home: the directory conftest.py's aw_home names AGENT_WAREHOUSE_HOME, made, and HOME and the XDG
-    folders set into it in this process too, for the test's length. No second mechanism: the home is aw_home's."""
-    aw_home.mkdir()
-    for name, value in home_variables(aw_home).items():
-        monkeypatch.setenv(name, value)
-    return aw_home
+def _passed_on(name: str) -> bool:
+    """Whether a run, and an engine test's own process, keeps name from the shell running pytest: harness.PASSED_ON's
+    names and the locale's."""
+    return name in harness.PASSED_ON or name.startswith("LC_")
 
 
 def stand_ins(home: Path) -> Path:
@@ -71,16 +92,134 @@ def stand_ins(home: Path) -> Path:
     return root
 
 
-def environment(home: Path, env: Mapping[str, str] | None = None) -> dict[str, str]:
+def _path(root: Path, first: Iterable[str | Path], inherited: str) -> str:
+    """A PATH: first, then the stand-ins under root, then the rest of inherited."""
+    standing = [str(root / ".refused"), str(root / ".desktop")]
+    rest = [entry for entry in inherited.split(os.pathsep) if entry not in standing]
+    return os.pathsep.join([*map(str, first), *standing, *rest])
+
+
+# ---------------------------------------------------------------- the guard of an engine test's own process ----
+
+
+class Offline(OSError):
+    """What an engine test's own process meets when it looks up a name or connects past loopback."""
+
+
+@dataclasses.dataclass
+class Guard:
+    """An engine test's guard: the folder of its stand-ins, and each lookup or connection it refused, said."""
+
+    stand_ins: Path
+    refused: list[str]
+
+
+def _loopback(host: object) -> bool:
+    """Whether host, as getaddrinfo or connect is given it, is this machine's loopback: none, localhost, or a loopback
+    address. Any other name is not: looking it up is already the network's."""
+    if isinstance(host, bytes):
+        host = host.decode(errors="replace")
+    if host in (None, "", "localhost"):
+        return True
+    try:
+        address = ipaddress.ip_address(str(host).strip("[]"))
+    except ValueError:
+        return False
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
+        address = address.ipv4_mapped
+    return address.is_loopback
+
+
+def _offline(monkeypatch: pytest.MonkeyPatch, guard: Guard) -> None:
+    """socket.getaddrinfo and a socket's connect and connect_ex over IP refused in this process, for the test's length,
+    for anything that is not loopback; each refusal kept in guard. A local socket by its path is not refused."""
+    lookup, connect, connect_ex = socket.getaddrinfo, socket.socket.connect, socket.socket.connect_ex
+
+    def refuse(what: str) -> None:
+        said = (
+            f"{what}: an engine test reaches nothing past loopback - start a fake of tests/molecule/ on loopback"
+            " (harness._serve) and point the code at it"
+        )
+        guard.refused.append(said)
+        raise Offline(errno.ENETUNREACH, said)
+
+    def getaddrinfo(host, port, *args, **kwargs):
+        if not _loopback(host):
+            refuse(f"looking up {host!r}")
+        return lookup(host, port, *args, **kwargs)
+
+    def held(original):
+        def connecting(sock, address):
+            host = address[0] if isinstance(address, tuple) and address else address
+            if sock.family in (socket.AF_INET, socket.AF_INET6) and not _loopback(host):
+                refuse(f"connecting to {host!r}")
+            return original(sock, address)
+
+        return connecting
+
+    monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
+    monkeypatch.setattr(socket.socket, "connect", held(connect))
+    monkeypatch.setattr(socket.socket, "connect_ex", held(connect_ex))
+
+
+@pytest.fixture(autouse=True)
+def engine_guard(request, aw_home: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Guard | None]:
+    """An engine test's own process kept off this machine, as a run of tools/aw is: for every test the `engine` marker
+    selects, and no other, so that no test asks for it. HOME and the XDG folders in aw_home; the stand-ins first on PATH
+    and BROWSER one of them; every variable removed but harness.PASSED_ON's, the locale's, the kit's own and pytest's
+    PYTEST_CURRENT_TEST; no lookup or connection over IP but to loopback. Once the test ends, a stand-in that was
+    reached, or a connection that was refused, fails it. PATH is what holds a program here: one started by its absolute
+    path, /usr/bin/security say, is not caught."""
+    if request.node.get_closest_marker("engine") is None:
+        yield None
+        return
+    root = stand_ins(aw_home)
+    kept = {*home_variables(aw_home), "BROWSER", PYTEST_OWN}
+    for name in [name for name in os.environ if not _passed_on(name) and name not in kept]:
+        monkeypatch.delenv(name)
+    for name, value in home_variables(aw_home).items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("PATH", _path(root, (), os.environ.get("PATH", os.defpath)))
+    monkeypatch.setenv("BROWSER", str(root / ".desktop" / "open"))
+    guard = Guard(root, [])
+    _offline(monkeypatch, guard)
+    yield guard
+    harness._fail_if_the_desktop_was_reached(root)
+    if guard.refused:
+        pytest.fail("this test reached past loopback:\n" + "\n".join(guard.refused))
+
+
+@pytest.fixture
+def home(aw_home: Path) -> Path:
+    """This test's own home, made: the directory conftest.py's aw_home names AGENT_WAREHOUSE_HOME, which engine_guard
+    has made HOME and the XDG folders' home in this process too. No second mechanism: the home is aw_home's."""
+    aw_home.mkdir()
+    return aw_home
+
+
+# ---------------------------------------------------------------- tools/aw run as a person runs it ----
+
+
+def environment(
+    home: Path, env: Mapping[str, str] | None = None, first_on_path: Iterable[str | Path] = ()
+) -> dict[str, str]:
     """The environment of a run of tools/aw from home: the names harness.PASSED_ON lists (and LC_*) from this process,
-    home's variables over them, the stand-ins first on PATH and BROWSER one of them; then env, a test's own."""
+    home's variables over them, first_on_path's folders first on PATH, the stand-ins next and BROWSER one of them; then
+    env, a test's own, which never sets what HELD names or an XDG_ variable: that would lift a guard unsaid."""
+    given = dict(env or {})
+    held = sorted(name for name in given if name in HELD or name.startswith("XDG_"))
+    if held:
+        pytest.fail(
+            f"env= never sets {', '.join(held)}, which would take the kit's home or stand-ins away: a program of the"
+            " test's own goes first on PATH by first_on_path=(dir, ...), ahead of the stand-ins, which it keeps,"
+            " and the home is home="
+        )
     root = stand_ins(home)
-    built = {name: value for name, value in os.environ.items() if name in harness.PASSED_ON or name.startswith("LC_")}
+    built = {name: value for name, value in os.environ.items() if _passed_on(name)}
     built.update(home_variables(home))
-    first = [str(root / ".refused"), str(root / ".desktop")]
-    built["PATH"] = os.pathsep.join([*first, os.environ.get("PATH", os.defpath)])
+    built["PATH"] = _path(root, first_on_path, os.environ.get("PATH", os.defpath))
     built["BROWSER"] = str(root / ".desktop" / "open")
-    built.update(env or {})
+    built.update(given)
     return built
 
 
@@ -99,15 +238,23 @@ def _run(
     program: str | Path,
     timeout: float,
     interpreter: Iterable[str] = (),
+    code: str | None = None,
+    first_on_path: Iterable[str | Path] = (),
+    argv: list[str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     assert stdin is not None, "a run of tools/aw never reads this terminal: give it /dev/null, a file or its text"
     where = Path(cwd) if cwd is not None else home
-    argv = _argv(words, program, where, interpreter)
+    # argv given is run_launcher's: the launcher, which runs tools/aw.
+    if argv is None and code is not None:
+        # python runs code (-c) in tools/aw's place: imports_of's one module.
+        argv = [sys.executable, "-I", *interpreter, "-c", code]
+    elif argv is None:
+        argv = _argv(words, program, where, interpreter)
     text = stdin if isinstance(stdin, str) else None
     process = subprocess.Popen(
         argv,
         cwd=where,
-        env=environment(home, env),
+        env=environment(home, env, first_on_path),
         stdin=subprocess.PIPE if text is not None else stdin,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -135,34 +282,104 @@ def run_aw(
     cwd: Path | None = None,
     program: str | Path = AW,
     timeout: float = 60,
+    first_on_path: Iterable[str | Path] = (),
 ) -> subprocess.CompletedProcess[str]:
     """Run tools/aw with words from cwd (home unless given) and return its status, stdout and stderr, as text.
 
     stdin is /dev/null, a file, or text the run is sent; never this terminal. env sets variables over the kit's
-    (environment). program is tools/aw by its absolute path, unless a test names it as typed from cwd ("tools/aw" from
-    the checkout); it is never another program. A run that outlives timeout seconds fails the test, ended whole, and
-    one that reached a stand-in fails it once it ends.
+    (environment), never PATH, HOME, BROWSER, AGENT_WAREHOUSE_HOME or an XDG_ one; first_on_path puts a test's own
+    folders of programs ahead of the stand-ins, which stay. program is tools/aw by its absolute path, unless a test
+    names it as typed from cwd ("tools/aw" from the checkout); it is never another program. A run that outlives timeout
+    seconds fails the test, ended whole, and one that reached a stand-in fails it once it ends.
     """
-    return _run(words, home=home, stdin=stdin, env=env, cwd=cwd, program=program, timeout=timeout)
+    return _run(
+        words,
+        home=home,
+        stdin=stdin,
+        env=env,
+        cwd=cwd,
+        program=program,
+        timeout=timeout,
+        first_on_path=first_on_path,
+    )
+
+
+def run_launcher(
+    *words: str,
+    home: Path,
+    launcher: str | Path = LAUNCHER,
+    stdin: int | IO | str = subprocess.DEVNULL,
+    env: Mapping[str, str] | None = None,
+    cwd: Path | None = None,
+    timeout: float = 120,
+    first_on_path: Iterable[str | Path] = (),
+) -> subprocess.CompletedProcess[str]:
+    """Run the launcher with words from cwd (home unless given), by its path as a person runs it, and return its
+    status, stdout and stderr, as text: run_aw's environment (env and first_on_path as run_aw takes them), PYTHON the
+    suite's own Python unless env names another.
+
+    launcher is this checkout's, a link to it, or a copy of it byte for byte in a checkout a test made: never another
+    program. This checkout's is never asked to install (--install-env, install --lock), and always runs with the
+    suite's own Python as PYTHON, a virtualenv, so that it never makes an environment or puts a git hook here: a test
+    that installs makes a checkout of its own."""
+    path = Path(launcher) if Path(launcher).is_absolute() else (cwd or home) / launcher
+    assert path.read_bytes() == LAUNCHER.read_bytes(), f"{launcher} is not the launcher"
+    given = {"PYTHON": sys.executable, **(env or {})}
+    if path.resolve() == LAUNCHER.resolve():
+        assert words[:1] != ("--install-env",) and words[:2] != ("install", "--lock"), "this checkout never installs"
+        assert given["PYTHON"] == sys.executable, "this checkout's launcher runs the suite's own environment"
+    return _run(
+        words,
+        home=home,
+        stdin=stdin,
+        env=given,
+        cwd=cwd,
+        program=AW,
+        timeout=timeout,
+        first_on_path=first_on_path,
+        argv=[str(launcher), *words],
+    )
 
 
 def aw_at_a_terminal(
-    *words: str, home: Path, env: Mapping[str, str] | None = None, cwd: Path | None = None, **terminal
+    *words: str,
+    home: Path,
+    env: Mapping[str, str] | None = None,
+    cwd: Path | None = None,
+    first_on_path: Iterable[str | Path] = (),
+    **terminal,
 ) -> tuple[int, bytes]:
-    """Run tools/aw with words at a pseudo-terminal of its own, from cwd (home unless given), in run_aw's environment;
-    its status and every byte it wrote. terminal goes to harness._at_a_pseudo_terminal: the window's size, what to
-    type (act), the timeout, the poll and what to explain of a run that hung. One that reached a stand-in fails the
-    test."""
+    """Run tools/aw with words at a pseudo-terminal of its own, from cwd (home unless given), in run_aw's environment
+    (env and first_on_path as run_aw takes them); its status and every byte it wrote. terminal goes to
+    harness._at_a_pseudo_terminal: the window's size, what to type (act), the timeout, the poll and what to explain of a
+    run that hung. One that reached a stand-in fails the test."""
     where = Path(cwd) if cwd is not None else home
-    rc, output = harness._at_a_pseudo_terminal(_argv(words, AW, where), where, environment(home, env), **terminal)
+    built = environment(home, env, first_on_path)
+    rc, output = harness._at_a_pseudo_terminal(_argv(words, AW, where), where, built, **terminal)
     harness._fail_if_the_desktop_was_reached(stand_ins(home))
     return rc, output
 
 
-def imports_of(*words: str, home: Path, env: Mapping[str, str] | None = None) -> frozenset[str]:
+def imports_of(
+    *words: str,
+    home: Path,
+    env: Mapping[str, str] | None = None,
+    module: str | None = None,
+    first_on_path: Iterable[str | Path] = (),
+) -> frozenset[str]:
     """Every module a run of tools/aw with words loaded, by its dotted name, from python's -X importtime: the
-    interpreter's own start among them. Whatever the run's status. A list without the program's entry read nothing,
-    and fails the test."""
+    interpreter's own start among them. Whatever the run's status; env and first_on_path as run_aw takes them. A list
+    without the program's entry read nothing, and fails the test.
+
+    With module, a dotted name and no words: every module that `python -I -X importtime -c "import <module>"` loaded,
+    with this checkout's lib/ first on its path, in the same environment; the interpreter's start among them, so a
+    test that wants what the module alone adds takes away what importing its package loaded. A name that is not a
+    dotted name of identifiers, an import that failed, or a list without the module fails the test."""
+    code, entry = None, ENTRY
+    if module is not None:
+        if words or not MODULE.fullmatch(module):
+            pytest.fail(f"imports_of takes one module by its dotted name, and no words with it: {module!r}, {words!r}")
+        code, entry = f"import sys; sys.path.insert(0, {str(harness.REPO / 'lib')!r}); import {module}", module
     result = _run(
         words,
         home=home,
@@ -172,14 +389,18 @@ def imports_of(*words: str, home: Path, env: Mapping[str, str] | None = None) ->
         program=AW,
         timeout=60,
         interpreter=("-X", "importtime"),
+        code=code,
+        first_on_path=first_on_path,
     )
+    if code is not None and result.returncode != 0:
+        pytest.fail(f"importing {module} failed:\n{result.stderr}")
     loaded = frozenset(
         line.rsplit("|", 1)[1].strip()
         for line in result.stderr.splitlines()
         if line.startswith("import time:") and line.count("|") == 2 and not line.endswith("| imported package")
     )
-    if ENTRY not in loaded:
-        pytest.fail(f"-X importtime named no {ENTRY}, so nothing was read of what the run loaded:\n{result.stderr}")
+    if entry not in loaded:
+        pytest.fail(f"-X importtime named no {entry}, so nothing was read of what the run loaded:\n{result.stderr}")
     return loaded
 
 

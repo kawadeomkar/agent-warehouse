@@ -2,10 +2,11 @@
 """aw, the program of the engine that replaces the playbooks at 3.0, built beside them and reached through this file
 alone until then (docs/architecture/engine.md §16.1). Nothing of today's product runs it.
 
-    <python> -I tools/aw --version
+    <python> -I tools/aw <verb> [<word>...] [<option>...]
 
-Run with -I, so that no PYTHONPATH or user site-packages reaches it: it puts this checkout's lib/ on sys.path itself,
-checks that the claude_vm imported is this checkout's, and runs lib/claude_vm/cli/main.py with its own path first.
+The launcher at the checkout's top, aw, runs it so, with the Python of the environment the checkout runs. Run with -I,
+so that no PYTHONPATH or user site-packages reaches it: it puts this checkout's lib/ on sys.path itself, checks that the
+claude_vm imported is this checkout's, and runs lib/claude_vm/cli/main.py with its own path first.
 """
 
 from __future__ import annotations

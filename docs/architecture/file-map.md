@@ -21,6 +21,9 @@ docs/                             the wiki (docs/development/docs.md): getting-s
                                   (generated in part), architecture/ (these pages), development/
 zensical.toml                     the wiki as a site: navigation, theme, GitHub-style anchors
 justfile                          every entry point: few recipes, each narrowed by an option or a word (just help)
+aw                                the new engine's launcher (§16.3): finds its checkout from its own path, runs
+                                  tools/aw with the checkout's environment, and makes that environment and the git
+                                  hook on first use, for aw install --lock and as aw install's step (install_env)
 tools/docs.py                     just docs: the generated reference sections; templates/role.md.j2 for docsible
 tools/env-run                     run a tool from the project's environment (the git hooks) - yours, or the checkout's own - or --bin: its bin (the justfile); --data, --collections: the checkout's folder
 tools/check                       the justfile's checks: the checkout, the run's host, the vaults, the collections, names, a project
@@ -230,9 +233,17 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   (§7.10)
 lib/claude_vm/schema/             the new engine (§16), built beside today's and reached through tools/aw alone until
                                   3.0, one subpackage each below: the command line's patterns and its one table of
-                                  verbs and options, literals written by hand
+                                  verbs and options, literals written by hand; patterns.py, the one home of the
+                                  patterns, and full, which holds a value to one; words.py, the table: each verb's
+                                  words, options, rules, handler, locks and agents' tools, and the exit statuses;
+                                  check.py, the one check every entry runs on a verb's values; rules.py, the rules
+                                  between options, each a function that says today's sentence
 lib/claude_vm/cli/                aw, the program: the command line read against the table, help, the dispatch;
-                                  main.py, the entry tools/aw runs, which answers --version until the parser is built
+                                  main.py, the entry tools/aw runs; parse.py, the words read with argparse; habits.py,
+                                  today's habits, deploy's question among them; before.py, RunWords, the run's own
+                                  words; dispatch.py, a verb handed to its handler or refused; inverse.py, the printer
+                                  of a command, the one way a line a person types is written; help.py, aw help's two
+                                  levels from the table; reference.py, the command reference's tables from it
 lib/claude_vm/engine/             the workflows, one module a verb, in place of the playbooks
 lib/claude_vm/pve/                the typed Proxmox VE client, and the one table of each call's privilege
 lib/claude_vm/ssh/                the runner over OpenSSH: ssh as a child, host keys taken at first use, the control

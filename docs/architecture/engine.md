@@ -9,96 +9,318 @@ record what a VM is and what the settings are in different ways, and a VM one of
 the other. So the cutover moves every verb at once.
 
 This page describes the new engine's code as it is in the repository, and grows with it. Each subpackage has a heading
-below, and the change that builds a part writes how it works under that heading. The package's own rules, from
-[§7.10](custom-code.md#710-libclaude_vm--the-controllers-python-as-one-package), hold here as everywhere in
-`lib/claude_vm/`: importing a module loads none of `ansible`, `yaml`, `asyncio` or `subprocess`, and a package's
-`__init__.py` imports nothing.
+below, which says what goes there until the change that builds a part writes how it works under that heading. The
+package's own rules, from [§7.10](custom-code.md#710-libclaude_vm--the-controllers-python-as-one-package), hold here as
+everywhere in `lib/claude_vm/`: importing a module loads none of `ansible`, `yaml`, `asyncio` or `subprocess`, and a
+package's `__init__.py` imports nothing.
 
 ## 16.1 The rule between the two engines
 
 The rule is one-way, and `tests/unit/test_aw_layout.py` holds both halves of it.
 
-- **Nothing of today's product reaches the new engine.** No file of the `justfile`, `deploy.yml`, `playbooks/`,
-  `roles/`, `filter_plugins/`, `callback_plugins/`, `inventory/` or `tools/` (but `tools/aw` itself), and no module of
-  `lib/claude_vm/` outside the new subpackages, names `tools/aw` or imports a module of the new engine. A Python file is
-  read as a syntax tree: its imports, the relative ones resolved, the strings it holds, and the module it hands to
-  `plugin.filters`. Any other file is read as text. The test's allow list is empty, and only the cutover fills it.
+- **Nothing of today's product reaches the new engine.** No file of the `justfile`, `deploy.yml`, `ansible.cfg`, the
+  `Vagrantfile`, `playbooks/`, `roles/`, `filter_plugins/`, `callback_plugins/`, `inventory/` or `tools/` (but
+  `tools/aw` itself), and no module of `lib/claude_vm/` outside the new subpackages, names `tools/aw` or imports a
+  module of the new engine. A Python file is read as a syntax tree: its imports, the relative ones resolved, the
+  strings it holds, and the module it hands to `plugin.filters`. Any other file is read as text, so `ansible.cfg`,
+  which every run of today's reads, never names the new engine's Ansible folder: only the configuration the engine
+  writes for its own Ansible child does. The test's allow list is empty, and only the cutover fills it.
 - **The new engine reuses only what it names.** Of today's `lib/claude_vm/`, the new subpackages and `tools/aw` import
   only the modules and packages in the test's `REUSED`, each with the reason it is reused, at the top of a file or
   inside a function. `records` and `refs` are not among them, since the table of verbs and the printer of a command
   take their place; nor is `ansible`, today's engine of playbooks, nor the rest of `run`. A change that needs another
   module adds it to `REUSED`, with its reason, in the same commit. Never a module that imports Ansible when it is
   imported.
+- **What it reuses brings in only what is named too.** The test follows the imports of every module `REUSED` names,
+  and of what those import in turn, all the way down, at the top of a file or inside a function. Each module it
+  reaches is in `REUSED`, or in a second list, `REACHED`, with the reason it is brought in. Today `REACHED` holds four
+  modules the new engine's own code never imports: `records` and `refs`, on which `catalogue`, `editors`, `hosts`,
+  `status` and `vpn` build their records, and `run.model` and `run.recipes`, which `tui.run` draws. None of them is
+  `ansible`, by any road.
 
 `tools/aw` is the program, on the model of `tools/mcp`. Run as `python -I`, it puts this checkout's `lib/` first on
 `sys.path`, checks with `plugin.own` that the `claude_vm` imported is this checkout's, and runs
-`lib/claude_vm/cli/main.py`'s `main` with its own path first and then the words typed. Until the parser and the
-first verb are built, `main` answers `--version` with one line, `aw from the checkout <path>`. The path is worked
-out from `tools/aw`'s own path and from nothing else, and a checkout has no version number of its own. Anything else
-is refused in one sentence, with exit status 1, which says that the engine is not built yet and that the commands are
-`just`'s. The sentence never repeats what was typed.
+`lib/claude_vm/cli/main.py`'s `main` with its own path first and then the words typed, which 16.3 reads. A person
+starts it with the launcher at the checkout's top, `aw` (16.3). `--version` alone answers with one line, `aw from the
+checkout <path>`. The path is worked out from `tools/aw`'s own path and from nothing else, and a checkout has no
+version number of its own.
 
 Beside the subpackages, `lib/claude_vm/secret.py` holds what the engine wraps a secret in as soon as it reads one: a
 `Secret`, which `repr`, `str`, an f-string, `format` and a log line show as a mark, which refuses to be pickled or
 turned into JSON, and whose plain value only `reveal()` reads, at the one place that sends it on.
 `tests/unit/test_aw_guards.py` holds the modules that call `reveal()` to its `REVEALS`, each with the reason it sends
 the secret on; the list is empty until the first one does. The engine's tests, `tests/unit/test_aw_*.py`, run alone
-with `just test engine`, and reach `tools/aw` only through their kit
-([§11.1](testing.md#111-unit--just-test-unit)).
+with `just test engine`, are kept off this machine in their own process as a run of `tools/aw` is, and reach `tools/aw`
+only through their kit ([§11.1](testing.md#111-unit--just-test-unit)).
 
 ## 16.2 `schema/` — the command line's patterns and its table of verbs and options
 
-`lib/claude_vm/schema/` holds the command line as data. That is the patterns a typed value is held to, and the one
-table of verbs and options that the parser, help, the reference page, the printer of a command and the agents'
-schemas all read. They are literals written by hand, and nothing is generated from them into another file. It imports
+`lib/claude_vm/schema/` is where the command line goes as data. That is the patterns a typed value is held to, and the
+one table of verbs and options that the parser, help, the reference page, the printer of a command and the agents'
+schemas all read. They are literals written by hand, and no code is generated from them into another file. It imports
 the standard library and its own modules and nothing else, because every command reads it, a refusal and help among
 them. Any part of the new engine may import it.
 
+**The patterns: `patterns.py`.** `PATTERNS` is the one home of every pattern the command line holds a value to: one
+literal mapping from a name (`vm_name`, `host_name`, `cores`, `repos`, `session`, `job_id` and the rest) to the
+pattern's inner text, with no anchor. The table of verbs and options names a pattern for each option and for a verb's
+words, and nothing else in the new engine writes one. `full(name, value)` is the one way to hold a value to a pattern:
+it holds the value whole, with `re.fullmatch` of the named pattern compiled once on its first use, so a value with a
+newline after it is refused, and a name `PATTERNS` does not have raises `KeyError`. An option's pattern takes the empty
+value where today's does, since an empty value is no value given. A rule that is more than one pattern is the check's,
+never this module's: two values together, a word that starts with `-`, the cap of 2000 characters on `--repos`, the
+`.` and `..` that `--project`'s pattern takes and a rule refuses. There are no records, no registry of operations and
+no coded refusals.
+
+Until the cutover the `justfile` holds a person's values to its own copy of each pattern, so every pattern of a
+recipe a person runs is in `PATTERNS` under a name with the same text; the developer's recipes (`lint`, `test`, `docs`,
+`vagrant`, `clean`) keep theirs, which are not the command line's. `tests/unit/test_aw_schema.py` holds the two equal,
+holds each pattern to the values today's tests of the `justfile` give the same pattern, each value it takes refused
+with a newline after it, and holds that importing the module loads nothing outside the standard library. A pattern
+that only the new command line uses (`job_id`, `assignment` for `--set`, `secret_name`, `ssh_fingerprint`, `release`,
+`dependency_group`) is listed there with where it comes from.
+
+**The table: `words.py`.** `VERBS` is the one table of the command line: every verb a person types after `aw`, in the
+order help lists them, today's thirteen and `release` and `cancel`: the base's alone, since `control` is the add-on's,
+which adds its row when it is built. Each row is a `Verb`: its group and its sentence; its `Words`, what the usage calls
+one, whether it takes several, the name the handler receives them by, their pattern and help; its `Option`s; the codes
+of the rules between its options, as the contract of today's command line names them (`deploy.4`, `check.names.1`),
+which the one check runs in that order; its handler, as `module:function`, or none while no change has built the verb,
+and then the card that builds it; the locks a run of it takes, one of `machines`, `fleet`, `none` or `words`, where the
+kind depends on the words given; whether a run of it is a job, with its own record, text log and locks; and the tools of
+the agents' server that run it, or why none does. An option has its spellings, its kind (`value`, `flag`, `repeatable`
+for `--set`, `counted` for `-v`, `optional-value` for `--migrate`), the name of its pattern, the name the handler
+receives it by (the long option in lowercase with `_` for `-`, as the agents' tools name it today, and `for_` for
+`host --for`), its help, the name help gives its value (`--host ON`, as `just --usage` prints it today), and its fate
+for an agent's tool: a property of the tool's schema, a value the server always gives, or refused with the reason; where
+two tools run one verb (`settings` and `settings_set`), a fate for each. `BEFORE` holds the words given before any verb:
+`--no-lock`, `--attended`, and `--detached-run`, which no person types. `--detach` is no row's option: the parser gives
+it, with the one sentence `DETACH`, to every verb whose run is a job, and the agents' server starts every such run
+detached.
+
+Today's verbs keep today's words and help, with `aw` where a sentence said `just`, and `mcp --vault-password-file` is
+`--vault-key-file`. Beside the table, `EXITS` names the exit status of every verb but `status` (0 done, 1 refused before
+anything ran, 130 cancelled) and `STATUS_EXITS` those of `status` (today's 0, 1, 2 and 3, and 3 for a read a person
+cancelled, as today's `status` gives it); within each, no meaning has two numbers and no number two meanings, but
+`status`'s 3, which today means a read that failed and one a person cancelled, and a script may read. The table holds no
+option whose value is a secret: a secret reaches a verb from a file it names or from the terminal. Two options take free
+text a person may type one into, `--set` and `settings --value`, and the run layer that reads them refuses a secret's
+name or value there and never says it back. Nothing is generated from the table or into it, and it has no column for
+the migration: which words are new and which of today's it changes, each with its ruling, is
+`tests/unit/cli_contract_changes.py`'s, beside the contract (`tests/unit/cli_contract.json`), and goes with it at the
+cutover, and so is `BEHAVIOURS`, what today's words do that `aw` does otherwise on purpose.
+`tests/unit/test_aw_cli_words.py` holds the table's rows, today's fates for today's words (against
+`lib/claude_vm/mcp/recipes.py`, until the cutover), every other option and word of a verb a tool runs a property of the
+tool's schema but where ruled otherwise, the two values of free text, the exit statuses and the module's imports;
+`tests/unit/test_aw_cli_contract_words.py` holds every word of the contract to the table or to the maps `CHANGED` and
+`KEPT`, every word the table adds to `NEW`, and each exit status `aw` gives otherwise to `CHANGED` or `BEHAVIOURS`.
+
+**The one check: `check.py`.** `check(verb, values)` is the check every entry runs on a verb's values: the parser of
+the command line, the agents' server through `aw`, and the add-on's broker on JSON. It holds each value to its kind and
+to the pattern the table names, with `full`; then runs the rules between options the verb's row names, in that order;
+then holds the verb's words to their number. It returns nothing or the one sentence of the first refusal: an option the
+verb has not got, a value of the wrong type, or one outside its pattern, each naming the option and its help and never
+the value; then a rule's sentence; then a second word where the verb takes one, or any word where it takes none. It
+takes values as the parser gives them and as JSON with exact types, and coerces nothing: a value option's is a string, a
+flag's a boolean, `--set`'s a list of strings, `-v`'s a whole number, `--migrate`'s true or a string, the words a list
+where the verb takes several and a string where it takes one, or a list where the parser was given more than one, which
+the rules see before the number is held; `detach` is a flag of every verb whose run is a job. `check_before` holds the
+words given before any verb the same way, and `formed` is the check but for the rules between options, which the
+printer of a command (16.3) holds a line to.
+
+**The rules between options: `rules.py`.** Each rule between options of today's command line is one plain function
+with the code the contract of today's command line gives it (`deploy.4`, `check.names.1`) and today's sentence, word
+for word, with `aw` where it said `just`: `Rule(code, verbs, sentence, breaks)`, where `breaks` takes a verb's values
+and returns nothing where they keep the rule, or what fills the sentence's values where they break it, and
+`Rule.check` gives nothing or the sentence. They are today's rules of `deploy`, `code`, `settings`, `destroy`, `host`,
+`help`, `init` and `mcp`, said before any check or tool, and the three argument checks of `tools/check` that are more
+than one pattern: `host --for`'s VM names, split at its commas, the 2000 characters of `--repos`, and the `.` and `..`
+of `--project`; `RULES` holds them by code, and `run` runs the codes a row names in order and stops at the first
+sentence. No rule repeats a value's own pattern: `tools/check`'s other checks of one value (the size, the
+repositories' spelling, the project's characters and length, the session, status's sections, every other VM name) held
+the JSON the `justfile`'s scripts join, behind `just`'s pattern, and are the pattern's alone here; nor does `aw` keep
+`init`'s refusal of a token file named relative to a folder whose path has a space, which held that JSON too. A
+sentence says a value back only where today's does, and then a value that has met its pattern first, as `just` holds a
+value to its pattern before a recipe's script runs. What reads more than the values is no rule here but its verb's own:
+the fleet's files (`vault`'s, and `deploy`'s VM name another host's alias records), the file system, `claude` and the
+branch (`mcp`'s), and a terminal (`host --remove`'s question).
+
 ## 16.3 `cli/` — the `aw` program
 
-`lib/claude_vm/cli/` is the program. It reads the command line against the table of `schema/`, prints help,
-dispatches a verb to its workflow and prints a command. `main.py` is the entry `tools/aw` runs, as 16.1 says. It
-imports `schema/` and what it needs to answer at once. It imports `engine/`, and with it Ansible, only inside the
-function that dispatches a verb that changes something, so a refusal, help or a read never loads them. It never imports
-`control/` or pydantic. Only `tools/aw` imports it; the agents' server runs `aw` as a child.
+`lib/claude_vm/cli/` is the program: reading the command line against the table of `schema/`, the dispatch of a verb
+to its workflow, the printer of a command, help and the command reference's tables, below. `main.py` is the entry
+`tools/aw` runs, as 16.1 says.
+It imports `schema/` and what it needs to answer at once. It imports `engine/` only inside the function that dispatches
+a verb that changes something, so a refusal, help or a read never loads it. It never imports Ansible, which the engine
+only ever runs as a child, nor `control/` or pydantic. `tools/aw` imports it, and so does the agents' server's own entry
+once it is built; that server runs `aw` as a child for every run.
+
+**Reading the words: `parse.py`.** `read(words)` takes the words typed after `aw`: first the words before the verb
+(`--no-lock`, `--attended`, the hidden `--detached-run`), then the verb, then its words and options, split by
+`argparse` into the table's slots for the one verb typed only. No verb is `help`, as `just` alone lists the recipes.
+`argparse` is set as the design requires: abbreviations off, so a prefix of an option is an option the verb has not
+got; its own help off; its errors raised rather than printed and exited on; and its colours off from Python 3.14. An
+option is taken as `--long value` and as `--long=value`, which is how a value that starts with `-` is given, and is
+given once, but for `--set`, given once for each setting, and `-v`, counted. `--`, which elsewhere ends the options, is
+refused wherever it stands, before `argparse` sees it, in a sentence that says how a value that starts with `-` is
+given: no verb takes a word that starts with `-`, and `argparse`'s intermixed parse would drop it and read the words
+after it as options all the same. Every verb whose run is a job gets
+`--detach`, from the table's column, and no other verb has it. The values, only those given, then go through the one
+check (16.2). Anything refused raises `Refused` with one sentence of the project's own, which names the option where
+one was wrong and never a value or a verb typed: no text of `argparse`'s, no usage block, no exit status of its own.
+
+**Today's habits: `habits.py`.** After the check, as ordinary code, a VM's name with `_` is taken with `-` and said in
+today's words, `alpha,beta` is two names as two words are, and a verb that takes one name refuses two. Where a verb
+that takes several names is given none, the two meanings of no names are one field, `default_vm`: true for a whole
+`deploy`, `deploy --only provision` and `destroy`, which act on the default VM; false for the rest, which act on every
+VM the fleet made. The default VM's name is the handler's to read from the settings; the parser reads no file of the
+fleet. A stage of `deploy` given where the names go, and neither `--only` nor `--check`, is asked about at a terminal,
+read from the standard input the command was given: a menu of `lib/claude_vm/tui/choose.py` where the terminal can draw
+one (the stage, the VMs so named, or nothing, which is marked as it is drawn), and today's typed question where it
+cannot. Each answer names the command line it runs as the printer writes it, a value of `--set` never said back, since
+nothing has taken it yet. The answer meets the rules as if typed, the one check run again on what it comes to; with no
+terminal, and for any answer but the stage or the VMs, it is refused in today's sentences, and a Ctrl-C there exits
+130.
+
+**The run's own words: `before.py`.** `RunWords` is one frozen record every handler receives first: `-v`'s count and
+the `--set` words as typed, from after the verb; `--detach`; `--no-lock`, the one word for a run that takes no lock,
+at the person's own risk; `--attended=1`, the agents' server's word that someone is at the screen with no terminal;
+`--detached-run`; and `LOG_DIR` and `LOG_RETENTION_DAYS`, read from the environment as today. Nothing else is read from
+the environment: an exported `RUN_LOCK` or `ATTENDED` changes nothing.
+
+**The dispatch: `dispatch.py`.** The handler the verb's row names, `module:function` under `claude_vm`, is imported only
+when that verb runs and called with the run's own words and then the verb's values as keyword arguments; what it returns
+is the exit status. Before it, in this order: a Python that is no virtualenv's (`sys.prefix` is its base's) is refused
+for every verb, in a sentence that names `PYTHON`, since the project runs only from a virtualenv and the launcher runs
+whatever `PYTHON` names; an environment that lacks the packages the engine needs is refused, naming `aw install`, for
+every verb but `install` and `help`; a verb no card has built yet is refused naming the card that builds it and, where
+today's `justfile` has a recipe of that name, `just <verb>`, which does its work until the cutover; and a verb whose run
+is a job, but `init` and `install`, which come before any fleet, is refused where the fleet's files do not exist, naming
+`aw init`, and says on standard error which fleet it drives where `AGENT_WAREHOUSE_HOME` or a `fleet_home` line chose
+it. A refusal is one line on standard error and exit status 1.
+
+**The printer of a command: `inverse.py`.** The one way the new engine writes a command line a person types, for NEXT
+STEPS, `status`'s repair lines, a refusal's way out, the lines a detached run's start prints and the session notes on a
+machine: `argv(verb, values)` gives its words and `line(verb, values)` the one string a person pastes, each value
+quoted with `shlex.quote` where a shell would read it otherwise. Both read the one table and nothing else. The program
+is `aw`, always; then the words given before the verb, in the table's order; the verb, `deploy`'s whole chain as its
+one verb; its options in the table's order, `--detach` last as the parser gives it, a value as `--long=value`, so that
+one that starts with `-` is read as a value, a flag bare, `-v` repeated in one word, `--set` once for each value; the
+verb's words as given; and last the host flag, ` --host <name>` as today's lines end with it, on a verb that takes
+`--host` and was not given one. The values are the parser's or a handler's: `default_vm` is said by naming no VM. Each
+is held as the one check holds it but for the rules between options (`formed`), and one it refuses, or a word that
+starts with `-`, raises `ValueError` with the check's sentence, which never says the value; a rule is the run's to say,
+so a line may name a run that one refuses, as `deploy`'s question names the stage before its answer meets the rules.
+The table holds no option whose value is a secret, so nothing is masked but `--set`'s and `settings --value`'s, the
+two values of free text a person may paste one into: a line made from values no run has taken, a refused run's or a
+question's, prints each as the name help gives it. The one check's own refusals name the command refused and its help
+themselves, since `schema/` imports nothing of `cli/`, and are held equal to the printer's; no other module of the new
+engine builds a string that starts with a command, but help's usage lines. It imports the standard library and
+`schema/` alone.
+
+**Help: `help.py`, and the command reference: `reference.py`.** `help` is a verb of the table whose handler is
+`help.py`'s `main`, so `aw help` runs as any verb does, and `aw` alone is `aw help`. It prints today's two levels of
+`just help` from the one table, whole from the first day: a verb no card has built yet is listed and helped as today,
+and refused only when it runs. `aw help` lists every verb in the table's order, `help` first and then each group under
+its name, each with the words it takes and its doc; then the options given before any verb, but the hidden
+`--detached-run`, since the one check's refusal of such an option sends a person there; then today's closing
+paragraph, with `aw` where it said `just`, and `-v` and `--set` where it named `ANSIBLE_ARGS`, each named on the verbs
+whose row has it. `aw help <verb>` prints the verb's usage line as today's command reference writes a recipe's
+(`aw deploy [<name>...]`), its doc, each option with the name of its value and its help as `just --usage` shows one
+today (`-t, --tags ROLES`), `--detach` last on a verb whose run is a job, and then its words with their help. A
+second word is refused by the one check in today's sentence, and a word that is no verb by help, in the check's
+sentence, which never says it. The usage lines are help's own; a whole command line it prints, for a person to paste (the closing
+paragraph's example, `aw host`), comes from the printer. A usage line shows a verb's word without brackets only where
+the verb needs one, `code` and `release`, which help names, since the table says how many words a verb takes and not
+whether it needs one. `reference.py`'s `commands()` writes the tables of the command reference from the same
+functions, in the form `tools/docs.py` writes them from the `justfile` today: a table for each group of verbs, `help`
+aside, with a row for each verb, each of its options and its words, and one of the options given before any verb, each
+cell escaped as `tools/docs.py` escapes one. Nothing calls it before the cutover, which points `tools/docs.py` at it.
+Both import the standard library, `schema/` and the printer alone, and `aw help` loads nothing of the engine.
+
+**The launcher: `aw`.** At the checkout's top, in POSIX `sh`, the launcher finds its checkout from its own path, every
+link to it followed and the folder made by its physical path (`cd -P`), so that a relative link in a folder that is
+itself a link lands in the target's checkout, and never from the working directory, so no `justfile` or checkout found
+upward runs in its place, and the checkout guard of today's recipes is not needed. It asks `tools/env-run --which` which
+environment the checkout runs, a virtualenv of the person's own or the checkout's own, from the checkout's own folder,
+as every other caller of `tools/env-run` does: nothing of the folder it is run from decides, neither a version manager's
+choice of `python3` there nor a module there that the question's Python would import. A Python of the person's own is
+asked in the checkout's folder which interpreter it is, so that the one run is the one found there, a bare name, a
+relative `PYTHON` (the checkout's, as for `just`) or a version manager's shim alike, and `tools/aw` runs with it by its
+absolute path under `-I`. A Python that cannot be run is the launcher's own sentence, never the shell's words for a
+failed `exec`. `install`'s one home is its function `install_env`: what `just install` does to the environment, a sync
+of a virtualenv of the person's own with `--inexact` and no download after `tools/stale_scripts.py`'s reinstall, or of
+the checkout's own exactly the lock's on the Python version `managed_python` names, which the `justfile`'s holds equal;
+then git's pre-commit hook, as `just init` puts it, but nowhere where `core.hooksPath` is set. It installs no Galaxy
+collection and moves nothing of 1.x. It runs in three cases and no other: by itself, once, where the checkout's own
+environment does not exist yet, saying so on standard error before it runs the program; for `aw install --lock`, which
+writes `uv.lock` and needs no environment; and for its one word of its own, `--install-env`, which `aw install`'s run
+passes it as a child carrying the job's marker, `AGENT_WAREHOUSE_JOB`, and which is refused, naming `aw install`,
+without it. It never installs into a virtualenv of the person's own unasked: the program names `aw install` where one
+lacks the packages.
+
+`tests/unit/test_aw_cli_parse.py` holds all of it: every option of every verb in both spellings, the refusals and that
+none says a value or has a usage block, `--detach`, `default_vm`, `RunWords`, in `run_words` and in the program, the
+dispatch's refusals, what a refusal imports, and the launcher run in checkouts the test makes, with a stand-in `uv`,
+through links, from folders whose version manager picks another Python or that hold a planted module, and with a
+`PYTHON` that is no virtualenv's or cannot be run. `tests/unit/test_aw_cli_rules.py` holds the rules and `deploy`'s
+question: every rule of the contract (`tests/unit/cli_contract.json`) is a rule or a habit with today's sentence, or
+named as another verb's own, as a check whose value's pattern refuses first (on `aw`'s line as on `just`'s), or as a
+rule `aw` drops on purpose; each of the contract's cases of a rule or a habit is run against `aw` and gives today's
+status and sentence; the cases not yet run are named one by one, and a code comes out once its case runs; the check
+answers alike as words and as JSON; the question is asked at a pseudo-terminal, typed and with none; each behaviour of
+today's words that `aw` has otherwise on purpose, and that is no exit status, has a test of its own there; and each
+test of today's options' rules in `tests/unit/test_justfile.py` has a twin there by its name.
+`tests/unit/test_aw_cli_inverse.py` holds the printer: for every verb, its words, each option alone and beside them and
+each pair of options the rules allow come back from the line through the parser and the one check, and no verb or
+option lacks such a case; every example of the contract that `aw` takes comes back from its line, before today's habits
+and after; an awkward value, an empty one and a name that starts with a digit survive `/bin/sh`; a value of free text
+is never said back from values no run took; a value the check refuses is never printed; and, by a scan of their
+syntax, that no other module of the new engine's subpackages builds a command. `tests/unit/test_aw_cli_help.py` holds
+help and the reference: for every verb of the contract, `aw help <verb>` holds each option and help sentence `just
+--usage` prints today, with `aw` where it said `just`, but a word the cutover's map records as changed, and every row
+today's page shows for it; every verb's help shows its options and words in the table's order; `aw help` lists every
+verb and no recipe of the repository's own, the options before a verb, and today's closing paragraph with `-v` and
+`--set`; through `tools/aw` and the launcher; what each imports; and that the reference gives a row for every verb but
+`help`, every option and the words, holds today's rows with `aw`, and escapes a cell as `tools/docs.py` does.
 
 ## 16.4 `engine/` — the workflows, one module a verb
 
-`lib/claude_vm/engine/` holds the workflows, one module a verb. Each says what a run of `deploy`, `destroy`, `login`,
-`status`, `code` and the rest does, in the command's own process, in place of the playbooks. It imports the clients
-(`pve/`, `ssh/` and `vendors/`), and `runs/`, `fleet/`, `guest/` and `schema/`. It never imports `cli/`, `control/`,
-pydantic or today's `claude_vm.ansible`, and it runs Ansible only as a child process. `cli/` imports it, and only when
-it dispatches a verb that changes something. No client imports it.
+`lib/claude_vm/engine/` is where the workflows go, one module a verb. Each says what a run of `deploy`, `destroy`,
+`login`, `status`, `code` and the rest does, in the command's own process, in place of the playbooks. It imports the
+clients (`pve/`, `ssh/` and `vendors/`), and `runs/`, `fleet/`, `guest/` and `schema/`. It never imports `cli/`,
+`control/`, pydantic or today's `claude_vm.ansible`, and it runs Ansible only as a child process. `cli/` imports it,
+and only when it dispatches a verb that changes something. No client imports it.
 
 ## 16.5 `pve/` — the typed Proxmox client and the one table of privileges
 
-`lib/claude_vm/pve/` holds the typed client of the Proxmox VE API. It also holds the one table that names each call's
+`lib/claude_vm/pve/` is where the typed client of the Proxmox VE API goes, with the one table that names each call's
 privilege, which `init` grants from and the permission check reads. It imports `vendors/` for its one HTTPS transport,
 and `schema/`. It imports nothing of `engine/`, `cli/` or `control/`, and no pydantic.
 
 ## 16.6 `ssh/` — the runner over OpenSSH
 
-`lib/claude_vm/ssh/` is the runner over OpenSSH. It runs `ssh` as a child under hard limits, takes a machine's host key
-at first use and files it under the machine's identity, keeps one shared control directory, and holds the `ssh`
-children a run holds. It imports `schema/`, and nothing of `engine/`, `cli/` or `control/`, and no pydantic.
+`lib/claude_vm/ssh/` is where the runner over OpenSSH goes. It runs `ssh` as a child under hard limits, takes a
+machine's host key at first use and files it under the machine's identity, keeps one shared control directory, and holds
+the `ssh` children a run holds. It imports `schema/`, and nothing of `engine/`, `cli/` or `control/`, and no pydantic.
 
 ## 16.7 `vendors/` — one HTTPS transport, Tailscale's calls, verified downloads
 
-`lib/claude_vm/vendors/` is the vendors' side. It holds one HTTPS transport, which the Proxmox client uses too,
+`lib/claude_vm/vendors/` is where the vendors' side goes: one HTTPS transport, which the Proxmox client uses too,
 Tailscale's calls, and downloads held to their vendor's signature or digest. It imports `schema/`, and nothing of
 `engine/`, `cli/` or `control/`, and no pydantic.
 
 ## 16.8 `runs/` — a run's record and text log, the locks, a detached run
 
-`lib/claude_vm/runs/` is a run. It holds the run's one record and its text log, the kernel's file locks the run
-holds, the run's end on a signal, and a run detached as the same program in a session of its own. It imports
+`lib/claude_vm/runs/` is where a run goes: its one record and its text log, the kernel's file locks the run holds, the
+run's end on a signal, and a run detached as the same program in a session of its own. It imports
 `schema/` and `fleet/`, and nothing of `engine/`, `cli/` or `control/`, and no pydantic.
 
 ## 16.9 `fleet/` — the fleet's files, the settings, the secrets and the fleet's mark
 
-`lib/claude_vm/fleet/` is a fleet's files and its state. It says where they are, and holds the hosts as folders, the
-typed table of settings and its overrides, the one encrypted file of secrets, and the fleet's ID and mark. It imports
-`schema/`, and nothing of `engine/`, `cli/` or `control/`, and no pydantic.
+`lib/claude_vm/fleet/` is where a fleet's files and its state go. `paths.py`, below, says where they are; the hosts as
+folders, the typed table of settings and its overrides, the one encrypted file of secrets, and the fleet's ID and mark
+go here beside it. It imports `schema/`, and nothing of `engine/`, `cli/` or `control/`, and no pydantic.
 
 **Where a fleet is: `paths.py`.** `home(program_root, environ)` works out the fleet's home for the program at
 `program_root`, and returns it with the state folder and the key file derived from it. It is standard library only,
@@ -166,14 +388,15 @@ the scans for who names the folders and the key, and the guard, a child `pytest`
 
 ## 16.10 `guest/` — the helper, the system layer's inputs, layer 2
 
-`lib/claude_vm/guest/` is what the engine does inside a machine. It holds the helper, which is sent to the machine and
-never installed there, and the inputs of the system layer, which Ansible converges as a child with built-in modules
-only. It also holds layer 2, the rest of the work, in plain code. It imports `ssh/`, `schema/` and `fleet/`, and
+`lib/claude_vm/guest/` is where what the engine does inside a machine goes: the helper, which is sent to the machine
+and never installed there, and the inputs of the system layer, which Ansible converges as a child with built-in modules
+only, and layer 2, the rest of the work, in plain code. It imports `ssh/`, `schema/` and `fleet/`, and
 nothing of `engine/`, `cli/` or `control/`, and no pydantic. A plugin of that Ansible child is the one code of the new
 engine that imports `ansible`. It lives under `guest/ansible/`, where the child's own configuration names it.
 
 ## 16.11 `control/` — what exists only with a control VM
 
-`lib/claude_vm/control/` is the add-on: everything that exists only with a control VM, its services and its page.
+`lib/claude_vm/control/` is where the add-on goes: everything that exists only with a control VM, its services and its
+page.
 The base, the command line alone, writes nothing here. It may import the rest of the new engine, and it is the one
 subpackage that may import pydantic. Nothing outside it imports it.

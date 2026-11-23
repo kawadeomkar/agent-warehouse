@@ -16,7 +16,8 @@
           ],
           "help": "The one recipe whose options to show",
           "words": true,
-          "plural": false
+          "plural": false,
+          "default": null
         }
       ]
     },
@@ -36,7 +37,8 @@
           ],
           "help": "The Proxmox host's address, for its hosts.yml",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "ON",
@@ -48,7 +50,8 @@
           ],
           "help": "Set up another host of this checkout, by its name (just host lists them); a value with a dot or a colon is taken for --address through 2.x",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "TOKEN_USER",
@@ -60,7 +63,8 @@
           ],
           "help": "The API token's user, when it is not ansible@pve",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "TOKEN_ID",
@@ -72,7 +76,8 @@
           ],
           "help": "The API token's ID, the part after its user's !, when it is not ansible",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "TOKEN_SECRET_FILE",
@@ -84,7 +89,8 @@
           ],
           "help": "A file holding the token's secret (or AGENT_WAREHOUSE_TOKEN_SECRET in the environment; never on the command line)",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "GITHUB_USER",
@@ -96,7 +102,8 @@
           ],
           "help": "The GitHub account whose repositories are cloned",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "STORAGE",
@@ -108,7 +115,8 @@
           ],
           "help": "The storage for VM disks, for local.yml: written when the token can use it there",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "BRIDGE",
@@ -120,7 +128,8 @@
           ],
           "help": "The bridge the template is built on, for local.yml (before the template exists)",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "TAILSCALE",
@@ -132,7 +141,8 @@
           ],
           "help": "Answers init's VPN question: on, each VM joins your tailnet; off, none - a VPN of yours that routes the LAN, or none at all (vpn in local.yml)",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "CERTIFICATE",
@@ -144,7 +154,8 @@
           ],
           "help": "The SHA-256 fingerprint of the certificate to check the API against, as the host prints it (openssl x509 -noout -fingerprint -sha256): kept, or put in place of one that changed, only when it is that one",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "PROMPT",
@@ -154,7 +165,8 @@
           "patterns": null,
           "help": "Ask nothing, even at a terminal",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "EXTRA",
@@ -164,7 +176,8 @@
           "patterns": null,
           "help": "Nothing: any word after the options is refused, unsaid",
           "words": true,
-          "plural": false
+          "plural": false,
+          "default": null
         }
       ]
     },
@@ -182,7 +195,8 @@
           "patterns": null,
           "help": "Update uv.lock after editing a pin in pyproject.toml, installing nothing (uv from PATH)",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         }
       ]
     },
@@ -202,7 +216,8 @@
           ],
           "help": "That host's own vault, which holds its token, rather than the shared one (just host lists them)",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         }
       ]
     },
@@ -222,7 +237,8 @@
           ],
           "help": "Run one stage and nothing after it: template (the cloud-init template, if missing), provision (create and start), configure (every tagged VM, unless named) or ssh-config (refresh the SSH aliases; without names, also prune those of VMs that are gone)",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "CHECK",
@@ -232,7 +248,8 @@
           "patterns": null,
           "help": "Dry-run configuration: ansible-playbook --check --diff (every tagged VM, unless named)",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "ON",
@@ -244,7 +261,8 @@
           ],
           "help": "Run against this host rather than the current one (just host lists them)",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "ROLES",
@@ -256,7 +274,8 @@
           ],
           "help": "Configure only these roles, comma-separated: beside VM names it means --only configure (just deploy alpha --tags claude_code)",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "START",
@@ -266,7 +285,8 @@
           "patterns": null,
           "help": "Start a VM this run would leave stopped (proxmox_vm_start_existing)",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "CORES",
@@ -278,7 +298,8 @@
           ],
           "help": "Each new VM's vCPU cores, in place of the vm_cores setting",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "MEMORY",
@@ -290,7 +311,8 @@
           ],
           "help": "Each new VM's memory: MiB, or 16G, in place of the vm_memory_mb setting",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "DISK",
@@ -302,7 +324,8 @@
           ],
           "help": "Each new VM's root disk, as 64G or 1T, in place of the vm_disk_size setting",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "REPOS",
@@ -314,7 +337,8 @@
           ],
           "help": "Only these of your GitHub repositories on each VM named, comma-separated, in place of the github_projects setting: kept for that VM, and added to by a later --repos",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "NAMES",
@@ -326,7 +350,8 @@
           ],
           "help": "The VMs; none means agent-warehouse-default, or every VM this project created for --only configure, --check and --only ssh-config",
           "words": true,
-          "plural": true
+          "plural": true,
+          "default": null
         }
       ]
     },
@@ -346,7 +371,8 @@
           ],
           "help": "Open one project folder on the VM rather than the whole projects directory",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "IDE",
@@ -358,7 +384,8 @@
           ],
           "help": "Open it in this editor for this run, rather than the one the editor setting names: vscode or zed",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "ON",
@@ -370,7 +397,8 @@
           ],
           "help": "Run against this host rather than the current one (just host lists them)",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "SESSION",
@@ -382,7 +410,8 @@
           ],
           "help": "Continue one of this machine's Claude Code sessions there, by its ID as /resume lists it: its checkout brought to the session's pushed commit, ready for claude --resume",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "NAME",
@@ -394,7 +423,8 @@
           ],
           "help": "The one VM to open",
           "words": true,
-          "plural": false
+          "plural": false,
+          "default": null
         }
       ]
     },
@@ -414,7 +444,8 @@
           ],
           "help": "Run against this host rather than the current one (just host lists them)",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "SIGN_IN",
@@ -426,7 +457,8 @@
           ],
           "help": "One sign-in: claude (by the browser, then Remote Control), github (the device flow, then the private repositories) or tailscale (its web login)",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "NAMES",
@@ -438,7 +470,8 @@
           ],
           "help": "The VMs to sign in, one after another; none reports every VM this project created",
           "words": true,
-          "plural": true
+          "plural": true,
+          "default": null
         }
       ]
     },
@@ -458,7 +491,8 @@
           ],
           "help": "Run against this host rather than the current one (just host lists them)",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "ONLY",
@@ -470,7 +504,8 @@
           ],
           "help": "Only these sections, comma-separated: vms storage capacity access sign-ins system work; vms, storage and capacity read only the Proxmox API, never a VM",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "JSON",
@@ -480,7 +515,8 @@
           "patterns": null,
           "help": "The report as JSON, alone on standard output, with the same exit code",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "NAMES",
@@ -492,7 +528,8 @@
           ],
           "help": "Only these VMs; none reads every VM this project created",
           "words": true,
-          "plural": true
+          "plural": true,
+          "default": null
         }
       ]
     },
@@ -510,7 +547,8 @@
           "patterns": null,
           "help": "Every setting of local.yml, and which secrets of vault.yml are set",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "CHANGED",
@@ -520,7 +558,8 @@
           "patterns": null,
           "help": "Only what local.yml or vault.yml changes from the defaults; alone, all of it",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "JSON",
@@ -530,7 +569,8 @@
           "patterns": null,
           "help": "The report as JSON, alone on standard output",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "ON",
@@ -542,7 +582,8 @@
           ],
           "help": "That host's values rather than the current host's; beside --value or --reset, its own local.yml is the one changed",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "RESET",
@@ -552,7 +593,8 @@
           "patterns": null,
           "help": "Put the one setting named back to its default: its line out of local.yml, its example's back",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "VALUE",
@@ -564,7 +606,8 @@
           ],
           "help": "Set the one setting named to this value, in local.yml (never a secret: just vault; an empty value is none: --reset)",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "NAME",
@@ -576,7 +619,8 @@
           ],
           "help": "A role (tailscale) or one variable or setting (tailscale_ssh); none shows how to use this",
           "words": true,
-          "plural": false
+          "plural": false,
+          "default": null
         }
       ]
     },
@@ -596,7 +640,8 @@
           ],
           "help": "Delete without asking, these VMs only: the same names as given, comma-separated",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "ON",
@@ -608,7 +653,8 @@
           ],
           "help": "Run against this host rather than the current one (just host lists them)",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "NAMES",
@@ -620,7 +666,8 @@
           ],
           "help": "The VMs; none means agent-warehouse-default",
           "words": true,
-          "plural": true
+          "plural": true,
+          "default": null
         }
       ]
     },
@@ -638,7 +685,8 @@
           "patterns": null,
           "help": "The list as JSON, alone on standard output",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "REMOVE",
@@ -648,7 +696,8 @@
           "patterns": null,
           "help": "Delete the host's folder in hosts/, after you type its name: its VMs and their SSH aliases stay",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "VMS",
@@ -660,7 +709,8 @@
           ],
           "help": "With --json: the VMs a run would name, comma-separated, to say which host it would reach",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "ON",
@@ -672,7 +722,8 @@
           ],
           "help": "With --json: the host a run would be given, to say which host it would reach",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "NAME",
@@ -684,7 +735,8 @@
           ],
           "help": "The host to make the current one: every command runs against it from now on",
           "words": true,
-          "plural": false
+          "plural": false,
+          "default": null
         }
       ]
     },
@@ -709,7 +761,8 @@
           "patterns": null,
           "help": "Let the server run this checkout on any branch, or with tracked changes; without it, main with no tracked change only",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "SCREEN",
@@ -721,7 +774,8 @@
           ],
           "help": "Whether someone is at this machine's screen for the sign-ins: 1, as for Claude Desktop, or 0; unset, the server decides per session",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "BROWSER",
@@ -733,7 +787,8 @@
           ],
           "help": "What opens the sign-in pages for the runs it starts, when the default does not (BROWSER)",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "PROJECT_DIR",
@@ -745,7 +800,8 @@
           ],
           "help": "Register it for this one project's folder only (Claude Code's local scope), not for every project",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "REMOVE",
@@ -755,7 +811,8 @@
           "patterns": null,
           "help": "Take the server out of Claude Code again",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "SHOW",
@@ -765,7 +822,8 @@
           "patterns": null,
           "help": "Print the command, and an entry for Claude Desktop, and register nothing",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "VAULT_PASSWORD_FILE",
@@ -777,7 +835,8 @@
           ],
           "help": "Where the vault's password is, when it is not this checkout's .vault_pass",
           "words": false,
-          "plural": false
+          "plural": false,
+          "default": ""
         },
         {
           "name": "EXTRA",
@@ -789,7 +848,8 @@
           ],
           "help": "Nothing: any word after the options is refused",
           "words": true,
-          "plural": false
+          "plural": false,
+          "default": null
         }
       ]
     }
@@ -916,7 +976,8 @@
     {"code": "check.sections.1", "recipe": null, "sentence": "error: --only takes the report's sections, comma-separated: vms storage capacity access sign-ins system work (got: [$2])", "line": 241, "by": "tools/check"},
     {"code": "check.sections.2", "recipe": null, "sentence": "error: the report has no section [$section]: its sections are vms storage capacity access sign-ins system work", "line": 249, "by": "tools/check"},
     {"code": "just.unknown-option", "recipe": null, "sentence": "error: recipe `deploy` does not have option `--bogus`", "line": null, "by": "just"},
-    {"code": "just.pattern", "recipe": null, "sentence": "error: argument `0` passed to recipe `deploy` parameter `CORES` does not match pattern `([1-9][0-9]{0,2})?`", "line": null, "by": "just"}
+    {"code": "just.pattern", "recipe": null, "sentence": "error: argument `0` passed to recipe `deploy` parameter `CORES` does not match pattern `([1-9][0-9]{0,2})?`", "line": null, "by": "just"},
+    {"code": "just.repeated-option", "recipe": null, "sentence": "error: recipe `deploy` option `--cores` cannot be passed more than once", "line": null, "by": "just"}
   ],
   "cases": [
     {"code": "help.1-1", "words": ["help", "deploy", "login"], "terminal": false, "status": 1, "sentence": "error: just help shows one recipe's options at a time (got: [deploy login])", "line": 213, "given": null},
@@ -992,7 +1053,14 @@
     {"code": "just.pattern-1", "words": ["deploy", "--cores=0"], "terminal": false, "status": 1, "sentence": "error: argument `0` passed to recipe `deploy` parameter `CORES` does not match pattern `([1-9][0-9]{0,2})?`", "line": null, "given": null},
     {"code": "just.pattern-2", "words": ["deploy", "--only=check"], "terminal": false, "status": 1, "sentence": "error: argument `check` passed to recipe `deploy` parameter `STAGE` does not match pattern `(template|provision|configure|ssh-config)?`", "line": null, "given": "a stage deploy has not got"},
     {"code": "just.pattern-3", "words": ["destroy", "alpha;beta"], "terminal": false, "status": 1, "sentence": "error: argument `alpha;beta` passed to recipe `destroy` parameter `NAMES` does not match pattern `[A-Za-z0-9][A-Za-z0-9._,-]*`", "line": null, "given": "a VM name outside its characters"},
-    {"code": "exit.ctrl-c-1", "words": ["deploy", "alpha"], "terminal": true, "status": 130, "sentence": null, "line": null, "given": "one Ctrl-C (SIGINT to the run's process group) while ansible-playbook, a stand-in, waits"},
+    {"code": "just.repeated-option-1", "words": ["deploy", "--cores=8", "--cores=4", "alpha"], "terminal": false, "status": 1, "sentence": "error: recipe `deploy` option `--cores` cannot be passed more than once", "line": null, "given": "an option given twice"},
+    {"code": "just.repeated-option-2", "words": ["deploy", "--check", "--check"], "terminal": false, "status": 1, "sentence": "error: recipe `deploy` option `--check` cannot be passed more than once", "line": null, "given": "a flag given twice"},
+    {"code": "exit.ctrl-c-1", "words": ["deploy", "alpha"], "terminal": true, "status": 99, "sentence": null, "line": null, "given": "one Ctrl-C (SIGINT to the run's process group) while ansible-playbook, a stand-in that does on it what ansible-playbook does (PLAYBOOK_INTERRUPTED), runs"},
+    {"code": "exit.ctrl-c-2", "words": ["deploy", "alpha"], "terminal": true, "status": 130, "sentence": null, "line": null, "given": "one Ctrl-C (SIGINT to the run's process group) before the playbook starts, while the last check reads the settings (<tmp>/local.yml) with the environment's Python, a stand-in that dies of it as Python does"},
+    {"code": "exit.ctrl-c-3", "words": ["deploy", "alpha"], "terminal": true, "status": 0, "sentence": "the playbook asked \"Press 'C' to continue the play or 'A' to abort\", and said nothing of an abort", "line": null, "given": "one Ctrl-C typed at the terminal while the playbook waits at a prompt, a pause's (a real ansible-playbook on a local one-task play, PROMPT_PLAY), then C typed at Ansible's question"},
+    {"code": "exit.ctrl-c-4", "words": ["deploy", "alpha"], "terminal": true, "status": 2, "sentence": "the playbook asked \"Press 'C' to continue the play or 'A' to abort\", and said \"user requested abort!\"", "line": null, "given": "one Ctrl-C typed at the terminal while the playbook waits at a prompt, a pause's (a real ansible-playbook on a local one-task play, PROMPT_PLAY), then A typed at Ansible's question"},
+    {"code": "setting.run-lock-1", "words": ["RUN_LOCK=", "deploy", "alpha"], "terminal": false, "status": 0, "sentence": "the playbook ran, and the lock another run holds is as it was", "line": null, "given": "a copy of the checkout whose own run lock (its .cache/run.lock) a live run holds"},
+    {"code": "setting.run-lock-2", "words": ["deploy", "alpha"], "terminal": false, "status": 1, "sentence": "the playbook did not run, and the lock another run holds is as it was", "line": null, "given": "a copy of the checkout whose own run lock (its .cache/run.lock) a live run holds: without RUN_LOCK="},
     {"code": "exit.report-ok-1", "words": ["status"], "terminal": false, "status": 0, "sentence": null, "line": null, "given": "the report's engine, a stand-in, exits 0"},
     {"code": "exit.report-problem-1", "words": ["status"], "terminal": false, "status": 1, "sentence": null, "line": null, "given": "the report's engine, a stand-in, exits 1"},
     {"code": "exit.report-unread-1", "words": ["status"], "terminal": false, "status": 2, "sentence": null, "line": null, "given": "the report's engine, a stand-in, exits 2"},
@@ -1036,7 +1104,6 @@
     {"line": "just test # lint, then every test: unit and every Molecule scenario — the CI gate", "source": "CLAUDE.md"},
     {"line": "just test unit # pytest over tests/unit/, a worker per CPU", "source": "CLAUDE.md"},
     {"line": "just test unit --shard 2/6 # one of the six shards CI runs", "source": "CLAUDE.md"},
-    {"line": "just test engine # only the new engine", "source": "CLAUDE.md"},
     {"line": "just test --role proxmox_vm # one role scenario", "source": "CLAUDE.md"},
     {"line": "just test molecule --jobs 4 # the scenarios four at a time, the longest first, each in .logs/<stamp>-test-<scenario>.log", "source": "CLAUDE.md"},
     {"line": "just test provision # one playbook scenario", "source": "CLAUDE.md"},
@@ -1070,7 +1137,6 @@
     {"line": "just mcp --remove", "source": "CLAUDE.md"},
     {"line": "just clean env", "source": "CLAUDE.md"},
     {"line": "just deploy --only ssh-config", "source": "CLAUDE.md"},
-    {"line": "just test engine", "source": "CLAUDE.md"},
     {"line": "just clean", "source": "CLAUDE.md"},
     {"line": "just mcp --any-branch", "source": "CLAUDE.md"},
     {"line": "just destroy --confirm=<names>", "source": "CLAUDE.md"},
@@ -2175,7 +2241,10 @@
     {"line": "just settings X --reset takes it out", "source": "tools/settings"},
     {"line": "just install runs this with", "source": "tools/stale_scripts.py"},
     {"line": "just install runs after a reinstall, it fails", "source": "tools/stale_scripts.py"},
-    {"line": "just status runs no playbook.", "source": "tools/status"}
+    {"line": "just status runs no playbook.", "source": "tools/status"},
+    {"line": "just test engine # only the new engine", "source": "CLAUDE.md"},
+    {"line": "just test engine", "source": "CLAUDE.md"},
+    {"line": "just RUN_LOCK= deploy", "source": "docs/guides/runs.md"}
   ],
   "exits": [
     {"status": 0, "meaning": "the run did what was asked, or there was nothing to do", "recipes": ["help", "init", "install", "vault", "deploy", "code", "login", "status", "settings", "destroy", "host", "logs", "mcp"]},
@@ -2185,6 +2254,9 @@
     {"status": 2, "meaning": "the report: something could not be read", "recipes": ["status"]},
     {"status": 3, "meaning": "the report: the run itself failed", "recipes": ["status"]},
     {"status": "the playbook's", "meaning": "a run that reached its playbook exits with ansible-playbook's status: the recipe ends in it", "recipes": ["init", "deploy", "code", "login", "destroy"]},
-    {"status": 130, "meaning": "one Ctrl-C while the playbook runs, which the playbook does not survive (case exit.ctrl-c-1)", "recipes": ["deploy"]}
+    {"status": 99, "meaning": "one Ctrl-C while a task runs, outside a prompt: ansible-playbook's own status for it, which the recipe ends in (case exit.ctrl-c-1). aw's 130 for a cancelled run is a change against it, which tests/unit/cli_contract_changes.py's CHANGED names", "recipes": ["deploy"]},
+    {"status": 0, "meaning": "one Ctrl-C at one of the playbook's prompts ends nothing: Ansible asks Continue or Abort, and C goes on with the run, which ends as it would have without the Ctrl-C (case exit.ctrl-c-3). aw ends the run there with 130, as anywhere else, which tests/unit/cli_contract_changes.py's BEHAVIOURS names", "recipes": ["deploy"]},
+    {"status": 2, "meaning": "one Ctrl-C at one of the playbook's prompts, then A at Ansible's question: the task fails, and the run ends with ansible-playbook's status for it (case exit.ctrl-c-4). aw ends the run there with 130, as anywhere else, which tests/unit/cli_contract_changes.py's BEHAVIOURS names", "recipes": ["deploy"]},
+    {"status": 130, "meaning": "one Ctrl-C before the playbook starts, while a check runs: the recipe's script ends of it (case exit.ctrl-c-2)", "recipes": ["deploy"]}
   ]
 }
