@@ -11,9 +11,11 @@ names the placeholder its row prints. No verb of the add-on is a verb of the bas
 out of the base is a word of it. Each reason a verb no tool runs gives is said with its commands the printer's. Every
 option and word of a verb a tool runs is a property of the tool's schema, but those ruled otherwise, each named here.
 No option's value is a secret, but the two that take free text a person may type one into, which the run layer refuses
-and never says back; no sentence says just, a reason why an agent's tool does not take a word among them; each meaning
-of an exit status has one number and each number one meaning but status's 3, which today gives a read that failed and
-one a person cancelled; and the module imports the standard library alone.
+(--set's, D5's) or is to refuse (settings --value's, D10's) and never says back; no sentence says just, a reason why an
+agent's tool does not take a word among them; the verbs that need their one word and those that refuse any are the
+ones named here; each meaning of an exit status has one number and each number one meaning but status's 3, which
+today gives a read that failed and one a person cancelled, in its run of one host and of several, the pair named with
+its reason; and the module imports the standard library alone.
 """
 
 from __future__ import annotations
@@ -46,8 +48,9 @@ from claude_vm.schema.words import (
 )
 
 MODULE = "claude_vm.schema.words"
-# Today's status, whose end on a Ctrl-C the table keeps.
+# Today's status, whose end on a Ctrl-C the table keeps: its run of one host, and its run of several.
 STATUS_ENGINE = Path(__file__).resolve().parents[2] / "lib" / "claude_vm" / "status" / "engine.py"
+STATUS_HOSTS = STATUS_ENGINE.with_name("hosts.py")
 # The verbs whose run is a job, with its own record, text log and locks.
 JOBS = {"deploy", "login", "code", "destroy", "release", "init", "install"}
 # The tools of the agents' server that run each verb, and the verbs no tool runs.
@@ -71,10 +74,19 @@ ADD_ON = {
     "control": "the owner's answer 3 of 2026-11-20 (the plan's log): control is the add-on's, out of the base's table; "
     "the add-on's card that builds it (L18) adds its row, with the fleet's lock",
 }
-# The one number of a mapping of exit statuses that has two meanings, and why: today's status exits 3 for a read that
-# failed and for one a person cancelled (lib/claude_vm/status/engine.py's _end_for_an_interrupt, held by
-# tests/unit/test_status_live.py), and a script may read it. The owner's answer 2 of 2026-11-20 keeps it.
-SHARED = {("STATUS_EXITS", 3): {"failed", "cancelled"}}
+# The one number of a mapping of exit statuses that has two meanings, with why.
+SHARED = {
+    ("STATUS_EXITS", 3): (
+        {"failed", "cancelled"},
+        "today's status exits 3 for a read that failed and for one a person cancelled (lib/claude_vm/status/engine.py's"
+        " _end_for_an_interrupt, held by tests/unit/test_status_live.py, and status/hosts.py's run of several hosts),"
+        " and a script may read it: the owner's answer 2 of 2026-11-20 keeps it",
+    ),
+}
+# The verbs that need their one word, which a usage line shows without brackets, and those whose words are no word to
+# give, since they refuse any (words.py's Words.needed and Words.refused).
+NEEDED = {"code", "release"}
+REFUSED = {"init", "mcp"}
 # The locks a run of each verb takes, as the locks are ruled: one machine's by its name, the fleet's for what changes
 # the whole fleet, and for three verbs a kind worked out from the words given.
 LOCKS_OF = {
@@ -107,14 +119,15 @@ NOT_SECRETS = {
 }
 # The options whose value is free text, in which a person may type a secret, each by its verb and the name the handler
 # receives it by, and the rule that holds it: the run layer types the value and refuses a secret's name or value there,
-# never saying it back (D5's --set, D10's settings --value), and the printer of a command never prints one a person
-# typed in a refused run (H9).
+# never saying it back (D5's --set, built; D10's settings --value, when it is built), and the printer of a command never
+# prints one a person typed in a refused run (H9).
 SECRET_TEXT = {
     **{
         (verb, "set"): "the run layer refuses a secret's name or value for one run, and never says it back (D5)"
         for verb in ("init", "deploy", "code", "login", "status", "destroy", "release")
     },
-    ("settings", "value"): "settings --value refuses a secret's name or value, and never says it back, as today (D10)",
+    ("settings", "value"): "settings --value is to refuse a secret's name or value, and never say it back, as today"
+    " (D10)",
 }
 # The other options whose value is free text, and what it is: a thing named, never a secret.
 NAMED_TEXT = {
@@ -475,6 +488,15 @@ def test_the_verbs_whose_run_is_a_job_are_the_seven_ruled() -> None:
     assert {name for name, verb in VERBS.items() if verb.changes} == JOBS
 
 
+def test_the_verbs_that_need_their_word_and_those_that_refuse_any_are_those_named() -> None:
+    # Side by side in the table (Words.needed and Words.refused), never decided by a verb's or the words' name.
+    taking = {name: verb.words for name, verb in VERBS.items() if verb.words is not None}
+    assert {name for name, held in taking.items() if held.needed} == NEEDED
+    assert {name for name, held in taking.items() if held.refused} == REFUSED
+    # A verb needs one word, never several, and one that refuses any word takes none.
+    assert all(not taking[name].plural for name in NEEDED | REFUSED) and NEEDED & REFUSED == set()
+
+
 def test_no_verb_of_the_add_on_is_a_verb_of_the_base_s_table() -> None:
     assert all(why.strip() for why in ADD_ON.values())
     assert sorted(set(ADD_ON) & set(VERBS)) == []
@@ -643,7 +665,7 @@ def test_every_sentence_is_one_line_and_says_aw_never_just() -> None:
 
 def test_each_exit_status_has_one_meaning_and_each_meaning_one_status_but_the_one_pair_named() -> None:
     # A meaning is a key, so it has one number; a number has one meaning but where SHARED names the pair, with why.
-    assert all(why for why in SHARED.values())
+    assert all(isinstance(why, str) and why.strip() for _, why in SHARED.values())
     shared = {}
     for name, statuses in (("EXITS", EXITS), ("STATUS_EXITS", STATUS_EXITS)):
         assert all(isinstance(status, int) and 0 <= status <= 255 for status in statuses.values())
@@ -651,18 +673,39 @@ def test_each_exit_status_has_one_meaning_and_each_meaning_one_status_but_the_on
             meanings = {meaning for meaning, given in statuses.items() if given == status}
             if len(meanings) > 1:
                 shared[name, status] = meanings
-    assert shared == SHARED
+    assert shared == {pair: meanings for pair, (meanings, _) in SHARED.items()}
     assert (EXITS["done"], EXITS["refused"], EXITS["cancelled"]) == (0, 1, 130)
     assert STATUS_EXITS == {"nothing_wrong": 0, "problem": 1, "unread": 2, "failed": 3, "cancelled": 3}
+
+
+def _function(path: Path, name: str) -> ast.FunctionDef:
+    """The function of a module's top level named name, read from its syntax tree."""
+    tree = ast.parse(path.read_text())
+    [found] = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == name]
+    return found
 
 
 def test_a_cancelled_status_exits_as_today_s_does() -> None:
     # Today's status ends a read a person cancelled in _end_for_an_interrupt, by os._exit
     # (tests/unit/test_status_live.py holds it to 3 at a terminal): the table's cancelled status is that number.
-    tree = ast.parse(STATUS_ENGINE.read_text())
-    [end] = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_end_for_an_interrupt"]
+    end = _function(STATUS_ENGINE, "_end_for_an_interrupt")
     calls = [node for node in ast.walk(end) if isinstance(node, ast.Call) and ast.unparse(node.func) == "os._exit"]
     assert [ast.literal_eval(call.args[0]) for call in calls] == [STATUS_EXITS["cancelled"]]
+
+
+def test_a_cancelled_status_of_several_hosts_exits_as_today_s_does() -> None:
+    # Today's status/hosts.py, which reads several hosts at once, returns from its run what a Ctrl-C there ends it
+    # with, and the table's comment cites it (review/code/H22.md 2): the table's cancelled status is that number too.
+    run = _function(STATUS_HOSTS, "run")
+    handlers = [
+        handler
+        for node in ast.walk(run)
+        if isinstance(node, ast.Try)
+        for handler in node.handlers
+        if handler.type is not None and ast.unparse(handler.type) == "KeyboardInterrupt"
+    ]
+    returned = [node.value for handler in handlers for node in ast.walk(handler) if isinstance(node, ast.Return)]
+    assert len(handlers) == 1 and [ast.literal_eval(value) for value in returned] == [STATUS_EXITS["cancelled"]]
 
 
 def test_the_table_imports_nothing_outside_the_standard_library(home) -> None:

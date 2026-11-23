@@ -90,7 +90,7 @@ def commands() -> str:
         rows.append(f"| `{helps.usage(verb)}` | {cell(said(verb.doc))} |")
         for option in helps.options(verb):
             rows.append(f"| {INDENT_CELL}`{helps.shown(option)}` | {described(option)} |")
-        if verb.words is not None and verb.words.name != helps.REFUSED_WORDS:
+        if verb.words is not None and not verb.words.refused:
             words = verb.words
             rows.append(f"| {INDENT_CELL}`{placeholder(words)}` | {described(words)} |")
     out = [line for group, rows in groups.items() for line in _table(group, VERB_HEAD, rows)]

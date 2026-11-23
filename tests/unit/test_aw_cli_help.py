@@ -8,7 +8,9 @@ default; and so, in help's row and in the refusal of a value outside the pattern
 hand-written maps of test_aw_cli_words.py name, each with the example they name, or none, and an option's own words
 where they name them, but no form for the words of a verb that refuses any. --set's row names the placeholder it
 prints, never name=value, and release's rows say one adopted machine, never a VM. An option is shown with its short
-form and the name of its value. An option of a later card's is left out of help and the reference until that
+form and the name of its value. A usage line is the one written here for each verb, a word without brackets where the
+table says the verb needs it; a verb that needs its word refuses none once built, and the placeholder of words a verb
+refuses whole is refused by its own rule. An option of a later card's is left out of help and the reference until that
 card. aw help lists every verb of the table in its order, each with its doc and [options] where it has any, and no
 recipe of the repository's own; the options given before a verb, but the hidden one, with their form; and its closing
 paragraph, with -v and --set each named on the verbs whose row has it, its commands written by the printer. Through
@@ -36,7 +38,7 @@ from test_aw_cli_words import EXAMPLE_OF, PATTERN_OF, WORDS_OF
 from claude_vm.cli import help as helps
 from claude_vm.cli import parse, reference
 from claude_vm.schema import check as checks
-from claude_vm.schema import printer
+from claude_vm.schema import printer, rules
 from claude_vm.schema.patterns import PATTERNS
 from claude_vm.schema.printer import said
 from claude_vm.schema.words import BEFORE, EXITS, SET, VERBOSE, VERBS, Option, Words, placeholder
@@ -70,6 +72,13 @@ def _named_form(verb: str, word: str, name: str) -> str:
     return f"[{words}]" if example is None else f"[{words}, e.g. {example}]"
 
 
+def _refused_whole(verb: str, word: str) -> bool:
+    """Whether word, as the hand-written maps name it, is the placeholder of the words verb refuses whole
+    (Words.refused): no form, and no row of the reference."""
+    held = VERBS[verb].words if verb else None
+    return held is not None and held.refused and word == placeholder(held)
+
+
 def _described(item: Option | Words) -> str:
     """A reference row's text: the help said and escaped and, where the value is held to a pattern, what it may be in
     words, then the pattern itself as code, an HTML code element with &#124; for each | where it has one."""
@@ -96,7 +105,7 @@ def test_help_of_a_verb_shows_its_usage_doc_options_and_words_in_the_table_s_ord
     shown = [(helps.shown(option), _helped(option)) for option in options]
     words = []
     if verb.words is not None:
-        formed = verb.words.name != helps.REFUSED_WORDS
+        formed = not verb.words.refused
         words = [(placeholder(verb.words), said(verb.words.help) + (_form(verb.words) if formed else ""))]
     rows = [line for line in lines if line.startswith("  ")]
     assert len(rows) == len(shown) + len(words), name
@@ -123,7 +132,7 @@ def test_help_says_the_form_of_each_value_the_table_holds_to_a_pattern_and_no_em
             assert not row.endswith("]"), row
     if verb.words is not None:
         [row] = [row for row in rows if row.lstrip().startswith(f"<{verb.words.name}> ")]
-        formed = verb.words.pattern is not None and verb.words.name != helps.REFUSED_WORDS
+        formed = verb.words.pattern is not None and not verb.words.refused
         assert row.endswith(f" {checks.form_of(verb.words)}") if formed else not row.endswith("]"), row
     # The pattern itself is never what help says (the owner's ruling, review/code/OWNER-9.md 2).
     assert [name for name, pattern in PATTERNS.items() if pattern.text in text] == []
@@ -140,7 +149,7 @@ def test_help_ends_the_row_of_every_option_and_words_the_hand_written_map_names_
         rows = [line for line in text.splitlines() if line.startswith("  " if verb else "    ")]
         options = {checks.spelled(option): option for option in (checks.options_of(VERBS[verb]) if verb else BEFORE)}
         for word, name in named.items():
-            if (word in options and options[word].until is not None) or word == f"<{helps.REFUSED_WORDS}>":
+            if (word in options and options[word].until is not None) or _refused_whole(verb, word):
                 continue
             [row] = [row for row in rows if re.match(rf"\s*(-[a-z], )?{re.escape(word)} ", row)]
             assert row.endswith(f" {_named_form(verb, word, name)}"), (verb, word, row)
@@ -159,7 +168,7 @@ def test_the_refusal_of_every_option_and_words_the_hand_written_map_names_ends_w
                 parse.read(words)
             sentence = refused.value.sentence
             assert "swordfish" not in sentence and "\n" not in sentence, sentence
-            if word == f"<{helps.REFUSED_WORDS}>":
+            if _refused_whole(verb, word):
                 held = VERBS[verb].words
                 assert held is not None and sentence.endswith(f": {said(held.help)}"), sentence
                 assert "[" not in sentence, sentence
@@ -206,16 +215,62 @@ def test_an_option_of_a_later_card_is_left_out_of_help_and_the_reference_until_t
     assert parse.read(["install", "--newer"]).values == {"newer": True}
 
 
+# Each verb's usage line after aw and the verb, written by hand: [<name>...] for several words, [<name>] for one,
+# <name> for one the verb needs (Words.needed), nothing where it takes none or refuses any (Words.refused).
+USAGE_WORDS = {
+    "help": ["[<recipe>]"],
+    "init": [],
+    "install": [],
+    "vault": ["[<name>]"],
+    "deploy": ["[<name>...]"],
+    "code": ["<name>"],
+    "login": ["[<name>...]"],
+    "status": ["[<name>...]"],
+    "settings": ["[<name>]"],
+    "destroy": ["[<name>...]"],
+    "release": ["<machine>"],
+    "host": ["[<name>]"],
+    "logs": ["[<job>]"],
+    "cancel": ["[<job>]"],
+    "mcp": [],
+}
+
+
 def test_a_usage_line_needs_a_word_only_where_its_verb_needs_one() -> None:
-    assert helps.usage(VERBS["deploy"]).split()[2:] == ["[<name>...]"]
-    assert helps.usage(VERBS["settings"]).split()[2:] == ["[<name>]"]
-    assert helps.usage(VERBS["init"]).split()[2:] == helps.usage(VERBS["install"]).split()[2:] == []
-    for name in helps.NEEDS_ITS_WORD:
-        verb = VERBS[name]
-        assert verb.words is not None and not verb.words.plural, name
-        assert helps.usage(verb).split()[2:] == [placeholder(verb.words)], name
-    # code's is today's (rules.py's code.1 refuses none), as today's page shows it.
-    assert "code" in helps.NEEDS_ITS_WORD and checks.check("code", {}) is not None
+    # Read from the table's Words.needed and Words.refused, never from a list of verbs or the words' name.
+    assert {name: helps.usage(verb).split()[2:] for name, verb in VERBS.items()} == USAGE_WORDS
+    assert helps.usage(VERBS["code"]) == "aw code <name>"
+    bare = [name for name, shown in USAGE_WORDS.items() if shown and not shown[0].startswith("[")]
+    assert bare == [name for name, verb in VERBS.items() if verb.words is not None and verb.words.needed]
+
+
+def test_a_verb_that_needs_its_word_refuses_none_once_built() -> None:
+    # Help shows <name> without brackets only where the verb needs it: once its handler is built, the one check refuses
+    # it given none. code's is refused today, built or not, by its rule code.1, as today's page shows it.
+    needed = [name for name, verb in VERBS.items() if verb.words is not None and verb.words.needed]
+    assert needed == ["code", "release"]
+    for name in needed:
+        if VERBS[name].handler is not None:
+            assert checks.check(name, {}) is not None, name
+    assert checks.check("code", {}) == rules.RULES["code.1"].check({})
+
+
+@pytest.mark.parametrize(
+    "name", [name for name, verb in VERBS.items() if verb.words is not None and verb.words.refused]
+)
+def test_the_placeholder_of_words_a_verb_refuses_whole_is_refused_by_its_own_rule(monkeypatch, name: str) -> None:
+    # init and mcp refuse any word after their options, so "put yours in its place" would be no way out: their
+    # placeholder, which help prints, is refused as any word is, by the verb's own rule, never by the placeholder's
+    # sentence (H27's hand-back).
+    monkeypatch.setattr(printer, "_program", printer.PROGRAM)
+    words = VERBS[name].words
+    assert words is not None
+    sentence = rules.run(VERBS[name].rules, {words.field: "x"})
+    assert sentence is not None and checks.check(name, {words.field: "x"}) == sentence
+    assert checks.check(name, {words.field: placeholder(words)}) == sentence
+    with pytest.raises(parse.Refused) as refused:
+        parse.read([name, placeholder(words)])
+    assert refused.value.sentence == sentence and "stands for" not in sentence
 
 
 def test_an_option_is_shown_with_its_short_form_and_its_value_s_placeholder() -> None:
@@ -386,7 +441,7 @@ def test_the_reference_gives_a_row_for_every_verb_but_help_every_option_and_the_
             for option in checks.options_of(verb)
             if option.until is None
         ]
-        if verb.words is not None and verb.words.name != helps.REFUSED_WORDS:
+        if verb.words is not None and not verb.words.refused:
             words = _described(verb.words)
             under.append(f"| {reference.INDENT_CELL}`<{verb.words.name}>` | {words} |")
         at = rows.index(first) + 1

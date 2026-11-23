@@ -23,8 +23,9 @@ are the pattern's alone here, and no rule repeats a value's own pattern. What is
 (lib/claude_vm/cli/habits.py); a check that reads the fleet's files, the environment, the file system or a terminal is
 its verb's own, made where the verb is built.
 
-Standard library only, words.py and the printer, imported as a module, since the printer holds a line to the check that
-runs these rules (schema/__init__.py): every command reads it, a refusal among them.
+Standard library only, words.py, patterns.py's `full`, the one way to hold a value to a pattern, and the printer,
+imported as a module, since the printer holds a line to the check that runs these rules (schema/__init__.py): every
+command reads it, a refusal among them.
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
 from claude_vm.schema import printer
+from claude_vm.schema.patterns import full
 from claude_vm.schema.words import PLACEHOLDER, Line
 
 # A verb's values, by the field the handler receives each by.
@@ -43,9 +45,8 @@ Filled = Mapping[str, object]
 # The roles configuration can be narrowed to (deploy --tags), as today's configure.yml tags them: with the guest's
 # second layer out of Ansible they stay these six, as the parts of a configure.
 CONFIGURE_ROLES = ("common", "vscode_server", "dev_tools", "claude_code", "github_projects", "tailscale")
-# The characters the checks spell out, as tools/check does, so no locale can widen them.
-_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-_DIGITS = "0123456789"
+# The pattern a VM's name is held to, patterns.py's: host --for's names, each, as a verb's words are.
+VM_NAME = "vm_name"
 
 
 @dataclass(frozen=True)
@@ -85,23 +86,14 @@ def _words(values: Values, field: str) -> list[str]:
     return [value] if isinstance(value, str) else []
 
 
-def _only(value: str, allowed: str) -> bool:
-    return all(character in allowed for character in value)
-
-
-def _vm_name(name: str) -> bool:
-    """tools/check names: from a letter or a digit, then letters, digits and . _ - , only."""
-    return name != "" and name[0] in _LETTERS + _DIGITS and _only(name, _LETTERS + _DIGITS + "._,-")
-
-
 # ---------------------------------------------------------------- tools/check's argument checks ----
 
 
 def _a_name(values: Values) -> Filled | None:
     # host --for's names, split at its commas as just host splits them before the check, an empty one dropped as the
-    # shell's word splitting drops it: its pattern takes alpha,-b whole, and this refuses -b. Every other VM name a verb
-    # is given is held whole by its pattern, which this check would only repeat.
-    bad = next((name for name in _text(values, "for_").split(",") if name and not _vm_name(name)), None)
+    # shell's word splitting drops it, each held to a VM name's pattern with full: the pattern takes alpha,-b whole, and
+    # this refuses -b. A verb's words that name VMs are split and held the same way by the names habit (habits.py).
+    bad = next((name for name in _text(values, "for_").split(",") if name and not full(VM_NAME, name)), None)
     return None if bad is None else {"name": bad}
 
 
