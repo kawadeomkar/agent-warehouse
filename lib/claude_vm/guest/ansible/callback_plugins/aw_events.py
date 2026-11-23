@@ -16,11 +16,14 @@ only in a run given --diff (F21's --check --diff), never for a task's own `diff:
 written as an event of its own (`fault`, the hook and the error's type, no words of it), so that a result never
 vanishes unseen, which Ansible's default of a warning for a failing callback would let happen.
 
-Each string passes through `masked`, the one place F5a puts ansible-core 2.22's mask_secrets(): until then the identity.
-A string longer than STRING_MOST keeps its end from the first line break inside it, never a part of a line, so that no
+A result's message, its item and its output are written as the values they are: a string as a string, and a mapping or
+a list as one, never as JSON text inside a string, whose escaping (a quote, a backslash, a line break, a character
+outside ASCII) would hide a secret in it from the run's strike by its exact text. Each string, a mapping's keys among
+them, passes through `masked`, the one place F5a puts ansible-core 2.22's mask_secrets(): until then the identity. A
+string longer than STRING_MOST keeps its end from the first line break inside it, never a part of a line, so that no
 secret is cut in two before the run strikes it by its exact value; one with no line break there is left out, said by its
-length. The run makes every string plain and strikes every secret it opened (events.py): this module writes, and decides
-nothing of what a person reads.
+length. The run strikes every string of the structure of every secret it opened and makes it plain, and only then makes
+the structure text (events.py): this module writes, and decides nothing of what a person reads.
 
 Writing is under a lock, since Ansible calls a callback from its main thread and its results thread. A pipe whose
 reader has gone (EPIPE) ends the writing, and the play goes on, unheard and without a traceback; any other error writing
@@ -78,7 +81,8 @@ def _bounded(text):
 
 
 def _text(value):
-    """A value of a result as one string: a string as it is, bytes decoded, anything else as JSON."""
+    """Ansible's own words of an error or a warning as one string: a string as it is, bytes decoded, anything else as
+    JSON. Never a value of a result's, which is written as the value it is (_written)."""
     if isinstance(value, str):
         return value
     if isinstance(value, bytes):
@@ -86,15 +90,30 @@ def _text(value):
     return json.dumps(value, sort_keys=True, default=str)
 
 
+def _key(key):
+    """A mapping's key as JSON keeps one: a string masked, a number, a truth value or None as it is, anything else its
+    text, masked."""
+    if isinstance(key, str):
+        return masked(key)
+    if key is None or isinstance(key, (bool, int, float)):
+        return key
+    return masked(str(key))
+
+
 def _written(value):
-    """value with every string masked and bounded, at any depth."""
+    """value as JSON keeps it, with every string masked and bounded, at any depth: a mapping's keys masked, bytes
+    decoded, a tuple or a set a list, and anything else JSON has no form for its text."""
     if isinstance(value, str):
         return _bounded(masked(value))
+    if isinstance(value, bytes):
+        return _bounded(masked(value.decode("utf-8", "replace")))
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
     if isinstance(value, dict):
-        return {key: _written(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
+        return {_key(key): _written(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set, frozenset)):
         return [_written(item) for item in value]
-    return value
+    return _bounded(masked(str(value)))
 
 
 def _error_text(summary):
@@ -167,7 +186,9 @@ class CallbackModule(CallbackBase):
     # ---------------------------------------------------------------- the pipe ----
 
     def _write(self, event):
-        line = json.dumps(_written(event), ensure_ascii=True, separators=(",", ":"), default=str) + "\n"
+        # The event's own fields as they are; every value written as JSON keeps it, its strings masked.
+        written = {field: _written(value) for field, value in event.items()}
+        line = json.dumps(written, ensure_ascii=True, separators=(",", ":"), default=str) + "\n"
         data = memoryview(line.encode("ascii"))
         with self._lock:
             if self._fd is None:
@@ -188,19 +209,19 @@ class CallbackModule(CallbackBase):
         event = {"event": kind, **_about(result.task)}
         censored = _censored(result)
         if item:
-            event["item"] = None if censored else _text(self._get_item_label(found))
+            event["item"] = None if censored else self._get_item_label(found)
         if ignored is not None:
             event["ignored"] = bool(ignored)
         if censored:
             event["censored"] = True
             return event
         if found.get("msg") not in (None, ""):
-            event["msg"] = _text(found["msg"])
+            event["msg"] = found["msg"]
         if kind in ("failed", "unreachable") or self._display.verbosity > 0:
             for key, other in (("stdout", "module_stdout"), ("stderr", "module_stderr")):
                 value = found.get(key) or found.get(other)
                 if value:
-                    event[key] = _text(value)
+                    event[key] = value
             if isinstance(found.get("rc"), int) and not isinstance(found.get("rc"), bool):
                 event["rc"] = found["rc"]
             exception = _error_text(result.exception) if result.exception is not None else None
@@ -266,7 +287,7 @@ class CallbackModule(CallbackBase):
         if _censored(result):
             event["censored"] = True
         elif found.get("msg") not in (None, ""):
-            event["msg"] = _text(found["msg"])
+            event["msg"] = found["msg"]
         self._write(event)
 
     @_hook
