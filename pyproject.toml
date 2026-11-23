@@ -10,12 +10,14 @@ description = "The controller's Python for the playbooks, and the linters and te
 # The floor: the program aw and ansible-core 2.22 need Python 3.13 or later. just install refuses a virtualenv
 # of an older one, and CI runs one unit shard on it (tests/unit/test_justfile.py holds the floor to one version).
 requires-python = ">=3.13"
-# What the playbooks need on the controller.
+# What the playbooks, and the new engine beside them (tools/aw), need on the controller.
 dependencies = [
     "ansible-core==2.21.6",
     # Required on the controller by the community.proxmox collection
     "proxmoxer==2.3.0",
     "requests==2.34.2",
+    # The new engine's vault: one age file of named secrets, encrypted whole (lib/claude_vm/fleet/sealed.py).
+    "pyrage==1.4.0",
 ]
 
 [dependency-groups]
