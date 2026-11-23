@@ -45,7 +45,7 @@ REUSED = {
     " a run's watch of what stops at the terminal",
     "checks": "a guest agent's address, a name ssh would take for another host, a name Proxmox gives",
     "openpgp": "a vendor's detached signature checked here, for the verified downloads",
-    "proc": "the processes under a run, what a terminal stopped of them, their end, a detached task worker's included",
+    "proc": "the processes under a run, and their end, a detached task worker's included",
     "golden": "a golden template's toolchain digest and key",
     "init": "what an answer to one of init's questions must look like, and its normal form",
     "wiring": "each role's argument_specs and the settings that reach it, for the role options passed through",
