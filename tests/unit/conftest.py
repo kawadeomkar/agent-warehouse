@@ -29,11 +29,12 @@ pytest_plugins = ("aw_kit",)
 ENGINE_FILES = "test_aw_"
 # The tests of today's suite that read the tree, whose result a new file or a changed page can change, marked `tree`:
 # `just test --short` runs them beside the engine's (-m "engine or tree"), for a change that touches no file of main's
-# but CLAUDE.md and docs/ (docs/architecture/testing.md §11.1). Each a file, every test of it, or a file and a test's
-# name, every case of that test. Found by planting the faults such a change can make and running the whole suite over
-# them once (test_aw_guards.py's FOUND holds what each fault failed), and by reading which of today's tests read a file
-# only the new engine's branch has (the launcher aw); a test of today's that a short-set change broke all the same joins
-# it. A set literal: test_aw_guards.py reads it with ast.literal_eval.
+# but CLAUDE.md, docs/ and zensical.toml (docs/architecture/testing.md §11.1). Each a file, every test of it, or a file
+# and a test's name, every case of that test. Found by planting the faults such a change can make and running the whole
+# suite over them once, and by reading which of today's tests read a file only the new engine's branch has (the
+# launcher aw): test_aw_guards.py's FOUND holds what each fault failed, and what reading found, and each entry here to
+# one of them. A test of today's that a short-set change broke all the same joins it, and FOUND with it. A set literal:
+# test_aw_guards.py reads it with ast.literal_eval.
 TREE = {
     "test_anchors.py",
     "test_ci.py",

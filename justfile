@@ -1182,7 +1182,7 @@ lint ALL_HOOKS='' *PARTS:
 # for a machine with the room, which runs them that many at a time
 # (tools/molecule-lanes): every scenario took 28 minutes one after another and
 # 7.5 four at a time on an 8-core runner.
-[arg('SHORT', long='short', value='yes', help="The short set, for a change that touches no file of main's but CLAUDE.md and docs/, any other refused naming the file (tools/check short): lint, the new engine's tests and the tests of today's suite that read the tree (tests/unit/conftest.py's TREE), in minutes where unit takes half an hour; a set of its own, with no part or other option")]
+[arg('SHORT', long='short', value='yes', help="The short set, for a change that touches no file of main's but CLAUDE.md, docs/ and zensical.toml, and adds none to a folder today's product reads whole, any other refused naming the file (tools/check short): lint, the new engine's tests and the tests of today's suite that read the tree (tests/unit/conftest.py's TREE), in minutes where unit takes half an hour; a set of its own, with no part or other option")]
 [arg('JOBS', long='jobs', pattern='[1-9]?', help="Run the Molecule scenarios this many at a time, the longest first, each one's whole output in a log of its own and a line as each ends; one at a time without it, as their images share one disk (just test molecule --jobs 4)")]
 [arg('ROLES', long='role', pattern='[a-z_,]*', help="Only these roles' scenarios, comma-separated: on its own it means the role part (just test --role common,claude_code)")]
 [arg('SHARD', long='shard', pattern='([1-9][0-9]*/[1-9][0-9]*)?', help='Only the I-th of N shards of the unit tests, each group of tests whole, as CI splits them: on its own it means the unit part (just test unit --shard 2/3)')]
@@ -1233,8 +1233,9 @@ test ROLES='' SHARD='' JOBS='' SHORT='' *PARTS:
       echo "error: --jobs runs Molecule scenarios side by side, and unit has none: just test molecule --jobs $jobs" >&2
       exit 1
     fi
-    # The short set holds only a change that touches no file of main's but CLAUDE.md and docs/: base-first, the
-    # integration branch the new engine is built on, against main (docs/architecture/testing.md §11.1).
+    # The short set holds only a change that touches no file of main's but CLAUDE.md, docs/ and zensical.toml, and adds
+    # none to a folder today's product reads whole: base-first, the integration branch the new engine is built on,
+    # against main (docs/architecture/testing.md §11.1).
     if runs short; then tools/check short base-first main; fi
     # The scenarios --jobs runs side by side, the longest first: the parts' own, where that is more than one.
     lanes=

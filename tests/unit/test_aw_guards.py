@@ -148,10 +148,13 @@ def test_every_engine_test_is_marked_and_runs_in_its_own_home(tmp_path) -> None:
 
 
 # The tests of today's suite that failed when the faults a short-set change can make were planted and the whole suite
-# was run over them once, on a test machine (docs/architecture/testing.md §11.1): by fault, each test by its file and
-# its name, every case of it. Each must be marked `tree` through conftest.py's TREE, so that just test --short runs it.
+# was run over them once, on a test machine (docs/architecture/testing.md §11.1), and the one found by reading: by
+# fault, each test by its file and its name, every case of it. Each must be marked `tree` through conftest.py's TREE,
+# so that just test --short runs it, and each entry of TREE must hold one of them, so that none is there unsaid.
 # Planted too, and failing nothing but the file map or a generated page: a new playbook, group_vars file, tool and
-# scenario file, a new task file of a role, and a new engine test that tests/unit/durations.json does not name.
+# scenario file, a new task file of a role, and a new engine test that tests/unit/durations.json does not name. A new
+# file in a folder today's product reads whole meets more of today's guards when it carries a fault of theirs (review
+# 18 planted three), none of them in the set: tools/check short refuses it instead.
 FOUND: dict[str, set[str]] = {
     "a pattern that ends in a dollar, held with match, in a new module": {
         "test_anchors.py::test_every_pattern_that_holds_a_value_ends_at_the_end_of_the_text",
@@ -238,6 +241,10 @@ FOUND: dict[str, set[str]] = {
         "test_tracked_files.py::test_no_tracked_file_is_gitignored",
     },
     "a key file the pins do not hold": {"test_pins.py::test_every_vendored_signing_key_is_its_vendor_s"},
+    # Read, not planted: changing the launcher's Python would move the engine's own runs.
+    "the launcher aw naming another Python than the justfile and CI's setup do (read, not planted)": {
+        "test_justfile.py::test_the_managed_python_is_one_version",
+    },
 }
 # A test file of today's that reads no tree, which conftest.py must leave unmarked: one that is cheap to collect.
 UNTREED = UNIT / "test_vt.py"
@@ -302,6 +309,8 @@ def test_every_test_a_planted_fault_failed_is_marked_tree_as_tree_names_it_and_n
     seen = json.loads((tmp_path / "seen.json").read_text())
     named = {item["file"] for item in seen} | {f"{item['file']}::{item['test']}" for item in seen}
     assert sorted((tree | found) - named) == [], "each entry names a test the suite collects"
+    unsaid = [entry for entry in tree if not [test for test in found if entry in (test, test.split("::")[0])]]
+    assert sorted(unsaid) == [], "each entry of TREE holds a test FOUND names, under what found it"
     marked = {f"{item['file']}::{item['test']}" for item in seen if item["tree"]}
     meant = {
         f"{item['file']}::{item['test']}" for item in seen if {item["file"], f"{item['file']}::{item['test']}"} & tree

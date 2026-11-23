@@ -61,29 +61,39 @@ not strictly, the children's test of a stopped child, which failed once; and the
 that reaches the dispatch expects a failure on macOS in one outcome alone, not strictly, the run ended with its status
 and its terminal gave none of what it wrote.
 
-`just test --short` is the short set, for a change that touches no file of `main`'s but `CLAUDE.md` and `docs/`: while
-the two engines share one suite, a change of the new engine's own files. `tools/check short` compares the tree it runs
-in - the work tree, and what git neither tracks nor ignores - with the tip of `base-first`, the branch the new engine is
-built on, and refuses by name each path that differs and that `main` has, a deleted or renamed one too, and a test file
-of `tests/unit/` that is no engine file (pytest's `test_*.py` or `*_test.py`), which the set would not run. It compares
-the tree rather than `base-first...HEAD`, since a machine sent a worktree's files over a checkout of `main` has none of
-the branch's commits, and it refuses where either branch is not there, never passing a change it could not read. Then
-it lints, as the gate does, and runs in one pytest the new engine's tests and the tests of today's suite that read the
-tree (`-m "engine or tree"`): those `conftest.py`'s `TREE` names, which its hook marks `tree`, whose result a new file or
-a changed page can change - the pages and their links, the anchors of the patterns, the tracked-file guard, the file
-map, the commands named, the package's imports, the ratchets, the key files, the shards, CI's workflows, the list of
-what the project writes on this machine (every place that writes, `CLAUDE.md`'s words for each, the security model's
-table), and the tests that read every tracked file or every file of `tests/unit/`: the live output's variable, the
-facts read and a run's own `ansible.cfg`, a golden template turned on, a live test's name, `tools/status` run outside
-its harness, the MCP server's package reading the environment, and the launcher `aw`'s Python. `TREE` was found by
-planting the faults such a change can make and running the whole suite over them once, and the launcher's test by
-reading: `test_aw_guards.py`'s `FOUND` keeps the tests each fault failed, and fails where one of them is not marked or an
-entry of `TREE` names no test. It takes minutes where the unit suite takes over half an hour. What it gives up: a test
-of today's that the set leaves out and that such a change breaks - one that runs a playbook, say, through a hook or
-fixture of `tests/unit/aw_kit.py`, which every test loads - fails only where the whole suite runs, `just test unit` or
-CI's shards, and is found there among the changes since; it then joins `TREE`. A new file in a folder today's product
-reads whole (`filter_plugins/`, `inventory/group_vars/all/`, a role's `tasks/`) passes the check: of today's tests it
-meets the file map's and the generated pages' alone.
+`just test --short` is the short set, for a change that touches no file of `main`'s but `CLAUDE.md`, `docs/` and
+`zensical.toml`, the pages' navigation, which a new page needs a line of and whose one test is in the set: while the two
+engines share one suite, a change of the new engine's own files. `tools/check short` compares the tree it runs in - the
+work tree, and what git neither tracks nor ignores - with the tip of `base-first`, the branch the new engine is built
+on, and refuses by name each path that differs and that `main` has, a deleted or renamed one too; a new file in a
+folder today's product reads whole, `roles/`, `playbooks/`, `filter_plugins/`, `callback_plugins/`, `inventory/`,
+`molecule/` or `tests/molecule/`, which today's guards of that folder would read, none of them in the set (that a
+request carrying the token follows no redirect, that a task rendering a token is `no_log`, that a line naming a VM
+names its host, that each helper is in an editor's list), so that a change that adds one, the new engine's own
+included, runs the whole set; and a test file of `tests/unit/` that is no engine file (pytest's `test_*.py` or
+`*_test.py`), which the set would not run. It reads git's lists with `-z`, so that a name git would quote, with a
+control character, a quote or a backslash in it, is held to the same rules, a control character in it shown as `?`. It
+compares the tree rather than `base-first...HEAD`, since a machine sent a worktree's files over a checkout of `main`
+has none of the branch's commits, and it refuses where either branch is not there, never passing a change it could not
+read. Then it lints, as the gate does, and runs in one pytest the new engine's tests and the tests of today's suite
+that read the tree (`-m "engine or tree"`): those `conftest.py`'s `TREE` names, which its hook marks `tree`, whose
+result a new file or a changed page can change - the pages and their links, the anchors of the patterns, the
+tracked-file guard, the file map, the commands named, the package's imports, the ratchets, the key files, the shards,
+CI's workflows, the list of what the project writes on this machine (every place that writes, `CLAUDE.md`'s words for
+each, the security model's table), and the tests that read every tracked file or every file of `tests/unit/`: the live
+output's variable, the facts read and a run's own `ansible.cfg`, a golden template turned on, a live test's name,
+`tools/status` run outside its harness, the MCP server's package reading the environment, and the launcher `aw`'s
+Python. `TREE` was found by planting the faults such a change can make and running
+the whole suite over them once, and the launcher's test by reading: `test_aw_guards.py`'s `FOUND` keeps the tests each
+fault failed, and the launcher's under what found it, and fails where one of them is not marked, where an entry of
+`TREE` names no test, or where it holds none of `FOUND`'s. It takes minutes where the unit suite takes over half an
+hour. What it gives up: a test of today's that the set leaves out and that such a change breaks - one that runs a
+playbook, say, through a hook or fixture of `tests/unit/aw_kit.py`, which every test loads - fails only where the whole
+suite runs, `just test unit` or CI's shards, and is found there among the changes since; it then joins `TREE`. A
+branch stacked on another that has not reached `base-first` yet differs from its tip in the other's files too, and is
+refused for those of `main`'s: where its own change, against the branch below it, touches none, it runs what the set
+runs without the check, `just lint` and then
+`tools/env-run pytest tests/unit -m "engine or tree" -n auto --dist loadgroup`.
 
 Most of the new engine's code runs in the test's own process, so that process is guarded as a run is.
 `engine_guard`, a fixture of the kit's that no test asks for, holds every test the `engine` marker selects, and no
