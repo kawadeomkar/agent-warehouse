@@ -280,23 +280,44 @@ def test_fleet_home_is_never_followed_through_a_second_pointer(tmp_path) -> None
         paths.home(program, _environ(tmp_path))
 
 
-@pytest.mark.parametrize(
-    ("text", "followed"),
-    [
-        ("fleet_home: /fleets/one", "/fleets/one"),
-        ('fleet_home: "/fleets/one two"', "/fleets/one two"),
-        ("fleet_home: /fleets/one   # the shared one", "/fleets/one"),
-        ("fleet_home: /fleets/one#two", "/fleets/one#two"),
-        ("fleet_home: ~/fleets/one", "~/fleets/one"),
-        ("fleet_home:", None),
-        ("fleet_home: ~", None),
-        ("fleet_home: null", None),
-        ("fleet_home:   # none yet", None),
-        ("hosts:\n  fleet_home: /nested/under/another/key", None),
-        ("# fleet_home: /a/comment", None),
-        ("fleet_home:/not/a/key", None),
-    ],
-)
+# Each form of the fleet_home line, after a line of another key, and the folder it names, or None: as fleet/paths.py
+# reads it and as YAML does (fleet/overrides.py's reader of client.yml is held to the same cases).
+FLEET_HOME_LINES = [
+    ("fleet_home: /fleets/one", "/fleets/one"),
+    ('fleet_home: "/fleets/one two"', "/fleets/one two"),
+    ("fleet_home: /fleets/one   # the shared one", "/fleets/one"),
+    ("fleet_home: /fleets/one#two", "/fleets/one#two"),
+    ("fleet_home: ~/fleets/one", "~/fleets/one"),
+    ("fleet_home:", None),
+    ("fleet_home: ~", None),
+    ("fleet_home: null", None),
+    ("fleet_home:   # none yet", None),
+    ("fleet_home:\ndeploy_code: false", None),
+    ("fleet_home:\n# a comment\n\ndeploy_code: false", None),
+    ("claude_ssh_options:\n  fleet_home: /nested/under/another/key", None),
+    ("# fleet_home: /a/comment", None),
+    ("fleet_home:/not/a/key", None),
+]
+# Each fleet_home a client.yml may not hold, and what the refusal says: more than one path, or a form YAML would read
+# as a pointer that the line does not say (its value on the line after the key, a flow mapping).
+FLEET_HOME_REFUSED = [
+    ("fleet_home: /a\nfleet_home: /b\n", "says fleet_home more than once"),
+    ("fleet_home: [/a, /b]\n", "is not one plain path"),
+    ("fleet_home: *anchor\n", "is not one plain path"),
+    ('fleet_home: "/a\\"b"\n', "is not one plain path"),
+    ("fleet_home: fleets/one\n", "which is not an absolute path"),
+    ("fleet_home: ''\n", "which is not an absolute path"),
+    ("fleet_home:\n  /elsewhere/fleet\n", "is not one plain path"),
+    ("fleet_home:   # its value is below\n\n  /elsewhere/fleet\n", "is not one plain path"),
+    ("fleet_home:\n- /a\n", "is not one plain path"),
+    ("fleet_home:\n  nested: /a\n", "is not one plain path"),
+    ("{editor: zed, fleet_home: /elsewhere/fleet}\n", "is one flow mapping"),
+    ("# the computer's own\n--- {fleet_home: /elsewhere/fleet}\n", "is one flow mapping"),
+    ("{editor: zed,\nfleet_home: /elsewhere/fleet}\n", "is one flow mapping"),
+]
+
+
+@pytest.mark.parametrize(("text", "followed"), FLEET_HOME_LINES)
 def test_fleet_home_reads_one_line_as_yaml_does(tmp_path, text, followed) -> None:
     program = _checkout(tmp_path / "checkout")
     (program / ".aw").mkdir()
@@ -313,23 +334,26 @@ def test_fleet_home_reads_one_line_as_yaml_does(tmp_path, text, followed) -> Non
     assert (read if read is None else read.replace("~", environ["HOME"], 1)) == (str(expected) if followed else None)
 
 
-@pytest.mark.parametrize(
-    ("text", "said"),
-    [
-        ("fleet_home: /a\nfleet_home: /b\n", "says fleet_home more than once"),
-        ("fleet_home: [/a, /b]\n", "is not one plain path"),
-        ("fleet_home: *anchor\n", "is not one plain path"),
-        ('fleet_home: "/a\\"b"\n', "is not one plain path"),
-        ("fleet_home: fleets/one\n", "which is not an absolute path"),
-        ("fleet_home: ''\n", "which is not an absolute path"),
-    ],
-)
+@pytest.mark.parametrize(("text", "said"), FLEET_HOME_REFUSED)
 def test_fleet_home_refuses_what_is_not_one_absolute_path(tmp_path, text, said) -> None:
     program = _checkout(tmp_path / "checkout")
     (program / ".aw").mkdir()
     (program / ".aw" / "client.yml").write_text(text)
     with pytest.raises(paths.Refused, match=re.escape(said)):
         paths.home(program, _environ(tmp_path))
+
+
+def test_a_target_naming_its_own_home_is_no_second_pointer(tmp_path) -> None:
+    # As at the default home, a client.yml that names the folder it is in names no other: never "points again".
+    config, state, data = _installed(tmp_path)
+    program = _checkout(tmp_path / "checkout")
+    (program / ".aw").mkdir()
+    (program / ".aw" / "client.yml").write_text(f"fleet_home: {config}\n")
+    config.mkdir(parents=True)
+    (config / "client.yml").write_text(f"editor: zed\nfleet_home: {config}/\n")
+    where = paths.home(program, _environ(tmp_path))
+    assert (where.root, where.state, where.key_file) == (config, state, data / "vault-key")
+    assert where.pointer == program / ".aw" / "client.yml"
 
 
 def test_fleet_home_naming_its_own_home_is_no_pointer(tmp_path) -> None:

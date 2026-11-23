@@ -89,6 +89,8 @@ TODAY_READS = {
 }
 # A spec's type, and a list's elements, as the table writes it.
 SPEC_TYPES = {"bool": "bool", "int": "int", "str": "str", "path": "path", "dict": "dict"}
+# A row's type as today's spec states it, where the table's is narrower: a size with its unit is a string today.
+TODAY_S_TYPE = {"size": "str"}
 
 
 @functools.cache
@@ -174,7 +176,8 @@ def test_a_row_s_type_and_choices_are_its_role_variable_s_or_its_literal_default
     defaults, _feeds, _specs = _today()
     fed = _fed(each.name)
     if fed:
-        assert each.type in {_spec_type(spec) for _var, spec in fed}, [(var, _spec_type(spec)) for var, spec in fed]
+        stated_types = {_spec_type(spec) for _var, spec in fed}
+        assert TODAY_S_TYPE.get(each.type, each.type) in stated_types, [(var, _spec_type(spec)) for var, spec in fed]
         stated = [tuple(spec["choices"]) for _var, spec in fed if spec.get("choices")]
         assert all(set(choices) == set(each.choices) for choices in stated), stated
         assert stated or each.choices == ()

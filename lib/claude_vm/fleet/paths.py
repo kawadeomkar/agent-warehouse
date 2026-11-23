@@ -7,7 +7,10 @@ is set; else a checkout's own `.aw/`, inside that checkout, so that a new worktr
 until `init` runs there; else, for an installed release, `${XDG_CONFIG_HOME:-~/.config}/agent-warehouse/`, whose state
 folder is `${XDG_STATE_HOME:-~/.local/state}/agent-warehouse/` and whose key file is in the data folder,
 `${XDG_DATA_HOME:-~/.local/share}/agent-warehouse/vault-key`. A line `fleet_home: <path>` in the default home's
-`client.yml` points a checkout at the installed program's home, or the reverse, once and never through a second one.
+`client.yml` points a checkout at the installed program's home, or the reverse, once and never through a second one; a
+home's own folder named there is none. It is read from its one line (`pointer_in`), and what YAML would read as a
+pointer that line does not say is refused, so that the overrides' reader of `client.yml` (fleet/overrides.py) never
+reads a home this module did not.
 
 The state folder and the key file are derived from the home, whichever way it was reached and however its path is
 spelled (a home is the installed program's by its real path, links read), so that two programs that drive one fleet
@@ -131,6 +134,64 @@ def _absolute(value: str, environ: Mapping[str, str], what: str) -> Path:
     return Path(os.path.normpath(value))
 
 
+def user_home(environ: Mapping[str, str] | None = None) -> Path:
+    """The user's home folder, which a leading ~ names: HOME where it is an absolute path, else the account's home from
+    the password database. Raises Refused where neither is one."""
+    return _user_home(os.environ if environ is None else environ)
+
+
+def _content(lines: list[str]) -> list[str]:
+    """The lines YAML reads as more than white space or a comment."""
+    return [line for line in lines if line.strip() and not line.strip().startswith("#")]
+
+
+def _flow(lines: list[str]) -> bool:
+    """Whether the text is one flow mapping, {...}, past its directives and a document's start: YAML then reads its
+    keys wherever they stand, never one on each line."""
+    for line in _content(lines):
+        if line.startswith("%") or line.rstrip() == "---":
+            continue
+        return (line[3:] if line.startswith("--- ") else line).lstrip().startswith("{")
+    return False
+
+
+def _continued(after: list[str]) -> bool:
+    """Whether the first line after an empty value that YAML reads is that value's: indented, or an item of a list."""
+    later = _content(after)
+    return bool(later) and (
+        later[0][:1] in (" ", "\t") or later[0].rstrip() == "-" or later[0].startswith(("- ", "-\t"))
+    )
+
+
+def pointer_in(text: str, client: Path, environ: Mapping[str, str]) -> Path | None:
+    """The folder a client.yml's text names with its one fleet_home line, or None where it names none: the line read
+    narrowly, by the standard library, and what YAML would read otherwise refused (a value on the line after the key,
+    a flow mapping that names the key), so that a reader of the file as YAML never reads a home this did not."""
+    lines = text.splitlines()
+    if _flow(lines) and "fleet_home" in text:
+        raise Refused(
+            f"{client} is one flow mapping ({{...}}) that names fleet_home: write a key on each line, and the fleet's"
+            " home as fleet_home: /the/folder"
+        )
+    found = [(at, match["rest"].strip()) for at, line in enumerate(lines) if (match := _POINTER.fullmatch(line))]
+    if len(found) > 1:
+        raise Refused(f"{client} says fleet_home more than once: keep the one line that names the fleet's home")
+    if not found:
+        return None
+    at, rest = found[0]
+    if not rest or rest.startswith("#"):
+        if _continued(lines[at + 1 :]):
+            raise Refused(f"{client}'s fleet_home is not one plain path: write it as fleet_home: /the/folder")
+        return None
+    value = _VALUE.fullmatch(rest)
+    if value is None or rest.startswith(_NOT_PLAIN):
+        raise Refused(f"{client}'s fleet_home is not one plain path: write it as fleet_home: /the/folder")
+    if value["plain"] in _NULL:
+        return None
+    named = next(part for part in (value["double"], value["single"], value["plain"]) if part is not None)
+    return _absolute(named, environ, f"{client}'s fleet_home")
+
+
 def _pointer(client: Path, environ: Mapping[str, str]) -> Path | None:
     """The folder client.yml's fleet_home line names, or None where it has none (or no client.yml exists)."""
     try:
@@ -139,18 +200,7 @@ def _pointer(client: Path, environ: Mapping[str, str]) -> Path | None:
         return None
     except (OSError, UnicodeDecodeError) as error:
         raise Refused(f"{client} cannot be read ({error}): the fleet's home is not known") from None
-    found = [match["rest"].strip() for line in text.splitlines() if (match := _POINTER.fullmatch(line))]
-    if len(found) > 1:
-        raise Refused(f"{client} says fleet_home more than once: keep the one line that names the fleet's home")
-    if not found or not found[0] or found[0].startswith("#"):
-        return None
-    value = _VALUE.fullmatch(found[0])
-    if value is None or found[0].startswith(_NOT_PLAIN):
-        raise Refused(f"{client}'s fleet_home is not one plain path: write it as fleet_home: /the/folder")
-    if value["plain"] in _NULL:
-        return None
-    named = next(part for part in (value["double"], value["single"], value["plain"]) if part is not None)
-    return _absolute(named, environ, f"{client}'s fleet_home")
+    return pointer_in(text, client, environ)
 
 
 def _real(path: Path) -> Path:
@@ -209,7 +259,9 @@ def home(program_root: str | os.PathLike, environ: Mapping[str, str] | None = No
     target = _pointer(client, env)
     if target is None or _same(target, default):
         return _derived(default, how, env, "the fleet's home")
-    if _pointer(target / CLIENT, env) is not None:
+    again = _pointer(target / CLIENT, env)
+    # A target's own home named again is no pointer, as at the default home; any other is a second one.
+    if again is not None and not _same(again, target):
         raise Refused(
             f"{client} points at {target}, whose client.yml points again: fleet_home is followed once, so take one of"
             " the two lines out"
