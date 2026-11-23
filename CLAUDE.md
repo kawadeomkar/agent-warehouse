@@ -410,7 +410,11 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - The new engine's hosts are a folder each, the first included, `fleet/hosts/<name>/` with its `host.yml`,
       `settings.yml` and anchor, read by `lib/claude_vm/fleet/hosts.py` as a second layout that today's core
       (`hosts/choose.py`, `hosts/model.py`) reads as it stands; the current host is `client.yml`'s `current_host`,
-      written by `overrides.set_current` alone. `host.yml` holds no field of one computer's (a key's path is
+      written by `overrides.set_current` alone. `host.yml` and the anchor are written by `hosts.write` alone, a
+      compare-and-swap under the folder's lock, the anchor with its `trust_kind` and `fingerprint` in an order a run
+      stopped after any step leaves readable (`tests/unit/test_aw_fleet_host_writer.py`); what the anchor is, `init`'s
+      `lib/claude_vm/engine/certificate.py` works out with no credential sent, by today's `trust.py`'s probes, and makes
+      no TLS context but through `pin.kept` (`tests/unit/test_aw_engine_certificate.py`). `host.yml` holds no field of one computer's (a key's path is
       `client.yml`'s, for that host), held by a literal list of its fields, and no module of the new engine reads a
       `Host`'s `local_file`, `vault_file`, `hosts_file` or `sources`: `tests/unit/test_aw_fleet_hosts.py` holds both.
 - **The project writes exactly four things outside the repo on the controller, and has VS Code's own CLI
