@@ -2240,16 +2240,17 @@ caller resolved (`vault_key_file` and `vault_key_command`), so the module reads 
 never run, even where its mode lets it run, and never waited on (a pipe or a folder there is no file); then
 `vault_key_command`, whose place this is and whose running is not built yet, so a run where it is set refuses rather
 than read the file after it; then the file `vault_key_file` names, `""` the default. `ANSIBLE_VAULT_PASSWORD_FILE` is
-never read and is no refusal. Whichever place it is, a key file whose mode gives the group or others the right to read
-it is refused before anything of it is read, as `ssh` refuses such a private key, in one sentence that names its mode
-and says `chmod 600 <file>` (`Failed`): the key opens every secret of the fleet, so it is taken only from a file this
-account alone can read. `make_key` makes its file so; a key kept on a volume that shows every file as readable by all
-cannot be used from there. `source` returns the first place that exists; `open` returns the key once the fleet's
+never read and is no refusal. Whichever place it is, a key file whose mode gives the group or others any right to it,
+to read, write or run (ssh's own 077), is refused before anything of it is read, as `ssh` refuses such a private key,
+in one sentence that names its mode and says `chmod 600 <file>` (`Failed`): the key opens every secret of the fleet,
+so it is taken only from a file this account alone can read, and one who could write it could put a key of theirs in
+its place. `make_key` makes its file so; a key kept on a volume that shows every file as open to all cannot be used
+from there. `source` returns the first place that exists; `open` returns the key once the fleet's
 vault opens with it (with no vault yet, once the key file holds an age key: a new fleet's vault is sealed to its own key
 file's key, so there the variable's file and a command are refused, nothing read or run, `NoVaultYet`), or one
 sentence: nothing here opens the vault, with what would, by `vault_key_file` and never the variable - `init` where
 there is no vault, the key copied from the computer that made the fleet, or its file named in `vault_key_file`, where
-there is one (`NoKey`); the place failed, in the system's words made one line, or is a file others can read (`Failed`);
+there is one (`NoKey`); the place failed, in the system's words made one line, or is a file open to others (`Failed`);
 or the place answered with what does not open this vault: no age key, or another fleet's key or a vault changed since,
 which age does not tell apart (`WrongKey`, from `sealed.py`'s `NotOpened`). A place that exists and fails is a
 refusal, and nothing after it is tried. A key file named in the fleet's folder, the state folder or the installed
@@ -2258,7 +2259,7 @@ said, since a key pasted there would be on the screen. Every refusal is a `seale
 vault's and the key's as one, and exits 1, or 3 from `status`; nothing here reads the terminal, so a run with nobody
 there opens the vault as one at a terminal does.
 `tests/unit/test_aw_fleet_vaultkey.py` holds it, with a vault opened in a child with no terminal and standard input from
-`/dev/null`, every mode of a key file's group and others read in turn, every public half a case makes looked for in its
+`/dev/null`, every mode of a key file's group and others in turn, every public half a case makes looked for in its
 files and its output, and the scan that only `vaultkey.py` names the variable and only `paths.py` and `vaultkey.py` the
 key file.
 
