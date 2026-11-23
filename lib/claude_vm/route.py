@@ -231,10 +231,17 @@ def _common(hop: dict, policy: str, level: str = "INFO") -> list[str]:
         raise ValueError(f"no log level {level!r}")
     return [
         hop["ssh"],
-        # The new engine's hop (hop_settings' pinned): this computer's X display never handed to the host, and no
-        # program run here for a connection, whatever a person's Host * says - a master the open makes, or a
-        # ProxyCommand's ssh that finds none live and becomes one, would run their LocalCommand.
-        *(["-o", "ForwardX11=no", "-o", "PermitLocalCommand=no"] if hop.get("pinned") else []),
+        # The new engine's hop (hop_settings' pinned): this computer's X display never handed to the host, no program
+        # run here for a connection, and none of a person's forwards or tunnel opened, whatever their config says for
+        # the host - a master the open makes, or a ProxyCommand's ssh that finds none live and becomes one, would run
+        # their LocalCommand; and -W clears forwards only by default, so a ClearAllForwardings no of theirs would have
+        # the ProxyCommand a machine is given, and the forward check, open each LocalForward, RemoteForward,
+        # DynamicForward and Tunnel they give the host. The open carries its own ClearAllForwardings too, today's.
+        *(
+            ["-o", "ForwardX11=no", "-o", "PermitLocalCommand=no", "-o", "ClearAllForwardings=yes"]
+            if hop.get("pinned")
+            else []
+        ),
         "-o",
         "BatchMode=yes",
         "-o",
@@ -415,8 +422,11 @@ def _kill(process) -> None:
     """``process`` killed, never once it has been reaped (as Popen.kill), with its process group where it leads one
     (_LEADING: started with process_group=0, the new engine's), so that what it started there - the program of a
     person's ``Match exec``, a ProxyCommand's - ends with it; by its pid alone where it leads none: today's callers
-    start their ssh in their own process's group, which a group's end would signal."""
-    if process.poll() is not None:
+    start their ssh in their own process's group, which a group's end would signal. A leader that has exited and is
+    not yet reaped is ended with its group too: an ``ssh -G`` whose ``Match exec`` put a program in the background
+    exits and leaves it there. Decided by ``returncode``, set once it is reaped here, never by poll(), which would reap
+    that leader and leave its group running; a zombie keeps its pid, so its group's number is no other's."""
+    if process.returncode is not None:
         return
     if process in _LEADING:
         try:
@@ -474,34 +484,40 @@ def _forget(process) -> None:
 
 
 def _asked(argv: list[str], limit: float, *, process_group=None):
-    """``argv``, an ``ssh -G``, run as ``subprocess.run`` runs it - its standard output and standard error read whole as
-    text, a subprocess.CompletedProcess, and subprocess.TimeoutExpired once ``limit`` seconds have passed - but started
-    as _run starts its ssh (_started), so that end_all ends it and starts none after (NotStarted): no ``ssh -G`` of a
-    caller that ended at once goes on to run a person's ``Match exec``. Past its limit, or with its caller ended
-    meanwhile, it is ended here and waited for. ``process_group`` is _run's: with 0, each of those ends its group too,
-    the ``Match exec``'s program with it."""
+    """``argv``, an ``ssh -G``, run as ``subprocess.run`` runs it - its standard output read whole as text, a
+    subprocess.CompletedProcess, and subprocess.TimeoutExpired once ``limit`` seconds have passed - but started as _run
+    starts its ssh (_started), so that end_all ends it and starts none after (NotStarted): no ``ssh -G`` of a caller
+    that ended at once goes on to run a person's ``Match exec``. Its standard error is read from a file, as _run reads
+    its ssh's, its first 64 KiB, so that a program a ``Match exec`` put in the background, which keeps ssh's standard
+    error (OpenSSH gives the command /dev/null for its standard input and output), never holds the answer back to the
+    limit: the wait ends with ``ssh -G`` itself. Past its limit, or with its caller ended meanwhile, it is ended here
+    and waited for. ``process_group`` is _run's: with 0, each of those ends its group too, the ``Match exec``'s program
+    with it."""
     import subprocess
 
-    process = _started(
-        argv,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        errors="replace",
-        process_group=process_group,
-    )
-    try:
-        out, err = process.communicate(timeout=limit)
-    except BaseException:
-        # Its limit passed, a Ctrl-C, any exception: ended here, with its group where it leads one, and waited for, as
-        # subprocess.run does.
-        _kill(process)
-        process.wait()
-        raise
-    finally:
-        for stream in (process.stdout, process.stderr):
-            stream.close()
-        _forget(process)
+    with tempfile.TemporaryFile() as errors:
+        process = _started(
+            argv,
+            stdout=subprocess.PIPE,
+            stderr=errors,
+            text=True,
+            errors="replace",
+            process_group=process_group,
+        )
+        encoding = process.stdout.encoding
+        try:
+            out, _ = process.communicate(timeout=limit)
+        except BaseException:
+            # Its limit passed, a Ctrl-C, any exception: ended here, with its group where it leads one, and waited for,
+            # as subprocess.run does.
+            _kill(process)
+            process.wait()
+            raise
+        finally:
+            process.stdout.close()
+            _forget(process)
+        # As subprocess.run gives a text stream: decoded as its standard output is, its newlines made "\n".
+        err = _read(errors.fileno()).decode(encoding, "replace").replace("\r\n", "\n").replace("\r", "\n")
     return subprocess.CompletedProcess(argv, process.returncode, out, err)
 
 
@@ -660,6 +676,13 @@ def hop_held(hop: dict, policy: str, limits=None, again: bool = True, *, process
     said = (
         opened["said"]
         or (f"no answer within {limits['open']} s" if opened["killed"] else "")
+        # Ended by a signal this module did not send - the new engine's run ends an ssh the terminal stopped as it
+        # asked there - it made none.
+        or (
+            f"the open of {hop['socket']} was ended by a signal ({-opened['rc']}) before it made a connection there"
+            if opened["rc"] is not None and opened["rc"] < 0
+            else ""
+        )
         or f"no connection answered at {hop['socket']} after ssh made one there (it exited {opened['rc']})"
     )
     return {"ok": False, "opened": False, "said": said}
@@ -735,6 +758,8 @@ def route_settle(setting, hop: dict, limit=None, *, process_group=None, signalle
         if shown.returncode < 0:
             unanswered = f"was ended by a signal ({-shown.returncode}) before it said where ssh dials for it"
     except subprocess.TimeoutExpired:
+        # ssh -G prints its answer as it exits, and _asked waits for ssh alone (a Match exec's program has /dev/null
+        # for its output, and its standard error is a file): past the limit, it said nothing.
         text, unanswered = "", f"said nothing of where ssh dials for it within {limit} s"
     except NotStarted:
         text, unanswered = "", "was not started, since the run is ending"

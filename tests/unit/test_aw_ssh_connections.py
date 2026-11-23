@@ -387,7 +387,7 @@ def test_direct_settles_with_no_hop_and_asks_nothing(short_dir, stand_in) -> Non
 def test_host_settles_the_hop_in_the_shared_directory_and_asks_nothing(short_dir, stand_in) -> None:
     settled = _settle(short_dir, "host", name="pve")
     # The host's own Target's: its ssh, account, address and port, as root SSH to it rides the same master; pinned, so
-    # that every line of its own ssh pins ForwardX11=no and PermitLocalCommand=no first.
+    # that every line of its own ssh pins ForwardX11=no, PermitLocalCommand=no and ClearAllForwardings=yes first.
     hop = route.hop_settings(
         ssh="ssh", user="root", host=HOST, port=22, control_dir=str(short_dir), name="pve", pinned=True
     )
@@ -445,17 +445,18 @@ def test_every_line_of_the_hop_s_own_ssh_pins_the_display_and_local_commands_off
     home, tmp_path, short_dir, stand_in, made
 ) -> None:
     # The hop's own ssh reads the person's own config: a Host * of ForwardX11 yes, or PermitLocalCommand yes with a
-    # LocalCommand, would reach the open's master, and a ProxyCommand's ssh that finds none live and becomes one.
+    # LocalCommand, would reach the open's master, and a ProxyCommand's ssh that finds none live and becomes one; and a
+    # ClearAllForwardings no there would have the -W lines open the person's forwards and tunnel.
     conns = connections.Connections(short_dir, dict(os.environ))
     settled = _route(conns, "host", _host(short_dir))
     assert settled["hop"]["pinned"] is True
-    pins = ["-o", "ForwardX11=no", "-o", "PermitLocalCommand=no"]
+    pins = ["-o", "ForwardX11=no", "-o", "PermitLocalCommand=no", "-o", "ClearAllForwardings=yes"]
     assert _ensure_hop(conns, settled) == connections.Master(ok=True, opened=True, said="")
     assert _kinds(stand_in) == ["-O check", "open", "-O check"]
-    assert all(call["argv"][:4] == pins for call in _calls(stand_in))
+    assert all(call["argv"][: len(pins)] == pins for call in _calls(stand_in))
     # A machine's ProxyCommand is the same line, and its own ssh shows that line, which held takes.
     target = _target(conns, made, _machine(tmp_path, short_dir), settled)
-    assert target.hop is not None and target.hop.proxy_command.split(" ")[1:5] == pins
+    assert target.hop is not None and target.hop.proxy_command.split(" ")[1 : 1 + len(pins)] == pins
     _held(conns, target, settled)
 
 
