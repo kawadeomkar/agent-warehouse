@@ -1748,15 +1748,16 @@ hold a secret is never given for one run, and a value that holds one of the vaul
 each a `Secret`, struck and never revealed) is refused in the text and in the value; the result is what a run records as
 its inputs and `resolve`'s top layer. `set` and `unset` write one value into the file of its home, under `store.locked`,
 only while the file's digest is the one its caller read (`expect`), whole and in ASCII, read back as meant before
-`store.replace` puts it in place, a new file at `paths.FILE_MODE` in folders at `paths.DIR_MODE`; `set_current` writes
+`store.replace` puts it in place, a new file at `paths.FILE_MODE` in folders made through `files.py` at
+`paths.DIR_MODE`, a link where one goes refused; `set_current` writes
 `client.yml`'s `current_host` the same way. `literals(path)` is the one reader of a file of literals the fleet keeps, a
 host's `host.yml` too. Every refusal is a `Refused`, whose sentence never says a value back. Nothing else in `fleet/`
-writes a file. A machine's recorded choices,
+writes a file but `files.py`, for `fleet.json`. A machine's recorded choices,
 the design's third layer, are in its record, which is not read here. `tests/unit/test_aw_fleet_overrides.py` holds it:
 each layer over the one before, each home's file and none other, the path rule for each path row, the proxy's user and
 password refused at every way in by one check, each refusal with the file unchanged, the compare-and-swap, `--set`'s
 refusals with no value said, a size read alike, the reader of `client.yml` against `paths.py`'s own cases of
-`fleet_home`, and a scan that only `set`, `unset` and `set_current` write.
+`fleet_home`, and a scan that only `set`, `unset` and `set_current` write, and `files.py`'s `write`.
 
 **The hosts: `hosts.py`.** Each host is a folder of the fleet's files, `fleet/hosts/<name>/`, the first included, named
 as any host is (`hosts/model.py`'s `name_refusal`): `host.yml`, its own fields, which travel with the folder;
@@ -1795,9 +1796,9 @@ mode, since the data folder already holds `tools/env-run`'s `checkouts/` at the 
 asked for that is there is the person's and taken as it is, a link among them (a `~/.config` kept in a dotfiles folder,
 macOS's `/var`). `write(path, text)` writes a file whole through `store.replace`, its folder made by `folder`, a new
 file at 0600, one that is there keeping its mode, and through a link the file it names replaced: a file is one a person
-may keep elsewhere on purpose, a folder everything beneath it. `fleet.json`, the jobs folder (`runs/job.py`) and the
-locks folder (`runs/locks.py`) are made through it, and nothing else of `fleet/` or `runs/` makes a folder but a job's
-own, inside the jobs folder, and a run's short-lived directory (16.8).
+may keep elsewhere on purpose, a folder everything beneath it. `fleet.json`, the overrides' folders (`overrides.py`),
+the jobs folder (`runs/job.py`) and the locks folder (`runs/locks.py`) are made through it, and nothing else of
+`fleet/` or `runs/` makes a folder but a job's own, inside the jobs folder, and a run's short-lived directory (16.8).
 
 **The fleet's ID and its record: `record.py`.** `fleet/fleet.json` is the computer's own record of a fleet:
 `FleetRecord(format, fleet, stores)`, the format of the file itself, the fleet's ID and the format number of every
