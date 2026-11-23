@@ -31,16 +31,22 @@ variables only as `-e @<file>` (never `key=value`, which splits on whitespace), 
 in a session of its own, so that it has no terminal and a terminal's Ctrl-C reaches the run alone, which hands it on as
 SIGINT to the child's group (runs/attached.py); its standard input is `/dev/null`, and its one pipe is the events',
 whose write end goes over through start's descriptors and whose read end the run reads to its end, while the child
-runs. What the child prints on its standard output and error goes to a file of its own, never the terminal, and its
-last `MOST` bytes come back, plain, with the exit status (`Ended`). However the call ends, nothing it started is left:
-a child still running when it ends is ended with its tree (claude_vm.proc).
+runs: the product's callback (`CALLBACK`, in `CALLBACKS`, which only this configuration names) writes each event of the
+play there as a line of JSON, and guest/events.py hands each to the run's own `emit` as a `step` event of the machine,
+every secret of the run's redaction list (`redacted`) struck from it. A listener that fails while the child runs ends
+the child, and its error is raised. What the child prints on its standard output and error - with the product's
+callback, Ansible's own words alone: a warning, an error before a play starts - goes to a file of its own, never the
+terminal, and its last `MOST` bytes from a line's start come back, struck and plain the same way, with the exit status
+and the counts the events gave (`Ended`). However the call ends, nothing it started is left: a child still running when
+it ends is ended with its tree (claude_vm.proc).
 
 Only tests pass `test_connection`: the host variables of a test-only connection, `local` for a play of one task on a
 stand-in machine (tests/unit/aw_machine.py's `layer1_host`) and `community.docker.docker` for a Molecule container;
 no product code passes it, which tests/unit/test_aw_layer1.py holds. The real roles never run over `local`: they would
 run as root on the computer running the tests.
 
-Standard library only; asyncio, tempfile and claude_vm.proc are imported inside the coroutine that starts the child.
+Standard library only; asyncio, tempfile and claude_vm.proc are imported inside the coroutine that starts the child. The
+callback, which imports Ansible, runs in the child alone: nothing here imports it.
 """
 
 from __future__ import annotations
@@ -55,11 +61,13 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from claude_vm import checks, text
+from claude_vm import checks
+from claude_vm.guest import events
 from claude_vm.guest import variables as play_variables
 from claude_vm.runs import children, rundir
 from claude_vm.schema import patterns, printer
 from claude_vm.schema.words import Line
+from claude_vm.secret import Secret
 from claude_vm.ssh import hostkeys, runner
 
 if TYPE_CHECKING:
@@ -82,10 +90,10 @@ NAME_VARIABLE = "aw_name"
 # first there) would run as root.
 PYTHON = "/usr/bin/python3"
 SUDO = "/usr/bin/sudo"
-# The stdout callback the configuration names, and no other prints. The product's own, which writes one event a line to
-# the events pipe, is card F5's; until it is there, Ansible's own, whose output goes to the child's file, never the
-# terminal.
-CALLBACK = "ansible.builtin.default"
+# The stdout callback the configuration names, and no other prints: the product's own, which writes one event a line to
+# the events pipe, from its folder beside this module, which only this configuration names.
+CALLBACK = "aw_events"
+CALLBACKS = Path(__file__).resolve().parent / "ansible" / "callback_plugins"
 # The roles of this checkout or release: the folder beside lib/ that holds this module.
 ROLES = Path(__file__).resolve().parents[3] / "roles"
 
@@ -101,11 +109,11 @@ VERBOSITY_VARIABLE = "ANSIBLE_VERBOSITY"
 # -v to -vvvvv, as the table's counted option takes them.
 VERBOSITY_MOST = 5
 
-# How much of what the child printed comes back: its last 64 KiB, where Ansible says why it stopped. And how long the
-# events pipe is read once the child has ended: a task worker it left behind holds the pipe's write end.
+# How much of what the child printed comes back: its last 64 KiB, from a line's start, where Ansible says why it
+# stopped. And how long the events pipe is read once the child has ended: a task worker it left behind holds the pipe's
+# write end.
 MOST = 64 * 1024
 EVENTS_GRACE = 1.0
-CHUNK = 64 * 1024
 
 # The test-only connections, and the host variables a test's connection may give: its kind, where it reaches, the
 # interpreter there, the module's folder there, and become with the stand-in's own sudo.
@@ -143,11 +151,15 @@ class NoKey(Refused):
 
 @dataclasses.dataclass(frozen=True)
 class Ended:
-    """How the child ended: its exit status (negative, the signal that ended it), and the last MOST bytes of what it
-    printed on its standard output and error, plain."""
+    """How the child ended: its exit status (negative, the signal that ended it); the last MOST bytes of what it printed
+    on its standard output and error, from a line's start, every secret of the run's redaction list struck from it and
+    made plain; and the counts its events gave (guest/events.py's Counts). said is Ansible's own words of the machine's
+    run, many lines, a machine's data: the run's text log takes it, and a person's screen only line by line, never whole
+    (one_line)."""
 
     status: int
     said: str
+    counts: events.Counts
 
 
 # ---------------------------------------------------------------- what is held before anything starts ----
@@ -259,6 +271,15 @@ def _untemplated(variables: Mapping[str, object]) -> None:
             raise Refused(f"the inventory's {key} would open a template: a value of an inventory is never one")
 
 
+def _redacted(given: object) -> tuple[Secret, ...]:
+    """The run's redaction list: every secret the run opened, each a Secret."""
+    if isinstance(given, (str, bytes, Secret)) or not isinstance(given, Sequence):
+        raise Refused("the run's redaction list is a list of Secrets")
+    if not all(isinstance(secret, Secret) for secret in given):
+        raise Refused("the run's redaction list holds Secrets alone: every secret the run opened, as it opened it")
+    return tuple(given)
+
+
 def _ini(path: Path, what: str) -> str:
     """path as one value of the configuration file: absolute, with no character an ini file or a pathspec reads."""
     value = str(path)
@@ -284,6 +305,7 @@ def configuration_text(directory: Path) -> str:
         [
             "[defaults]",
             f"stdout_callback = {CALLBACK}",
+            f"callback_plugins = {_ini(CALLBACKS, 'the callback folder')}",
             "forks = 1",
             "inject_facts_as_vars = false",
             f"roles_path = {_ini(ROLES, 'the roles path')}",
@@ -387,18 +409,14 @@ def _directory(job: Job) -> Path:
 # ---------------------------------------------------------------- the child ----
 
 
-async def _drain(reader) -> None:
-    """The events pipe read to its end. Its events are the product's callback's, which hands them to the run (card F5);
-    until then nothing writes there, and what arrives is read so that no writer ever blocks."""
-    while await reader.read(CHUNK):
-        pass
-
-
-def _said(printed) -> str:
-    """The last MOST bytes the child printed, plain."""
+def _said(printed, heard: events.Heard) -> str:
+    """The last MOST bytes the child printed, from the first line's start among them where they are not all of it,
+    so that no secret on one line is cut in two before it is struck; struck and plain as an event's strings are."""
     size = os.fstat(printed.fileno()).st_size
     data = os.pread(printed.fileno(), MOST, max(size - MOST, 0))
-    return text.plain_text(data.decode("utf-8", "replace")).strip()
+    if size > MOST:
+        data = data.partition(b"\n")[2]
+    return heard.clean(data.decode("utf-8", "replace"), MOST, end=True).strip()
 
 
 async def run(
@@ -414,16 +432,19 @@ async def run(
     check: bool = False,
     diff: bool = False,
     verbosity: int = 0,
+    redacted: Sequence[Secret] = (),
     started: Callable[[Process], None] | None = None,
     test_connection: Mapping[str, object] | None = None,
 ) -> Ended:
     """play run on target by one ansible-playbook, a child of job's run in a session of its own, with the configuration
     and the inventory written into the run's directory and the environment built from env's allow list; started(process)
-    called once it runs; its exit status and the end of what it printed. name is the name a person chose for the
-    machine, and host_flag the host a line that names it names (the printer's). Everything is held before anything is
-    written or started: a target that is no machine's, a first use's, or whose identity has no key filed, a play or a
-    variables file that is not there, a variables file that is not what guest/variables.py writes, a part, a flag or a
-    verbosity that is not one."""
+    called once it runs; each event of the play handed to job's emit as name's step event, as it comes, every secret of
+    redacted (every secret the run opened) struck from it; its exit status, the end of what it printed, and the counts.
+    name is the name a person chose for the machine, and host_flag the host a line that names it names (the printer's).
+    Everything is held before anything is written or started: a target that is no machine's, a first use's, or whose
+    identity has no key filed, a play or a variables file that is not there, a variables file that is not what
+    guest/variables.py writes, a part, a flag, a verbosity or a redaction list that is not one. A listener of job's that
+    fails while the child runs ends the child, and its error is raised."""
     import asyncio
     import tempfile
 
@@ -438,6 +459,7 @@ async def run(
     check, diff, verbosity = _flag(check, "check"), _flag(diff, "diff"), _verbosity(verbosity)
     if not isinstance(env, Mapping):
         raise Refused("the run's environment is a mapping of names to values")
+    heard = events.Heard(job, name, _redacted(redacted))
     document = inventory_document(machine, name, test_connection)
     directory = _directory(job)
     config = directory / CONFIG
@@ -452,6 +474,7 @@ async def run(
     loop = asyncio.get_running_loop()
     reading, writing = os.pipe()
     pipe = process = transport = None
+    tasks: list[asyncio.Future] = []
     try:
         given = environment(env, config, writing, verbosity)
         with tempfile.TemporaryFile() as printed:
@@ -470,23 +493,31 @@ async def run(
             os.close(writing)
             writing = -1
             pipe, reading = os.fdopen(reading, "rb", buffering=0), -1
-            reader = asyncio.StreamReader(limit=CHUNK)
+            reader = asyncio.StreamReader(limit=events.LINE_MOST)
             transport, _ = await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), pipe)
-            draining = asyncio.ensure_future(_drain(reader))
-            try:
-                if started is not None:
-                    started(process)
-                await process.wait()
-                with contextlib.suppress(TimeoutError):
-                    await asyncio.wait_for(asyncio.shield(draining), EVENTS_GRACE)
-            finally:
-                if not draining.done():
-                    draining.cancel()
-                    await asyncio.wait([draining])
+            heeding = asyncio.ensure_future(heard.read(reader))
+            waiting = asyncio.ensure_future(process.wait())
+            tasks += [heeding, waiting]
+            if started is not None:
+                started(process)
+            await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            if heeding.done() and not waiting.done():
+                # A listener's failure ends the child, in the finally below, and is raised; a pipe at its end, read
+                # whole, lets the child end in its own time.
+                heeding.result()
+            await waiting
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(asyncio.shield(heeding), EVENTS_GRACE)
             status = process.returncode
             assert status is not None
-            return Ended(status, _said(printed))
+            return Ended(status, _said(printed, heard), heard.counts)
     finally:
+        # The pipe's reading and the wait for the child, where the call ends before them.
+        unfinished = [task for task in tasks if not task.done()]
+        for task in unfinished:
+            task.cancel()
+        if unfinished:
+            await asyncio.wait(unfinished)
         # However the call ends - cancelled, started raising - nothing the child started is left running.
         if process is not None and process.returncode is None:
             proc.end(process.pid)
