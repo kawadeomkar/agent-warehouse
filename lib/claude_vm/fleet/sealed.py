@@ -5,9 +5,16 @@ The file's plaintext is one JSON document, `{"format": <n>, "secrets": {"<entry>
 and each secret under its entry (fleet/secrets.py: its name, or `<name>@<host>` and `<name>@<machine>` for a host's and
 an adopted machine's own) with its value. It is encrypted whole with age, armored, to the X25519 recipient that is the
 public half of the key the caller hands in, so that no value can be read, or swapped for another, inside it without
-that key. `read` decrypts the whole file and returns the map, each value a `Secret`; every write encrypts the whole map
-again. The plaintext is never on disk: it is made and read in memory, and the file a write leaves, and the scratch file
-beside it while it writes, hold the ciphertext alone.
+that key, or its public half, which nothing writes or says (below). `read` decrypts the whole file and returns the map,
+each value a `Secret`; every write encrypts the whole map again. The plaintext is never on disk: it is made and read in
+memory, and the file a write leaves, and the scratch file beside it while it writes, hold the ciphertext alone.
+
+**The key's public half is as good as the key for writing.** age seals to it and says nothing of who sealed, so one who
+held it and could write the fleet's folder could seal a vault of their own that opens with the key: a Tailscale auth key
+of theirs, say, which every new VM would then join with. The vault is left so, since one who can write that folder can
+already change the fleet's settings and its host's address, and the public half is never kept: `_seal` alone makes it,
+to hand it to age in the one call that seals, and no module writes or prints it (tests/unit/test_aw_fleet_sealed.py's
+scan, with every public half a case makes looked for in its files and its output).
 
 The key is the caller's to find (fleet/vaultkey.py) and is handed in as a `Secret` that holds an age identity
 (`AGE-SECRET-KEY-1...`): this module never looks for one, keeps one or says one.
