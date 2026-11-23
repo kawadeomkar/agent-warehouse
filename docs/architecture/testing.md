@@ -305,7 +305,11 @@ pytest over `tests/unit/`, file by file:
 - **The CI gate** (`test_ci.py`): `CI result` needs every job of `ci.yml` but the canary, runs `if:
   always()`, and no job of the gate may `continue-on-error`; its script, run as GitHub runs it, passes a
   success or a skip and fails a failure or a cancel. Every Molecule scenario names the one image pinned by
-  digest, the shared configuration none, and the canary runs that image's repository at `:latest`.
+  digest, the shared configuration none, and the canary runs that image's repository at `:latest`. The
+  `engine` job runs `just test engine` on the other jobs' Ubuntu and on a macOS runner named by its version,
+  never `macos-latest`, each on `requires-python`'s floor and the setup action's default Python, held whole: no
+  key but its name, runner, 30 minutes, matrix and three steps, so no job-level `if:` skips it and no `env:`
+  narrows it.
 - **The shards** (`test_shards.py`): `--shard` collected as each CI shard collects it - two, three and six
   shards that between them run every test exactly once, and the tests that share a fixture's run in one; every
   name an `EACH_WORKER` lists a module-scoped fixture of its own module.
@@ -635,7 +639,12 @@ pytest over `tests/unit/`, file by file:
   nothing is unstable and no `.env` is read, every public recipe has a `[doc]` and every parameter its
   help and a literal pattern, the VM recipes share one name pattern, no parameter is named like an
   assignment, `self` passes on every setting, and its
-  `minimum-version`, `just_pin` and CI's `JUST_VERSION` are one version. Run: the vault and collections
+  `minimum-version`, `just_pin` and CI's `JUST_VERSION` are one version, every SHA256 of the setup action beside
+  it; the action's step run for each runner's system against a stand-in `curl` and `tar` - each system's archive
+  held to its own SHA256 by the step's own comparison with `shasum -a 256`'s digest, beside the `sha256sum` each
+  runner has (on macOS a stand-in that passes a line it cannot read, as macOS 26's own does, held to what that one
+  did), never unpacked when it is not that one or when its pin is empty or a digit short, and a runner with no
+  archive pinned failed before anything is downloaded. Run: the vault and collections
   checks, each before any playbook, and the rules with `JUST_NO_DEPS` set; a run from another checkout
   refused, and run from a subdirectory, from the checkout spelt in another case and from a copy inside
   another work tree; every VM recipe passing its names as one JSON extra-var and none

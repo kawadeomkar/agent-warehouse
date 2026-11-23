@@ -12,14 +12,15 @@ just init            # installs the tools, asks for your GitHub username, a VPN 
 ```
 
 You need no Python of your own. `just install`, which `just init` runs first, makes the project's
-environment with uv: a Python uv downloads (3.13), and the versions `uv.lock` pins, in a folder of this
+environment with uv: a Python uv downloads (3.14), and the versions `uv.lock` pins, in a folder of this
 checkout's own outside it - `~/.local/share/agent-warehouse/checkouts/<folder>-<number>/`, which
 `tools/env-run --data` names - with the Galaxy collections beside it, so no other checkout's tools or
 collections can change this one's. Every recipe runs its tools from there. To use a virtualenv of your own
-instead, of Python 3.12 or later and made with any tool (`python3 -m venv ~/.virtualenvs/agent-warehouse`),
+instead, of Python 3.13 or later and made with any tool (`python3 -m venv ~/.virtualenvs/agent-warehouse`),
 activate it, or export its Python as `PYTHON=~/.virtualenvs/agent-warehouse/bin/python`: `just install`
-then installs into it, and removes nothing else there; a Python that is not a virtualenv is refused. Run
-`just install` again after a pull; `just clean env` deletes the checkout's own environment and collections.
+then installs into it, and removes nothing else there; a Python that is not a virtualenv, or one older than
+3.13, is refused, saying what to do instead. Run `just install` again after a pull; `just clean env` deletes the
+checkout's own environment and collections.
 
 `just init` then copies the three git-ignored files below from their examples and asks, at the terminal,
 for each value a first deploy needs that is still the example's:

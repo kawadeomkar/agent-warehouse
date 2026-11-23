@@ -9,7 +9,7 @@ git-ignored file, never in a commit.
 You need [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13.4 or newer (`brew install uv`, or its
 standalone installer), [just](https://github.com/casey/just) 1.59 or newer (`brew install just`, or `cargo install
 just`, from its own releases), and Docker Engine for the tests. Python comes with uv, or bring a virtualenv of
-Python 3.12+ of your own (`PYTHON=`).
+Python 3.13+ of your own (`PYTHON=`).
 
 ```bash
 just init     # just install (the locked packages, the Galaxy collections), git hooks, the config, asked for
@@ -146,8 +146,8 @@ The editor and the VPN are choices: a setting naming one row of a list in the in
 
 ## Pull requests
 
-CI runs lint, unit tests, every Molecule scenario and the integration scenario on your PR, plus a
-dependency review. No job uses a secret, so the full suite runs on pull requests from forks - please keep
+CI runs lint, unit tests, every Molecule scenario and the integration scenario on your PR, the new
+engine's tests on Ubuntu and on macOS, plus a dependency review. No job uses a secret, so the full suite runs on pull requests from forks - please keep
 it that way and do not add a job that needs one.
 
 Before opening a PR, run `just test` - in full on a throwaway VM rather than the machine that holds your vault,

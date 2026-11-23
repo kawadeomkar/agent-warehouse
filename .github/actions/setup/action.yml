@@ -6,6 +6,15 @@ description: >-
   requirements.yml.
 
 inputs:
+  python-version:
+    # The Python of the job's virtualenv: by default the checkout's own
+    # environment's, the justfile's managed_python, which the launcher aw names
+    # too (tests/unit/test_justfile.py holds the three to one); the oldest the
+    # project takes, pyproject.toml's requires-python, for the one unit shard
+    # that runs on it (ci.yml's unit-oldest); and each of the two in turn for the
+    # engine job, which runs on both.
+    description: The Python version the job's virtualenv is made on.
+    default: "3.14"
   install:
     # docs.yml's: Python and uv as every other job has them, its pins written
     # only here, and then only the docs group, which that job installs itself.
@@ -17,42 +26,66 @@ inputs:
 runs:
   using: composite
   steps:
-    # The runner image already has this Python, so it is the fastest way to get
-    # one; uv uses it and never downloads its own (UV_PYTHON_DOWNLOADS in the justfile).
+    # The runner image's own Python where it has that version, else the one
+    # actions/setup-python keeps; uv uses it and never downloads its own
+    # (UV_PYTHON_DOWNLOADS in the justfile).
     - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
       with:
-        python-version: "3.12"
+        python-version: ${{ inputs.python-version }}
 
     # Installs the uv uv.lock pins (the dev group's uv==...), so Dependabot's uv
     # updates move CI's uv too, and caches what uv downloads, keyed on uv.lock.
-    # python-version only sets UV_PYTHON, so uv picks the 3.12 above even when
-    # the image has a newer Python earlier on PATH.
+    # python-version only sets UV_PYTHON, so uv picks the Python above even when
+    # the image has another earlier on PATH.
     - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       with:
         version-file: uv.lock
-        python-version: "3.12"
+        python-version: ${{ inputs.python-version }}
         # A virtualenv for the job, first on PATH for every step after this
         # one, so python3 is its Python: just install installs into the
         # environment python3 is, and refuses one that is not a virtualenv.
         activate-environment: true
 
-    # just from its own release, never a build of someone else's: the archive is
-    # checked against the SHA256 upstream publishes for it (SHA256SUMS beside it),
-    # copied here when the pin was written. The version is the justfile's
-    # minimum-version and just_pin too (tests/unit/test_justfile.py holds the
-    # three to one), and moves by hand: docs/architecture/toolchain.md says how.
+    # just from its own release, never a build of someone else's: the archive for
+    # the runner's system - x86_64 Linux's, or arm64 macOS's - checked against the
+    # SHA256 upstream publishes for it (SHA256SUMS beside it), copied here when the
+    # pin was written. The step compares the digest itself, as a string, and no
+    # checker's reading of a line decides: each runner has a sha256sum (Ubuntu's
+    # GNU one; macOS 26's Apple one, in /sbin), and Apple's passes, with a warning
+    # and exit 0, a line it cannot read - an empty pin, or one a digit short. So
+    # the digest is shasum -a 256's (Perl's, on both runners) of the archive on
+    # its standard input, which prints "<digest>  -", and the archive is taken
+    # only where that is the pin and "  -": an empty or short pin, or a shasum
+    # that printed nothing, is refused. The version is the justfile's minimum-version and just_pin too
+    # (tests/unit/test_justfile.py holds the three to one, and every SHA256 here
+    # to it), and moves by hand: docs/architecture/toolchain.md says how.
     - name: Install just
       if: inputs.install == 'true'
       shell: bash
       env:
         JUST_VERSION: "1.59.0"
+        # just-<version>-x86_64-unknown-linux-musl.tar.gz
         JUST_SHA256: 409044617b6f06517c1035e55ca38c8c856ff8b650e41bc2aa1ef82d5903a23e
+        # just-<version>-aarch64-apple-darwin.tar.gz
+        JUST_SHA256_MACOS: 6574cea774ed4cae12e24b6aa11857de33e80dab4667cf628fd5840df96a2a9d
       run: |
-        archive="just-${JUST_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+        case "$RUNNER_OS/$RUNNER_ARCH" in
+        Linux/X64) target=x86_64-unknown-linux-musl sha256=$JUST_SHA256 ;;
+        macOS/ARM64) target=aarch64-apple-darwin sha256=$JUST_SHA256_MACOS ;;
+        *)
+          echo "::error::no just archive is pinned for $RUNNER_OS on $RUNNER_ARCH (.github/actions/setup/action.yml)"
+          exit 1
+          ;;
+        esac
+        archive="just-${JUST_VERSION}-${target}.tar.gz"
         dir="$RUNNER_TEMP/just"
         mkdir -p "$dir"
         curl -fsSL --retry 3 -o "$dir/$archive" "https://github.com/casey/just/releases/download/${JUST_VERSION}/${archive}"
-        echo "${JUST_SHA256}  $dir/$archive" | sha256sum -c -
+        got=$(shasum -a 256 < "$dir/$archive")
+        if [ "$got" != "${sha256}  -" ]; then
+          echo "::error::the SHA256 of $archive is ${got%% *}, where its pin is '${sha256}' (.github/actions/setup/action.yml)"
+          exit 1
+        fi
         tar -xzf "$dir/$archive" -C "$dir" just
         echo "$dir" >> "$GITHUB_PATH"
 

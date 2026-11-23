@@ -7,6 +7,8 @@
 |---|---|
 | `lint` | tracked-file guard → `just lint` (the linters, `--syntax-check`, then the pre-commit hooks they do not cover: private-key detection, the large-file check and the whitespace hooks) → gitleaks in `dir` mode → gitleaks in `git` mode over the commits the push or pull request brings in (full clone, `fetch-depth: 0`) |
 | `unit` | `Unit tests (1/6)` … `(6/6)`: `just test unit --shard <n>/6`, its 6 the matrix's size (`strategy.job-total`), four workers each (`PYTEST_XDIST_AUTO_NUM_WORKERS`, so it never depends on psutil). The tests that share a fixture's run stay together in one shard; the shards are balanced by `tests/unit/durations.json` (`tools/unit_durations.py` writes it from each shard's JUnit report, recorded as CI runs them), a test it lacks counting as the mean. 7.3–9 minutes for the slowest of four shards on hosted runners while a module's tests that shared a fixture ran on one worker (2026-11), against 44 for the whole suite one test at a time; grouped by run and in six, the slowest shard took 188 s on a homelab runner pinned to four CPUs, where the slowest of the old four took 330 s |
+| `unit-oldest` | `Unit tests on Python 3.13 (1/6)`: the first shard again, on the oldest Python the project takes (`pyproject.toml`'s `requires-python`; the setup action's `python-version`), where every other job runs on the action's default, 3.14, the checkout's own environment's: what only a newer Python has fails here (`tests/unit/test_ci.py` holds the version to the floor and the shard to the `unit` job's count) |
+| `engine` | `Engine tests (<system>, Python <version>)`: `just test engine`, the new engine's tests (`tests/unit/test_aw_*.py`, marked `engine`), on `ubuntu-latest` and on a hosted macOS runner, `macos-26` (arm64), each on Python 3.13 and 3.14 - the floor and the setup action's default - four jobs, none stopping another. The one place macOS runs the suite: a throwaway machine, never a developer's Mac. Its runner is named by its version, never `macos-latest`, which GitHub moves under a workflow, so a new macOS is a change made here; and it installs nothing but what the setup action and `just install` do. A test that cannot run on one system is skipped there by a mark that says why (`tests/unit/test_ci.py` holds the two systems, the two Pythons and the pinned runner) |
 | `dependency-review` | PRs only, fails on moderate severity |
 | `molecule` | matrix over all eight roles, `just test --role <role>`, from the start of the run: behind `lint` a run took the unit suite's time plus the slowest scenario's |
 | `playbooks` | matrix over the `configure` scenario, `just test integration`, and the `provision` scenario's two halves, `just test provision` with `MOLECULE_PROVISION_VERIFY` naming `verify_fleet.yml` or `verify_code.yml` ([§11.3](testing.md#113-playbook-scenarios--just-test-integration-and-provision)), from the start of the run too: whole, the provision scenario was the run's longest job, about eight minutes, and its halves end in about five |
@@ -14,9 +16,16 @@
 | `canary` | schedule/dispatch only: checks that the cloud image URL in `roles/proxmox_template/defaults/main.yml` still answers and that Ubuntu's `SHA256SUMS` still lists it, then runs `configure` against the **unpinned** Ubuntu container image (`MOLECULE_IMAGE=...:latest`); allowed to fail — that failure is the notification |
 | `result` | `CI result`: `needs` every job but the canary, `if: always()`, and fails unless each one succeeded or was skipped. The one check branch protection requires: a job added to the gate, or a matrix entry, is held to it without a settings change, and jobs can be split or renamed under it. Required alone it would fail open for a job left out of its `needs` or allowed to fail, so `tests/unit/test_ci.py` holds `needs` to every job but the canary, `if: always()`, no `continue-on-error`, and runs its script on what GitHub hands it |
 
-`.github/actions/setup` is a composite action installing Python 3.12 and uv (at the version
-`uv.lock` pins), making a virtualenv first on `PATH` (`activate-environment`), restoring the uv and Galaxy caches, and
-running `just install`, which installs into that virtualenv as into any of a user's. The Galaxy cache holds the
+`.github/actions/setup` is a composite action installing Python - its `python-version` input, by default 3.14, the
+justfile's `managed_python`, which the launcher `aw` names too (`tests/unit/test_justfile.py` holds the three to
+one) - and uv (at the version `uv.lock` pins), making a virtualenv first on `PATH` (`activate-environment`), installing
+`just` from upstream's archive for the runner's system - x86_64 Linux's or arm64 macOS's, each checked against its own
+SHA256 beside the one version (`JUST_SHA256`, `JUST_SHA256_MACOS`), and refusing a runner of any other system before
+it downloads anything - restoring the uv and Galaxy caches, and running `just install`, which installs into that
+virtualenv as into any of a user's. The step compares the archive's digest with its pin itself, as a string, the
+digest `shasum -a 256`'s (Perl's, on both runners): no checker's reading of a line decides, since each runner has a
+`sha256sum` too, Ubuntu's GNU one and macOS 26's Apple one in `/sbin`, and Apple's passes a line it cannot read (an
+empty pin, or one a digit short) with exit 0. The Galaxy cache holds the
 checkout's own collections folder (`tools/env-run --collections`), and its key hashes
 `requirements.yml`, which is only correct because those versions are exact. With `install: "false"` it stops
 after Python and uv: the docs workflow takes them from it, so their pins are written once. Every checkout, in every

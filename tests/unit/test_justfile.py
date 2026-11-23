@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import atexit
 import contextlib
+import hashlib
 import json
 import os
 import pty
@@ -45,6 +46,7 @@ import time
 from pathlib import Path
 
 import pytest
+import tomllib
 import yaml
 from harness import GIT_ENV, _default_signals, _version, just_settings, load_module
 from harness import just_json as _json
@@ -256,6 +258,247 @@ def test_the_pinned_version_is_one_version() -> None:
         str(step["env"]["JUST_VERSION"]) for step in action["runs"]["steps"] if "JUST_VERSION" in step.get("env", {})
     )
     assert minimum == _pinned() == ci, (minimum, _pinned(), ci)
+
+
+SETUP = REPO / ".github" / "actions" / "setup" / "action.yml"
+# What the setup action pins of just's release: each system's archive, by the variable that holds its SHA256.
+JUST_ARCHIVES = {"JUST_SHA256": "x86_64-unknown-linux-musl", "JUST_SHA256_MACOS": "aarch64-apple-darwin"}
+
+
+def _just_step() -> dict:
+    """The setup action's step that installs just: the one that names its version."""
+    action = yaml.safe_load(SETUP.read_text())
+    (step,) = [step for step in action["runs"]["steps"] if "JUST_VERSION" in step.get("env", {})]
+    return step
+
+
+def test_every_sha256_of_the_setup_action_is_beside_the_one_just_version() -> None:
+    # Each system's archive has its SHA256 in the one step whose JUST_VERSION the test above holds to the justfile's
+    # pin: a SHA256 anywhere else in the action, or an older version's left under another name, would be one no bump
+    # of the version moves. Which variable is which system's, the runs below hold.
+    step = _just_step()
+    assert str(step["env"]["JUST_VERSION"]) == _pinned()
+    pins = {name: value for name, value in step["env"].items() if name.startswith("JUST_SHA256")}
+    assert set(pins) == set(JUST_ARCHIVES), pins
+    assert all(re.fullmatch(r"[0-9a-f]{64}", value) for value in pins.values()), pins
+    assert len(set(pins.values())) == len(pins), pins
+    assert set(re.findall(r"\b[0-9a-f]{64}\b", SETUP.read_text())) == set(pins.values())
+
+
+# The archive the stand-in curl writes, and a SHA256 of something else.
+ARCHIVE = hashlib.sha256(b"an archive of the test's own\n").hexdigest()
+OTHER = hashlib.sha256(b"another archive\n").hexdigest()
+# Apple's sha256sum, as macOS 26 has it in /sbin (one of /sbin/md5's links: md5(1) in its coreutils mode), first on the
+# macOS runner's PATH. Read with -c, it checks a line it can read, and passes one it cannot - an empty digest, or one a
+# digit short - with a warning and exit 0, or exit 1 under --strict, and no line at all with exit 0 even then; without
+# -c it prints the digest of what it reads (macOS 26.7.3's own tool on a scratch file, 2026-11-22). @SHASUM@ is this
+# machine's shasum, which computes the digests.
+APPLE_SHA256SUM = r"""#!/bin/sh
+printf 'sha256sum %s\n' "$*" >> "$CALLS"
+case " $* " in *" -c "*) ;; *) exec @SHASUM@ -a 256 "$@" ;; esac
+strict=
+for word in "$@"; do [ "$word" != --strict ] || strict=1; done
+bad=0
+while IFS= read -r line; do
+  digest=${line%%  *} file=${line#*  }
+  case $digest in *[!0-9a-f]* | '') bad=$((bad + 1)); continue ;; esac
+  [ "${#digest}" -eq 64 ] || { bad=$((bad + 1)); continue; }
+  got=$(@SHASUM@ -a 256 < "$file")
+  [ "${got%% *}" = "$digest" ] || { echo "$file: FAILED"; exit 1; }
+  echo "$file: OK"
+done
+[ "$bad" -eq 0 ] && exit 0
+echo "sha256sum: WARNING: $bad line is improperly formatted" >&2
+[ -z "$strict" ]
+"""
+
+
+def _checker_recording(name: str, real: str) -> str:
+    """A stand-in that records its words and runs this machine's program."""
+    return f'#!/bin/sh\nprintf "{name} %s\\n" "$*" >> "$CALLS"\nexec {real} "$@"\n'
+
+
+def _pins(right: str, value: str) -> dict[str, str]:
+    """The setup action's pins: the variable right holds value, every other the SHA256 of something else."""
+    return {name: value if name == right else OTHER for name in JUST_ARCHIVES}
+
+
+def _install_just(
+    tmp_path: Path, system: str, arch: str, pins: dict[str, str]
+) -> tuple[subprocess.CompletedProcess, list[str]]:
+    """The setup action's just step as GitHub runs a composite step's (bash, -e and pipefail) on a runner of that system
+    and arch, its JUST_SHA256* variables the pins given. On PATH nothing but a stand-in curl that writes an archive of
+    the test's own and records the URL, a stand-in tar that records its words, mkdir, and the two checkers the runner
+    has, each recording its words: this machine's shasum, and a sha256sum - on macOS Apple's (APPLE_SHA256SUM), on any
+    other system this machine's own where it has one. The run, and the calls the stand-ins recorded."""
+    bin_dir, calls = tmp_path / "bin", tmp_path / "calls"
+    bin_dir.mkdir()
+    (bin_dir / "curl").write_text(
+        '#!/bin/sh\nout=\nwhile [ "$#" -gt 1 ]; do [ "$1" = -o ] && out=$2; shift; done\n'
+        'printf "curl %s\\n" "$1" >> "$CALLS"\nprintf "an archive of the test\'s own\\n" > "$out"\n'
+    )
+    (bin_dir / "tar").write_text('#!/bin/sh\nprintf "tar %s\\n" "$*" >> "$CALLS"\n')
+    shasum = shutil.which("shasum")
+    (bin_dir / "shasum").write_text(_checker_recording("shasum", shasum))
+    if system == "macOS":
+        (bin_dir / "sha256sum").write_text(APPLE_SHA256SUM.replace("@SHASUM@", shasum))
+    elif shutil.which("sha256sum"):
+        (bin_dir / "sha256sum").write_text(_checker_recording("sha256sum", shutil.which("sha256sum")))
+    for tool in bin_dir.iterdir():
+        tool.chmod(0o755)
+    (bin_dir / "mkdir").symlink_to(shutil.which("mkdir"))
+    step = _just_step()
+    env = {
+        "PATH": str(bin_dir),
+        "CALLS": str(calls),
+        "RUNNER_OS": system,
+        "RUNNER_ARCH": arch,
+        "RUNNER_TEMP": str(tmp_path / "temp"),
+        "GITHUB_PATH": str(tmp_path / "github-path"),
+        "JUST_VERSION": str(step["env"]["JUST_VERSION"]),
+        **pins,
+    }
+    run = subprocess.run(
+        ["/bin/bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step["run"]],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    return run, calls.read_text().splitlines() if calls.exists() else []
+
+
+def _archive_refused(archive: str, pin: str) -> str:
+    """What the step says of an archive whose SHA256 is not its pin."""
+    return (
+        f"::error::the SHA256 of {archive} is {ARCHIVE}, where its pin is '{pin}' (.github/actions/setup/action.yml)\n"
+    )
+
+
+NEEDS_SHASUM = pytest.mark.skipif(shutil.which("shasum") is None, reason="this machine has no shasum")
+# Each hosted runner, with the variable that pins its archive's SHA256.
+RUNNERS = [
+    pytest.param("Linux", "X64", "JUST_SHA256", id="linux"),
+    pytest.param("macOS", "ARM64", "JUST_SHA256_MACOS", id="macos"),
+]
+
+
+@NEEDS_SHASUM
+@pytest.mark.parametrize(("system", "arch", "pin"), RUNNERS)
+def test_the_setup_action_installs_the_just_archive_of_the_runner_s_system_held_to_its_own_sha256(
+    tmp_path, system, arch, pin
+) -> None:
+    version = str(_just_step()["env"]["JUST_VERSION"])
+    archive = f"just-{version}-{JUST_ARCHIVES[pin]}.tar.gz"
+    run, calls = _install_just(tmp_path, system, arch, _pins(pin, ARCHIVE))
+    assert run.returncode == 0, (run.stdout, run.stderr)
+    folder = tmp_path / "temp" / "just"
+    # The digest is shasum's of the archive on its standard input, on both runners: never the sha256sum each has.
+    assert calls == [
+        f"curl https://github.com/casey/just/releases/download/{version}/{archive}",
+        "shasum -a 256",
+        f"tar -xzf {folder / archive} -C {folder} just",
+    ]
+    assert (tmp_path / "github-path").read_text() == f"{folder}\n"
+
+
+@NEEDS_SHASUM
+@pytest.mark.parametrize(("system", "arch", "pin"), RUNNERS)
+def test_an_archive_that_is_not_the_one_its_system_s_sha256_names_is_never_unpacked(
+    tmp_path, system, arch, pin
+) -> None:
+    # The archive is the other system's pin's: each system is held to its own.
+    (elsewhere,) = set(JUST_ARCHIVES) - {pin}
+    archive = f"just-{_just_step()['env']['JUST_VERSION']}-{JUST_ARCHIVES[pin]}.tar.gz"
+    run, calls = _install_just(tmp_path, system, arch, _pins(elsewhere, ARCHIVE))
+    assert run.returncode == 1, (run.stdout, run.stderr)
+    assert run.stdout == _archive_refused(archive, OTHER)
+    assert [call.split()[0] for call in calls] == ["curl", "shasum"], calls
+    assert not (tmp_path / "github-path").exists()
+
+
+@NEEDS_SHASUM
+@pytest.mark.parametrize(("system", "arch", "pin"), RUNNERS)
+@pytest.mark.parametrize("malformed", ["", ARCHIVE[:-1]], ids=["empty", "a-digit-short"])
+def test_a_pin_that_is_no_sha256_is_refused_on_each_runner_whatever_its_sha256sum_passes(
+    tmp_path, system, arch, pin, malformed
+) -> None:
+    # macOS's own sha256sum, first on that runner's PATH, passes a line with either pin and exits 0 (the test below):
+    # the step compares the digest itself, so each is refused as a wrong one is, on both runners, and tar never runs.
+    archive = f"just-{_just_step()['env']['JUST_VERSION']}-{JUST_ARCHIVES[pin]}.tar.gz"
+    run, calls = _install_just(tmp_path, system, arch, _pins(pin, malformed))
+    assert run.returncode == 1, (run.stdout, run.stderr)
+    assert run.stdout == _archive_refused(archive, malformed)
+    assert [call.split()[0] for call in calls] == ["curl", "shasum"], calls
+    assert not (tmp_path / "github-path").exists()
+
+
+@NEEDS_SHASUM
+def test_the_stand_in_for_macos_s_sha256sum_passes_a_line_it_cannot_read_as_macos_26_s_own_does(tmp_path) -> None:
+    # Held to what macOS 26's /sbin/sha256sum did, so that the test above meets a checker that fails open where
+    # Apple's does: were the stand-in stricter than Apple's, that test would hold nothing on macOS's road.
+    tool, calls, archive = tmp_path / "sha256sum", tmp_path / "calls", tmp_path / "archive"
+    tool.write_text(APPLE_SHA256SUM.replace("@SHASUM@", shutil.which("shasum")))
+    tool.chmod(0o755)
+    archive.write_bytes(b"an archive of the test's own\n")
+
+    def check(lines: str, *words: str) -> int:
+        env = {"PATH": "/usr/bin:/bin", "CALLS": str(calls)}
+        run = subprocess.run(
+            [tool, *words, "-c", "-"], input=lines, env=env, capture_output=True, text=True, timeout=60, check=False
+        )
+        return run.returncode
+
+    # Each line's digest, and the exit status with -c alone and with --strict as well.
+    for digest, alone, strict in [(ARCHIVE, 0, 0), (OTHER, 1, 1), ("", 0, 1), (ARCHIVE[:-1], 0, 1)]:
+        line = f"{digest}  {archive}\n"
+        assert (check(line), check(line, "--strict")) == (alone, strict), digest
+    assert (check(""), check("", "--strict")) == (0, 0)
+    env = {"PATH": "/usr/bin:/bin", "CALLS": str(calls)}
+    printed = subprocess.run(
+        [tool], input=archive.read_bytes(), env=env, capture_output=True, timeout=60, check=True
+    ).stdout
+    assert printed == f"{ARCHIVE}  -\n".encode()
+
+
+@NEEDS_SHASUM
+@pytest.mark.parametrize(("system", "arch"), [("Linux", "ARM64"), ("macOS", "X64"), ("Windows", "X64")])
+def test_a_runner_with_no_just_archive_pinned_fails_before_anything_is_downloaded(tmp_path, system, arch) -> None:
+    run, calls = _install_just(tmp_path, system, arch, dict.fromkeys(JUST_ARCHIVES, ARCHIVE))
+    assert run.returncode == 1, (run.stdout, run.stderr)
+    said = f"::error::no just archive is pinned for {system} on {arch} (.github/actions/setup/action.yml)\n"
+    assert run.stdout == said
+    assert calls == []
+
+
+def _floor() -> tuple[int, int]:
+    """pyproject.toml's requires-python, the oldest Python the project takes, as (major, minor)."""
+    requires = tomllib.loads((REPO / "pyproject.toml").read_text())["project"]["requires-python"]
+    floor = re.fullmatch(r">=([0-9]+)\.([0-9]+)", requires)
+    assert floor, requires
+    return int(floor[1]), int(floor[2])
+
+
+def test_the_managed_python_is_one_version() -> None:
+    # The Python the checkout's own environment is made on, written three times: the justfile's, which just install
+    # makes it with; the launcher's, which aw makes it with on first use; and CI's, the setup action's default.
+    justfile = re.search(r"(?m)^managed_python := '([0-9.]+)'$", JUSTFILE.read_text())
+    launcher = re.search(r"(?m)^managed_python=([0-9.]+)$", (REPO / "aw").read_text())
+    action = yaml.safe_load((REPO / ".github" / "actions" / "setup" / "action.yml").read_text())
+    ci = str(action["inputs"]["python-version"]["default"])
+    assert justfile and launcher and justfile[1] == launcher[1] == ci, (justfile, launcher, ci)
+    assert tuple(int(part) for part in ci.split(".")) >= _floor()
+
+
+def test_the_floor_is_one_version() -> None:
+    # requires-python, which uv holds the lock to, is what ruff checks lib/ against and what the sentences say:
+    # just install's refusal and tools/env-run's way to make a virtualenv.
+    major, minor = _floor()
+    ruff = tomllib.loads((REPO / "pyproject.toml").read_text())["tool"]["ruff"]
+    assert ruff["per-file-target-version"]["lib/**"] == f"py{major}{minor}"
+    assert JUSTFILE.read_text().count(f"needs Python {major}.{minor} or later") == 1
+    assert f"make one of Python {major}.{minor} or later" in (REPO / "tools" / "env-run").read_text()
 
 
 def test_no_recipe_has_a_dependency() -> None:
@@ -1421,6 +1664,59 @@ def test_install_refuses_the_base_python_of_the_tests_virtualenv() -> None:
     assert "is not the Python of a virtualenv" in _output(refused)
 
 
+def _python_reporting(tmp_path: Path, version: str, name: str = "python") -> Path:
+    """A Python that says it is `version` when asked as a person asks one (`python --version`), and is the tests' own,
+    a virtualenv's, for anything else."""
+    python = tmp_path / f"reports-{version}" / name
+    python.parent.mkdir()
+    python.write_text(
+        "#!/bin/sh\n"
+        f'if [ "$#" -eq 1 ] && [ "$1" = --version ]; then echo "Python {version}"; exit 0; fi\n'
+        f'exec "{sys.executable}" "$@"\n'
+    )
+    python.chmod(0o755)
+    return python
+
+
+# The floor's sentence: Python 3.13, which the program aw and ansible-core 2.22 need, and the two ways out.
+BELOW_THE_FLOOR = (
+    "error: [{named}] is Python {version}, and this project needs Python 3.13 or later, as its program aw and"
+    " ansible-core 2.22 do: make a virtualenv of Python 3.13 or later and activate it or name it with PYTHON, or bring"
+    " none - PYTHON unset and python3 no virtualenv's - and just install makes this checkout's own with uv."
+)
+
+
+@pytest.mark.parametrize("version", ["3.12.7", "3.10.14", "3.9.6"])
+@pytest.mark.parametrize("given", ["PYTHON", "python3"])
+def test_install_refuses_a_virtualenv_below_the_floor_before_uv_starts(tmp_path: Path, version, given) -> None:
+    # Named by PYTHON, or python3 as this directory's shell finds it when that is a virtualenv: said by what it was
+    # given as, in one sentence, and nothing synced or installed.
+    python = _python_reporting(tmp_path, version, "python" if given == "PYTHON" else "python3")
+    _stand_in(tmp_path / "bin", "ansible-galaxy", NOT_THE_PINS)
+    settings = [f"UV={_uv(tmp_path)}", f"BIN={tmp_path / 'bin'}"]
+    if given == "PYTHON":
+        result = _just("install", settings=[f"PYTHON={python}", *settings])
+    else:
+        first = {"PATH": f"{python.parent}{os.pathsep}{_env()['PATH']}"}
+        result = _just("install", settings=["PYTHON=", *settings], env=first)
+    assert result.returncode == 1, _output(result)
+    named = python if given == "PYTHON" else "python3"
+    assert result.stderr.splitlines()[-1] == BELOW_THE_FLOOR.format(named=named, version=version), _output(result)
+    assert "Installing" not in result.stdout
+    assert _runs(tmp_path, "uv") == [] and _runs(tmp_path, "ansible-galaxy") == []
+
+
+@pytest.mark.parametrize("version", ["3.13.0", "3.14.2", "3.15.1"])
+def test_install_takes_a_virtualenv_at_or_above_the_floor(tmp_path: Path, version: str) -> None:
+    python = _python_reporting(tmp_path, version)
+    _stand_in(tmp_path / "bin", "ansible-galaxy", NOT_THE_PINS)
+    result = _just("install", settings=[f"PYTHON={python}", f"UV={_uv(tmp_path)}", f"BIN={tmp_path / 'bin'}"])
+    assert result.returncode == 0, _output(result)
+    assert "needs Python" not in _output(result)
+    # The Python it named, as that Python says it is: the tests' own, behind the stand-in.
+    assert _runs(tmp_path, "uv")[0][:5] == ["sync", "--locked", "--inexact", "--python", sys.executable]
+
+
 @pytest.mark.parametrize(
     "args",
     [["status"], ["lint", "yaml"], ["docs"], ["vault"], ["test", "unit"], ["code", "alpha"], ["settings", "tailscale"]],
@@ -2142,7 +2438,7 @@ def test_install_makes_this_checkout_s_own_environment_with_uv_when_there_is_non
         "--locked",
         "--managed-python",
         "--python",
-        "3.13",
+        "3.14",
     ]
     assert (tmp_path / "uv-env").read_text().splitlines() == [f"{data}/venv", "automatic"]
     assert (tmp_path / "galaxy.args").read_text().split() == [

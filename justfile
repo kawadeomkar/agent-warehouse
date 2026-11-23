@@ -55,8 +55,9 @@ PYTHON := env('PYTHON', '')
 # yourself (https://docs.astral.sh/uv/getting-started/installation/, e.g.
 # `brew install uv`); it never downloads a Python for an environment of yours.
 UV := env('UV', 'uv')
-# The Python version this checkout's own environment runs on.
-managed_python := '3.13'
+# The Python version this checkout's own environment runs on, which CI's runs on too (.github/actions/setup) and the
+# launcher, aw, names: tests/unit/test_justfile.py holds the three to one.
+managed_python := '3.14'
 # Anything else for ansible-playbook, as the shell words they are, exported
 # or before the recipe: just ANSIBLE_ARGS='-vvv -f 30' deploy alpha.
 ANSIBLE_ARGS := env('ANSIBLE_ARGS', '')
@@ -406,7 +407,10 @@ init ADDRESS='' ON='' TOKEN_USER='' TOKEN_ID='' TOKEN_SECRET_FILE='' GITHUB_USER
 # (managed_python), and keeps exactly the lock's. One of yours it syncs
 # --inexact: a package the lock does not list - yours, or another project's in
 # an environment that serves both - stays where it is; --python names its
-# interpreter, so uv never swaps it for another, and downloads none. Before the sync, tools/stale_scripts.py names each locked package
+# interpreter, so uv never swaps it for another, and downloads none; one older
+# than pyproject.toml's floor, requires-python, is refused before uv starts, in
+# one sentence that names the floor and the two ways out, rather than in uv's
+# words about the lock. Before the sync, tools/stale_scripts.py names each locked package
 # with a command that starts a Python outside the environment's bin - uv
 # writes the path the environment was synced by into every command, so a sync
 # through a link into it (the .venv make venv once made) left them naming the
@@ -442,7 +446,17 @@ install LOCK='':
     case "$which" in
     own\ *)
       {{ find_bin }}
-      python=$("${which#own }" -c 'import sys; print(sys.executable)')
+      # The floor, as the Python named says its version (the first line: "Python 3.12.7"). Below 3.13 is 0.x to 3.9.x,
+      # 3.10.x, 3.11.x and 3.12.x.
+      named=${which#own }
+      version=$("$named" --version 2>&1 | sed -n 1p)
+      case "$version" in
+      "Python "[0-2].* | "Python 3."[0-9].* | "Python 3.1"[0-2].*)
+        echo "error: [$named] is $version, and this project needs Python 3.13 or later, as its program aw and ansible-core 2.22 do: make a virtualenv of Python 3.13 or later and activate it or name it with PYTHON, or bring none - PYTHON unset and python3 no virtualenv's - and just install makes this checkout's own with uv." >&2
+        exit 1
+        ;;
+      esac
+      python=$("$named" -c 'import sys; print(sys.executable)')
       prefix=$("$python" -c 'import sys; print(sys.prefix)')
       reinstall=$("$python" -I tools/stale_scripts.py)
       UV_PYTHON_DOWNLOADS=never UV_PROJECT_ENVIRONMENT="$prefix" {{ quote(UV) }} sync --locked --inexact --python "$python" $reinstall

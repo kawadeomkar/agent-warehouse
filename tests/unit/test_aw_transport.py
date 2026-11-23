@@ -35,6 +35,7 @@ import threading
 import time
 import traceback
 import types
+import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
@@ -1612,13 +1613,33 @@ def test_where_the_environment_names_no_proxy_the_system_s_is_taken(system) -> N
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="macOS's network settings")
-def test_on_macos_the_system_s_proxy_is_the_one_the_standard_library_reads(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("url", "chosen"),
+    [
+        ("https://vendor.example/", "http://mac:3128"),
+        (ADDRESS, "http://mac:3128"),
+        # Bypassed by the settings' exceptions, as the standard library parses them: a name's wildcard, an address in
+        # a range written short, and a simple host name where the settings exclude simple names.
+        (URL, None),
+        ("https://10.0.3.4:8006/", None),
+        ("https://pve:8006/", None),
+    ],
+)
+def test_on_macos_the_system_s_proxy_is_the_one_the_standard_library_reads(monkeypatch, url, chosen) -> None:
+    # The system's settings stood in for below urllib.request's own readers: _scproxy's two, as urllib.request holds
+    # them, so that what choose takes is what the standard library makes of the settings, its parsing of the
+    # exceptions included, and nothing of this Mac's own is read (review/code/B1.md 5).
     monkeypatch.setattr(proxy, "_system_proxies", SYSTEM_PROXIES)
     monkeypatch.setattr(proxy, "_system_bypass", SYSTEM_BYPASS)
-    monkeypatch.setattr(urllib.request, "getproxies_macosx_sysconf", lambda: {"https": "http://mac:3128"})
-    monkeypatch.setattr(urllib.request, "proxy_bypass_macosx_sysconf", lambda host: host == "pve.lan")
-    assert proxy.choose(proxy.ENVIRONMENT, {}, "https://other.lan/") == "http://mac:3128"
-    assert proxy.choose(proxy.ENVIRONMENT, {}, URL) is None
+    settings = {"exclude_simple": True, "exceptions": ["*.lan", "10.0/16", ""]}
+    monkeypatch.setattr(urllib.request, "_get_proxies", lambda: {"http": "http://mac:3128", "https": "http://mac:3128"})
+    monkeypatch.setattr(urllib.request, "_get_proxy_settings", lambda: dict(settings))
+    # The standard library's whole reading takes the environment's proxies first: there are none.
+    for name in [name for name in os.environ if name.lower().endswith("_proxy")]:
+        monkeypatch.delenv(name)
+    host = urllib.parse.urlsplit(url).hostname
+    stdlib = None if urllib.request.proxy_bypass(host) else urllib.request.getproxies().get("https")
+    assert proxy.choose(proxy.ENVIRONMENT, {}, url) == stdlib == chosen
 
 
 @pytest.mark.skipif(sys.platform == "darwin", reason="Linux has no proxy settings but the environment's")

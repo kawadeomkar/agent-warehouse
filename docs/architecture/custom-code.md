@@ -140,7 +140,7 @@ list of branches leaves it to clone, as before),
 and the account as `user` (`login`, `name`, `id`), from `/user` when the token is the user's own and
 `/users/<login>` otherwise, for the git identity the role derives.
 
-Written against the managed VM's Python — `ruff` targets `py310`, not the controller's 3.12+.
+Written against the managed VM's Python — `ruff` targets `py310`, not the controller's 3.13+.
 Covered by 32 unit tests in `tests/unit/test_github_repos.py`.
 
 ---
@@ -1140,7 +1140,7 @@ test of a running `claude`, held equal to it by `tests/unit/test_code_session.py
   that import their core module only when one is called: every worker executes every file in `filter_plugins/` at
   its first lookup of any filter. `plugin.own` checks, once per process, that the `claude_vm` imported is the
   adapter's own checkout's, by `os.path.samefile`, since APFS ignores case and a resolved path keeps the case it was
-  given. pytest finds the package through `pythonpath` in `pyproject.toml`; ruff checks `lib/` against Python 3.12.
+  given. pytest finds the package through `pythonpath` in `pyproject.toml`; ruff checks `lib/` against Python 3.13.
 - **The editors' plans** (`editors/`). A window of `just code` is a plan, data: what it refuses, the directories and
   files it writes in just code's directory on the VM (by names relative to it), the helpers it copies (by name), the
   folder or file it opens, and what it says. Each editor family is a module of free functions with one,

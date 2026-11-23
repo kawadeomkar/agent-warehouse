@@ -38,7 +38,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # Python and uv as every CI job has them: the runner's 3.12, which uv
+      # Python and uv as every CI job has them: the action's Python, which uv
       # uses rather than downloading one, and the uv uv.lock pins - the action's
       # pins, written there alone - and nothing more of the toolchain.
       - uses: ./.github/actions/setup

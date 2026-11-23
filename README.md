@@ -85,7 +85,7 @@ just init            # installs the tools, asks for your GitHub username, a VPN 
 
 `just init` first makes the project's Python environment with uv - a Python uv downloads, and the locked
 tools - in a folder of this checkout's own outside it (`~/.local/share/agent-warehouse/`), with the
-Galaxy collections beside it. To use a virtualenv of your own instead (Python 3.12 or later), activate it,
+Galaxy collections beside it. To use a virtualenv of your own instead (Python 3.13 or later), activate it,
 or name its Python with `PYTHON=`, before `just init`.
 
 Enter at a question leaves it for the next `just init`. What you answer goes into three git-ignored files,
