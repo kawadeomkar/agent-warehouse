@@ -73,7 +73,8 @@ literal mapping from a name (`vm_name`, `host_name`, `cores`, `repos`, `session`
 written by hand: the pattern's inner text, with no anchor, which holds a value; its form in words, what a value may be
 as a person reads it; and values it takes, as examples, with whether the form shows the first. The table of verbs and
 options names a pattern for each option and for a verb's words, and nothing else in the new engine writes one.
-`full(name, value)` is the one way to hold a value to a pattern: it holds the value whole, with `re.fullmatch` of the
+One pattern no option takes: `fleet_id`, the ID the pool's mark and an adopted machine's marker carry, a UUID in its
+lowercase canonical form (16.9). `full(name, value)` is the one way to hold a value to a pattern: it holds the value whole, with `re.fullmatch` of the
 named pattern's text compiled once on its first use, so a value with a newline after it is refused, and a name
 `PATTERNS` does not have raises `KeyError`. An option's pattern takes the empty value where today's does, since an
 empty value is no value given. A rule that is more than one pattern is the check's, never this module's: two values
@@ -1226,11 +1227,13 @@ run's end on a signal, and a run detached as the same program in a session of it
 
 **A job: `job.py`.** Every run is a job, at a terminal or detached. `create(jobs_dir, verb, command, host, machines,
 starter, attached)` makes `jobs/<id>/` in the state folder (`paths.jobs_dir`), with any folder above it that is
-missing, at mode 0700, the ID sixteen hex digits as today's MCP jobs have. Before anything else is written it opens the
+missing, at mode 0700, the jobs folder through `fleet/files.py` (16.9), refused where a link stands in its place, the ID
+sixteen hex digits as today's MCP jobs have. Before anything else is written it opens the
 job's `lock` (0600) and takes `flock(LOCK_EX)` on it; then it writes `job.json` (0600). The descriptor stays open for
 the life of the process that made the job, and, as Python opens every descriptor, no child inherits it: the kernel lets
 the lock go when that process ends, however it ends, so nothing is ever left to clear. Every value is checked before
-anything is made, and the module is the standard library alone, with `store`, `text`, `secret` and the patterns.
+anything is made, and the module is the standard library alone, with `store`, `text`, `secret`, the patterns and the
+fleet's folders (`fleet/files.py`).
 
 | Field of `job.json` | Holds |
 |---|---|
@@ -1384,9 +1387,9 @@ shared connection lives in the one control directory. `tests/unit/test_aw_rundir
 no write in the module, by any of the codebase's ways (`store.replace`, a copy, a link, a rename, a folder made).
 
 **The locks: `locks.py`.** Two runs are kept apart by the kernel's file locks, `flock` on files of the state folder's
-`locks/` (`paths.locks_dir`), each opened in this module alone at mode 0600, never through a link, and kept open for as
-long as it is held. As Python opens every descriptor, no child inherits one, and `children.start` refuses one by its
-name (`HOLDERS` reads `locks_held`). The kernel lets a lock go when its process ends, however it ends, so nothing is
+`locks/` (`paths.locks_dir`, made through `fleet/files.py`, never a link), each opened in this module alone at mode
+0600, never through a link, and kept open for as long as it is held. As Python opens every descriptor, no child
+inherits one, and `children.start` refuses one by its name (`HOLDERS` reads `locks_held`). The kernel lets a lock go when its process ends, however it ends, so nothing is
 ever released by hand and nothing is left to clear; no pid and no process's start is read to decide a lock. That rests
 on one rule: **a lock file is never removed**, nor `locks/`, nor the state folder that holds it, and every cleanup keeps
 `locks/`, a few empty files. A `flock` is held on the file, not on its name: once a file is unlinked under its holder,
@@ -1784,6 +1787,49 @@ fleet that can be used. A `Host`'s `local_file`, `vault_file`, `hosts_file` and 
 read by no module of the new engine. `tests/unit/test_aw_fleet_hosts.py` holds it: today's cases of the layout and the
 choice on the new folders, each field's rule with no value said, the anchor beside its kind, the one writer of the
 current host, the literal list of `host.yml`'s fields, and the scan for today's files.
+
+**The fleet's folders: `files.py`.** Every folder of the fleet's and of its state is made by `folder(path)`: where it is
+missing, it and each missing folder above it at 0700, from the top down, the mode set and never left to the umask;
+where it is there, it must be a folder itself, never a link to one (`Unsafe`, said with what to do), and it keeps its
+mode, since the data folder already holds `tools/env-run`'s `checkouts/` at the umask's mode. A folder above the one
+asked for that is there is the person's and taken as it is, a link among them (a `~/.config` kept in a dotfiles folder,
+macOS's `/var`). `write(path, text)` writes a file whole through `store.replace`, its folder made by `folder`, a new
+file at 0600, one that is there keeping its mode, and through a link the file it names replaced: a file is one a person
+may keep elsewhere on purpose, a folder everything beneath it. `fleet.json`, the jobs folder (`runs/job.py`) and the
+locks folder (`runs/locks.py`) are made through it, and nothing else of `fleet/` or `runs/` makes a folder but a job's
+own, inside the jobs folder, and a run's short-lived directory (16.8).
+
+**The fleet's ID and its record: `record.py`.** `fleet/fleet.json` is the computer's own record of a fleet:
+`FleetRecord(format, fleet, stores)`, the format of the file itself, the fleet's ID and the format number of every
+store (`STORES`: the vault, the settings, the hosts, and the jobs, whose `job.json` carries no number of its own).
+`new_id()` makes a fleet's ID, a random UUID in its lowercase canonical form, held to `fleet_id` (16.2), the one
+pattern the pool's mark and an adopted machine's marker share, and `first(fleet)` is the record a new fleet starts
+with, at this program's formats (`KNOWN`). The record names no controller: the pool's mark says that, and nothing in the
+base copies the mark into a record. `read(where)` returns the record of the fleet at a home, or none before `init`;
+anything there that is no record is `Unreadable`, said by its path and what is wrong, never by what it holds, and a
+`fleet.json` in a format newer than this program reads is `Newer`, refused by name. `refuse_newer(record, known)` is
+the sentence an older program says for each store a caller reads whose number is above what it reads, naming the
+store; a store a later release adds is read and kept, and this program reads nothing of it. `write(where, record)`
+reads what is there under the lock on the folder first: it never writes over another fleet's record, since a fleet's ID
+never changes, over one it cannot read or a newer one, or a record that would lower or drop a store's number, since no
+program undoes the format a newer one wrote; so of two writers neither undoes the other.
+
+**The pool's mark: `mark.py`.** The pool's comment carries one mark, `agent-warehouse fleet=<id> controller=none`: the
+fleet's ID and whether the fleet has a control VM, `none` or its ID. It names the fleet and its mode, never a computer,
+so a second computer that holds the fleet's folder is not refused; only an administrator of the host writes the comment,
+and the caller reads it with one call of the Proxmox client. `parse(comment)` finds it wherever it stands, its three
+words joined by one space with white space or the comment's ends around it, so a note of the person's own beside it,
+on its line or another, changes nothing; a comment that begins a mark that does not read as one (an ID outside the
+pattern, a field missing or out of place, a line broken inside it), or begins one twice, is `Unreadable`, never a pool
+with no mark, and no sentence says a byte of the comment but an ID that matched its pattern. `render(mark, comment)`
+puts the mark at the comment's end, after one space where it does not end in white space, since Proxmox's page edits
+a pool's comment on one line, and keeps the rest byte for byte; it writes `controller=none` alone, and never over
+another mark or one it cannot read. `may_change(mark, record)` is the rule a changing run reads before its first
+change: nothing where the mark is the fleet's that `fleet.json` names, with no control VM; else one sentence, for a pool
+with no mark, a mark of another fleet (naming both IDs), or a mark that names any control VM: "this fleet has a control
+VM: change it there, or retire it", which the base never writes and always refuses.
+`tests/unit/test_aw_fleet_mark.py` holds the three modules, with a scan that nothing else of `fleet/` or `runs/` makes
+a folder, and that each imports the standard library alone.
 
 ## 16.10 `guest/` — the helper, the system layer's inputs, layer 2
 

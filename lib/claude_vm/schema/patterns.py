@@ -11,7 +11,8 @@ value the pattern takes and a rule refuses (--project's . and ..), a list of nam
 (--tags).
 
 A pattern of the developer's recipes (lint, test, docs, vagrant, clean) is not the command line's, and stays the
-justfile's.
+justfile's. One pattern here no option takes: `fleet_id`, the ID the pool's mark and an adopted machine's marker carry,
+which every reader of either holds a value to here, so that the two never differ.
 
 `form(name)` is how help and a refusal say what a value may be, after the option's or the words' help: its words and
 an example, `[a whole number from 1 to 999, e.g. 8]`, or its words alone where they list the values, where an example
@@ -196,6 +197,14 @@ PATTERNS: dict[str, Pattern] = {
     ),
     # install's --without: the optional part an installed program goes without.
     "dependency_group": Pattern("(mcp)?", "mcp", ("mcp",), shown=False),
+    # No option takes this one: the one ID that the pool's mark (fleet/mark.py) and an adopted machine's marker carry,
+    # a fleet's and a control VM's alike, a UUID in its lowercase canonical form (fleet/record.py's new_id).
+    "fleet_id": Pattern(
+        "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+        "a fleet's ID, or a control VM's: lower-case hex digits in groups of 8, 4, 4, 4 and 12, joined by hyphens",
+        ("6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b",),
+        shown=False,
+    ),
 }
 
 # Each pattern compiled, on its first use.

@@ -17,13 +17,14 @@ the run's own process; no event is written to a file of its own. What an agent a
 is kept in the record: what it waits for, NEXT STEPS, each machine's outcome, and at the end the run's. Every string
 the record and an event hold is made plain (`text.plain_text`), and a `Secret` is refused before anything is written.
 
-Standard library only; `store` replaces the record whole under a lock on its folder, so two writers (the run, and a
-`cancel` recording a stop) lose neither change. Only `create` writes a record from nothing, and only it writes the
-job's ID, its pid and its start. A change reads the record strictly: where it is gone (the job dropped) or is no
-record, the change is refused with `Gone`, and any other error of the read is raised as itself, never said as a job
-that is gone. `drop` unlinks the record under the same lock, so a writer either lands its change before the drop or is
-refused after it, and says what it could not remove. A reader is never refused: from the record's unlink on, `state`
-says there is no such job (None), as `find` and `listed` pass over it.
+Standard library only; the jobs folder is made as every folder of the fleet's is (fleet/files.py), and `store`
+replaces the record whole under a lock on its folder, so two writers (the run, and a `cancel` recording a stop) lose
+neither change. Only `create` writes a record from nothing, and only it writes the job's ID, its pid and its start. A
+change reads the record strictly: where it is gone (the job dropped) or is no record, the change is refused with
+`Gone`, and any other error of the read is raised as itself, never said as a job that is gone. `drop` unlinks the
+record under the same lock, so a writer either lands its change before the drop or is refused after it, and says what
+it could not remove. A reader is never refused: from the record's unlink on, `state` says there is no such job (None),
+as `find` and `listed` pass over it.
 """
 
 from __future__ import annotations
@@ -39,7 +40,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from claude_vm import store
-from claude_vm.fleet import paths
+from claude_vm.fleet import files, paths
 from claude_vm.schema import patterns
 from claude_vm.secret import Secret
 from claude_vm.text import plain_text
@@ -335,23 +336,6 @@ class Job:
         return None
 
 
-def _make_folders(folder: Path) -> None:
-    """folder and each folder above it that is missing, made at DIR_MODE from the top down. One that exists is left
-    as it is."""
-    missing = []
-    while not folder.is_dir():
-        missing.append(folder)
-        if folder.parent == folder:
-            break
-        folder = folder.parent
-    for made in reversed(missing):
-        try:
-            os.mkdir(made, paths.DIR_MODE)
-        except FileExistsError:
-            continue
-        os.chmod(made, paths.DIR_MODE)
-
-
 def create(
     jobs_dir: str | os.PathLike,
     verb: str,
@@ -364,7 +348,9 @@ def create(
     inputs: Mapping[str, object] | None = None,
 ) -> Job:
     """A new job of this process's own: `jobs/<id>/` at mode 0700, its lock taken before anything else is written and
-    held until this process ends, then `job.json` at 0600. Every value is checked before anything is made."""
+    held until this process ends, then `job.json` at 0600. The jobs folder is made as every folder of the fleet's is
+    (fleet/files.py's folder): at 0700 where it is missing, and refused where a link stands in its place. Every value
+    is checked before anything is made."""
     if not isinstance(verb, str) or not verb:
         raise ValueError("a job names its verb")
     if not isinstance(command, str):
@@ -406,8 +392,7 @@ def create(
     }
     record = _plain(record)
     assert isinstance(record, dict)
-    jobs = Path(os.path.abspath(jobs_dir))
-    _make_folders(jobs)
+    jobs = files.folder(jobs_dir)
     for _ in range(8):
         folder = jobs / secrets.token_hex(ID_HEX // 2)
         try:
