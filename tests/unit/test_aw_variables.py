@@ -31,6 +31,7 @@ import subprocess
 import sys
 from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from aw_machine import Machine, layer1_host, machine, target
@@ -188,6 +189,13 @@ def _nested(lists: int, leaf: object) -> object:
     return leaf
 
 
+def _nested_mappings(levels: int, leaf: object) -> object:
+    """leaf inside levels mappings, each of one key."""
+    for _ in range(levels):
+        leaf = {"k": leaf}
+    return leaf
+
+
 # What would make Ansible's JSON decoding fail, so that its loader read the text as YAML; and the keys its decoder reads
 # as its own.
 DECODING = [
@@ -216,9 +224,27 @@ def test_write_refuses_what_ansible_s_json_decoding_would_not_read(made, case, d
 
 def test_write_takes_the_edges_it_refuses_past(made) -> None:
     deepest = variables.DEPTH_MOST - 1
-    edges = {"aw_x": [2**63 - 1, -(2**63)], "aw_y": _nested(deepest, "x"), "aw_z": _nested(deepest, 1)}
-    written = json.loads(variables.write(_vars(made), edges, secrets=()).read_text())
+    edges = {
+        "aw_x": [2**63 - 1, -(2**63)],
+        "aw_y": _nested(deepest, "x"),
+        "aw_z": _nested(deepest, 1),
+        "aw_w": _nested_mappings(deepest, {}),
+    }
+    path = variables.write(_vars(made), edges, secrets=())
+    written = json.loads(path.read_text())
     assert _same(_unwrapped(written), edges)
+    # held's scan of the text takes the deepest file write writes: a wrapped string at the last level is one bracket
+    # more in the text than any value's level.
+    assert variables.held(path) == path
+
+
+@pytest.mark.parametrize("levels", [variables.DEPTH_MOST + 1, 1000, 100_000])
+@pytest.mark.parametrize("shape", [_nested, _nested_mappings], ids=["lists", "mappings"])
+def test_write_refuses_a_nesting_past_the_bound_before_its_walk_goes_deeper(made, shape, levels) -> None:
+    # Python's own recursion gives up near a thousand levels: the refusal is the walk's, never a RecursionError.
+    with pytest.raises(variables.Refused, match="no deeper than 32 levels"):
+        variables.write(_vars(made), {"aw_x": shape(levels, "x")}, secrets=())
+    assert _written(_vars(made).parent) == []
 
 
 class _Own(str):
@@ -249,6 +275,10 @@ def test_write_refuses_a_value_that_holds_itself(made) -> None:
     looped.append(looped)
     with pytest.raises(variables.Refused, match="holds itself"):
         variables.write(_vars(made), {"aw_x": looped}, secrets=())
+    mapping: dict[str, object] = {}
+    mapping["k"] = [mapping]
+    with pytest.raises(variables.Refused, match="holds itself"):
+        variables.write(_vars(made), {"aw_x": mapping}, secrets=())
     # The same value twice, side by side, holds nothing of itself.
     shared = ["x"]
     assert variables.write(_vars(made), {"aw_x": [shared, shared]}, secrets=()).is_file()
@@ -348,27 +378,83 @@ def _hand_made(folder: Path, text: str | bytes) -> Path:
     return path
 
 
-@pytest.mark.parametrize(
-    ("case", "text", "said"),
-    [
-        ("YAML", "aw_x: !unsafe '{{ 7 * 7 }}'\n", "is not the JSON"),
-        ("a list", "[]", "holds a mapping of names to values"),
-        ("a bare string", '{"aw_x": "{{ 7 * 7 }}"}', "is wrapped, so that Ansible never reads it as a template"),
-        ("a bare string, nested", '{"aw_x": [1, {"y": "z"}]}', "is wrapped"),
-        ("a connection's variable", '{"ansible_ssh_common_args": {"__ansible_unsafe": "-o X=y"}}', "names the play's"),
-        ("a wrapper with more", '{"aw_x": {"__ansible_unsafe": "x", "y": 1}}', "the string alone"),
-        ("a wrapper of no string", '{"aw_x": {"__ansible_unsafe": 1}}', "the string alone"),
-        ("a key twice", '{"aw_x": 1, "aw_x": 2}', "names a key twice"),
-        ("not a number", '{"aw_x": NaN}', "no JSON number"),
-        ("a lone surrogate", '{"aw_x": {"__ansible_unsafe": "\\udc80"}}', "no text UTF-8 holds"),
-        ("no UTF-8", b'{"aw_x": {"__ansible_unsafe": "\xff"}}', "cannot be read"),
-        ("nested too deep", '{"aw_x": ' + "[" * 40 + "1" + "]" * 40 + "}", "no deeper than 32"),
-        ("nested past Python's limit", '{"aw_x": ' + "[" * 100000 + "]" * 100000 + "}", "is not the JSON"),
-    ],
-)
+# Files write would not have made, each with what held's refusal says; a case's own name is its test's ID, never its
+# text, which is 200 KB past Python's limit.
+HAND_MADE = [
+    ("YAML", "aw_x: !unsafe '{{ 7 * 7 }}'\n", "is not the JSON"),
+    ("a list", "[]", "holds a mapping of names to values"),
+    ("a bare string", '{"aw_x": "{{ 7 * 7 }}"}', "is wrapped, so that Ansible never reads it as a template"),
+    ("a bare string, nested", '{"aw_x": [1, {"y": "z"}]}', "is wrapped"),
+    ("a connection's variable", '{"ansible_ssh_common_args": {"__ansible_unsafe": "-o X=y"}}', "names the play's"),
+    ("a wrapper with more", '{"aw_x": {"__ansible_unsafe": "x", "y": 1}}', "the string alone"),
+    ("a wrapper of no string", '{"aw_x": {"__ansible_unsafe": 1}}', "the string alone"),
+    ("a key twice", '{"aw_x": 1, "aw_x": 2}', "names a key twice"),
+    ("not a number", '{"aw_x": NaN}', "no JSON number"),
+    ("a lone surrogate", '{"aw_x": {"__ansible_unsafe": "\\udc80"}}', "no text UTF-8 holds"),
+    ("no UTF-8", b'{"aw_x": {"__ansible_unsafe": "\xff"}}', "cannot be read"),
+    ("nested too deep", '{"aw_x": ' + "[" * 40 + "1" + "]" * 40 + "}", "no deeper than 32"),
+    ("nested past Python's limit", '{"aw_x": ' + "[" * 100000 + "]" * 100000 + "}", "no deeper than 32"),
+]
+
+
+@pytest.mark.parametrize(("case", "text", "said"), HAND_MADE, ids=[case for case, _, _ in HAND_MADE])
 def test_held_refuses_a_file_write_would_not_have_made(tmp_path, case, text, said) -> None:
     with pytest.raises(variables.Refused, match=said):
         variables.held(_hand_made(tmp_path, text))
+
+
+def _deep(levels: int) -> str:
+    """A file whose variable is levels lists deep, an empty one innermost: levels + 1 brackets open in its text."""
+    return '{"aw_x": ' + "[" * levels + "]" * levels + "}"
+
+
+# Files held past the bound, and files at it that held takes: each with whether held takes it.
+NESTINGS = [
+    ("one level past", _deep(variables.DEPTH_MOST + 1), False),
+    ("a thousand levels", _deep(1000), False),
+    ("past Python's limit", _deep(100_000), False),
+    ("mappings", '{"aw_x": ' + '{"k": ' * 1000 + "1" + "}" * 1000 + "}", False),
+    # Strings that hold brackets, an escaped quote and an escaped backslash at their end: the nesting after them is
+    # still counted.
+    (
+        "after strings",
+        '{"aw_s": {"__ansible_unsafe": "[{\\"[{"}, "aw_t": {"__ansible_unsafe": "\\\\"}, "aw_x": '
+        + "[" * 100
+        + "]" * 100
+        + "}",
+        False,
+    ),
+    ("at the edge", _deep(variables.DEPTH_MOST), True),
+    ("strings of brackets", json.dumps({"aw_s": {WRAPPER: "[{" * 1000}, "aw_t": [{WRAPPER: '\\"' + "[" * 100}]}), True),
+    (
+        "a backslash before the edge",
+        json.dumps({"aw_t": [{WRAPPER: "\\"}, _nested(variables.DEPTH_MOST - 2, [])]}),
+        True,
+    ),
+]
+
+
+@pytest.mark.parametrize(("case", "text", "taken"), NESTINGS, ids=[case for case, _, _ in NESTINGS])
+def test_held_measures_the_nesting_on_the_text_before_any_decoder_reads_it(
+    tmp_path, monkeypatch, case, text, taken
+) -> None:
+    # The decoder is asked only of a file within the bound, so the refusal is the same sentence on every Python,
+    # whatever depth its decoder reaches (GitHub's 3.14.10 decodes 100,000 levels where uv's 3.14 gives up).
+    asked: list[int] = []
+
+    def loads(content: str, **named: object) -> object:
+        asked.append(len(content))
+        return json.loads(content, **named)
+
+    monkeypatch.setattr(variables, "json", SimpleNamespace(loads=loads))
+    path = _hand_made(tmp_path, text)
+    if taken:
+        assert variables.held(path) == path
+        assert asked == [len(text)]
+    else:
+        with pytest.raises(variables.Refused, match="no deeper than 32"):
+            variables.held(path)
+        assert asked == []
 
 
 def test_held_takes_what_write_writes(made, tmp_path) -> None:
