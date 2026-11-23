@@ -10,14 +10,19 @@ them - and returns what the host keeps from then on (`Kept`), or why nothing tha
    it keeps none, this computer's certificates, certifi's list with the file tls_ca_file names added
    (vendors/trust.py), handed to the probe as their text, so that trust.py's own idea of a store, which a variable of
    the environment names, is never asked. Where that verifies, nothing changes: a host the computer's certificates
-   verify keeps no anchor, and one its CA renews still verifies.
+   verify keeps no anchor, and one its CA renews still verifies. A fingerprint given (`--certificate`) is compared
+   there too, with the kept anchor's own or, where the host keeps none, with what the address presents: a match is
+   said, and a mismatch is a refusal that names both.
 2. Otherwise the host's own certificate files, read over root SSH (`read_over_root_ssh`, each file looked at before it
    is read): its CA where the certificate presented chains to it, its name checked (kind `ca`, no fingerprint, so that
    the CA's renewals verify); else the node's own certificate without its chain (kind `node`), its fingerprint
    recorded beside it. Where neither verifies at the address and what it presents is the host's own under another
-   name, that certificate is kept as the node's own, held to its fingerprint and not to a name, which B22's client
-   then reaches whatever address it is given. Where what it presents is none of the host's, or nothing, the refusal is
-   `token_held`: something other than the host answers there.
+   name - the node's own certificate, byte for byte, or one the host's CA signed, and nothing else - that certificate
+   is kept as the node's own, held to its fingerprint and not to a name, which B22's client then reaches whatever
+   address it is given. The node's file is read for its first certificate alone: a custom one is served with its
+   chain, and an intermediate of it taken for an anchor would pass whatever it issued, for any name, for the host's
+   own. Where what it presents is none of the host's, or nothing, the refusal is `token_held`: something other than
+   the host answers there.
 3. Where root SSH does not answer, is not tried (`root_ssh` None), or reads no certificate, nothing on the host vouches
    for what the address presents: its fingerprint is shown, and it is kept as the node's own only on the person's yes,
    or where it is the one `--certificate` gives.
@@ -54,6 +59,7 @@ from ..trust import (
     _probe,
     pem_certificates,
     pem_fingerprint,
+    pem_first,
     proxmox_trust_pick,
     proxmox_trust_presented,
     proxmox_trust_shown,
@@ -356,10 +362,17 @@ async def _as_node(host: Host, fingerprint: str, pem: str, what: str, vouched: b
 
 async def _found(host: Host, read: Read | None, no_ssh: str) -> _Found | Refusal:
     """What the host is to be held to, where what checking uses now does not verify: from its files read over root
-    SSH, where they hold a certificate; else what the address presents, which only a person can vouch for."""
+    SSH, where they hold a certificate; else what the address presents, which only a person can vouch for.
+
+    The node's own certificate is the first of its file alone (pem_first): a custom one is served with its chain, and
+    an intermediate of that chain made an anchor would pass whatever it issued, for any name, for the host's own."""
     import asyncio
 
-    candidates = [] if read is None else [{"name": "ca", "pem": read.ca}, {"name": "node", "pem": read.node}]
+    if read is None:
+        own, candidates = "", []
+    else:
+        own = pem_first(read.node)
+        candidates = [{"name": "ca", "pem": read.ca}, {"name": "node", "pem": own}]
     path = host.anchor_said
     if not any(pem_certificates(candidate["pem"]) for candidate in candidates):
         shown = await _shown(host.url)
@@ -385,7 +398,10 @@ async def _found(host: Host, read: Read | None, no_ssh: str) -> _Found | Refusal
             f" kept in {path}{held}: every run checks it"
         )
         return _Found(anchor, f"{KINDS[kind]}, read over root SSH,", fingerprint, True, kept)
-    presented = await asyncio.to_thread(proxmox_trust_presented, candidates, host.url, TIMEOUT)
+    # The host's own under another name is the node's own certificate, byte for byte, or one the host's CA signed, and
+    # nothing else. So the probe that checks no name is handed the CA alone, and the node's certificate is compared,
+    # never made an anchor: one that can sign would pass what it signed for the host's own.
+    presented = await asyncio.to_thread(proxmox_trust_presented, candidates[:1], host.url, TIMEOUT)
     if not presented["fingerprint"]:
         return Refusal(
             f"https://{host.endpoint} presented no certificate to read ({one_line(presented['why'], 200)}), so nothing"
@@ -393,7 +409,7 @@ async def _found(host: Host, read: Read | None, no_ssh: str) -> _Found | Refusal
             f" {host.host_file_said}, and that the host is up",
             token_held=True,
         )
-    if not presented["host"]:
+    if not (presented["host"] or (own != "" and presented["fingerprint"] == pem_fingerprint(own))):
         return Refusal(
             f"https://{host.endpoint} presents a certificate (SHA-256 {presented['fingerprint']}) that is none of the"
             f" host's, as root SSH to {host.address} reads them, so something other than the Proxmox host answers"
@@ -427,6 +443,50 @@ def _kept(host: Host, found: _Found, said_text: str) -> Kept | Refusal:
     return Kept(anchor=anchor, changed=not same, said=said_text)
 
 
+async def _verified(host: Host, given: str) -> Kept | Refusal:
+    """What host keeps where what checking uses now verifies it: nothing changes. A fingerprint given is compared first:
+    with the kept anchor's own (the one recorded beside a node's certificate, else its first certificate's, a CA's own),
+    or, where the computer's certificates verify, with what the address presents, a match keeping no anchor still;
+    either way a match is said, and a mismatch is a refusal that names both."""
+    if host.anchor is None:
+        verifies = (
+            "Proxmox's certificate verifies against this computer's certificates (certifi's list, with the file"
+            " tls_ca_file names)"
+        )
+        if not given:
+            return Kept(None, False, f"{verifies}: the host keeps no anchor, and every run checks it")
+        fingerprint = (await _shown(host.url))["fingerprint"]
+        what = f"what https://{host.endpoint} presents"
+        if given != fingerprint:
+            return Refusal(
+                f"--certificate {given} is not {what} (SHA-256 {fingerprint or 'none: nothing was read again'}), which"
+                " this computer's certificates verify: nothing was kept, and nothing sent with the token"
+            )
+        return Kept(
+            None,
+            False,
+            f"{verifies}, and --certificate matched {what} (SHA-256 {fingerprint}): the host keeps no anchor, and every"
+            " run checks it",
+        )
+    anchor = hosts.Anchor(pem_certificates(host.anchor), host.trust_kind or "node", host.fingerprint.upper())
+    verifies = f"Proxmox's certificate verifies against {host.anchor_said}"
+    if not given:
+        return Kept(anchor, False, f"{verifies}: every run checks it")
+    fingerprint = anchor.fingerprint if anchor.kind == "node" and anchor.fingerprint else pem_fingerprint(anchor.pem)
+    if given != fingerprint:
+        return Refusal(
+            f"--certificate {given} is not {KINDS[anchor.kind]}, the anchor kept in {host.anchor_said} (SHA-256"
+            f" {fingerprint}), against which Proxmox's certificate verifies: nothing was changed, and nothing sent with"
+            " the token"
+        )
+    return Kept(
+        anchor,
+        False,
+        f"{verifies}, and --certificate matched {KINDS[anchor.kind]} kept there (SHA-256 {fingerprint}): every run"
+        " checks it",
+    )
+
+
 # ---------------------------------------------------------------- the step ----
 
 
@@ -434,23 +494,15 @@ async def work_out(host: Host, given: str, root_ssh: RootSsh | None, ask: Ask | 
     """What host's API's certificate is held to from now on, worked out with no credential sent: Kept, the anchor to
     keep or none, or a Refusal. given is --certificate's fingerprint, "" for none; root_ssh reads the host's certificate
     files (read_over_root_ssh, bound to the run's job and the host), None where root SSH is not to be tried; ask puts a
-    Question to the person and gives their yes, None where nobody is there (--no-prompt). See the module's
-    docstring."""
+    Question to the person and gives True for their yes, anything else being a no, None where nobody is there
+    (--no-prompt). See the module's docstring."""
     given = given.strip().upper()
     try:
         why_not = await _holds_now(host)
     except vendors_trust.Unusable as error:
         return Refusal(str(error))
     if not why_not:
-        if host.anchor is None:
-            return Kept(
-                None,
-                False,
-                "Proxmox's certificate verifies against this computer's certificates (certifi's list, with the file"
-                " tls_ca_file names): the host keeps no anchor, and every run checks it",
-            )
-        anchor = hosts.Anchor(pem_certificates(host.anchor), host.trust_kind or "node", host.fingerprint.upper())
-        return Kept(anchor, False, f"Proxmox's certificate verifies against {host.anchor_said}: every run checks it")
+        return await _verified(host, given)
 
     read: Read | None = None
     no_ssh = "root SSH was not tried"
@@ -516,7 +568,8 @@ async def work_out(host: Host, given: str, root_ssh: RootSsh | None, ask: Ask | 
         )
     if ask is None:
         return Refusal(unasked)
-    if not await ask(Question(lines, prompt)):
+    # A yes is True and nothing else: an answer handed back as the choice made ("n") or a number is a no.
+    if await ask(Question(lines, prompt)) is not True:
         return Refusal(
             f"SHA-256 {found.fingerprint} was not trusted: nothing was kept, and nothing sent with the token"
         )

@@ -8,14 +8,18 @@ stand-in machine of tests/unit/aw_machine.py's, reached as root through B3's run
 test's own. Every case of tests/unit/test_init_check.py on the certificate is carried, as the new engine has it: a
 certificate root SSH reads is kept with nobody there, a host's own under another name is kept as the node's own and
 reached by its fingerprint, and where nothing on the host vouches for what the address presents, only a person's yes or
---certificate keeps it. The rules with a test of their own: nothing in engine/ builds a TLS context for a Proxmox host
-but through pve/pin.py, and nothing in the new subpackages reads today's trust.py's _store_files.
+--certificate keeps it. The host's own under another name is the node's own certificate, byte for byte, or one the
+host's CA signed, and nothing else: never what an intermediate of a custom certificate's chain issued, at a terminal or
+with nobody there. A --certificate given is compared where what checking uses now verifies too, and a yes is True and
+nothing else. The rules with a test of their own: nothing in engine/ builds a TLS context for a Proxmox host but through
+pve/pin.py, and nothing in the new subpackages reads today's trust.py's _store_files.
 """
 
 from __future__ import annotations
 
 import ast
 import asyncio
+import datetime
 import os
 import socket
 from pathlib import Path
@@ -23,6 +27,10 @@ from pathlib import Path
 import pytest
 import yaml
 from aw_machine import Machine, machine, ssh_stand_in, target
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 from harness import REPO
 from pki import proxmox_pki
 from test_aw_transport import _new_engine, _rel
@@ -111,10 +119,10 @@ async def _unanswered() -> Read:
     raise NoRootSsh("ssh: connect to host 127.0.0.1 port 22: Connection refused")
 
 
-def _asking(answer: bool):
+def _asking(answer: object):
     """A person at the terminal who answers every question with answer; asked holds the questions."""
 
-    async def ask(question: Question) -> bool:
+    async def ask(question: Question) -> object:
         ask.asked.append(question)  # type: ignore[attr-defined]
         return answer
 
@@ -163,6 +171,52 @@ def _used(reached: hosts.Reached, port: int, tls_ca_file: str | None = None) -> 
         return transport.request("GET", "version").status
     finally:
         transport.close()
+
+
+def _issued(name: str, issuer: tuple | None = None, *, can_sign: bool = False) -> tuple:
+    """(certificate, key): a certificate for the DNS name, signed by issuer's (certificate, key) or by its own key, with
+    what a strict check asks of each. One that can sign is a CA, as a public CA's root and intermediate are, or a
+    server's own certificate made so. Fake, made per test; an EC key, as quick to make as a test wants."""
+    key = ec.generate_private_key(ec.SECP256R1())
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, name)])
+    signer, signer_key = issuer if issuer is not None else (None, key)
+    now = datetime.datetime.now(datetime.UTC)
+    unused = ("content_commitment", "key_encipherment", "data_encipherment", "key_agreement", "encipher_only")
+    usage = dict.fromkeys((*unused, "decipher_only"), False)
+    certificate = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(subject if signer is None else signer.subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - datetime.timedelta(days=1))
+        .not_valid_after(now + datetime.timedelta(days=90))
+        .add_extension(x509.BasicConstraints(ca=can_sign, path_length=None), critical=True)
+        .add_extension(
+            x509.KeyUsage(digital_signature=True, key_cert_sign=can_sign, crl_sign=can_sign, **usage), critical=True
+        )
+        .add_extension(x509.SubjectAlternativeName([x509.DNSName(name)]), critical=False)
+        .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
+        .add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()), critical=False)
+        .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(signer_key.public_key()), critical=False)
+        .sign(signer_key, hashes.SHA256())
+    )
+    return certificate, key
+
+
+def _pem(*certificates) -> str:
+    return "".join(one.public_bytes(serialization.Encoding.PEM).decode() for one in certificates)
+
+
+def _served(directory: Path, chain: list, key) -> dict:
+    """What serve() serves: chain's certificates, the server's own first, and its key, as files of the test's own."""
+    directory.mkdir(parents=True, exist_ok=True)
+    cert, key_file = directory / "cert.pem", directory / "key.pem"
+    cert.write_text(_pem(*chain))
+    key_file.write_bytes(
+        key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
+    )
+    return {"cert": cert, "key": key_file}
 
 
 # ---------------------------------------------------------------- what checking uses now ----
@@ -329,6 +383,74 @@ def test_nothing_presented_where_root_ssh_read_the_host_s_holds_the_token(home, 
     assert "so nothing shows that the Proxmox host answers there, and nothing was sent with the token" in refused.said
 
 
+# ---------------------------------------------------------------- the host's own under another name, and no more ----
+# The owner's answer of 2026-11-23 (review 20): the node's own certificate, byte for byte, or one the host's own CA
+# signed, both kept with no question; nothing else, an intermediate of a custom certificate's chain above all.
+
+
+@pytest.mark.parametrize("there", [True, False], ids=["at-a-terminal", "nobody-there"])
+def test_what_the_custom_certificate_s_intermediate_issued_another_is_none_of_the_host_s(
+    home, serve, tmp_path, there
+) -> None:
+    # Proxmox's ACME writes pveproxy-ssl.pem with its chain, and init is given an address that certificate does not
+    # name (a tailnet's, an IP address, a forwarded port's). What answers there with any certificate the same
+    # intermediate issued, for any name, is none of the host's: refused with the token held, nobody asked.
+    root = _issued("Public Root", can_sign=True)
+    intermediate = _issued("Public Intermediate", root, can_sign=True)
+    leaf, impostor = _issued("pve.example.org", intermediate), _issued("attacker.example.net", intermediate)
+    proxmox = proxmox_pki(tmp_path / "pki", key_usage=True)
+    port = serve(_served(tmp_path / "impostor", [impostor[0], intermediate[0]], impostor[1]))
+    ask = _asking(True) if there else None
+    custom = _pem(leaf[0], intermediate[0])
+    refused = _refused(_worked(_host(port), root_ssh=_read(proxmox["ca"], custom), ask=ask))
+    assert refused.token_held is True
+    presented = trust.pem_fingerprint(_pem(impostor[0]))
+    assert f"presents a certificate (SHA-256 {presented}) that is none of the host's" in refused.said
+    assert ask is None or ask.asked == []
+
+
+def test_the_node_s_own_certificate_with_its_chain_is_kept_under_another_name_unasked(home, serve, tmp_path) -> None:
+    # The host's own custom certificate, byte for byte, at an address it does not name: kept as the node's own, the
+    # leaf alone, held to its fingerprint, with no question, and the client reaches it.
+    root = _issued("Public Root", can_sign=True)
+    intermediate = _issued("Public Intermediate", root, can_sign=True)
+    leaf = _issued("pve.example.org", intermediate)
+    proxmox = proxmox_pki(tmp_path / "pki", key_usage=True)
+    port = serve(_served(tmp_path / "host", [leaf[0], intermediate[0]], leaf[1]))
+    ask = _asking(False)
+    read = _read(proxmox["ca"], _pem(leaf[0], intermediate[0], root[0]))
+    kept = _kept(_worked(_host(port), root_ssh=read, ask=ask))
+    fingerprint = trust.pem_fingerprint(_pem(leaf[0]))
+    assert kept.anchor == hosts.Anchor(_pem(leaf[0]), "node", fingerprint) and ask.asked == []
+    assert f"is the host's own (SHA-256 {fingerprint}), as root SSH reads it" in kept.said
+    assert _used(_keep(kept, port=port), port) == 401
+
+
+def test_a_certificate_the_host_s_ca_signed_for_another_name_is_kept_unasked(home, serve, tmp_path) -> None:
+    # Another node of the host's cluster, whose certificate the host's CA signed for that node's name: kept as the
+    # node's own, held to its fingerprint, with no question, and the client reaches it.
+    ca = _issued("Proxmox Virtual Environment", can_sign=True)
+    node, other = _issued("pve.lan", ca), _issued("pve2.lan", ca)
+    port = serve(_served(tmp_path / "other", [other[0]], other[1]))
+    ask = _asking(False)
+    kept = _kept(_worked(_host(port), root_ssh=_read(_pem(ca[0]), _pem(node[0])), ask=ask))
+    fingerprint = trust.pem_fingerprint(_pem(other[0]))
+    assert kept.anchor == hosts.Anchor(_pem(other[0]), "node", fingerprint) and ask.asked == []
+    assert _used(_keep(kept, port=port), port) == 401
+
+
+def test_a_certificate_the_node_s_own_certificate_signed_is_none_of_the_host_s(home, serve, tmp_path) -> None:
+    # A custom certificate made so that it can sign is no CA of the host's: what it signed for another name is neither
+    # the node's own certificate nor one the host's CA signed.
+    custom = _issued("pve.example.org", can_sign=True)
+    signed = _issued("attacker.example.net", custom)
+    proxmox = proxmox_pki(tmp_path / "pki", key_usage=True)
+    port = serve(_served(tmp_path / "signed", [signed[0]], signed[1]))
+    ask = _asking(True)
+    refused = _refused(_worked(_host(port), root_ssh=_read(proxmox["ca"], _pem(custom[0])), ask=ask))
+    assert refused.token_held is True and ask.asked == []
+
+
 # ---------------------------------------------------------------- what only a person can vouch for ----
 
 
@@ -382,6 +504,76 @@ def test_a_fingerprint_given_that_is_not_the_one_root_ssh_reads_keeps_nothing(ho
         " with the token"
     )
     assert _kept(_worked(_host(port), ca.lower(), _read(pki["ca"], pki["node"]))).anchor.kind == "ca"
+
+
+def test_a_fingerprint_given_where_the_kept_anchor_verifies_is_compared_with_the_anchor_s_own(
+    home, serve, tmp_path
+) -> None:
+    pki = proxmox_pki(tmp_path / "pki", key_usage=True)
+    port = serve(pki)
+    read = _read(pki["ca"], pki["node"])
+    ca, node = trust.pem_fingerprint(pki["ca"]), trust.pem_fingerprint(pki["node"])
+    wrong = ":".join(["AB"] * 32)
+    path = "fleet/hosts/lab/proxmox-trust.pem"
+    as_ca = _host(port, anchor=pki["ca"], trust_kind="ca")
+    refused = _refused(_worked(as_ca, wrong, read))
+    assert refused.said == (
+        f"--certificate {wrong} is not its CA, the anchor kept in {path} (SHA-256 {ca}), against which Proxmox's"
+        " certificate verifies: nothing was changed, and nothing sent with the token"
+    )
+    kept = _kept(_worked(as_ca, ca.lower(), read))
+    assert kept.changed is False and kept.anchor == hosts.Anchor(pki["ca"], "ca", "")
+    assert kept.said == (
+        f"Proxmox's certificate verifies against {path}, and --certificate matched its CA kept there (SHA-256 {ca}):"
+        " every run checks it"
+    )
+    # A node's anchor: the fingerprint recorded beside it is its own.
+    as_node = _host(port, anchor=pki["node"], trust_kind="node", fingerprint=node)
+    refused = _refused(_worked(as_node, ca, read))
+    assert refused.said.startswith(f"--certificate {ca} is not the node's own certificate, the anchor kept in {path}")
+    assert f"(SHA-256 {node})" in refused.said
+    kept = _kept(_worked(as_node, node, read))
+    assert kept.changed is False and kept.anchor == hosts.Anchor(pki["node"], "node", node)
+    assert f"--certificate matched the node's own certificate kept there (SHA-256 {node})" in kept.said
+    assert read.called == 0
+
+
+def test_a_fingerprint_given_where_the_computer_s_certificates_verify_is_compared_with_what_is_presented(
+    home, serve, tmp_path
+) -> None:
+    pki = proxmox_pki(tmp_path / "pki", key_usage=True)
+    port = serve(pki)
+    computer = tmp_path / "company-roots.pem"
+    computer.write_text(pki["ca"])
+    read = _read(pki["ca"], pki["node"])
+    presented, wrong = trust.pem_fingerprint(pki["node"]), ":".join(["AB"] * 32)
+    refused = _refused(_worked(_host(port, tls_ca_file=str(computer)), wrong, read))
+    assert refused.said == (
+        f"--certificate {wrong} is not what https://127.0.0.1:{port} presents (SHA-256 {presented}), which this"
+        " computer's certificates verify: nothing was kept, and nothing sent with the token"
+    )
+    # A match keeps no anchor (the owner's answer of 2026-11-23), and is said.
+    kept = _kept(_worked(_host(port, tls_ca_file=str(computer)), presented.lower(), read))
+    assert kept.anchor is None and kept.changed is False and read.called == 0
+    assert kept.said == (
+        "Proxmox's certificate verifies against this computer's certificates (certifi's list, with the file"
+        f" tls_ca_file names), and --certificate matched what https://127.0.0.1:{port} presents (SHA-256 {presented}):"
+        " the host keeps no anchor, and every run checks it"
+    )
+    reached = _keep(kept, port=port)
+    assert reached.anchor is None and _used(reached, port, str(computer)) == 401
+
+
+@pytest.mark.parametrize("answer", ["n", 1, None], ids=["the-choice-n", "one", "none"])
+def test_a_yes_is_true_and_nothing_else(home, serve, tmp_path, answer) -> None:
+    # An ask that hands back the choice made, or a number, is not a yes: nothing is kept.
+    pki = proxmox_pki(tmp_path / "pki")
+    port = serve(pki)
+    ask = _asking(answer)
+    refused = _refused(_worked(_host(port), ask=ask))
+    fingerprint = trust.pem_fingerprint(pki["node"])
+    assert refused.said == f"SHA-256 {fingerprint} was not trusted: nothing was kept, and nothing sent with the token"
+    assert len(ask.asked) == 1
 
 
 # ---------------------------------------------------------------- a certificate that changed ----

@@ -470,24 +470,31 @@ host's anchor, its name checked unless a fingerprint is recorded beside it, whic
 have, as the client holds it; or, where it keeps none, this computer's certificates, certifi's list with the file
 `tls_ca_file` names added, handed to the probe as their certificates' text, so that `trust.py`'s own idea of a store,
 which reads `REQUESTS_CA_BUNDLE`, is never asked. Where that verifies, nothing changes: a host the computer's
-certificates verify keeps no anchor, and one its CA renews verifies still. Otherwise the host's certificate files read
-over root SSH (`read_over_root_ssh`: one command, each file looked at before it is read, none larger than a certificate
-file is): its CA where what it presents chains to it with the name checked (`trust_kind: ca`, no fingerprint, so the
-CA's renewals verify), else the node's own certificate without its chain (`node`), its fingerprint recorded beside it;
-where neither verifies and what it presents is the host's own under another name, that certificate as the node's own,
-held to its fingerprint and not to a name, which the client then reaches at any address; where what it presents is
-none of the host's, or nothing, a refusal with `token_held`. Where root SSH does not answer, is not tried or reads no
-certificate, nothing on the host vouches for what the address presents: its fingerprint is shown, and it is kept, as
-the node's own, only on the person's yes or where it is `--certificate`'s; with nobody there (`ask` None) and none given,
-a refusal that names `--certificate`. An anchor that no longer verifies is put in place of the one kept only on a yes
-that shows both fingerprints, or where the new one was given. No sentence says to check less. What is kept is made
-through `pve/pin.py`'s `kept` once before it is returned, the one way a context is made here; the probes' contexts are
-`trust.py`'s, and its probe that checks no name (`check_hostname=False`) is handed only an anchor held to a
-fingerprint or the certificate the address presents, never a credential. The caller writes what is kept through
-`fleet/hosts.py`'s `write`, the anchor with its kind and fingerprint. `tests/unit/test_aw_engine_certificate.py` holds
-it against local TLS servers made as Proxmox makes its certificates, each case of today's `init_check.yml` carried, the
-host's files read over root SSH from a stand-in machine (`tests/unit/aw_machine.py`, 16.10), and the rules that nothing
-in `engine/` builds a TLS context but through `pin` and nothing of the new engine reads `trust.py`'s `_store_files`.
+certificates verify keeps no anchor, and one its CA renews verifies still. A `--certificate` given is compared there
+too, with the kept anchor's own fingerprint or, where the host keeps none, with what the address presents: a match is
+said and keeps no anchor where there was none, and a mismatch is a refusal that names both. Otherwise the host's
+certificate files read over root SSH (`read_over_root_ssh`: one command, each file looked at before it is read, none
+larger than a certificate file is): its CA where what it presents chains to it with the name checked (`trust_kind: ca`,
+no fingerprint, so the CA's renewals verify), else the node's own certificate without its chain (`node`), its
+fingerprint recorded beside it; where neither verifies and what it presents is the host's own under another name (the
+node's own certificate, byte for byte, or one the host's CA signed, and nothing else), that certificate as the node's
+own, held to its fingerprint and not to a name, which the client then reaches at any address. The node's file is read
+for its first certificate alone: a custom certificate is served with its chain, and an intermediate of it taken for an
+anchor would pass whatever it issued, for any name, for the host's own. Where what it presents is none of the host's, or
+nothing, a refusal with `token_held`. Where root SSH does not answer, is not tried or reads no certificate, nothing on
+the host vouches for what the address presents: its fingerprint is shown, and it is kept, as the node's own, only on the
+person's yes or where it is `--certificate`'s; with nobody there (`ask` None) and none given, a refusal that names
+`--certificate`. An anchor that no longer verifies is put in place of the one kept only on a yes that shows both
+fingerprints, or where the new one was given. No sentence says to check less. What is kept is made through
+`pve/pin.py`'s `kept` once before it is returned, the one way a context is made here; the probes' contexts are
+`trust.py`'s, and its probe that checks no name (`check_hostname=False`), which carries no credential, is handed only an
+anchor held to a fingerprint, the certificate the address presents, or, inside `proxmox_trust_presented`, the host's CA
+as root SSH read it: never the node's file, whose chain would make an anchor of each intermediate. A yes is the person's
+answer `True` and nothing else. The caller writes what is kept through `fleet/hosts.py`'s `write`, the anchor with its
+kind and fingerprint. `tests/unit/test_aw_engine_certificate.py` holds it against local TLS servers made as Proxmox
+makes its certificates, each case of today's `init_check.yml` carried, the host's files read over root SSH from a
+stand-in machine (`tests/unit/aw_machine.py`, 16.10), and the rules that nothing in `engine/` builds a TLS context but
+through `pin` and nothing of the new engine reads `trust.py`'s `_store_files`.
 
 ## 16.5 `pve/` — the typed Proxmox client and the one table of privileges
 
