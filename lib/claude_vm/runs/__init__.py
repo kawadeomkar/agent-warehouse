@@ -1,6 +1,7 @@
 """A run of the new engine: its one record and its text log, the children it starts, the short-lived directory of its
-generated files, the kernel's file locks it holds, its end on a signal, and a run detached as the same program in a
-session of its own (docs/architecture/engine.md §16.8).
+generated files, the kernel's file locks it holds, its end on a signal, a run detached as the same program in a
+session of its own, and the run as a person reads it, from its verb's declared stages and its events (stages.py,
+model.py) (docs/architecture/engine.md §16.8).
 
 `run(draft, body)` is the one entry a verb whose run is a job calls (the table's column `changes`): it makes the job the
 draft describes (job.py), which takes the job's own lock, makes the run's directory (rundir.py), takes the locks the
