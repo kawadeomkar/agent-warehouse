@@ -436,6 +436,14 @@ listing; through `tools/aw` and the launcher, `control` refused as no verb; what
 gives a row for every verb but `help`, every option but a later card's and the words, each value held to a pattern with
 its words and then its pattern as code, and no row split by a `|` or a code span holding one; and escapes a cell as
 `tools/docs.py` does.
+`tests/unit/test_aw_cli_imports.py` holds the quick commands to what this section says they import: `aw` alone, help,
+`--version`, a refusal of each kind, and the reads `logs`, `cancel`, `host`, `settings` and `status`, each read once its
+verb has a handler and skipped by name until then, run through the launcher of a checkout the test makes with a fleet of
+the test's own, load none of pydantic, Ansible, Jinja2, the MCP SDK or `engine/`, and nothing beyond the standard
+library and `claude_vm` but a YAML reader, for the reads of the fleet's files, and `pyrage`, for the two that open the
+vault, `settings --all` and `status`. What a run loaded is `sys.modules` at its exit, written by a hook of the test's
+own in the virtualenv it gives the launcher as `PYTHON`, since `-X importtime` lists no module the dispatch loads by
+`importlib`.
 
 ## 16.4 `engine/` — the workflows, one module a verb
 
