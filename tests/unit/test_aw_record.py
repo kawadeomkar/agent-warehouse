@@ -363,6 +363,18 @@ def test_only_the_first_form_has_no_uuid_and_a_template_may_name_no_stage() -> N
         Record(kind="golden", stage="unfinished")
 
 
+@pytest.mark.parametrize("kind", ["template", "golden", "build"])
+def test_a_record_of_any_kind_but_a_vm_names_its_uuid_even_at_the_stage_cloning(kind: str) -> None:
+    # Only a VM's first form names no UUID, which its clone carries before its UUID can be read: a template, a golden
+    # and a build VM have no such moment, and a block of theirs with none is never taken for this engine's own.
+    with pytest.raises(ValueError, match="a VM's first form"):
+        Record(kind=kind, stage="cloning")
+    with pytest.raises(Unreadable) as refused:
+        record.read(_Config(block.render("mine", {"kind": kind, "stage": "cloning"}), 9010))
+    assert not isinstance(refused.value, Copy)
+    assert "VM 9010's notes" in str(refused.value) and "a VM's first form" in str(refused.value)
+
+
 def test_sized_is_any_part_of_the_size_the_vm_was_created_with() -> None:
     bare = Record(kind="vm", uuid=UUID, stage="unfinished")
     assert not bare.sized
@@ -668,8 +680,9 @@ NAMES_A_DESCRIPTION = {
     "lib/claude_vm/pve/answers.py": "a configuration read back, its description among its fields",
     "lib/claude_vm/fleet/passthrough.py": "a role's spec read, whose description of an option is what a person reads of"
     " it: no VM's, and nothing sent",
-    "lib/claude_vm/engine/template.py": "a template's record handed to today's proxmox_template_drift as the line of"
-    " notes it reads, in a configuration of its own: it sends nothing but GETs (tests/unit/test_aw_engine_template.py)",
+    "lib/claude_vm/pve/template.py": "a template's record handed to today's proxmox_template_drift as the line of notes"
+    " it reads, in a configuration of its own: the judgement, which holds no client and sends nothing"
+    " (tests/unit/test_aw_engine_template.py)",
 }
 
 

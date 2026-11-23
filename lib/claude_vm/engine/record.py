@@ -48,7 +48,7 @@ __all__ = ["Copy", "Record", "TooLong", "Unreadable", "Vm", "label", "read", "wr
 UUID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
 # A SHA-256 digest in lower-case hex: an image's, and what a VM last converged to.
 DIGEST = re.compile(r"[0-9a-f]{64}")
-# A template's build, the version of the build steps it was built by (engine/template.py's BUILD), as its line writes
+# A template's build, the version of the build steps it was built by (pve/template.py's BUILD), as its line writes
 # it: a whole number from 1, with no leading 0.
 BUILD_FORM = re.compile(r"[1-9][0-9]{0,8}")
 # The URL a template's image was fetched from: http or https, with no white space, as a setting gives one.
@@ -117,8 +117,10 @@ class Record:
             raise ValueError("a VM's record names its stage")
         if self.uuid and not UUID.fullmatch(self.uuid):
             raise ValueError("the record's uuid is a VM's SMBIOS UUID, in lower case")
-        if not self.uuid and self.stage != "cloning":
-            raise ValueError("a record names the UUID of the VM it is written for, but at the stage cloning")
+        if not self.uuid and not (self.kind == "vm" and self.stage == "cloning"):
+            raise ValueError(
+                "a record names the UUID of the VM it is written for, but a VM's first form, at the stage cloning"
+            )
         if self.name and not (full("vm_name", self.name) and "," not in self.name):
             raise ValueError("the record's name is one VM's name")
         if self.repositories is not None and not full("repos", ",".join(self.repositories)):
@@ -220,8 +222,9 @@ def read(config: VmConfig) -> Record | None:
     """The record a VM's notes hold, from the configuration the client read; None where they hold no block of this
     engine's. Unreadable where they hold one it cannot read, or one whose values are not what its fields may be; Copy,
     an Unreadable of its own kind, where they hold one that names a UUID that is not the VM's own (config.identity),
-    which a clone made without a description of its own carries from its source. A record that names no UUID, a VM's
-    first form at the stage cloning, cannot be told from a copy of one."""
+    which a clone made without a description of its own carries from its source. A VM's first form at the stage
+    cloning alone names no UUID, and cannot be told from a copy of one; a record of any other kind or stage that names
+    none is Unreadable, so a template's, a golden's or a build's record names its UUID from its first write."""
     try:
         fields = block.parse(config.description)
     except Unreadable as refused:

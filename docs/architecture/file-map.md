@@ -258,7 +258,9 @@ lib/claude_vm/pve/                the typed Proxmox VE client, and the one table
                                   goes on, verified against the host's anchor or the computer's certificate file;
                                   privileges.py, the table init grants from and the fake enforces; agent.py, a started
                                   VM's address from its guest agent, waited for; record.py, a VM's record as the text of
-                                  its notes, parsed and rendered with nothing of the engine's but text.py
+                                  its notes, parsed and rendered with nothing of the engine's but text.py; template.py,
+                                  the base template judged from what was read of it, with no client, which deploy and
+                                  status judge by alike
 lib/claude_vm/ssh/                the runner over OpenSSH: ssh as a child, host keys taken at first use, the control
                                   directory, the children a run holds
 lib/claude_vm/vendors/            one HTTPS transport, Tailscale's calls, downloads held to a signature or a digest;
