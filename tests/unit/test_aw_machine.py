@@ -714,6 +714,9 @@ OWN_SSH: dict[str, str] = {
     "test_aw_children.py": "a stand-in that says the marker it was handed, for route.ssh_shown's: what a child"
     " carries, not a machine",
     "test_aw_guards.py": "the guard's own tests of first_on_path: a program of the test's own ahead of the stand-ins",
+    "test_aw_engine_init.py": "a recording ssh that keeps the whole environment root SSH's child was started with,"
+    " which ssh_stand_in keeps the names of alone, so that the token's secret init takes out of its own is looked for"
+    " under every name: what a child carries, not a machine",
 }
 # What writes a file: a method of the path written, or a call given the path.
 WRITTEN_BY = {"write_text", "write_bytes", "symlink_to", "hardlink_to", "touch"}

@@ -577,8 +577,13 @@ through `pin` and nothing of the new engine reads `trust.py`'s `_store_files`.
 nothing on Proxmox. It takes one typed mapping, `Given`: each value held to its kind by today's `init.init_answer` and
 Proxmox's own format of a name, and the token's secret from `--token-secret-file`, made absolute from the folder `init`
 was started in, or from `AGENT_WAREHOUSE_TOKEN_SECRET`, never from the command line and never both; a word after the
-options is the one check's refusal, never said. As its run, under the fleet's lock, `unattended` reads what is set (the
-host's folder, the three files of overrides, `fleet.json` and the vault, opened as `vaultkey.py` finds its key: a fleet
+options is the one check's refusal, never said. The variable is taken out of the process's own environment into a
+`Secret` at the very start of `init` (`taken`), as today's engine takes its own such variable out at once, so that
+nothing the run starts holds it: not root SSH's child, nor any other the runner or `runs/children.py` starts. A home
+whose root or `fleet/` is a link is refused before the run's job is made, and again by `unattended` before anything is
+sent or written, so that nothing is written through it, and the same command finishes once the folder itself is in its
+place. As its run, under the fleet's lock, `unattended` reads what is set (the host's folder, the three files of
+overrides, `fleet.json` and the vault, opened as `vaultkey.py` finds its key: a fleet
 with no key file yet has its key made once every check has passed, and a key named elsewhere for a fleet with no vault
 yet is `NoVaultYet`'s refusal); refuses a value given that differs from the one set, naming both, the secret unsaid,
 with nothing written; works out the API's certificate with `certificate.py`'s `work_out` and nobody to ask, the host's
@@ -596,8 +601,11 @@ engine's own: the user `agent-warehouse@pve`, the token `aw`, the pool `aw-fleet
 stopped after any write goes on from what it wrote, and the same run again writes nothing. The modes other cards build
 (`--check`, `--print-commands`, `--machines`) and the questions at a terminal are refused by name until each lands.
 `tests/unit/test_aw_engine_init.py` holds it against the fake Proxmox, through `tools/aw` with a refusing `ssh` first on
-`PATH` and in this process with root SSH a reader of the test's own; with the invariant that no file under the fleet's
-home holds the secret in clear and the vault on disk is sealed. `tests/unit/fleet_fixture.py` gives any other test a
+`PATH` and in this process with root SSH a reader of the test's own; its runs through `tools/aw` from a home short
+enough for the host's shared socket, so that root SSH starts its child with that socket, as from a person's home, and
+a recording `ssh` holds that the child's
+environment has neither the variable nor the secret; with the invariant that no file under the fleet's home holds the
+secret in clear and the vault on disk is sealed. `tests/unit/fleet_fixture.py` gives any other test a
 whole fleet folder in one call, made by this run.
 
 ## 16.5 `pve/` — the typed Proxmox client and the one table of privileges

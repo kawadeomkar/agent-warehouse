@@ -2,35 +2,58 @@
 
 `aw init --no-prompt`, run as a person runs it (aw_kit.run_aw), against the fake Proxmox (harness.fake_fleet, with the
 engine's pool, role, user and token, its requests held to the engine's table) serving a node's certificate of
-tests/unit/pki.py's, with the fleet's home in the test's own directory and a refusing ssh first on PATH
+tests/unit/pki.py's, with the fleet's home a folder of the test's own and a refusing ssh first on PATH
 (fleet_fixture.refusing_ssh): every value given writes the folder, and the same again changes nothing; a value given
 that differs from the one set fails, naming both, and writes nothing; the secret from a file and from the variable, and
 never from the command line; a word after the options refused unsaid (H5's rule, end to end); the pool's mark's fleet ID
 adopted, and a mark naming a control VM, another fleet, or none refused; no request carries the token before the
-certificate is settled, and none changes anything on Proxmox. The host's own certificates read over root SSH with
-nobody there are kept (the owner's answer of 2026-11-23 to review 20) by the same step run in this process, its root
-SSH a reader of the test's own, as tests/unit/test_aw_engine_certificate.py has one: a run through tools/aw reaches the
-host's own target only once the stand-in machine answers a host's first use (card F31). The invariant with a test of
-its own: after any run, no file under the test's home holds the fake secret in clear, and the vault on disk is sealed.
-And tests/unit/fleet_fixture.py, which gives other tests a whole fleet folder in one call.
+certificate is settled, and none changes anything on Proxmox. The home is short (short_home), so that root SSH, which a
+run tries wherever the computer's certificates do not verify the host, starts its child, the refusing ssh, with the
+host's shared socket, as from a person's home (from the kit's home, in pytest's long directory, it starts with none:
+review 28, E4.md 2, and B27). A recording ssh in its place holds that the child's environment has neither
+AGENT_WAREHOUSE_TOKEN_SECRET nor the secret, which init takes out of its own at its start (E4.md 1); and a home that is
+a link is refused with nothing written through it, the same command finishing once the folder itself is there (E4.md 3).
+The host's own certificates read over root SSH with nobody there are kept (the owner's answer of 2026-11-23 to review
+20) by the same step run in this process, its root SSH a reader of the test's own, as
+tests/unit/test_aw_engine_certificate.py has one: a run through tools/aw reaches the host's own target only once the
+stand-in machine answers a host's first use (card F31). The invariant with a test of its own: after any run, no file
+under the test's home holds the fake secret in clear, and the vault on disk is sealed. And tests/unit/fleet_fixture.py,
+which gives other tests a whole fleet folder in one call.
 """
 
 from __future__ import annotations
 
 import ast
 import asyncio
+import base64
 import dataclasses
 import os
+import shutil
 import stat
+import sys
+import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 from aw_kit import aw_at_a_terminal, run_aw, searched_for
+from aw_machine import unrouted
 from fleet_fixture import mark_pool, refusing_ssh, whole_fleet, with_port
-from harness import ENGINE_POOL, ENGINE_TOKEN, ENGINE_USER, REPO, _pve, _pve_requests, engine_token, fake_fleet
+from harness import (
+    ENGINE_POOL,
+    ENGINE_TOKEN,
+    ENGINE_USER,
+    REPO,
+    _executable,
+    _json_lines,
+    _pve,
+    _pve_requests,
+    engine_token,
+    fake_fleet,
+)
 from pki import proxmox_pki
 
-from claude_vm import trust
+from claude_vm import route, trust
 from claude_vm.engine import certificate
 from claude_vm.engine import init as engine_init
 from claude_vm.fleet import hosts, mark, overrides, paths, record, sealed, vaultkey
@@ -48,6 +71,15 @@ HOST_SETTINGS = "fleet/hosts/pve/settings.yml"
 EVERY = ("--storage", "local-lvm", "--bridge", "vmbr0", "--github-user", "octocat", "--tailscale", "off")
 # A secret the fake did not make: low in entropy, so that gitleaks takes it for no key.
 OTHER = "00000000-0000-4000-8000-000000000000"
+# A recording ssh, for a run's PATH: each call's words and whole environment, a JSON line of calls.jsonl beside it; then
+# refused as the refusing ssh refuses an address no machine has.
+RECORDER = r"""
+import json, os, sys
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "calls.jsonl"), "a") as out:
+    out.write(json.dumps({"argv": sys.argv[1:], "env": dict(os.environ)}) + "\n")
+sys.stderr.write("ssh: connect to host port 22: No route to host\n")
+sys.exit(255)
+"""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -74,12 +106,28 @@ def pki(tmp_path):
 
 
 @pytest.fixture
-def fake(home, tmp_path, pki):
+def short_home(monkeypatch) -> Iterator[Path]:
+    """The fleet's home of this file's runs, and their HOME: a folder of the test's own under /tmp, short enough that
+    the host's shared socket under it ($HOME/.ansible/cp/awh-<12 hex>, the runner's) fits route.SOCKET_MOST, so that
+    root SSH starts its child with that socket, as from a person's home, and not with none, as from a home too long for
+    it. AGENT_WAREHOUSE_HOME names it in this process too, so that the test's own reads and
+    writes of the fleet are of the same folder. Removed with what is beside it once the test ends."""
+    directory = Path(tempfile.mkdtemp(prefix="aw-", dir="/tmp"))
+    home = directory / "h"
+    home.mkdir()
+    assert route.socket_fits(str(paths.control_dir({"HOME": str(home)}) / f"awh-{'0' * 12}")), home
+    monkeypatch.setenv(paths.VARIABLE, str(home))
+    yield home
+    shutil.rmtree(directory, ignore_errors=True)
+
+
+@pytest.fixture
+def fake(short_home, tmp_path, pki):
     directory = tmp_path / "fake"
     directory.mkdir()
     for base in fake_fleet(directory, engine=True, certificate=(pki["cert"], pki["key"]), enforce=True):
         token, secret = engine_token(directory)
-        yield Fake(base, directory, int(base.rsplit(":", 1)[1]), pki, token, secret, refusing_ssh(home))
+        yield Fake(base, directory, int(base.rsplit(":", 1)[1]), pki, token, secret, refusing_ssh(short_home))
 
 
 @pytest.fixture
@@ -99,10 +147,11 @@ def _home() -> paths.Home:
 DRIVES = "aw drives the fleet in "
 
 
-def _init(fake: Fake, *words: str, env: dict | None = None):
-    """aw init run as a person runs it, with nobody there, the fake's refusing ssh first on PATH: its standard error
-    without the dispatch's line that names the fleet's home."""
-    ran = run_aw("init", *words, home=_home().root, env=env, first_on_path=(fake.ssh,))
+def _init(fake: Fake, *words: str, env: dict | None = None, ssh: Path | None = None):
+    """aw init run as a person runs it, with nobody there, from the short home, the fake's refusing ssh first on PATH
+    (or ssh, a folder of the test's own): its standard error without the dispatch's line that names the fleet's
+    home."""
+    ran = run_aw("init", *words, home=_home().root, env=env, first_on_path=(ssh or fake.ssh,))
     ran.stderr = "".join(line for line in ran.stderr.splitlines(keepends=True) if not line.startswith(DRIVES))
     return ran
 
@@ -289,6 +338,44 @@ def test_the_secret_from_the_variable_writes_the_folder_as_the_file_does(fake) -
     _sealed(fake.secret)
 
 
+def _recording_ssh(folder: Path) -> Path:
+    """A folder of the test's own whose ssh is RECORDER, for first_on_path."""
+    folder.mkdir()
+    (folder / "ssh.py").write_text(RECORDER)
+    _executable(folder / "ssh", f'#!/bin/sh\nexec "{sys.executable}" -I "{folder / "ssh.py"}" "$@"\n')
+    return folder
+
+
+def test_the_secret_from_the_variable_is_in_no_child_s_environment_root_ssh_s_among_them(fake) -> None:
+    # Review 28 (E4.md 1): init takes AGENT_WAREHOUSE_TOKEN_SECRET out of its own environment at its very start, so the
+    # child root SSH starts - with no certificate given, and with --certificate, which root SSH is tried before - holds
+    # neither the variable nor the secret, in clear, upper case or base64, under any name.
+    mark_pool(fake.base, record.new_id())
+    with_port(fake.port)
+    recorder = _recording_ssh(_home().root.parent / "recording")
+    env = {engine_init.SECRET_VARIABLE: fake.secret}
+    refused = _init(fake, "--no-prompt", env=env, ssh=recorder)
+    assert refused.returncode == 1 and "root SSH to 127.0.0.1 did not answer" in refused.stderr, refused
+    done = _init(fake, *_given(fake), env=env, ssh=recorder)
+    assert done.returncode == 0, done
+    assert {entry: _revealed(value) for entry, value in _opened().items()} == {"token@pve": fake.secret}
+    # The child started, once a run: root SSH's read of the host's certificate files, as root.
+    calls = _json_lines(recorder / "calls.jsonl")
+    assert len(calls) == 2, calls
+    for call in calls:
+        argv = call["argv"]
+        assert argv[argv.index("-l") + 1] == "root" and certificate.HOST_FILES["ca"] in argv[-1], argv
+    forms = (fake.secret, fake.secret.upper(), base64.b64encode(fake.secret.encode()).decode())
+    held = [
+        (at, name)
+        for at, call in enumerate(calls)
+        for name, value in call["env"].items()
+        if name == engine_init.SECRET_VARIABLE or any(form in value for form in forms)
+    ]
+    assert held == [], held
+    _sealed(fake.secret)
+
+
 def test_the_secret_given_two_ways_or_not_as_a_secret_is_refused_unsaid_and_nothing_is_made(
     fake, secret_file, tmp_path
 ) -> None:
@@ -432,6 +519,8 @@ def test_no_request_carries_the_token_before_the_certificate_is_settled(fake, se
     ran = _init(fake, "--no-prompt", "--token-secret-file", str(secret_file))
     assert ran.returncode == 1, ran
     assert "root SSH to 127.0.0.1 did not answer" in ran.stderr and "--certificate" in ran.stderr
+    # Root SSH's child started, and was refused: the refusing ssh answered.
+    assert unrouted(fake.ssh), ran.stderr
     assert not any(entry["token"] for entry in fake.calls()[sent:])
     assert sorted(_files()) == ["fleet/hosts/pve/host.yml"]
     _sealed(fake.secret)
@@ -471,7 +560,8 @@ def test_with_nobody_there_the_host_s_certificates_read_over_root_ssh_are_kept(f
     mark_pool(fake.base, record.new_id())
     with_port(fake.port)
     read = _reader(fake.pki["ca"], fake.pki["node"])
-    given = engine_init.given({}, cwd=str(REPO), environ={engine_init.SECRET_VARIABLE: fake.secret})
+    variable = engine_init.taken({engine_init.SECRET_VARIABLE: fake.secret})
+    given = engine_init.given({}, cwd=str(REPO), environ={}, variable=variable)
     lines = _unattended(given, read)
     assert read.called == 1
     assert lines[0].startswith("Proxmox's certificate verifies against its CA")
@@ -553,6 +643,79 @@ def test_a_fleet_with_a_vault_and_no_key_here_makes_no_key(fake, secret_file) ->
     assert _files() == files
 
 
+# ---------------------------------------------------------------- a home that is a link ----
+
+
+def _linked() -> tuple[Path, Path]:
+    """The short home moved aside and a link to it put in its place: the link and the folder it names."""
+    link = _home().root
+    target = link.parent / "elsewhere"
+    link.rename(target)
+    link.symlink_to(target)
+    return link, target
+
+
+def _everything(folder: Path) -> dict[str, bytes | None]:
+    """Every entry under folder, a file by its bytes and a folder as None: what a run wrote, folders and state
+    included."""
+    return {str(path.relative_to(folder)): path.read_bytes() if path.is_file() else None for path in folder.rglob("*")}
+
+
+def _link_said(link: Path) -> str:
+    return (
+        f"error: {link} is a link, where a folder of the fleet's goes: nothing is written through it; put the folder"
+        " itself there in its place\n"
+    )
+
+
+def test_a_home_that_is_a_link_is_refused_with_nothing_written_and_the_same_command_then_finishes(
+    fake, secret_file
+) -> None:
+    # Review 28 (E4.md 3): refused before the run's job, its lock, the key, fleet.json or the vault is written
+    # through it.
+    mark_pool(fake.base, record.new_id())
+    with_port(fake.port)
+    link, target = _linked()
+    before, sent = _everything(target), len(fake.calls())
+    words = _given(fake, secret=secret_file)
+    ran = _init(fake, *words)
+    assert (ran.returncode, ran.stdout, ran.stderr) == (1, "", _link_said(link)), ran
+    assert _everything(target) == before and len(fake.calls()) == sent
+    # The folder itself put in its place: the same command finishes.
+    link.unlink()
+    target.rename(link)
+    again = _init(fake, *words)
+    assert again.returncode == 0, again
+    assert {entry: _revealed(value) for entry, value in _opened().items()} == {"token@pve": fake.secret}
+    _sealed(fake.secret)
+
+
+def test_init_s_run_refuses_a_home_that_is_a_link_before_anything_is_sent_or_written(fake, secret_file) -> None:
+    # The run's own hold, for a caller that is not init's handler, and under the fleet's lock: its fleet/ a link too.
+    mark_pool(fake.base, record.new_id())
+    with_port(fake.port)
+    fingerprint = trust.pem_fingerprint(fake.pki["node"])
+    given = engine_init.given(
+        {"token_secret_file": str(secret_file), "certificate": fingerprint}, cwd=str(REPO), environ={}
+    )
+    link, target = _linked()
+    before, sent = _everything(target), len(fake.calls())
+    with pytest.raises(engine_init.Refused) as refused:
+        _unattended(given)
+    assert refused.value.sentence + "\n" == _link_said(link)
+    assert _everything(target) == before and len(fake.calls()) == sent
+    link.unlink()
+    target.rename(link)
+    fleet = paths.fleet_dir(_home())
+    fleet.rename(link / "fleet-elsewhere")
+    fleet.symlink_to(link / "fleet-elsewhere")
+    before = _everything(link / "fleet-elsewhere")
+    with pytest.raises(engine_init.Refused) as refused:
+        _unattended(given)
+    assert refused.value.sentence + "\n" == _link_said(fleet)
+    assert _everything(link / "fleet-elsewhere") == before and len(fake.calls()) == sent
+
+
 # ---------------------------------------------------------------- a run stopped part way ----
 
 
@@ -579,8 +742,8 @@ def test_a_run_stopped_after_any_write_goes_on_from_what_it_wrote(fake, secret_f
 # ---------------------------------------------------------------- the fleet fixture ----
 
 
-def test_the_fleet_fixture_gives_a_whole_fleet_folder_in_one_call(home, fake) -> None:
-    made = whole_fleet(home, fake.base, fake.directory, fake.pki)
+def test_the_fleet_fixture_gives_a_whole_fleet_folder_in_one_call(fake) -> None:
+    made = whole_fleet(_home().root, fake.base, fake.directory, fake.pki)
     reached = _reached()
     assert (reached.host.name, reached.host.problem) == (made.host, "")
     assert record.read(_home()).fleet == made.fleet
