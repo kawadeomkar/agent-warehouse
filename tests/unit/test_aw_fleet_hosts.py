@@ -45,8 +45,9 @@ FIELDS = [
 ]
 # What names one computer's: a key, an identity, a known-hosts file, any file or path of this computer's.
 ONE_COMPUTER_S = ("key", "identity", "known", "file", "path", "dir")
-# Every setting each host sets for itself, as init writes them into its settings.yml.
-ALWAYS = {"proxmox_storage": "local-lvm", "proxmox_bridge": "vmbr0", "proxmox_template_vmid": 9000}
+# Every setting each host sets for itself but its node, as init writes them into its settings.yml: never the template's
+# ID, whose row has a default (review 17, 1), so no fixture hides a host init leaves without one.
+ALWAYS = {"proxmox_storage": "local-lvm", "proxmox_bridge": "vmbr0"}
 # The new engine's subpackages, and its launcher: where no Host's today's files may be read.
 NEW = ("schema", "cli", "engine", "pve", "ssh", "vendors", "runs", "fleet", "guest", "control")
 TODAYS_FILES = ("local_file", "vault_file", "hosts_file", "sources")
@@ -271,6 +272,31 @@ def test_a_host_without_a_setting_each_host_sets_for_itself_is_refused_in_its_ow
     assert "does not set proxmox_node, which" in str(_refused(Request(host="nuc")))
 
 
+def test_the_fleet_s_one_host_as_init_leaves_it_is_whole_and_its_template_s_id_the_table_s_unless_it_sets_one(
+    home,
+) -> None:
+    # init writes the node, the storage and the bridge, and nothing of the template's ID, whose row has a default
+    # (review 17, 1): the fleet's one host, reached with nothing given, is whole.
+    written = {"proxmox_node": "lab", "proxmox_storage": "local-lvm", "proxmox_bridge": "vmbr0"}
+    folder = _host("lab", settings=written)
+    reached = reach(_layout(), Request())
+    assert reached.host.name == "lab" and reached.host.problem == "" and not reached.host.incomplete
+    assert reached.host.local["proxmox_template_vmid"] == registry.row("proxmox_template_vmid").default == 9000
+    # A host may still set its own.
+    (folder / "settings.yml").write_text(yaml.safe_dump({**written, "proxmox_template_vmid": 9100}))
+    assert reach(_layout(), Request()).host.local["proxmox_template_vmid"] == 9100
+    # Without one it does set for itself, the fleet's one host is refused on this road too, naming init, and is taken
+    # by a lenient request that may put it right.
+    (folder / "settings.yml").write_text(yaml.safe_dump({"proxmox_node": "lab", "proxmox_storage": "local-lvm"}))
+    said_of_lab = (
+        f"{folder / 'settings.yml'} does not set proxmox_bridge, which each host sets for itself: "
+        f"{_line('init', {'host': 'lab'})} writes it"
+    )
+    assert str(_refused(Request())) == f"lab cannot be used: {said_of_lab}"
+    lenient = reach(_layout(), Request(lenient=True))
+    assert lenient.host.incomplete and lenient.host.problem == said_of_lab
+
+
 @pytest.mark.parametrize(
     ("file", "text", "words"),
     [
@@ -299,7 +325,10 @@ def test_the_new_layout_s_kinds_keep_today_s_rules_less_what_host_yml_and_the_cl
     new, today = FLEET_KINDS["proxmox"], KINDS["proxmox"]
     # The API's user, token ID and port are host.yml's fields, and the certificate is always checked.
     gone = ("proxmox_api_user", "proxmox_api_token_id", "proxmox_api_port", "proxmox_validate_certs")
-    assert new.always == tuple(name for name in today.always if name not in gone)
+    # The template's ID is a row with a default, which init does not write and a host may set (review 17, 1).
+    defaulted = ("proxmox_template_vmid",)
+    assert new.always == tuple(name for name in today.always if name not in gone + defaulted)
+    assert all(registry.row(name).scope == "host" and registry.row(name).default for name in defaulted)
     assert new.never_inherited == today.never_inherited and new.shown == today.shown
     assert new.from_host == () and new.secret_shared == new.secret_host == "token"
     # Each is a row of scope host of the table, so no file but the host's own, or this computer's map for it, sets one.
@@ -415,6 +444,56 @@ def test_a_host_yml_that_is_not_whole_is_that_host_s_problem(home, text: str, wo
     (folder / "host.yml").write_text(text)
     assert words.format(init=_line("init", {"host": "nuc"})) in str(_refused(Request(host="nuc")))
     assert reach(_layout(), Request(host="lab")).host.name == "lab"
+
+
+# The three fields a host must give, whole, on lines 1 to 3.
+GIVEN = "address: 192.0.2.20\ntoken_user: aw@pve\ntoken_id: aw\n"
+# Deeper than Python's recursion lets YAML compose, as test_aw_fleet_overrides.py's DEEP.
+DEEP = 400
+# What YAML's safe reader cannot make a value of, each a Python error of its own, the forms test_aw_fleet_overrides.py's
+# CANNOT_BE_MADE refuses in a file of settings, after the fields given, with the line its refusal names (None where
+# YAML knows none): an integer, a float, a boolean and a date of a tag's that are none, a plain date that is none, in a
+# field and in what was made, a number past Python's limit of digits, one in hexadecimal read past it as a template's
+# ID, which would be made text and refused in Python's words, and what was made nested past Python's recursion as a
+# mapping and as a list.
+CANNOT_BE_MADE = [
+    pytest.param(f"api_port: !!int {ODD}\n", 4, id="int"),
+    pytest.param(f"api_port: !!float {ODD}\n", 4, id="float"),
+    pytest.param(f"ssh_port: 22\njump: !!bool {ODD}\n", 5, id="bool"),
+    pytest.param(f"ssh_user: !!timestamp {ODD}\n", 4, id="timestamp"),
+    pytest.param("ssh_user: 2026-02-30\n", 4, id="a plain date"),
+    pytest.param("made:\n  - what: template\n    id: 2026-02-30\n    by: engine\n", 6, id="a date in made"),
+    pytest.param(f"api_port: {'9' * 5000}\n", 4, id="5000 digits"),
+    pytest.param(
+        f"made:\n  - what: template\n    id: 0x{'f' * 4000}\n    by: engine\n", 6, id="4000 hexadecimal digits in made"
+    ),
+    pytest.param(
+        "made:\n" + "".join(f"{'  ' * level}a:\n" for level in range(1, DEEP)) + f"{'  ' * DEEP}b: 1\n",
+        None,
+        id="made nested 400 deep as a mapping",
+    ),
+    pytest.param("made: " + "[" * DEEP + "]" * DEEP + "\n", None, id="made nested 400 deep as a list"),
+]
+
+
+@pytest.mark.parametrize(("text", "line"), CANNOT_BE_MADE)
+def test_a_host_yml_yaml_cannot_make_a_value_of_is_that_host_s_problem_by_its_path_and_line(
+    home, text: str, line
+) -> None:
+    # Review 15's finding 1 on D5, reaching host.yml through literals (the card's ruling (g)): a refusal, never a
+    # traceback, saying the file by its path and line and no part of the value, in that host's place alone.
+    _host("lab")
+    folder = _host("nuc")
+    _client("current_host: lab\n")
+    (folder / "host.yml").write_text(GIVEN + text)
+    at = "" if line is None else f" line {line}"
+    said_of_nuc = f"{folder / 'host.yml'}{at}: this is not a file of the host's fields (found a value YAML cannot read)"
+    assert str(_refused(Request(host="nuc"))) == f"--host names nuc, which cannot be used: {said_of_nuc}"
+    # The list says it in nuc's row alone, and a run against the other host goes on, nuc's address not known.
+    rows = {row.name: row for row in choose.listing(_layout()).hosts}
+    assert rows["nuc"].problem == said_of_nuc and rows["lab"].problem == ""
+    lab = reach(_layout(), Request())
+    assert lab.host.name == "lab" and lab.others == (OtherHost(name="nuc", address=""),)
 
 
 def test_what_was_made_on_a_host_is_read_by_its_id_and_who_made_it(home) -> None:
