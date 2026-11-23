@@ -608,6 +608,38 @@ environment has neither the variable nor the secret; with the invariant that no 
 secret in clear and the vault on disk is sealed. `tests/unit/fleet_fixture.py` gives any other test a
 whole fleet folder in one call, made by this run.
 
+**The fleet as the engine reads it: `fleet.py`.** `connect(home, reached)` opens the host a run is against: `fleet.json`'s
+record, the vault opened with its key as `vaultkey.py` finds it, the host's token from it, and one client pinned as the
+host keeps its anchor, through the proxy `network_proxy` gives; it sends nothing. A `Target` is a machine a run is
+against: its kind (`vm`), name, identity (`agent-warehouse-<its SMBIOS UUID>`), host, node, VMID, the account a run logs
+in as, its address, its record and whether it runs. What is the fleet's is its pool's members with a valid record,
+never a label: `refusal(target)` is the one check, which `owned(target)` raises, and every target a change is made on
+passes `owned`. It refuses a member with no record of this engine's, whatever tags it carries; a record that names
+another VM's UUID, or is a template's, a golden's or a build's on a VM that is no template (a copy: a clone sent without
+a description carries its source's notes); a record still in its clone's first form; a member whose configuration or
+record cannot be read, one the token holds `NoAccess` on among them; two members with one UUID, both; and a template.
+
+- `requested(host, names, create=..., change=...)` holds each name before Proxmox is asked anything: the pattern of a
+  VM's name, no host's name of the fleet's nor `localhost`, with the aliases on no name `ssh` would take for another
+  host, and for a deploy that would create no name another host's alias records. A changing run then reads the pool's
+  mark by `mark.py`'s rule before anything else. Named, each is the one member of its name: a name two members carry is
+  refused, one none carries is `Missing`, or for a deploy that would create, a name to create; with none, a creating
+  deploy asks for the default VM and every other run for every member, a member named after a host, one whose name
+  another carries and, changing, one it may not change each left out and said. A deploy that would create refuses a VM
+  of a new name outside the pool wherever the token may read `/vms` (`VM.Audit`), with today's sentence, a clone in flight
+  there said as one, and says where it may not; and asks each other host whether the name is a VM of its pool, refusing
+  one found there with today's sentence, which names the line that deploys it on that host, and saying and passing a
+  host that does not answer.
+- Whether a VM runs is read from its own endpoint, never the listing's status, which lags a run's own change. Its address
+  is its guest agent's alone, on its own network card, through `pve/agent.py`'s `address`; two targets of one read that
+  report one address are both left without one, said; a token refused the agent's call ends the read at once.
+- `members(host)` gives every VM of the pool as a target, `address(host, target)` one VM's address, asked once, and
+  `count_made_by_agent(host)` how many of the fleet's own an agent's run made.
+
+`tests/unit/test_aw_fleet.py` holds it on a whole fleet folder against the fake Proxmox under enforcement, carrying
+`tests/unit/test_vm_names.py`'s cases and the guest addresses' of `tests/unit/test_filters.py`, with scans that nothing
+here reads a label or the listing's status and that `requested` returns a target for a change through `owned`.
+
 ## 16.5 `pve/` — the typed Proxmox client and the one table of privileges
 
 `lib/claude_vm/pve/` is where the typed client of the Proxmox VE API goes, with the one table that names each call's
