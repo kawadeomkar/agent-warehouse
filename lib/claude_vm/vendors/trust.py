@@ -24,8 +24,8 @@ from ..schema.words import Line
 
 # The computer's setting that names a file of certificates added to certifi's: every refusal of a file names it.
 SETTING = "tls_ca_file"
-# What a context verifies with beside the files: the flags Python 3.13's own context sets, and today's requests on it,
-# set here on every Python, so that one before 3.13 is no looser.
+# What a context verifies with beside the files: the flags the standard library's ready-made context sets, and today's
+# requests on it, which a context made by hand, as this one is, lacks.
 FLAGS = ssl.VERIFY_X509_STRICT | ssl.VERIFY_X509_PARTIAL_CHAIN
 
 

@@ -73,7 +73,7 @@
     - name: sudo | Refuse to take the rules away while no other takes the password
       ansible.builtin.assert:
         that: >-
-          common_user_sudo_before.stdout_lines | select('match', '\s+[(]') | reject('search', 'NOPASSWD') | list
+          common_user_sudo_before.stdout_lines | select('match', '\\s+[(]') | reject('search', 'NOPASSWD') | list
           | length > 0
         fail_msg: >-
           {{ common_user }} has no sudo rule that takes a password, so taking its passwordless ones away would leave

@@ -277,14 +277,13 @@ that would send the token runs. Only the certificate decides, read with nothing 
 answers there sees which request carries no token and could answer that one alone. Without root SSH there is nothing
 to compare with, and the note says how to copy the file by hand.
 
-**When the certificate changes.** Proxmox renews the node's certificate within two years, a reinstalled host has a
-new CA, and a kept certificate may suit one Python and not another. With checking on, the first run after that fails,
-saying Proxmox presents a certificate that does not verify. `just init` then reads the host's certificates over root
-SSH, with checking still on, and shows the one kept and the one that verifies now, each by its SHA-256 fingerprint:
-it puts the new one in place on a `y`, or for `just init --certificate <the new fingerprint>`; otherwise it keeps the
-old one and sends no token. A certificate that stopped verifying is also what someone answering in the host's place
-presents, so compare the fingerprint with what the host prints before you say yes. Nothing ever retries without
-checking, and nothing asks you to turn checking off.
+**When the certificate changes.** Proxmox renews the node's certificate within two years, and a reinstalled host has
+a new CA. With checking on, the first run after that fails, saying Proxmox presents a certificate that does not
+verify. `just init` then reads the host's certificates over root SSH, with checking still on, and shows the one kept
+and the one that verifies now, each by its SHA-256 fingerprint: it puts the new one in place on a `y`, or for
+`just init --certificate <the new fingerprint>`; otherwise it keeps the old one and sends no token. A certificate that
+stopped verifying is also what someone answering in the host's place presents, so compare the fingerprint with what
+the host prints before you say yes. Nothing ever retries without checking, and nothing asks you to turn checking off.
 
 **By hand.** With no root SSH to the host, copy one of the files above yourself to the trust file's place, after
 comparing its fingerprint with the one the host prints. Take the node's certificate unless your CA has `keyUsage`.

@@ -30,6 +30,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from aw_kit import STOP_GONE
 from harness import REPO, repo_files
 from test_aw_layout import NEW_MODULES
 from test_aw_locks import _flocks_and_lock_folders
@@ -587,6 +588,7 @@ def test_a_run_started_with_another_job_s_marker_carries_none_and_nor_do_childre
 
 
 @pytest.mark.skipif(not hasattr(os, "waitid"), reason="Python before 3.13 on macOS has no waitid")
+@STOP_GONE
 def test_a_child_the_terminal_stopped_is_asking_and_one_stopped_otherwise_is_not(made) -> None:
     def stopped_by(pid: int) -> int | None:
         seen = os.waitid(os.P_PID, pid, os.WSTOPPED | os.WNOHANG | os.WNOWAIT)

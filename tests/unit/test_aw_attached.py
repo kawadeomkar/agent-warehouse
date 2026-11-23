@@ -17,9 +17,9 @@ SIGINT once the shield is done; a SIGTERM after a Ctrl-C is what the record says
 question ends the run there; a ladder that cannot be built leaves no job; Python's and asyncio's own reports stay off
 the terminal. A shielded phase finishes before the stop; at a pseudo-terminal the echo is back after each end; a signal
 ignored on the way in stays ignored; a child meant to outlive the run, as a page's opener is, lives on unmarked after
-every end; a child the terminal stopped for asking a question there - reading it or changing it first, route.py's ssh,
-or a reader in a group of its own under a child - is said within a second and ended, and its run ends; and end_under
-ends what is under a process, never the process, nor what it is told to leave.
+every end; a child the terminal stopped for asking a question there - reading it or changing it first, or route.py's
+ssh - is said within a second and ended, and its run ends, and a run at a terminal whose child in a group of its own
+asks nothing starts no ps; and end_under ends what is under a process, never the process, nor what it is told to leave.
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ import contextlib
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -39,7 +40,7 @@ from typing import NamedTuple
 
 import harness
 import pytest
-from aw_kit import environment
+from aw_kit import STOP_UNSEEN, environment
 from harness import REPO
 from test_processes import HOLDS, _by_argv, _until
 
@@ -56,7 +57,7 @@ LIB = REPO / "lib"
 # from outside), stops at the Ctrl-C, raises, returns a status, holds a shield across the Ctrl-C, waits on a call in a
 # thread, holds the loop, or asks a question.
 RUN = r"""
-import asyncio, concurrent.futures, json, os, signal, sys, termios, threading, time
+import asyncio, concurrent.futures, json, os, shutil, signal, sys, termios, threading, time
 lib, jobs_dir, way, grace, folder, quiet, holds = sys.argv[1:8]
 sys.path.insert(0, lib)
 from pathlib import Path
@@ -114,14 +115,9 @@ ASKS_QUIETLY = (
     "termios.tcsetattr(tty, termios.TCSAFLUSH, settings)\n"
     "os.read(tty, 100)\n"
 )
-# A child whose own child asks, from a process group the child made for it: the reader alone is stopped, and the child
-# waits on it, never stopped itself (review/code/C23.md 2). It exits 1 where its reader did not end well.
-ASKS_BELOW = (
-    "import subprocess, sys\n"
-    "reader = subprocess.Popen([sys.executable, '-I', '-c', sys.argv[2], sys.argv[1]], process_group=0)\n"
-    "sys.exit(1 if reader.wait() else 0)\n"
-)
-ASKERS = {"asks": ASKS, "asks-quietly": ASKS_QUIETLY, "asks-below": ASKS_BELOW}
+ASKERS = {"asks": ASKS, "asks-quietly": ASKS_QUIETLY}
+# A child that asks nothing at the terminal, as an ssh let in by a key held in an agent: it waits a while, then ends.
+QUIET = "import time\ntime.sleep(3)\n"
 # How long a body waits on a child that asks: far past the second it is said within, and short of the test's limit.
 ASKING_LIMIT = 20
 # A program a call in a thread starts, as route.py starts the hop's ssh: it writes its pid into the file named, then
@@ -243,7 +239,20 @@ async def asks(ctx, said):
         # -9 once said and ended; None where it waited out route.py's limit.
         (folder / "asked").write_text(str(ended["rc"]))
         return 1
-    argv = [sys.executable, "-I", "-c", ASKERS[way], str(folder / "asking"), ASKS]
+    if way == "asks-nothing":
+        # A child of kind ssh in a process group, not a session, of its own, so in the run's session at its terminal,
+        # which nothing stops, waited on to its end; and where this run would find a ps.
+        argv = [sys.executable, "-I", "-c", QUIET, str(folder / "quiet")]
+        quiet = await children.start(
+            ctx.job, argv, children.GROUP, dict(os.environ), DEVNULL, DEVNULL, DEVNULL, children.SSH
+        )
+        said["quiet"], said["ps"] = quiet.pid, shutil.which("ps")
+        say(said)
+        (folder / "began").write_text(repr(time.time()))
+        status = await quiet.wait()
+        (folder / "ended").write_text(repr(time.time()))
+        return 0 if status == 0 else 1
+    argv = [sys.executable, "-I", "-c", ASKERS[way], str(folder / "asking")]
     asking = await children.start(
         ctx.job, argv, children.GROUP, dict(os.environ), DEVNULL, DEVNULL, DEVNULL, children.SSH
     )
@@ -512,11 +521,12 @@ def _argv(folder: Path, jobs_dir: Path, way: str, grace: float, quiet: bool = Fa
     return [sys.executable, "-I", "-c", RUN, str(LIB), str(jobs_dir), way, str(grace), str(folder), "1" * quiet, HOLDS]
 
 
-def _env(home: Path, folder: Path) -> dict[str, str]:
-    """The run's environment, its per-user temporary directory a folder of the test's own."""
+def _env(home: Path, folder: Path, first_on_path: tuple[Path, ...] = ()) -> dict[str, str]:
+    """The run's environment, its per-user temporary directory a folder of the test's own, and first_on_path's folders,
+    each of the test's own, first on its PATH."""
     temporary = folder / "tmp"
     temporary.mkdir(exist_ok=True)
-    return environment(home, {"TMPDIR": str(temporary)})
+    return environment(home, {"TMPDIR": str(temporary)}, first_on_path)
 
 
 def _signals(folder: Path) -> list[tuple[str, float]]:
@@ -1127,8 +1137,7 @@ def test_a_child_meant_to_outlive_the_run_lives_on_unmarked_after_each_end(way, 
 
 ASKED_LINE = re.compile(rb"aw: (\S+) stopped at the terminal to ask a question there")
 # Each child that asks a question at a pseudo-terminal, and is stopped there: the body's way, and what the step that
-# waited on it saw. A child of the run's is killed; route.py's ssh is killed, its rc -9 where its limit would say None;
-# the child whose reader was killed exits 1.
+# waited on it saw. A child of the run's is killed; route.py's ssh is killed, its rc -9 where its limit would say None.
 ASKING = {
     "a child that reads the terminal (SIGTTIN)": ("asks", str(-signal.SIGKILL)),
     "a child that turns the echo off first, as OpenSSH's readpassphrase does (SIGTTOU)": (
@@ -1136,18 +1145,22 @@ ASKING = {
         str(-signal.SIGKILL),
     ),
     "route.py's ssh, in a process group of its own": ("asks-route", str(-signal.SIGKILL)),
-    "a reader in a process group of its own under a child": ("asks-below", "1"),
 }
+# The ways whose asker is a child the run started itself (children.start): on macOS with Python 3.14 the watch said
+# neither stopped in CI's two runs on #310, where it said route.py's ssh in both (aw_kit.STOP_UNSEEN, strict).
+STARTED_BY_THE_RUN = ("asks", "asks-quietly")
 
 
 @pytest.mark.skipif(not hasattr(os, "waitid"), reason="Python before 3.13 on macOS has no waitid")
-@pytest.mark.parametrize("way", ASKING)
+@pytest.mark.parametrize(
+    "way", [pytest.param(way, marks=STOP_UNSEEN) if ASKING[way][0] in STARTED_BY_THE_RUN else way for way in ASKING]
+)
 def test_a_child_stopped_asking_at_the_terminal_is_said_within_a_second_and_ended_and_its_run_ends(
     way, home, jobs_dir, tmp_path
 ) -> None:
     # A group child that reads the terminal is stopped by it (SIGTTIN), or by changing it first (SIGTTOU), and would
     # wait for an answer no run gives, silent, until the run's end (the owner's 8, review/code/SUMMARY-5.md; C2.md, "the
-    # terminal"); so would route.py's ssh, and a reader under a child in a group of its own (review/code/C23.md 1, 2).
+    # terminal"); so would route.py's ssh (review/code/C23.md 1, 2).
     body, waited = ASKING[way]
     state: dict = {"said": None, "seen": None}
 
@@ -1166,16 +1179,55 @@ def test_a_child_stopped_asking_at_the_terminal_is_said_within_a_second_and_ende
     watched = WATCHED.search(output)
     assert rc == 0 and watched is not None, output.decode(errors="replace")
     asked = ASKED_LINE.search(output)
-    program = os.path.basename(sys.executable).encode()
-    # The process table names a program by what its system keeps of it: Linux the first 15 bytes of its name.
-    assert asked is not None and asked.group(1) in (program, program[:15]), output.decode(errors="replace")
-    # Said within a second of asking, never left to a limit: the process table's look is every TABLE_LOOKS-th.
-    within = 1.0 if body != "asks-below" else attached.ASKING_POLL * attached.TABLE_LOOKS + 0.7
-    assert state["seen"] is not None and state["seen"] - float((tmp_path / "asking").read_text()) < within
+    assert asked is not None and asked.group(1) == os.path.basename(sys.executable).encode(), output.decode(
+        errors="replace"
+    )
+    # Said within a second of asking, never left to a limit.
+    assert state["seen"] is not None and state["seen"] - float((tmp_path / "asking").read_text()) < 1.0
     # Ended: killed, so the step that waited on it failed, and the run ended with the body's own status.
     assert (tmp_path / "asked").read_text() == waited
     assert int(watched.group(2)) == 1
     assert _record(jobs_dir, state["said"])["outcome"] == "failed"
+    assert left == []
+
+
+# A ps that writes each run of it, with its words, into the file named, then is this machine's own.
+COUNTS_PS = '#!/bin/sh\nprintf "%s\\n" "$*" >> {record}\nexec {ps} "$@"\n'
+# How often the watch once read the process table, while a child of the run's lived in its session at a terminal.
+TABLE_LOOKED = 0.8
+
+
+def test_a_run_at_a_terminal_whose_child_in_a_group_of_its_own_asks_nothing_starts_no_ps(
+    home, jobs_dir, tmp_path
+) -> None:
+    # The watch reads the run's own children and route.py's ssh by waitid alone, never the process table (the owner's
+    # word of 2026-11-22, C27): the look it once took there, every TABLE_LOOKED seconds while a child of the run's lived
+    # in its session and the run had a terminal, read every process there was, and took a person's SIGSTOP for a
+    # terminal's stop. At a pseudo-terminal, with a child of kind ssh in a process group, not a session, of its own that
+    # nothing stops, for three such periods, and no Ctrl-C, nothing of the run runs ps.
+    real = shutil.which("ps")
+    assert real is not None
+    folder, record = tmp_path / "bin", tmp_path / "ps-runs"
+    folder.mkdir()
+    (folder / "ps").write_text(COUNTS_PS.format(record=shlex.quote(str(record)), ps=shlex.quote(real)))
+    (folder / "ps").chmod(0o755)
+    argv = [sys.executable, "-I", "-c", WATCHES, *_argv(tmp_path, jobs_dir, "asks-nothing", 60)]
+    env = _env(home, tmp_path, (folder,))
+    try:
+        rc, output = harness._at_a_pseudo_terminal(argv, tmp_path, env, timeout=90, poll=0.05)
+        left = _left(tmp_path)
+    finally:
+        _end_left(tmp_path)
+    watched, reported = WATCHED.search(output), REPORT.search(output)
+    assert rc == 0 and watched is not None and reported is not None, output.decode(errors="replace")
+    said = json.loads(reported.group(0))
+    # The control: the ps the run would start is the one that counts.
+    assert said["ps"] == str(folder / "ps")
+    # The child lived through three of the old look's periods, and the run ended as its body did.
+    assert float((tmp_path / "ended").read_text()) - float((tmp_path / "began").read_text()) > 3 * TABLE_LOOKED
+    assert int(watched.group(2)) == 0
+    assert _record(jobs_dir, said)["outcome"] == "succeeded"
+    assert not record.exists(), f"the run ran ps:\n{record.read_text()}"
     assert left == []
 
 

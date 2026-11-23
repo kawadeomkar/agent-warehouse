@@ -13,8 +13,7 @@ process's own, so a child started in this group is ended alone, never this proce
 signalled whether or not it can still be looked up, since both callers start it as a group leader, a child that
 has exited, a zombie, no longer answers for its group on macOS, and its children moved on the moment it exited,
 found under it no more. `end_under` signals what is under a process and never the process, its group
-or this one's: the new engine's run ends what it started, and goes on to say how it ended. `stopped_under` finds what
-under a process a terminal has stopped, for the new engine's run to say and end. The interrupts are held
+or this one's: the new engine's run ends what it started, and goes on to say how it ended. The interrupts are held
 off while the table is read and the tree signalled, since a second one - a hangup moments after a kill - would
 otherwise end the end itself.
 
@@ -166,36 +165,6 @@ def end_under(
     finally:
         signal.pthread_sigmask(signal.SIG_SETMASK, held)
     return pids
-
-
-def stopped_under(pid: int, *, leaving: Iterable[int] = ()) -> list[tuple[int, int, str]]:
-    """Every process under pid that a terminal has stopped, as ps lists them now, each with its process group and its
-    program: stopped (its state T), with a controlling terminal whose foreground is another group than its own - as a
-    process is that read the terminal, or changed it, from the background. ps does not say which signal stopped one,
-    so a person's SIGSTOP of one in a terminal's background is one too. Never one of leaving, nor anything under one.
-    Blind when ps cannot be read."""
-    try:
-        out = subprocess.run(
-            ["ps", "-axo", "pid=,ppid=,pgid=,tpgid=,stat=,comm="],
-            capture_output=True,
-            text=True,
-            errors="replace",
-            check=True,
-        ).stdout
-    except (OSError, subprocess.CalledProcessError) as error:
-        raise Blind(f"the process table could not be read ({error})") from error
-    # By pid: its parent, its group, whether a terminal stopped it, and its program.
-    rows: dict[int, tuple[int, int, bool, str]] = {}
-    for line in out.splitlines():
-        fields = line.split(None, 5)
-        if len(fields) == 6 and all(each.lstrip("-").isdigit() for each in fields[:4]):
-            each, parent, group, foreground = (int(field) for field in fields[:4])
-            rows[each] = (parent, group, fields[4].startswith("T") and 0 < foreground != group, fields[5].strip())
-    table = {each: (parent, "") for each, (parent, *_) in rows.items()}
-    left = _left_out(leaving, table)
-    return [
-        (each, rows[each][1], rows[each][3]) for each in descendants(pid, table) if each not in left and rows[each][2]
-    ]
 
 
 def end_left(remembered: dict[int, str], *, signum: int = signal.SIGKILL) -> list[int]:

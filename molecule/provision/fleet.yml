@@ -422,7 +422,7 @@
       ansible.builtin.assert:
         that:
           - verify_stopped_run.rc == 0
-          - verify_stopped_run.stdout is search('alpha is up at 192\.0\.2\.51')
+          - verify_stopped_run.stdout is search('alpha is up at 192\\.0\\.2\\.51')
           - verify_stopped_run.stdout is search('beta is stopped and was left that way')
           - verify_stopped_run.stdout is not search('beta is up at')
           - verify_beta_status.json.data.status == 'stopped'
@@ -470,7 +470,7 @@
       ansible.builtin.assert:
         that:
           - verify_solo_run.rc == 0
-          - verify_solo_run.stdout is search('solo is up at 192\.0\.2\.63')
+          - verify_solo_run.stdout is search('solo is up at 192\\.0\\.2\\.63')
         fail_msg: >-
           just deploy solo --only provision went wrong (rc {{ verify_solo_run.rc }}):
           {{ (verify_solo_run.stdout ~ '\n' ~ verify_solo_run.stderr).splitlines()[-20:] }}
@@ -517,7 +517,7 @@
           # The window, left for later rather than failing a finished deploy
           - >-
             verify_deploy_runs.results | map(attribute='stdout')
-            | select('search', 'beta is stopped, and this deploy left it so: it was not configured, signed in or opened in VS Code\.'
+            | select('search', 'beta is stopped, and this deploy left it so: it was not configured, signed in or opened in VS Code\\.'
                                ~ ' To start it and finish the deploy: just deploy beta --start')
             | list | length == 2
           - >-
@@ -593,7 +593,7 @@
       ansible.builtin.assert:
         that:
           - verify_deploy_windows.results | map(attribute='rc') | list == [0, 0]
-          - verify_fleet.stdout is search('VS Code opens one VM at a time, so this deploy for 2 VMs opened none\. To open one')
+          - verify_fleet.stdout is search('VS Code opens one VM at a time, so this deploy for 2 VMs opened none\\. To open one')
           - verify_fleet.stdout is search('"just code beta"')
           - verify_fleet.stdout is search('"just code solo"')
           # Ended at its first task: not even the one-VM check ran.
@@ -628,7 +628,7 @@
       ansible.builtin.assert:
         that:
           - verify_wrong_node_run.rc != 0
-          - verify_wrong_node_output is search('is on node pve, but\s+proxmox_node is pve2')
+          - verify_wrong_node_output is search('is on node pve, but\\s+proxmox_node is pve2')
           - verify_wrong_node_output is not search('is already built, so this run needs no SSH')
         fail_msg: >-
           Expected deploy.yml to refuse proxmox_node=pve2; it exited
@@ -986,8 +986,8 @@
       ansible.builtin.assert:
         that:
           - verify_ssh_up.rc == 0
-          - "verify_ssh_up.stdout is search('Pruned, no VM of that name exists any more: gone\\.')"
-          - "verify_ssh_up.stdout is search('Left alone: stranger\\.')"
+          - "verify_ssh_up.stdout is search('Pruned, no VM of that name exists any more: gone\\\\.')"
+          - "verify_ssh_up.stdout is search('Left alone: stranger\\\\.')"
           - verify_ssh_up.stdout is not search('Nothing pruned')
           - "'gone' not in verify_aliases_up"
           - "'stranger' in verify_aliases_up"
@@ -1115,7 +1115,7 @@
           - "'hostname 192.0.2.51' in verify_alpha_hop.stdout_lines"
           - verify_hop_calls is search('-O check')
           - verify_hop_calls is search(' -N ')
-          - verify_hop_calls is search('-W 192\.0\.2\.51:22 ')
+          - verify_hop_calls is search('-W 192\\.0\\.2\\.51:22 ')
         fail_msg: >-
           ssh-config through the host exited {{ verify_ssh_hop.rc }}, alpha resolving to
           {{ verify_alpha_hop.stdout_lines | default([]) | select('match', '^(hostname|proxyjump) ') | list }}:

@@ -1178,12 +1178,14 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - A child the terminal stopped for asking a question there (SIGTTIN, or SIGTTOU as OpenSSH's `readpassphrase`
       turns the echo off before it reads: the `ssh` of a person's own `ProxyJump`, a question of `git`'s or `sudo`'s),
       which `children.asking` reads with `waitid`'s `WNOWAIT` - the registry's children and `route.py`'s `ssh` in a
-      process group of its own (`children.watched`, `route.leading`) - or a process under one stopped in a group of its
-      own, which the ladder reads from the process table while such a child lives in its session (`proc.stopped_under`),
-      is said by the run within a second, naming its program and what to do, and ended: never left stopped and
-      silent.
+      process group of its own (`children.watched`, `route.leading`) - is said by the run within a second, naming its
+      program and what to do, and ended: never left stopped and silent. What the watch does not see is a program that
+      made a process group of its own under one of them, which stops alone and is no child of the run's for `waitid`
+      to read: the run never reads the process table for it, since nothing the engine runs makes one and `ps` cannot
+      tell a terminal's stop from a person's SIGSTOP.
     - `tests/unit/test_aw_children.py` holds it, with real children that report what they were given, and scans of the
-      new engine's code for each rule; `tests/unit/test_aw_attached.py` the opener and the question at a terminal.
+      new engine's code for each rule; `tests/unit/test_aw_attached.py` the opener, the question at a terminal, and a
+      run at one that starts no `ps`.
 - **Every `ssh` the new engine starts carries `BatchMode=yes` and names the machine by its identity.** Read
   [§16.6](docs/architecture/engine.md#166-ssh--the-runner-over-openssh) first.
     - `lib/claude_vm/ssh/runner.py` builds every command line from a `Target`, each value held before any child starts:
@@ -1346,6 +1348,14 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   gh printed. Only a pattern read line by line (`re.M`, `multiline=True`, `(?m)`, lineinfile's `regexp`) ends with
   `$`. `tests/unit/test_anchors.py` scans every pattern written in a test, in Python, or in a `*_pattern` variable,
   a `$` last in a closing group included; CONTRIBUTING.md has the rule.
+- **A conditional decodes a string literal's escapes; `{{ }}` does not.** Ansible evaluates `when`, `changed_when`,
+  `failed_when`, `until` and `assert`'s `that` as Jinja does, which decodes a literal as Python's `unicode-escape`:
+  `'^[a-z]+\Z'` keeps its `\Z` only with a warning that such sequences will not work in the future, and `'\1'` is
+  U+0001. So there, in a `{% %}` block and in a template file, a backslash that starts no escape is written twice
+  (`'^[a-z]+\\Z'`; four times in a double-quoted YAML scalar). Inside `{{ }}` of a value Ansible's own lexer escapes the
+  backslashes first, and a literal reads as written - doubled there, it is two backslashes. `tests/unit/test_anchors.py`
+  reads every literal of the files Ansible reads as Ansible decodes it, held to Ansible's own templar, and fails on one
+  that warns; CONTRIBUTING.md has the rule.
 - **An Ansible tool's stdout is more than its output once verbosity or debugging is on.** With
   `ANSIBLE_VERBOSITY` or `ANSIBLE_DEBUG` exported (or set in `ansible.cfg`), `ansible-vault decrypt --output -`
   prints `Using ... as config file` and more after the vault's text, which `just init` read as the vault's:

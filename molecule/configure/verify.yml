@@ -70,7 +70,7 @@
         that:
           # The stand-in's version by now: side_effect.yml checks the
           # installed claude before it swaps the stand-in in.
-          - verify_cmds.results[0].stdout is search('[0-9]+\.[0-9]+\.[0-9]+')
+          - verify_cmds.results[0].stdout is search('[0-9]+\\.[0-9]+\\.[0-9]+')
           - not verify_cloned.results[0].stat.exists
           - verify_cloned.results[1].stat.exists
           - verify_git_config.results[0].stdout == 'Molecule Tester'

@@ -108,6 +108,15 @@ In the new engine a secret is a `Secret` (`lib/claude_vm/secret.py`), shown only
   end with `$`. A pattern that must hold the whole value is anchored at both ends: one with no end anchor holds only
   its start. `tests/unit/test_anchors.py` holds every pattern written in a test, in Python or in a `*_pattern`
   variable.
+- **A conditional's backslash that starts no escape is written twice**: `when: x is match('^[a-z]+\\Z')`, which
+  reads as `^[a-z]+\Z`. Ansible evaluates a conditional (`when`, `changed_when`, `failed_when`, `until`, `assert`'s
+  `that`) as Jinja does, and Jinja decodes a string literal as Python's `unicode-escape` does: a `\Z` written once is
+  kept, with a warning that such sequences will not work in the future, and a known escape becomes its character
+  (`'\1'` is U+0001). So too in a `{% %}` block and in a template file. Inside `{{ }}` of a value, Ansible's own lexer
+  escapes the backslashes first, so a literal there reads as written: `'^[a-z]+\Z'`, and `'\1'` a backreference. Write
+  them as the YAML scalar hands them on: four times, not twice, in a double-quoted one, which reads two as one.
+  `tests/unit/test_anchors.py` reads every literal of the files Ansible reads as Ansible decodes it, a rule it holds to
+  Ansible's own templar, and fails on one that warns.
 - **A moment the run waits for the person is set apart.** A `pause` or `vars_prompt` passes its text
   through the `banner` filter (`'…' | banner('USER INPUT REQUIRED', host=inventory_hostname,
   topic='…') ~ 'Code'`), and a debug task that shows a page to approve, or a retried task that waits on
@@ -147,8 +156,8 @@ The editor and the VPN are choices: a setting naming one row of a list in the in
 ## Pull requests
 
 CI runs lint, unit tests, every Molecule scenario and the integration scenario on your PR, the new
-engine's tests on Ubuntu and on macOS, plus a dependency review. No job uses a secret, so the full suite runs on pull requests from forks - please keep
-it that way and do not add a job that needs one.
+engine's tests on Ubuntu and on macOS, plus a dependency review. No job uses a secret, so the full suite runs on
+pull requests from forks - please keep it that way and do not add a job that needs one.
 
 Before opening a PR, run `just test` - in full on a throwaway VM rather than the machine that holds your vault,
 since its scenarios run what they download as root in privileged containers

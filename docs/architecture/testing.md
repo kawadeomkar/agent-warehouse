@@ -50,6 +50,17 @@ tests, selected with `-m engine` on the same workers and groups as the unit part
 take seconds; `just test unit` still runs them with the rest. Their kit is `tests/unit/aw_kit.py`, which `conftest.py`
 registers.
 
+CI's `engine` job runs them on macOS too, and where macOS does otherwise than Linux the test says so by name. A socket
+bound and never listening is refused at once on Linux and dropped in silence on macOS, so the transport's test of a port
+nothing answers expects there what the transport says of a silent one, no connection within its limit, and tries a port
+bound and closed beside it, which both refuse. A test macOS fails for a cause not yet known is marked an expected
+failure there alone, its reason naming the card that finds the cause, and strict where it failed in every run, so that
+a pass fails the mark. On Python 3.14 the kit's `STOP_UNSEEN` marks, strictly, the stopped-asking test's two rows of a
+child the run started itself, stopped by SIGTTIN or SIGTTOU, which the watch did not say there, and its `STOP_GONE`,
+not strictly, the children's test of a stopped child, which failed once; and the test of a run at a pseudo-terminal
+that reaches the dispatch expects a failure on macOS in one outcome alone, not strictly, the run ended with its status
+and its terminal gave none of what it wrote.
+
 Most of the new engine's code runs in the test's own process, so that process is guarded as a run is.
 `engine_guard`, a fixture of the kit's that no test asks for, holds every test the `engine` marker selects, and no
 other, from setup to teardown: `HOME` and the XDG folders in the test's own home, the directory `aw_home` names
@@ -593,14 +604,14 @@ pytest over `tests/unit/`, file by file:
   fleet `just status`'s tests read (`fake_fleet`) live in `tests/unit/harness.py`, shared by every module that
   runs against the fake; each file keeps its own `fake_pve` fixture.
 - **The Proxmox API's certificate** (`test_proxmox_trust.py`, and the certificate's step in `test_init_check.py`):
-  `lib/claude_vm/trust.py` against made-up PKIs served on loopback, Python's strict checking forced on and off
-  whatever this Python's own: the certificate that makes the API verify picked from this machine's store, the
-  host's CA and its node's own certificate, a CA without key usage refused where checking is strict, a key or a
-  block that is no certificate never kept, and what the address presents told from the host's own. The step at
-  a terminal and as given: the file kept and checking turned on, in another host's own folder for that host; a
-  changed certificate never trusted unasked, and its address sent no token. The HTTP client the modules use
-  verifying against the file kept, every API request that carries the token following no redirect, and `just
-  status` saying a certificate that changed, or a host whose certificate nothing checks.
+  `lib/claude_vm/trust.py` against made-up PKIs served on loopback, checked strictly, as every Python the project
+  runs on checks: the certificate that makes the API verify picked from this machine's store, the host's CA and its
+  node's own certificate, a CA without key usage refused, a key or a block that is no certificate never kept, and
+  what the address presents told from the host's own. The step at a terminal and as given: the file kept and
+  checking turned on, in another host's own folder for that host; a changed certificate never trusted unasked, and
+  its address sent no token. The HTTP client the modules use verifying against the file kept, every API request that
+  carries the token following no redirect, and `just status` saying a certificate that changed, or a host whose
+  certificate nothing checks.
 - **The managed SSH config** (`test_ssh_config.py`): `tasks/ssh_config.yml` for real against a
   temporary home, resolved with `ssh -G` - the refusal of a name or address that is not one plain word,
   the guard that every scenario and the Vagrantfile keep the managed file out of `~/.ssh`, that no
@@ -608,10 +619,12 @@ pytest over `tests/unit/`, file by file:
   alone, a group the user is not in included (macOS).
 - **Patterns and units**: `test_anchors.py` (every pattern that holds a value to a shape - in a `match`, `search` or
   `regex` test, in Python, or in a `*_pattern` variable - ends at `\Z`, never a `$` a trailing newline gets past, a `$`
-  last in a closing group included; and the values a VM or a setting supplies refuse one), `test_remote_control_unit.py`
-  (Remote Control's two units, rendered by Ansible's template module beside the ones 2.5 shipped, kept verbatim in
-  `tests/unit/units/`, byte for byte alike for a VM's values, since a unit that changed is restarted; a value systemd
-  would split or expand quoted as systemd reads it).
+  last in a closing group included; the values a VM or a setting supplies refuse one; and no Jinja string literal of
+  a file Ansible reads holds an escape Python does not know as Ansible decodes it - a conditional's, a `{% %}` block's
+  or a template file's, never one inside `{{ }}`, whose backslashes Ansible's lexer escapes first - the rule held to
+  Ansible's own templar), `test_remote_control_unit.py` (Remote Control's two units, rendered by Ansible's template
+  module beside the ones 2.5 shipped, kept verbatim in `tests/unit/units/`, byte for byte alike for a VM's values,
+  since a unit that changed is restarted; a value systemd would split or expand quoted as systemd reads it).
 - **Smaller ones**: `test_configure_tags.py` (`--tags claude_code` still runs discovery and the alias
   play), `test_deploy_report.py` (deploy's opening message, rendered by its own tasks, naming only the
   sign-ins that open a page and the VMs as a list), `test_proxmox_vm_absent.py` (deleting a VM

@@ -416,10 +416,10 @@ host keeps, before a byte of the request is written. A host keeps one of two thi
 
 - **An anchor file**, its node's own certificate or its CA, which is then the context's only source of roots.
   `context(anchor_pem)` makes that context with today's `trust.anchored_context`, the one way a context is made from a
-  certificate the host gave: the name the API was reached at checked, and Python 3.13's flags (strict, and a partial
-  chain, so that the node's own certificate is an anchor of its own) on every Python. So a CA with no `keyUsage`, as
-  Proxmox VE 8 made one and VE 9 did before pve-cluster 9.1.8, is no anchor on any Python, and such a host's anchor is
-  its node's own certificate.
+  certificate the host gave: the name the API was reached at checked, and the flags the standard library's ready-made
+  context has (strict, and a partial chain, so that the node's own certificate is an anchor of its own), set by hand.
+  So a CA with no `keyUsage`, as Proxmox VE 8 made one and VE 9 did before pve-cluster 9.1.8, is no anchor, and such a
+  host's anchor is its node's own certificate.
 - **No file**, where the host's certificate verifies against the computer's certificates, the vendors' (16.7):
   `certifi`'s list, with the file the setting `tls_ca_file` names added to it.
 
@@ -1068,10 +1068,10 @@ vendors' trust to roots of one's own.
   where it is given no file (a store the environment's variables change) and reads the environment for a file to log
   the session's keys to. Nothing of the environment is read, macOS's keychain is never asked, and there is no table of
   each system's paths.
-- **Checked as Python 3.13 checks.** The server's name is checked and a certificate required. The flags that Python
-  3.13's own context, and today's `requests` on it, set are set on every Python: strict checking, and a chain that may
-  end at an intermediate a file holds. So an interpreter before 3.13 is no looser, and a CA with no keyUsage, as
-  Proxmox VE 8 makes one, does not verify.
+- **Checked as Python's own context checks.** The server's name is checked and a certificate required. The flags
+  that the standard library's ready-made context, and today's `requests` on it, set are set by hand, since a context
+  made by hand has neither: strict checking, and a chain that may end at an intermediate a file holds. So a CA with no
+  keyUsage, as Proxmox VE 8 makes one, does not verify.
 - **A file that cannot be used** (not there, not readable, or holding no certificate, such as a revocation list alone,
   each file told by a context of its own, so that one holding only certificates `certifi`'s list already has is no
   fault) is `Unusable`: the setting's file with a sentence that names `tls_ca_file`, and `certifi`'s, or `certifi`
@@ -1530,16 +1530,17 @@ itself, `runs.run` is where a small watcher would go.
 (`children.asking`): one in a group of its own, `route.py`'s `ssh` among them, that asked a question at the terminal,
 which a run never answers and where it would wait, stopped and silent, holding its step until the run's end. A stop at
 the terminal stops the reader's whole process group, so a reader in such a child's group, as the jump's `ssh` of a
-person's `ProxyJump` is, stops the child too. One that made a group of its own stops alone, its parent waiting on it,
-and is no child of the run's for `waitid` to read: every fourth look (`TABLE_LOOKS`), while a child the look watches
-lives in the run's session and the run has a controlling terminal, the run reads the process table for a process under
-it that is stopped and whose terminal's foreground is another group, in a group no watched child leads
-(`proc.stopped_under`; a table that cannot be read is said once, and only that look stops); the table says no signal, so
-one a person stopped with SIGSTOP there is one too. Each is said at once on standard error, in one line that names its
-program and what to do (hold the key in an agent, `ssh-add`, or give a `ProxyJump` of the person's own what it asks for
-in its own settings), and ended with what is under it and its group, within a second; the step that waited on it sees it
-killed, or its child's failure, its machine's failure. Giving such a question the terminal, so that it reaches the
-person, is the owner's to ask for.
+person's `ProxyJump` is, stops the child too. What the watch sees is the run's own children and `route.py`'s `ssh`,
+read by `waitid`: a program that made a group of its own under one of them stops alone, its parent waiting on it, and
+is no child of the run's for `waitid` to read, so it is not seen. The run never reads the process table to find one:
+nothing the engine runs makes such a reader; `ps`, the one way to see it, says no signal, so it cannot tell a terminal's
+stop from a person's SIGSTOP and would end what a person paused; and it would read every process there is, each 0.8
+seconds, through every run at a terminal with an `ssh` child. If a program the engine runs ever makes such a reader, the
+look comes back with that program as its test. Each child seen is said at once on standard error, in one line that names
+its program and what to do (hold the key in an agent, `ssh-add`, or give a `ProxyJump` of the person's own what it asks
+for in its own settings), and ended with what is under it and its group, within a second; the step that waited on it
+sees it killed, its machine's failure. Giving such a question the terminal, so that it reaches the person, is the
+owner's to ask for.
 
 **Nothing holds the process once its record is written.** The engine's blocking calls (`asyncio.to_thread`, a
 `run_in_executor` of the default) run on the ladder's own executor, the loop's default: each call on a daemon thread of
@@ -1591,8 +1592,9 @@ that cannot be built leaves no job; a record that cannot be written is said; asy
 the grace, the stop recorded, a shielded phase, a signal ignored on the way in, and the echo at a pseudo-terminal after
 each end; a page's opener meant to outlive the run alive and unmarked after each end; and a child that asks a question
 at a pseudo-terminal said within a second and ended, its run ending with its body's own status: one that reads it
-(SIGTTIN), one that turns the echo off first as `readpassphrase` does (SIGTTOU), `route.py`'s `ssh`, and a reader in a
-group of its own under a child.
+(SIGTTIN), one that turns the echo off first as `readpassphrase` does (SIGTTOU), and `route.py`'s `ssh`; and a run at a
+pseudo-terminal whose child of kind `ssh`, in a group of its own in the run's session, asks nothing for three seconds
+starts no `ps`, counted by a stand-in first on its `PATH`.
 
 ## 16.9 `fleet/` — the fleet's files, the settings, the secrets and the fleet's mark
 

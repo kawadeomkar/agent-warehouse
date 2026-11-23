@@ -415,7 +415,7 @@
 
     - name: Assert the installed claude reports a version
       ansible.builtin.assert:
-        that: side_effect_claude_version.stdout is search('[0-9]+\.[0-9]+\.[0-9]+')
+        that: side_effect_claude_version.stdout is search('[0-9]+\\.[0-9]+\\.[0-9]+')
         fail_msg: "claude --version printed {{ side_effect_claude_version.stdout }}"
         quiet: true
 
