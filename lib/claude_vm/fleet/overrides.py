@@ -48,6 +48,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 from claude_vm import store
+from claude_vm.fleet import files as fleet_files
 from claude_vm.fleet import paths, registry
 from claude_vm.fleet.registry import Row
 from claude_vm.schema import patterns
@@ -869,7 +870,8 @@ def _dumped(raw: dict) -> str:
 
 def _folders(home: paths.Home, place: _Place) -> None:
     """The folders a file is written in: a host's must be there already, since it is the host; the home's and the
-    fleet's folder are made at paths.DIR_MODE where they are not."""
+    fleet's folder are made through fleet/files.py's folder, at paths.DIR_MODE where they are not, and a link where
+    one goes is refused."""
     if place.kind == HOST:
         if not place.path.parent.is_dir():
             raise Refused(
@@ -878,7 +880,9 @@ def _folders(home: paths.Home, place: _Place) -> None:
         return
     for folder in dict.fromkeys((home.root, place.path.parent)):
         try:
-            folder.mkdir(mode=paths.DIR_MODE, exist_ok=True)
+            fleet_files.folder(folder)
+        except fleet_files.Unsafe as unsafe:
+            raise Refused(str(unsafe).removeprefix("error: ")) from None
         except OSError as error:
             raise Refused(f"{folder} cannot be made ({error.strerror or error}): nothing was written") from None
 

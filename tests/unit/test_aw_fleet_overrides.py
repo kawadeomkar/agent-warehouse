@@ -41,7 +41,9 @@ TYPED = "swordfish-0000"
 # file of its own (the vault, fleet.json) adds its line here, with why, in the same commit.
 REPLACES = {
     "lib/claude_vm/fleet/overrides.py": "the three files of overrides, by set and unset, and client.yml's current_host"
-    " by set_current"
+    " by set_current",
+    "lib/claude_vm/fleet/files.py": "fleet.json, by record.write through files.write, its one writer of a file, which"
+    " makes the file's folder through files.folder first",
 }
 # A proxy's user and password, made up, which no refusal may say; and the sentence network_proxy is refused in for them.
 PROXY_USER = "proxyuser"
@@ -789,6 +791,19 @@ def test_a_new_file_is_made_private_in_private_folders(aw_home) -> None:
     assert overrides.resolve(where, None)["git_user_name"].value == "Zoë"
 
 
+def test_a_link_where_the_fleet_s_folder_goes_is_refused_and_nothing_is_written_through_it(aw_home, tmp_path) -> None:
+    # The folders are made through fleet/files.py, which refuses a link where one goes (test_aw_fleet_mark.py).
+    where = _where()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    aw_home.mkdir(mode=paths.DIR_MODE)
+    paths.fleet_dir(where).symlink_to(elsewhere, target_is_directory=True)
+    with pytest.raises(Refused) as refused:
+        overrides.set(where, "vm_cores", 4, None, overrides.MISSING)
+    assert str(refused.value).startswith(f"{paths.fleet_dir(where)} is a link, where a folder of the fleet's goes")
+    assert list(elsewhere.iterdir()) == []
+
+
 def test_each_row_is_written_into_the_file_of_its_home(home) -> None:
     where = _where()
     _host_file(where, "lab").parent.mkdir(parents=True)
@@ -933,6 +948,8 @@ def test_nothing_in_fleet_writes_a_file_but_through_set_unset_and_set_current() 
             written[str(path.relative_to(REPO))] = writes
     assert sorted(written) == sorted(REPLACES), "a module of fleet/ that writes a file: name it in REPLACES, with why"
     assert all(REPLACES.values())
+    # In files.py, only write replaces a file.
+    assert written["lib/claude_vm/fleet/files.py"] == [("write", "store.replace")]
     # In overrides.py, only _write replaces a file, and only set, unset and set_current call _write.
     assert written["lib/claude_vm/fleet/overrides.py"] == [("_write", "store.replace")]
     tree = ast.parse((FLEET / "overrides.py").read_text())
