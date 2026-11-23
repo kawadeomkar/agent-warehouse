@@ -2273,27 +2273,71 @@ of that Ansible child is the one code of the new engine that imports `ansible`. 
 the child's own configuration names it.
 
 **The helper, sent on standard input.** The helper is one Python program for a machine's own `python3`, held to Python
-3.9's syntax and to the standard library, and never installed: each use sends it whole on the machine's standard
-input. `lib/claude_vm/guest/bundle.py`'s `script(entry, asked)` packs its sources into one text after a mark on a line
-of its own (`MARK`), each defined in memory under the module name it is imported by, and ends with a call of the
-dispatcher, `lib/claude_vm/guest/helper/main.py` (`helper <verb> [words]`), handed the verb, its words and what it is
-asked, as JSON inside the text and never on a command line. The command line holds the bootstrap alone (`command()`:
-`/usr/bin/python3 -I -B -c` and `BOOTSTRAP`), which reads standard input whole and executes it from the mark: what comes
-before it, a password's line that `sudo -S` was handed and left there, is dropped unread, and since the mark is looked
-for after a newline, which such a line holds only at its end, no part of one is ever executed or said back. Its one verb
-is `probe`, today's status probe unchanged, with its fixed list of reads; a verb it does not know, a word too many or an
-ask that is not a JSON object is one line on standard error and exit status 2, nothing run. The sources are read by
-`sources()` alone, the one function of `lib/claude_vm/` outside `status/` that names `playbooks/module_utils/`: the
-probe's three files stay there until the cutover, since today's Ansible modules import them as `module_utils`, and
-`sources()` finds them from the package's own place, two folders below the checkout's top, never the working directory.
-A release is a checkout of a signed tag, so it holds the same files; the cutover moves them into `guest/helper/` (card
-K28), and `sources()` then reads the package's own files alone. The script defines `ansible` and `ansible.module_utils`
-as empty packages, so that the probe's own imports resolve on a machine with no Ansible. Today's `just status` bundles
+3.10 and to the standard library, and never installed: each use sends it whole on the machine's standard input.
+`lib/claude_vm/guest/bundle.py`'s `script(entry, asked)` packs its sources into one text, each defined in memory under
+the module name it is imported by, and ends with a call of the dispatcher, `lib/claude_vm/guest/helper/main.py`
+(`helper <verb> [words]`), handed the verb, its words and what it is asked, as JSON inside the text and never on a
+command line. The text has a marked end (`frame`): a newline, then a line of its own, `MARK` and the script's length in
+bytes, then that many bytes. The command line holds the bootstrap alone (`command()`: `/usr/bin/python3 -I -B -c` and
+`BOOTSTRAP`), which first prints `STARTED`, a line of its own, so that its caller knows the machine's Python ran (and
+that `sudo` let it); then reads standard input a line at a time up to the mark's line, reads exactly the length it says,
+and executes that. What comes before the mark's line, a password's line that `sudo -S` was handed and left there, is
+read and dropped, never executed or said back: the mark's line is the whole of a line, and such a line holds a newline
+only at its end. What comes after the script is the verb's own standard input, which it reads on from where the
+bootstrap stopped (`sys.stdin.buffer`), never compiled with the script; no whole script is one line on standard error
+and exit status 2, nothing executed. Its one verb is `probe`, today's status probe unchanged, with its fixed list of
+reads; a verb it does not know, a word too many or an ask that is not a JSON object is one line on standard error and
+exit status 2, nothing run. The sources are read by `sources()` alone, the one function of `lib/claude_vm/` outside
+`status/` that names `playbooks/module_utils/`: the probe's three files stay there until the cutover, since today's
+Ansible modules import them as `module_utils`, and `sources()` finds them from the package's own place, two folders
+below the checkout's top, never the working directory. A release is a checkout of a signed tag, so it holds the same
+files; the cutover moves them into `guest/helper/` (card K28), and `sources()` then reads the package's own files alone.
+The script defines `ansible` and `ansible.module_utils` as empty modules, each source put in `sys.modules` before the
+one that imports it, so that the probe's own imports resolve on a machine with no Ansible. Today's `just status` bundles
 the same three files with `lib/claude_vm/status/reach.py`'s `probe_script`, which this module neither changes nor
-imports, since today's product never imports the new engine: the two print the same document for the same ask.
-`tests/unit/test_aw_guest_helper.py` holds that against today's stand-in VMs and through the SSH runner to a stand-in
-machine, with the sources' syntax and imports, the scan of what names the folder, and `ALLOWED` bounding every program
-the bundled probe runs.
+imports, since today's product never imports the new engine: the two print the same document for the same ask. The floor
+is held by a run, not a parser's flag: `tests/unit/test_aw_guest_helper.py` runs the script on a Python 3.10
+(`python:3.10-slim` under docker where it is pulled, as on a lane, or a `python3.10` of the computer's, the test skipped
+where neither is), which compiles every carried file with its own parser, finds each import in its own standard library,
+runs the probe and hands a verb what follows the script; and ruff's rules that would write past 3.10 (UP017, B905) are
+kept off the helper's folder, which `lib/**`'s `py313` would otherwise reach. The rule `just status` rests on is held
+over the whole bundle at run time: the script started by a test-only bootstrap that first sets an audit hook (PEP 578),
+every program its Python starts one of `ALLOWED`'s reads or `git_checkouts.py`'s, every file opened without a flag that
+writes, no file-system write; beside it, statically, each carried file starts a program only in the functions named with
+what each starts, those the probe never reaches among them (`process_argv`, `running_claude`, `overwrites`). The same
+file holds the script against today's stand-in VMs and through the SSH runner to a stand-in machine, with the sources'
+syntax and imports and the scan of what names the folder.
+
+**A helper verb run on a machine.** `lib/claude_vm/guest/remote.py`'s `helper(job, target, verb, words, ...)` is the one
+way the engine sends a program to a machine: it sends the script, always, then `stdin`, the verb's own input, after its
+marked end, over the SSH runner (§16.6), under the runner's limits, today's (`limits.seconds` the call's whole time); so
+no word of the verb's, nothing it is asked and nothing of its input is ever on the argument list of the `ssh` child. As
+root (the default) it goes through `/usr/bin/sudo` by its path, under `/usr/bin/env LC_ALL=C` so that sudo's words are
+its own: `sudo -n` first, and only where that is refused for want of a password (sudo's `a password is required`) and
+the caller's `password()` gives one, a `Secret`, the same input once more with `sudo -S -p ''` and the password's line
+in front. One `-S`, never a second: a wrong password costs sudo's three attempts, the lines after it read as the next
+two, and may lock an account where PAM counts them; and where sudo asks nothing, no password is sent. The password is
+read from its `Secret` by the runner alone; nothing else secret follows the helper, so `stdin` is bytes and never a
+`Secret`. What comes back is an `Answer` - the verb ran and ended by itself: its exit status, each line after the
+bootstrap's parsed as JSON, NaN, Infinity, a number past a float and a nesting past 64 levels refused, every string in
+it, keys too, made one plain line (`text.one_line`), and what it said on its standard error as one plain line - a
+`NotRun` - it never started: sudo refused it, or the machine's interpreter could not be run - or a `NotAnswered`: not
+reached (ssh's 255, or nothing said within its time), or out of its time, ended with what the run started for it, the
+lines it sent before kept where every one parses; or more than it may send, a line that is no JSON, or no first line of
+the bootstrap's, refused whole. `lib/claude_vm/guest/states.py`'s `read(job, target, parts, settings=...)` runs `probe`
+for the parts asked (`system`, `claude`, `github`, `work`, `tailscale`) and returns today's
+`lib/claude_vm/status/found.py`'s records of its answer (`ssh_found`), the parts not asked left out, so that a layer-2
+step and status say each state by one definition, today's, which `tests/unit/test_status_vms.py` holds to the roles' own
+tasks; `settings` is one machine's in the shape status keeps, the probe's ask under `asked`. It runs as root only where
+a part root reads is asked (Tailscale's), and where sudo refuses, as the machine's user once more, root's part said not
+read, as today's `just status` does; every other read is the user's, with no `sudo` at all. found.py is reused as it
+stands, one name taken from it, so `states.py` is one of the modules `tests/unit/test_aw_vendor_trust.py`'s `CONTEXTS`
+names (today's `status` makes a TLS context elsewhere), and no module of Ansible is loaded.
+`tests/unit/test_aw_guest_remote.py` holds it on F30's stand-in machines: each bound, each refusal and each answer
+above, the tree of a verb out of its time ended (`claude_vm.proc`'s), the command line held to the bootstrap with every
+canary of a verb's words, its ask, its input and the password in no word of `ssh`'s and no file of the machine's,
+`sudo`'s rule call by call, the states equal to `found.py`'s records of today's probe on the same machine, and a layer-2
+step that asks whether Claude is signed in, in a Python of its own, with no Ansible loaded.
 
 **Layer 1's child.** `lib/claude_vm/guest/layer1.py`'s `run` converges one machine with one `ansible-playbook`, started
 through `children.start` as an `ansible` child of the run, in a session of its own: it has no terminal, a terminal's

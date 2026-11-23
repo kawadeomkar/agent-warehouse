@@ -96,3 +96,9 @@ select = ["E", "F", "W", "I", "B", "UP"]
 # Ansible modules must keep the module-level DOCUMENTATION/EXAMPLES/RETURN strings
 # and import AnsibleModule after them.
 ignore = ["E402"]
+
+[tool.ruff.lint.per-file-ignores]
+# The helper runs on a machine's own python3, Python 3.10 at the least, but lib/** is linted at py313, and ruff takes
+# no narrower target for a folder under it: so the rules that would write past 3.10 there are kept off (UP017 makes
+# datetime.timezone.utc datetime.UTC, from 3.11; B905 asks zip for strict=). tests/unit/test_aw_guest_helper.py holds it.
+"lib/claude_vm/guest/helper/**" = ["UP017", "B905"]
