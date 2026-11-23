@@ -58,7 +58,8 @@ REVEALS: dict[str, str] = {
 # developer's PATH, environment and home, and the network open (docs/architecture/testing.md §11.1).
 WIDER_THAN_A_TEST: dict[str, str] = {
     "test_aw_fleet_paths.py::module_runs_environment": "harness._env of a directory of its own, what a module's run"
-    " made before its tests is given: it starts nothing and reaches nothing",
+    " made before its tests is given, and the installed program's folders as the developer's environment names them,"
+    " paths it opens none of: it starts nothing and reaches nothing",
     "test_aw_pve_agent.py::pki": "a certificate authority made in process with cryptography, for the fake Proxmox: it"
     " starts nothing and reaches nothing",
     "test_aw_pve_reads.py::pki": "a certificate authority made in process with cryptography, for the fake Proxmox: it"

@@ -1798,8 +1798,11 @@ it. `pointer_in` reads that line from a file's text, for `overrides.py`'s reader
 
 **The state and the key go with the home.** Whichever way the installed program's home is reached, by the variable or
 by a pointer, and however its path is spelled, its state folder and its key file are the installed program's own: a
-home is told to be that one by the real path of both, every link read, never by their text, so a `~/.config` that
-is a link into a dotfiles folder changes nothing. Two programs that drive one fleet share its jobs and its locks and
+home is told to be that one by the file system's identity of both, never by their text (`inside`: each made a real
+path, every link read, then the deepest part of the one that exists found among the other's parts by
+`os.path.samefile`, and the names below it, not made yet, compared as text), so a `~/.config` that is a link into a
+dotfiles folder changes nothing, and neither does a home spelled in another case on a disk that ignores case, as
+macOS's does by default. Two programs that drive one fleet share its jobs and its locks and
 open its vault with one key, and two fleets share neither. The key file is never in `fleet/`, which a person copies
 and may publish, nor in the state folder, which can be made again and which a cleanup may remove. In a checkout it is
 at the top of `.aw/`, and for the installed program in the data folder, never in the config folder that people keep
@@ -2030,6 +2033,30 @@ the vault reads nothing and writes nothing, two writers lose neither change, and
 file. The plaintext is never on disk, and `_plain` and `_identity` alone read a `Secret`'s value there (`REVEALS`).
 `tests/unit/test_aw_fleet_sealed.py` holds it, with every file under a case's own directory read for every fake secret
 and key after the case.
+
+**The vault's key: `vaultkey.py`.** The key is a random age key, one line in a file that holds it and nothing else, by
+default `paths.key_file`: at the top of a checkout's `.aw/` or of a named home, or in the data folder for the installed
+program. `make_key(path)` makes one with `pyrage` and writes it `O_EXCL`, never through a link, at 0600 whatever the
+umask, its folder made at 0700 through `files.folder` where it is missing, and only where nothing is there: a key is
+never written over, and nothing here removes, moves or rewrites one. A run finds it in one order, from the values its
+caller resolved (`vault_key_file` and `vault_key_command`), so the module reads no file of settings: first
+`AGENT_WAREHOUSE_VAULT_KEY_FILE`, the one override, for a script and the agents' server, the path of a file read and
+never run, whatever its mode, and never waited on (a pipe or a folder there is no file); then `vault_key_command`,
+whose place this is and whose running is not built yet, so a run where it is set refuses rather than read the file
+after it; then the file `vault_key_file` names, `""` the default. `ANSIBLE_VAULT_PASSWORD_FILE` is never read and is no
+refusal. `source` returns the first place that exists; `open` returns the key once the fleet's vault opens with it
+(with no vault yet, once it is an age key), or one sentence: nothing here opens the vault, with what would - `init`
+where there is no vault, the key copied from the computer that made the fleet where there is one (`NoKey`); the place
+failed, in the system's words made one line (`Failed`); or the place answered with what does not open this vault: no
+age key, or another fleet's key or a vault changed since, which age does not tell apart (`WrongKey`, from `sealed.py`'s
+`NotOpened`). A place that exists and fails is a refusal, and nothing after it is tried. A key file named in the
+fleet's folder, the state folder or the installed program's config folder is refused by name (`Misplaced`), by
+`paths.inside`, and a value that is no path is never said, since a key pasted there would be on the screen. Every
+refusal is a `sealed.Refused`, so a caller catches the vault's and the key's as one, and exits 1, or 3 from `status`;
+nothing here reads the terminal, so a run with nobody there opens the vault as one at a terminal does.
+`tests/unit/test_aw_fleet_vaultkey.py` holds it, with a vault opened in a child with no terminal and standard input from
+`/dev/null`, and the scan that only `vaultkey.py` names the variable and only `paths.py` and `vaultkey.py` the key
+file.
 
 ## 16.10 `guest/` — the helper, the system layer's inputs, layer 2
 

@@ -71,6 +71,11 @@ class Newer(Unreadable):
     """The vault, or its fleet's record, is in a format newer than this program reads."""
 
 
+class NotOpened(Unreadable):
+    """The vault does not open with the key given: it is sealed to another key, or it was changed after it was written,
+    which age does not tell apart. fleet/vaultkey.py says it of the place the key came from."""
+
+
 class Changed(Refused):
     """The vault no longer holds the map a write was given as read: another writer came between, and nothing is
     written. Read it again: its own class, so that a caller offers its change again on this refusal alone."""
@@ -199,7 +204,7 @@ def _opened(where: paths.Home, identity, number: int | None = None) -> dict[str,
     try:
         text = pyrage.decrypt(data, [identity])
     except pyrage.DecryptError:
-        raise Unreadable(
+        raise NotOpened(
             f"error: {_said(found)} does not open with this key: it is sealed to another key, or it was changed after"
             " it was written, so nothing is read or written"
         ) from None

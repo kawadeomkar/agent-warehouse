@@ -235,6 +235,78 @@ def test_a_home_inside_the_installed_state_folder_is_refused(tmp_path) -> None:
     assert paths.home(program, _environ(tmp_path, **{VARIABLE: str(beside)})).key_file == beside / "vault-key"
 
 
+def _ignores_case(folder: Path) -> bool:
+    """Whether the disk under folder takes a name in another case for the same file, as macOS's does by default."""
+    probe = folder / "Case-Probe"
+    probe.mkdir()
+    try:
+        return (folder / "case-probe").exists()
+    finally:
+        probe.rmdir()
+
+
+def test_inside_asks_the_file_system_which_folder_each_path_is(tmp_path, monkeypatch) -> None:
+    # review/code/D18.md finding 1: a folder is found among a path's parts by its identity, never by the text of either.
+    folder = tmp_path / "home" / "state"
+    folder.mkdir(parents=True)
+    (tmp_path / "linked").symlink_to(tmp_path / "home")
+    assert paths.inside(folder, folder) and paths.inside(folder / "jobs" / "one", folder)
+    assert paths.inside(tmp_path / "linked" / "state" / "jobs", folder)
+    assert not paths.inside(tmp_path / "home" / "state-two", folder) and not paths.inside(tmp_path / "home", folder)
+    # Below the deepest part that exists, the names are compared as text, on every disk: nothing there is made yet.
+    assert paths.inside(folder / "new" / "x", folder / "new") and not paths.inside(folder / "newer", folder / "new")
+    assert not paths.inside(folder / "New" / "x", folder / "new")
+    # With links left as written, the link's spelling is still the folder's: only the file system's identity says so.
+    monkeypatch.setattr(paths, "_real", lambda path: Path(os.path.abspath(path)))
+    assert paths.inside(tmp_path / "linked" / "state" / "jobs", folder)
+    assert paths.inside(tmp_path / "linked" / "state" / "not-made" / "x", folder / "not-made")
+    assert not paths.inside(tmp_path / "linked" / "elsewhere", folder)
+
+
+def test_the_installed_home_spelled_in_another_case_keeps_its_state_and_key(tmp_path) -> None:
+    # review/code/D18.md finding 1: on a disk that ignores case, the installed program's home spelled in another case
+    # is still that home, its key in the data folder and never in the config folder people publish.
+    if not _ignores_case(tmp_path):
+        pytest.skip("the disk here tells names apart by their case (macOS's half: A18's engine job)")
+    config, state, data = _installed(tmp_path)
+    config.mkdir(parents=True)
+    program = _checkout(tmp_path / "checkout")
+    for spelled in (
+        tmp_path / "user" / ".Config" / "agent-warehouse",
+        tmp_path / "USER" / ".config" / "Agent-Warehouse",
+    ):
+        where = paths.home(program, _environ(tmp_path, **{VARIABLE: str(spelled)}))
+        assert (where.root, where.state, where.key_file) == (spelled, state, data / "vault-key")
+    # The config folder's own folder not made yet: the part that exists is found by its identity, the rest as text.
+    config.rmdir()
+    spelled = tmp_path / "user" / ".CONFIG" / "agent-warehouse"
+    assert paths.home(program, _environ(tmp_path, **{VARIABLE: str(spelled)})).key_file == data / "vault-key"
+    # The run's XDG_CONFIG_HOME in another case than the pointer's.
+    config.mkdir()
+    (program / ".aw").mkdir()
+    (program / ".aw" / "client.yml").write_text(f"fleet_home: {config}\n")
+    environ = _environ(tmp_path, XDG_CONFIG_HOME=str(tmp_path / "User" / ".Config"))
+    assert (paths.home(program, environ).state, paths.home(program, environ).key_file) == (state, data / "vault-key")
+
+
+def test_a_home_inside_the_state_folder_spelled_in_another_case_is_refused(tmp_path) -> None:
+    if not _ignores_case(tmp_path):
+        pytest.skip("the disk here tells names apart by their case (macOS's half: A18's engine job)")
+    state = _installed(tmp_path)[1]
+    program = _checkout(tmp_path / "checkout")
+    state.parent.mkdir(parents=True)
+    # The state folder not made yet, and then made.
+    for made in (False, True):
+        if made:
+            state.mkdir()
+        for spelled in (
+            tmp_path / "user/.local/STATE/agent-warehouse/x",
+            tmp_path / "User/.Local/state/agent-warehouse",
+        ):
+            with pytest.raises(paths.Refused, match=f"{VARIABLE} is .*, inside .*, the installed program's state"):
+                paths.home(program, _environ(tmp_path, **{VARIABLE: str(spelled)}))
+
+
 def test_a_named_home_keeps_its_key_at_its_top(tmp_path) -> None:
     # V2-2: a person who names a home chooses where its key lives, a second fleet's beside the config folder included.
     work = tmp_path / "user" / ".config" / "aw-work"
@@ -834,9 +906,11 @@ def test_the_checkouts_folder_is_ignored_by_git_and_refused_by_the_guard(tmp_pat
 
 
 @pytest.fixture(scope="module")
-def module_runs_environment(tmp_path_factory) -> dict:
-    """What a module's own run, made once before its tests, is given."""
-    return harness._env(tmp_path_factory.mktemp("module-run"))
+def module_runs_environment(tmp_path_factory) -> tuple[dict, tuple[Path, ...]]:
+    """What a module's own run, made once before its tests, is given; and the installed program's three folders as this
+    process's environment names them here, before any test's guard holds: the developer's own (review/code/A24.md
+    finding 5), each a path, none opened."""
+    return harness._env(tmp_path_factory.mktemp("module-run")), paths.installed(os.environ)
 
 
 EACH_WORKER = {"module_runs_environment"}
@@ -854,11 +928,16 @@ def test_every_environment_the_harness_builds_carries_the_tests_own_home(tmp_pat
     assert not aw_home.exists()
 
 
-def test_a_run_made_before_the_tests_own_home_gets_the_sessions(module_runs_environment) -> None:
+def test_a_run_made_before_the_tests_own_home_gets_the_sessions(module_runs_environment, tmp_path) -> None:
     # Not the developer's, whatever their shell exported: a directory of the session's own, in the temporary folder.
-    session = Path(module_runs_environment[VARIABLE])
+    environment, developers = module_runs_environment
+    session = Path(environment[VARIABLE])
     assert session.parent == Path(tempfile.gettempdir()) and session.name.startswith("aw-home-")
-    assert not any(session.is_relative_to(folder) for folder in paths.installed(os.environ))
+    # The developer's folders were read before this test's guard put HOME in its own directory: read under it, they
+    # would be the test's own, which the session's folder can never be inside, and the last assertion could not fail.
+    assert len(developers) == 3 and not any(folder.is_relative_to(tmp_path) for folder in developers), developers
+    assert all(folder.is_relative_to(tmp_path) for folder in paths.installed(os.environ))
+    assert not any(paths.inside(session, folder) for folder in developers)
 
 
 def _three(tmp_path: Path) -> tuple[Path, Path, Path]:
