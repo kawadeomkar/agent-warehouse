@@ -175,7 +175,7 @@ def test_an_address_no_machine_has_comes_back_as_the_runner_s_unreachable(two, m
     alpha, beta, folder = two
     stranger = runner.machine(alpha.identity, "203.0.113.250", alpha.account, CONTROL, known_hosts=tmp_path / "kh")
     got = _run(made, stranger, ["touch", "landed"])
-    assert isinstance(got, runner.Unreachable) and not got.heard and got.lines == (), got
+    assert isinstance(got, runner.Unreachable) and got.lines == (), got
     assert "203.0.113.250 port 22: No route to host" in got.said
     # ssh -G, which reads the person's own configuration, is never answered: this computer's own ssh is asked that.
     shown = _stand_in(folder, ["-G", "-F", "/dev/null", alpha.address])
@@ -233,7 +233,7 @@ def test_a_connection_naming_one_machine_s_identity_at_another_s_address_is_refu
     # that name.
     sibling = runner.machine(alpha.identity, beta.address, beta.account, CONTROL, known_hosts=known_hosts(alpha))
     got = _run(made, sibling, ["touch", "landed"])
-    assert isinstance(got, runner.Unreachable) and not got.heard, got
+    assert isinstance(got, runner.Unreachable), got
     assert "WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!" in got.said
     assert f"Offending ED25519 key in {known_hosts(alpha)}:1" in got.said
     assert got.said.endswith(

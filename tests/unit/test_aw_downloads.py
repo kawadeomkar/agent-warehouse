@@ -10,8 +10,11 @@ Each refusal is held, and for each the fake's log of the paths asked for shows n
 list changed by one byte; a signature by another key, or dated more than a day ahead; a refusal of openpgp's with no
 words; a version below the first release Anthropic signed, asked for or named by a channel; a document one byte past
 its cap; a list with no line, or two, for the image; an answer that is not a 200, a redirect among them; a certificate
-that does not verify; a list's or a signature's URL that is not one https:// address. A list and its signature come
-from URLs of their own, on two servers, with a pre-signed URL's query, and a key given as its text. What the roles'
+that does not verify; a list's or a signature's URL that is not one https:// address, or whose path begins with //; a
+key given as text with a fingerprint that names none of its primary keys. A list and its signature come from URLs of
+their own, on two servers, with a pre-signed URL's query, each through the proxy chosen for it (stand-in CONNECT
+proxies of tests/unit/test_aw_transport.py's), and a key given as its text; a document that could not be fetched is
+NotFetched, naming it and its URL, with the transport's own error kept. What the roles'
 task files hold - the release's pattern, the first signed release, the caps, the files' names, the line of a list - is
 held equal to theirs. The rule with a test of its own: of the new engine, only downloads.py verifies a signature, by
 any road an import or a name read off a module has, and only keys.py names a vendored key file.
@@ -20,9 +23,11 @@ any road an import or a name read off a module has, and only keys.py names a ven
 from __future__ import annotations
 
 import ast
+import copy
 import dataclasses
 import hashlib
 import json
+import pickle
 import re
 import time
 from pathlib import Path
@@ -34,7 +39,7 @@ from harness import FAKES, REPO, _start
 from pki import proxmox_pki
 from signing import Signer
 from test_aw_layout import _imported, _package, _within
-from test_aw_transport import _new_engine, _rel
+from test_aw_transport import _new_engine, _rel, _Tunnel
 
 from claude_vm import openpgp
 from claude_vm.vendors import downloads, keys
@@ -42,6 +47,7 @@ from claude_vm.vendors.downloads import (
     DOCUMENT_MOST,
     POINTER_MOST,
     NotARelease,
+    NotFetched,
     NotListed,
     NotServed,
     NotThisRelease,
@@ -52,7 +58,7 @@ from claude_vm.vendors.downloads import (
     listed_digest,
     signed_digest,
 )
-from claude_vm.vendors.transport import Untrusted
+from claude_vm.vendors.transport import Unreachable, Untrusted
 
 # The module's certificate authorities, the fake's and one that signed nothing the fake shows, and its two signing keys,
 # the vendor's stand-in and a stranger's: cheap enough to make again on each worker (tests/unit/conftest.py).
@@ -271,6 +277,67 @@ def test_a_list_and_its_signature_from_two_hosts_of_their_own_names_verify(vendo
     assert digest == IMAGE_DIGEST
     assert vendor.asked() == ["/images/CHECKSUMS?X-Signature=a%2Bb~c&expires=1"]
     assert second.asked() == ["/keys/CHECKSUMS.sig"]
+
+
+def _connected(tunnel: _Tunnel) -> list[str]:
+    """Each host:port a stand-in proxy was asked a tunnel to."""
+    return [asked.split(b"\r\n")[0].split()[1].decode() for asked in tunnel.asked]
+
+
+def test_a_list_and_its_signature_each_go_through_the_proxy_chosen_for_its_own_url(vendor, second, signer) -> None:
+    # proxy.choose decides by a URL's host (no_proxy names hosts), so a list and its signature on two hosts may each
+    # take another proxy, or none: each document goes through the one given for it, and asks it a tunnel to its own
+    # host.
+    listing = vendor.sums(signer)
+    second.put("keys/CHECKSUMS.sig", signer.sign(listing))
+    listed, signature = f"{vendor.base}{SUMS}", f"{second.base}/keys/CHECKSUMS.sig"
+    first, other = _Tunnel(), _Tunnel()
+    try:
+        digest = signed_digest(
+            listed, signature, IMAGE, key=vendor.key, list_proxy=first.url, signature_proxy=other.url
+        )
+        assert digest == IMAGE_DIGEST
+        assert _connected(first) == [vendor.base.removeprefix("https://")]
+        assert _connected(other) == [second.base.removeprefix("https://")]
+        # The list through its proxy, the signature straight to its host.
+        assert signed_digest(listed, signature, IMAGE, key=vendor.key, list_proxy=first.url) == IMAGE_DIGEST
+        assert len(first.asked) == 2 and len(other.asked) == 1
+        assert listed_digest(listed, IMAGE, proxy=other.url) == IMAGE_DIGEST
+        assert _connected(other)[-1] == vendor.base.removeprefix("https://")
+    finally:
+        first.close()
+        other.close()
+    with pytest.raises(TypeError):
+        signed_digest(listed, signature, IMAGE, key=vendor.key, proxy=None)  # type: ignore[call-arg]
+
+
+def test_a_document_that_cannot_be_fetched_is_said_by_its_name_and_its_url(vendor, second, signer) -> None:
+    # With a list and its signature on two hosts, a failure says which document, at which URL, failed - its query left
+    # out - before the transport's own words, and keeps the transport's error.
+    listing = vendor.sums(signer)
+    second.put("keys/CHECKSUMS.sig", signer.sign(listing))
+    refusing = _Tunnel(answer=b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
+    signature = f"{second.base}/keys/CHECKSUMS.sig"
+    try:
+        with pytest.raises(NotFetched) as failed:
+            signed_digest(
+                f"{vendor.base}{SUMS}",
+                signature + "?X-Signature=s3cr3t",
+                IMAGE,
+                key=vendor.key,
+                signature_proxy=refusing.url,
+            )
+    finally:
+        refusing.close()
+    said = str(failed.value)
+    assert said.startswith(f"the checksum list's signature, {signature}?…, could not be fetched: ")
+    assert said.endswith("the proxy answered 403 to the tunnel") and "s3cr3t" not in said
+    assert isinstance(failed.value.error, Unreachable) and str(failed.value.error) in said
+    assert failed.value.__cause__ is None and failed.value.__context__ is None
+    # The list was fetched, and the signature never reached its host.
+    assert vendor.asked() == [SUMS] and second.asked() == []
+    for made in (copy.copy(failed.value), pickle.loads(pickle.dumps(failed.value))):
+        assert str(made) == said and str(made.error) == str(failed.value.error)
 
 
 def test_a_key_given_as_its_text_verifies_with_the_fingerprint_it_is_found_by(vendor, signer, stranger) -> None:
@@ -540,9 +607,18 @@ def test_a_certificate_that_does_not_verify_sends_nothing(
     other = tmp_path / "other"
     other.mkdir()
     _certifi(monkeypatch, other, other_pki["ca"])
-    for call in (vendor.claude, vendor.ubuntu, lambda: listed_digest(f"{vendor.base}{SUMS}", IMAGE)):
-        with pytest.raises(Untrusted):
+    calls = {
+        f"the channel's pointer, {vendor.base}{POINTER}": vendor.claude,
+        f"the checksum list, {vendor.base}{SUMS}": vendor.ubuntu,
+        f"the checksum list, {vendor.base}{SUMS}?…": lambda: listed_digest(f"{vendor.base}{SUMS}?t=1", IMAGE),
+    }
+    for named, call in calls.items():
+        with pytest.raises(NotFetched) as failed:
             call()
+        # The document named, then the transport's own error, its words and its advice kept.
+        assert isinstance(failed.value.error, Untrusted), named
+        assert str(failed.value) == f"{named}, could not be fetched: {failed.value.error}"
+        assert "tls_ca_file" in str(failed.value)
     assert vendor.asked() == []
     # The file the setting tls_ca_file names adds the fake's root to certifi's list: then it verifies.
     roots = tmp_path / "roots.pem"
@@ -561,6 +637,9 @@ def test_a_certificate_that_does_not_verify_sends_nothing(
         ("https://127.0.0.1:99999" + SUMS, "is an https:// address, fetched over https only"),
         ("https://user:pass@{host}" + SUMS, "has no user, password or fragment"),
         ("https://{host}" + SUMS + "#x", "has no user, password or fragment"),
+        # The transport takes a path's leading slashes off: //ubuntu/... would be fetched as /ubuntu/..., another.
+        ("https://{host}/" + SUMS, "has a path that begins with //"),
+        ("https://{host}//" + SUMS, "has a path that begins with //"),
         ("https://{host}" + SUMS + " x", "one word of visible ASCII"),
         ("https://{host}" + SUMS + "\n", "one word of visible ASCII"),
         ("https://{host}" + SUMS + "\t", "one word of visible ASCII"),
@@ -606,6 +685,22 @@ def test_a_base_that_is_not_https_or_a_key_that_is_not_one_is_refused(vendor, si
     for call, error, said in refusals:
         with pytest.raises(error, match=re.escape(said)):
             call()
+    assert vendor.asked() == []
+
+
+def test_a_key_given_as_text_with_a_fingerprint_none_of_its_primary_keys_has_is_refused_before_anything_is_fetched(
+    vendor, signer, stranger
+) -> None:
+    # openpgp would refuse it only once both documents were fetched, and say the key is not among the vendored ones,
+    # which a person's own key never was. A subkey's fingerprint is refused so too: openpgp finds a primary key alone.
+    vendor.sums(signer)
+    with pytest.raises(ValueError) as refused:
+        vendor.ubuntu(key=signer.public(), fingerprint=stranger.fingerprint.lower())
+    assert str(refused.value) == (
+        f"the key given as text holds no primary key whose fingerprint is {stranger.fingerprint}: give the fingerprint"
+        " of its primary key, never a subkey's"
+    )
+    assert "vendored" not in str(refused.value)
     assert vendor.asked() == []
 
 

@@ -772,8 +772,10 @@ class Transport:
         """This thread's kept connection, where its far end has not closed it; else a new one, its peer checked; either
         taken for this request (_take) while the transport is not closed: Closed, with no connection made, kept or
         taken, once it is. A kept one is taken before its far end is looked at, so that close() shuts it down, and
-        never closes it, under that look; and its socket is read only by the take, under the lock close() decides
-        under, so that a close() that found it idle and forgot it just before is this request's Closed."""
+        never closes it, under that look. Before the take nothing reads its socket, and the take reads it under the
+        lock close() decides under, so that a close() that found it idle and forgot it just before is this request's
+        Closed; once taken it is busy, so close() only shuts it down, and every later read of it (the look here, _done,
+        _forget) meets the socket the take found."""
         conn = getattr(self._local, "conn", None)
         if conn is not None and self._take(conn) and not _closed_by_peer(conn.sock):
             conn.sock.clock = clock

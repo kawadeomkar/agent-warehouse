@@ -851,16 +851,19 @@ address it is reached at, the one value a machine supplies, held with `ipaddress
 loopback, multicast, the reserved range or broadcast; the account and the port; the known-hosts file its key is checked
 against, the product's own `~/.ssh/agent-warehouse.known_hosts` (`KNOWN_HOSTS`), one file for every fleet beside the
 person's own, which the editor's alias names too, or a scratch file; the one shared control directory, of plain
-characters, where a machine whose socket's path would pass 86 bytes, the most macOS binds (a long home), takes no shared
-connection (`shared`: each of its connections logs in alone, `ControlPath=none`); an identity file or
+characters, where a machine whose socket's path would pass 86 bytes (a long home: 103, the most macOS binds a socket's
+path to, less the 17 `ssh` adds while it binds one) takes no shared connection (`shared`: each of its connections logs
+in alone, `ControlPath=none`); an identity file or
 none (this computer's `claude_ssh_identity_file`); the hop through the Proxmox host or none (`Hop`, the route settles
 it: route.py's `ProxyCommand` to the machine's own address, and its connection's name); the person's own options for the
 machine (the setting `vm_ssh_options`); whether this is a first use; and the `ssh` program. `machine()` makes one. The
 Proxmox host is its second form, `proxmox_host()`, for root SSH and as the hop: no identity, its account, port and
 address from the host's file, its key from this computer's, and its settings held by `route.hop_settings`, the rules the
-hop is made by, whose socket's name it shares. From a home so long that the hop's socket would pass `route.SOCKET_MOST`
-it is still made, so that a route of `direct` can be settled for it, and a connection to it is refused before anything
-starts (`HOST_TOO_LONG`, naming a shorter home), since every one rides the hop's shared connection.
+hop is made by, whose socket's name it shares: a connection to it rides the hop's master where one lives. From a
+home so long that the hop's socket would pass `route.SOCKET_MOST` it is still made, and each connection to it logs in
+alone (`shared` false, `ControlPath=none`), as a machine's does: the hop's master is opened only by `ensure_hop`, only
+where the settled route goes through the host, and from such a home that route is refused (`LONG_HOP`), so no master
+could have been there to ride. Every line of the runner's carries `ControlMaster=no`, the host's among them.
 
 - **A person's own options.** `vm_ssh_options` is a mapping of `ssh`'s option names to values, given as `-o Name=value`
   after the product's options: `ssh` keeps the first value it is given, so a person's option changes whatever the
@@ -868,11 +871,16 @@ starts (`HOST_TOO_LONG`, naming a shorter home), since every one rides the hop's
   itself is refused by name - `HostKeyAlias`, `UserKnownHostsFile`, `CheckHostIP`, `UpdateHostKeys`, `BatchMode`,
   `ControlPath`, `ControlMaster`, `ForwardAgent` (`claude_ssh_forward_agent`'s), `IdentityFile`
   (`claude_ssh_identity_file`'s), and `HostName`, `User` and `Port`, where and as whom it connects - and
-  `StrictHostKeyChecking` may be given only as `yes`. So is what would undo what every connection holds
-  (`UNDOING_OPTIONS`): `StdinNull`, which would leave a secret never arrived while the call reads `Done`;
-  `ForkAfterAuthentication`, which takes `ssh` out of its group and the run's reach; `SessionType` and `RemoteCommand`,
-  another command or none; `ForwardX11`, `ForwardX11Trusted` and `ForwardX11Timeout`; and `PermitLocalCommand` and
-  `LocalCommand`, a program run here for each connection. A machine given a jump of its own takes no hop.
+  `StrictHostKeyChecking` may be given only as `yes`; with them `IdentityFile2`, `ssh`'s old name for
+  `IdentityFile`, and what would hand the strict check a key the product's file does not hold, `GlobalKnownHostsFile`
+  and `KnownHostsCommand` (a program run here for each connection, whose keys the check takes). So is what would undo
+  what every connection holds (`UNDOING_OPTIONS`): `StdinNull`, which would leave a secret never arrived while the call
+  reads `Done`; `ForkAfterAuthentication`, which takes `ssh` out of its group and the run's reach; `SessionType` and
+  `RemoteCommand`, another command or none; `ForwardX11`, `ForwardX11Trusted` and `ForwardX11Timeout`;
+  `PermitLocalCommand` and `LocalCommand`, a program run here for each connection; and `PKCS11Provider`, with
+  `SmartcardDevice`, its other name, and `SecurityKeyProvider`, a library loaded here. Each is refused by the name it
+  was given. They are the person's own setting, which a `Host *` of their own `~/.ssh/config` could still set; what is
+  refused is the setting the product reads. A machine given a jump of its own takes no hop.
 - **A first use.** A machine's first connection - one the run created, one being adopted, or the first a changing verb
   makes from a computer that has filed no key for it - takes the key with `StrictHostKeyChecking=accept-new` into a
   fresh scratch file of its own, under the machine's identity as `HostKeyAlias` and never by its address, and never into
@@ -931,16 +939,22 @@ so a password or a code is never in a word, a variable or a file. Its standard o
 `Limits`: a bound for one line, one for the whole, a deadline, and a time to say anything at all; its standard error is
 kept to a fixed size, and read to its end so the child never blocks on it. On a breach the child's group is killed, its
 `ProxyCommand` with it. The result is `Done(status, lines, said)`, or `Cut` (a line past its bound, more than the whole,
-a line with no end), `Silent`, `TimedOut` or `Unreachable(said, lines, heard)` (status 255), each line and `said` made
+a line with no end), `Silent`, `TimedOut` or `Unreachable(said, lines)` (status 255), each line and `said` made
 plain (`text.plain_text`). The default limits are today's, `status/reach.py`'s, held equal by the test: a line of 16
 MiB, 45 s, 20 s to say anything, 64 KiB of standard error, and four of the longest lines in all. A call cancelled by its
 run ends its child's group too.
 
-- **255 is `ssh`'s or the command's own.** `ssh` exits 255 where it could not reach the machine or lost it, and also
-  where the command on the machine exited 255 or was ended by a signal, which `ssh` has no status to pass on for.
-  `Unreachable` keeps the lines the command printed and whether the machine was heard at all (`heard`: any byte on
-  standard output), so a 255 after output reads as a command that ended without a status, and a caller that tries an
-  unreachable machine again never takes a command that ran for one never reached.
+- **255 is `ssh`'s or the command's own, and cannot tell which.** `ssh` exits 255 where it could not reach the machine
+  or lost it, and also where the command on the machine exited 255 or was ended by a signal, which `ssh` has no status
+  to pass on for. `Unreachable` keeps the lines the command printed, and no more: a command that ran and printed nothing
+  reads as a machine never reached, and one that printed may go on on the machine after a connection lost (a cut
+  network, keepalives unanswered). So `Unreachable` never says that a command did not run, and a caller whose command
+  changes something - above all one that must run once, as Tailscale's key goes once - never tries a machine again on
+  `Unreachable` alone: it reads the machine's state again first (`tailscale status --json`, for the key), and decides
+  from that. A line of the runner's own printed before every command would tell a command that started from a login
+  that failed, but not the other way: a connection lost after the line was printed and before it arrived reads as one
+  never made, so a second try would be no safer, while every command line would grow a word of the login shell's and
+  `Silent` would bound the login alone; so there is none.
 - **The local `ssh` is ended, never the command on the machine.** A breach, a cancel and a held child's `end()` end the
   `ssh` here: with no terminal on the session, `sshd` sends the command no signal, so one that neither reads its input
   nor writes goes on after `TimedOut`, `Cut`, `Silent` and `end()`, as under today's Ansible. A caller whose command
@@ -958,7 +972,9 @@ family bound, as today's forward does whatever a person's settings say), made as
 `/dev/null`. Its deadline is required, and its far end is the command `sleep <deadline>`, rounded up, in place of `-N`:
 the local end ends it first, at its deadline, by its caller or at the run's end, and where the run was killed outright
 (SIGKILL, an OOM kill), which ends nothing it holds, the far end's `sleep` ends the forward by itself and lets this
-computer's port go. Nothing is recorded on the machine.
+computer's port go, once its deadline has passed and the connections through it have closed: `ssh` ends once its command
+has and no forwarded connection is open, so a browser's kept connection to the callback holds it until it closes.
+Nothing is recorded on the machine.
 
 **The one control directory and the route: `connections.py`.** Every shared connection, a machine's master and the
 hop's, lives in one control directory that every run on the computer shares, `~/.ansible/cp`, which `fleet/paths.py`'s
@@ -969,9 +985,10 @@ of another account's, and one its group or others may write in are refused (`Uns
 since anyone who may write there could put a socket at a machine's path before its master and be handed what every child
 sends it, secrets included; one not made yet is made 0700 by the first master's open. A machine's socket is
 `checks.vm_control_name` of its identity, its address and its hop; where its path would pass `route.SOCKET_MOST`, the
-machine takes no shared connection, `ensure` opens nothing for it, and the run says so once (`notes`). Three rules hold
-every master. A machine's master is opened only by `ensure`, which starts it with `children.MASTER`, the one kind of
-child that carries no job's marker and is entered in no registry, in a session of its own. The hop's master is
+machine takes no shared connection, `ensure` opens nothing for it, and the run says so once (`notes`), as it does for
+the Proxmox host's own `Target` from such a home, whose connections log in alone too (`UNSHARED` names both). Three
+rules hold every master. A machine's master is opened only by `ensure`, which starts it with `children.MASTER`, the one
+kind of child that carries no job's marker and is entered in no registry, in a session of its own. The hop's master is
 `route.py`'s: `ensure_hop` opens it with the engine's own environment, and so may any connection through the hop whose
 `ProxyCommand` finds none live - a bounded child, a first use, a forward - since that `ProxyCommand` carries
 `ControlMaster=auto`, and such a master carries that child's job's marker, so nothing may tell a master from a run's
@@ -981,7 +998,8 @@ holds that machine's lock. And `-O exit` is never sent, which would cut another 
 `route.hop_stop`, for the hop. The route is `route.py`'s, called as it stands, its `ssh` children started in a process
 group of their own (`process_group=0`, which today's callers do not pass), so that a terminal's first Ctrl-C, which the
 run takes as "finish the step", never kills one and has its silence read as an answer, and `route`, `ensure_hop` and
-`held` are coroutines that run it off the event loop, so that the run takes the Ctrl-C at once. Each `ssh` route.py
+`held` are coroutines that run it off the event loop, so that the run takes the Ctrl-C at once and its other tasks go on
+while one of them waits on its `ssh`. Each `ssh` route.py
 starts, the `ssh -G` of `route_settle` and `ssh_shown` too, is started and recorded in one step under the lock
 `route.end_all` takes, and ended by the thread that waits for it, at its limit or when its caller ends; a run that is
 stopped ends them with the rest of its tree, and `end_all`, which ends every one still running and starts none after, so that no
@@ -1006,13 +1024,17 @@ the hop's `ProxyCommand` to its own address (`route.vm_hop`, `-W <address>:%p`),
 address from the person's own `~/.ssh/config`, read once a run for each machine. `held(target, settled)` asks the
 machine's own `ssh` which proxy its whole line takes (`route.ssh_shown`, `-G -F /dev/null`) and refuses any other
 (`route.vm_route_refusal`) before anything connects; a jump only the person's configuration gives is the one the line
-cannot outrank. `ensure_hop(settled)` is `route.hop_held`, and a hop that cannot be used raises `Unusable` with
-`route.login_said`'s sentence in the new engine's names (the key this computer's `ssh_identity_file`), so the run stops
-and nothing dials a machine. `ensure(job, target)` makes sure of a machine's master before anything rides it: `-O
+cannot outrank. `ensure_hop(settled)` is `route.hop_held`, the one place the hop's master is opened, only where the
+settled route goes through the host, and while that open runs a run remembers nothing of its tree (`children.opening`),
+as for a machine's; a hop that cannot be used raises `Unusable` with `route.login_said`'s sentence in the new engine's
+names (the key this computer's `ssh_identity_file`), so the run stops and nothing dials a machine. `ensure(job,
+target)` makes sure of a machine's master before anything rides it, and refuses the Proxmox host's own `Target`: `-O
 check`; where nothing answers, a socket file nothing listens at removed (never one whose check ran out its time), and
 the master opened once, the runner's options with `ControlMaster=yes` and `ControlPersist` in place of
-`ControlMaster=no`, and `-N`, ended where `ssh` says the socket exists already; then checked once more. Never for a
-first use: a master opened before the key is filed would carry later runs with no key checked. `first_use(job, target)`
+`ControlMaster=no`, and `-N`, ended where `ssh` says the socket exists already; then checked once more. Each answers a
+`Master(ok, opened, said)`, `ok` where a master answers at the socket, or `None` where no master is used, and none is
+made sure of: a machine that takes no shared connection, and the hop where the route is direct. Never for a first use:
+a master opened before the key is filed would carry later runs with no key checked. `first_use(job, target)`
 makes a machine's `Target` one where the product's file holds no key under its identity (`hostkeys.kept`), its scratch
 file fresh in the run's own directory (`rundir.made`): a changing verb's first connection to a machine calls it, files
 the key it took, and only then asks `ensure`; `status`, which takes no key, never calls it. Nothing in `ssh/` tries a
@@ -1022,13 +1044,15 @@ call it before their first connection to a machine, and it never dials one the r
 
 `tests/unit/test_aw_ssh_runner.py` holds it against a stand-in `ssh` that records its words, its environment and its
 standard input: the options and their order, word for word, for every form; the values they hold as this machine's own
-`ssh -G` shows them, a person's options among them and a person's configuration outranked; no secret in a word or a
-variable; each bound's result, a 255 after output with its lines, and nothing left in the process table; a held child's
-lines while it runs and a line sent later; a forward's far end ending it within its deadline after its run was killed
-with SIGKILL; and four rules by
-scans: a child named `ssh` is started in the new subpackages only from `ssh/`; no option is made of a value a machine
-supplied but its address; `accept-new` is written in `ssh/` only for a first use and the Proxmox host; and the runner
-carries no `ControlMaster` but `no`. `tests/unit/test_aw_hostkeys.py` holds `hostkeys.py`, with blobs of every type it
+`ssh -G` shows them, a person's options among them and a person's configuration outranked; each option refused by its
+name, ssh's other names among them, which this machine's own `ssh -G` reads as the one refused; the Proxmox host from a
+long home, its lines and its forward's carrying `ControlPath=none`, nothing refused; no secret in a word or a
+variable; each bound's result, a 255 after output with its lines and no more, and nothing left in the process table;
+a held child's lines while it runs and a line sent later; a forward's far end ending it within its deadline after its
+run was killed with SIGKILL; and four rules by scans: a child named `ssh` is started in the new subpackages only from
+`ssh/`; no option is made of a value a machine supplied but its address; `accept-new` is written in `ssh/` only for a
+first use and the Proxmox host; and the runner carries no `ControlMaster` but `no`. `tests/unit/test_aw_hostkeys.py`
+holds `hostkeys.py`, with blobs of every type it
 files and real keys of this machine's own `ssh-keygen`, whose `-l` gives each fingerprint, `-F` a name as `ssh` reads
 one and `-H` one hashed: a key filed once and found, a second of its type refused with the file unchanged byte for byte,
 two writers at once, a deleted machine's line kept through every call, a first use's scratch file taken and filed or
@@ -1040,10 +1064,13 @@ command word for word, a jump of a machine's own from its options and from its c
 use decided by the key filed, its scratch file in the run's directory and no master opened for it, a master opened once
 and found again, unmarked and in a session of its own, a dead socket file removed and a busy one kept, a hop that cannot
 be used stopping the run with nothing dialled, a control directory that is a link, another's or writable by others
-refused, a long one connecting alone, a first Ctrl-C sent to the run's group while `ssh -G` settles the route killing
-no `ssh`, an `ssh -G` ended by a signal or out of its time settling nothing, the hop's lines holding the two pins first,
-the route through the host refused from a long home while `direct` settles there, a master's open left out of what a
-run remembers, and `direct_only`; and three rules by scans: no control command but `-O check` in the new subpackages, never `-O exit`;
+refused, a long one connecting alone, said once for the machines and the host together, a first Ctrl-C sent to the
+run's group while `ssh -G` settles the route killing no `ssh` (its stand-in waiting for a file the test writes after
+the Ctrl-C, never for a time), `route`, `ensure_hop` and `held` each waiting on an `ssh` held until a task on the same
+loop lets it go, an `ssh -G` ended by a signal or out of its time settling nothing, the hop's lines holding the two pins
+first, the route through the host refused from a long home while `direct` settles there, a master's open, a machine's
+and the hop's, left out of what a run remembers, and `direct_only`; and three rules by scans: no control command but
+`-O check` in the new subpackages, never `-O exit`;
 nothing in `ssh/` tries a connection again; and only `ensure` opens a master, with the kind that carries no marker,
 an f-string's `ControlMaster` and ssh's flags run together (`-NM`) read too.
 
@@ -1118,9 +1145,10 @@ builds no context and reads no setting.
   a TLS alert onto its connection. The decision is made under the lock a request takes its connection under, so
   a connection is either found in use and shut down, or found idle and closed before any request can take it; a kept
   connection is taken before its far end is looked at, so that the look, a poll of its socket's number, is never made
-  on a socket `close()` closed; its socket is read by the take alone, under that lock, so that a `close()` that found
-  it idle and let it go just before is that request's `Closed`; and a connection still being made is refused as
-  `Closed` once made.
+  on a socket `close()` closed; before the take nothing reads its socket, and the take reads it under that lock, so
+  that a `close()` that found it idle and let it go just before is that request's `Closed`, and once taken it is busy,
+  so that `close()` only shuts it down and every later read of it meets the socket the take found; and a connection
+  still being made is refused as `Closed` once made.
 - **One place closes a socket.** A connection's socket is closed by `_forget` alone, once no request is under way on
   it, and only after it is taken out of what the transport holds, under the same lock: `close()` shuts down only a
   connection it finds there, so its shutdown never meets a close. The socket `http.client` is handed (`_Wire`) closes
@@ -1133,8 +1161,9 @@ builds no context and reads no setting.
   `Unreachable`, "the transport was closed while the request was under way" (`CUT`), words true of every road a cut
   takes - its request still being written, its answer awaited or being read - and any other method's `Unknown`, in
   the same words first. **The mark is an attribute**, `TransportError.closed`: true for `Closed` and for a cut, false
-  for every other failure, the peer's or the network's, a try's own failure with the close just after it among them,
-  so a caller tells the run's own close by it and never by words; a copy or a pickle keeps it. A `GET` whose next try
+  for every other failure, the peer's or the network's, a try's own failure with the close after that try has ended
+  among them (a close that comes before it has ended, while its connection is still taken, cuts it, as any other), so
+  a caller tells the run's own close by it and never by words; a copy or a pickle keeps it. A `GET` whose next try
   a close forestalls - its connection dropped or its answer 502, 503 or 504, the transport closed before the pause or
   during it - is `Closed`: the close is what ended the call.
 - **A secret is never said.** A header's value may be a `Secret`, or a tuple or list of `str` and `Secret` parts, as
@@ -1186,8 +1215,9 @@ with the mark, and an answer that seemed to end whole on a socket shut down is h
 `POST`. A body of 10 bytes under a `Content-Length` of 100, with and with no TLS `close_notify`, is no answer: a `GET`
 is asked three times, or answered whole on its second try, and a `POST` is `Unknown`. A kept connection is taken before
 its far end is looked at, and a `close()` just before the take, stood in for at its entry, makes the request `Closed`.
-A `GET`'s last try dropped and a `POST` dropped, each with the close just after it, are unmarked, in their own words;
-a `GET` whose pause before its next try is held until the transport is closed is `Closed`. A `_Wire` closes nothing,
+A `GET`'s last try dropped and a `POST` dropped, each with the close once that try has ended, are unmarked, in their
+own words; a `GET` whose pause before its next try is held until the transport is closed is `Closed`. A `_Wire`
+closes nothing,
 and on every road a connection's socket is let go by - kept, an answer's `Connection: close`, a connection dropped, a
 kept one the server closed - it is closed only once the transport holds it no more. It holds four rules over the new
 engine's modules.
@@ -1325,21 +1355,28 @@ that do call these two functions, and never `openpgp` themselves.
   version held the same way: it is signed by nobody and needs no signature, since whatever it names must still verify.
   Then the release's `manifest.json` and, once it is in hand, `manifest.json.sig`, each under 1 MiB; `openpgp.verify`
   with the vendored key; and only then is the manifest read, which must name the version it was fetched as.
-- **An image.** `signed_digest(list_url, signature_url, file_name, *, key, fingerprint, tls_ca_file, proxy)` fetches
-  the checksum list and then its detached signature, each from a URL of its own (today's image checksum and signature
-  settings give the two), so a person's own signed image may name its list and its signature as it likes, on two
-  hosts, a pre-signed URL's query kept; each over https only, on a transport of its own URL's host, each under 1 MiB.
-  A URL is held to one `https://` address with no user, password or fragment before anything is fetched, and said
-  without its query, which may carry a signature. The key is Ubuntu's cloud image key by default, a `keys.Key`, or the
-  armored text of a person's own with the `fingerprint` it is found by, as today's image key and fingerprint settings
-  give one. It returns the digest of the one line that names the image, read as today's role reads it, or `NotListed`
-  where no line or more than one does. `listed_digest(list_url, file_name, *, tls_ca_file, proxy)` reads an unsigned
-  list, an image held to its checksum alone (`sha256:<the list's URL>`), with the same line reader.
+- **An image.** `signed_digest(list_url, signature_url, file_name, *, key, fingerprint, tls_ca_file, list_proxy,
+  signature_proxy)` fetches the checksum list and then its detached signature, each from a URL of its own (today's
+  image checksum and signature settings give the two), so a person's own signed image may name its list and its
+  signature as it likes, on two hosts, a pre-signed URL's query kept; each over https only, on a transport of its own
+  URL's host, through the proxy its caller chose for that URL (`proxy.choose`, which decides by the URL's host, so a
+  list on a host `no_proxy` names and its signature elsewhere are each reached as they should be), each under 1 MiB.
+  A URL is held to one `https://` address with no user, password or fragment, and a path that does not begin with
+  `//` (which the transport would send as another), before anything is fetched, and said without its query, which may
+  carry a signature. The key is Ubuntu's cloud image key by default, a `keys.Key`, or the armored text of a person's
+  own with the `fingerprint` of a primary key in it, as today's image key and fingerprint settings give one: a
+  fingerprint that names none of its primary keys (a subkey's) is refused before anything is fetched, never said to be
+  missing from the vendored keys. It returns the digest of the one line that names the image, read as today's role
+  reads it, or `NotListed` where no line or more than one does. `listed_digest(list_url, file_name, *, tls_ca_file,
+  proxy)` reads an unsigned list, an image held to its checksum alone (`sha256:<the list's URL>`), with the same line
+  reader, through the proxy chosen for its URL.
 - **Bounded, and nothing unverified.** Every document is read on a transport whose `most` is 1 MiB, so none is read
   past it, and an answer's status is read before the document's own cap, so that an error page, longer than a
   channel's pointer, is said as the status it came with. A document one byte past its cap is `Oversized`, and nothing
-  after it is fetched. A 3xx is an answer, never followed (`NotServed`, as is any answer but 200), and the transport's
-  own errors pass as they are. Nothing is returned from a document whose signature has not verified (`Unverified`, with
+  after it is fetched. A 3xx is an answer, never followed (`NotServed`, as is any answer but 200), and a document the
+  transport could not fetch is `NotFetched`, which names the document and its URL before the transport's own words and
+  keeps the transport's error (`Untrusted`, `Unreachable`, `TimedOut`) as its `error`, so that with two hosts a person
+  can tell which one failed. Nothing is returned from a document whose signature has not verified (`Unverified`, with
   `openpgp`'s reason), decided by whether `openpgp.verify` returned, never by what a refusal says, so that a refusal
   with no words is one; and of a document only its version and digests are. What a server named is said through
   `plain_text`, cut, as JSON.
@@ -1350,9 +1387,11 @@ standing in for one of `certifi`'s, signed by keys `tests/unit/signing.py` makes
 document changed by one byte, a signature by another key or dated more than a day ahead, a refusal of `openpgp`'s with
 no words, a version below the first signed release, a document one byte past its cap, a list with no line or two for
 the image, a redirect, a certificate that does not verify, a URL that is not one `https://` address, a key that is not
-one. A list and its signature on two servers, with names of their own and a query, verify, and so does a key given as
-its text. It holds the release's pattern, the first signed release, the caps, the files' names and the line of a list
-equal to today's roles', and one rule: of the new engine, only `downloads.py` reaches `openpgp` - by an import, by its
+one, a fingerprint that names no primary key of a key given as text, a path that begins with `//`. A list and its
+signature on two servers, with names of their own and a query, verify, each through the proxy chosen for it, and so
+does a key given as its text; a document that could not be fetched is said by its name and URL. It holds the
+release's pattern, the first signed release, the caps, the files' names and the line of a list equal to today's roles',
+and one rule: of the new engine, only `downloads.py` reaches `openpgp` - by an import, by its
 `openpgp` or `verify` taken from `downloads.py`, or read off a name - and only `keys.py` names a vendored key file.
 
 ## 16.8 `runs/` — a run's record and text log, the locks, a detached run
@@ -1676,7 +1715,8 @@ process dies of. "The tree" is everything under the run's process, ended by `pro
 which signals every process under a process and what was remembered of it, by each one's start, with their groups, and
 never the process, its group or the caller's: today's
 `end` signals the root too, which here is the run. A shared SSH master daemonises out of the tree, so no end reaches it,
-and its open, while it runs, is left out of what is remembered (`children.opening`), since the master it leaves keeps
+and its open, while it runs - a machine's, `ensure`'s, or the hop's, `route.py`'s - is left out of what is remembered
+(`children.opening`), since the master it leaves keeps
 its `ProxyCommand` in the open's group; a second Ctrl-C during an open ends that open, and the master it was making. A
 child meant to outlive the run (`children.outliving`, the editor, a page's opener) is left out of both, of what is
 remembered and of what is ended, with what is under it: no end of the run reaches it. No child subreaper and no systemd

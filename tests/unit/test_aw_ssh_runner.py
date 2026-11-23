@@ -17,6 +17,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import contextlib
+import dataclasses
 import json
 import os
 import re
@@ -382,6 +383,10 @@ def test_the_person_s_options_change_what_the_product_leaves_and_nothing_it_pins
         {"CONTROLMASTER": "auto"},
         {"ForwardAgent": "yes"},
         {"IdentityFile": "~/.ssh/other"},
+        {"IdentityFile2": "~/.ssh/other"},
+        {"identityfile2": "~/.ssh/other"},
+        {"GlobalKnownHostsFile": "~/.ssh/other_known_hosts"},
+        {"KnownHostsCommand": "/usr/bin/printf %s"},
         {"HostName": "elsewhere.example.test"},
         {"User": "root"},
         {"Port": "2200"},
@@ -405,16 +410,45 @@ def test_an_option_the_product_writes_itself_is_refused_by_its_name(tmp_path, gi
         {"ForwardX11Timeout": "1h"},
         {"PermitLocalCommand": "yes"},
         {"LocalCommand": "touch /tmp/x"},
+        {"PKCS11Provider": "/usr/lib/x86_64-linux-gnu/opensc-pkcs11.so"},
+        {"SmartcardDevice": "/usr/lib/x86_64-linux-gnu/opensc-pkcs11.so"},
+        {"SecurityKeyProvider": "/usr/local/lib/sk-middleware.so"},
     ],
 )
 def test_an_option_that_undoes_what_every_connection_holds_is_refused_by_its_name(tmp_path, given) -> None:
     # Each would undo a rule of the runner's from vm_ssh_options: StdinNull, and a secret never arrives while the call
-    # is Done; ForkAfterAuthentication, and ssh leaves its group; a display or a program of this computer's handed on.
+    # is Done; ForkAfterAuthentication, and ssh leaves its group; a display, a program or a library of this computer's
+    # handed on or run here.
     [(name, _)] = given.items()
     named = runner.UNDOING_OPTIONS[name.lower()]
     with pytest.raises(runner.Refused, match=rf"vm_ssh_options sets {named}, which undoes what every connection holds"):
         _machine(tmp_path, given=given)
     assert set(runner.UNDOING_OPTIONS).isdisjoint(runner.REFUSED_OPTIONS)
+
+
+# ssh's other names for an option refused, each read by ssh as the option itself (its keyword table): IdentityFile2,
+# obsolete, for IdentityFile, and SmartcardDevice for PKCS11Provider.
+OTHER_NAMES = {"IdentityFile2": "identityfile", "SmartcardDevice": "pkcs11provider"}
+
+
+@pytest.mark.parametrize(("name", "read_as"), OTHER_NAMES.items())
+def test_ssh_s_other_name_for_a_refused_option_is_refused_by_the_name_given(tmp_path, name, read_as) -> None:
+    # A refusal by one name that another name undoes is none: this machine's own ssh shows each read as the option
+    # refused, and the runner refuses it by the name it was given.
+    value = str(tmp_path / "given")
+    shown = subprocess.run(
+        [_real_ssh(), "-G", "-F", "/dev/null", "-o", f"{name}={value}", ADDRESS],
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
+        env=dict(os.environ),
+    )
+    if shown.returncode != 0 or f"{read_as} {value}" not in shown.stdout.splitlines():
+        pytest.skip(f"this machine's ssh does not read {name} as {read_as}: {shown.stderr.strip()}")
+    refused = {**runner.REFUSED_OPTIONS, **runner.UNDOING_OPTIONS}
+    assert read_as in refused and refused[name.lower()] == name
+    with pytest.raises(runner.Refused, match=rf"vm_ssh_options sets {name}, which"):
+        _machine(tmp_path, given={name: value})
 
 
 def test_forward_x11_and_local_commands_are_pinned_off_whatever_a_person_s_config_says(tmp_path) -> None:
@@ -717,26 +751,30 @@ def test_a_machine_whose_socket_s_path_would_be_too_long_connects_alone(tmp_path
     assert runner.proxmox_host("pve.example.test", "root", CONTROL).shared
 
 
-def test_the_proxmox_host_from_a_long_home_is_made_and_a_connection_to_it_refused(stand_in, made) -> None:
-    # A home so long that the hop's socket would pass what macOS binds: the host's Target is still made, so that a route
-    # of direct can be settled for it (ssh/connections.py), and every connection to it, which rides the hop's shared
-    # connection, is refused before anything starts, in this engine's words: no setting of 2.x's inventory.
+def test_the_proxmox_host_from_a_long_home_connects_alone_as_a_machine_does(stand_in, made) -> None:
+    # A home so long that the hop's socket would pass what macOS binds: no master can be bound there, and the hop's is
+    # opened only where the route through the host is settled, which such a home refuses (connections.LONG_HOP). So
+    # root SSH to the host logs in alone (ControlPath=none), as a machine's connections do, and nothing is refused;
+    # every line is still a child's, never a master's (ControlMaster=no).
     fits = "/" + "c" * (route.SOCKET_MOST - len("/awh-") - 12 - 1)
-    for control, shared in ((fits, True), (fits + "c", False)):
-        assert runner.proxmox_host("pve.example.test", "root", control).shared is shared, control
-    control = "/" + "c" * 80
-    host = runner.proxmox_host("pve.example.test", "root", control)
-    socket = route.hop_settings(user="root", host="pve.example.test", port=22, control_dir=control, sized=False)
-    for refused_by in (
-        lambda: runner.argv(host, ["hostname", "-s"]),
-        lambda: runner.ansible_vars(host),
-        lambda: _run(made, host, ["hostname", "-s"]),
-    ):
-        with pytest.raises(runner.Refused) as refused:
-            refused_by()
-        assert str(refused.value) == runner.HOST_TOO_LONG.format(socket=socket["socket"], most=route.SOCKET_MOST)
-        assert "home is shorter" in str(refused.value) and "ansible_" not in str(refused.value)
-    assert _calls(stand_in) == []
+    spec = "127.0.0.1:5000:127.0.0.1:5000"
+    for control, shared in ((fits, True), (fits + "c", False), ("/" + "c" * 80, False)):
+        host = runner.proxmox_host("pve.example.test", "root", control)
+        assert host.shared is shared, control
+        socket = route.hop_settings(user="root", host="pve.example.test", port=22, control_dir=control, sized=False)
+        expected = f"ControlPath={socket['socket']}" if shared else "ControlPath=none"
+        for words, path in (
+            (runner.argv(host, ["hostname", "-s"]), expected),
+            (runner.forward_argv(host, [spec], 60), "ControlPath=none"),
+            (checks.ssh_args_split(runner.ansible_vars(host)["ansible_ssh_common_args"]), expected),
+        ):
+            assert [word for word in words if word.startswith("ControlPath=")] == [path], control
+            assert [word for word in words if word.startswith("ControlMaster=")] == ["ControlMaster=no"], control
+    # Run: it reaches the host, alone.
+    host = runner.proxmox_host("pve.example.test", "root", "/" + "c" * 80)
+    assert _run(made, host, ["say", "on the host"]) == runner.Done(0, ("on the host",), "")
+    [call] = _calls(stand_in)
+    assert "ControlPath=none" in call["argv"] and call["argv"][-2:] == ["pve.example.test", "say 'on the host'"]
 
 
 def test_a_command_that_is_not_a_list_of_words_starts_nothing(tmp_path, stand_in, made) -> None:
@@ -786,18 +824,23 @@ def test_a_call_says_how_the_child_ended(tmp_path, stand_in, made) -> None:
     target = _machine(tmp_path)
     assert _run(made, target, ["exit", "3", "it failed"]) == runner.Done(3, (), "it failed")
     assert _run(made, target, ["unreachable"]) == runner.Unreachable(
-        "ssh: connect to host 192.0.2.9 port 22: Connection refused", (), False
+        "ssh: connect to host 192.0.2.9 port 22: Connection refused", ()
     )
     noisy = _run(made, target, ["noisy"], limits=BYTES)
     assert noisy == runner.Done(0, ("done",), "e" * BYTES.said)
 
 
-def test_a_255_after_output_keeps_its_lines_and_that_the_machine_was_heard(tmp_path, stand_in, made) -> None:
-    # ssh's 255 is also the command's own, or a signal that ended it: a session was made, and what it printed is kept,
-    # so that a caller never takes a command that ran for a machine it never reached.
+def test_a_255_after_output_keeps_its_lines_and_says_no_more(tmp_path, stand_in, made) -> None:
+    # ssh's 255 is also the command's own, or a signal that ended it: what it printed is kept.
     result = _run(made, _machine(tmp_path), ["ran255", "first line", "second line"])
-    assert result == runner.Unreachable("it died", ("first line", "second line"), True)
-    assert result.heard and result.lines
+    assert result == runner.Unreachable("it died", ("first line", "second line"))
+    # And nothing more: a command that ran and printed nothing reads as a machine never reached, and one that printed
+    # may go on after a connection lost, so nothing in it says whether a command ran (engine.md §16.6). A caller whose
+    # command changes something reads the machine's state again before it tries it again.
+    assert [field.name for field in dataclasses.fields(runner.Unreachable)] == ["said", "lines"]
+    ran = _run(made, _machine(tmp_path), ["ran255"])
+    never = _run(made, _machine(tmp_path), ["unreachable"])
+    assert isinstance(ran, runner.Unreachable) and isinstance(never, runner.Unreachable) and ran.lines == never.lines
 
 
 def test_escape_sequences_in_what_the_machine_said_are_gone(tmp_path, stand_in, made) -> None:

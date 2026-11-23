@@ -16,25 +16,27 @@ once the manifest is in hand; openpgp.verify with the vendored key (keys.py); an
 must name the version it was fetched as, and the SHA-256 of each platform's binary it names is returned, as a Release.
 
 An image: signed_digest(list_url, signature_url, file_name) fetches the checksum list and then its detached signature,
-each from a URL of its own over https (two hosts, any name, a query of a pre-signed URL kept), each at most
-DOCUMENT_MOST bytes, verifies the list by the key - Ubuntu's cloud image key by default, or a person's own, as a
-keys.Key or its armored text with the fingerprint it is found by - and returns the digest of the one line that names
-file_name, or NotListed where no line or more than one does. listed_digest(list_url, file_name) reads an unsigned list,
-the sha256:<URL of a list> form of an image held to its checksum alone, with the same line reader.
+each from a URL of its own over https (two hosts, any name, a query of a pre-signed URL kept), each through the proxy of
+its own URL (list_proxy, signature_proxy), each at most DOCUMENT_MOST bytes, verifies the list by the key - Ubuntu's
+cloud image key by default, or a person's own, as a keys.Key or its armored text with the fingerprint of a primary key
+in it - and returns the digest of the one line that names file_name, or NotListed where no line or more than one does.
+listed_digest(list_url, file_name) reads an unsigned list, the sha256:<URL of a list> form of an image held to its
+checksum alone, with the same line reader.
 
 Every document is read on a transport of its own URL's host capped at DOCUMENT_MOST, so none is read past it, and its
 answer's status is read before its own cap is: an error page, longer than a channel's pointer, is said as the status it
 came with. A document one byte past its cap is Oversized, and nothing after it is fetched. A 3xx is an answer, never
-followed: NotServed, as is any answer but 200. The transport's own errors pass as they are (Unreachable, Untrusted among
-them, and TimedOut). Nothing is returned from a document whose signature has not verified - decided by whether
-openpgp.verify returned, never by what a refusal says - and of a document only its version and digests are ever
+followed: NotServed, as is any answer but 200. A document the transport could not fetch is NotFetched, which names the
+document and its URL before the transport's own words, and keeps the transport's error (Unreachable, Untrusted among
+them, and TimedOut) as its error. Nothing is returned from a document whose signature has not verified - decided by
+whether openpgp.verify returned, never by what a refusal says - and of a document only its version and digests are ever
 returned. What a server sent is said only through plain_text, cut, as JSON, and a URL is said without its query, which
 may carry a pre-signed URL's signature. The binary's download on a machine, its install and the image's import are not
 this module's: the steps that use these calls are the guest's and the template's.
 
 Blocking. It reads no setting and no variable: the addresses, the certificate file's setting (tls_ca_file) and the
-proxy are its caller's (proxy.choose gives it), and the key is keys.py's, unless a caller names its own, as
-today's proxmox_template_image_key and _fingerprint name one for an image of one's own.
+proxies are its caller's (proxy.choose gives the one for each URL), and the key is keys.py's, unless a caller names its
+own, as today's proxmox_template_image_key and _fingerprint name one for an image of one's own.
 """
 
 from __future__ import annotations
@@ -50,11 +52,12 @@ from collections.abc import Mapping
 from .. import openpgp
 from ..text import plain_text
 from . import keys, trust
-from .transport import Answer, TooLarge, Transport
+from .transport import Answer, TooLarge, Transport, TransportError
 
 __all__ = [
     "DownloadError",
     "NotARelease",
+    "NotFetched",
     "NotListed",
     "NotServed",
     "NotThisRelease",
@@ -112,6 +115,16 @@ class NotARelease(DownloadError):
     manifest of it. A channel's is refused before its manifest is asked for, a version asked for before anything is."""
 
 
+class NotFetched(DownloadError):
+    """A document the transport could not fetch: the document and its URL said, its query left out, then the
+    transport's own words. `error` is the transport's error (Unreachable, Untrusted among them, or TimedOut), for a
+    caller that tells a certificate's refusal from a connection's."""
+
+    def __init__(self, said: str, error: TransportError | None = None) -> None:
+        super().__init__(said)
+        self.error = error
+
+
 class NotServed(DownloadError):
     """A document was answered with another status than 200: a 3xx among them, which is never followed."""
 
@@ -121,7 +134,8 @@ class Oversized(DownloadError):
 
 
 class Unverified(DownloadError):
-    """A document's detached signature does not verify by the vendored key: openpgp.verify's reason is said."""
+    """A document's detached signature does not verify by its key, the vendored one or a person's own: openpgp.verify's
+    reason is said."""
 
 
 class NotThisRelease(DownloadError):
@@ -163,12 +177,19 @@ def _signed(version: str) -> bool:
 
 def _get(transport: Transport, url: str, path: str, what: str, most: int, deadline: float) -> bytes:
     """The body of path on transport, url as it is said, whose answer must be a 200 of at most most bytes: the status
-    is read first, so that an error page longer than a channel's pointer is said as the status it came with."""
+    is read first, so that an error page longer than a channel's pointer is said as the status it came with. A request
+    the transport could not make is NotFetched, naming the document, raised once the handler that caught the transport's
+    error has ended, so that it carries no cause."""
     answer: Answer | None = None
+    failed: TransportError | None = None
     try:
         answer = transport.request("GET", path, deadline=deadline)
     except TooLarge:
         pass  # past the transport's cap, DOCUMENT_MOST, and past most with it: said below, outside the handler
+    except TransportError as error:
+        failed = error
+    if failed is not None:
+        raise NotFetched(f"the {what}, {url}, could not be fetched: {failed}", failed)
     if answer is not None and answer.status != 200:
         never = ", a redirect, which is never followed" if 300 <= answer.status < 400 else ""
         raise NotServed(f"{url} answered {answer.status}{never}, not the {what}")
@@ -200,7 +221,8 @@ def _key(key: object) -> keys.Key:
 def _given_key(key: object, fingerprint: object) -> tuple[str, str]:
     """The armored text and the fingerprint a list is verified by: a keys.Key's file and fingerprint, or the armored
     text a person gave with the fingerprint it is found by. Refused before anything is fetched: anything else, a text
-    that is no armored key, and a fingerprint that is not 40 hex digits."""
+    that is no armored key, a fingerprint that is not 40 hex digits, and one that names no primary key of the text (a
+    subkey's, say), which openpgp would refuse only once both documents were fetched, as no key of the vendored ones."""
     if isinstance(key, keys.Key):
         if fingerprint is not None:
             raise TypeError("a keys.Key names its own fingerprint: none is given beside it")
@@ -208,12 +230,21 @@ def _given_key(key: object, fingerprint: object) -> tuple[str, str]:
     if not isinstance(key, str):
         raise TypeError("the key is a keys.Key, or the armored text of one with the fingerprint it is found by")
     try:
-        openpgp.dearmor(key, "PUBLIC KEY BLOCK")
+        found = openpgp.packets(openpgp.dearmor(key, "PUBLIC KEY BLOCK"))
     except openpgp.Refused:
-        raise ValueError("the key given as text is not one ASCII-armored PGP public key block") from None
+        found = None
+    if found is None:
+        raise ValueError("the key given as text is not one ASCII-armored PGP public key block")
     if not isinstance(fingerprint, str) or not FINGERPRINT.fullmatch("".join(fingerprint.split())):
         raise ValueError("a key given as text comes with the fingerprint it is found by: 40 hex digits")
-    return key, "".join(fingerprint.split()).upper()
+    wanted = "".join(fingerprint.split()).upper()
+    # A primary key's packet (tag 6) of version 4, the one kind openpgp finds a key by.
+    if not any(tag == 6 and body[:1] == b"\x04" and openpgp.fingerprint(body) == wanted for tag, body in found):
+        raise ValueError(
+            f"the key given as text holds no primary key whose fingerprint is {wanted}: give the fingerprint of its"
+            " primary key, never a subkey's"
+        )
+    return key, wanted
 
 
 def _split(url: object, what: str) -> tuple[str, str]:
@@ -233,6 +264,9 @@ def _split(url: object, what: str) -> tuple[str, str]:
         raise ValueError(f"the {what}'s URL is an https:// address, fetched over https only")
     if parts.username is not None or parts.password is not None or parts.fragment:
         raise ValueError(f"the {what}'s URL has no user, password or fragment")
+    if parts.path.startswith("//"):
+        # The transport takes a path's leading slashes off, so //a/b would be fetched as /a/b: another document.
+        raise ValueError(f"the {what}'s URL has a path that begins with //, which would be fetched as another")
     host = f"[{parts.hostname}]" if ":" in parts.hostname else parts.hostname
     origin = f"https://{host}" + (f":{port}" if port else "")
     return origin, parts.path + (f"?{parts.query}" if parts.query else "")
@@ -251,7 +285,7 @@ def _file_name(file_name: object) -> bytes:
 
 
 def _fetched(url: str, what: str, tls_ca_file: str | os.PathLike[str] | None, proxy: str | None) -> bytes:
-    """The document at url, on a transport of its own URL's host."""
+    """The document at url, on a transport of its own URL's host, through proxy, the one chosen for url."""
     origin, path = _split(url, what)
     with Transport(
         origin,
@@ -289,7 +323,7 @@ def claude_release(
     base (today's claude_code_download_url), once its manifest's signature verifies by key: see the module's docstring
     for the order of the checks. Connections verify against certifi's list and the file tls_ca_file names, where it
     names one, through proxy, an http:// URL, where there is one. Raises NotARelease, NotServed, Oversized, Unverified,
-    NotThisRelease, the transport's errors, and trust.Unusable where the certificates cannot be used."""
+    NotThisRelease, NotFetched with the transport's error, and trust.Unusable where the certificates cannot be used."""
     key = _key(key)
     if not isinstance(base, str):
         raise TypeError("the downloads' address is a str")
@@ -359,23 +393,25 @@ def signed_digest(
     key: keys.Key | str = keys.UBUNTU_CLOUD_IMAGE,
     fingerprint: str | None = None,
     tls_ca_file: str | os.PathLike[str] | None = None,
-    proxy: str | None = None,
+    list_proxy: str | None = None,
+    signature_proxy: str | None = None,
 ) -> str:
     """The SHA-256 of file_name, 64 lower-case hex digits, as the checksum list at list_url gives it (today's
     proxmox_template_image_checksum, sha256:<its URL>), once its detached signature at signature_url (today's
     proxmox_template_image_signature) verifies by key: Ubuntu's cloud image key by default, a keys.Key, or the armored
-    text of a person's own key (today's proxmox_template_image_key) with the fingerprint it is found by. Each document
-    is fetched over https from its own URL, on a transport of its URL's host: the two may be on two hosts. Connections
-    verify against certifi's list and the file tls_ca_file names, where it names one, through proxy, an http:// URL,
-    where there is one. Raises ValueError or TypeError for a URL, a file name or a key that is not one, before anything
-    is fetched; NotServed, Oversized, Unverified, NotListed, the transport's errors, and trust.Unusable where the
-    certificates cannot be used."""
+    text of a person's own key (today's proxmox_template_image_key) with the fingerprint of a primary key in it. Each
+    document is fetched over https from its own URL, on a transport of its URL's host: the two may be on two hosts, each
+    reached through the proxy chosen for its own URL (proxy.choose's), list_proxy and signature_proxy, an http:// URL,
+    or none. Connections verify against certifi's list and the file tls_ca_file names, where it names one. Raises
+    ValueError or TypeError for a URL, a file name or a key that is not one, before anything is fetched; NotServed,
+    Oversized, Unverified, NotListed, NotFetched with the transport's error, and trust.Unusable where the certificates
+    cannot be used."""
     armored, found_by = _given_key(key, fingerprint)
     wanted = _file_name(file_name)
     origin, path = _split(list_url, "checksum list")
     _split(signature_url, "checksum list's signature")
-    listing = _fetched(list_url, "checksum list", tls_ca_file, proxy)
-    signature = _fetched(signature_url, "checksum list's signature", tls_ca_file, proxy)
+    listing = _fetched(list_url, "checksum list", tls_ca_file, list_proxy)
+    signature = _fetched(signature_url, "checksum list's signature", tls_ca_file, signature_proxy)
     url = _said_url(origin, path)
     _verify(listing, signature, armored, found_by, url)
     return _digest(listing, file_name, wanted, url, "signed checksum list")
@@ -390,8 +426,8 @@ def listed_digest(
 ) -> str:
     """The SHA-256 of file_name as the unsigned checksum list at list_url gives it - an image held to its checksum
     alone, today's proxmox_template_image_checksum as sha256:<the list's URL> with no signature set - read with the
-    same line reader as a signed list, over https, on a transport of its URL's host. Raises as signed_digest does, but
-    Unverified: nothing signs it."""
+    same line reader as a signed list, over https, on a transport of its URL's host, through proxy, the one chosen for
+    list_url. Raises as signed_digest does, but Unverified: nothing signs it."""
     wanted = _file_name(file_name)
     origin, path = _split(list_url, "checksum list")
     listing = _fetched(list_url, "checksum list", tls_ca_file, proxy)
