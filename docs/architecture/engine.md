@@ -2097,6 +2097,29 @@ starter of a child, and the run's directory), and nothing of `engine/`, `cli/` o
 of that Ansible child is the one code of the new engine that imports `ansible`. It lives under `guest/ansible/`, where
 the child's own configuration names it.
 
+**The helper, sent on standard input.** The helper is one Python program for a machine's own `python3`, held to Python
+3.9's syntax and to the standard library, and never installed: each use sends it whole on the machine's standard
+input. `lib/claude_vm/guest/bundle.py`'s `script(entry, asked)` packs its sources into one text after a mark on a line
+of its own (`MARK`), each defined in memory under the module name it is imported by, and ends with a call of the
+dispatcher, `lib/claude_vm/guest/helper/main.py` (`helper <verb> [words]`), handed the verb, its words and what it is
+asked, as JSON inside the text and never on a command line. The command line holds the bootstrap alone (`command()`:
+`/usr/bin/python3 -I -B -c` and `BOOTSTRAP`), which reads standard input whole and executes it from the mark: what comes
+before it, a password's line that `sudo -S` was handed and left there, is dropped unread, and since the mark is looked
+for after a newline, which such a line holds only at its end, no part of one is ever executed or said back. Its one verb
+is `probe`, today's status probe unchanged, with its fixed list of reads; a verb it does not know, a word too many or an
+ask that is not a JSON object is one line on standard error and exit status 2, nothing run. The sources are read by
+`sources()` alone, the one function of `lib/claude_vm/` outside `status/` that names `playbooks/module_utils/`: the
+probe's three files stay there until the cutover, since today's Ansible modules import them as `module_utils`, and
+`sources()` finds them from the package's own place, two folders below the checkout's top, never the working directory.
+A release is a checkout of a signed tag, so it holds the same files; the cutover moves them into `guest/helper/` (card
+K28), and `sources()` then reads the package's own files alone. The script defines `ansible` and `ansible.module_utils`
+as empty packages, so that the probe's own imports resolve on a machine with no Ansible. Today's `just status` bundles
+the same three files with `lib/claude_vm/status/reach.py`'s `probe_script`, which this module neither changes nor
+imports, since today's product never imports the new engine: the two print the same document for the same ask.
+`tests/unit/test_aw_guest_helper.py` holds that against today's stand-in VMs and through the SSH runner to a stand-in
+machine, with the sources' syntax and imports, the scan of what names the folder, and `ALLOWED` bounding every program
+the bundled probe runs.
+
 **Layer 1's child.** `lib/claude_vm/guest/layer1.py`'s `run` converges one machine with one `ansible-playbook`, started
 through `children.start` as an `ansible` child of the run, in a session of its own: it has no terminal, a terminal's
 Ctrl-C reaches the run alone, and the run's ladder hands it on as SIGINT to the child's group (§16.8). Its standard
