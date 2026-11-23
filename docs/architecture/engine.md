@@ -470,7 +470,9 @@ written for, but a VM's first form, which its clone carries before its UUID can 
   whose value is not what its field may be, is `Unreadable`, which names the VM. One that names a UUID that is not the
   VM's own is `Copy`, an `Unreadable` of its own kind: a clone made without a description of its own carries its
   source's notes, record and all (experiment 6), so a copy is never read as the VM's own, and no reader makes that
-  check itself. A first form, which names no UUID, cannot be told from a copy of one.
+  check itself. A VM's first form alone names no UUID, and cannot be told from a copy of one; a record of any other
+  kind or stage that names none is `Unreadable`, so a template's, a golden's and a build's record names its UUID from
+  its first write.
 - `write(client, vm, change)` is the one writer. It reads the VM's configuration, applies `change` to the record its
   notes hold, renders the notes with that block alone changed (`pve/record.py`), and writes them with the digest of that
   read through the client's `edit_config`: where another writer, a person in Proxmox's page among them, changed the
@@ -491,46 +493,30 @@ characters; and `tests/unit/test_vm_repos.py`'s cases of a VM's own list are car
 enforcement: a record written reads back field for field; of two writers the second is refused, reads again and lands
 with the first's change kept, as does a write a person's edit came between; a second write of the same record sends
 nothing; a block the engine cannot read, a copy's record, a record that names another VM's UUID and notes past the
-bound send nothing; and the label is `vm_label`'s value beside a person's tags. A syntax-tree scan holds that no module
-of the new engine names a description to send but this one, the client, its table, its reader of answers, and the
-template's comparison below, which sends nothing, each with why.
+bound send nothing; a record of a template, a golden or a build that names no UUID is refused, made or read; and the
+label is `vm_label`'s value beside a person's tags. A syntax-tree scan holds that no module of the new engine names a
+description to send but this one, the client, its table, its reader of answers, and the template's judgement (16.5),
+which holds no client, each with why.
 
-**The base template: `template.py`.** Every VM is a full clone of the base template, so `deploy`, as its first link, and
-`status` ask one function whether the template is what its settings would build, and say the same lines.
-
-- `wanted(settings)` is what a build makes, in the fields today's `lib/claude_vm/proxmox.py` compares a template on
-  (`TEMPLATE_FIELDS`): the settings every clone inherits (its CPU type, OS type, bridge and storage, and the SCSI
-  controller, guest agent, serial port and display every build gives it), then what went into its disk, which its
-  configuration cannot show and its record keeps: `BUILD`, the build steps' version, raised whenever a change to them
-  changes what a template is, the image's URL, and the packages put into the image, none without the guest agent. It
-  is the one definition the build makes a template from and the comparison holds one to. Its settings are a run's
-  against one host, every row's value as `fleet/overrides.py` resolves them; the roles' options no row names
-  (`OPTIONS`) are read where the settings give them and are otherwise the roles' own defaults, which a test holds equal
-  to the roles' files, and the template's bridge and storage are the rows `proxmox_bridge` and `proxmox_storage`'s
-  unless their options name others, as today's inventory wires them.
-- `compare(client, settings, pool=, host_flag=)` reads the template through the API with the engine's one token, by
-  GETs alone: the cluster's listing, the guest at the template's ID with the record in its notes, and, where nothing is
-  listed there, what the token may read at that ID. It says one of six outcomes. `missing`: nothing has the ID, said
-  only where the token may read it, which Proxmox says (GET /access/permissions, which needs no privilege), not the
-  setting, so a token that holds less than its setting says reads `unseen`. `unseen`: under `proxmox_audit_scope: pool`
-  a guest outside the pool is invisible, so missing cannot be told from another's guest, and the build asks the host
-  over root SSH first. `same`, and `different` with a line for each difference, `<field> <has> → <wanted>`, from today's
-  `proxmox_template_drift`, which stays where it is and is handed the record's template fields as the line of notes it
-  reads; the image's digest is kept and never compared. Under `proxmox_template_rebuild: false` a difference is only
-  said, with the `deploy --only template` line, printed by the printer of a command. `refused`: a container at the ID,
-  a guest that is no member of the fleet's pool, a template on another node than `proxmox_node`, a VM that is no
-  template, a template of another name, and a template whose notes hold no record of this engine's build, one it cannot
-  read, a copy, or a record of another kind, each said in one sentence with the way on and left as it is, never rebuilt:
-  so no VM of the new engine stands on a template it may not rebuild, and a person's own template at the ID is never
-  destroyed. `custom`: `proxmox_template_custom` names a template of the person's own, only read and cloned, held by
-  today's `custom_template_problems` to what a clone needs. Whether it is a template, and its name, are read from the
-  guest's own configuration, never from the listing, which lags what a run just did.
+**The base template: `template.py`.** Every VM is a full clone of the base template, so `deploy`, as its first link,
+asks whether the template is what its settings would build. `compare(client, settings, pool=, host_flag=)` reads it
+through the API with the engine's one token, by GETs alone: the cluster's listing; where nothing is listed at the
+template's ID, what the token may read there (GET /access/permissions, which needs no privilege); and, only where the
+listing names a guest there that the judgement reads further, its configuration with the record in its notes, read by
+`read` above, so that a block it cannot read, a copy and a template's record that names no UUID are each refused. It
+judges what it read by `pve/template.py`'s functions (16.5), which say the outcome and its lines; `status`, which may
+not import the engine, judges by the same functions what its own client read, so the two say the same. `wanted`,
+`BUILD`, `OPTIONS`, `Compared` and the six outcomes are that module's, given here as the comparison's.
 
 `tests/unit/test_aw_engine_template.py` holds it: `wanted` is today's role's under its defaults, and its options are
 the roles' own; against the fake Proxmox under enforcement, with `VM.Audit` on `/vms` and without it, each outcome, each
-difference, the fake's own template with this engine's record as this version builds it, each refusal of the role's
-scenario that a comparison makes, and the engine's own beside them, each leaving the template as it was; an ID outside
-the pool is `unseen` under `pool`, never `missing`; and `compare` sends nothing but GETs.
+difference, the fake's own template with this engine's record as this version builds it, a difference kept under
+`proxmox_template_rebuild: false` cloned from as it is, each refusal of the role's scenario that a comparison makes,
+and the engine's own beside them, a person's template with a record that names no UUID pasted into its notes and the
+record a build would write before it knew the template's UUID among them, each leaving the template as it was; an ID
+outside the pool is `unseen` under `pool`, never `missing`; the judgement, given what `status`'s reads give and the
+record by the plain `parse`, says what `compare` says, and imports nothing of the engine and not the client; and
+`compare` sends nothing but GETs.
 
 **The API's certificate: `certificate.py`.** Before `init` sends a Proxmox host anything that carries a credential,
 `work_out(host, given, root_ssh, ask)` settles what its API's certificate is held to, by today's `trust.py`'s probes,
@@ -816,9 +802,10 @@ byte for byte and never parsed: a person's own lines, and the lines today's prod
 
 - `parse(notes)` gives the block's fields, each value a string and the three lists a tuple each, or none where the
   notes hold no block. `copied(fields, identity)` says whether they name a UUID that is not the VM's own: a copy, which
-  `engine/record.py`'s `read` refuses and `status` reads by the same function. A block of a format this program does not read, a line that is no field of its format, a field twice,
-  two blocks, or a start with no end, is `Unreadable`: refused, and never rewritten, so that what a newer program or a
-  person wrote is never lost to an older one.
+  `engine/record.py`'s `read` refuses and `status` reads by the same function; a VM's first form alone names none. A
+  block of a format this program does not read, a line that is no field of its format, a field twice, two blocks, or a
+  start with no end, is `Unreadable`: refused, and never rewritten, so that what a newer program or a person wrote is
+  never lost to an older one.
 - `render(notes, fields)` gives the notes with that block alone written from the fields, or added last after a blank
   line, every other line as it was. It writes only what `parse` reads back as it was given: no value on more than one
   line, or with a control, a format or a separator character, none with white space at an end, no item of a list with
@@ -833,6 +820,45 @@ byte for byte and never parsed: a person's own lines, and the lines today's prod
 
 It imports the standard library and `text.py` alone, so that `status` reads a record with no other part of the engine
 loaded, which `tests/unit/test_aw_record.py` reads from a fresh interpreter.
+
+**The base template judged: `template.py`.** What was read of the base template is judged here, in plain code with no
+client, so that `deploy`, through `engine/template.py`'s `compare` (16.4), and `status`, which may not import the
+engine and reads through a client of its own, judge it by the same functions and say the same lines. It imports nothing
+of `engine/` and not the client.
+
+- `wanted(settings)` is what a build makes, in the fields today's `lib/claude_vm/proxmox.py` compares a template on
+  (`TEMPLATE_FIELDS`): the settings every clone inherits (its CPU type, OS type, bridge and storage, and the SCSI
+  controller, guest agent, serial port and display every build gives it), then what went into its disk, which its
+  configuration cannot show and its record keeps: `BUILD`, the build steps' version, raised whenever a change to them
+  changes what a template is, the image's URL, and the packages put into the image, none without the guest agent. It
+  is the one definition the build makes a template from and the judgement holds one to. Its settings are a run's
+  against one host, every row's value as `fleet/overrides.py` resolves them; the roles' options no row names
+  (`OPTIONS`) are read where the settings give them and are otherwise the roles' own defaults, which a test holds equal
+  to the roles' files, and the template's bridge and storage are the rows `proxmox_bridge` and `proxmox_storage`'s
+  unless their options name others, as today's inventory wires them.
+- `judge(base, entry, config, found, want, readable=)` says what the guest at the base template's ID is, from its entry
+  in the cluster's listing, its configuration, its record and `want`, what a build makes; `base` is the template the
+  settings name, its name and ID, the node, the fleet's pool, whether a difference rebuilds it and the line that does
+  (`Base.of`). `found` is what reading the record by `engine/record.py`'s rules gave: its fields, as `parse` gives them
+  or the typed record renders them, none, or the `Unreadable` the read raised, a copy among them. `listed(base, entry,
+  readable=)` is the part the listing alone decides, and none where the guest's configuration is to be read, so that a
+  reader reads one only where it is judged: a qemu guest at the ID, in the pool, on `proxmox_node`. `custom` judges a
+  template of the person's own.
+- The six outcomes. `missing`: nothing has the ID, said only where the token may read it, which Proxmox says (GET
+  /access/permissions), not the setting, so a token that holds less than its setting says reads `unseen`. `unseen`:
+  under `proxmox_audit_scope: pool` a guest outside the pool is invisible, so missing cannot be told from another's
+  guest, and the build asks the host over root SSH first. `same`, and `different` with a line for each difference,
+  `<field> <has> → <wanted>`, from today's `proxmox_template_drift`, which stays where it is and is handed the record's
+  template fields as the line of notes it reads; the image's digest is kept and never compared. Under
+  `proxmox_template_rebuild: false` a difference is only said, with the `deploy --only template` line, printed by the
+  printer of a command, and the template is kept and cloned from as it is (`usable`), as today. `refused`: a container
+  at the ID, a guest that is no member of the fleet's pool, a template on another node than `proxmox_node`, a VM that
+  is no template, a template of another name, and a template whose notes hold no record of this engine's build, one
+  that cannot be read, a copy, or a record of another kind, each said in one sentence with the way on and left as it
+  is, never rebuilt: so no VM of the new engine stands on a template it may not rebuild, and a person's own template at
+  the ID is never destroyed. `custom`: `proxmox_template_custom` names a template of the person's own, only read and
+  cloned, held by today's `custom_template_problems` to what a clone needs. Whether it is a template, and its name, are
+  read from the guest's own configuration, never from the listing, which lags what a run just did.
 
 `status` moves onto the client in its own workstream. `tests/unit/test_aw_pve_reads.py` runs every read against the fake
 Proxmox, which serves a node's certificate from `tests/unit/pki.py` (`harness.fake_fleet`'s `certificate`), with the

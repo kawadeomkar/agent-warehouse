@@ -19,8 +19,8 @@ a newer program or a person wrote is never lost to an older one.
 `parse(notes)` gives the block's fields, or None where the notes hold none: each value as a str, but the three lists, a
 tuple each. `copied(fields, identity)` says whether they name a UUID that is not the VM's own: a clone made without a
 description of its own carries its source's notes, record and all (experiment 6), so such a record is a copy, which
-engine/record.py's read refuses (Copy) and status reads by the same function. A record that names no UUID, a VM's first
-form, cannot be told from a copy of one. `repositories` keeps today's rule for a VM's own list
+engine/record.py's read refuses (Copy) and status reads by the same function. A VM's first form alone names no UUID,
+and cannot be told from a copy of one. `repositories` keeps today's rule for a VM's own list
 (lib/claude_vm/proxmox.py's line of repositories): names split on commas, each kept only where it is a repository's
 name, so that a mangled line is still the VM's list and clones nothing it does not name; an empty value is a list too,
 of none, where a line left out is no list.
@@ -65,7 +65,7 @@ END = "end of agent-warehouse record"
 # went well (today's removal of the unfinished tag); the VM's own list of repositories; the size it was created with,
 # each part where the run gave one; the version of the build steps a template was built by; the digest of the image it
 # was made from, the URL that image was fetched from and the packages put into it, which a template's configuration
-# cannot show (engine/template.py compares them); the VPNs a login of which was seen on it; the digest it last converged
+# cannot show (pve/template.py judges them); the VPNs a login of which was seen on it; the digest it last converged
 # to; the mark that an agent's run made it; and the run on it now, as information.
 FIELDS = (
     "kind",
@@ -137,8 +137,9 @@ class Copy(Unreadable):
 def copied(fields: Mapping[str, str | tuple[str, ...]], identity: str) -> bool:
     """Whether the record parse gave names a UUID that is not identity, the SMBIOS UUID of the VM whose notes hold it
     ("" for a VM that has none): a copy, which a clone made without a description of its own carries from its source.
-    UUIDs are compared without regard to case. A record that names no UUID, a VM's first form at the stage cloning,
-    cannot be told from a copy of one by this."""
+    UUIDs are compared without regard to case. A VM's first form at the stage cloning alone names no UUID, and cannot
+    be told from a copy of one by this: engine/record.py's Record refuses a record of any other kind or stage that
+    names none."""
     uuid = fields.get("uuid")
     return isinstance(uuid, str) and bool(uuid) and uuid.lower() != (identity or "").lower()
 

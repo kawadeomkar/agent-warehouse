@@ -1,20 +1,25 @@
-"""The base template compared with its settings in plain code: lib/claude_vm/engine/template.py (card E11,
-docs/architecture/engine.md §16.4).
+"""The base template compared with its settings in plain code: lib/claude_vm/engine/template.py, which reads, and
+lib/claude_vm/pve/template.py, which judges what was read (card E11, docs/architecture/engine.md §16.4 and §16.5).
 
 What a build makes is wanted(settings), today's role's proxmox_template_wanted as a function: the same fields, the
 role's own defaults for the options no row of the settings table names, held equal to its files here, and BUILD
-beside it. compare reads the template through the API with the engine's token and says what it found.
+beside it. compare reads the template through the API with the engine's token and says what it found, by the judgement
+status calls too (card G16): given what status's own reads give, with the record by pve/record.py's plain parse, it
+says what compare says, and it imports nothing of the engine and not the client.
 
 Against the fake Proxmox (tests/molecule/fake_pve_api.py), the engine's token held to its table of privileges, with
 VM.Audit on /vms as init grants it under proxmox_audit_scope: node, or without it, under pool: each outcome; the fake's
 own template, with this engine's record, is as this version builds it (tests/unit/test_filters.py's case on the fake's
 template, carried); each difference is said with what it has and what is wanted, and the image's digest is never
-compared; under proxmox_template_rebuild: false a difference is said with the deploy --only template line. Each refusal
-of the role's scenario (roles/proxmox_template/molecule/default/side_effect.yml) that a comparison makes: an ID another
-node holds, an ID that holds a VM a build never finished, a finished template of another name, a template with no
-record of the build; and the engine's own beside them: a container, a guest outside the pool, a record of another kind,
-one that cannot be read, a copy of another VM's. Each leaves the template as it was. The scenario's other refusals - a
-custom image with no checksum, an image of another family, a template a linked clone uses - are the build's (card E12).
+compared; under proxmox_template_rebuild: false a difference is said with the deploy --only template line, and the
+template is cloned from as it is, as today. Each refusal of the role's scenario
+(roles/proxmox_template/molecule/default/side_effect.yml) that a comparison makes: an ID another node holds, an ID
+that holds a VM a build never finished, a finished template of another name, a template with no record of the build;
+and the engine's own beside them: a container, a guest outside the pool, a record of another kind, one that cannot be
+read, a copy of another VM's, and a template's record that names no UUID, which only a VM's first form may (a person's
+template with such a block pasted into its notes, and the record a build would write before it knew the template's
+UUID, which it cannot make). Each leaves the template as it was. The scenario's other refusals - a custom image with no
+checksum, an image of another family, a template a linked clone uses - are the build's (card E12).
 Under pool an ID outside the pool reads unseen, never missing. A template of the person's own, which
 proxmox_template_custom names, is only read and held to what a clone needs.
 
@@ -28,6 +33,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from aw_kit import imports_of
 from harness import ENGINE_POOL, _pve, _pve_requests, engine_grant, engine_token, fake_fleet
 from pki import proxmox_pki
 
@@ -37,6 +43,7 @@ from claude_vm.engine.record import Record
 from claude_vm.fleet import overrides, paths
 from claude_vm.pve import pin
 from claude_vm.pve import record as block
+from claude_vm.pve import template as judging
 from claude_vm.pve.client import Proxmox, Token
 from claude_vm.schema.words import Line
 from claude_vm.secret import Secret
@@ -96,16 +103,16 @@ def test_the_options_no_row_names_are_the_roles_own_defaults_and_wired_as_today(
         role = "proxmox_vm" if name == "proxmox_vm_disk" else "proxmox_template"
         given = _role(role, "defaults")[name]
         assert (tuple(given) if isinstance(given, list) else given) == value, name
-    assert (template.SCSIHW, template.SERIAL0, template.VGA) == (
+    assert (judging.SCSIHW, judging.SERIAL0, judging.VGA) == (
         variables["proxmox_template_scsihw"],
         variables["proxmox_template_serial0"],
         variables["proxmox_template_vga"],
     )
     # The template's bridge and storage are the rows' unless given, as today's inventory wires them.
     wiring = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())
-    for option, row in template.FROM_ROWS.items():
+    for option, row in judging.FROM_ROWS.items():
         assert wiring[option] == "{{ " + row + " }}"
-    assert set(template.OPTIONS) & set(template.FROM_ROWS) == set()
+    assert set(template.OPTIONS) & set(judging.FROM_ROWS) == set()
 
 
 def test_wanted_reads_the_rows_and_a_role_s_option_where_the_settings_give_one(home) -> None:
@@ -170,10 +177,13 @@ def test_each_outcome_is_said_in_one_sentence() -> None:
         _compared("rebuilt")
 
 
-def test_only_the_same_template_or_a_person_s_that_lacks_nothing_is_cloned_and_refusals_are_told() -> None:
+def test_only_the_same_template_a_kept_difference_or_a_person_s_lacking_nothing_is_cloned_and_refusals_told() -> None:
     usable = {outcome for outcome in template.OUTCOMES if _compared(outcome).usable}
     assert usable == {template.SAME, template.CUSTOM}
     assert not _compared(template.CUSTOM, why=("it has no net0",)).usable
+    # A difference kept under proxmox_template_rebuild: false is cloned from as it is, as today's deploy does.
+    assert _compared(template.DIFFERENT, rebuild=False).usable
+    assert not _compared(template.DIFFERENT, rebuild=False).refused
     refused = {outcome for outcome in template.OUTCOMES if _compared(outcome, why=("x",)).refused}
     assert refused == {template.REFUSED, template.CUSTOM}
     assert not any(_compared(outcome).refused for outcome in template.OUTCOMES if outcome != template.REFUSED)
@@ -201,6 +211,17 @@ class Fleet:
             found = template.compare(client, settings, pool=ENGINE_POOL, host_flag=host_flag)
         assert self.methods() <= {"GET"}, "compare sent something but a GET"
         return found
+
+    def judged(self, settings: dict[str, object]) -> template.Compared:
+        """What status says (card G16), which may not import the engine: pve/template.py's judgement alone, given the
+        listing and the template's configuration as read (status makes the same answers from its own client's reads,
+        by pve/answers.py's parsers) and the record by pve/record.py's plain parse, never engine/record.py's read."""
+        base = judging.Base.of(settings, pool=ENGINE_POOL, host_flag="")
+        with Proxmox(self.base, pin.kept(self.pki["ca"]), self.token) as client:
+            listing, config = client.resources("vm"), client.config("pve", base.template_id)
+        fields = block.parse(config.description)
+        assert not block.copied(fields or {}, config.identity), "status reads a copy as Copy, never as the VM's own"
+        return judging.judge(base, judging.at(listing, base.template_id), config, fields, judging.wanted(settings))
 
     def methods(self) -> set[str]:
         """The methods of every request the engine's client sent the fake."""
@@ -321,6 +342,16 @@ def test_a_difference_under_rebuild_false_is_only_said_with_the_line_that_rebuil
     assert fleet.config() == before
 
 
+def test_a_difference_kept_under_rebuild_false_is_cloned_from_as_it_is_as_today(fleet, home) -> None:
+    # Today's deploy keeps such a template and clones every new VM from it; the setting's own words say it is kept.
+    fleet.built()
+    kept = fleet.compare(_settings(proxmox_bridge="vmbr2", proxmox_template_rebuild=False))
+    assert (kept.outcome, kept.rebuild, kept.usable, kept.refused) == (template.DIFFERENT, False, True, False)
+    rebuilt = fleet.compare(_settings(proxmox_bridge="vmbr2"))
+    assert (rebuilt.outcome, rebuilt.rebuild) == (template.DIFFERENT, True)
+    assert not rebuilt.usable and not rebuilt.refused
+
+
 def test_missing_is_said_where_the_token_may_read_the_id(fleet, home) -> None:
     found = fleet.compare(_settings(proxmox_template_vmid=FREE))
     assert (found.outcome, found.template_id) == (template.MISSING, FREE)
@@ -421,6 +452,45 @@ def test_a_record_that_cannot_be_read_is_refused(fleet, home) -> None:
     _refused(fleet, _settings(), "never rebuilt or cloned", "cannot be read")
 
 
+# A template's record as a block written by hand, or by a build before it knew the template's UUID: no uuid, at the
+# stage cloning, which only a VM's first form may be (engine/record.py's Record).
+UUIDLESS = {
+    "kind": "template",
+    "stage": "cloning",
+    "build": str(template.BUILD),
+    "image": DIGEST,
+    "image_url": IMAGE,
+    "packages": ("qemu-guest-agent",),
+}
+
+
+def test_a_person_s_template_with_a_record_naming_no_uuid_pasted_into_its_notes_is_refused(fleet, home) -> None:
+    # A template of the person's own, a clone of the fake's made a template, at the ID and the name the settings give,
+    # in the pool, with the block pasted into its notes: never the engine's, so never rebuilt, which would destroy it.
+    fleet.made_template(FREE, NAME)
+    fleet.plant(FREE, description=block.render(fleet.config(FREE).get("description", ""), UUIDLESS))
+    fleet.member(FREE)
+    _refused(
+        fleet,
+        _settings(proxmox_template_vmid=FREE, proxmox_bridge="vmbr2"),
+        f'The template "{NAME}" ({FREE}) is never rebuilt or cloned',
+        f"VM {FREE}'s notes cannot be read",
+        "a VM's first form",
+        guest=FREE,
+    )
+
+
+def test_a_template_s_record_written_before_its_uuid_is_known_is_refused_and_no_build_can_make_one(fleet, home) -> None:
+    # A build cannot make one: a template's record names its UUID from its first write (card E12).
+    with pytest.raises(ValueError, match="a VM's first form"):
+        Record(**{**UUIDLESS, "build": template.BUILD})
+    # And the notes a build that wrote one anyway left - stopped between qm template and writing the record again with
+    # the UUID - are refused, the template never rebuilt or cloned, and left as it is.
+    fleet.plant(description=block.render(fleet.config().get("description", ""), UUIDLESS))
+    fleet.member(TEMPLATE)
+    _refused(fleet, _settings(proxmox_bridge="vmbr2"), "never rebuilt or cloned", "a VM's first form")
+
+
 # ------------------------------------------------------------------------- a template of the person's own ----
 
 
@@ -452,6 +522,38 @@ def test_a_template_of_the_person_s_own_outside_the_pool_is_unseen_under_pool(po
     assert "place it in the pool" in found.said()
     pooled.member(9500)
     assert pooled.compare(_settings(proxmox_template_custom="my-template")).usable
+
+
+# ------------------------------------------------------------------------ the judgement status calls too ----
+
+
+@pytest.mark.parametrize(
+    ("settings", "recorded"),
+    [
+        ({}, {}),
+        ({"proxmox_bridge": "vmbr2"}, {}),
+        ({"proxmox_bridge": "vmbr2", "proxmox_template_rebuild": False}, {}),
+        ({}, {"image_url": SERVER, "build": 2}),
+        ({}, {"kind": "golden"}),
+        ({"proxmox_template_name": "other-template"}, {}),
+    ],
+)
+def test_status_judges_by_the_same_function_and_says_what_compare_says(fleet, home, settings, recorded) -> None:
+    fleet.built(**recorded)
+    given = _settings(**settings)
+    assert fleet.judged(given) == fleet.compare(given)
+
+
+def test_the_judgement_imports_nothing_of_the_engine_nor_the_client(home) -> None:
+    # So that status may import it (card G15's boundary keeps claude_vm.engine, pydantic, ansible and the MCP SDK out of
+    # aw status, and status reads through a client of its own).
+    module = "claude_vm.pve.template"
+    added = imports_of(module=module, home=home) - imports_of(module="claude_vm", home=home)
+    assert module in added, sorted(added)
+    ours = sorted(name for name in added if name.split(".")[0] == "claude_vm")
+    assert [name for name in ours if name == "claude_vm.engine" or name.startswith("claude_vm.engine.")] == [], ours
+    assert "claude_vm.pve.client" not in ours, ours
+    assert {name.split(".")[0] for name in added} & {"pydantic", "ansible", "mcp"} == set(), sorted(added)
 
 
 # ---------------------------------------------------------------------------------------- the invariant ----
