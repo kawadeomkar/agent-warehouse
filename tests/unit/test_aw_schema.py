@@ -23,6 +23,8 @@ from claude_vm.schema.patterns import PATTERNS, form, full
 MODULE = "claude_vm.schema.patterns"
 
 SESSION_ID = "0a608ad8-1b2c-4d3e-8f90-123456789abc"
+# The example patterns.py gives a fleet's ID.
+FLEET_ID = "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b"
 FINGERPRINT = ":".join(["AB"] * 32)
 # An SSH key's SHA256 fingerprint as ssh-keygen -l prints it: SHA256: and 43 characters of base64, with no padding.
 SSH_FINGERPRINT = "SHA256:" + "uNiVztksCsDhcc0u9e8BujQXVUpKZIDTMczCvj3tD2s"
@@ -252,6 +254,27 @@ CASES: dict[str, tuple[list[str], list[str]]] = {
         ["3.0", "v3", "latest", "3.0.0-", "v3.0.0-RC.1", "V3.0.0", "../3.0.0", "3.0.0;x", "-3.0.0", "3.0.0.1"],
     ),
     "dependency_group": (["mcp", ""], ["dev", "docs", "MCP", "mcp,dev", "-x"]),
+    # This file's own, and no option takes it: the ID of the pool's mark and of an adopted machine's marker, a
+    # lowercase UUID whole, of any version.
+    "fleet_id": (
+        [FLEET_ID, "00000000-0000-0000-0000-000000000000", "ffffffff-ffff-1fff-bfff-ffffffffffff", SESSION_ID],
+        [
+            "",
+            FLEET_ID.upper(),
+            FLEET_ID[:8].upper() + FLEET_ID[8:],
+            FLEET_ID[:-12] + FLEET_ID[-12:].upper(),
+            FLEET_ID.replace("-", ""),
+            "{" + FLEET_ID + "}",
+            "urn:uuid:" + FLEET_ID,
+            FLEET_ID[:-1],
+            FLEET_ID + "0",
+            FLEET_ID.replace("6f1c", "6g1c"),
+            " " + FLEET_ID,
+            FLEET_ID + " ",
+            "6f1c2a3b4-d5e-4f60-8a7b-9c0d1e2f3a4b",
+            "none",
+        ],
+    ),
 }
 
 TAKEN = [
@@ -356,6 +379,7 @@ NEAR_MISSES: dict[str, dict[str, str]] = {
     "ssh_fingerprint": {EXAMPLE_SSH_FINGERPRINT: EXAMPLE_SSH_FINGERPRINT[:-1]},
     "release": {"v3.0.0": "v3.0", "3.0.0-rc.1": "3.0.0-RC.1"},
     "dependency_group": {"mcp": "dev"},
+    "fleet_id": {FLEET_ID: FLEET_ID.replace("-", "_")},
 }
 # What a pattern is written with, which no words may hold: a person reads the words, never a regular expression.
 PATTERN_CHARACTERS = "[]{}\\|?*^$"

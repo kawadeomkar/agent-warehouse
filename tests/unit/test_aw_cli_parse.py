@@ -102,6 +102,7 @@ SAMPLES = {
     "ssh_fingerprint": "SHA256:" + "A" * 43,
     "release": "v3.0.0",
     "dependency_group": "mcp",
+    "fleet_id": "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b",
 }
 # What a refusal never has: argparse's own usage block.
 USAGE = "usage:"

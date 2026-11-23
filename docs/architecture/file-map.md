@@ -269,7 +269,10 @@ lib/claude_vm/fleet/              a fleet's files: where they are, the hosts, th
                                   paths.py, the one resolver of a fleet's home, its state folder and its key file;
                                   registry.py, the settings table, a typed row written by hand for each setting;
                                   overrides.py, the plain files of what a person sets, in three layers, and --set;
-                                  hosts.py, the hosts as a folder each, the current host, and which one a run reaches
+                                  hosts.py, the hosts as a folder each, the current host, and which one a run reaches;
+                                  files.py, the one maker of the fleet's folders, a link refused where one goes;
+                                  record.py, fleet.json: the fleet's ID and every store's format number;
+                                  mark.py, the pool's mark and the one rule a changing run reads it by
 lib/claude_vm/guest/              inside a machine: the helper, the system layer's inputs, layer 2
 lib/claude_vm/control/            the add-on's, with a control VM only: nothing of the base writes here
 lib/claude_vm/secret.py           the new engine's Secret: a value shown as a mark wherever it is shown, never pickled

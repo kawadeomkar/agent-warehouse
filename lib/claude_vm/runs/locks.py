@@ -69,7 +69,7 @@ from collections.abc import AsyncIterator, Iterator, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from claude_vm.fleet import paths
+from claude_vm.fleet import files, paths
 from claude_vm.runs import job as jobs
 from claude_vm.runs import lock_sets
 from claude_vm.schema import patterns, printer
@@ -173,10 +173,9 @@ def _state_of(job: jobs.Job) -> Path:
 
 
 def _folder(state: str | os.PathLike) -> Path:
-    """The state folder's locks/, made at DIR_MODE where it is missing."""
-    folder = Path(state) / paths.LOCKS
-    jobs._make_folders(folder)
-    return folder
+    """The state folder's locks/, made as every folder of the fleet's is (fleet/files.py's folder): at DIR_MODE where
+    it is missing, and refused where a link stands in its place."""
+    return files.folder(Path(state) / paths.LOCKS)
 
 
 def _open(path: Path) -> int:
