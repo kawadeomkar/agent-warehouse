@@ -132,10 +132,11 @@ table, `EXITS` names the exit status of every verb but `status` (0 done, 1 refus
 and `STATUS_EXITS` those of `status` (today's 0, 1, 2 and 3, and 3 for a read a person cancelled, as today's `status`
 gives it); within each, no meaning has two numbers and no number two meanings, but `status`'s 3, which today means a
 read that failed and one a person cancelled, and a script may read. The table holds no option whose value is a secret: a
-secret reaches a verb from a file it names or from the terminal. Two options take free text a person may type one into,
-`--set` and `settings --value`, and the run layer that reads them refuses a secret's name or value there and never says
-it back. Nothing is generated from the table or into it. `tests/unit/test_aw_cli_words.py` holds the table's rows, the
-pattern each option's value and each verb's words are held to, against a map of the test's own written by hand, both
+secret reaches a verb from a file it names or from the terminal. Two options take free text a person may type one into:
+`--set`, whose values `fleet/overrides.py`'s `run_values` types and refuses a secret's name or value in, never saying
+it back (§16.9), and `settings --value`, whose write is to hold its value the same way. Nothing is generated from the
+table or into it. `tests/unit/test_aw_cli_words.py` holds the table's rows, the pattern each option's value and each
+verb's words are held to, against a map of the test's own written by hand, both
 ways, the words the trims took out of the base, each absent, the tools that run each verb, each reason why no tool runs
 one said with its commands the printer's, every option and word of a verb a tool runs a property of the tool's schema
 but where a ruling the test names says otherwise, each value's name as its placeholder writes it, the two values of
@@ -1627,9 +1628,11 @@ hop and `just status` use, and the same for every fleet on the computer.
 
 **One way from one home to the other.** A line `fleet_home: <path>` in the default home's `client.yml` points a
 checkout at the installed program's home, or the reverse. It is followed once: a `client.yml` there that points again
-is refused, and under `AGENT_WAREHOUSE_HOME` no pointer is read. The returned home names the `client.yml` it followed,
-so a changing run can say which fleet it drives. The value is one absolute path, plain or quoted, or `~/`; anything else
-YAML would read as more than a string is refused.
+is refused, one that names its own folder is none, and under `AGENT_WAREHOUSE_HOME` no pointer is read. The returned
+home names the `client.yml` it followed, so a changing run can say which fleet it drives. The value is one absolute
+path, plain or quoted, or `~/`; anything else YAML would read as more than a string is refused, and so is a form YAML
+would read as a pointer that the line does not say: the value on a line after the key, and a flow mapping that names
+it. `pointer_in` reads that line from a file's text, for `overrides.py`'s reader of `client.yml`, which is held to it.
 
 **The state and the key go with the home.** Whichever way the installed program's home is reached, by the variable or
 by a pointer, and however its path is spelled, its state folder and its key file are the installed program's own: a
@@ -1678,8 +1681,10 @@ key file and command, `tls_ca_file`, `network_proxy`, `run_lock`, `run_forks`, `
 `destroy_allow_unrecorded`, `github_username`, and two for one run alone; and `CONNECTION`, counted apart, this
 computer's own SSH that today's guides document outside the example (`ssh_identity_file`, `ssh_executable`,
 `vm_ssh_options`). A `Row` is the setting's name; its type (`TYPES`: `bool`, `int`, `str`, `path`, `list[str]`,
-`dict`; a `path` is this computer's, `~` at its start the user's home, a relative one refused by name, `""` unset) and
-choices, the argument spec's of the role variable it feeds, or for one that feeds none its literal default's type and
+`dict`, `size`; a `path` is this computer's, `~` at its start the user's home, a relative one refused by name, `""`
+unset; a `size`, `vm_disk_size`'s alone, a whole number with G or T after it, in either case, as `deploy --disk` takes
+one, and kept with its unit capital) and choices, the argument spec's of the role variable it feeds, or for one
+that feeds none its literal default's type and
 the choices today's checks hold it to; its default, a literal, or where today's is an expression one of the module's
 named functions (`COMPUTED`), whose keyword-only parameters name what it reads, each a row or one of `GIVEN`, the
 machine's name, this computer's user home and the key file `paths.py` names; its scope (`SCOPES`: `global`, `host`,
@@ -1702,6 +1707,35 @@ every documented setting has exactly one row but the nine, each named with where
 default and group as today's, a secret where the role variable is `no_log`, the rows an agent may change today's
 `ALLOWED` with `VALUES`' rule, every name of `ALLOWED` and `REFUSED` a row but the nine, `run_forks` as many as
 `ansible.cfg`'s `forks`, and a setting added to the example without a row fails by its name.
+
+**The overrides: `overrides.py`.** What a person sets is kept in plain files of literals, written by hand or by the
+engine, never sealed, each a YAML mapping of setting names to values and nothing else: no expression, no anchor, alias,
+merge or key given twice, no line break inside a value. Each row is read from the file of its home alone: the fleet's
+`fleet/settings.yml` (a row of scope `machine` in its map `machines`, by `<host>/<machine>`, never at its top level,
+which would give every machine one value), each host's `fleet/hosts/<name>/settings.yml`, which no other host reads, and
+this computer's `client.yml` (a row of scope `host` in its map `hosts`, by the host's name, never at its top level;
+`vm_ssh_options` at its top level for every machine and in its map `machines` for one, which outranks it). A setting in
+a file that is not its home is refused by name, with its line and where it belongs; a row of home `run` is in no file.
+`client.yml` also keeps `fleet_home`, read by YAML and held equal to what `paths.pointer_in` reads, so the file and the
+fleet's home never read it apart, and `current_host`, a host's name; a write keeps both as they are. `read(home, host)`
+returns the three files of a host's run (`Layers`, each a `File` with its digest); `resolve(home, host, run)` every
+row's `Value` with the layer that set it (`LAYERS`: `default`, `fleet`, `host`, `client`, `run`): the value given for
+the run, else its home's file's, else the table's default, a default worked out from another row, the machine's name
+(none with no machine named), this computer's home or the home's key file worked out there. `typed(row, text)` holds
+typed text to its row's type, choices and form, refusing an expression and a control character in the text and again in
+the value YAML's escapes make of it; a value in a file is held the same way, so `vm_disk_size: 128g` in a file,
+`--set vm_disk_size=128g` and `128G` typed are one value. `run_values(texts, secrets=...)` types the words of `--set`: a
+name that is no row's is refused unsaid, a row that may hold a secret is never given for one run, and a value that holds
+one of the vault's secrets (every caller names them, each a `Secret`, struck and never revealed) is refused in the text
+and in the value; the result is what a run records as its inputs and `resolve`'s top layer. `set` and `unset` write one
+value into the file of its home, under `store.locked`, only while the file's digest is the one its caller read
+(`expect`), whole and in ASCII, read back as meant before `store.replace` puts it in place, a new file at
+`paths.FILE_MODE` in folders at `paths.DIR_MODE`. Every refusal is a `Refused`, whose sentence never says a value back.
+Nothing else in `fleet/` writes a file. A machine's recorded choices, the design's third layer, are in its record, which
+is not read here. `tests/unit/test_aw_fleet_overrides.py` holds it: each layer over the one before, each home's file and
+none other, each refusal with the file unchanged, the compare-and-swap, `--set`'s refusals with no value said, a size
+read alike, the reader of `client.yml` against `paths.py`'s own cases of `fleet_home`, and a scan that only `set` and
+`unset` write.
 
 ## 16.10 `guest/` — the helper, the system layer's inputs, layer 2
 

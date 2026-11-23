@@ -35,11 +35,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 
-# The types a row's value takes: a boolean, an integer, a string, a path on this computer, a list of strings, and a
-# mapping of strings to the literals YAML reads. A path is read on this computer: `~` at its start is the user's home, a
-# path still relative after that is refused by name, and `""` is unset, which each such row's description says the
-# meaning of.
-TYPES = ("bool", "int", "str", "path", "list[str]", "dict")
+# The types a row's value takes: a boolean, an integer, a string, a path on this computer, a list of strings, a
+# mapping of strings to the literals YAML reads, and a size with its unit. A path is read on this computer: `~` at its
+# start is the user's home, a path still relative after that is refused by name, and `""` is unset, which each such
+# row's description says the meaning of. A size is a whole number with G or T after it, capital or small, as deploy's
+# --disk takes one, kept with its unit capital, so that 128g and 128G are one size (fleet/overrides.py's typed).
+TYPES = ("bool", "int", "str", "path", "list[str]", "dict", "size")
 # One value for the whole fleet, one for each host, or one for each machine.
 SCOPES = ("global", "host", "machine")
 # Where a value is kept: the fleet's settings.yml, a host's settings.yml, this computer's client.yml, or no file: a
@@ -337,10 +338,10 @@ ROWS: tuple[Row, ...] = (
     ),
     _fleet(
         "vm_disk_size",
-        "str",
+        "size",
         "32G",
         "proxmox_vm",
-        "VM sizing: the root disk of every VM a run creates, with its unit (K, M, G, T).",
+        "VM sizing: the root disk of every VM a run creates, a whole number with its unit, G or T, capital or small.",
         agent=True,
     ),
     _host(

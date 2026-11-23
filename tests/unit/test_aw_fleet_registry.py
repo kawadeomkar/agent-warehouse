@@ -48,6 +48,8 @@ def _of_type(value: object, kind: str) -> bool:
         return isinstance(value, int) and not isinstance(value, bool)
     if kind in ("str", "path"):
         return isinstance(value, str)
+    if kind == "size":
+        return isinstance(value, str) and re.fullmatch(r"[1-9][0-9]{0,5}[GT]", value) is not None
     if kind == "list[str]":
         return isinstance(value, tuple) and all(isinstance(item, str) for item in value)
     if kind == "dict":
@@ -214,6 +216,15 @@ def test_a_path_of_this_computer_s_says_how_it_is_read() -> None:
     for each in paths:
         assert "~ at its start is your home; a relative path is refused by name." in each.description, each.name
     assert "Empty: none." in registry.row("tls_ca_file").description
+
+
+def test_the_one_size_with_a_unit_is_the_disk_s_which_deploy_s_disk_stands_for() -> None:
+    # vm_disk_size is typed as --disk is read, the unit in either case and kept capital (the owner's answer of
+    # 2026-11-22); the sessions' two bounds are sizes of another form (M, a number alone, 0), kept as text.
+    assert [each.name for each in registry.rows() if each.type == "size"] == ["vm_disk_size"]
+    assert registry.row("vm_disk_size").default == "32G"
+    for name in ("claude_sessions_sync_max_size", "destroy_sessions_max_size"):
+        assert registry.row(name).type == "str", name
 
 
 def test_a_row_for_one_run_alone_is_kept_in_no_file() -> None:

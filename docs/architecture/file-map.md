@@ -267,7 +267,8 @@ lib/claude_vm/vendors/            one HTTPS transport, Tailscale's calls, downlo
 lib/claude_vm/runs/               a run's record and text log, the kernel's file locks, a detached run
 lib/claude_vm/fleet/              a fleet's files: where they are, the hosts, the settings table, the secrets, its mark;
                                   paths.py, the one resolver of a fleet's home, its state folder and its key file;
-                                  registry.py, the settings table, a typed row written by hand for each setting
+                                  registry.py, the settings table, a typed row written by hand for each setting;
+                                  overrides.py, the plain files of what a person sets, in three layers, and --set
 lib/claude_vm/guest/              inside a machine: the helper, the system layer's inputs, layer 2
 lib/claude_vm/control/            the add-on's, with a control VM only: nothing of the base writes here
 lib/claude_vm/secret.py           the new engine's Secret: a value shown as a mark wherever it is shown, never pickled
