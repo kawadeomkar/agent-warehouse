@@ -40,7 +40,7 @@ from typing import NamedTuple
 
 import harness
 import pytest
-from aw_kit import environment
+from aw_kit import STOP_UNSEEN, environment
 from harness import REPO
 from test_processes import HOLDS, _by_argv, _until
 
@@ -1146,10 +1146,15 @@ ASKING = {
     ),
     "route.py's ssh, in a process group of its own": ("asks-route", str(-signal.SIGKILL)),
 }
+# The ways whose asker is a child the run started itself (children.start): on macOS with Python 3.14 the watch said
+# neither stopped in CI's two runs on #310, where it said route.py's ssh in both (aw_kit.STOP_UNSEEN, strict).
+STARTED_BY_THE_RUN = ("asks", "asks-quietly")
 
 
 @pytest.mark.skipif(not hasattr(os, "waitid"), reason="Python before 3.13 on macOS has no waitid")
-@pytest.mark.parametrize("way", ASKING)
+@pytest.mark.parametrize(
+    "way", [pytest.param(way, marks=STOP_UNSEEN) if ASKING[way][0] in STARTED_BY_THE_RUN else way for way in ASKING]
+)
 def test_a_child_stopped_asking_at_the_terminal_is_said_within_a_second_and_ended_and_its_run_ends(
     way, home, jobs_dir, tmp_path
 ) -> None:

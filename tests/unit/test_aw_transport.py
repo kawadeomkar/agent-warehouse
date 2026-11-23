@@ -1161,15 +1161,33 @@ def test_a_kept_connection_the_server_closed_is_put_aside_before_a_post(serve, p
     assert post.method == "POST" and get.port != post.port
 
 
-def test_a_connection_nothing_answers_is_unreachable(pki, fast) -> None:
-    with socket.socket() as held:
-        held.bind(("127.0.0.1", 0))
-        port = held.getsockname()[1]
+# Whether the system refuses a connection to a socket that is bound and never listens, as Linux does, answering it
+# with a reset. macOS drops it in silence, so a connection there waits out its connect limit (review/code/B25.md 1, and
+# CI's first run on the draft pull request #310). A port bound, read and closed is refused by both, at the cost of the
+# moment between its close and the connection, in which another test's server could be given it.
+REFUSES_A_BOUND_PORT = sys.platform == "linux"
+# The connect limit of the transports below, short, so that a connection nothing answers in silence waits little.
+SILENT_FOR = 0.5
+
+
+@pytest.mark.parametrize("kept", [True, False], ids=["a socket bound and never listening", "a port bound and closed"])
+def test_a_connection_nothing_answers_is_unreachable(pki, fast, kept) -> None:
+    """Both ways are refused on Linux, at once, which the transport says as a connection that could not be made. On
+    macOS the socket kept is not refused but dropped in silence, said as no connection within the connect limit; a
+    port closed is refused there too."""
+    with socket.socket() as bound:
+        bound.bind(("127.0.0.1", 0))
+        port = bound.getsockname()[1]
+        if not kept:
+            bound.close()
+        refused = REFUSES_A_BOUND_PORT or not kept
         for method in ("GET", "POST"):
-            with Transport(f"https://127.0.0.1:{port}", _context(pki["ca"]), AGENT) as client:
+            with Transport(f"https://127.0.0.1:{port}", _context(pki["ca"]), AGENT, connect=SILENT_FOR) as client:
                 with pytest.raises(Unreachable) as unreachable:
                     client.request(method, "version")
-            assert "could not be made" in str(unreachable.value) and not isinstance(unreachable.value, Untrusted)
+            said, silent = str(unreachable.value), f"no connection within {SILENT_FOR:g} s"
+            assert ("could not be made" in said) if refused else (said == silent), said
+            assert not isinstance(unreachable.value, Untrusted)
 
 
 def test_an_address_whose_family_the_system_cannot_open_is_passed_over_for_the_next(serve, pki, monkeypatch) -> None:
