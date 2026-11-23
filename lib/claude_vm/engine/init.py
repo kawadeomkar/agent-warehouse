@@ -4,8 +4,12 @@
 `aw init --no-prompt`, or `aw init` with no terminal, asks nothing and makes nothing on Proxmox. It takes one typed
 mapping, `Given`: each value held to its kind as today's init holds it (`claude_vm.init.init_answer`, and Proxmox's own
 format of a name, `checks.proxmox_name`), and the token's secret from `--token-secret-file` (made absolute from the
-working folder) or `AGENT_WAREHOUSE_TOKEN_SECRET`, never from the command line, and never both. Under the fleet's lock
-(the verb's row: `fleet`), `unattended` then:
+working folder) or `AGENT_WAREHOUSE_TOKEN_SECRET`, never from the command line, and never both. The variable is
+taken out of the process's own environment into a `Secret` at the very start of `init` (`taken`), as today's engine
+takes its own such variable out at once, so that nothing the run starts holds it: not root SSH's child, nor any other
+the runner or `runs/children.py` starts. A home whose root or `fleet/` is a link is refused before the run's job and
+before anything is sent or written (`_held`), so that nothing is written through it and the same command finishes once
+the folder itself is put in its place. Under the fleet's lock (the verb's row: `fleet`), `unattended` then:
 
 1. Reads what is set: the host's folder (fleet/hosts.py's state), the three files of overrides, `fleet.json`, and the
    vault, opened with its key as fleet/vaultkey.py finds it: a fleet with no key file yet has its key made once every
@@ -43,7 +47,7 @@ import dataclasses
 import os
 import stat
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping, MutableMapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -115,6 +119,19 @@ class Given:
     notes: tuple[str, ...] = ()
 
 
+@dataclasses.dataclass(frozen=True)
+class Variable:
+    """AGENT_WAREHOUSE_TOKEN_SECRET as init took it out of its environment (taken): whether it was set, and what it
+    held, held to its kind at once, as a Secret: None where it holds no secret, which given refuses unsaid."""
+
+    given: bool = False
+    secret: Secret | None = None
+
+
+# The variable not set: what given takes where its caller took none.
+UNSET = Variable()
+
+
 # ---------------------------------------------------------------- what was given, held to its kind ----
 
 
@@ -172,10 +189,31 @@ def _secret_from_file(path: Path) -> tuple[Secret, tuple[str, ...]]:
     return Secret(held), notes
 
 
-def given(values: Mapping[str, object], settings: Sequence[str] = (), *, cwd: str, environ: Mapping[str, str]) -> Given:
+def taken(environ: MutableMapping[str, str] | None = None) -> Variable:
+    """AGENT_WAREHOUSE_TOKEN_SECRET taken out of environ, the process's own environment unless another is given, and
+    held to its kind at once, its secret a Secret: init's first step, so that no mapping made from the environment
+    after it, and no child started after it, holds the variable - root SSH's, the runner's, any of runs/children.py's -
+    as today's engine takes its own such variable out at once (claude_vm.ansible.engine). Set and empty is none given,
+    and is taken out too."""
+    value = (os.environ if environ is None else environ).pop(SECRET_VARIABLE, "")
+    if not value:
+        return Variable()
+    held = answers.init_answer(value, "uuid")
+    return Variable(True, Secret(held) if held else None)
+
+
+def given(
+    values: Mapping[str, object],
+    settings: Sequence[str] = (),
+    *,
+    cwd: str,
+    environ: Mapping[str, str],
+    variable: Variable = UNSET,
+) -> Given:
     """values as the dispatch hands them (only what was given, each held by its pattern), each held to its kind, and
-    the token's secret read from --token-secret-file or the environment: the typed mapping init takes. Refused, in
-    today's words, for the first that is not of its kind, the secret never said."""
+    the token's secret read from --token-secret-file or taken from the environment (variable, taken's): the typed
+    mapping init takes. environ is read for the home a ~ names, never for the secret. Refused, in today's words, for the
+    first that is not of its kind, the secret never said."""
     address = _text(values, "address")
     if address and not answers.init_answer(address, "host"):
         raise Refused(f"--address ({address}) is not {_rule('host')}")
@@ -198,8 +236,8 @@ def given(values: Mapping[str, object], settings: Sequence[str] = (), *, cwd: st
     if pool and not (proxmox_name(pool, "pool") and pool[0].isalpha()):
         # A / makes a nested pool on VE 9.2, and Proxmox makes none whose name starts with anything but a letter.
         raise Refused(f"--pool ({pool}) is no name of a pool: letters, digits, _, . and -, from a letter")
-    secret_file, variable = _text(values, "token_secret_file"), environ.get(SECRET_VARIABLE, "")
-    if secret_file and variable:
+    secret_file = _text(values, "token_secret_file")
+    if secret_file and variable.given:
         raise Refused(
             f"the token's secret was given both by --token-secret-file and by {SECRET_VARIABLE}: give it one way"
         )
@@ -208,11 +246,10 @@ def given(values: Mapping[str, object], settings: Sequence[str] = (), *, cwd: st
         path = _absolute(secret_file, cwd, environ)
         secret, notes = _secret_from_file(path)
         secret_from = f"the token's secret in {plain_text(str(path))} (--token-secret-file)"
-    elif variable:
-        held = answers.init_answer(variable, "uuid")
-        if not held:
+    elif variable.given:
+        if variable.secret is None:
             raise Refused(f"{SECRET_VARIABLE} is not {_rule('uuid')}")
-        secret, secret_from = Secret(held), f"the token's secret in {SECRET_VARIABLE}"
+        secret, secret_from = variable.secret, f"the token's secret in {SECRET_VARIABLE}"
     return Given(
         address=answers.init_answer(address, "host") if address else "",
         host=host,
@@ -321,6 +358,24 @@ def _read(home: paths.Home, layout: hosts.Layout, typed: Given, environ: Mapping
     return _Set(name, state, layers, fleet, values, run, key, vault)
 
 
+def _held(home: paths.Home) -> None:
+    """The home's root and its fleet/, each that is there held to be a folder itself (fleet/files.py's folder, which
+    makes nothing that is there): a link where one goes, or anything but a folder, is refused before anything is
+    written, so that nothing is written through it - the run's job and lock, the key, fleet.json and the vault, which
+    their writers put beneath a link they do not hold, before host.yml's writer would refuse it - and the same command
+    finishes once the folder itself is in its place. One that is missing is made by the first writer whose file goes in
+    it, a folder and never a link."""
+    for each in (home.root, paths.fleet_dir(home)):
+        try:
+            if os.path.lexists(each):
+                fleet_files.folder(each)
+        except fleet_files.Unsafe as unsafe:
+            raise Refused(str(unsafe)) from None
+        except OSError as error:
+            why = error.strerror or error
+            raise Refused(f"{plain_text(str(each))} cannot be read ({why}): nothing was written") from None
+
+
 def _same(held: Secret, secret: Secret) -> bool:
     """Whether the secret given is the one the vault holds: the one place init reads a Secret's value, to compare it
     with another, never to send it on or say it (tests/unit/test_aw_guards.py's REVEALS)."""
@@ -368,8 +423,7 @@ def _differs(typed: Given, found: _Set) -> list[str]:
 def _root_ssh(job: Job, address: str, fields: hosts.HostFile | None, values: Mapping[str, overrides.Value], environ):
     """The read of the host's certificate files over root SSH, as a child of job's run: the host's account and port
     (host.yml's ssh_user and ssh_port), this computer's key for it and its ssh (client.yml's ssh_identity_file and
-    ssh_executable). A target the runner refuses, a home too long for the host's socket among them, is root SSH that
-    did not answer."""
+    ssh_executable). A target the runner refuses is root SSH that did not answer."""
 
     # The ssh program where client.yml names one; the runner's own default where it names none.
     named = values["ssh_executable"].value
@@ -484,6 +538,8 @@ async def unattended(
     module's docstring."""
     layout = hosts.Layout(home, environ)
     found = _read(home, layout, typed, environ)
+    # Again under the fleet's lock, and for a caller that is not init's handler: before anything is sent or written.
+    _held(home)
     name, state, fields = found.name, found.state, found.state.fields
     entry = secrets.entry("token", host=name)
     held = None if found.vault is None else found.vault.get(entry)
@@ -663,8 +719,11 @@ def _at_a_terminal() -> bool:
 
 
 def init(run: Any, **values: object) -> int:
-    """init's handler (words.py's row): the modes not built yet refused by name, the values held to their kinds, and
-    the fleet's folder written with nobody there, as its run, under the fleet's lock. The exit status."""
+    """init's handler (words.py's row): the token's secret taken out of the environment first, the modes not built yet
+    refused by name, the values held to their kinds, a home that is a link refused, and the fleet's folder written with
+    nobody there, as its run, under the fleet's lock. The exit status."""
+    # First of all: nothing started from here on holds the token's secret in its environment.
+    variable = taken()
     for field, card in NOT_YET.items():
         if values.get(field) is True:
             mode = {"line": _init(**{field: True}), "card": card}
@@ -679,8 +738,9 @@ def init(run: Any, **values: object) -> int:
         )
     environ = dict(os.environ)
     try:
-        typed = given(values, getattr(run, "set", ()), cwd=os.getcwd(), environ=environ)
+        typed = given(values, getattr(run, "set", ()), cwd=os.getcwd(), environ=environ, variable=variable)
         home = paths.home(PROGRAM_ROOT, environ)
+        _held(home)
     except Refused as refused:
         return _refused(refused.sentence)
     except paths.Refused as error:
