@@ -23,12 +23,12 @@ and a kill (docs/architecture/engine.md §16.8).
 
 While the run lives, a child the terminal stopped for asking a question there (runs/children.py's asking: SIGTTIN or
 SIGTTOU, a passphrase or a second factor asked by the `ssh` of a person's own ProxyJump, a question of `git`'s or
-`sudo`'s; route.py's `ssh` too, in a group of its own), and a process under one that the terminal stopped in a group of
-its own (claude_vm.proc's stopped_under, from the process table), is said at once, in a line that names its program
-and what to do, and ended with what is under it: a run answers no question at the terminal, and a child stopped there
-would hold its step to the run's end. The step that waited on it sees it killed, its machine's failure. A child meant
-to outlive the run (children.outlive: the editor, a page's opener) is never ended: it is left out of every tree the
-ladder remembers and ends.
+`sudo`'s; route.py's `ssh` too, in a group of its own) is said at once, in a line that names its program and what to
+do, and ended with what is under it: a run answers no question at the terminal, and a child stopped there would hold
+its step to the run's end. The step that waited on it sees it killed, its machine's failure. A program that made a
+process group of its own under one is not seen: it is no child of the run's for waitid to read, and the run reads no
+process table for it; nothing the engine runs makes one. A child meant to outlive the run (children.outlive: the
+editor, a page's opener) is never ended: it is left out of every tree the ladder remembers and ends.
 
 On every path but SIGKILL the terminal is put back as it was found, its echo with it; every child of the registry has
 ended or been ended before the loop closes, since asyncio kills an `ansible-playbook` it still holds when its loop
@@ -95,11 +95,8 @@ STOPPING = "aw: stopping: what the run started has {grace} s to end, then it is 
 FINISHING = "aw: stopping once {reason} is finished: Ctrl-C again ends it now"
 # What is said where the run's work did not end once it was cancelled, and is left as it is.
 LEFT = "aw: the run's work did not end within {settle} s of being stopped, and is left unfinished"
-# How often the run looks for a child the terminal has stopped, and what it says of one. Every TABLE_LOOKS-th look it
-# also reads the process table for one stopped under a child in a group of its own, while such a child lives and the
-# run has a terminal: within a second, as the look of its own children is.
+# How often the run looks for a child the terminal has stopped, and what it says of one.
 ASKING_POLL = 0.2
-TABLE_LOOKS = 4
 ASKED = (
     "aw: {child} stopped at the terminal to ask a question there (a key's passphrase, a second factor), which a run"
     " never answers: it is ended, and its machine fails. Hold the key in an agent (ssh-add), or give a ProxyJump of"
@@ -300,25 +297,6 @@ def _terminal() -> tuple[int, list] | None:
     return None
 
 
-def _has_terminal() -> bool:
-    """Whether the run has a controlling terminal, the one thing that stops a process for asking a question there:
-    opened and closed, never read, and taken as no one's by the opening (O_NOCTTY)."""
-    try:
-        fd = os.open("/dev/tty", os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
-    except OSError:
-        return False
-    os.close(fd)
-    return True
-
-
-def _in_session(pid: int, session: int) -> bool:
-    """Whether pid, a child of this process, is in that session: one in a session of its own shares no terminal."""
-    try:
-        return os.getsid(pid) == session
-    except OSError:
-        return False
-
-
 def _put_back(found: tuple[int, list] | None) -> None:
     """The terminal's settings as the run found them, the echo among them, where anything changed them: SIGTTOU held
     off, so that a run a shell put in the background is not stopped by its own end. A terminal that has gone, after a
@@ -431,10 +409,8 @@ class _Ladder:
         self.noted: list[int] = []
         # What could not read the process table, or record the stop, said at the end.
         self.blind: list[str] = []
-        # The children the terminal stopped that were said and ended, the processes under them it stopped in a group of
-        # their own, by pid, and the task that looks for them.
+        # The children the terminal stopped that were said and ended, and the task that looks for them.
         self.asked: set[children.Child] = set()
-        self.stopped: set[int] = set()
         self.watching: asyncio.Task | None = None
 
     # ---------------------------------------------------------------- the handler, and what it starts ----
@@ -605,16 +581,13 @@ class _Ladder:
     async def watch(self) -> None:
         """For as long as the loop runs: each child the terminal has stopped for asking a question there
         (children.asking: the registry's, and route.py's `ssh` in a group of its own), said at once and ended, its tree
-        and its group; and every TABLE_LOOKS-th look, while one of those lives in the run's session and the run has a
-        terminal, each process under them that the terminal stopped in a group none of them leads (proc.stopped_under:
-        a reader that made a group of its own, which stops alone, its parent waiting on it), said and ended the same
-        way. Once only for each; one the loop's look cannot read is said at the end, and the look ends."""
+        and its group. A process that made a group of its own under one, which the terminal stops alone, is not looked
+        for: it is no child of this process's for waitid to read, and the watch reads no process table. Once only for
+        each; one the loop's look cannot read is said at the end, and the look ends."""
         import asyncio
 
         from claude_vm import proc
 
-        terminal = _has_terminal()
-        looks = 0
         while True:
             try:
                 for child, _signum in children.asking(self.job):
@@ -624,40 +597,10 @@ class _Ladder:
                     _say(ASKED.format(child=plain_text(child.program)))
                     with self._held():
                         proc.end(child.pid, signum=signal.SIGKILL, blind=self.blind.append)
-                looks += 1
-                if terminal and looks % TABLE_LOOKS == 0:
-                    terminal = self._stopped_under()
             except Exception as error:
                 self.blind.append(f"a child stopped at the terminal could not be looked for: {plain_text(str(error))}")
                 return
             await asyncio.sleep(ASKING_POLL)
-
-    def _stopped_under(self) -> bool:
-        """Each process under the run that the terminal stopped in a group of its own - one no child the look above
-        watches leads, since a stop at the terminal stops a whole group, its leader with it - said and ended, its tree
-        and its group: read from the process table, and only while a child the look watches lives in the run's
-        session, the one place a process under the run can share its terminal. False where the table cannot be read,
-        said at the end: the look of the run's own children goes on without it."""
-        from claude_vm import proc
-
-        watched = [child.pid for child in children.watched(self.job)]
-        session = os.getsid(0)
-        if not any(_in_session(pid, session) for pid in watched):
-            return True
-        with self._held():
-            leaving = [*children.opening(), *children.outliving()]
-            try:
-                stopped = proc.stopped_under(os.getpid(), leaving=leaving)
-            except proc.Blind as error:
-                self.blind.append(f"what the terminal stopped under the run could not be looked for: {error}")
-                return False
-            for pid, group, program in stopped:
-                if group in watched or pid in self.stopped:
-                    continue
-                self.stopped.add(pid)
-                _say(ASKED.format(child=plain_text(os.path.basename(program) or program)))
-                proc.end(pid, signum=signal.SIGKILL, blind=self.blind.append)
-        return True
 
     def _unwatch(self) -> None:
         """The look for a child the terminal stopped ended, before the loop closes."""
