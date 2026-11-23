@@ -55,6 +55,9 @@ run, a folder of the test's own directory either way; a test whose `PATH` finds 
 the stand-ins fails. A fixture wider than one test is made before that guard holds, so `tests/unit/test_aw_guards.py`
 refuses one its `WIDER_THAN_A_TEST` does not name with why. And an `aw` command a test file names, in a NEXT STEPS line
 say, is held to the one table of verbs and options (`tests/unit/test_commands.py`): a made-up option fails the suite.
+A test that starts a pytest of its own gives it `--basetemp` and a folder of the test's own, in the call's own words,
+or `tests/unit/test_aw_guards.py` refuses it: left to the temporary folder every pytest of your account shares, it
+would clean that folder beside the suite's own workers, and a race lost there changes what it prints.
 
 At a terminal, `just lint` is drawn live, a row for each check, the running one's last line beside it and the
 ones to come listed; a check that fails prints its last lines above, and the summary names the checks it left

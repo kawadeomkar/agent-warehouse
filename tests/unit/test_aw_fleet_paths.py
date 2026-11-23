@@ -1122,7 +1122,7 @@ def test_a_test_that_writes_in_the_checkouts_fleet_folder_fails_the_session(tmp_
     env.update({"HOME": str(tmp_path / "developer"), VARIABLE: str(exported)})
     ran = subprocess.run(
         [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-c", str(checkout / "pyproject.toml")]
-        + ["--rootdir", str(checkout), str(unit / "test_probe.py")],
+        + ["--basetemp", str(tmp_path / "basetemp"), "--rootdir", str(checkout), str(unit / "test_probe.py")],
         cwd=checkout,
         env=env,
         stdin=subprocess.DEVNULL,

@@ -157,7 +157,10 @@ pytest over `tests/unit/`, file by file:
   dotted name, in its own sentence, before anything runs. A `Secret` (`lib/claude_vm/secret.py`) never shows its
   value in a `repr`, a `str`, an f-string, `format`, `%` or a log line, pickle and JSON refuse it, and a copy is
   itself; only the modules `REVEALS` names, the transport and the SSH runner, read `reveal`, called or kept as an attribute, or named to
-  `getattr` or `methodcaller`.
+  `getattr` or `methodcaller`. And every pytest a test of the suite starts, an engine test's or one of today's, is
+  given `--basetemp`, a folder of the test's own, among the call's own words, by a syntax-tree scan of every test file
+  that sees each file known to start one: a pytest left to the temporary folder every pytest of the account shares
+  cleans it as it starts, beside the suite's own workers, and a race lost there adds a warning to its summary.
 - **The hosts core** (`test_hosts_core.py`): the core in-process - which host, in its order, the names hyphenated, a
   refusal carrying the notes said before it; choosing and listing never open a vault or run a password script;
   `resolve` reads the environment it is given; the vault check decides and writes nothing; init, the switch and the

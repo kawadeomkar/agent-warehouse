@@ -110,13 +110,15 @@ def _test(root, *args, fails_test=False, fails_scenario="", changes_scenario="",
     (suite / "test_tiny.py").write_text(TESTS.format(fails=1 if fails_test else 0))
     # The real pytest, its plugin from the project's pythonpath, over the suite here rather than tests/unit, which the
     # recipe names: that word is dropped from its arguments and the rest kept (the plugin, a worker per CPU), so the
-    # nested run is the recipe's own over three tests, never the whole suite inside a test of it.
+    # nested run is the recipe's own over three tests, never the whole suite inside a test of it, with a temporary
+    # folder of its own.
+    basetemp = root / "basetemp"
     _stand_in(
         root / "bin",
         "pytest",
         pytest_run
         or 'for arg in "$@"; do shift; [ "$arg" = tests/unit ] || set -- "$@" "$arg"; done\n'
-        f'exec "{sys.executable}" -m pytest "$@" {_SUITE_ARGS} "{suite}"',
+        f'exec "{sys.executable}" -m pytest "$@" {_SUITE_ARGS} --basetemp "{basetemp}" "{suite}"',
     )
     _stand_in(root / "bin", "molecule", molecule.format(fails=fails_scenario, changes=changes_scenario))
     ran = _drawn_just(
@@ -334,9 +336,16 @@ def test_the_plugin_writes_nothing_without_its_file_and_each_event_with_it(tmp_p
     events = tmp_path / "events.jsonl"
 
     def pytest_run(**env):
-        argv = [sys.executable, "-m", "pytest", "-p", "live_pytest", *_SUITE_ARGS.split(), str(suite)]
         environment = {name: value for name, value in os.environ.items() if not name.startswith("CLAUDE_ON_")}
-        return subprocess.run(argv, cwd=REPO, env={**environment, **env}, capture_output=True, text=True, check=False)
+        return subprocess.run(
+            [sys.executable, "-m", "pytest", "-p", "live_pytest", *_SUITE_ARGS.split()]
+            + ["--basetemp", str(tmp_path / "basetemp"), str(suite)],
+            cwd=REPO,
+            env={**environment, **env},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
 
     assert pytest_run().returncode == 1 and not events.exists()
     assert pytest_run(AGENT_WAREHOUSE_LIVE_PYTEST=str(events)).returncode == 1

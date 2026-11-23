@@ -10,7 +10,8 @@ programs goes first only by first_on_path, held to the test's own directory, and
 one test, which runs outside the guard, is named in WIDER_THAN_A_TEST with why. No test runs tools/aw but through
 tests/unit/aw_kit.py, whose runs inherit that list of names, start with the stand-ins first on PATH, and fail their test
 when one was reached; a test's env= never lifts one. A secret the engine holds is a `Secret`, never said, and only the
-modules REVEALS names read its value.
+modules REVEALS names read its value. And every pytest a test of the suite starts, the engine's or today's, has a
+temporary folder of its own (--basetemp), so that no other pytest's clean-up of the shared one changes what it says.
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ import shutil
 import socket
 import subprocess
 import sys
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 import aw_kit
@@ -129,7 +131,8 @@ def test_every_engine_test_is_marked_and_runs_in_its_own_home(tmp_path) -> None:
     env = {name: value for name, value in os.environ.items() if name in PASSED_ON or name.startswith("LC_")}
     collected = subprocess.run(
         [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider", "-p", "aw_probe"]
-        + ["-c", str(REPO / "pyproject.toml"), "--rootdir", str(REPO), *map(str, files), str(UNMARKED)],
+        + ["--basetemp", str(tmp_path / "basetemp"), "-c", str(REPO / "pyproject.toml"), "--rootdir", str(REPO)]
+        + [*map(str, files), str(UNMARKED)],
         cwd=tmp_path,
         env={**env, "AW_PROBE": str(tmp_path / "seen.json")},
         stdin=subprocess.DEVNULL,
@@ -296,7 +299,7 @@ def test_every_test_a_planted_fault_failed_is_marked_tree_as_tree_names_it_and_n
     env = {name: value for name, value in os.environ.items() if name in PASSED_ON or name.startswith("LC_")}
     collected = subprocess.run(
         [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider", "-p", "tree_probe"]
-        + ["-c", str(REPO / "pyproject.toml"), "--rootdir", str(REPO)]
+        + ["--basetemp", str(tmp_path / "basetemp"), "-c", str(REPO / "pyproject.toml"), "--rootdir", str(REPO)]
         + [str(UNIT / name) for name in sorted(files)]
         + [str(UNTREED)],
         cwd=tmp_path,
@@ -419,12 +422,13 @@ def test_keeps_the_sessions_variable_and_path():
 
 def _child_pytest(tmp_path: Path, files: dict[str, str], env: dict[str, str]) -> subprocess.CompletedProcess:
     """files, each a test file of tmp_path's, run by a pytest of its own under this suite's conftest.py, with env for
-    its whole session: its status and what it said."""
+    its whole session and a temporary folder in tmp_path: its status and what it said."""
     for name, source in files.items():
         (tmp_path / name).write_text(source)
     return subprocess.run(
         [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-p", "conftest", "-c", str(REPO / "pyproject.toml")]
-        + ["--rootdir", str(tmp_path), *(str(tmp_path / name) for name in files)],
+        + ["--basetemp", str(tmp_path / "basetemp"), "--rootdir", str(tmp_path)]
+        + [str(tmp_path / name) for name in files],
         cwd=tmp_path,
         env=env,
         stdin=subprocess.DEVNULL,
@@ -694,26 +698,33 @@ def _names_aw(node: ast.AST, bound: set[str]) -> bool:
     return False
 
 
-def _bound(tree: ast.AST) -> set[str]:
-    """The names a file binds to tools/aw's path, wherever: an assignment, a loop's target, a parameter's default, the
-    kit's AW or LAUNCHER imported; and so on, through names bound to those."""
-    bound: set[str] = set()
+def _bound(
+    nodes: Iterable[ast.AST],
+    names=_names_aw,
+    imported: tuple[str, ...] = KIT_NAMES,
+    outer: frozenset[str] = frozenset(),
+) -> set[str]:
+    """The names nodes bind to what names says it names, tools/aw's path unless told, beside outer's: an assignment, a
+    loop's target, a parameter's default, the kit's imported names (AW or LAUNCHER); and so on, through names bound to
+    those."""
+    nodes = list(nodes)
+    bound = set(outer)
     while True:
         before = set(bound)
-        for node in ast.walk(tree):
+        for node in nodes:
             if isinstance(node, ast.ImportFrom) and node.module == "aw_kit":
-                bound |= {alias.asname or alias.name for alias in node.names if alias.name in KIT_NAMES}
+                bound |= {alias.asname or alias.name for alias in node.names if alias.name in imported}
             elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.For)):
                 value = node.iter if isinstance(node, ast.For) else node.value
                 targets = [node.target] if isinstance(node, (ast.AnnAssign, ast.For)) else node.targets
-                if value is not None and _names_aw(value, bound):
+                if value is not None and names(value, bound):
                     bound |= {name.id for target in targets for name in ast.walk(target) if isinstance(name, ast.Name)}
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
                 args = node.args
                 positional = [*args.posonlyargs, *args.args]
                 pairs = list(zip(positional[len(positional) - len(args.defaults) :], args.defaults, strict=True))
                 pairs += [(arg, default) for arg, default in zip(args.kwonlyargs, args.kw_defaults, strict=True)]
-                bound |= {arg.arg for arg, default in pairs if default is not None and _names_aw(default, bound)}
+                bound |= {arg.arg for arg, default in pairs if default is not None and names(default, bound)}
         if bound == before:
             return bound
 
@@ -722,7 +733,7 @@ def _runs_aw(source: str) -> list[int]:
     """The lines where source starts tools/aw other than through the kit: a call that starts a program, given
     anything that names it."""
     tree = ast.parse(source)
-    bound = _bound(tree)
+    bound = _bound(ast.walk(tree))
     return sorted(
         node.lineno
         for node in ast.walk(tree)
@@ -778,6 +789,159 @@ def test_no_test_runs_tools_aw_but_through_the_kit() -> None:
 )
 def test_the_scan_for_a_run_of_tools_aw_sees_each_way(source, runs) -> None:
     assert bool(_runs_aw(source)) is runs
+
+
+# ---------------------------------------------------------------- a child pytest's temporary folder ----
+
+# A pytest a test starts makes its temporary folders under /tmp/pytest-of-<user>, beside the suite's own workers' and
+# every other test's child's, and cleans out the old ones there as it starts. Two clean-ups at once lose a race now and
+# then, and the loser's summary gains "1 warning", which a test that matches the summary takes for a fault. So each is
+# given --basetemp, a folder of the test's own, among the call's own words, never through a name, which the scan could
+# not hold to what the call is given. pytest a call starts: the word alone, a path that ends in it, or `-m pytest` in a
+# command line.
+RUNS_PYTEST = re.compile(r"(?<![\w-])-m\s+pytest(?![\w.-])")
+BASETEMP = re.compile(r"(?<![\w-])--basetemp(?![\w-])")
+# The files that start a pytest of their own today.
+STARTERS = ("test_aw_guards.py", "test_aw_fleet_paths.py", "test_processes.py", "test_shards.py", "test_test_live.py")
+
+
+def _is_pytest(text: str) -> bool:
+    return text.rsplit("/", 1)[-1] == "pytest" or RUNS_PYTEST.search(text) is not None
+
+
+def _names_pytest(node: ast.AST, bound: set[str]) -> bool:
+    """Whether node, or anything in it, names pytest as a program: a string, a piece of an f-string, or a name bound to
+    one."""
+    return any(
+        (isinstance(inner, ast.Constant) and isinstance(inner.value, str) and _is_pytest(inner.value))
+        or (isinstance(inner, ast.Name) and inner.id in bound)
+        for inner in ast.walk(node)
+    )
+
+
+def _says_basetemp(node: ast.AST) -> bool:
+    """Whether node holds --basetemp in a string of its own, never through a name."""
+    return any(
+        isinstance(inner, ast.Constant) and isinstance(inner.value, str) and BASETEMP.search(inner.value) is not None
+        for inner in ast.walk(node)
+    )
+
+
+def _texts(tree: ast.AST) -> list[tuple[int, str]]:
+    """Each string of tree with its line, an f-string whole (each value as {}): never a docstring, nor a decorator's
+    words, which are a test's cases (this file's own scans') and not a command line it runs."""
+    skipped: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            skipped |= {id(inner) for decorator in node.decorator_list for inner in ast.walk(decorator)}
+        elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
+            skipped.add(id(node.value))
+        elif isinstance(node, ast.JoinedStr):
+            skipped |= {id(value) for value in node.values}
+    texts = []
+    for node in ast.walk(tree):
+        if id(node) in skipped:
+            continue
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            texts.append((node.lineno, node.value))
+        elif isinstance(node, ast.JoinedStr):
+            pieces = [value.value if isinstance(value, ast.Constant) else "{}" for value in node.values]
+            texts.append((node.lineno, "".join(pieces)))
+    return texts
+
+
+# What holds names of its own: a name bound in one is not another's, so a loop's `tool` over "pytest" in one test does
+# not make another test's `tool` pytest.
+SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+
+
+def _own(node: ast.AST) -> Iterator[ast.AST]:
+    """node's own nodes: none of a scope defined in it."""
+    for child in ast.iter_child_nodes(node):
+        if not isinstance(child, SCOPES):
+            yield child
+            yield from _own(child)
+
+
+def _scopes_in(node: ast.AST) -> Iterator[ast.AST]:
+    """The scopes defined in node itself, each whole."""
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, SCOPES):
+            yield child
+        else:
+            yield from _scopes_in(child)
+
+
+def _pytest_runs(source: str) -> dict[int, bool]:
+    """Each line where source starts pytest, and whether with --basetemp: a call that starts a program, given anything
+    that names pytest, a name bound to it in that scope or one around it among them, and whether one of its own words
+    is --basetemp; a command line in a string, a stand-in's script or a shell's, that runs `-m pytest`, and whether it
+    holds --basetemp itself."""
+    tree = ast.parse(source)
+    runs: dict[int, bool] = {}
+
+    def look(scope: ast.AST, outer: frozenset[str]) -> None:
+        own = [scope, *_own(scope)]
+        bound = _bound(own, _names_pytest, (), outer)
+        for node in own:
+            if isinstance(node, ast.Call) and (_callee(node) in STARTS or _callee(node).startswith(STARTS_LIKE)):
+                words = [*node.args, *(keyword.value for keyword in node.keywords)]
+                if any(_names_pytest(word, bound) for word in words):
+                    runs[node.lineno] = runs.get(node.lineno, True) and any(_says_basetemp(word) for word in words)
+        for inner in _scopes_in(scope):
+            look(inner, frozenset(bound))
+
+    look(tree, frozenset())
+    for line, text in _texts(tree):
+        if RUNS_PYTEST.search(text):
+            runs[line] = runs.get(line, True) and BASETEMP.search(text) is not None
+    return runs
+
+
+def test_every_pytest_a_test_starts_has_a_temporary_folder_of_its_own() -> None:
+    files = [path for path in repo_files("tests", untracked=True) if path.suffix == ".py"]
+    runs = {str(path.relative_to(REPO)): found for path in files if (found := _pytest_runs(path.read_text()))}
+    # Each file known to start one is seen to, so that a scan that stopped seeing them would not pass for finding none.
+    assert {f"tests/unit/{name}" for name in STARTERS} <= set(runs), sorted(runs)
+    without = {name: sorted(line for line, kept in found.items() if not kept) for name, found in runs.items()}
+    left = {name: lines for name, lines in without.items() if lines}
+    assert left == {}, "give each pytest a test starts --basetemp, a folder of the test's own, in the call's own words"
+
+
+@pytest.mark.parametrize(
+    ("source", "without"),
+    [
+        ('subprocess.run([sys.executable, "-m", "pytest", "-q", str(suite)])', True),
+        ('subprocess.run([sys.executable, "-m", "pytest", "--basetemp", str(tmp_path / "temp"), str(suite)])', False),
+        ('subprocess.run([sys.executable, "-m", "pytest", f"--basetemp={tmp_path / \'temp\'}", str(suite)])', False),
+        ('PYTEST = Path(sys.executable).with_name("pytest")\nsubprocess.run([str(PYTEST), "--collect-only"])', True),
+        ('argv = [sys.executable, "-m", "pytest", "--basetemp", str(temp)]\nsubprocess.run(argv)', True),
+        ('subprocess.Popen(["/usr/bin/pytest", "-n", "2"], start_new_session=True)', True),
+        ('for tool in ("ruff", "pytest"):\n    subprocess.run([tool, "--version"])', True),
+        (
+            'def test_one():\n    for tool in ("ruff", "pytest"):\n        pass\n'
+            'def test_two(tool):\n    subprocess.run([tool, "--version"])',
+            False,
+        ),
+        (
+            'def test_one(tmp_path):\n    argv = [sys.executable, "-m", "pytest"]\n'
+            "    def run():\n        return subprocess.run(argv)",
+            True,
+        ),
+        ('subprocess.check_output("python3 -m pytest -q tests", shell=True)', True),
+        ('os.execv(sys.executable, [sys.executable, "-m", "pytest"])', True),
+        ('harness._at_a_pseudo_terminal([sys.executable, "-m", "pytest", str(suite)], cwd, env)', True),
+        ('_stand_in(bin, "pytest", f\'exec "{sys.executable}" -m pytest "$@" {args}\')', True),
+        ('_stand_in(bin, "pytest", f\'exec "{sys.executable}" -m pytest "$@" --basetemp "{temp}"\')', False),
+        ('subprocess.run([sys.executable, "-c", "import pytest, live_pytest"])', False),
+        ('_stand_in(tmp_path / "bin", "pytest")', False),
+        ('subprocess.run(["git", "ls-files", "tests/unit/test_pytest_runs.py"])', False),
+        ('def run():\n    """As python -m pytest would."""', False),
+        ('@pytest.mark.parametrize("line", ["python -m pytest x"])\ndef test_line(line):\n    pass', False),
+    ],
+)
+def test_the_scan_for_a_pytest_without_its_own_folder_sees_each_way(source, without) -> None:
+    assert any(not kept for kept in _pytest_runs(source).values()) is without
 
 
 # ---------------------------------------------------------------- the kit's runs ----
