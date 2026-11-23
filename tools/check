@@ -501,11 +501,12 @@ PYTHON
 short)
   # just test --short, the short set (docs/architecture/testing.md §11.1): for a change that touches no file of main's
   # but CLAUDE.md and docs/. The change is where the tree here differs from the integration branch's tip, <base>: the
-  # work tree, and what git neither tracks nor ignores, as a test run reads them - for a branch on that tip, its commits
-  # and what is not committed yet. Never <base>...HEAD: a lane lays a worktree's files over a checkout of main and
-  # commits none, so HEAD there is main's. Each changed path <main> has is refused by name, but CLAUDE.md and docs/,
-  # a deleted or renamed one too (--no-renames); and so is a test file of tests/unit/ that is no engine file
-  # (test_aw_*.py), which the set would not run. A branch it cannot read is a refusal, never a pass.
+  # work tree, and what git neither tracks nor ignores, as a test run reads them - for a branch on that tip, its
+  # commits and what is not committed yet. Never <base>...HEAD: a machine sent a worktree's files over a checkout of
+  # main has none of its commits, so HEAD there is main's. Each changed path <main> has is refused by name, but
+  # CLAUDE.md and docs/, a deleted or renamed one too (--no-renames); and so is a test file of tests/unit/ that is no
+  # engine file (test_aw_*.py) - pytest's test_*.py or *_test.py - which the set would not run. A branch it cannot
+  # read is a refusal, never a pass.
   base=$2 main=$3
   top=$(git rev-parse --show-toplevel) || { echo "error: just test --short reads the change with git, and this is no git work tree" >&2; exit 1; }
   cd "$top"
@@ -528,7 +529,7 @@ short)
     $0 == "" { next }
     $0 == "CLAUDE.md" || /^docs\// { next }
     $0 in main { print "  " $0 ", which " name " has"; next }
-    /^tests\/unit\/(.*\/)?test_[^\/]*\.py$/ && !/(^|\/)test_aw_[^\/]*$/ {
+    /^tests\/unit\/(.*\/)?(test_[^\/]*|[^\/]*_test)\.py$/ && !/(^|\/)test_aw_[^\/]*$/ {
       print "  " $0 ", a test the short set does not run: a test of the new engine is a file tests/unit/test_aw_*.py"
     }')
   if [ -n "$refused" ]; then

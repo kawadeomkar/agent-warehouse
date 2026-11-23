@@ -143,11 +143,14 @@ def test_every_engine_test_is_marked_and_runs_in_its_own_home(tmp_path) -> None:
 
 
 # The tests of today's suite that failed when the faults a short-set change can make were planted and the whole suite
-# was run over them once, on a lane (docs/architecture/testing.md §11.1): by fault, each test by its file and its name,
-# every case of it. Each must be marked `tree` through conftest.py's TREE, so that just test --short runs it.
+# was run over them once, on a test machine (docs/architecture/testing.md §11.1): by fault, each test by its file and
+# its name, every case of it. Each must be marked `tree` through conftest.py's TREE, so that just test --short runs it.
+# Planted too, and failing nothing but the file map or a generated page: a new playbook, group_vars file, tool and
+# scenario file, a new task file of a role, and a new engine test that tests/unit/durations.json does not name.
 FOUND: dict[str, set[str]] = {
-    "a pattern that ends in a dollar, in a new module": {
+    "a pattern that ends in a dollar, held with match, in a new module": {
         "test_anchors.py::test_every_pattern_that_holds_a_value_ends_at_the_end_of_the_text",
+        "test_claude_vm.py::test_a_vm_name_is_matched_whole_wherever_the_core_checks_one",
     },
     "a link to a page, and one to an anchor, that are not there": {
         "test_docs.py::test_the_site_builds_strictly",
@@ -172,7 +175,10 @@ FOUND: dict[str, set[str]] = {
     "a new file in tools/, tests/molecule/, filter_plugins/, playbooks/ and inventory/group_vars/all/": {
         "test_docs.py::test_the_file_map_names_every_file_of_the_folders_it_lists",
     },
-    "an aw command line no verb takes": {"test_commands.py::test_every_aw_command_named_is_one_the_table_accepts"},
+    "an aw command line no verb takes, and a just one no recipe takes, on a page": {
+        "test_commands.py::test_every_aw_command_named_is_one_the_table_accepts",
+        "test_commands.py::test_every_just_command_named_is_one_the_justfile_accepts",
+    },
     "a new core module that loads subprocess when imported": {
         "test_claude_vm.py::test_no_core_module_loads_ansible_yaml_asyncio_or_subprocess_when_imported",
     },
@@ -185,13 +191,44 @@ FOUND: dict[str, set[str]] = {
         "test_ratchets.py::test_vs_code_is_named_outside_its_own_files_no_more_than_it_is_now",
         "test_ratchets.py::test_zed_is_named_outside_its_own_files_no_more_than_it_is_now",
     },
+    "a new module that takes a machine's host key on first use (StrictHostKeyChecking=accept-new)": {
+        "test_controller_writes.py::test_every_place_that_makes_a_row_s_write_is_one_of_its_sources",
+    },
+    "CLAUDE.md's words for one of the controller's writes changed": {
+        "test_controller_writes.py::test_the_invariant_names_every_row",
+    },
+    "the security model's list of the controller's writes edited by hand": {
+        "test_controller_writes.py::test_the_notes_and_the_security_model_read_the_list",
+        "test_docs.py::test_generated_sections_are_up_to_date",
+    },
+    "a new module that names the live output's variable": {
+        "test_deploy_live.py::test_no_other_test_or_scenario_draws_a_run",
+    },
+    "a fact read as a top-level variable, in a new file of the system layer's": {
+        "test_gathered_facts.py::test_no_tracked_file_reads_a_fact_as_a_top_level_variable",
+    },
+    "a new engine test that names Ansible's settings file for a run of its own": {
+        "test_gathered_facts.py::test_every_run_a_test_makes_leaves_facts_out_of_the_top_level",
+    },
+    "a new engine test that turns golden templates on": {
+        "test_golden.py::test_golden_templates_stay_off_wherever_a_test_or_the_vagrantfile_runs_a_deploy",
+    },
+    "a new engine test named as a live test, test_aw_*_live.py": {
+        "test_live_recipes.py::test_every_live_test_runs_a_real_playbook_only_as_its_own_tests_do",
+    },
+    "a new module of the MCP server's that reads the environment": {
+        "test_mcp_tools.py::test_the_server_reads_nothing_of_its_environment_but_through_the_allow_list",
+    },
+    "a new engine test that names tools/status without the harness's status_root": {
+        "test_status.py::test_every_status_run_in_a_test_writes_into_its_own_directory",
+    },
     "a workflow whose checkout leaves its token in git's config": {
         "test_ci.py::test_no_checkout_leaves_the_workflow_s_token_in_git_s_config",
     },
-    "EACH_WORKER written as a call": {
+    "EACH_WORKER written as a call, in a new engine test": {
         "test_shards.py::test_every_fixture_made_on_each_worker_is_a_module_fixture_of_its_own_module",
     },
-    "a file the tracked-file guard refuses, added by force": {
+    "a file the tracked-file guard refuses (.aw/, a page at the top of docs/), added by force": {
         "test_tracked_files.py::test_guard_passes_on_the_real_repository",
         "test_tracked_files.py::test_no_tracked_file_is_gitignored",
     },
