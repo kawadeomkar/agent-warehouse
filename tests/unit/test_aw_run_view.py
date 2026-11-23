@@ -10,12 +10,20 @@ a frame or a summary is wider than the screen at any width, and none wraps at 80
 report is wrapped and never cut. The rules with a test of their own: a stage of every machine's work is said off a
 terminal once every machine is through it; nothing in the view prints, reads a clock, a file or the terminal; and
 tui/ imports nothing of runs/.
+
+Review 32's rules (review/code/C9.md), each with a test: what the events said made one visible line, or a report's
+and a failure's lines visible, before it is drawn; each wait said once off a terminal, with where, whose and what; the
+name a person chose wherever a machine is said, never its identity; each report said above once, none skipped; a wait
+said under its own machines alone; a failed quiet stage drawn; a machine's line of work drawn only while it is at that
+stage; a machine that has ended drawn to come in a stage begun after its end; and a failed run's own why said above and
+in the summary's head.
 """
 
 from __future__ import annotations
 
 import ast
 import re
+import unicodedata
 
 import pytest
 import test_run_view as todays
@@ -36,6 +44,9 @@ SGR = re.compile(r"\x1b\[[0-9;]*m")
 PAGE = "https://claude.ai/oauth/authorize"
 SIGN_IN = "Approve the sign-in in your browser"
 SECTION = "template-pve"
+# Machines as the job's record and layer 1's steps name them: by identity, the chosen name beside.
+ALPHA = "agent-warehouse-4f1c0000-0000-4000-8000-000000000001"
+BETA = "agent-warehouse-4f1c0000-0000-4000-8000-000000000002"
 # A stage's row, as both draw one: its mark and its label, a time at the right edge but while to come.
 ROW = re.compile(r" (\S) (\S.*)")
 TIME = re.compile(r"(\d+:\d\d|\d+(?:\.\d)? s)\Z")
@@ -673,6 +684,205 @@ def test_no_line_of_a_summary_is_wider_than_the_terminal_and_the_head_loses_its_
         assert all(len(line) <= cols - 1 for line in _plain(lines)), _plain(lines)
     head = _plain(_fed(ONE).summary(141.0, 56, color=True))[0]
     assert head == "agent-warehouse  deploy alpha · done in 2 min 21 s"
+
+
+# ---------------------------------------------------------------- review 32's rules ----
+
+
+def _hidden(line: str) -> list[str]:
+    """What a person cannot see in a drawn line, or that moves the terminal: a control character (a colour's escape
+    aside) or a format character."""
+    return [ch for ch in SGR.sub("", line) if unicodedata.category(ch) in ("Cc", "Cf")]
+
+
+def test_what_the_events_said_is_drawn_as_one_visible_line_and_reports_and_failures_visible() -> None:
+    # C9.md 1: a line break, a tab and a right-to-left override in a wait's words, a line of work, a report, a failure.
+    hostile = "first line\nsecond\tline \u202edesserp ton\u202c end"
+    events = [
+        (1.0, _event("stage", None, "configure")),
+        (1.0, _event("stage", "beta", "configure")),
+        _work(2.0, "alpha", hostile),
+        (3.0, _event("waiting", "beta", "waiting for another run\nto leave\tthe section", section=SECTION)),
+        (3.5, _event("waiting", "alpha", "Answer\nthe question \u202e[y/N]")),
+        (4.0, _event("report", "alpha", "\n\nalpha: one\ttab \u202eflipped\n  two  \n\n")),
+    ]
+    view = _fed(events, ("alpha", "beta"))
+    for cols in (80, 100):
+        frame = view.frame(5.0, cols, 40, "⠋", color=True)
+        assert not [line for line in frame if _hidden(line)], frame
+        terminal = VT(cols, 60)
+        terminal.feed(b"\x1b[?2026h" + "\r\n".join(frame).encode() + b"\x1b[?2026l")
+        # One row on the screen for each line the region counts, so it draws up exactly the lines drawn.
+        assert terminal.r == len(frame) - 1 and terminal.frame_wraps == 0
+    plain = _plain(view.frame(5.0, 100, 40, "⠋", color=False))
+    assert any(line.strip().startswith("⠋ first line second line desserp ton end") for line in plain), plain
+    assert any("Answer the question [y/N] · alpha" in line for line in plain), plain
+    # A report: each line visible, the tab expanded as today's engine expands it, the blank first and last lines gone.
+    said = [line for _, line in view.above(100, color=False)]
+    assert said == ["  alpha  one  tab  flipped", "           two"]
+    # A failure's why, as its lines.
+    failed = {"outcome": "failed", "why": "\tapt \u202efailed\n\tE: x"}
+    view.run.feed(jobs.Event(6.0, "stage", "beta", "configure", failed), 6.0)
+    said = [line for _, line in view.above(100, color=False)]
+    assert said[1:3] == ["✗ configure · beta: apt  failed (5.0 s)", "        E: x"]
+
+
+def test_off_a_terminal_each_wait_is_said_once_with_where_whose_and_what() -> None:
+    # C9.md 2: the run waits for you in its sign-in; nothing else said it there.
+    said: list[str] = []
+    view = _fed(TO_THE_SIGN_IN, said=said)
+    assert said[-2:] == [
+        f"✓ {'configure':<28} {'':<36} 59 s",
+        f"⏸ {'sign in / Claude':<28} waiting for you · alpha: {SIGN_IN}",
+    ]
+    assert view.ended_lines(186.1) == []
+    # A short section's wait, another run's, is said too, in its own words; the run's own wait names no machine.
+    fleet: list[str] = []
+    _fed(THREE_WAITING_ON_A_SECTION, ("alpha", "beta", "gamma"), said=fleet)
+    assert fleet == [
+        f"✓ {'provision':<28} {'alpha ✓ · beta ✓ · gamma ✓':<36} 24 s",
+        f"⏸ {'configure':<28} beta: waiting for another run to leave the section",
+    ]
+    host = _fed(
+        [(1.0, _event("stage", None, "template")), (2.0, _event("waiting", None, "the template", section=SECTION))]
+    )
+    assert host.ended_lines(3.0) == [f"⏸ {'template':<28} the template"]
+    # A wait said again of its machine, a new one, is said again; in one call, in the order things happened.
+    again = _fed(TO_THE_SIGN_IN)
+    again.ended_lines(122.0)
+    for now, kind, text, data in (
+        (130.0, "waiting", "Type the code GitHub shows", {}),
+        (131.0, "waiting", "", {}),
+        (131.0, "step", "claude", {"stage": "sign-in", "outcome": "done"}),
+    ):
+        again.run.feed(jobs.Event(now, kind, "alpha", text, data), now)
+    assert again.ended_lines(132.0) == [
+        f"⏸ {'sign in / Claude':<28} waiting for you · alpha: Type the code GitHub shows",
+        f"✓ {'sign in / Claude':<28} {'':<36} 11 s",
+    ]
+
+
+def test_a_machine_is_said_by_the_name_a_person_chose_never_its_identity() -> None:
+    # C9.md 3: events keyed by identity, as job.json and layer 1 have them, the name beside.
+    events = [
+        (1.0, _event("stage", None, "provision")),
+        (2.0, _event("report", ALPHA, "alpha is up at 192.0.2.61")),
+        (3.0, _event("stage", None, "provision", outcome="done")),
+        (3.0, _event("stage", ALPHA, "configure")),
+        (3.0, _event("stage", BETA, "configure")),
+        (4.0, _event("step", ALPHA, "Install baseline packages", status="task", part="common", name="alpha")),
+        (5.0, _event("stage", BETA, "configure", outcome="failed", why="apt failed")),
+        (5.0, _event("end", BETA, "apt failed", outcome="failed")),
+    ]
+    view = _fed(events, {ALPHA: "alpha", BETA: "beta"})
+    frame = _plain(view.frame(6.0, 100, 40, "⠋", color=True))
+    said = [line for _, line in view.above(100, color=False)]
+    ended = [*view.ended_lines(6.0)]
+    view.run.feed(jobs.Event(7.0, "stage", ALPHA, "configure", {"outcome": "done"}), 7.0)
+    view.run.feed(jobs.Event(7.0, "end", ALPHA, "ready", {"outcome": "succeeded"}), 7.0)
+    view.run.feed(jobs.Event(7.0, "end", None, "exit 1", {"outcome": "failed", "exit": 1}), 7.0)
+    summary = view.summary(7.0, 100, color=False)
+    ended += view.ended_lines(7.0)
+    everything = [*frame, *said, *ended, *summary, view.title, view.title_text(7.0)]
+    assert not [line for line in everything if "agent-warehouse-4f1c" in line], everything
+    assert (
+        view.title == "deploy alpha beta"
+        and _marks(next(line for line in frame if " configure " in line)) == "alpha ⠋ · beta ✗"
+    )
+    assert any(line.endswith("alpha  0:02") for line in frame) and "  alpha is up at 192.0.2.61" in said
+    assert "✗ configure · beta: apt failed (2.0 s)" in said
+    assert summary[0].startswith("agent-warehouse  deploy alpha beta · done in 7 s · 1 machine failed: beta")
+    assert "ALPHA" in summary and summary[-1].startswith("2 machines · 1 failed")
+
+
+def test_above_says_each_report_once_and_skips_none_however_often_it_is_asked() -> None:
+    # C9.md 4: one report a call, then two at once, then none.
+    view = _fed([], ("alpha", "beta"))
+    heard = []
+    for now, batch in ((1.0, ["one"]), (2.0, ["two", "three"]), (3.0, []), (4.0, ["four"])):
+        for text in batch:
+            view.run.feed(jobs.Event(now, "report", None, text, {}), now)
+        heard += [line.strip() for _, line in view.above(100, color=False)]
+    assert heard == ["one", "two", "three", "four"]
+
+
+def test_a_wait_for_you_is_said_under_its_own_machines_alone() -> None:
+    # C9.md 4: two machines at one stage, one waiting for you.
+    events = [(1.0, _event("stage", None, "configure")), (2.0, _event("waiting", "alpha", "Answer the question"))]
+    frame = _fed(events, ("alpha", "beta")).frame(3.0, 100, 40, "⠋", color=False)
+    row = next(line for line in frame if line.startswith(" ⏸ configure"))
+    assert row == f" ⏸ {'configure':<13}Answer the question · alpha · 0:01"
+
+
+def test_a_failed_quiet_stage_is_drawn_in_the_frame_the_lines_and_the_summary() -> None:
+    # C9.md 4: deploy's finish is quiet, drawn once something in it failed.
+    events = [
+        (1.0, _event("stage", "alpha", "configure")),
+        (2.0, _event("stage", "alpha", "configure", outcome="done")),
+        (2.0, _event("stage", None, "finish")),
+    ]
+    said: list[str] = []
+    view = _fed(events, said=said)
+    assert not any("finish" in line for line in view.frame(2.5, 100, 40, "⠋", color=False))
+    view.run.feed(jobs.Event(3.0, "stage", None, "finish", {"outcome": "failed", "why": "a sign-in failed"}), 3.0)
+    said += view.ended_lines(3.0)
+    frame = view.frame(3.0, 100, 40, "⠋", color=False)
+    assert any(line.startswith(" ✗ finish ") for line in frame)
+    assert said[-1] == f"✗ {'finish':<28} {'failed':<36} 1.0 s"
+    view.run.feed(jobs.Event(3.0, "end", None, "a sign-in failed", {"outcome": "failed", "exit": 1}), 3.0)
+    assert any(line.startswith(" ✗ finish ") for line in view.summary(3.0, 100, color=False))
+
+
+def test_a_machines_line_of_work_is_drawn_only_while_it_is_at_that_stage() -> None:
+    # C9.md 4: alpha has left configure; beta is still at it.
+    events = [
+        (1.0, _event("stage", "alpha", "configure")),
+        (1.0, _event("stage", "beta", "configure")),
+        _work(2.0, "alpha", "Write the motd"),
+        _work(2.5, "beta", "Refresh apt cache"),
+        (3.0, _event("stage", "alpha", "configure", outcome="done")),
+    ]
+    frame = _fed(events, ("alpha", "beta")).frame(4.0, 100, 40, "⠋", color=False)
+    work = [line.strip() for line in frame if line.startswith(" " * 9)]
+    assert len(work) == 1 and work[0].startswith("⠋ Refresh apt cache") and work[0].endswith("beta  0:01")
+
+
+def test_a_machine_that_has_ended_is_drawn_to_come_in_a_stage_begun_after_its_end() -> None:
+    # C9.md 7, with C8's fix: beta failed in configure; the aliases are then written for every machine, beta's never.
+    events = [
+        *FAILING_IN_A_FLEET[:7],
+        (90.0, _event("stage", None, "aliases")),
+    ]
+    said: list[str] = []
+    view = _fed(events, ("alpha", "beta"), said=said)
+    frame = view.frame(90.5, 100, 40, "⠋", color=False)
+    assert _marks(next(line for line in frame if " SSH aliases " in line)) == "alpha ⠋ · beta ○"
+    for now, event in ((91.0, _event("stage", None, "aliases", outcome="done")), *FAILING_IN_A_FLEET[-2:]):
+        view.run.feed(jobs.Event(now, *event[:3], event[3]), now)
+        said += view.ended_lines(now)
+    assert said[-1] == f"✓ {'SSH aliases':<28} {'alpha ✓ · beta ○':<36} 1.0 s"
+    summary = view.summary(92.0, 100, color=False)
+    assert f" ✓ {'SSH aliases':<11}{'1.0 s':>6}    alpha ✓ · beta ○" in summary
+
+
+def test_a_failed_run_says_its_own_why_above_and_in_the_summarys_head() -> None:
+    # The coordinator's ruling on C8.md 7: what a failed run left open is stopped, and its why is said.
+    why = "an error the run did not handle: RuntimeError: the loop broke"
+    events = [
+        (1.0, _event("stage", "alpha", "configure")),
+        (1.0, _event("stage", "beta", "configure")),
+        (2.0, _event("stage", "alpha", "configure", outcome="failed", why="apt failed")),
+        (2.0, _event("end", "alpha", "apt failed", outcome="failed")),
+        (3.0, _event("end", None, why, outcome="failed", exit=1)),
+    ]
+    view = _fed(events, ("alpha", "beta"))
+    said = [line for _, line in view.above(120, color=False)]
+    assert "✗ configure · alpha: apt failed (1.0 s)" in said and f"✗ configure · this machine: {why} (3.0 s)" in said
+    summary = view.summary(3.0, 160, color=False)
+    assert summary[0] == f"agent-warehouse  deploy alpha beta · failed after 3 s at configure · {why}"
+    assert f" ✗ {'configure':<11}{'2.0 s':>6}    alpha ✗ · beta ■" in summary
+    # Narrow, the why goes first, never the outcome.
+    assert view.summary(3.0, 60, color=False)[0].startswith("agent-warehouse  deploy alpha beta · failed after 3 s")
 
 
 # ---------------------------------------------------------------- the rules ----
