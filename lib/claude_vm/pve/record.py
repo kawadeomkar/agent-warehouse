@@ -134,12 +134,22 @@ class Copy(Unreadable):
         )
 
 
+# Why a record that names no UUID is refused, whichever reader reads it: only a VM's first form names none (first_form).
+NO_UUID = "a record names the UUID of the VM it is written for, but a VM's first form, at the stage cloning"
+
+
+def first_form(fields: Mapping[str, str | tuple[str, ...] | None]) -> bool:
+    """Whether fields are a VM's first form, of kind vm at the stage cloning: the one record that may name no UUID,
+    which a clone carries before its UUID can be read. A record of any other kind or stage that names none is refused
+    (NO_UUID), by engine/record.py's Record and pve/template.py's judge alike."""
+    return fields.get("kind") == "vm" and fields.get("stage") == "cloning"
+
+
 def copied(fields: Mapping[str, str | tuple[str, ...]], identity: str) -> bool:
     """Whether the record parse gave names a UUID that is not identity, the SMBIOS UUID of the VM whose notes hold it
     ("" for a VM that has none): a copy, which a clone made without a description of its own carries from its source.
     UUIDs are compared without regard to case. A VM's first form at the stage cloning alone names no UUID, and cannot
-    be told from a copy of one by this: engine/record.py's Record refuses a record of any other kind or stage that
-    names none."""
+    be told from a copy of one by this: a record of any other kind or stage that names none is refused (first_form)."""
     uuid = fields.get("uuid")
     return isinstance(uuid, str) and bool(uuid) and uuid.lower() != (identity or "").lower()
 

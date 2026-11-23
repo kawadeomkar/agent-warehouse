@@ -3,8 +3,10 @@
 Every VM of the fleet is a full clone of the base template, so the template is what each VM starts as. `deploy` asks
 `compare` whether it is what its settings would build; `status`, which may not import the engine (card G15), reads the
 same through its own client and judges it by the same functions, pve/template.py's (card G16), so both say the same
-outcome with the same lines. The judgement is there, in plain code with no client: what each outcome means, what a
-build makes (`wanted`, `BUILD`, `OPTIONS`) and what is said (`Compared`), which this module gives as the comparison's.
+outcome with the same lines: the judgement holds the record to the guest's own UUID whichever reader read it, and each
+field's form is the reader's, here engine/record.py's `read`. The judgement is there, in plain code with no client: what
+each outcome means, what a build makes (`wanted`, `BUILD`, `OPTIONS`) and what is said (`Compared`), which this module
+gives as the comparison's.
 
 `compare(client, settings, pool=, host_flag=)` reads the template through the API with the engine's one token, by GETs
 alone: the cluster's listing; where nothing is listed at the template's ID, what the token may read there; and the

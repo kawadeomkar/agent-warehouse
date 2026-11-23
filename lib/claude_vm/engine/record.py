@@ -117,10 +117,8 @@ class Record:
             raise ValueError("a VM's record names its stage")
         if self.uuid and not UUID.fullmatch(self.uuid):
             raise ValueError("the record's uuid is a VM's SMBIOS UUID, in lower case")
-        if not self.uuid and not (self.kind == "vm" and self.stage == "cloning"):
-            raise ValueError(
-                "a record names the UUID of the VM it is written for, but a VM's first form, at the stage cloning"
-            )
+        if not self.uuid and not block.first_form({"kind": self.kind, "stage": self.stage}):
+            raise ValueError(block.NO_UUID)
         if self.name and not (full("vm_name", self.name) and "," not in self.name):
             raise ValueError("the record's name is one VM's name")
         if self.repositories is not None and not full("repos", ",".join(self.repositories)):
