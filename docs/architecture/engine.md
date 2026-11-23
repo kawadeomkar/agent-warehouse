@@ -1840,6 +1840,26 @@ only, and layer 2, the rest of the work, in plain code. It imports `ssh/`, `sche
 nothing of `engine/`, `cli/` or `control/`, and no pydantic. A plugin of that Ansible child is the one code of the new
 engine that imports `ansible`. It lives under `guest/ansible/`, where the child's own configuration names it.
 
+**How the engine's tests reach a machine.** A test of the new engine reaches no real machine: it reaches a stand-in,
+a directory of the test's own that `tests/unit/aw_machine.py` makes, through the SSH runner (§16.6) as it reaches a
+VM. `machine()` gives each an identity made for the test (`agent-warehouse-<a UUID>`), an address from RFC 5737's
+documentation ranges, never a real network's, and a directory that holds its home, made for a state as today's
+stand-in VMs make theirs (`tests/unit/test_status_vms.py`), the files the probe reads, and a `bin/` of stand-ins found
+first on its `PATH`: today's `systemctl`, `dpkg-query` and `getent`, the fakes' `gh`, `tailscale` and `claude`, and a
+`sudo` of its own that runs as the same user, records each call's `-n` and `-S`, and, made with a password, refuses
+`-n` for want of one and reads exactly one line on `-S`. `ssh_stand_in()` gives the folder of an `ssh` that a test puts
+first on its own `PATH` (`first_on_path`): it reads the runner's words as `ssh` reads them, refuses with 255 an address
+no machine has and words whose first `StrictHostKeyChecking` or `BatchMode` is not `yes`, records every call in that
+machine's `calls.log` (its words and the names of its variables), and runs the command with `/bin/sh -c` in the
+machine's home, with that home, its `bin/` first on `PATH` and the test's own failing stand-ins next, and nothing else
+of the test's environment, its standard input passed through untouched; `-O check` and `-O stop` answer as a live
+master would, and a forward is recorded and never opened. `planted()` makes a VM of the Proxmox fake that machine: its
+guest agent reports the machine's address on the VM's own card, and its SMBIOS UUID is the identity's. An adopted
+machine is a stand-in made without it. Layer 1 meets a stand-in only in a play of one task over its test-only `local`
+connection (`layer1_host()`), which touches only the machine's directory, since the real roles would run as root on the
+computer running the tests: they converge in a Molecule container. No test of the engine writes an `ssh` stand-in of
+its own but those of the SSH layer itself, which `tests/unit/test_aw_machine.py` names with why.
+
 ## 16.11 `control/` — what exists only with a control VM
 
 `lib/claude_vm/control/` is where the add-on goes: everything that exists only with a control VM, its services and its
