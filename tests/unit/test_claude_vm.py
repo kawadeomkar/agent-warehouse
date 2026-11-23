@@ -28,6 +28,8 @@ NEVER_AT_IMPORT = ("ansible", "yaml", "asyncio", "subprocess")
 # tools/mcp alone imports, are a process of its own whose work is to run just, over asyncio.
 AT_IMPORT = {"claude_vm.proc": {"subprocess"}, "claude_vm.status.hosts": {"subprocess"}}
 MCP_AT_IMPORT = {"asyncio", "subprocess"}
+# The new engine's helper: files a machine runs from the script guest/bundle.py sends it, never the engine.
+GUEST_HELPER = "lib/claude_vm/guest/helper"
 
 
 def _python(script: str) -> str:
@@ -58,16 +60,19 @@ def test_lib_holds_the_one_package_claude_vm() -> None:
 
 def test_what_runs_on_a_vm_never_imports_the_package() -> None:
     # A module goes to the VM with only what it imports from module_utils, and a helper runs there as plain python3 -I:
-    # an import of claude_vm works here, where lib/ is on the path, and fails on every VM. They are handed data.
+    # an import of claude_vm works here, where lib/ is on the path, and fails on every VM. They are handed data. The new
+    # engine's helper (lib/claude_vm/guest/helper/) is sent to a machine and run there the same way.
     vm_side = [
         path
         for path in _tracked("playbooks/library")
         + _tracked("playbooks/module_utils")
         + _tracked("playbooks/files")
         + _tracked("roles")
-        if path.startswith("playbooks/") or "/library/" in path
+        + _tracked(GUEST_HELPER)
+        if path.startswith(("playbooks/", GUEST_HELPER)) or "/library/" in path
     ]
     assert len(vm_side) >= 9, vm_side
+    assert f"{GUEST_HELPER}/main.py" in vm_side, vm_side
     for path in vm_side:
         assert not re.search(r"^\s*(from|import)\s+claude_vm\b", (REPO / path).read_text(), re.M), path
 
