@@ -2060,7 +2060,12 @@ finish, golden template.
 
 `model.Run(declared, now, machines)` takes each event of the run in its own process, `feed(event, now)`, the time given
 by its caller, so nothing in it reads a clock, a file or the terminal, and nothing is kept between two processes; it
-imports nothing of `tui/`, which draws it. The events it reads:
+imports nothing of `tui/`, which draws it. A machine is keyed by its identity (`agent-warehouse-<SMBIOS UUID>`), as
+`job.json`'s `machines`, a machine's `end` and layer 1's step events name it: one key for every event of a machine. The
+name a person chose rides beside it, as an event's `name` (layer 1's steps carry it) or as the run's machines given as a
+mapping of identity to name; the model keeps each identity's name (`names`, `name(machine)`), and a drawer says the name
+wherever it says a machine. The events it reads, their text plain as `emit` makes it (a tab, a line break and Unicode's
+format characters stay, and a drawer makes them visible):
 
 | Event | What the model makes of it |
 |---|---|
@@ -2070,28 +2075,36 @@ imports nothing of `tui/`, which draws it. The events it reads:
 | `report` | Kept whole, in order, to be printed above the region |
 | `waiting` | Opens the wait of its machine and its `section`, in place of one open; an empty text ends that wait alone |
 | `next` | A line of NEXT STEPS for its machine and `matter`; an empty line removes it |
-| `end` | With a machine: its outcome, the stage it reached, why, and what of it is open ends (done, failed, stopped). With none: the run's end; everything open ends so, and no event is taken after it |
+| `end` | With a machine: its outcome, the stage it reached (`stage`, else its own last `stage` event, as the job's record keeps it), why, and what of it is open ends (done, failed, stopped). With none: the run's end; everything open ends, done where the run succeeded and stopped where it failed or was cancelled, and no event is taken after it |
 
-Each of these is for one machine, or with no machine for every machine of the run: a machine with no part of its own in a
-stage or a step reads every machine's part. A wait for the person is one with no section (a short section's wait,
+A `stage` or a `step` is for one machine, or with no machine for every machine of the run: a machine with no part of its
+own in a stage or a step reads every machine's part where that began before the machine's own end, by the order the
+events came in, so a machine that has ended takes no part in a stage begun after it. A stage that ended reads failed for
+a machine where a step of it failed for that machine, and for the run where one did for any: the failure wins, as
+today's. A wait for the person is one with no section (a short section's wait,
 `locks.section`'s, is for another run); a wait also ends when its machine ends, at the cancel (`cancel(now)`, when a person
 stops the run: nobody is asked any more) and at the run's end. So a clear of one machine's wait, or of a wait with no
 section, never ends another machine's or a section's, where the job's record keeps one wait for the whole run. No count
-of tasks is guessed: a stage or a step is done when its event says so, and one still open at the run's end ends as the run
-did (succeeded: done; failed: failed; cancelled: stopped). An event of a stage the declaration lacks, of a step its stage
-does not declare, of a kind the job lacks, an ending other than done, skipped or failed, a NEXT STEPS line with no matter,
-and anything after the run's end are refused before anything is kept.
+of tasks is guessed: a stage or a step is done when its event says so, and one still open at the run's end is done where
+the run succeeded and stopped where it failed or was cancelled: cut short, never failed, since what failed said so
+itself. An event of a stage the declaration lacks, of a step its stage does not declare, of a kind the job lacks, an
+ending other than done, skipped or failed, a NEXT STEPS line with no matter, a name that is no str, and anything after
+the run's end are refused before anything is kept.
 
 What a drawer reads: `state(stage, step)` (to come, running, waiting, done, skipped, failed, stopped), `mark(machine,
 stage, step)` and `marks(stage, step)` (each machine's, none for a stage that is not each machine's), `running()` and
 `running_stage()`, `seconds(now, stage, step, machine)`, the waits (`waiting()`, `waiting_for_you()`, `waited(now, ...)`
-for the person's time), `reports`, `failures` (each said once: a step that ended failed, a stage that did with no step of
-it failed for that machine, a machine or the run that ended failed with nothing failed before), `outcomes` (each
-machine's), the run's `outcome`, `exit` and `why`, `latest`, and `next_steps()`: NEXT STEPS by machine, the run's own
-first, then by matter in today's order, each line once, through `lib/claude_vm/run/next_steps.py` as it stands.
+for the person's time), `reports`, `failures` (each said once: a step that ended failed; a stage that ended failed for a
+machine with no failure of it said for that machine, or for every machine where none of it was said or where it cut
+short a part still open; a machine that ended failed with nothing of it failed before; and the run's own `why`, where it
+ended failed with nothing failed before or where it cut short a part still open, so a run that fails only because its
+machines did says nothing twice), `outcomes` (each machine's), the run's `outcome`, `exit` and `why`, `latest`,
+`names` and `name(machine)`, and `next_steps()`: NEXT STEPS by machine, by the name a person chose as today's orders by
+VM name, the run's own first, then by matter in today's order, each line once, through
+`lib/claude_vm/run/next_steps.py` as it stands.
 `tests/unit/test_aw_run_model.py` holds it with canned runs (one machine, three, one failing in configure, one waiting for
-a sign-in, one cancelled), each event's effect, every refusal leaving the model as it was, and a run fed by a job's own
-`emit`.
+a sign-in, one cancelled), each event's effect, every refusal leaving the model as it was, a run fed by a job's own
+`emit`, and each rule above with a test of its own.
 
 ## 16.9 `fleet/` — the fleet's files, the settings, the secrets and the fleet's mark
 
