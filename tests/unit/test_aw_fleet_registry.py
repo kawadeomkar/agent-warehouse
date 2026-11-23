@@ -292,7 +292,14 @@ def test_a_path_of_this_computer_s_says_how_it_is_read() -> None:
     ]
     for each in paths:
         assert "~ at its start is your home; a relative path is refused by name." in each.description, each.name
+        # "" is unset, and each row says what that means (review 12, D4.md 3).
+        assert re.search(r"\bEmpty\b", each.description), each.name
     assert "Empty: none." in registry.row("tls_ca_file").description
+    # The vault's key file: empty is the default, and a file named where the key is never kept is refused
+    # (fleet/vaultkey.py, tests/unit/test_aw_fleet_vaultkey.py).
+    key_file = registry.row("vault_key_file").description
+    assert "Empty: the key file in a folder of this computer's own" in key_file
+    assert "a file you name in one of them is refused by name" in key_file
 
 
 def test_four_rows_are_held_to_more_than_their_type_by_one_rule_each() -> None:

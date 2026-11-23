@@ -705,8 +705,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       the developer's own `aw` run from that checkout writes its jobs while a suite runs. It watches nothing else
       there: a sign-in on a machine the product configured writes `RESERVED_ON_A_MACHINE`'s names into that same
       folder, and no file there is opened, so no `fleet_home` is followed.
-    - A home is the installed program's by the real path of both, never their text, so its key never lands in the
-      config folder through a link; a home inside the installed program's state folder is refused.
+    - A home is the installed program's by the file system's identity of both (`paths.inside`: real paths, then
+      `os.path.samefile`), never their text, so its key never lands in the config folder through a link or a spelling
+      in another case on a disk that ignores case; a home inside the installed program's state folder is refused.
     - Only `paths.py` names those folders and `AGENT_WAREHOUSE_HOME`; code on a machine names the folder there as
       `paths.ON_A_MACHINE`, in `guest/` alone, joined to a reserved name. Only `paths.py` and `fleet/vaultkey.py` name
       the key file; outside `fleet/` nothing names `paths.KEY` or `paths.OWN` or removes what reaches the key, and a

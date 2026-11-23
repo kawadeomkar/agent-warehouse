@@ -279,7 +279,9 @@ lib/claude_vm/fleet/              a fleet's files: where they are, the hosts, th
                                   record.py, fleet.json: the fleet's ID and every store's format number;
                                   mark.py, the pool's mark and the one rule a changing run reads it by;
                                   secrets.py, the vault's closed list of named secrets, each with its scope and kind;
-                                  sealed.py, vault.age: the named secrets in one age file, encrypted whole
+                                  sealed.py, vault.age: the named secrets in one age file, encrypted whole;
+                                  vaultkey.py, the vault's key: made once in a file of this computer's own, found
+                                  in one order
 lib/claude_vm/guest/              inside a machine: the helper, the system layer's inputs, layer 2; layer1.py,
                                   one ansible-playbook for one machine, its configuration, inventory and
                                   environment made by the engine
