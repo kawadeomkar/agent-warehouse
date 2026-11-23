@@ -8,6 +8,14 @@ not, of a step its stage does not declare, or after the run's end is refused wit
 own machine and section alone, and at the cancel; a step that names no stage (layer 1's events) is a line of work and
 begins or ends nothing; deploy's stages are today's labels; and the model imports nothing of its drawing, nor today's
 model, and reads nothing. One run is fed by a real job's emit, as the live view will be.
+
+Review 29's rules (review/code/C8.md), each with a test: a stage that ended reads failed where a step of it failed; a
+machine that has ended reads no part of every machine's begun after its end; the stage a machine reached is its own last
+stage event, as the job's record keeps it; a failed run cuts short what is still open (stopped) and says its own why;
+a report kept whole, in order, each time it is said; the run's end ending the host's and the quiet stages; a machine's
+end ending its open steps; one machine's wait for you never another's mark; a refused step's machine never learned; a
+machine's failed end said though another machine failed before; a replaced NEXT STEPS line kept in its place; and one
+key for a machine, its identity, with the name a person chose kept beside it.
 """
 
 from __future__ import annotations
@@ -27,6 +35,9 @@ from claude_vm.runs import model
 from claude_vm.runs.stages import DEPLOY, Declared, Stage, Step
 
 RUNS = REPO / "lib" / "claude_vm" / "runs"
+# Machines as the job's record names them: by identity (agent-warehouse-<SMBIOS UUID>).
+ALPHA = "agent-warehouse-4f1c0000-0000-4000-8000-000000000001"
+BETA = "agent-warehouse-4f1c0000-0000-4000-8000-000000000002"
 PAGE = "https://claude.ai/oauth/authorize"
 SIGN_IN = "Approve the sign-in in your browser"
 SECTION = "template-pve"
@@ -55,6 +66,7 @@ def _held(run: model.Run) -> dict[str, object]:
         {
             "parts": parts,
             "machines": list(run.machines),
+            "names": dict(run.names),
             "waits": [vars(wait) for wait in run.waits],
             "reports": list(run.reports),
             "failures": list(run.failures),
@@ -308,12 +320,14 @@ def test_a_failure_is_said_once_a_steps_and_not_again_by_its_stage() -> None:
     other.feed(_event("stage", None, "configure"), 1.0)
     other.feed(_event("end", "beta", "its address never came", outcome="failed"), 3.0)
     other.feed(_event("end", "beta", "its address never came", outcome="failed"), 3.0)
-    assert other.failures == [model.Failure("configure", None, "beta", "its address never came", 3.0, 3.0)]
+    # beta's own stage events name no stage, so its end names none, as the job's record has it.
+    assert other.failures == [model.Failure(None, None, "beta", "its address never came", 3.0, 3.0)]
     third = model.Run(declared, 0.0)
     third.feed(_event("stage", None, "configure"), 1.0)
     third.feed(_event("end", None, "RuntimeError: the loop broke", outcome="failed", exit=1), 4.0)
     assert third.failures == [model.Failure("configure", None, None, "RuntimeError: the loop broke", 4.0, 4.0)]
-    assert third.state("configure") == "failed"
+    # What the run's failure left open was cut short: stopped, never failed.
+    assert third.state("configure") == "stopped"
 
 
 def test_a_run_waiting_for_a_sign_in_waits_for_you_there_until_its_wait_ends() -> None:
@@ -399,8 +413,9 @@ def test_a_machines_end_ends_what_of_it_is_open_and_its_waits_and_says_the_stage
     run.feed(_event("waiting", "alpha", "waiting for another run to leave the section", section=SECTION), 2.0)
     run.feed(_event("waiting", "beta", SIGN_IN), 2.0)
     run.feed(_event("end", "alpha", "the machine went away", outcome="cancelled"), 3.0)
-    # Its stage is every machine's last, and the host's template is no machine's to end; beta still waits for you.
-    assert run.outcomes["alpha"] == model.MachineEnd("cancelled", "configure", "the machine went away", 3.0)
+    # Its stage is its own last stage event's, none here, as the job's record keeps it; the host's template is no
+    # machine's to end; beta still waits for you.
+    assert run.outcomes["alpha"] == model.MachineEnd("cancelled", None, "the machine went away", 3.0)
     assert run.marks("configure") == {"alpha": "stopped", "beta": "waiting"}
     assert run.state("template") == "running" and run.progress("template").parts.keys() == {None}
     assert [(wait.machine, wait.until) for wait in run.waits] == [("alpha", 3.0), ("beta", None)]
@@ -484,6 +499,10 @@ def test_next_steps_are_said_once_in_todays_order_and_an_empty_line_takes_one_aw
         (_event("stage", None, "configure", outcome="succeeded"), "ends done, skipped or failed"),
         (_event("step", "alpha", "claude", stage="build"), "'build' is no stage of deploy"),
         (_event("step", "alpha", "common", stage="configure"), "'common' is no step of stage 'configure'"),
+        # A machine not given, and its name, never learned from an event that is refused.
+        (_event("step", "omega", "common", stage="configure", name="o"), "'common' is no step of stage 'configure'"),
+        (_event("step", "omega", "claude", stage="sign-in", outcome="ok"), "ends done, skipped or failed"),
+        (_event("stage", "omega", "build", name="o"), "'build' is no stage of deploy"),
         (_event("step", "alpha", "github", stage="editor"), "'github' is no step of stage 'editor'"),
         (_event("step", "alpha", "claude", stage="sign-in", outcome="ok"), "ends done, skipped or failed"),
         (_event("child", "beta", "ssh"), "'child' is no kind of event"),
@@ -510,6 +529,7 @@ def test_an_event_the_declaration_or_the_job_does_not_have_is_refused_with_nothi
         _event("waiting", "alpha", "x", section=3),
         _event("end", None, "", outcome="failed", exit="1"),
         _event("end", "alpha", "", outcome="failed", stage=2),
+        _event("step", "alpha", "Gathering Facts", name=7),
     ],
 )
 def test_a_value_of_the_wrong_type_is_refused_with_nothing_kept(event) -> None:
@@ -550,18 +570,224 @@ def test_the_model_is_fed_by_a_jobs_emit_as_the_live_view_will_be(home) -> None:
         made.emit("stage", "alpha", "provision", outcome="done")
         made.emit("step", "alpha", "claude", stage="sign-in")
         made.emit("waiting", "alpha", "\x1b[1mApprove\x1b[0m the sign-in", page=PAGE)
+        made.emit("next", "alpha", "aw status", matter="claude")
+        made.emit("next", "alpha", "aw login alpha --only github", matter="github")
+        # A line said again for its machine and matter takes the first one's place, in the record and here.
         made.emit("next", "alpha", "aw login alpha --only claude", matter="claude")
         made.emit("end", "alpha", "signed in", outcome="succeeded")
         assert _states(run) == {"provision": "done", "sign-in": "done"}
         assert run.waits[0].text == "Approve the sign-in" and run.waiting() == []
-        assert run.next_steps() == ["aw login alpha --only claude"]
+        assert run.next_steps() == ["aw login alpha --only claude", "aw login alpha --only github"]
         # The record keeps what an agent reads; the model the same of it.
         assert made.read()["next"] == run.next_records()
-        assert made.read()["machine_outcomes"]["alpha"]["outcome"] == run.outcomes["alpha"].outcome
+        assert [record["matter"] for record in run.next_records()] == ["claude", "github"]
+        ended = made.read()["machine_outcomes"]["alpha"]
+        assert (ended["outcome"], ended["stage"]) == (run.outcomes["alpha"].outcome, run.outcomes["alpha"].stage)
         with pytest.raises(ValueError, match="'build' is no stage of deploy"):
             made.emit("stage", "alpha", "build")
     finally:
         jobs.drop(made)
+
+
+# ---------------------------------------------------------------- review 29's rules ----
+
+
+def test_a_stage_that_ended_reads_failed_where_a_step_of_it_failed() -> None:
+    # C8.md 1: a sign-in workflow says each step's end, then the stage's end done; the failed step wins, as today's.
+    run = model.Run(DEPLOY, 0.0, ["alpha"])
+    run.feed(_event("step", "alpha", "claude", stage="sign-in"), 1.0)
+    run.feed(_event("step", "alpha", "claude", stage="sign-in", outcome="failed", why="the code expired"), 2.0)
+    assert run.state("sign-in") == "running" and run.mark("alpha", "sign-in") == "running"
+    run.feed(_event("step", "alpha", "github", stage="sign-in"), 2.0)
+    run.feed(_event("step", "alpha", "github", stage="sign-in", outcome="done"), 3.0)
+    run.feed(_event("stage", "alpha", "sign-in", outcome="done"), 3.0)
+    assert run.state("sign-in") == "failed" and run.mark("alpha", "sign-in") == "failed"
+    assert run.marks("sign-in", "claude") == {"alpha": "failed"} and run.marks("sign-in", "github") == {"alpha": "done"}
+    # Said once, by its step.
+    assert [(each.stage, each.step, each.machine) for each in run.failures] == [("sign-in", "claude", "alpha")]
+    # Begun and ended for every machine: the machine whose step failed reads failed, the other done; the stage failed.
+    fleet = model.Run(DEPLOY, 0.0, ["alpha", "beta"])
+    fleet.feed(_event("stage", None, "sign-in"), 1.0)
+    for machine, outcome in (("alpha", "failed"), ("beta", "done")):
+        fleet.feed(_event("step", machine, "claude", stage="sign-in"), 1.0)
+        fleet.feed(_event("step", machine, "claude", stage="sign-in", outcome=outcome, why="expired"), 2.0)
+    fleet.feed(_event("stage", None, "sign-in", outcome="done"), 3.0)
+    assert fleet.state("sign-in") == "failed" and fleet.marks("sign-in") == {"alpha": "failed", "beta": "done"}
+
+
+def test_a_machine_that_has_ended_reads_no_part_of_every_machines_begun_after_its_end() -> None:
+    # C8.md 2: beta fails in configure and ends; the aliases are then begun and ended for every machine, at the same
+    # time as beta's end: the order the events came in decides.
+    run = model.Run(DEPLOY, 0.0, ["alpha", "beta"])
+    for now, event in (
+        (0.5, _event("stage", None, "provision")),
+        (0.6, _event("end", "gamma", "its address never came", outcome="failed")),
+        (1.0, _event("stage", None, "provision", outcome="done")),
+        (1.0, _event("stage", "alpha", "configure")),
+        (1.0, _event("stage", "beta", "configure")),
+        (2.0, _event("stage", "beta", "configure", outcome="failed", why="apt failed")),
+        (2.0, _event("end", "beta", "apt failed", outcome="failed")),
+        (2.0, _event("stage", None, "aliases")),
+    ):
+        run.feed(event, now)
+    # gamma ended while provision ran for every machine: that part was its own too, ended with it.
+    assert run.marks("provision") == {"alpha": "done", "beta": "done", "gamma": "failed"}
+    assert run.marks("aliases") == {"alpha": "running", "beta": "to come", "gamma": "to come"}
+    assert run.seconds(3.0, "aliases", machine="beta") == 0.0 and not run.progress("aliases").open_for("beta")
+    run.feed(_event("stage", None, "aliases", outcome="done"), 3.0)
+    assert run.marks("aliases") == {"alpha": "done", "beta": "to come", "gamma": "to come"}
+    assert run.outcomes["beta"].stage == "configure" and run.mark("beta", "configure") == "failed"
+
+
+def test_the_stage_a_machine_reached_is_its_own_last_stage_event_as_the_jobs_record_keeps_it(home) -> None:
+    # C8.md 5: deploy's golden template is the host's, begun after every machine's own stages; a step's start begins
+    # its stage, but is no stage event of the machine's.
+    made = jobs.create(
+        paths.jobs_dir(paths.home(REPO)), "deploy", "aw deploy alpha", "pve", ["alpha"], {"kind": "terminal"}, True
+    )
+    try:
+        run = model.Run(DEPLOY, 0.0, ["alpha"])
+        made.listen(lambda event: run.feed(event, event.time))
+        for stage in ("provision", "configure", "aliases", "editor"):
+            made.emit("stage", "alpha", stage)
+            made.emit("stage", "alpha", stage, outcome="done")
+        made.emit("step", "alpha", "claude", stage="sign-in")
+        made.emit("stage", None, "golden")
+        made.emit("end", "alpha", "ready", outcome="succeeded")
+        assert run.outcomes["alpha"].stage == made.read()["machine_outcomes"]["alpha"]["stage"] == "editor"
+    finally:
+        jobs.drop(made)
+
+
+def test_a_failed_run_cuts_short_what_is_still_open_and_says_its_own_why() -> None:
+    # C8.md 7: alpha fails in configure; beta is still configuring when the run ends failed of its own error.
+    why = "an error the run did not handle: RuntimeError: the loop broke"
+    run = model.Run(DEPLOY, 0.0, ["alpha", "beta"])
+    run.feed(_event("stage", "alpha", "configure"), 1.0)
+    run.feed(_event("stage", "beta", "configure"), 1.0)
+    run.feed(_event("step", "beta", "Install baseline packages", status="task", part="common"), 1.5)
+    run.feed(_event("stage", "alpha", "configure", outcome="failed", why="apt failed"), 2.0)
+    run.feed(_event("end", "alpha", "apt failed", outcome="failed"), 2.0)
+    run.feed(_event("end", None, why, outcome="failed", exit=1), 3.0)
+    # beta was cut short, not failed; the run's own why is said, once, as the run's.
+    assert run.marks("configure") == {"alpha": "failed", "beta": "stopped"}
+    assert [(failure.stage, failure.machine, failure.why) for failure in run.failures] == [
+        ("configure", "alpha", "apt failed"),
+        ("configure", None, why),
+    ]
+    assert run.failures[-1] == model.Failure("configure", None, None, why, 3.0, 3.0)
+    # A run that fails only because its machines did, with nothing left open, says nothing twice.
+    done = model.Run(DEPLOY, 0.0, ["alpha"])
+    done.feed(_event("stage", "alpha", "configure"), 1.0)
+    done.feed(_event("stage", "alpha", "configure", outcome="failed", why="apt failed"), 2.0)
+    done.feed(_event("end", "alpha", "apt failed", outcome="failed"), 2.0)
+    done.feed(_event("end", None, "exit 1", outcome="failed", exit=1), 2.0)
+    assert [failure.why for failure in done.failures] == ["apt failed"]
+    # A stage ended failed for every machine after one machine's failure says why it ended what was still open.
+    fleet = model.Run(DEPLOY, 0.0, ["alpha", "beta"])
+    fleet.feed(_event("stage", "alpha", "configure"), 1.0)
+    fleet.feed(_event("stage", "beta", "configure"), 1.0)
+    fleet.feed(_event("stage", "alpha", "configure", outcome="failed", why="apt failed"), 2.0)
+    fleet.feed(_event("stage", None, "configure", outcome="failed", why="the run stopped configuring"), 3.0)
+    assert fleet.marks("configure") == {"alpha": "failed", "beta": "failed"}
+    assert [(failure.machine, failure.why) for failure in fleet.failures] == [
+        ("alpha", "apt failed"),
+        (None, "the run stopped configuring"),
+    ]
+
+
+def test_a_report_is_kept_whole_and_in_order_each_time_it_is_said() -> None:
+    # C8.md 3: several lines, a control character, a tab, a last line break or none, a megabyte, and one said again.
+    texts = [
+        "alpha: first line\n\tsecond line\x07 with a bell\n",
+        "no last line break",
+        "x" * 1_000_000 + "\nthe end",
+        "alpha: first line\n\tsecond line\x07 with a bell\n",
+    ]
+    run = model.Run(DEPLOY, 0.0, ["alpha"])
+    for now, text in enumerate(texts, 1):
+        run.feed(_event("report", "alpha", text), float(now))
+    assert [report.text for report in run.reports] == texts
+    assert [(report.machine, report.at) for report in run.reports] == [("alpha", float(now)) for now in (1, 2, 3, 4)]
+
+
+@pytest.mark.parametrize(
+    ("outcome", "closed"), [("succeeded", "done"), ("failed", "stopped"), ("cancelled", "stopped")]
+)
+def test_the_runs_end_ends_every_stage_still_open_the_hosts_and_the_quiet_ones_too(outcome, closed) -> None:
+    # C8.md 3: nothing runs once the run has ended, the template, the golden template and the quiet finish among them.
+    run = model.Run(DEPLOY, 0.0, ["alpha"])
+    run.feed(_event("stage", None, "template"), 1.0)
+    run.feed(_event("stage", "alpha", "configure"), 1.0)
+    run.feed(_event("step", "alpha", "claude", stage="sign-in"), 2.0)
+    run.feed(_event("stage", None, "finish"), 2.0)
+    run.feed(_event("stage", None, "golden"), 2.0)
+    run.feed(_event("end", None, "the end", outcome=outcome, exit={"succeeded": 0, "failed": 1}.get(outcome, 130)), 3.0)
+    begun = ("template", "configure", "sign-in", "finish", "golden")
+    assert _states(run) == dict.fromkeys(begun, closed) and run.running() == []
+    assert run.state("sign-in", "claude") == closed and run.marks("sign-in", "claude") == {"alpha": closed}
+
+
+@pytest.mark.parametrize(("outcome", "closed"), [("succeeded", "done"), ("failed", "failed"), ("cancelled", "stopped")])
+def test_a_machines_end_ends_its_open_steps_as_its_outcome_says(outcome, closed) -> None:
+    # C8.md 3: what of a machine is open ends at its end, its steps too; another machine's are left as they are.
+    run = model.Run(DEPLOY, 0.0, ["alpha", "beta"])
+    run.feed(_event("step", "alpha", "claude", stage="sign-in"), 1.0)
+    run.feed(_event("step", "beta", "claude", stage="sign-in"), 1.0)
+    run.feed(_event("end", "alpha", "gone", outcome=outcome), 2.0)
+    assert run.marks("sign-in", "claude") == {"alpha": closed, "beta": "running"}
+    assert run.marks("sign-in") == {"alpha": closed, "beta": "running"}
+
+
+def test_one_machines_wait_for_you_is_never_another_machines_mark() -> None:
+    # C8.md 3: two machines at one stage, one waiting for you; and at one step.
+    run = model.Run(DEPLOY, 0.0, ["alpha", "beta"])
+    run.feed(_event("stage", None, "configure"), 1.0)
+    run.feed(_event("waiting", "alpha", "Answer the question"), 2.0)
+    assert run.marks("configure") == {"alpha": "waiting", "beta": "running"}
+    run.feed(_event("step", "alpha", "claude", stage="sign-in"), 3.0)
+    run.feed(_event("step", "beta", "claude", stage="sign-in"), 3.0)
+    run.feed(_event("waiting", "alpha", ""), 3.0)
+    run.feed(_event("waiting", "beta", SIGN_IN), 4.0)
+    assert run.marks("sign-in", "claude") == {"alpha": "running", "beta": "waiting"}
+    assert run.marks("sign-in") == {"alpha": "running", "beta": "waiting"}
+
+
+def test_a_machines_failed_end_is_said_though_another_machine_failed_before() -> None:
+    # C8.md 3: each failure said once, none lost.
+    run = model.Run(DEPLOY, 0.0, ["alpha", "beta"])
+    run.feed(_event("stage", "alpha", "configure"), 1.0)
+    run.feed(_event("stage", "alpha", "configure", outcome="failed", why="apt failed"), 2.0)
+    run.feed(_event("stage", "beta", "provision"), 2.0)
+    run.feed(_event("end", "beta", "its address never came", outcome="failed"), 3.0)
+    assert [(failure.stage, failure.machine, failure.why) for failure in run.failures] == [
+        ("configure", "alpha", "apt failed"),
+        ("provision", "beta", "its address never came"),
+    ]
+    assert run.mark("beta", "provision") == "failed"
+
+
+def test_a_machine_is_keyed_by_its_identity_and_keeps_the_name_a_person_chose() -> None:
+    # The ruling on C8.md 4: one key for every event of a machine, its identity, as job.json's machines and layer 1's
+    # steps have it; the name beside it, given with the machines or said by an event (layer 1's `name`).
+    run = model.Run(DEPLOY, 0.0, {ALPHA: "alpha"})
+    run.feed(_event("stage", ALPHA, "configure"), 1.0)
+    run.feed(_event("step", ALPHA, "Install baseline packages", status="task", part="common", name="alpha"), 2.0)
+    run.feed(_event("waiting", ALPHA, SIGN_IN), 3.0)
+    run.feed(_event("stage", ALPHA, "configure", outcome="done"), 4.0)
+    run.feed(_event("end", ALPHA, "ready", outcome="succeeded"), 4.0)
+    assert run.machines == [ALPHA] and run.names == {ALPHA: "alpha"} and run.name(ALPHA) == "alpha"
+    assert run.marks("configure") == {ALPHA: "done"} and list(run.latest) == [ALPHA]
+    assert [wait.machine for wait in run.waits] == [ALPHA] and list(run.outcomes) == [ALPHA]
+    # Given identities alone, an event's name says it; a machine never named reads as its key.
+    other = model.Run(DEPLOY, 0.0, [ALPHA, BETA])
+    other.feed(_event("step", BETA, "Gathering Facts", status="ok", part="", name="beta"), 1.0)
+    assert other.machines == [ALPHA, BETA] and other.name(BETA) == "beta" and other.name(ALPHA) == ALPHA
+    # NEXT STEPS by the name a person chose, as today's by VM name, whatever the identities' order.
+    named = model.Run(DEPLOY, 0.0, {BETA: "alpha", ALPHA: "beta"})
+    named.feed(_event("next", ALPHA, "aw login beta --only claude", matter="claude"), 1.0)
+    named.feed(_event("next", BETA, "aw login alpha --only claude", matter="claude"), 1.0)
+    assert named.next_steps() == ["aw login alpha --only claude", "aw login beta --only claude"]
 
 
 def test_deploys_stages_are_todays_labels() -> None:
@@ -589,6 +815,7 @@ def test_deploys_stages_are_todays_labels() -> None:
         lambda: Declared("deploy", (Stage("a", "a"), Stage("a", "b"))),
         lambda: model.Run(object(), 0.0),
         lambda: model.Run(DEPLOY, 0.0, [None]),
+        lambda: model.Run(DEPLOY, 0.0, {ALPHA: 7}),
     ],
 )
 def test_a_declaration_is_held_to_its_form(make) -> None:
