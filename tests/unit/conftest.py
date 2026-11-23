@@ -11,6 +11,7 @@ import shutil
 import statistics
 import subprocess
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 
 import ansible.module_utils
@@ -202,13 +203,15 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
 
 
 @pytest.fixture(autouse=True)
-def aw_home(tmp_path, monkeypatch) -> Path:
+def aw_home(tmp_path) -> Iterator[Path]:
     """AGENT_WAREHOUSE_HOME in this test's own directory, which nothing here makes: the new engine's fleet, its state
     and its key are there and never the developer's, and the harness passes it on to every run (PASSED_ON). Function
-    scoped, as a session-scoped autouse fixture would join every test to one xdist group (_shared)."""
+    scoped, as a session-scoped autouse fixture would join every test to one xdist group (_shared). Set by a
+    MonkeyPatch of its own, undone at its own teardown: a test's monkeypatch.undo() never puts the developer's back."""
     home = tmp_path / "aw-home"
-    monkeypatch.setenv(paths.VARIABLE, str(home))
-    return home
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv(paths.VARIABLE, str(home))
+        yield home
 
 
 def pytest_addoption(parser):

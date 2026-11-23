@@ -7,12 +7,14 @@ Ubuntu's servers. A release and a checksum list are signed by keys tests/unit/si
 the vendors' own files kept in tests/unit/openpgp/, verified with the vendored keys through keys.py's table.
 
 Each refusal is held, and for each the fake's log of the paths asked for shows nothing fetched after it: a manifest or a
-list changed by one byte; a signature by another key, or dated more than a day ahead; a version below the first release
-Anthropic signed, asked for or named by a channel; a document one byte past its cap; a list with no line, or two, for
-the image; an answer that is not a 200, a redirect among them; a certificate that does not verify. What the roles' task
-files hold - the release's pattern, the first signed release, the caps, the files' names, the line of a list - is held
-equal to theirs. The rule with a test of its own: of the new engine, only downloads.py verifies a signature, and only
-keys.py names a vendored key file.
+list changed by one byte; a signature by another key, or dated more than a day ahead; a refusal of openpgp's with no
+words; a version below the first release Anthropic signed, asked for or named by a channel; a document one byte past
+its cap; a list with no line, or two, for the image; an answer that is not a 200, a redirect among them; a certificate
+that does not verify; a list's or a signature's URL that is not one https:// address. A list and its signature come
+from URLs of their own, on two servers, with a pre-signed URL's query, and a key given as its text. What the roles'
+task files hold - the release's pattern, the first signed release, the caps, the files' names, the line of a list - is
+held equal to theirs. The rule with a test of its own: of the new engine, only downloads.py verifies a signature, by
+any road an import or a name read off a module has, and only keys.py names a vendored key file.
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ from signing import Signer
 from test_aw_layout import _imported, _package, _within
 from test_aw_transport import _new_engine, _rel
 
+from claude_vm import openpgp
 from claude_vm.vendors import downloads, keys
 from claude_vm.vendors.downloads import (
     DOCUMENT_MOST,
@@ -46,7 +49,8 @@ from claude_vm.vendors.downloads import (
     Release,
     Unverified,
     claude_release,
-    ubuntu_digest,
+    listed_digest,
+    signed_digest,
 )
 from claude_vm.vendors.transport import Untrusted
 
@@ -144,7 +148,15 @@ class Vendor:
         return claude_release(f"{self.base}/claude", wanted, **{"key": self.key, **kwargs})
 
     def ubuntu(self, file_name: str = IMAGE, folder: str = FOLDER, **kwargs) -> str:
-        return ubuntu_digest(f"{self.base}/ubuntu", folder, file_name, **{"key": self.key, **kwargs})
+        listed = f"{self.base}/ubuntu/{folder}/SHA256SUMS"
+        return signed_digest(listed, listed + ".gpg", file_name, **{"key": self.key, **kwargs})
+
+
+def _served(root: Path, pki: dict):
+    """The fake download server over TLS, serving root's files: its process and its address."""
+    root.mkdir()
+    server, port = _start(FAKE, str(root), "--tls", str(pki["cert"]), str(pki["key"]))
+    return server, f"https://127.0.0.1:{port}"
 
 
 @pytest.fixture
@@ -152,11 +164,20 @@ def vendor(tmp_path, pki, signer, monkeypatch):
     _certifi(monkeypatch, tmp_path, pki["ca"])
     key = tmp_path / "vendor.asc"
     key.write_text(signer.public())
-    root = tmp_path / "served"
-    root.mkdir()
-    server, port = _start(FAKE, str(root), "--tls", str(pki["cert"]), str(pki["key"]))
+    server, base = _served(tmp_path / "served", pki)
     try:
-        yield Vendor(root, f"https://127.0.0.1:{port}", keys.Key(key, signer.fingerprint))
+        yield Vendor(tmp_path / "served", base, keys.Key(key, signer.fingerprint))
+    finally:
+        server.terminate()
+        server.wait(timeout=10)
+
+
+@pytest.fixture
+def second(tmp_path, pki):
+    """A second download server, at another address: a list's signature may be served by another host than the list."""
+    server, base = _served(tmp_path / "second", pki)
+    try:
+        yield Vendor(tmp_path / "second", base, keys.UBUNTU_CLOUD_IMAGE)
     finally:
         server.terminate()
         server.wait(timeout=10)
@@ -225,17 +246,40 @@ def test_ubuntu_s_own_list_verifies_by_the_vendored_key(vendor) -> None:
     vendor.put(f"ubuntu/{FOLDER}/SHA256SUMS", listing)
     vendor.put(f"ubuntu/{FOLDER}/SHA256SUMS.gpg", (FIXTURES / "ubuntu-SHA256SUMS.gpg").read_bytes())
     (expected,) = _today_s_digests(listing, REAL_IMAGE)
-    assert ubuntu_digest(f"{vendor.base}/ubuntu", FOLDER, REAL_IMAGE) == expected
+    listed = f"{vendor.base}{SUMS}"
+    assert signed_digest(listed, listed + ".gpg", REAL_IMAGE) == expected
     assert vendor.asked() == [SUMS, SUMS_SIGNATURE]
     vendor.put(f"ubuntu/{FOLDER}/SHA256SUMS", _changed(listing, 100))
     with pytest.raises(Unverified, match="the data is not what was signed\\Z"):
-        ubuntu_digest(f"{vendor.base}/ubuntu", FOLDER, REAL_IMAGE)
+        signed_digest(listed, listed + ".gpg", REAL_IMAGE)
 
 
 def test_the_image_s_digest_comes_from_the_one_line_that_names_it(vendor, signer) -> None:
     vendor.sums(signer)
     assert vendor.ubuntu() == IMAGE_DIGEST
     assert vendor.asked() == [SUMS, SUMS_SIGNATURE]
+
+
+def test_a_list_and_its_signature_from_two_hosts_of_their_own_names_verify(vendor, second, signer) -> None:
+    # A person's own signed image: a list of another name, with a pre-signed URL's query, and its signature of another
+    # name on another server. Each document is fetched from its own URL, the query sent as it was given.
+    listing = vendor.sums(signer)
+    vendor.put("images/CHECKSUMS", listing)
+    second.put("keys/CHECKSUMS.sig", signer.sign(listing))
+    listed = f"{vendor.base}/images/CHECKSUMS?X-Signature=a%2Bb~c&expires=1"
+    digest = signed_digest(listed, f"{second.base}/keys/CHECKSUMS.sig", IMAGE, key=vendor.key)
+    assert digest == IMAGE_DIGEST
+    assert vendor.asked() == ["/images/CHECKSUMS?X-Signature=a%2Bb~c&expires=1"]
+    assert second.asked() == ["/keys/CHECKSUMS.sig"]
+
+
+def test_a_key_given_as_its_text_verifies_with_the_fingerprint_it_is_found_by(vendor, signer, stranger) -> None:
+    vendor.sums(signer)
+    spaced = " ".join(signer.fingerprint[at : at + 4] for at in range(0, 40, 4)).lower()
+    assert vendor.ubuntu(key=signer.public(), fingerprint=spaced) == IMAGE_DIGEST
+    # Another key's text, by its own fingerprint: the list is not signed by it.
+    with pytest.raises(Unverified, match=f"does not verify by the key {stranger.fingerprint}: a signature by another"):
+        vendor.ubuntu(key=stranger.public(), fingerprint=stranger.fingerprint)
 
 
 # ------------------------------------------------------------------------------------- what is refused ----
@@ -415,10 +459,20 @@ def test_a_checksum_list_that_names_the_image_not_once_is_refused(vendor, signer
     with pytest.raises(NotListed) as refused:
         vendor.ubuntu()
     assert str(refused.value) == (
-        f"Ubuntu's signed checksum list {vendor.base}/ubuntu/{FOLDER}/SHA256SUMS names"
-        f' "{IMAGE}" {times} times, not once'
+        f'the signed checksum list {vendor.base}/ubuntu/{FOLDER}/SHA256SUMS names "{IMAGE}" {times} times, not once'
     )
     assert vendor.asked() == [SUMS, SUMS_SIGNATURE]
+
+
+def test_an_unsigned_list_is_read_by_the_same_line_reader_and_no_signature_is_asked_for(vendor, signer) -> None:
+    # An image held to its checksum alone, sha256:<the URL of a list>: the same lines, the same refusals.
+    vendor.sums(signer)
+    assert listed_digest(f"{vendor.base}{SUMS}", IMAGE) == IMAGE_DIGEST
+    assert vendor.asked() == [SUMS]
+    vendor.sums(signer, _sums(f"{IMAGE_DIGEST} *{IMAGE}", f"{'2' * 64}  {IMAGE}"))
+    with pytest.raises(NotListed) as refused:
+        listed_digest(f"{vendor.base}{SUMS}?token=x", IMAGE)
+    assert str(refused.value) == f'the checksum list {vendor.base}{SUMS}?… names "{IMAGE}" 2 times, not once'
 
 
 @pytest.mark.parametrize(
@@ -443,6 +497,9 @@ def test_a_platform_the_manifest_names_with_no_sha_256_or_by_no_platform_s_name_
     platforms = {
         "linux-x64": {"checksum": DIGEST},
         "linux-arm64": {"checksum": "sha256:" + DIGEST},
+        "linux-x64-musl": {"checksum": DIGEST + "0"},
+        "darwin-x64": {"checksum": DIGEST + "\n"},
+        "linux-x64/x": {"checksum": DIGEST},
         "../linux": {"checksum": DIGEST},
         "Linux-X64": {"checksum": DIGEST},
         "darwin-arm64": "not an entry",
@@ -483,7 +540,7 @@ def test_a_certificate_that_does_not_verify_sends_nothing(
     other = tmp_path / "other"
     other.mkdir()
     _certifi(monkeypatch, other, other_pki["ca"])
-    for call in (vendor.claude, vendor.ubuntu):
+    for call in (vendor.claude, vendor.ubuntu, lambda: listed_digest(f"{vendor.base}{SUMS}", IMAGE)):
         with pytest.raises(Untrusted):
             call()
     assert vendor.asked() == []
@@ -495,30 +552,32 @@ def test_a_certificate_that_does_not_verify_sends_nothing(
 
 
 @pytest.mark.parametrize(
-    "folder",
+    ("url", "said"),
     [
-        "",
-        "/",
-        "noble/",
-        "/noble",
-        "noble//release",
-        "..",
-        "noble/../release",
-        ".",
-        "noble/./release",
-        "noble/release?x",
-        "noble/release#x",
-        "noble release",
-        "noble\n",
-        "nöble",
-        7,
-        None,
+        ("http://{host}" + SUMS, "is an https:// address, fetched over https only"),
+        ("ftp://{host}" + SUMS, "is an https:// address, fetched over https only"),
+        ("https://" + SUMS, "is an https:// address, fetched over https only"),
+        ("https://127.0.0.1:0" + SUMS, "is an https:// address, fetched over https only"),
+        ("https://127.0.0.1:99999" + SUMS, "is an https:// address, fetched over https only"),
+        ("https://user:pass@{host}" + SUMS, "has no user, password or fragment"),
+        ("https://{host}" + SUMS + "#x", "has no user, password or fragment"),
+        ("https://{host}" + SUMS + " x", "one word of visible ASCII"),
+        ("https://{host}" + SUMS + "\n", "one word of visible ASCII"),
+        ("https://{host}" + SUMS + "\t", "one word of visible ASCII"),
+        ("", "one word of visible ASCII"),
     ],
 )
-def test_a_folder_that_is_not_one_is_refused_before_anything_is_fetched(vendor, signer, folder) -> None:
+def test_a_list_s_or_a_signature_s_url_that_is_not_one_is_refused_before_anything_is_fetched(vendor, signer, url, said):
     vendor.sums(signer)
-    with pytest.raises(ValueError, match="a release's folder is one or more names under the base address"):
-        vendor.ubuntu(folder=folder)
+    host = vendor.base.removeprefix("https://")
+    good = f"{vendor.base}{SUMS}"
+    for listed, signature in ((url.format(host=host), good + ".gpg"), (good, url.format(host=host))):
+        with pytest.raises(ValueError, match=re.escape(said)):
+            signed_digest(listed, signature, IMAGE, key=vendor.key)
+    with pytest.raises(ValueError, match=re.escape(said)):
+        listed_digest(url.format(host=host), IMAGE)
+    with pytest.raises(TypeError, match="URL is a str"):
+        signed_digest(None, good + ".gpg", IMAGE, key=vendor.key)
     assert vendor.asked() == []
 
 
@@ -532,15 +591,37 @@ def test_a_file_name_that_is_not_one_is_refused_before_anything_is_fetched(vendo
 
 def test_a_base_that_is_not_https_or_a_key_that_is_not_one_is_refused(vendor, signer) -> None:
     vendor.release(signer)
+    vendor.sums(signer)
     plain = vendor.base.replace("https://", "http://")
     with pytest.raises(ValueError, match="the transport takes an https:// address only"):
         claude_release(f"{plain}/claude", RELEASE, key=vendor.key)
-    with pytest.raises(ValueError, match="the transport takes an https:// address only"):
-        ubuntu_digest(f"{plain}/ubuntu", FOLDER, IMAGE, key=vendor.key)
-    for call in (lambda: vendor.claude(key=vendor.key.armored()), lambda: vendor.ubuntu(key=signer.fingerprint)):
-        with pytest.raises(TypeError, match="the key is a keys.Key"):
+    refusals = [
+        (lambda: vendor.claude(key=vendor.key.armored()), TypeError, "the key is a keys.Key"),
+        (lambda: vendor.ubuntu(key=7), TypeError, "the key is a keys.Key, or the armored text"),
+        (lambda: vendor.ubuntu(fingerprint=signer.fingerprint), TypeError, "names its own fingerprint"),
+        (lambda: vendor.ubuntu(key=signer.fingerprint), ValueError, "not one ASCII-armored PGP public key block"),
+        (lambda: vendor.ubuntu(key=signer.public()), ValueError, "comes with the fingerprint it is found by"),
+        (lambda: vendor.ubuntu(key=signer.public(), fingerprint="ABCD"), ValueError, "40 hex digits"),
+    ]
+    for call, error, said in refusals:
+        with pytest.raises(error, match=re.escape(said)):
             call()
     assert vendor.asked() == []
+
+
+def test_a_refusal_of_openpgp_s_with_no_words_is_a_refusal(vendor, stranger, monkeypatch) -> None:
+    # Whether a document verified is decided by whether openpgp.verify returned, never by what its refusal says: a
+    # Refused with no words, which no raise of today's openpgp.py makes, would otherwise hand back a stranger's release.
+    vendor.release(stranger)
+    vendor.sums(stranger)
+
+    def wordless(*args, **kwargs) -> None:
+        raise openpgp.Refused()
+
+    monkeypatch.setattr(openpgp, "verify", wordless)
+    for call in (vendor.claude, vendor.ubuntu):
+        with pytest.raises(Unverified, match=r"does not verify by the key [0-9A-F]{40}: no reason given\Z"):
+            call()
 
 
 # ------------------------------------------------------------------------ held equal to today's roles ----
@@ -564,10 +645,15 @@ def test_the_caps_and_the_files_are_the_install_s() -> None:
 
 
 def test_the_list_and_its_signature_are_the_template_s() -> None:
+    # Today's settings give the list and its signature as two URLs, which signed_digest takes as they are: the list's
+    # (sha256:<its URL>), and the signature's, <the list's URL>.gpg by default for Ubuntu's own.
     defaults = yaml.safe_load(TEMPLATE_DEFAULTS.read_text())
-    assert defaults["proxmox_template_image_checksum"].endswith("/" + downloads.SUMS)
+    listed = defaults["proxmox_template_image_checksum"].removeprefix("sha256:")
+    assert downloads._split(listed, "checksum list") == (
+        "https://cloud-images.ubuntu.com",
+        "/minimal/releases/noble/release/SHA256SUMS",
+    )
     assert "~ '.gpg'" in defaults["proxmox_template_image_signature"]
-    assert downloads.SUMS_SIGNATURE == downloads.SUMS + ".gpg"
     assert keys.UBUNTU_CLOUD_IMAGE.fingerprint == defaults["proxmox_template_image_fingerprint"]
     # The line today's role reads the digest from, by its own pattern.
     assert "regex_findall('(?m)^([0-9a-f]{64}) [ *]' ~" in IMAGE_SIGNATURE.read_text()
@@ -605,8 +691,18 @@ KEY_FILES = ("claude-code.asc", "ubuntu-cloudimage.asc")
 
 
 def _verifies(text: str, path: Path) -> bool:
-    """Whether a module imports today's openpgp, by any road an import statement has."""
-    return any(_within(module, ("openpgp",)) for module in _imported(ast.parse(text), _package(path), every=True))
+    """Whether a module reaches today's openpgp: by any road an import statement has, by a name of downloads.py's
+    taken from it (its openpgp or verify), or by openpgp read off any name (downloads.openpgp.verify)."""
+    tree = ast.parse(text)
+    if any(_within(module, ("openpgp",)) for module in _imported(tree, _package(path), every=True)):
+        return True
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr == "openpgp":
+            return True
+        if isinstance(node, ast.ImportFrom) and any(alias.name in ("openpgp", "verify") for alias in node.names):
+            if any(_within(module, ("vendors.downloads",)) for module in _imported(node, _package(path))):
+                return True
+    return False
 
 
 def test_only_downloads_verifies_a_signature_and_only_keys_names_a_key_file() -> None:
@@ -631,12 +727,19 @@ def test_only_downloads_verifies_a_signature_and_only_keys_names_a_key_file() ->
         "from claude_vm.openpgp import Refused",
         "import claude_vm.openpgp",
         "def f():\n    from .. import openpgp\n",
+        "from claude_vm.vendors.downloads import openpgp",
+        "from ..vendors.downloads import openpgp",
+        "from ..vendors.downloads import verify",
+        "from ..vendors import downloads\ndownloads.openpgp.verify(data, signature, key, fingerprint)",
     ],
 )
 def test_the_scan_sees_each_way_to_openpgp(source) -> None:
     assert _verifies(source, REPO / "lib" / "claude_vm" / "engine" / "x.py")
     assert not _verifies(
         "from . import keys\nfrom ..text import plain_text", REPO / "lib" / "claude_vm" / "vendors" / "x.py"
+    )
+    assert not _verifies(
+        "from ..vendors.downloads import signed_digest", REPO / "lib" / "claude_vm" / "engine" / "x.py"
     )
 
 

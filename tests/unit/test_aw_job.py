@@ -9,8 +9,10 @@ start; the lock is asked before the record, so a run that ends just after its re
 lost; a child that outlives its killed run holds no lock; a job dropped leaves no record, unlinked while the drop holds
 the folder's lock, a writer racing the drop lands its change before it or is refused, and the drop never fails on what
 it cannot remove and says where the record is left; a handle read across another process's drop is no such job,
-never running or lost; a change is refused as Gone only where the record is gone or is no record, any other error of
-the read raised as itself; and a reader never fails on a folder half removed.
+never running or lost; a change is refused as Gone only where the record is gone or is no record (a record nested past
+what is read, or a directory at its name, among them), any other error of the read raised as itself; a lock that cannot
+be read is an error, never a free lock, so a living run is never read as lost for a descriptor limit or a folder's
+mode; and a reader never fails on a folder half removed.
 """
 
 from __future__ import annotations
@@ -50,7 +52,10 @@ SECRET = "unit-test-aw-job-secret"
 # The modules of runs/ that may import claude_vm.proc, the walk of the process table, each with why: to end a run's
 # tree, never to decide a state.
 PROCESS_TABLE: dict[str, str] = {
-    "claude_vm/runs/attached.py": "a run's end: the tree under the run remembered at a Ctrl-C, and ended by end_under",
+    "claude_vm/runs/attached.py": (
+        "a run's end: the tree under the run remembered at a Ctrl-C, and ended by end_under; and what under it a"
+        " terminal stopped in a group of its own, said and ended (stopped_under)"
+    ),
 }
 # What reads a process's start or the process table, in any module of runs/: ps's start column, Linux's /proc, a
 # library of processes, today's MCP jobs' reading of a start (mcp/jobs.py's started, desktop.py's PS_ENV), a pidfd.
@@ -452,10 +457,13 @@ def test_only_the_run_that_made_a_job_emits_listens_or_drops(jobs_dir, home) -> 
         for act in (
             lambda: found.emit("report", "alpha", "x"),
             lambda: found.listen(print),
-            lambda: jobs.drop(found),
         ):
             with pytest.raises(RuntimeError, match="not this process's"):
                 act()
+        with pytest.raises(
+            RuntimeError, match="held by no lock of this process's: dropped already, or made by another"
+        ):
+            jobs.drop(found)
         assert _folder(found) == before and jobs.state(found) == "running"
         assert _go(run) == 0
 
@@ -761,10 +769,15 @@ def test_a_create_that_fails_once_its_record_is_written_says_where_the_record_is
 
 
 def test_a_job_is_dropped_once(made) -> None:
-    # A refused run drops its job once (runs.run, card C6): a second drop of it is the caller's mistake, said.
+    # A refused run drops its job once (runs.run, card C6): a second drop of it is the caller's mistake, said as what it
+    # is, never as a job of another process's (review/code/C21.md 4).
     assert jobs.drop(made) is None
-    with pytest.raises(RuntimeError, match="only the run that made a job drops it"):
+    with pytest.raises(RuntimeError) as raised:
         jobs.drop(made)
+    assert str(raised.value) == (
+        f"job {made.id} is held by no lock of this process's: dropped already, or made by another, and only the run"
+        " that made a job drops it, once"
+    )
 
 
 def test_a_drop_that_could_not_take_the_folder_s_lock_says_only_what_is_left(made, monkeypatch) -> None:
@@ -869,13 +882,98 @@ def test_a_change_is_refused_as_gone_only_where_the_record_is_gone(made, monkeyp
     assert _folder(made) == before
 
 
-@pytest.mark.parametrize("written", [b"{", b"[]", b"\xff\xfe", b""])
+# A record nested past what Python's parser takes, which it says as a RecursionError (review/code/C21.md 3).
+DEEP = b"[" * 200_000 + b"]" * 200_000
+
+
+@pytest.mark.parametrize("written", [b"{", b"[]", b"\xff\xfe", b"", DEEP], ids=["{", "[]", "utf-8", "empty", "deep"])
 def test_a_record_that_is_no_record_is_refused_to_a_writer_as_one_that_cannot_be_read(made, written) -> None:
     # Damaged by an outside hand, since a record is replaced whole: refused, and left as it is; a reader reads it as {}.
     made.record.write_bytes(written)
     with pytest.raises(jobs.Gone, match="cannot be read"):
         made.update(deadline=1.0)
     assert made.record.read_bytes() == written and made.read() == {} and jobs.state(made) == "running"
+
+
+def test_a_record_nested_past_what_is_read_fails_no_listing_of_the_other_jobs(jobs_dir, made) -> None:
+    # One such folder made every listing raise, and so `logs` for every job (review/code/C21.md 3): it is passed over.
+    damaged = _made(jobs_dir)
+    try:
+        damaged.record.write_bytes(DEEP)
+        assert damaged.read() == {} and jobs.state(damaged) == "running"
+        assert [job.id for job in jobs.listed(jobs_dir)] == [made.id]
+    finally:
+        damaged.record.unlink()
+        jobs.drop(damaged)
+
+
+def test_a_directory_where_the_record_goes_is_no_record(made) -> None:
+    made.record.unlink()
+    made.record.mkdir()
+    try:
+        with pytest.raises(jobs.Gone, match="cannot be read"):
+            made.update(deadline=1.0)
+        assert made.read() == {} and jobs.state(made) == "running" and made.record.is_dir()
+    finally:
+        made.record.rmdir()
+
+
+# ---------------------------------------------------------------- a lock that cannot be read ----
+
+
+@pytest.mark.parametrize(
+    "error",
+    [OSError(errno.EMFILE, "Too many open files"), PermissionError(errno.EACCES, "Permission denied")],
+    ids=["EMFILE", "EACCES"],
+)
+def test_a_lock_that_cannot_be_read_is_an_error_never_a_free_lock(jobs_dir, home, monkeypatch, error) -> None:
+    # Read as free, a living run read lost under a descriptor limit, and another process's rundir.remove then took its
+    # directory (review/code/C21.md 1). Only a lock file that is gone is free.
+    with _run(jobs_dir, "succeeded", home) as (run, (job_id,)):
+        found = jobs.find(jobs_dir, job_id)
+        assert found is not None and jobs.lock_held(found) and jobs.state(found) == "running"
+        real = os.open
+
+        def refused(where, *given, **named):
+            if os.fspath(where) == os.fspath(found.lock):
+                raise error
+            return real(where, *given, **named)
+
+        monkeypatch.setattr(os, "open", refused)
+        for asked in (jobs.lock_held, jobs.state):
+            with pytest.raises(OSError) as raised:
+                asked(found)
+            assert raised.value is error
+        monkeypatch.undo()
+        assert jobs.state(found) == "running"
+        assert _go(run) == 0
+    # Once the run has ended, the lock is free and the job reads its outcome.
+    assert not jobs.lock_held(found) and jobs.state(found) == "succeeded"
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root opens what a file's mode forbids")
+def test_a_lock_whose_mode_forbids_its_read_is_said_as_that_error(jobs_dir, home) -> None:
+    with _run(jobs_dir, "succeeded", home) as (run, (job_id,)):
+        found = jobs.find(jobs_dir, job_id)
+        found.lock.chmod(0)
+        try:
+            with pytest.raises(PermissionError):
+                jobs.state(found)
+        finally:
+            found.lock.chmod(0o600)
+        assert jobs.state(found) == "running"
+        assert _go(run) == 0
+
+
+def test_a_lock_that_is_gone_is_free_and_a_job_whose_record_is_gone_is_none(jobs_dir, made) -> None:
+    gone = _made(jobs_dir)
+    assert jobs.lock_held(gone)
+    jobs.drop(gone)
+    # The folder gone, and the lock with it: free, and no such job.
+    assert not jobs.lock_held(gone) and jobs.state(gone) is None
+    # The jobs folder a file where a job's folder goes: not a directory, so free too.
+    other = jobs.Job(made.record / "0123456789abcdef")
+    assert not jobs.lock_held(other) and jobs.state(other) is None
 
 
 # ---------------------------------------------------------------- the rules ----

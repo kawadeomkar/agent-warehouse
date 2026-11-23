@@ -49,7 +49,8 @@ Beside the subpackages, `lib/claude_vm/secret.py` holds what the engine wraps a 
 `Secret`, which `repr`, `str`, an f-string, `format` and a log line show as a mark, which refuses to be pickled or
 turned into JSON, and whose plain value only `reveal()` reads, at the one place that sends it on.
 `tests/unit/test_aw_guards.py` holds the modules that call `reveal()` to its `REVEALS`, each with the reason it sends
-the secret on; the list is empty until the first one does. The engine's tests, `tests/unit/test_aw_*.py`, run alone
+the secret on: the transport (16.7), for a request's header or form, and the SSH runner (16.6), for a child's standard
+input. The engine's tests, `tests/unit/test_aw_*.py`, run alone
 with `just test engine`, are kept off this machine in their own process as a run of `tools/aw` is, and reach `tools/aw`
 only through their kit ([§11.1](testing.md#111-unit--just-test-unit)).
 
@@ -257,7 +258,10 @@ environment does not exist yet, saying so on standard error before it runs the p
 writes `uv.lock` and needs no environment; and for its one word of its own, `--install-env`, which `aw install`'s run
 passes it as a child carrying the job's marker, `AGENT_WAREHOUSE_JOB`, and which is refused, naming `aw install`,
 without it. It never installs into a virtualenv of the person's own unasked: the program names `aw install` where one
-lacks the packages.
+lacks the packages. It hands the program no job's marker it inherited: past `--install-env`, which reads it,
+`AGENT_WAREHOUSE_JOB` is unset, so the program's own environment, as the system shows it, carries none; and `main.py`
+takes one out of its environment at its start too, for `tools/aw` run directly, so that a child a run starts outside
+`children.start` (16.8) carries no other job's ID.
 
 `tests/unit/test_aw_cli_parse.py` holds all of it: every option of every verb in both spellings, the refusals and that
 none says a value or has a usage block, `--detach`, `default_vm`, `RunWords`, in `run_words` and in the program, the
@@ -594,7 +598,211 @@ call writes a pool and that the role on the pool holds no `Pool.*` privilege but
 
 `lib/claude_vm/ssh/` is where the runner over OpenSSH goes. It runs `ssh` as a child under hard limits, takes a
 machine's host key at first use and files it under the machine's identity, keeps one shared control directory, and holds
-the `ssh` children a run holds. It imports `schema/`, and nothing of `engine/`, `cli/` or `control/`, and no pydantic.
+the `ssh` children a run holds. It imports `schema/`, `runs/` for the one way a child is started, `fleet/` for the modes
+of a file it makes, and `secret.py`; of today's modules what `REUSED` names (`checks`, `route`, `store` and `text`), and
+nothing of `status/`, which makes TLS contexts; nothing of `engine/`, `cli/` or `control/`, and no pydantic.
+
+**A target: `runner.py`'s `Target`.** A frozen record of everything a connection is made from, each value held before
+any child starts: the machine's identity (`checks.HOST_KEY_ALIAS_RE`, `agent-warehouse-<its SMBIOS UUID>`); the one IPv4
+address it is reached at, the one value a machine supplies, held with `ipaddress.IPv4Address` and never `0.0.0.0`,
+loopback, multicast, the reserved range or broadcast; the account and the port; the known-hosts file its key is checked
+against, the product's own `~/.ssh/agent-warehouse.known_hosts` (`KNOWN_HOSTS`), one file for every fleet beside the
+person's own, which the editor's alias names too, or a scratch file; the one shared control directory, of plain
+characters, where a machine whose socket's path would pass 86 bytes, the most macOS binds (a long home), takes no shared
+connection (`shared`: each of its connections logs in alone, `ControlPath=none`); an identity file or
+none (this computer's `claude_ssh_identity_file`); the hop through the Proxmox host or none (`Hop`, the route settles
+it: route.py's `ProxyCommand` to the machine's own address, and its connection's name); the person's own options for the
+machine (the setting `vm_ssh_options`); whether this is a first use; and the `ssh` program. `machine()` makes one. The
+Proxmox host is its second form, `proxmox_host()`, for root SSH and as the hop: no identity, its account, port and
+address from the host's file, its key from this computer's, and its settings held by `route.hop_settings`, the rules the
+hop is made by, whose socket's name it shares. From a home so long that the hop's socket would pass `route.SOCKET_MOST`
+it is still made, so that a route of `direct` can be settled for it, and a connection to it is refused before anything
+starts (`HOST_TOO_LONG`, naming a shorter home), since every one rides the hop's shared connection.
+
+- **A person's own options.** `vm_ssh_options` is a mapping of `ssh`'s option names to values, given as `-o Name=value`
+  after the product's options: `ssh` keeps the first value it is given, so a person's option changes whatever the
+  product leaves, a `ProxyJump` or a `ProxyCommand` among them, and never a value it pins. What the product writes
+  itself is refused by name - `HostKeyAlias`, `UserKnownHostsFile`, `CheckHostIP`, `UpdateHostKeys`, `BatchMode`,
+  `ControlPath`, `ControlMaster`, `ForwardAgent` (`claude_ssh_forward_agent`'s), `IdentityFile`
+  (`claude_ssh_identity_file`'s), and `HostName`, `User` and `Port`, where and as whom it connects - and
+  `StrictHostKeyChecking` may be given only as `yes`. So is what would undo what every connection holds
+  (`UNDOING_OPTIONS`): `StdinNull`, which would leave a secret never arrived while the call reads `Done`;
+  `ForkAfterAuthentication`, which takes `ssh` out of its group and the run's reach; `SessionType` and `RemoteCommand`,
+  another command or none; `ForwardX11`, `ForwardX11Trusted` and `ForwardX11Timeout`; and `PermitLocalCommand` and
+  `LocalCommand`, a program run here for each connection. A machine given a jump of its own takes no hop.
+- **A first use.** A machine's first connection - one the run created, one being adopted, or the first a changing verb
+  makes from a computer that has filed no key for it - takes the key with `StrictHostKeyChecking=accept-new` into a
+  fresh scratch file of its own, under the machine's identity as `HostKeyAlias` and never by its address, and never into
+  the product's file or the person's own; the caller files the key it took, and every later connection checks the
+  product's file with `yes`. A first use is a connection of its own (`ControlPath=none`): a master of the identity and
+  the address that still lives would carry it, and `ssh` would write no key. The Proxmox host's key is taken at first
+  use into the person's own `known_hosts`, as `ansible.cfg`'s `ssh_args` take it today.
+
+**A host key: `hostkeys.py`.** A machine's key is filed under its identity in the product's own known-hosts file, and no
+function there takes an address. `parse` holds one line of a public key: its type one of `checks.KNOWN_KEY_TYPES`, its
+body the base64 (`checks.KNOWN_KEY_RE`) of a key of that very type, its comment left off; an option or a name before
+the type, a second line and a control character are refused, and nothing of the line is said back. `line` is the
+known-hosts line under the identity. `kept` reads the product's file as `ssh` reads it - a name, names and patterns
+split by commas with `*`, `?` and `!`, or a name `ssh` hashed under `HashKnownHosts` - and returns the keys filed under
+the identity, passing over a comment, a marker's line and a key of a type it does not file. `file` adds the line under
+`store.locked`, the lock on the file's folder that every writer through `store` takes, reading the file only once it
+holds it, so that two writers at once lose neither line: only where no key of the key's type is filed for the identity
+(the three ECDSA curves count as one), and where another is, it raises `Changed`, which names both fingerprints and the
+`ssh-keygen -R` that takes the old one out, the file left byte for byte. It never replaces or removes a line, so a
+deleted machine's key stays under an identity no machine made later has. For a first use, `fresh` makes an empty
+scratch file, 0600, in the run's own directory, named for the identity, which is the file a first use's `Target`
+names; `taken` reads back the one line `ssh` wrote there - three words, under the identity by name or hashed - and
+refuses a file with no line, two, or one under another name, an address among them, with nothing filed. The caller
+shows the key where it asks a person (an adopted machine's question) and files it with `file`, by name, never by the
+hash `ssh` wrote. Neither ever reads or writes the person's own `known_hosts`.
+
+**The command line.** `argv(target, command)` is `ssh`, then the product's options, then the hop's, then the person's,
+then `-l <account> -p <port> -- <address>` and the command joined with `shlex.join`; every value is one word and none
+passes a shell. No `-F`: the person's own `~/.ssh/config` is read, as today, where a key, an agent or a jump of theirs
+is named. The product's options, in order: `checks.vm_ssh_args` as it stands (the known-hosts file, `CheckHostIP=no`,
+`UpdateHostKeys=no`, `HostKeyAlias` the identity, `ForwardAgent=no`; for the Proxmox host `UpdateHostKeys=no` and
+`ForwardAgent=no` alone), `ControlPath=<the shared directory>/<checks.vm_control_name>-%r-%p` (`none` for a first use),
+`ControlMaster=no`, `BatchMode=yes`, `ForwardX11=no` and `PermitLocalCommand=no` (pinned, where a person's
+`ForwardX11 yes`, or Ubuntu's own `ForwardX11Trusted yes`, would hand the machine this computer's display),
+`StrictHostKeyChecking=yes` (or `accept-new` for the two forms above), `ConnectTimeout=10`, `ServerAliveInterval=15`,
+`ServerAliveCountMax=3`, `PreferredAuthentications=publickey`, `ClearAllForwardings=yes`, `RequestTTY=no`,
+`LogLevel=ERROR`, and the identity file where there is one. `BatchMode=yes` on every `ssh` the engine starts means a key
+that wants a passphrase fails in one sentence and never waits at a terminal it cannot reach. Every connection
+authenticates by public key alone, the Proxmox host's too: today's Ansible connection also offers GSSAPI and host-based
+authentication, and those are added only if someone asks. `ControlMaster=no` means a child rides a master the engine
+opened in the shared directory (`connections.py`'s `ensure`), or connects alone where none lives, and is never a master
+itself. The hop's own `ssh`
+keeps `LogLevel=INFO`, which route.py pins because it reads `ssh`'s words, and the new engine's pins `ForwardX11=no` and
+`PermitLocalCommand=no` first on every line it is run with, the `ProxyCommand` a machine is given among them
+(`route.hop_settings`' `pinned`, which today's callers do not pass): a master the hop's open makes, or a `ProxyCommand`'s
+`ssh` that finds none live and becomes one, would otherwise run a person's `LocalCommand` here. `ansible_vars(target)` gives layer 1's
+Ansible child the address, the port, the account, the program and `ansible_ssh_common_args` holding exactly the same
+options in the same order, so that its `ssh`, `sftp` and `scp` ride the same master and a jump of the person's reaches
+the file transfers too.
+
+**A bounded call.** `run(job, target, command, stdin, limits, env, started)` is a coroutine. The child is started
+through `children.start` as an `ssh` child of the job's run, in a process group of its own, with `env` and the job's
+marker, entered in the run's registry; `started` is handed asyncio's process object, never a bare pid. Its standard
+input is written, drained and closed: bytes, text, a `Secret` or a list of them, a `Secret` revealed in `_bytes` alone,
+so a password or a code is never in a word, a variable or a file. Its standard output is read a line at a time under
+`Limits`: a bound for one line, one for the whole, a deadline, and a time to say anything at all; its standard error is
+kept to a fixed size, and read to its end so the child never blocks on it. On a breach the child's group is killed, its
+`ProxyCommand` with it. The result is `Done(status, lines, said)`, or `Cut` (a line past its bound, more than the whole,
+a line with no end), `Silent`, `TimedOut` or `Unreachable(said, lines, heard)` (status 255), each line and `said` made
+plain (`text.plain_text`). The default limits are today's, `status/reach.py`'s, held equal by the test: a line of 16
+MiB, 45 s, 20 s to say anything, 64 KiB of standard error, and four of the longest lines in all. A call cancelled by its
+run ends its child's group too.
+
+- **255 is `ssh`'s or the command's own.** `ssh` exits 255 where it could not reach the machine or lost it, and also
+  where the command on the machine exited 255 or was ended by a signal, which `ssh` has no status to pass on for.
+  `Unreachable` keeps the lines the command printed and whether the machine was heard at all (`heard`: any byte on
+  standard output), so a 255 after output reads as a command that ended without a status, and a caller that tries an
+  unreachable machine again never takes a command that ran for one never reached.
+- **The local `ssh` is ended, never the command on the machine.** A breach, a cancel and a held child's `end()` end the
+  `ssh` here: with no terminal on the session, `sshd` sends the command no signal, so one that neither reads its input
+  nor writes goes on after `TimedOut`, `Cut`, `Silent` and `end()`, as under today's Ansible. A caller whose command
+  changes something bounds it on the machine (`timeout`) or reads its state again.
+
+**A held child.** The sign-ins hold their own `ssh` children. `hold(job, target, command, env, started, deadline)`
+starts the same command line the same way and returns a `Held`: `send(line)` writes one line to the child's open
+standard input, a `Secret` revealed only there; `lines()` yields what the child prints while it runs, a line at a time
+under the same bounds; `close()` closes its standard input; `end()` ends its group, `SIGTERM` and then `SIGKILL`;
+`result()` reads what is left and says how it ended. Its deadline is the caller's; the run's end ends every held child
+through the registry of `children.py`. `forward(job, target, specs, env, started, deadline=)` is a held `ssh` with
+each `-L` the caller gives, `ExitOnForwardFailure=yes`, `ClearAllForwardings=no` and `AddressFamily=any` (each loopback
+family bound, as today's forward does whatever a person's settings say), made as a connection of its own
+(`ControlPath=none`), since a forward asked of a shared master would outlive the run on it; its standard input is
+`/dev/null`. Its deadline is required, and its far end is the command `sleep <deadline>`, rounded up, in place of `-N`:
+the local end ends it first, at its deadline, by its caller or at the run's end, and where the run was killed outright
+(SIGKILL, an OOM kill), which ends nothing it holds, the far end's `sleep` ends the forward by itself and lets this
+computer's port go. Nothing is recorded on the machine.
+
+**The one control directory and the route: `connections.py`.** Every shared connection, a machine's master and the
+hop's, lives in one control directory that every run on the computer shares, `~/.ansible/cp`, which `fleet/paths.py`'s
+`control_dir()` names: short, as a socket's path must be, the account's alone, outside every repository, and the one
+layer 1's Ansible child and the status probe use. `Connections(control_dir, env)` is made once a run and refuses a
+target or a hop whose socket is anywhere else. It holds the directory to its owner by one `lstat`: a link, a directory
+of another account's, and one its group or others may write in are refused (`Unsafe`, with the `chmod 700` to run),
+since anyone who may write there could put a socket at a machine's path before its master and be handed what every child
+sends it, secrets included; one not made yet is made 0700 by the first master's open. A machine's socket is
+`checks.vm_control_name` of its identity, its address and its hop; where its path would pass `route.SOCKET_MOST`, the
+machine takes no shared connection, `ensure` opens nothing for it, and the run says so once (`notes`). Three rules hold
+every master. A machine's master is opened only by `ensure`, which starts it with `children.MASTER`, the one kind of
+child that carries no job's marker and is entered in no registry, in a session of its own. The hop's master is
+`route.py`'s: `ensure_hop` opens it with the engine's own environment, and so may any connection through the hop whose
+`ProxyCommand` finds none live - a bounded child, a first use, a forward - since that `ProxyCommand` carries
+`ControlMaster=auto`, and such a master carries that child's job's marker, so nothing may tell a master from a run's
+child by the marker alone. No run ever ends a master, the hop's or a machine's: it ends by itself, `ControlPersist`
+after its last client (`60s` for a machine, today's), and two runs never ride one machine's master at once, since each
+holds that machine's lock. And `-O exit` is never sent, which would cut another run's sessions; `-O stop` only through
+`route.hop_stop`, for the hop. The route is `route.py`'s, called as it stands, its `ssh` children started in a process
+group of their own (`process_group=0`, which today's callers do not pass), so that a terminal's first Ctrl-C, which the
+run takes as "finish the step", never kills one and has its silence read as an answer, and `route`, `ensure_hop` and
+`held` are coroutines that run it off the event loop, so that the run takes the Ctrl-C at once. Each `ssh` route.py
+starts, the `ssh -G` of `route_settle` and `ssh_shown` too, is started and recorded in one step under the lock
+`route.end_all` takes, and ended by the thread that waits for it, at its limit or when its caller ends; a run that is
+stopped ends them with the rest of its tree, and `end_all`, which ends every one still running and starts none after, so that no
+`ssh -G` goes on to run a person's `Match exec`, is for a caller about to end at once: today's one, `status`, starts
+none of them on its main thread, where Python raises a Ctrl-C and could raise it between a start and its record, and
+starts and records its own probes (`status/reach.py`) in one step under the lock of its own `end_all`, which a run's end
+calls before `route.end_all`. Each of those ends ends the `ssh`
+with its process group, which it leads, so that the program a person's `Match exec` started, or a `ProxyCommand`'s,
+ends with it; today's callers' `ssh`, in their own process's group, is ended by its pid alone. A run watches each for a
+stop at the terminal as it watches its own children (`route.leading`, §16.8). `route(setting, host)`
+settles it for the Proxmox host's own `Target` - its account, or `vm_ssh_jump`'s, its port, key and `ssh` - by
+`route.hop_settings` and `route.route_settle`, as `{route, setting, hop, policy, addresses}`, and raises
+`route.HopRefused` as it is, which names `vm_ssh_route: direct`; under `auto` only where the rule would go through the
+host, and where the `ssh -G` that says where `ssh` dials for the host gave no answer - ended by a signal, or out of its
+time, whose kill is a signal too - which settles nothing (`signalled_settles=False`, where today's callers settle from
+the address as written). Where the route goes through the host and the hop's socket would pass `route.SOCKET_MOST` (a
+long home), `route` refuses it in this engine's words (`LONG_HOP`), naming `vm_ssh_route: direct` or a shorter home: the
+hop is one shared connection, and none can be bound there. `target_for(job, machine,
+settled, given)` gives a machine's `Target` the person's own options for it and, where the route goes through the host,
+the hop's `ProxyCommand` to its own address (`route.vm_hop`, `-W <address>:%p`), unless it brings a jump of its own: a
+`ProxyJump`, a `-J` or a `ProxyCommand` other than `none` in `vm_ssh_options`, or in what `ssh -G` resolves for its
+address from the person's own `~/.ssh/config`, read once a run for each machine. `held(target, settled)` asks the
+machine's own `ssh` which proxy its whole line takes (`route.ssh_shown`, `-G -F /dev/null`) and refuses any other
+(`route.vm_route_refusal`) before anything connects; a jump only the person's configuration gives is the one the line
+cannot outrank. `ensure_hop(settled)` is `route.hop_held`, and a hop that cannot be used raises `Unusable` with
+`route.login_said`'s sentence in the new engine's names (the key this computer's `ssh_identity_file`), so the run stops
+and nothing dials a machine. `ensure(job, target)` makes sure of a machine's master before anything rides it: `-O
+check`; where nothing answers, a socket file nothing listens at removed (never one whose check ran out its time), and
+the master opened once, the runner's options with `ControlMaster=yes` and `ControlPersist` in place of
+`ControlMaster=no`, and `-N`, ended where `ssh` says the socket exists already; then checked once more. Never for a
+first use: a master opened before the key is filed would carry later runs with no key checked. `first_use(job, target)`
+makes a machine's `Target` one where the product's file holds no key under its identity (`hostkeys.kept`), its scratch
+file fresh in the run's own directory (`rundir.made`): a changing verb's first connection to a machine calls it, files
+the key it took, and only then asks `ensure`; `status`, which takes no key, never calls it. Nothing in `ssh/` tries a
+connection again. Until the engine settles its route once a run and holds every connection to it, `direct_only(settled)`
+refuses every settled route but `direct`, by name, with the sentence that names `vm_ssh_route: direct`: the workflows
+call it before their first connection to a machine, and it never dials one the rule would take through the host.
+
+`tests/unit/test_aw_ssh_runner.py` holds it against a stand-in `ssh` that records its words, its environment and its
+standard input: the options and their order, word for word, for every form; the values they hold as this machine's own
+`ssh -G` shows them, a person's options among them and a person's configuration outranked; no secret in a word or a
+variable; each bound's result, a 255 after output with its lines, and nothing left in the process table; a held child's
+lines while it runs and a line sent later; a forward's far end ending it within its deadline after its run was killed
+with SIGKILL; and four rules by
+scans: a child named `ssh` is started in the new subpackages only from `ssh/`; no option is made of a value a machine
+supplied but its address; `accept-new` is written in `ssh/` only for a first use and the Proxmox host; and the runner
+carries no `ControlMaster` but `no`. `tests/unit/test_aw_hostkeys.py` holds `hostkeys.py`, with blobs of every type it
+files and real keys of this machine's own `ssh-keygen`, whose `-l` gives each fingerprint, `-F` a name as `ssh` reads
+one and `-H` one hashed: a key filed once and found, a second of its type refused with the file unchanged byte for byte,
+two writers at once, a deleted machine's line kept through every call, a first use's scratch file taken and filed or
+refused with nothing filed, the person's own files never read or written, and, by the signatures, no function that takes
+an address. `tests/unit/test_aw_ssh_connections.py` holds `connections.py` against a stand-in `ssh` that plays OpenSSH's
+control commands and its master, as `tests/unit/test_route.py` does, every socket in a short directory of the test's
+own, and that runs this machine's own `ssh -G` given the test's own `~/.ssh/config`: each route settled, the hop's
+command word for word, a jump of a machine's own from its options and from its configuration, the held check, a first
+use decided by the key filed, its scratch file in the run's directory and no master opened for it, a master opened once
+and found again, unmarked and in a session of its own, a dead socket file removed and a busy one kept, a hop that cannot
+be used stopping the run with nothing dialled, a control directory that is a link, another's or writable by others
+refused, a long one connecting alone, a first Ctrl-C sent to the run's group while `ssh -G` settles the route killing
+no `ssh`, an `ssh -G` ended by a signal or out of its time settling nothing, the hop's lines holding the two pins first,
+the route through the host refused from a long home while `direct` settles there, a master's open left out of what a
+run remembers, and `direct_only`; and three rules by scans: no control command but `-O check` in the new subpackages, never `-O exit`;
+nothing in `ssh/` tries a connection again; and only `ensure` opens a master, with the kind that carries no marker,
+an f-string's `ControlMaster` and ssh's flags run together (`-NM`) read too.
 
 ## 16.7 `vendors/` — one HTTPS transport, Tailscale's calls, verified downloads
 
@@ -703,10 +911,9 @@ builds no context and reads no setting.
 - **Threads.** The class is blocking and safe to call from several threads, with one connection kept for each thread.
   A caller on an `asyncio` loop uses `asyncio.to_thread`.
 
-**Today's proxy: `proxy.py`.** `choose(setting, environ, url)` gives the proxy for one URL, reading only the `environ`
-it is given. With the setting `network_proxy` at `environment`, its default, it is the proxy today's clients take,
-under `requests`' rule, which is the wider of today's two: whatever went direct or through the proxy under either
-still does.
+**The proxy: `proxy.py`.** `choose(setting, environ, url)` gives the proxy for one URL, reading only the `environ` it is
+given. With the setting `network_proxy` at `environment`, its default, it is the one the environment names by
+`requests`' rule, the one a person behind a proxy expects of a Python program.
 
 - It takes the `https` entry of the environment's proxies, else the `all` entry: `HTTPS_PROXY`, `ALL_PROXY` and their
   lower-case forms, the lower-case one first. A value with no scheme is an `http://` proxy.
@@ -771,10 +978,17 @@ of one's own, which nothing does today.
 - **The one context.** Of the new engine, only `trust.py` makes a TLS context, gives one roots or sets its checks:
   the transport takes any `ssl.SSLContext`, so a module that made its own could hand it one that checks nothing. The
   Proxmox client's pin (16.5) is the other, with its reason: the host's anchor alone, made by today's
-  `lib/claude_vm/trust.py`'s `anchored_context`. Today's modules that make a context are a door the names cannot
-  see, so the rule holds imports too: of the new engine, only the modules `CONTEXTS` names import today's `trust` or
-  `status`, which make contexts, or any module the new engine may reuse that makes one or imports one that does. And
-  no module of the new engine, those two included, names the interpreter's own store.
+  `lib/claude_vm/trust.py`'s `anchored_context`, which `pin.py` binds alone, never the module, so that nothing reaches
+  the rest of today's `trust` through its names. Today's modules that make a context are a door the names cannot see,
+  so the rule holds imports too: of the new engine, only the modules `CONTEXTS` names import today's `trust` or
+  `status`, which make contexts, or any module the new engine may reuse that makes one or imports one that does; no
+  module takes `trust` or `status` from a module `CONTEXTS` names; and those take names of today's modules, never a
+  module whole. And no module of the new engine, those two included, names the interpreter's own store.
+- **What the rules cannot see.** They hold what a module writes, by any written spelling, and what it imports. A name
+  built at run time (`getattr` of a string made there, `sys.modules`, `import_module` of a relative name or a
+  variable), a keyword `check_hostname=False` handed to a function, and the standard library's own TLS clients
+  (`urllib.request.urlopen`, `xmlrpc.client`, `ftplib`, `smtplib`, `imaplib`, `poplib`), which make the interpreter's
+  ready-made context where they are called, are past them: a reviewer looks for those.
 
 `tests/unit/test_aw_vendor_trust.py` reaches TLS servers on loopback through the transport with such a context. A
 server signed by a root in the setting's file alone verifies, and so does one signed by a root of `certifi`'s, stood in
@@ -790,7 +1004,7 @@ paths (`DEFAULT_STORE`: `create_default_context`, `load_default_certs`, `set_def
 `get_default_verify_paths`); of the new engine only `trust.py` imports `certifi`; and of the new engine only the
 modules `CONTEXTS` names, each with why, name what makes a TLS context or gives one roots (`MAKERS`: `SSLContext`, the
 ready-made and unverified ones, `get_server_certificate`, `load_verify_locations`, `load_default_certs`,
-`set_default_verify_paths`, by any spelling but as a type; and a call's `ssl=True`, asyncio's way to a ready-made
+`set_default_verify_paths`, by any written spelling but as a type; and a call's `ssl=True`, asyncio's way to a ready-made
 one), set one of its checks (`CHECKS`: `check_hostname`, `verify_mode`, `verify_flags`, `hostname_checks_common_name`),
 or import today's modules that do (`TODAYS_CONTEXTS`, `trust` and `status`, which a test holds to every reused module
 that makes a context or imports one that does).
@@ -802,29 +1016,36 @@ release makes (`roles/tailscale/tasks/api_delete.yml`), and no other:
 
 - `access_token(client_id, client_secret)`: `POST /api/v2/oauth/token`, the OAuth client's ID and secret as form
   fields with `grant_type=client_credentials`, OAuth's grant for a client's own credentials, which Tailscale's own Go
-  client sends too and today's release leaves out. The access token it answers, which lasts an hour, is a `Secret`
-  from the moment it is read. The client secret is a `Secret`, and so may the ID be, as the vault holds it: each is a
-  form's value the transport reveals, so this module adds no entry to `REVEALS`.
+  client sends too. The access token it answers, which lasts an hour, is a `Secret` from the moment it is read, in a
+  frame of its own that has ended before any error is raised, so that no frame a `Malformed` goes through holds it
+  plain. The client secret is a `Secret`, and so may the ID be, as the vault holds it: each is a form's value the
+  transport reveals, so this module adds no entry to `REVEALS`.
 - `device(token, node_id)`: `GET /api/v2/device/<node ID>`, the device as a `Device(node_id, name, hostname)`, its
   MagicDNS name and its host name each made one line of plain text; `None` for a 404, a device that is not there.
 - `delete_device(token, node_id)`: `DELETE /api/v2/device/<node ID>`, sent once: `True` where it deleted the device
   (200, 204), `False` for a 404, a device deleted already or in a tailnet the token does not reach.
 
 The token of the last two is the one an OAuth client was exchanged for, or an API access token held as it is, a
-`Secret` either way, sent as a Bearer token.
+`Secret` either way, sent as a Bearer token. A base address written with the API's own path,
+`https://api.tailscale.com/api/v2`, as Tailscale's documentation writes it, has that path taken off, where the path put
+on twice would read every device as gone already.
 
 - **The node's ID** is what a machine reported, and an access token may delete any device of the tailnet: it goes
   into a path only once it is held whole, with `fullmatch`, to `NODE_ID`, letters and digits, the pattern of today's
   `tailscale_node_id_pattern`, so that no `/` or `..` takes the token to another endpoint. One that is not is
-  `NotANodeId`, with nothing sent, whose sentence shows what was given as JSON, cut, so that a newline is seen.
-- **Refusals.** A 401 or a 403 is `Denied`, by its status alone; for a device, a 403 says why it may be: an access
-  token an OAuth client was exchanged for reaches only the devices with that client's tags. Any other answer but the
-  call's own is `Refused`, with Tailscale's words - its JSON's `message`, an OAuth error's `error_description` or
+  `NotANodeId`, with nothing sent, whose sentence shows what was given as JSON, cut, so that a newline is seen. The
+  machine chose its length: every error says an ID cut at 200 characters (`SHOWN`, today's release's cut), and the
+  path holds it whole.
+- **Refusals.** A 401 or a 403 is `Denied`, by its status alone; why a 403 refused a device is the release workflow's
+  to say, which knows which credential the token is. Any other answer but the call's own is `Refused`, with
+  Tailscale's words - its JSON's `message`, an OAuth error's `error_description` or
   `error`, else its status line's - the secrets the call sent struck from them as they came and again once made plain,
   before they are cut (`Secret.struck`), so that a peer that echoes one has none of it said. A 3xx is one, never
   followed. A 200 that is not the answer asked for is `Malformed`, and never quoted: an exchange's body holds a token.
   The transport's own errors pass as they are: a deletion that left with no answer is its `Unknown`, never sent again,
-  which the workflow settles by reading the device.
+  which the workflow settles by reading the device. Each error survives a copy and a pickle (`__reduce__`), made again
+  from what it was made of and saying its sentence once, as the transport's `Untrusted` and the Proxmox client's
+  `Denied` and `Refused` do.
 - **Not here.** Which device a release may delete (today's rules of its name), which credential is used where none is
   held (open, in the standalone resolutions' section 7), and what is said to a person are the release workflow's. No
   key is minted for a join: a join takes the vault's `tailscale_auth_key`, as today.
@@ -833,9 +1054,11 @@ The token of the last two is the one an OAuth client was exchanged for, or an AP
 HTTPS when given a certificate and its key (`--tls`) and plain HTTP to today's tests as before, its certificate's CA
 standing in for one of `certifi`'s roots: the exchange, the read, the deletion and its 404, and each refusal. It holds
 that an ID with a slash, a newline or a dot never reaches the fake (its `/fake/asked` lists every request made of the
-API), that `NODE_ID` is the role's pattern by its text and by its answer for every ID tried, and that a certificate
-that does not verify sends nothing; and, through a stand-in transport, a redirect, a body that is no answer, and
-Tailscale's words echoing the client secret or a token, which no error says.
+API), that `NODE_ID` is the role's pattern by its text and by its answer for every ID tried, that a base address with
+`/api/v2` reads devices, and that a certificate that does not verify sends nothing; and, through a stand-in transport,
+a redirect, a body that is no answer with no frame holding the token, a long ID cut where it is said and sent whole,
+each error through a copy and a pickle, and Tailscale's words echoing the client secret or a token, which no error
+says.
 
 **Verified downloads: `keys.py` and `downloads.py`.** What a machine installs that its vendor signs is held to the
 signature here, on the computer, before a digest from it goes anywhere, as today's roles hold it
@@ -857,27 +1080,35 @@ that do call these two functions, and never `openpgp` themselves.
   version held the same way: it is signed by nobody and needs no signature, since whatever it names must still verify.
   Then the release's `manifest.json` and, once it is in hand, `manifest.json.sig`, each under 1 MiB; `openpgp.verify`
   with the vendored key; and only then is the manifest read, which must name the version it was fetched as.
-- **Ubuntu.** `ubuntu_digest(base, release, file_name, *, key, tls_ca_file, proxy)` fetches `SHA256SUMS` in the
-  release's folder under `base` (`noble/release`, say) and then `SHA256SUMS.gpg` beside it, each under 1 MiB, where
-  today's list was read whole, and verifies them the same way. It returns the digest of the one line that names the
-  image, read as today's role reads it, or `NotListed` where no line or more than one does. A caller's own key is the
-  one an image of one's own is signed by, as today's image key setting names it.
-- **Bounded, and nothing unverified.** Every document is read on one transport whose `most` is 1 MiB, so none is read
+- **An image.** `signed_digest(list_url, signature_url, file_name, *, key, fingerprint, tls_ca_file, proxy)` fetches
+  the checksum list and then its detached signature, each from a URL of its own (today's image checksum and signature
+  settings give the two), so a person's own signed image may name its list and its signature as it likes, on two
+  hosts, a pre-signed URL's query kept; each over https only, on a transport of its own URL's host, each under 1 MiB.
+  A URL is held to one `https://` address with no user, password or fragment before anything is fetched, and said
+  without its query, which may carry a signature. The key is Ubuntu's cloud image key by default, a `keys.Key`, or the
+  armored text of a person's own with the `fingerprint` it is found by, as today's image key and fingerprint settings
+  give one. It returns the digest of the one line that names the image, read as today's role reads it, or `NotListed`
+  where no line or more than one does. `listed_digest(list_url, file_name, *, tls_ca_file, proxy)` reads an unsigned
+  list, an image held to its checksum alone (`sha256:<the list's URL>`), with the same line reader.
+- **Bounded, and nothing unverified.** Every document is read on a transport whose `most` is 1 MiB, so none is read
   past it, and an answer's status is read before the document's own cap, so that an error page, longer than a
   channel's pointer, is said as the status it came with. A document one byte past its cap is `Oversized`, and nothing
   after it is fetched. A 3xx is an answer, never followed (`NotServed`, as is any answer but 200), and the transport's
   own errors pass as they are. Nothing is returned from a document whose signature has not verified (`Unverified`, with
-  `openpgp`'s reason), and of a document only its version and digests are. What a server named is said through
+  `openpgp`'s reason), decided by whether `openpgp.verify` returned, never by what a refusal says, so that a refusal
+  with no words is one; and of a document only its version and digests are. What a server named is said through
   `plain_text`, cut, as JSON.
 
 `tests/unit/test_aw_downloads.py` serves every document from `tests/molecule/fake_downloads.py` over TLS, its root
 standing in for one of `certifi`'s, signed by keys `tests/unit/signing.py` makes or as the vendors published them
 (`tests/unit/openpgp/`). It holds each refusal, with the fake's log of requests showing nothing fetched after it: a
-document changed by one byte, a signature by another key or dated more than a day ahead, a version below the first
-signed release, a document one byte past its cap, a list with no line or two for the image, a redirect, a certificate
-that does not verify. It holds the release's pattern, the first signed release, the caps, the files' names and the line
-of a list equal to today's roles', and one rule: of the new engine, only `downloads.py` imports `openpgp`, and only
-`keys.py` names a vendored key file.
+document changed by one byte, a signature by another key or dated more than a day ahead, a refusal of `openpgp`'s with
+no words, a version below the first signed release, a document one byte past its cap, a list with no line or two for
+the image, a redirect, a certificate that does not verify, a URL that is not one `https://` address, a key that is not
+one. A list and its signature on two servers, with names of their own and a query, verify, and so does a key given as
+its text. It holds the release's pattern, the first signed release, the caps, the files' names and the line of a list
+equal to today's roles', and one rule: of the new engine, only `downloads.py` reaches `openpgp` - by an import, by its
+`openpgp` or `verify` taken from `downloads.py`, or read off a name - and only `keys.py` names a vendored key file.
 
 ## 16.8 `runs/` — a run's record and text log, the locks, a detached run
 
@@ -914,27 +1145,32 @@ anything is made, and the module is the standard library alone, with `store`, `t
 `store.locked`, so the run and another process recording a stop lose neither change. A name `FIELDS` lacks is refused,
 and so are `id`, `pid` and `started` (`CREATED`), which only `create` writes: `cancel` signals the recorded pid only
 while the job's lock is held, which holds only while nothing else writes it. Only `create` writes a record from
-nothing. A change reads the record strictly: where it is gone (the job dropped) or is no record (it does not parse, or
-is not a mapping), `Gone` is raised and nothing is written; any other error of the read (a descriptor limit, a disk's
-error, NFS's `ESTALE`) is raised as itself, so that `Gone`, which `cancel` says as "no such job", is never said of a run
-that runs. A reader is never refused: `read` gives `{}` for a record it cannot read. The record has no schema of its
-own and no event file beside it: `events.jsonl` is the add-on's.
+nothing. A change reads the record strictly: where it is gone (the job dropped) or is no record (it does not parse, is
+not a mapping, is nested past what Python's parser takes, or is a directory), `Gone` is raised and nothing is written;
+any other error of the read (a descriptor limit, a disk's error, NFS's `ESTALE`) is raised as itself, so that `Gone` is
+said only of a record that is gone or damaged, never of a run whose record is whole. A reader is never refused: `read`
+gives `{}` for a record it cannot read, and `listed` passes over it. The record has no schema of its own and no event
+file beside it: `events.jsonl` is the add-on's.
 
 **The states are derived, never stored.** `state(job)` reads `running` while the job's lock is held, which a
-`LOCK_SH | LOCK_NB` attempt on the file finds (let go at once where it was taken), and `cancelling` while it is held
-and a stop is recorded; the outcome where the record has one; and `lost` where it has none and the lock is free: a run
-killed outright, or one that ended without saying how. Where the record is gone (not written yet, or the job dropped)
-there is no state: `state` is `None`, no such job, as `find` says, whatever the lock, so a job read through a handle
-taken before its drop is, from the record's unlink on, neither `running` with an empty record nor `lost`, which a test
-holds with the drop made by another process. A record that is there and cannot be read is read as `{}`. It asks the
-lock before it reads the record: a run writes its outcome before it ends, so a lock found free means any outcome is
-already there, and a run that ends just after its record is read reads `running`, never `lost`, which a test holds. A
-job the reading process made itself is read from what it holds, a shortcut that saves a probe and no rule: a probe
-reads the same, since a `flock` belongs to its open file description and closing a second descriptor of a lock file
-does not let the first's lock go, as experiment 40 measured on Linux, on NFSv3 and NFSv4.2, where Linux emulates
-`flock` with POSIX locks, as on a local disk (macOS's half is not measured yet); a test probes the run's own lock from
-its own process. No module of `runs/` keeps a pid to decide a state, reads a process's start or reads the process table
-for one, which a scan in the test holds.
+`LOCK_SH | LOCK_NB` attempt on the file finds (let go at once where it was taken), and `cancelling` while it is held and
+a stop is recorded; the outcome where the record has one; and `lost` where it has none and the lock is free: a run
+killed outright, or one that ended without saying how. **Only a lock file that is gone is free**: `lock_held(job)`, the
+lock's own answer, which a stop waits on since `state` reads a written outcome whatever the lock, takes
+`FileNotFoundError` and `NotADirectoryError` for a free lock and raises any other error of its probe as itself (a
+descriptor limit, the file's or the folder's mode, a disk's error), and so does `state`: read as free, a living run read
+`lost`, and another process could act on that. A refusal at the locks says that error in its sentence. Where the record
+is gone (not written yet, or the job dropped) there is no state: `state` is `None`, no such job, as `find` says,
+whatever the lock, so a job read through a handle taken before its drop is, from the record's unlink on, neither
+`running` with an empty record nor `lost`, which a test holds with the drop made by another process. A record that is
+there and cannot be read is read as `{}`. It asks the lock before it reads the record: a run writes its outcome before
+it ends, so a lock found free means any outcome is already there, and a run that ends just after its record is read
+reads `running`, never `lost`, which a test holds. A job the reading process made itself is read from what it holds, a
+shortcut that saves a probe and no rule: a probe reads the same, since a `flock` belongs to its open file description
+and closing a second descriptor of a lock file does not let the first's lock go, as experiment 40 measured on Linux, on
+NFSv3 and NFSv4.2, where Linux emulates `flock` with POSIX locks, as on a local disk (macOS's half is not measured yet);
+a test probes the run's own lock from its own process. No module of `runs/` keeps a pid to decide a state, reads a
+process's start or reads the process table for one, which a scan in the test holds.
 
 **Events.** `emit(kind, machine, text, **data)` hands one event, with its time, to each listener the run registered
 with `listen` (the live view and the text log), in order and in the run's own process. The kinds are `stage`, `step`,
@@ -962,37 +1198,67 @@ unlinked while the drop holds the folder's lock.
 
 **A run's children: `children.py`.** Every process a run starts carries the job's marker, `AGENT_WAREHOUSE_JOB`, the
 name today's MCP jobs set, with the job's ID: whatever reads it matches the ID, never the name alone. `start` gives it
-whatever environment it is handed; `unmarked(env)` takes it away, for the one kind of child that must not carry it, a
-shared SSH master, which other runs may ride after this one ends. Only the process that made a job marks a child with
-it. `start(job, argv, own, env, stdin, stdout, stderr, kind, pass_fds=())`
-is the one way the engine starts a child, a coroutine over asyncio's own:
+whatever environment it is handed; `unmarked(env)` takes it away, for the two kinds of child that must not carry it,
+which no end of the run reaches: a shared SSH master, which other runs may ride after this one ends, and a child meant
+to outlive its run. Only the process that made a job marks a child with it, and a run carries no marker of its own: one
+it inherited (a run started from an agent's job, or from a terminal of an editor a run opened) is unset by the launcher
+and taken out of the program's environment at its start (16.3), so the children a run starts outside `start` - the
+`ssh` that `route.py` runs for the hop and `ssh -G`, the `ps` that `proc.py` runs for the tree - carry none.
+`start(job, argv, own, env, stdin, stdout, stderr, kind, pass_fds=())` is the one way the engine starts a child that
+ends with its run, the SSH runner's `ssh` children among them, a coroutine over asyncio's own:
 
 - `own` is `group`, a process group of its own, so that the terminal's Ctrl-C reaches the run alone; or `session`, a
-  session of its own, its standard input `/dev/null`. Standard input is always named: a child in a group of its own
-  that read the terminal would be stopped, and one in a session of its own would take what the person types.
-- The child gets the marker whatever environment it is handed, and a master loses it. Before it runs, SIGINT, SIGTERM,
-  SIGHUP and SIGQUIT are put back to their defaults and unblocked: a process starts with what its parent ignored still
-  ignored, and a run started under `nohup` or with `&` ignores SIGINT.
+  session of its own, its standard input `/dev/null`. Standard input is always named, and never the run's own
+  descriptor 0: a child in a group of its own that read the terminal would be stopped, and one in a session of its own
+  would take what the person types.
+- The child gets the marker whatever environment it is handed, and a master loses it. Before it runs, every signal a
+  handler can be given is put back to its default and none is blocked: a process starts with what its parent ignored
+  still ignored, a run started under `nohup` or with `&` ignores SIGINT, and Python ignores SIGPIPE.
 - Every descriptor is closed in the child but its standard streams and those `pass_fds` names, which is how a pipe is
   handed over on purpose. A descriptor of one of the run's locks, or any duplicate of one (the same file), is refused
-  with the lock's name before anything starts: the kernel lets a lock go only once every descriptor of it is closed,
-  so a child that held one would keep it past its run's end. The locks are read from `HOLDERS`, one function of each
-  module of `runs/` that takes a lock, which gives the descriptors it holds them by.
+  with the lock's name before anything starts, a standard stream given as `None`, which the child inherits from the
+  run, among them: the kernel lets a lock go only once every descriptor of it is closed, so a child that held one would
+  keep it past its run's end. The locks are read from `HOLDERS`, one function of each module of `runs/` that takes a
+  lock, which gives the descriptors it holds them by.
 - The kinds are `ssh`, the SSH runner's bounded and held children, a forward among them; `ansible`, layer 1's
-  `ansible-playbook`; `program`, a program of the computer's own (`rsync`, an opener, the editor); and `master`.
+  `ansible-playbook`; `program`, a program of the computer's own that ends with the run (`rsync`); and `master`.
 
-The children a run started are kept by kind, in memory, for the run's end (`attached.py`): `start` enters each, and
-`live(job, kind)` gives those still running, in the order they started. A master is entered nowhere, since no run ever
-ends one.
+The children a run started are kept by kind, in memory, for the run's end (`attached.py`): `start` enters each, with its
+program's name, and `live(job, kind)` gives those still running, in the order they started. A master is entered
+nowhere, since no run ever ends one. **A run's end ends `ssh`, `ansible` and `program` children, and nothing else.**
+
+**A child meant to outlive its run**, the editor or a page's opener, is `outlive(job, argv, env)`'s, the kind
+`outliving`: unmarked, in a session of its own, so that the terminal neither stops it nor hangs it up, the signals at
+their defaults, its standard streams `/dev/null` and nothing else open; entered in no registry, so the run's end neither
+waits for it nor ends it; and left out, with what is under it, of every tree the ladder remembers and ends
+(`outliving()`). It is started by `subprocess` itself, never through asyncio, whose transport kills a child it still
+holds once the transport is closed or collected. Nothing ends it; a caller that wants its status polls it.
+
+**A child the terminal stopped.** `watched(job)` gives the job's children still running and, beside them, `route.py`'s
+`ssh` still running in a process group of its own (`route.leading`: the hop's and its `ssh -G`, which the new engine
+starts there, and `start` never starts), each as a child of kind `ssh`: the children of this process a question at the
+terminal can stop. `asking(job)` gives those of them that the terminal has stopped, with the signal: SIGTTIN, for a
+child in a group of its own, or of its group (the `ssh` of a person's own `ProxyJump`, which `BatchMode` does not
+reach), that read the terminal to ask a question there, a passphrase or a second factor, or `git`'s or `sudo`'s; or
+SIGTTOU, for one that changed its settings or wrote to it to ask, as OpenSSH's `readpassphrase` turns the echo off
+before it reads, which stops an `ssh` in the terminal's background before any read. It reads with `waitid` and
+`WNOWAIT`, reaping nothing, and a child stopped for any other reason is not one; where Python has no `waitid` (macOS
+before Python 3.13) none is found.
+
 Nothing is written to a file, and nothing reads the process table. `tests/unit/test_aw_children.py` holds it, with real
-children that report what they were given, and holds four rules by scans of the new engine's code: a child process is
-started only through this module and the SSH runner, by any of Python's ways; `close_fds=False` appears nowhere; no
-process is forked without an exec (`os.fork`, `os.forkpty`, `pty.fork`, a `fork` start method or context), since a
-forked child keeps every lock until it execs; and `pass_fds` and `set_inheritable(..., True)` appear only in `start`.
+children that report what they were given (on Linux, a program that is not Python shows the kernel's own masks of the
+signals ignored and blocked), and holds four rules by scans of the new engine's code: a child process is started only
+through this module, by any of Python's ways, `posix`'s, a browser's opener and a module or an attribute asked for by
+its name among them; `close_fds` is never anything but `True`; no process is forked without an exec (`os.fork`,
+`os.forkpty`, `pty.fork`, `posix`'s, a `fork` start method or context, or one named by a variable), since a forked child
+keeps every lock until it execs; and `pass_fds` and `set_inheritable(..., True)` appear only in `start`, and nothing
+else makes a descriptor inheritable (`os.dup2`, `F_SETFD`, `F_DUPFD`, `os.pipe2`).
 
 **A run's short-lived directory: `rundir.py`.** A run's generated files, the layer-1 child's configuration, its
-inventory and its variables, go in one directory of the run's own. `make(job)` makes it with `tempfile.mkdtemp` under
-the per-user temporary directory (`TMPDIR` where it is set, as on macOS, else `/tmp`), at mode 0700 whatever the umask,
+inventory and its variables, go in one directory of the run's own, and so does a machine's first use's scratch
+known-hosts file (`ssh/connections.py`). `make(job)` makes it with `tempfile.mkdtemp` under the per-user temporary
+directory (`tempfile.gettempdir()`: the first of `TMPDIR`, `TEMP` and `TMP` that names a directory it can write in,
+else `/tmp`, `/var/tmp` or `/usr/tmp`, and at last the folder the run started in), at mode 0700 whatever the umask,
 named `aw-run-`, the job's ID, a dash and mkdtemp's letters, and writes its path into the job's record as `directory`;
 where the record cannot take it, the job dropped, the directory is removed again. It is never made inside
 `XDG_RUNTIME_DIR`, compared by the real paths of both: systemd removes that directory at the person's last logout
@@ -1002,14 +1268,13 @@ in the name tells which job left a directory, and is in the command line of ever
 each writing nothing: the module makes and removes
 the directory and writes no file in it. Only the process that made a job makes its directory, one a run, or names a
 file in it. `remove(job)` deletes the directory with what it holds, says whether anything was left, and is safe to
-call twice: the run removes the one it made, even once its job is dropped; any other process removes only the one the
-record names, held to the form `make` gives it (absolute, the job's ID in its name, a real directory of this account's
-and not a link), and never while the job's lock is held, since a living run's directory is its own, nor where the job
-is no job by the time its state is asked (its run dropped it since the record was read, and removes what it made
-itself). No secret is ever written there: a secret travels on standard input or stays in memory, as today, and every
-workflow's tests search the directory for the secrets they gave (`aw_kit.searched_for`). No socket is made there
-either: a shared connection lives in the one control directory. `tests/unit/test_aw_rundir.py` holds it, with a scan
-that finds no write in the module.
+call twice: only the process that made the directory removes it, even once its job is dropped, and what it could not
+remove it tries again at the same path, whatever the record says by then; a call for a job another process made is
+refused, as `make` and `path_for` refuse one, so that another process deletes nothing whatever the job's lock and
+record say: a living run's directory is its own, and one a killed run left is no other run's to judge. No secret is
+ever written there: a secret travels on standard input or stays in memory, as today. No socket is made there either: a
+shared connection lives in the one control directory. `tests/unit/test_aw_rundir.py` holds it, with a scan that finds
+no write in the module, by any of the codebase's ways (`store.replace`, a copy, a link, a rename, a folder made).
 
 **The locks: `locks.py`.** Two runs are kept apart by the kernel's file locks, `flock` on files of the state folder's
 `locks/` (`paths.locks_dir`), each opened in this module alone at mode 0600, never through a link, and kept open for as
@@ -1146,26 +1411,52 @@ ladder:
 On every path but SIGKILL, the terminal's settings are put back as the run found them, its echo among them (where
 anything changed them, SIGTTOU held off); every child of the registry has ended or been ended before the loop closes,
 since asyncio kills an `ansible-playbook` it still holds when its loop closes and leaves the playbook's detached task
-workers running; the run's directory is removed; and the exit record is written last, with the signals held off and
-then taken as notes only, so that a late one changes nothing but what the process dies of. "The tree" is everything
-under the run's process, ended by `proc.end_under(pid, remembered, signum)`, which signals every process under a process
-and what was remembered of it, by each one's start, with their groups, and never the process, its group or the
-caller's: today's `end` signals the root too, which here is the run. A shared SSH master daemonises out of the tree, so
-no end reaches it; no child subreaper and no systemd scope are adopted, since under a subreaper one run's end would cut
-another run's connection through the host. The ladder is built against stand-ins; experiment 37 tries it with real
-children, and if a foreground run cannot end its tree by itself, `runs.run` is where a small watcher would go.
+workers running; the run's directory is removed; and the exit record is written last, with the signals held off and then
+taken as notes only, so that a late one changes nothing but what the process dies of. "The tree" is everything under the
+run's process, ended by `proc.end_under(pid, remembered, signum)`, which signals every process under a process and what
+was remembered of it, by each one's start, with their groups, and never the process, its group or the caller's: today's
+`end` signals the root too, which here is the run. A shared SSH master daemonises out of the tree, so no end reaches it,
+and its open, while it runs, is left out of what is remembered (`children.opening`), since the master it leaves keeps
+its `ProxyCommand` in the open's group; a second Ctrl-C during an open ends that open, and the master it was making. A
+child meant to outlive the run (`children.outliving`, the editor, a page's opener) is left out of both, of what is
+remembered and of what is ended, with what is under it: no end of the run reaches it. No child subreaper and no systemd
+scope are adopted, since under a subreaper one run's end would cut another run's connection through the host. The ladder
+is built against stand-ins; experiment 37 tries it with real children, and if a foreground run cannot end its tree by
+itself, `runs.run` is where a small watcher would go.
+
+**A child the terminal stopped.** While the run lives it looks, every 0.2 seconds, for a child the terminal has stopped
+(`children.asking`): one in a group of its own, `route.py`'s `ssh` among them, that asked a question at the terminal,
+which a run never answers and where it would wait, stopped and silent, holding its step until the run's end. A stop at
+the terminal stops the reader's whole process group, so a reader in such a child's group, as the jump's `ssh` of a
+person's `ProxyJump` is, stops the child too. One that made a group of its own stops alone, its parent waiting on it,
+and is no child of the run's for `waitid` to read: every fourth look (`TABLE_LOOKS`), while a child the look watches
+lives in the run's session and the run has a controlling terminal, the run reads the process table for a process under
+it that is stopped and whose terminal's foreground is another group, in a group no watched child leads
+(`proc.stopped_under`; a table that cannot be read is said once, and only that look stops); the table says no signal, so
+one a person stopped with SIGSTOP there is one too. Each is said at once on standard error, in one line that names its
+program and what to do (hold the key in an agent, `ssh-add`, or give a `ProxyJump` of the person's own what it asks for
+in its own settings), and ended with what is under it and its group, within a second; the step that waited on it sees it
+killed, or its child's failure, its machine's failure. Giving such a question the terminal, so that it reaches the
+person, is the owner's to ask for.
 
 **Nothing holds the process once its record is written.** The engine's blocking calls (`asyncio.to_thread`, a
 `run_in_executor` of the default) run on the ladder's own executor, the loop's default: each call on a daemon thread of
-its own, started with the signals the ladder takes blocked (a thread starts with its maker's mask), and never joined,
-nor known to the interpreter's exit, which joins a `ThreadPoolExecutor`'s threads and would hold a cancelled run's
-process for the rest of a call, up to `follow`'s ten minutes. Where one of them is still in a call once the record is
-written and the terminal put back, or any thread Python would wait for at its exit, the process ends at once: its
-streams flushed, an error the body did not handle said as Python says one it ends on, then `os._exit` with the status.
-With the signals blocked in every thread of its own, the kernel hands a signal to the run's thread alone, so holding the
-interrupts off while the table is read holds them for real; on macOS asyncio waits for each child in a thread of its
-own, which the ladder does not start, and there the handler's taking notes once the run is closing is what keeps the end
-right.
+its own, and never joined, nor known to the interpreter's exit, which joins a `ThreadPoolExecutor`'s threads and would
+hold a cancelled run's process for the rest of a call, up to `follow`'s ten minutes. Where one of them is still in a
+call once the record is written and the terminal put back, or any thread Python would wait for at its exit, the process
+ends at once: its streams flushed, an error the body did not handle said as Python says one it ends on, then `os._exit`
+with the status.
+
+**No thread blocks a signal.** A process forked from a thread starts with that thread's signal mask, which stays through
+`exec`, so a program a call in a thread starts with `subprocess` - `route.py`'s `ssh`, the hop's shared master among
+them, which outlives the run, or a vendor's tool - would take no Ctrl-C, hangup or kill with SIGINT, SIGTERM or SIGHUP
+blocked. So each of the executor's calls runs with no signal blocked, whatever its maker held (a thread starts with its
+maker's mask, which the run's thread blocks while it closes), and so does every program it starts; `children.start` and
+`outlive` clear the mask in their children all the same. A signal the kernel hands another thread still runs its
+handler in the run's thread, wherever that is; so while the run reads the process table and signals what it leads to,
+and while it closes, it holds the interrupts off (`_held`): blocked in the run's thread, and the handler, which a signal
+handed another thread still runs there, only takes note; once the outermost hold ends, each signal noted is handled as
+it came. The hold is real whatever thread is alive, a body's own pool and asyncio's watcher thread on macOS among them.
 
 **A question.** `typed(fd)` reads what the person types on the loop (`add_reader`), never in a thread, which would hold
 the process as above: a line in a terminal's cooked mode, a key in raw mode. While it waits a question is up, and the
@@ -1185,15 +1476,21 @@ settled, gets one line of `aw`'s own and is kept until the process ends.
 children (one that ends on SIGINT, one that ignores it, one with a grandchild in a session of its own, one that records
 each signal it gets, with when, and ends on none): every way out but SIGKILL, a body's own `KeyboardInterrupt`,
 `SystemExit` and `CancelledError` among them, leaves its exit record, its status, the signals each child got, and
-nothing running, read once the run has ended and before the test's own cleanup; the ways walk every signal whose
-handler is the ladder's as a running body finds them and every outcome. Ctrl-C twice ends the tree from the handler
-while the body holds the loop; a call in a thread holds the process no longer than the ladder takes, on a daemon thread
-that blocks the signals, and (on Linux) a SIGTERM while the table is read waits for the read; an Ansible child started
-in a shield has its SIGINT once the shield is done; a SIGTERM after a Ctrl-C whose body returned ends the run within
-`SETTLE`, recorded as itself; one Ctrl-C at a question ends the run at a pseudo-terminal, cooked or raw; a ladder that
-cannot be built leaves no job; a record that cannot be written is said; asyncio's reports stay off the terminal; the
-grace, the stop recorded, a shielded phase, a signal ignored on the way in, and the echo at a pseudo-terminal after
-each end.
+nothing running, read once the run has ended and before the test's own cleanup; the ways walk every signal whose handler
+is the ladder's as a running body finds them and every outcome. Ctrl-C twice ends the tree from the handler while the
+body holds the loop; a call in a thread holds the process no longer than the ladder takes, on a daemon thread that
+blocks no signal, a program it starts (`route.py`'s `ssh`) with none blocked (on Linux, its `SigBlk`) and ended by a
+SIGTERM, and a SIGTERM the kernel hands that thread while the table is read is handled after the read, and one during
+the close of a Ctrl-C's run only after its record, which still says the Ctrl-C; a call in a thread handed `stopping` has
+it within a moment of a first Ctrl-C and of a SIGTERM, and at the close of a body that returned; an Ansible child
+started in a shield has its SIGINT once the shield is done; a SIGTERM after a Ctrl-C whose body returned ends the run
+within `SETTLE`, recorded as itself; one Ctrl-C at a question ends the run at a pseudo-terminal, cooked or raw; a ladder
+that cannot be built leaves no job; a record that cannot be written is said; asyncio's reports stay off the terminal;
+the grace, the stop recorded, a shielded phase, a signal ignored on the way in, and the echo at a pseudo-terminal after
+each end; a page's opener meant to outlive the run alive and unmarked after each end; and a child that asks a question
+at a pseudo-terminal said within a second and ended, its run ending with its body's own status: one that reads it
+(SIGTTIN), one that turns the echo off first as `readpassphrase` does (SIGTTOU), `route.py`'s `ssh`, and a reader in a
+group of its own under a child.
 
 ## 16.9 `fleet/` — the fleet's files, the settings, the secrets and the fleet's mark
 

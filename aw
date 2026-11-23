@@ -16,6 +16,10 @@
 # launcher's own, which aw install's run passes it as a child that carries its job's marker (AGENT_WAREHOUSE_JOB). It
 # never installs into a virtualenv of your own unasked: where one lacks the packages, the program names aw install.
 # No Galaxy collection is installed (the engine needs none), and nothing of 1.x is moved (init --migrate's).
+#
+# The program is never handed a job's marker it inherited: AGENT_WAREHOUSE_JOB is unset before anything but
+# --install-env, which reads it, so the program's own environment, as the system shows it, carries none, and nor does
+# anything it starts.
 set -eu
 
 # The Python version the checkout's own environment runs on: the justfile's managed_python, which
@@ -121,6 +125,8 @@ if [ "${1:-}" = --install-env ]; then
   (install_env "$@")
   exit 0
 fi
+# A run makes its own job and marks its own children: an inherited marker is another job's.
+unset AGENT_WAREHOUSE_JOB
 # uv.lock written again, which needs no environment.
 if [ "$#" -eq 2 ] && [ "$1" = install ] && [ "$2" = --lock ]; then
   (install_env --lock)

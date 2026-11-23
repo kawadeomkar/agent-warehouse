@@ -1,12 +1,17 @@
 """The one way a run starts a child (lib/claude_vm/runs/children.py; docs/architecture/engine.md §16.8).
 
 Each child here is a real process, a probe that reports what it was given: its environment's marker, its process group
-and session, the signals it ignores or blocks, and the descriptors it has open. The rules with a test of their own: in
-the new engine's code a child process is started only through children.py and the SSH runner, by a scan for every way
-Python starts one; close_fds=False appears nowhere there; no process is forked without an exec (a forked child keeps
-every lock the run holds, since a descriptor that is not inheritable is closed only at an exec); pass_fds and
-set_inheritable(..., True) appear only in children.start; and every module of runs/ that takes a kernel lock is one
-children.HOLDERS reads, so that its locks are refused too.
+and session, the signals it ignores or blocks (as Python reads them, and on Linux as the kernel shows a program that is
+not Python), and the descriptors it has open. A child meant to outlive its run is outlive's: unmarked, in a session of
+its own, its standard streams /dev/null, in no registry. A run started with another job's marker carries none, and nor
+do the children it starts outside start (route.py's ssh, proc.py's ps). A child the terminal stopped is asking's,
+route.py's ssh in a process group of its own among them, and one stopped for any other reason is not. The rules with a
+test of their own: in the new engine's code a child process is started only through children.py, the SSH runner's among
+them, by a scan for every way Python starts one; close_fds is never turned off; no process is forked without an exec (a
+forked child keeps every lock the run holds, since a descriptor that is not inheritable is closed only at an exec);
+pass_fds and set_inheritable(..., True), and every other way to make a descriptor inheritable, appear only in
+children.start; and every module of runs/ that takes a kernel lock is one children.HOLDERS reads, so that its locks are
+refused too.
 """
 
 from __future__ import annotations
@@ -15,17 +20,22 @@ import ast
 import asyncio
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
+import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 from harness import REPO, repo_files
-from test_aw_layout import NEW
+from test_aw_layout import NEW_MODULES
 from test_aw_locks import _flocks_and_lock_folders
 
+from claude_vm import proc, route
+from claude_vm.cli import main
 from claude_vm.fleet import paths
 from claude_vm.runs import children
 from claude_vm.runs import job as jobs
@@ -36,11 +46,15 @@ PIPE, DEVNULL = asyncio.subprocess.PIPE, asyncio.subprocess.DEVNULL
 OTHER_JOB = "0123456789abcdef"
 
 # A child that says what it was given, as JSON on its standard output: its pid, process group and session, the job's
-# marker, which of the four signals it ignores or blocks, every descriptor it has open past its standard streams, and
-# what it read from the descriptor named as its argument, where one is.
+# marker, which signals it ignores or blocks, by number (every one a handler can be given, but SIGPIPE and SIGXFSZ,
+# which Python ignores itself at its start), every descriptor it has open past its standard streams, and what it read
+# from the descriptor named as its argument, where one is.
 PROBE = r"""
 import json, os, resource, signal, sys
-SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT)
+SIGNALS = sorted(
+    set(signal.valid_signals())
+    - {signal.SIGKILL, signal.SIGSTOP, signal.SIGPIPE, getattr(signal, "SIGXFSZ", signal.SIGPIPE)}
+)
 soft = resource.getrlimit(resource.RLIMIT_NOFILE)[0]
 limit = soft if 0 < soft < 65536 else 65536
 fds = []
@@ -60,14 +74,36 @@ print(json.dumps({
     "group": os.getpgrp(),
     "session": os.getsid(0),
     "marker": os.environ.get("AGENT_WAREHOUSE_JOB"),
-    "ignored": [one.name for one in SIGNALS if signal.getsignal(one) == signal.SIG_IGN],
-    "blocked": sorted(one.name for one in SIGNALS if one in blocked),
+    "ignored": [int(one) for one in SIGNALS if signal.getsignal(one) == signal.SIG_IGN],
+    "blocked": sorted(int(one) for one in SIGNALS if one in blocked),
     "fds": fds,
     "read": read,
 }))
 """
 # A child that waits until its standard input closes.
 WAITS = "import sys; sys.stdin.read()"
+# A child meant to outlive its run, as an editor or a page's opener is: it writes what it was given into the file named
+# as its argument - its pid, session, the job's marker, and whether each standard stream is /dev/null - and then waits.
+OPENS = r"""
+import json, os, sys, time
+null = os.stat(os.devnull)
+streams = []
+for fd in (0, 1, 2):
+    found = os.fstat(fd)
+    streams.append((found.st_dev, found.st_ino) == (null.st_dev, null.st_ino))
+with open(sys.argv[1] + ".part", "w") as out:
+    json.dump({
+        "pid": os.getpid(),
+        "session": os.getsid(0),
+        "marker": os.environ.get("AGENT_WAREHOUSE_JOB"),
+        "null": streams,
+    }, out)
+os.rename(sys.argv[1] + ".part", sys.argv[1])
+time.sleep(300)
+"""
+# A stand-in that writes the job's marker its environment holds, or "none", into the file named by its own name and
+# a suffix, then prints nothing and exits 0: what route.py's ssh -G and proc.py's ps are, in a test.
+RECORDS_MARKER = '#!/bin/sh\nprintf "%s\\n" "${AGENT_WAREHOUSE_JOB:-none}" >> "$0.marker"\nexit 0\n'
 
 
 @pytest.fixture
@@ -127,7 +163,8 @@ def nothing_starts(monkeypatch: pytest.MonkeyPatch) -> list[tuple]:
 
 
 def test_unmarked_takes_the_job_s_marker_away(made) -> None:
-    assert children.MARKER == "AGENT_WAREHOUSE_JOB" and patterns.full("job_id", made.id)
+    # The program's own name for it, which it takes out of its environment at its start, is the same.
+    assert children.MARKER == "AGENT_WAREHOUSE_JOB" == main.MARKER and patterns.full("job_id", made.id)
     marked = {"PATH": "/usr/bin", children.MARKER: made.id}
     assert children.unmarked(marked) == {"PATH": "/usr/bin"}
     # A copy: what was given is left as it was.
@@ -169,13 +206,41 @@ def test_a_shared_master_carries_no_marker_and_is_entered_in_no_registry(made, o
     assert children.live(made) == []
 
 
-@pytest.mark.parametrize("own", children.OWN)
-def test_a_child_has_the_signals_at_their_defaults_even_where_the_run_ignores_them(made, own) -> None:
-    # As a run started under nohup or with & is: SIGINT, SIGHUP and SIGQUIT ignored; SIGTERM blocked besides.
-    previous = {one: signal.getsignal(one) for one in (signal.SIGINT, signal.SIGHUP, signal.SIGQUIT)}
+# What the run ignores and blocks in the signals test: as a run started under nohup or with & ignores SIGINT, SIGHUP
+# and SIGQUIT, and more besides, which a child would keep (review/code/C2.md 4). Never SIGCHLD, which the run's own
+# asyncio needs.
+IGNORED = (
+    signal.SIGINT,
+    signal.SIGHUP,
+    signal.SIGQUIT,
+    signal.SIGUSR1,
+    signal.SIGALRM,
+    signal.SIGTSTP,
+    signal.SIGTTIN,
+    signal.SIGTTOU,
+)
+BLOCKED = (signal.SIGTERM, signal.SIGUSR2, signal.SIGALRM)
+
+
+def _ignoring_and_blocking():
+    """IGNORED ignored and BLOCKED blocked in this process, and a function that puts them back."""
+    previous = {one: signal.getsignal(one) for one in IGNORED}
     assert None not in previous.values(), "a handler this test could not put back"
-    ignored = {one: signal.signal(one, signal.SIG_IGN) for one in previous}
-    mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
+    for one in IGNORED:
+        signal.signal(one, signal.SIG_IGN)
+    mask = signal.pthread_sigmask(signal.SIG_BLOCK, set(BLOCKED))
+
+    def put_back() -> None:
+        signal.pthread_sigmask(signal.SIG_SETMASK, mask)
+        for one, handler in previous.items():
+            signal.signal(one, handler)
+
+    return put_back
+
+
+@pytest.mark.parametrize("own", children.OWN)
+def test_a_child_has_every_signal_at_its_default_even_where_the_run_ignores_or_blocks_them(made, own) -> None:
+    put_back = _ignoring_and_blocking()
     try:
         # A child started any other way keeps them so: the probe sees what this test set.
         plain = json.loads(
@@ -183,11 +248,41 @@ def test_a_child_has_the_signals_at_their_defaults_even_where_the_run_ignores_th
         )
         found = _probe(made, own)
     finally:
-        signal.pthread_sigmask(signal.SIG_SETMASK, mask)
-        for one, handler in ignored.items():
-            signal.signal(one, handler)
-    assert (plain["ignored"], plain["blocked"]) == (["SIGINT", "SIGHUP", "SIGQUIT"], ["SIGTERM"])
+        put_back()
+    assert (plain["ignored"], plain["blocked"]) == (sorted(map(int, IGNORED)), sorted(map(int, BLOCKED)))
     assert (found["ignored"], found["blocked"]) == ([], [])
+
+
+def _status_masks(text: str) -> tuple[int, int]:
+    """SigIgn and SigBlk of a process's status, as Linux writes them."""
+    masks = dict(line.split(":\t", 1) for line in text.splitlines() if line.startswith(("SigIgn:", "SigBlk:")))
+    return int(masks["SigIgn"], 16), int(masks["SigBlk"], 16)
+
+
+@pytest.mark.skipif(not Path("/proc/self/status").is_file(), reason="the kernel's own masks are Linux's to show")
+@pytest.mark.parametrize("own", children.OWN)
+def test_a_program_that_is_not_python_has_no_signal_ignored_or_blocked(made, own) -> None:
+    # Python ignores SIGPIPE itself at its start, so only a program that is not Python shows that a child has it at
+    # its default: with it ignored, a pipe that closes under a child never ends it.
+    cat = shutil.which("cat")
+    assert cat is not None
+    put_back = _ignoring_and_blocking()
+    try:
+        plain = subprocess.run([cat, "/proc/self/status"], capture_output=True, text=True, check=True, timeout=60)
+
+        async def run() -> str:
+            process = await children.start(
+                made, [cat, "/proc/self/status"], own, dict(os.environ), DEVNULL, PIPE, PIPE, children.PROGRAM
+            )
+            out, _ = await asyncio.wait_for(process.communicate(), 60)
+            return out.decode()
+
+        found = asyncio.run(run())
+    finally:
+        put_back()
+    ignored, blocked = _status_masks(plain.stdout)
+    assert ignored and blocked, plain.stdout
+    assert _status_masks(found) == (0, 0), found
 
 
 @pytest.mark.parametrize("own", children.OWN)
@@ -268,6 +363,9 @@ def test_a_child_is_never_handed_a_lock_and_nothing_starts(made, nothing_starts,
         ({"argv": "true"}, TypeError, "list of str"),
         ({"argv": []}, TypeError, "list of str"),
         ({"stdin": None}, ValueError, "never reads the run's own standard input"),
+        ({"stdin": 0}, ValueError, "never reads the run's own standard input"),
+        ({"stdin": "the run's own"}, ValueError, "never reads the run's own standard input"),
+        ({"kind": children.OUTLIVING}, ValueError, "started by outlive, never by start"),
         ({"own": children.SESSION, "stdin": PIPE}, ValueError, "/dev/null"),
         ({"pass_fds": ("3",)}, TypeError, "descriptors"),
         ({"pass_fds": (True,)}, TypeError, "descriptors"),
@@ -284,9 +382,69 @@ def test_a_child_asked_for_wrongly_is_refused_and_nothing_starts(made, nothing_s
         "kind": children.PROGRAM,
     }
     words.update(given)
+    if words["stdin"] == "the run's own":
+        # A file whose descriptor is this process's own standard input, as sys.stdin's is.
+        words["stdin"] = _Fileno(0)
     with pytest.raises(error, match=said):
         asyncio.run(children.start(made, **words))
     assert nothing_starts == [] and children.live(made) == []
+
+
+class _Fileno:
+    """A stream that is the descriptor it names."""
+
+    def __init__(self, fd: int) -> None:
+        self.fd = fd
+
+    def fileno(self) -> int:
+        return self.fd
+
+
+@pytest.mark.parametrize("stream", ["stdout", "stderr"])
+def test_a_lock_on_a_standard_stream_the_child_would_inherit_is_refused_and_nothing_starts(
+    made, nothing_starts, stream
+) -> None:
+    # A stream given as None is this process's own descriptor 1 or 2, inherited: a lock's duplicate there would reach
+    # the child, and hold the lock past the run's kill (review/code/C2.md 3).
+    number = 1 if stream == "stdout" else 2
+    saved = os.dup(number)
+    os.dup2(_lock(made), number)
+    try:
+        with pytest.raises(children.LockRefused) as refused:
+            asyncio.run(
+                children.start(
+                    made,
+                    [sys.executable, "-I", "-c", "pass"],
+                    children.GROUP,
+                    dict(os.environ),
+                    DEVNULL,
+                    None if stream == "stdout" else DEVNULL,
+                    None if stream == "stderr" else DEVNULL,
+                    children.ANSIBLE,
+                )
+            )
+    finally:
+        os.dup2(saved, number)
+        os.close(saved)
+    assert f"descriptor {number} holds job {made.id}'s lock" in str(refused.value)
+    assert nothing_starts == [] and children.live(made) == []
+
+
+def test_a_standard_stream_the_child_inherits_that_is_no_lock_is_handed_over(made) -> None:
+    async def run() -> int:
+        process = await children.start(
+            made,
+            [sys.executable, "-I", "-c", "pass"],
+            children.GROUP,
+            dict(os.environ),
+            DEVNULL,
+            None,
+            None,
+            children.PROGRAM,
+        )
+        return await asyncio.wait_for(process.wait(), 60)
+
+    assert asyncio.run(run()) == 0
 
 
 # ---------------------------------------------------------------- the registry ----
@@ -325,17 +483,217 @@ def test_the_registry_holds_the_run_s_live_children_by_kind_until_each_ends(made
     asyncio.run(run())
 
 
+# ---------------------------------------------------------------- a child meant to outlive its run ----
+
+
+def _opened(out: Path) -> dict:
+    """What an outliving stand-in said it was given, once it has written it."""
+    deadline = time.monotonic() + 60
+    while not out.is_file():
+        if time.monotonic() > deadline:
+            pytest.fail("the outliving child said nothing within a minute")
+        time.sleep(0.02)
+    return json.loads(out.read_text())
+
+
+def test_a_child_meant_to_outlive_its_run_is_unmarked_in_a_session_of_its_own_and_in_no_registry(
+    made, tmp_path
+) -> None:
+    out = tmp_path / "opened"
+    # Even handed the run's marker, and another job's: it carries none.
+    for given in ({children.MARKER: made.id}, {children.MARKER: OTHER_JOB}):
+        if out.exists():
+            out.unlink()
+        process = children.outlive(made, [sys.executable, "-I", "-c", OPENS, str(out)], {**os.environ, **given})
+        try:
+            said = _opened(out)
+            assert said["pid"] == process.pid and said["marker"] is None
+            assert said["session"] == process.pid != os.getsid(0)
+            assert said["null"] == [True, True, True]
+            # Entered in no registry the run's end ends, and known to the end as one it leaves.
+            assert children.live(made) == [] and process.pid in children.outliving()
+        finally:
+            process.kill()
+            process.wait(timeout=60)
+        assert process.pid not in children.outliving()
+
+
+def test_a_child_meant_to_outlive_its_run_has_every_signal_at_its_default(made, tmp_path) -> None:
+    # As every child has: what the run ignored or blocked is not the editor's to keep. Its standard output is
+    # /dev/null, so the probe's answer goes to a file it is given.
+    out = tmp_path / "probed"
+    to_a_file = PROBE.replace("print(json.dumps(", f"open({str(out)!r}, 'w').write(json.dumps(", 1)
+    assert to_a_file != PROBE
+    put_back = _ignoring_and_blocking()
+    try:
+        process = children.outlive(made, [sys.executable, "-I", "-c", to_a_file], dict(os.environ))
+    finally:
+        put_back()
+    try:
+        assert process.wait(timeout=60) == 0
+    finally:
+        if process.poll() is None:
+            process.kill()
+    found = json.loads(out.read_text())
+    assert (found["ignored"], found["blocked"], found["marker"]) == ([], [], None)
+    assert found["session"] == found["pid"] != os.getsid(0)
+    assert process.pid not in children.outliving()
+
+
+def test_only_the_run_that_made_a_job_starts_a_child_meant_to_outlive_it(made) -> None:
+    other = jobs.Job(made.folder.parent / OTHER_JOB)
+    with pytest.raises(RuntimeError, match="not this process's"):
+        children.outlive(other, ["true"], {})
+    with pytest.raises(TypeError, match="list of str"):
+        children.outlive(made, "true", {})
+    assert children.outliving() == []
+
+
+# ---------------------------------------------------------------- a run carries no marker it inherited ----
+
+
+def test_a_run_started_with_another_job_s_marker_carries_none_and_nor_do_children_start_does_not_start(
+    made, monkeypatch, engine_guard, tmp_path, capsys
+) -> None:
+    # A run started by a marked process - an agent's job, a terminal of an editor a run opened - is handed another
+    # job's ID; its children started through start carry its own, and those started any other way carry what its
+    # environment holds (review/code/C2.md 2). route.py's ssh -G and proc.py's ps, each a stand-in that says the
+    # marker it was given.
+    folder = tmp_path / "bin"
+    folder.mkdir()
+    for name in ("ps", "ssh"):
+        (folder / name).write_text(RECORDS_MARKER)
+        (folder / name).chmod(0o755)
+    engine_guard.first_on_path(folder)
+    monkeypatch.setenv(children.MARKER, OTHER_JOB)
+
+    def children_said() -> list[str]:
+        proc.snapshot(os.getpid())
+        route.ssh_shown(folder / "ssh", [], "alpha")
+        return [(folder / f"{name}.marker").read_text().split()[-1] for name in ("ps", "ssh")]
+
+    # The control: a run that keeps what it was handed hands it on.
+    assert children_said() == [OTHER_JOB, OTHER_JOB]
+    # The program takes it out of its environment at its start, as tools/aw runs it.
+    assert main.main([str(AW), "help"]) == 0
+    capsys.readouterr()
+    assert children.MARKER not in os.environ
+    assert children_said() == ["none", "none"]
+    # A child started through start carries the run's own marker.
+    assert _probe(made, children.GROUP)["marker"] == made.id
+
+
+# ---------------------------------------------------------------- a child the terminal stopped ----
+
+
+@pytest.mark.skipif(not hasattr(os, "waitid"), reason="Python before 3.13 on macOS has no waitid")
+def test_a_child_the_terminal_stopped_is_asking_and_one_stopped_otherwise_is_not(made) -> None:
+    def stopped_by(pid: int) -> int | None:
+        seen = os.waitid(os.P_PID, pid, os.WSTOPPED | os.WNOHANG | os.WNOWAIT)
+        return None if seen is None else seen.si_status
+
+    async def until(check, what: str) -> None:
+        deadline = time.monotonic() + 30
+        while not check():
+            if time.monotonic() > deadline:
+                pytest.fail(f"{what} within 30 s")
+            await asyncio.sleep(0.02)
+
+    async def run() -> None:
+        process = await children.start(
+            made,
+            [sys.executable, "-I", "-c", WAITS],
+            children.GROUP,
+            dict(os.environ),
+            PIPE,
+            DEVNULL,
+            DEVNULL,
+            children.SSH,
+        )
+        try:
+            [child] = children.live(made)
+            assert child.program == os.path.basename(sys.executable)
+            assert children.asking(made) == []
+            # Stopped by a person's SIGSTOP, as a debugger stops one: no question, and not the run's to end.
+            os.kill(process.pid, signal.SIGSTOP)
+            await until(lambda: stopped_by(process.pid) == signal.SIGSTOP, "the child stopped")
+            assert children.asking(made) == []
+            os.kill(process.pid, signal.SIGCONT)
+            # Named here, never read off the module's own tuple, which a test reading it would shrink with: SIGTTOU is
+            # the stop OpenSSH's readpassphrase makes, turning the echo off before it reads (review/code/C23.md 1).
+            assert children.AT_THE_TERMINAL == (signal.SIGTTIN, signal.SIGTTOU)
+            for signum in (signal.SIGTTIN, signal.SIGTTOU):
+                # What the terminal sends a group that reads it, or writes or changes it, not being its own.
+                os.killpg(process.pid, signum)
+                await until(lambda signum=signum: children.asking(made) == [(child, signum)], "the child asking")
+                # Read and left as it was: still stopped, still the run's, never reaped.
+                assert stopped_by(process.pid) == signum and process.returncode is None
+                assert children.asking(made) == [(child, signum)] and children.live(made) == [child]
+                os.kill(process.pid, signal.SIGCONT)
+                await until(lambda: children.asking(made) == [], "the child going on")
+        finally:
+            process.kill()
+            await process.wait()
+        assert children.asking(made) == []
+
+    asyncio.run(run())
+
+
+SLEEPS = [sys.executable, "-c", "import time; time.sleep(60)"]
+
+
+@pytest.mark.skipif(not hasattr(os, "waitid"), reason="Python before 3.13 on macOS has no waitid")
+def test_route_s_ssh_in_a_group_of_its_own_is_watched_and_said_asking_and_one_in_this_group_is_not(
+    made, monkeypatch
+) -> None:
+    # route.py's ssh, which the new engine starts in a process group of its own (process_group=0) and start never
+    # starts, is stopped by a question at the terminal as the registry's children are (review/code/C23.md 2); one of
+    # today's callers, in this process's group, is not the run's to watch.
+    monkeypatch.setattr(route, "_OVER", threading.Event())
+    leading = route._started(SLEEPS, process_group=0)
+    alone = route._started(SLEEPS)
+    ours = (leading, alone)
+
+    def watched() -> list[children.Child]:
+        return [child for child in children.watched(made) if child.process in ours]
+
+    def asking() -> list[tuple[children.Child, int]]:
+        return [(child, signum) for child, signum in children.asking(made) if child.process in ours]
+
+    try:
+        child = children.Child(children.SSH, leading, os.path.basename(sys.executable))
+        assert leading in route.leading() and alone not in route.leading()
+        assert watched() == [child]
+        assert asking() == []
+        for signum in (signal.SIGTTIN, signal.SIGTTOU):
+            os.killpg(leading.pid, signum)
+            deadline = time.monotonic() + 30
+            while asking() != [(child, signum)]:
+                assert time.monotonic() < deadline, "route.py's ssh never read as asking"
+                time.sleep(0.02)
+            os.kill(leading.pid, signal.SIGCONT)
+            while asking():
+                assert time.monotonic() < deadline, "route.py's ssh never going on"
+                time.sleep(0.02)
+    finally:
+        for process in ours:
+            process.kill()
+            process.wait()
+            route._forget(process)
+    assert watched() == [] and leading not in route.leading()
+
+
 # ---------------------------------------------------------------- the rules ----
 
-# The modules of the new engine's code that start a child process, each with why. route.py, which opens and checks the
-# hop to a host's VMs, is today's and lies outside it.
+# The modules of the new engine's code that start a child process, each with why: the SSH runner starts its ssh
+# children through children.start too. route.py, which opens and checks the hop to a host's VMs, is today's and lies
+# outside it.
 STARTERS = {
     "lib/claude_vm/runs/children.py": "the one way a run starts a child",
-    "lib/claude_vm/ssh/runner.py": "the SSH runner: its bounded and held ssh children, entered in the registry through"
-    " its started callback",
 }
 # What starts a child process, by the name it is imported under: each of subprocess's and asyncio's ways, the os
-# module's, pty's spawn, and a pool of processes or multiprocessing's, which fork by default on Linux before 3.14.
+# module's and posix's under it, pty's spawn, the fork and exec under subprocess, a browser's opener, and a pool of
+# processes or multiprocessing's, which fork by default on Linux before 3.14.
 STARTS = {
     "subprocess.Popen",
     "subprocess.run",
@@ -355,17 +713,33 @@ STARTS = {
     "pty.spawn",
     "concurrent.futures.ProcessPoolExecutor",
     "concurrent.futures.process.ProcessPoolExecutor",
+    "_posixsubprocess.fork_exec",
 }
-STARTS_PREFIXES = ("os.spawn", "multiprocessing.")
+STARTS_PREFIXES = ("os.spawn", "multiprocessing.", "posix.", "webbrowser.")
+# The modules that start a child, which a name built at run time could reach: imported by a name (importlib's, or
+# __import__), or an attribute of one asked of getattr. The new engine imports none of them so, and asks none so.
+STARTING_MODULES = {
+    "subprocess",
+    "asyncio",
+    "asyncio.subprocess",
+    "os",
+    "posix",
+    "pty",
+    "multiprocessing",
+    "concurrent.futures",
+    "_posixsubprocess",
+    "webbrowser",
+}
 # What starts a child by its name on any object: a loop's own, and the two names under any alias of their module.
 STARTS_ANYWHERE = {"Popen", "create_subprocess_exec", "create_subprocess_shell", "subprocess_exec", "subprocess_shell"}
 # What forks a process with no exec after it.
-FORKS = {"os.fork", "os.forkpty", "pty.fork"}
+FORKS = {"os.fork", "os.forkpty", "pty.fork", "posix.fork", "posix.forkpty"}
 
 
 def _code() -> list[Path]:
-    """The new engine's code: every Python file of its subpackages, and tools/aw."""
-    found = [path for path in repo_files(*(f"lib/claude_vm/{name}" for name in NEW), untracked=True)]
+    """The new engine's code: every Python file of its subpackages and its modules (secret.py), and tools/aw."""
+    wanted = [where for name in NEW_MODULES for where in (f"lib/claude_vm/{name}", f"lib/claude_vm/{name}.py")]
+    found = [path for path in repo_files(*wanted, untracked=True)]
     return [*(path for path in found if path.suffix == ".py"), AW]
 
 
@@ -406,6 +780,16 @@ def _starts(text: str) -> list[str]:
         last = node.attr if isinstance(node, ast.Attribute) else node.id
         if dotted in STARTS or dotted.startswith(STARTS_PREFIXES) or last in STARTS_ANYWHERE:
             found.append(f"line {node.lineno}: {dotted or last}")
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not node.args:
+            continue
+        called = _dotted(node.func, names) or ""
+        first = node.args[0]
+        if called in ("importlib.import_module", "__import__"):
+            if isinstance(first, ast.Constant) and first.value in STARTING_MODULES:
+                found.append(f"line {node.lineno}: {first.value} imported by its name")
+        elif called == "getattr" and (_dotted(first, names) or "") in STARTING_MODULES:
+            found.append(f"line {node.lineno}: an attribute of {_dotted(first, names)} by its name")
     return found
 
 
@@ -416,25 +800,31 @@ def _forks(text: str) -> list[str]:
     for node in ast.walk(tree):
         if isinstance(node, (ast.Attribute, ast.Name)) and _dotted(node, names) in FORKS:
             found.append(f"line {node.lineno}: {_dotted(node, names)}")
-        if isinstance(node, ast.Call) and getattr(node.func, "attr", getattr(node.func, "id", "")) in (
-            "set_start_method",
-            "get_context",
-        ):
+        called = (_dotted(node.func, names) or "").rsplit(".", 1)[-1] if isinstance(node, ast.Call) else ""
+        if called in ("set_start_method", "get_context"):
             given = [*node.args[:1], *(keyword.value for keyword in node.keywords if keyword.arg == "method")]
             if any(isinstance(each, ast.Constant) and each.value == "fork" for each in given):
                 found.append(f"line {node.lineno}: a fork start method")
+            elif any(not isinstance(each, ast.Constant) for each in given):
+                found.append(f"line {node.lineno}: a start method from a name")
     return found
 
 
 def _closes_no_fds(text: str) -> list[str]:
-    """Each call that passes close_fds a false constant."""
-    return [
-        f"line {node.lineno}: close_fds={keyword.value.value!r}"
-        for node in ast.walk(ast.parse(text))
-        if isinstance(node, ast.Call)
-        for keyword in node.keywords
-        if keyword.arg == "close_fds" and isinstance(keyword.value, ast.Constant) and not keyword.value.value
-    ]
+    """Each call that passes close_fds anything but True, a constant: a false one, a name or an expression, or one in a
+    mapping spread into the call."""
+    found = []
+    for node in ast.walk(ast.parse(text)):
+        if isinstance(node, ast.Call):
+            for keyword in node.keywords:
+                if keyword.arg == "close_fds" and not (
+                    isinstance(keyword.value, ast.Constant) and keyword.value.value is True
+                ):
+                    found.append(f"line {node.lineno}: close_fds={ast.unparse(keyword.value)}")
+        elif isinstance(node, ast.Dict):
+            if any(isinstance(key, ast.Constant) and key.value == "close_fds" for key in node.keys):
+                found.append(f"line {node.lineno}: close_fds in a mapping")
+    return found
 
 
 def _hands_over(text: str) -> list[tuple[int, str]]:
@@ -455,6 +845,27 @@ def _hands_over(text: str) -> list[tuple[int, str]]:
             and not (node.args and isinstance(node.args[-1], ast.Constant) and node.args[-1].value is False)
         ):
             found.append((node.lineno, "set_inheritable"))
+        elif isinstance(node, ast.Dict) and any(
+            isinstance(key, ast.Constant) and key.value == "pass_fds" for key in node.keys
+        ):
+            found.append((node.lineno, "pass_fds in a mapping"))
+        elif (
+            isinstance(node, ast.Call)
+            and getattr(node.func, "attr", getattr(node.func, "id", "")) == "dup2"
+            and not any(
+                keyword.arg == "inheritable"
+                and isinstance(keyword.value, ast.Constant)
+                and keyword.value.value is False
+                for keyword in node.keywords
+            )
+        ):
+            # os.dup2 makes the copy inheritable unless told not to.
+            found.append((node.lineno, "dup2"))
+        elif isinstance(node, (ast.Attribute, ast.Name)) and (
+            node.attr if isinstance(node, ast.Attribute) else node.id
+        ) in ("F_SETFD", "F_DUPFD", "pipe2"):
+            # A descriptor's close-on-exec cleared, a copy made without it, or a pipe made with what flags say.
+            found.append((node.lineno, node.attr if isinstance(node, ast.Attribute) else node.id))
     return found
 
 
@@ -473,11 +884,12 @@ def _rel(path: Path) -> str:
     return str(path.relative_to(REPO))
 
 
-def test_a_child_process_is_started_only_through_children_py_and_the_ssh_runner() -> None:
+def test_a_child_process_is_started_only_through_children_py() -> None:
     code = _code()
     assert REPO / "lib" / "claude_vm" / "runs" / "children.py" in code, code
+    assert REPO / "lib" / "claude_vm" / "secret.py" in code, code
     found = {_rel(path): where for path in code if _rel(path) not in STARTERS and (where := _starts(path.read_text()))}
-    assert found == {}, "a child of a run is started by runs/children.py's start, or by the SSH runner"
+    assert found == {}, "a child of a run is started by runs/children.py's start, the SSH runner's too"
     assert all(reason.strip() for reason in STARTERS.values())
 
 
@@ -541,6 +953,20 @@ def test_every_module_of_runs_that_takes_a_lock_is_one_holders_reads() -> None:
             "import concurrent.futures\nconcurrent.futures.ProcessPoolExecutor()",
             ["line 2: concurrent.futures.ProcessPoolExecutor"],
         ),  # noqa: E501
+        ("import posix\nposix.system('x')", ["line 2: posix.system"]),
+        ("import posix\nposix.posix_spawn('x', ['x'], {})", ["line 2: posix.posix_spawn"]),
+        ("import _posixsubprocess\n_posixsubprocess.fork_exec()", ["line 2: _posixsubprocess.fork_exec"]),
+        ("import webbrowser\nwebbrowser.open(url)", ["line 2: webbrowser.open"]),
+        ("import webbrowser\nwebbrowser.get().open(url)", ["line 2: webbrowser.get"]),
+        (
+            "import importlib\nimportlib.import_module('subprocess').run(['x'])",
+            ["line 2: subprocess imported by its name"],
+        ),
+        ("__import__('os').system('x')", ["line 1: os imported by its name"]),
+        ("import os\ngetattr(os, 'system')('x')", ["line 2: an attribute of os by its name"]),
+        ("import importlib\nimportlib.import_module(f'claude_vm.{module}')", []),
+        ("import importlib\nimportlib.import_module('claude_vm.runs')", []),
+        ("getattr(module, function)", []),
         ("import asyncio\nasyncio.run(main())", []),
         ("from claude_vm import platform\nplatform.system()", []),
         ("runs.run(draft, body)", []),
@@ -558,6 +984,10 @@ def test_the_scan_sees_each_way_to_start_a_child(source, found) -> None:
         ("import pty\npty.fork()", ["line 2: pty.fork"]),
         ("import multiprocessing\nmultiprocessing.set_start_method('fork')", ["line 2: a fork start method"]),
         ("import multiprocessing as mp\nmp.get_context(method='fork')", ["line 2: a fork start method"]),
+        ("import posix\nposix.fork()", ["line 2: posix.fork"]),
+        ("import posix\nposix.forkpty()", ["line 2: posix.forkpty"]),
+        ("from multiprocessing import get_context as g\ng('fork')", ["line 2: a fork start method"]),
+        ("import multiprocessing\nmultiprocessing.get_context(method)", ["line 2: a start method from a name"]),
         ("import multiprocessing\nmultiprocessing.get_context('spawn')", []),
         ("import os\nos.register_at_fork(after_in_child=f)", []),
     ],
@@ -571,6 +1001,9 @@ def test_the_scan_sees_each_fork_with_no_exec(source, found) -> None:
     [
         ("subprocess.Popen(['x'], close_fds=False)", ["line 1: close_fds=False"]),
         ("subprocess.Popen(['x'], close_fds=0)", ["line 1: close_fds=0"]),
+        ("subprocess.Popen(['x'], close_fds=flag)", ["line 1: close_fds=flag"]),
+        ("subprocess.Popen(['x'], close_fds=not True)", ["line 1: close_fds=not True"]),
+        ("subprocess.Popen(['x'], **{'close_fds': False})", ["line 1: close_fds in a mapping"]),
         ("subprocess.Popen(['x'], close_fds=True)", []),
     ],
 )
@@ -588,6 +1021,14 @@ def test_the_scan_sees_close_fds_turned_off(source, found) -> None:
         ("os.set_inheritable(fd, True)", [(1, "set_inheritable")]),
         ("os.set_inheritable(fd, flag)", [(1, "set_inheritable")]),
         ("sock.set_inheritable(True)", [(1, "set_inheritable")]),
+        ("subprocess.Popen(['x'], **{'pass_fds': (3,)})", [(1, "pass_fds in a mapping")]),
+        ("os.dup2(lock, 9)", [(1, "dup2")]),
+        ("os.dup2(lock, 9, inheritable=True)", [(1, "dup2")]),
+        ("fcntl.fcntl(fd, fcntl.F_SETFD, 0)", [(1, "F_SETFD")]),
+        ("fcntl.fcntl(fd, fcntl.F_DUPFD, 10)", [(1, "F_DUPFD")]),
+        ("os.pipe2(0)", [(1, "pipe2")]),
+        ("os.dup2(lock, 9, inheritable=False)", []),
+        ("fcntl.fcntl(fd, fcntl.F_DUPFD_CLOEXEC, 10)", []),
         ("os.set_inheritable(fd, False)", []),
     ],
 )

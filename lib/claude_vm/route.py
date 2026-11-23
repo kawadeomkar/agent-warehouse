@@ -17,6 +17,7 @@ import ipaddress
 import os
 import re
 import shlex
+import signal
 import socket
 import tempfile
 import threading
@@ -165,11 +166,17 @@ def _path(value, what, setting) -> str:
     return value
 
 
-def hop_settings(ssh="ssh", user="", host="", port=None, key="", control_dir="~/.ansible/cp", name="") -> dict:
+def hop_settings(
+    ssh="ssh", user="", host="", port=None, key="", control_dir="~/.ansible/cp", name="", *, sized=True, pinned=False
+) -> dict:
     """The hop's settings, each held: ``{ssh, user, host, port, key, socket, label}``. ``socket`` is its shared
     connection's path in ``control_dir``, named by a digest of the hop; ``label`` names it in the words a run says,
     with ``name``, the Proxmox host's inventory name. Raises HopRefused, naming the setting and the way out, for any
-    value that is not one plain word."""
+    value that is not one plain word, and for a socket past SOCKET_MOST bytes. The new engine's two, which today's
+    callers pass neither of: ``sized`` false leaves a socket past SOCKET_MOST to the caller, which says it in its own
+    words (socket_fits); ``pinned`` makes every line the hop's own ssh is run with pin ForwardX11=no and
+    PermitLocalCommand=no first (_common), as the new engine pins them for a machine, kept as ``pinned`` in the
+    settings, so that the hop's command a machine is given and the one it is held to are the same."""
     user = "" if user is None else str(user)
     if user and not _USER.fullmatch(user):
         raise _refused(f"the hop's user {user!r} is not an account name", "user")
@@ -188,7 +195,7 @@ def hop_settings(ssh="ssh", user="", host="", port=None, key="", control_dir="~/
     directory = _path(control_dir or "~/.ansible/cp", "the control directory", "control_dir").rstrip("/") or "/"
     digest = hashlib.sha256(f"{user} {host} {port or ''}".encode()).hexdigest()[:12]
     path = f"{directory}/awh-{digest}"
-    if len(path.encode()) > SOCKET_MOST:
+    if sized and not socket_fits(path):
         raise HopRefused(
             f"the hop's socket, {path}, is longer than {SOCKET_MOST} bytes, the most a socket's path may be here (macOS"
             " binds none longer)",
@@ -196,7 +203,13 @@ def hop_settings(ssh="ssh", user="", host="", port=None, key="", control_dir="~/
         )
     reached = f"{user}@{host}" if user else host
     label = f"{name} ({reached})" if name and name != reached else reached
-    return {"ssh": ssh, "user": user, "host": host, "port": port, "key": key, "socket": path, "label": label}
+    settings = {"ssh": ssh, "user": user, "host": host, "port": port, "key": key, "socket": path, "label": label}
+    return {**settings, "pinned": True} if pinned else settings
+
+
+def socket_fits(path) -> bool:
+    """Whether a shared connection's socket at ``path`` can be bound: at most SOCKET_MOST bytes."""
+    return len(str(path).encode()) <= SOCKET_MOST
 
 
 def _target(address) -> str:
@@ -218,6 +231,10 @@ def _common(hop: dict, policy: str, level: str = "INFO") -> list[str]:
         raise ValueError(f"no log level {level!r}")
     return [
         hop["ssh"],
+        # The new engine's hop (hop_settings' pinned): this computer's X display never handed to the host, and no
+        # program run here for a connection, whatever a person's Host * says - a master the open makes, or a
+        # ProxyCommand's ssh that finds none live and becomes one, would run their LocalCommand.
+        *(["-o", "ForwardX11=no", "-o", "PermitLocalCommand=no"] if hop.get("pinned") else []),
         "-o",
         "BatchMode=yes",
         "-o",
@@ -378,46 +395,142 @@ def vm_hop(route, address, given="", extra="") -> dict:
     }
 
 
-# Every ssh _run has started and not yet waited for, so that a caller about to end at once (os._exit, which runs no
-# finally) can end them first (end_all).
+# Every ssh this module has started and not yet waited for - _run's, and the ssh -G of route_settle and ssh_shown - so
+# that a caller about to end at once (os._exit, which runs no finally) can end them first (end_all), and once it has,
+# _OVER: none is started after. Each is started and added in one step under the lock end_all takes (_started), so that
+# end_all never runs between the two. _LEADING, those of them that lead a process group of their own (process_group=0,
+# the new engine's calls): each is ended with its group (_kill), and watched by the new engine's run for a stop at the
+# terminal (leading).
 _LIVE: set = set()
+_LEADING: set = set()
 _LIVE_LOCK = threading.Lock()
+_OVER = threading.Event()
+
+
+class NotStarted(OSError):
+    """An ssh not started, since end_all has run: the run that would have waited for it is ending."""
+
+
+def _kill(process) -> None:
+    """``process`` killed, never once it has been reaped (as Popen.kill), with its process group where it leads one
+    (_LEADING: started with process_group=0, the new engine's), so that what it started there - the program of a
+    person's ``Match exec``, a ProxyCommand's - ends with it; by its pid alone where it leads none: today's callers
+    start their ssh in their own process's group, which a group's end would signal."""
+    if process.poll() is not None:
+        return
+    if process in _LEADING:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+            return
+        except OSError:
+            pass
+    try:
+        process.kill()
+    except OSError:
+        pass
 
 
 def end_all() -> None:
-    """End every ssh this process runs for the hop, whatever thread waits on it: for a caller that ends at once, before
-    the threads' own ``finally`` could. Each is reaped by the thread that started it, or by init."""
+    """End every ssh this process runs for the hop, ``ssh -G`` among them, whatever thread waits on it, each with its
+    process group where it leads one (_kill), and start none after: for a caller that ends at once, before the threads'
+    own ``finally`` could. One being started meanwhile is waited for and ended with the rest. Each is reaped by the
+    thread that started it, or by init."""
     with _LIVE_LOCK:
+        _OVER.set()
         live = list(_LIVE)
     for process in live:
-        try:
-            process.kill()
-        except OSError:
-            pass
+        _kill(process)
 
 
-def _run(argv: list[str], limit: float, until: str = "", banner: bool = False) -> dict:
+def leading() -> list:
+    """The ssh this module runs in a process group of its own (process_group=0, the new engine's calls), still running
+    or not yet reaped: children of this process that a question at the terminal can stop, which the new engine's run
+    watches as it watches its own children. Today's callers start none."""
+    with _LIVE_LOCK:
+        return [process for process in _LIVE if process in _LEADING]
+
+
+def _started(argv: list[str], **popen):
+    """``argv`` started with nothing on its standard input and Popen's ``popen``, and added to _LIVE in one step under
+    the lock end_all takes: an end_all meanwhile waits for the start and ends it with the rest, and once one has run
+    nothing is started (NotStarted). One started with ``process_group`` 0 leads a group of its own (_LEADING). OSError
+    where it cannot be started. The caller waits for it, then discards it from _LIVE (_forget)."""
+    import subprocess
+
+    with _LIVE_LOCK:
+        if _OVER.is_set():
+            raise NotStarted(f"{argv[0]}: not started, the run ended")
+        process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, **popen)
+        _LIVE.add(process)
+        if popen.get("process_group") == 0:
+            _LEADING.add(process)
+    return process
+
+
+def _forget(process) -> None:
+    with _LIVE_LOCK:
+        _LIVE.discard(process)
+        _LEADING.discard(process)
+
+
+def _asked(argv: list[str], limit: float, *, process_group=None):
+    """``argv``, an ``ssh -G``, run as ``subprocess.run`` runs it - its standard output and standard error read whole as
+    text, a subprocess.CompletedProcess, and subprocess.TimeoutExpired once ``limit`` seconds have passed - but started
+    as _run starts its ssh (_started), so that end_all ends it and starts none after (NotStarted): no ``ssh -G`` of a
+    caller that ended at once goes on to run a person's ``Match exec``. Past its limit, or with its caller ended
+    meanwhile, it is ended here and waited for. ``process_group`` is _run's: with 0, each of those ends its group too,
+    the ``Match exec``'s program with it."""
+    import subprocess
+
+    process = _started(
+        argv,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        errors="replace",
+        process_group=process_group,
+    )
+    try:
+        out, err = process.communicate(timeout=limit)
+    except BaseException:
+        # Its limit passed, a Ctrl-C, any exception: ended here, with its group where it leads one, and waited for, as
+        # subprocess.run does.
+        _kill(process)
+        process.wait()
+        raise
+    finally:
+        for stream in (process.stdout, process.stderr):
+            stream.close()
+        _forget(process)
+    return subprocess.CompletedProcess(argv, process.returncode, out, err)
+
+
+def _run(argv: list[str], limit: float, until: str = "", banner: bool = False, *, process_group=None) -> dict:
     """``argv`` run with nothing on its standard input and its standard output discarded - what a forward carries is
     the far end's to write - killed at ``limit`` seconds, or as soon as its standard error holds ``until``:
     ``{rc, said, killed, banner}``, ``said`` its standard error, ``rc`` None where it was killed. With ``banner``, its
     standard output is read as it comes and dropped, and only whether its first bytes are an SSH banner kept, as
     ``banner``: never more of what the far end wrote. A caller ended meanwhile (a Ctrl-C, any exception) ends it too,
-    and waits for it: no ssh is left to run on by itself."""
+    and waits for it: no ssh is left to run on by itself. Once end_all has run, nothing is started: ``rc`` 255, and
+    ``said`` says so. ``process_group``, Popen's: the new engine's 0 starts it in a process group of its own, so that a
+    terminal's Ctrl-C, which the engine takes as "finish the step", never reaches it, and each kill of it here, at its
+    limit or when its caller ends, ends that group with it (_kill); None, today's callers', leaves it in this process's
+    group, and a kill ends it alone."""
     import subprocess  # only where ssh is run: imported with the package, it would slow every run's start
 
     first = b""
     with tempfile.TemporaryFile() as errors:
         try:
-            process = subprocess.Popen(
+            process = _started(
                 argv,
-                stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE if banner else subprocess.DEVNULL,
                 stderr=errors,
+                process_group=process_group,
             )
+        except NotStarted as ended:
+            return {"rc": 255, "said": str(ended), "killed": False, "banner": False}
         except OSError as error:
             return {"rc": 255, "said": f"{argv[0]}: {error.strerror or error}", "killed": False, "banner": False}
-        with _LIVE_LOCK:
-            _LIVE.add(process)
         if process.stdout is not None:
             os.set_blocking(process.stdout.fileno(), False)
         end = time.monotonic() + limit
@@ -426,19 +539,19 @@ def _run(argv: list[str], limit: float, until: str = "", banner: bool = False) -
             while process.poll() is None:
                 first = _drained(process, first)
                 if time.monotonic() >= end or (until and until.encode() in _read(errors.fileno())):
-                    process.kill()
+                    _kill(process)
                     killed = True
                     break
                 time.sleep(0.05)
         finally:
-            if process.poll() is None:
-                process.kill()
+            # A caller ended meanwhile: ended here too, with its group where it leads one (one killed above is ending).
+            if not killed:
+                _kill(process)
             process.wait()
             first = _drained(process, first)
             if process.stdout is not None:
                 process.stdout.close()
-            with _LIVE_LOCK:
-                _LIVE.discard(process)
+            _forget(process)
         said = _read(errors.fileno()).decode(errors="replace").replace("\r", "")
     return {
         "rc": None if killed else process.returncode,
@@ -469,22 +582,24 @@ def _read(fd: int) -> bytes:
     return os.pread(fd, 65536, 0)
 
 
-def _check(hop: dict, policy: str, limit=None) -> dict:
+def _check(hop: dict, policy: str, limit=None, *, process_group=None) -> dict:
     argv = [*_common(hop, policy), *_shared(hop), *_place(hop), "-O", "check", _destination(hop)]
-    return _run(argv, limit or LIMITS["check"])
+    return _run(argv, limit or LIMITS["check"], process_group=process_group)
 
 
-def hop_check(hop: dict, policy: str, limit=None) -> bool:
+def hop_check(hop: dict, policy: str, limit=None, *, process_group=None) -> bool:
     """Whether this machine holds the hop's shared connection (``-O check``). Asks this machine's ssh process only: a
-    connection whose far side has gone says it runs until its keepalives end it, 60 s at most."""
-    return _check(hop, policy, limit)["rc"] == 0
+    connection whose far side has gone says it runs until its keepalives end it, 60 s at most. ``process_group`` is
+    _run's."""
+    return _check(hop, policy, limit, process_group=process_group)["rc"] == 0
 
 
-def hop_stop(hop: dict, policy: str, limit=None) -> bool:
+def hop_stop(hop: dict, policy: str, limit=None, *, process_group=None) -> bool:
     """The shared connection told to take no new sessions (``-O stop``): the forwards it carries finish, and the next
-    connection opens a new one at the same path. Never ``-O exit``, which would cut another run's tasks."""
+    connection opens a new one at the same path. Never ``-O exit``, which would cut another run's tasks.
+    ``process_group`` is _run's."""
     argv = [*_common(hop, policy), *_shared(hop), *_place(hop), "-O", "stop", _destination(hop)]
-    return _run(argv, limit or LIMITS["stop"])["rc"] == 0
+    return _run(argv, limit or LIMITS["stop"], process_group=process_group)["rc"] == 0
 
 
 def hop_open_argv(hop: dict, policy: str) -> list[str]:
@@ -504,7 +619,7 @@ def hop_open_argv(hop: dict, policy: str) -> list[str]:
     ]
 
 
-def hop_held(hop: dict, policy: str, limits=None, again: bool = True) -> dict:
+def hop_held(hop: dict, policy: str, limits=None, again: bool = True, *, process_group=None) -> dict:
     """Make sure of the hop's shared connection: ``{ok, opened, said}``. ``-O check`` first, never an open beside a
     live connection. Where the check found a socket file that nothing listens at ("Connection refused": a connection
     that ended without removing it), that file is removed, since a master never takes a path over; never where the
@@ -513,7 +628,8 @@ def hop_held(hop: dict, policy: str, limits=None, again: bool = True) -> dict:
     check`` decides once more. At worst the file removed was a connection another run opened in that instant: that one
     lives out its clients, a second is opened, and no session is started. An open that ended by itself, its master
     made, with no connection found at the path after it, had its path removed by such a caller: made sure of once
-    more, ``again`` false that time. A failure always says why."""
+    more, ``again`` false that time. A failure always says why. ``process_group`` is _run's, for every ssh it
+    runs."""
     limits = {**LIMITS, **(limits or {})}
     directory = os.path.dirname(hop["socket"])
     try:
@@ -521,7 +637,7 @@ def hop_held(hop: dict, policy: str, limits=None, again: bool = True) -> dict:
         os.makedirs(directory, mode=0o700, exist_ok=True)
     except OSError as error:
         return {"ok": False, "opened": False, "said": f"the control directory {directory}: {error.strerror or error}"}
-    checked = _check(hop, policy, limits["check"])
+    checked = _check(hop, policy, limits["check"], process_group=process_group)
     if checked["rc"] == 0:
         return {"ok": True, "opened": False, "said": ""}
     if not checked["killed"] and "Connection refused" in checked["said"]:
@@ -531,11 +647,16 @@ def hop_held(hop: dict, policy: str, limits=None, again: bool = True) -> dict:
             pass
         except OSError as error:
             return {"ok": False, "opened": False, "said": f"{hop['socket']}: {error.strerror or error}"}
-    opened = _run(hop_open_argv(hop, policy), limits["open"], until="already exists, disabling multiplexing")
-    if hop_check(hop, policy, limits["check"]):
+    opened = _run(
+        hop_open_argv(hop, policy),
+        limits["open"],
+        until="already exists, disabling multiplexing",
+        process_group=process_group,
+    )
+    if hop_check(hop, policy, limits["check"], process_group=process_group):
         return {"ok": True, "opened": opened["rc"] == 0, "said": ""}
     if opened["rc"] == 0 and again:
-        return hop_held(hop, policy, limits, again=False)
+        return hop_held(hop, policy, limits, again=False, process_group=process_group)
     said = (
         opened["said"]
         or (f"no answer within {limits['open']} s" if opened["killed"] else "")
@@ -581,19 +702,24 @@ def forward_verdict(rc, said, killed, banner=False) -> dict:
     }
 
 
-def hop_forward(hop: dict, address, policy: str, port=22, limit=None) -> dict:
+def hop_forward(hop: dict, address, policy: str, port=22, limit=None, *, process_group=None) -> dict:
     """One forward to ``address``'s ``port`` on a connection of its own, its standard input closed, ssh at
     LogLevel=VERBOSE: what it says of the hop (forward_verdict), from its exit status and standard error, and of the
-    far end's words only whether they begin as an SSH server's do."""
+    far end's words only whether they begin as an SSH server's do. ``process_group`` is _run's."""
     argv = hop_argv(hop, address, policy, port=port, shared=False, level="VERBOSE")
-    ended = _run(argv, limit or LIMITS["forward"], banner=True)
+    ended = _run(argv, limit or LIMITS["forward"], banner=True, process_group=process_group)
     return forward_verdict(ended["rc"], ended["said"], ended["killed"], ended["banner"])
 
 
-def route_settle(setting, hop: dict, limit=None) -> dict:
+def route_settle(setting, hop: dict, limit=None, *, process_group=None, signalled_settles=True) -> dict:
     """The run's route: ``{route, addresses, dialled}``. Under ``auto``, where ssh would dial for the Proxmox host
     decides: its host as ``ssh -G`` resolves it - a HostName of the user's counts - or as written where that fails,
-    then that name's addresses here, now."""
+    then that name's addresses here, now. The ``ssh -G`` is started as _run starts its ssh, so that end_all ends it
+    (_asked). ``process_group`` is _run's, for the ``ssh -G``. With ``signalled_settles`` false, the new engine's, an
+    ``ssh -G`` that gave no answer settles nothing - one a signal ended, one past its limit (whose kill is a signal
+    too), and one not started since the run is ending: HopRefused, naming vm_ssh_route, where today's callers settle
+    from the address as written, which may be ``direct`` where the person's configuration sends the host to a
+    tailnet."""
     import subprocess
 
     setting = str(setting or "auto")
@@ -601,45 +727,47 @@ def route_settle(setting, hop: dict, limit=None) -> dict:
         return {"route": route_rule(setting, []), "addresses": [], "dialled": ""}
     # The user's own ssh config is read here, as the hop's ssh reads it: its HostName for the host is where ssh dials.
     argv = [hop["ssh"], *_place(hop), "-G", _destination(hop)]
+    limit = limit or LIMITS["config"]
+    unanswered = ""
     try:
-        shown = subprocess.run(
-            argv,
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
-            errors="replace",
-            timeout=limit or LIMITS["config"],
-        )
+        shown = _asked(argv, limit, process_group=process_group)
         text = shown.stdout if shown.returncode == 0 else ""
-    except (OSError, subprocess.TimeoutExpired):
+        if shown.returncode < 0:
+            unanswered = f"was ended by a signal ({-shown.returncode}) before it said where ssh dials for it"
+    except subprocess.TimeoutExpired:
+        text, unanswered = "", f"said nothing of where ssh dials for it within {limit} s"
+    except NotStarted:
+        text, unanswered = "", "was not started, since the run is ending"
+    except OSError:
         text = ""
+    if unanswered and not signalled_settles:
+        raise HopRefused(
+            f"ssh -G for the Proxmox host {unanswered}, so the route under vm_ssh_route: auto is not settled",
+            "run it again, or set vm_ssh_route: direct or host",
+        )
     dialled = ssh_g_hostname(text, hop["host"])
     addresses = addresses_of(dialled)
     return {"route": route_rule("auto", addresses), "addresses": addresses, "dialled": dialled}
 
 
-def ssh_shown(ssh, words, destination, limit=None) -> dict:
+def ssh_shown(ssh, words, destination, limit=None, *, process_group=None) -> dict:
     """The proxy ssh itself would take for a connection to ``destination`` with ``words`` - a VM's whole line, as its
     connection applies it - asked of ssh (``-G``) with no config file read (``-F /dev/null``, ahead of the words): the
     line decides which proxy wins, and nothing of the user's is read or run, no ``Match exec``; a ``-F`` of the line's
     own, later, replaces it as it would for the connection. ``{ok, proxycommand, proxyjump, said}``: the two as ssh
     shows them, "" for none - read by name, since ssh shows ``proxyusefdpass`` too - and ``said``, ssh's words where
-    it refused the line or could not be asked."""
+    it refused the line or could not be asked. Its ``ssh -G`` is started as _run starts its ssh, so that end_all ends
+    it (_asked). ``process_group`` is _run's."""
     import subprocess
 
     argv = [str(ssh or "ssh"), "-G", "-F", "/dev/null", *[str(word) for word in words], str(destination)]
     shown = {"ok": False, "proxycommand": "", "proxyjump": "", "said": ""}
     try:
-        ended = subprocess.run(
-            argv,
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
-            errors="replace",
-            timeout=limit or LIMITS["config"],
-        )
+        ended = _asked(argv, limit or LIMITS["config"], process_group=process_group)
     except subprocess.TimeoutExpired:
         return {**shown, "said": f"{argv[0]} -G gave no answer within {limit or LIMITS['config']} s"}
+    except NotStarted as unstarted:
+        return {**shown, "said": str(unstarted)}
     except OSError as error:
         return {**shown, "said": f"{argv[0]}: {error.strerror or error}"}
     if ended.returncode != 0:

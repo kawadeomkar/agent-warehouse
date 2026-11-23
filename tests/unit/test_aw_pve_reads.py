@@ -21,8 +21,10 @@ from __future__ import annotations
 
 import ast
 import calendar
+import copy
 import dataclasses
 import logging
+import pickle
 import re
 import ssl
 import threading
@@ -869,3 +871,18 @@ def test_no_error_of_the_client_says_the_token(fleet, other_pki, tmp_path, caplo
         said = "\n".join(_said(error, caplog, capsys))
         assert CANARY not in said and fleet.token.secret.reveal() not in said, type(error)
         assert error.__cause__ is None and error.__context__ is None
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        Denied(401, "GET /version"),
+        Denied(403, "GET /nodes/pve/status"),
+        Refused(500, "unable to read the configuration\x1b[31m\nof 100", "GET /nodes/pve/qemu/100/config"),
+        Refused(302, "", "GET /version"),
+    ],
+)
+def test_denied_and_refused_survive_a_copy_and_a_pickle_and_say_their_sentence_once(error) -> None:
+    # As the transport's Untrusted does: a process pool, or a job handing its error on, makes it again from its parts.
+    for made in (copy.copy(error), copy.deepcopy(error), pickle.loads(pickle.dumps(error))):
+        assert type(made) is type(error) and str(made) == str(error) and made.status == error.status

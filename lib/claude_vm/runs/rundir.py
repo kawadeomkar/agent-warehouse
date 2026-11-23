@@ -2,26 +2,25 @@
 its variables - for as long as the run lives (docs/architecture/engine.md §16.8).
 
 `make(job)` makes one directory for a run with `tempfile.mkdtemp`, named `aw-run-<the job's ID>-<random>`, at mode
-0700, under the per-user temporary directory (`tempfile.gettempdir()`: `TMPDIR` where it is set, as on macOS, else
-`/tmp`), and writes its path into the job's record. Never inside `XDG_RUNTIME_DIR`: systemd removes that directory at
-the person's last logout while a detached run may still live, so where the temporary directory lies inside it, `/tmp`
-is used. `made(job)` gives it back to the process that made it, and `path_for(job, name)` names a file in it and
-writes nothing. `remove(job)` deletes it, and is safe to call
-twice; a process that did not make the job removes only the directory the record names, held to the form `make`
-gives it, and only once the run no longer holds the job's lock.
+0700, under the per-user temporary directory (`tempfile.gettempdir()`: the first of `TMPDIR`, `TEMP` and `TMP` that
+names a directory it can write in, else `/tmp`, `/var/tmp` or `/usr/tmp`, and at last the folder the run started in),
+and writes its path into the job's record. Never inside `XDG_RUNTIME_DIR`: systemd removes that directory at the
+person's last logout while a detached run may still live, so where the temporary directory lies inside it, `/tmp` is
+used. `made(job)` gives it back to the process that made it, and `path_for(job, name)` names a file in it and writes
+nothing. `remove(job)` deletes it, and is safe to call twice: only the process that made the directory removes it, even
+once its job is dropped, and a call for another process's job is refused, as `make` and `path_for` refuse one.
 
-No secret is ever written here: a named secret, the vault's key, a token, Claude's code and a Tailscale key travel on
-standard input or stay in memory, as today, and every workflow's tests search this directory for the secrets they gave
-(`aw_kit.searched_for`). No control socket is made here either: every shared connection lives in the one control
-directory (`paths.control_dir`). This module makes and removes the directory, and writes no file in it.
+What goes there: the layer-1 child's generated files, and a machine's first use's scratch known-hosts file
+(ssh/connections.py). No secret is ever written here: a named secret, the vault's key, a token, Claude's code and a
+Tailscale key travel on standard input or stay in memory, as today. No control socket is made here either: every
+shared connection lives in the one control directory (`paths.control_dir`). This module makes and removes the
+directory, and writes no file in it.
 """
 
 from __future__ import annotations
 
 import os
-import re
 import shutil
-import stat
 import tempfile
 from pathlib import Path
 
@@ -36,8 +35,10 @@ PREFIX = "aw-run-"
 FALLBACK = "/tmp"
 
 # The directory this process made for each of its jobs, by the job's folder's real path: what the run itself names a
-# file in and removes, read from what it holds, as its job's lock is (job.py's _HELD).
+# file in and removes, read from what it holds, as its job's lock is (job.py's _HELD); and the jobs whose directory it
+# has removed, whose removal is done, their jobs dropped or not.
 _MADE: dict[str, Path] = {}
+_REMOVED: set[str] = set()
 
 
 def _inside(path: str, folder: str) -> bool:
@@ -104,48 +105,22 @@ def path_for(job: jobs.Job, name: str) -> Path:
     return made / name
 
 
-def _recorded(job: jobs.Job) -> Path | None:
-    """The directory the job's record names, held to the form make gives it: an absolute path whose name is PREFIX,
-    the job's ID, and mkdtemp's letters. None where the record names none. Any other path is refused."""
-    where = job.read().get("directory")
-    if where is None:
-        return None
-    form = rf"{re.escape(PREFIX + job.id)}-[A-Za-z0-9_]+"
-    if not (
-        isinstance(where, str)
-        and os.path.isabs(where)
-        and os.path.normpath(where) == where
-        and re.fullmatch(form, os.path.basename(where))
-    ):
-        raise ValueError(f"job {job.id}'s record names no directory of its run's: {where!r}")
-    return Path(where)
-
-
 def remove(job: jobs.Job) -> bool:
-    """The run's directory deleted, with everything in it: True where it is gone or was never made, False where
-    something in it could not be removed, which is left. Safe to call twice. The run that made the job removes the
-    directory it made, even once the job is dropped; any other process removes only the one the record names, held to
-    make's form - a real directory, not a link, of this account's - and never while the job's lock is held: a living
-    run's directory is its own. Nor where the job is no job by the time its state is asked (`state` is None): its run
-    dropped it since the record was read, and removes what it made itself."""
+    """The run's directory deleted, with everything in it, by the process that made it, even once its job is dropped:
+    True where it is gone or was never made, False where something in it could not be removed, which is left and
+    tried again, at the same path whatever the record says, by the next call. Safe to call twice, its job dropped or
+    not. Never read from the record: a job this process neither made a directory for nor holds is refused, as `make`
+    and `path_for` refuse one, since a living run's directory is its own and one a killed run left is no other run's to
+    judge."""
     key = jobs._key(job.folder)
-    made = _MADE.pop(key, None)
+    made = _MADE.get(key)
     if made is None:
-        made = _recorded(job)
-        if made is None:
-            return True
-        if job._held_here() is None:
-            now = jobs.state(job)
-            if now in ("running", "cancelling"):
-                raise RuntimeError(f"job {job.id} still runs: its directory is its run's to remove")
-            if now is None:
-                # The record read above is gone since: the run dropped its job, and removes the directory it made.
-                raise RuntimeError(f"job {job.id} was dropped by its run: its directory is its run's to remove")
-        try:
-            found = os.lstat(made)
-        except FileNotFoundError:
-            return True
-        if not stat.S_ISDIR(found.st_mode) or found.st_uid != os.getuid():
-            raise ValueError(f"{made} is not a directory of this account's: it is left as it is")
+        if key not in _REMOVED:
+            _own(job, "removes its directory")
+        return True
     shutil.rmtree(made, ignore_errors=True)
-    return not os.path.lexists(made)
+    if os.path.lexists(made):
+        return False
+    del _MADE[key]
+    _REMOVED.add(key)
+    return True

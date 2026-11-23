@@ -11,8 +11,8 @@ included, and never says a header's value or a peer's words; a body cut short of
 sends nothing more: a request started after is Closed, and one under way ends at its first error, never asked again -
 at once, with no socket closed under its read, so that none that takes the socket's number is read or written by it,
 said as cut (CUT) and marked closed, where a failure of the request's own with the close just after it is not marked;
-and a socket is closed only once the transport holds it no more. proxy.choose works out today's proxy from the
-environment it is given, as requests does. The rules at the end hold the new engine's modules to one transport.
+and a socket is closed only once the transport holds it no more. proxy.choose gives the proxy from the environment it
+is given, by requests' rule. The rules at the end hold the new engine's modules to one transport.
 """
 
 from __future__ import annotations

@@ -816,6 +816,29 @@ def test_a_core_hooks_path_of_yours_gets_no_hook_and_is_said(home, tmp_path) -> 
     assert list(yours.iterdir()) == [] and not (checkout / ".git" / "hooks" / "pre-commit").exists()
 
 
+# A tools/aw that says the job's marker its environment holds, as Python reads it and, on Linux, as the system shows the
+# process's own environment.
+MARKED = """#!/usr/bin/env python3
+import json, os
+shown = None
+if os.path.isfile("/proc/self/environ"):
+    with open("/proc/self/environ", "rb") as environ:
+        shown = [each.decode() for each in environ.read().split(b"\\0") if each.startswith(b"AGENT_WAREHOUSE_JOB=")]
+print(json.dumps({"marker": os.environ.get("AGENT_WAREHOUSE_JOB"), "shown": shown}))
+"""
+
+
+def test_the_launcher_hands_the_program_no_job_s_marker_it_inherited(home, tmp_path) -> None:
+    # A run started by a marked process (an agent's job, a terminal of an editor a run opened) is handed another job's
+    # ID, which every child it starts outside the one way of starting them would carry (review/code/C2.md 2).
+    checkout = _checkout(tmp_path, "marked")
+    (checkout / "tools" / "aw").write_text(MARKED)
+    result = run_launcher("status", home=home, launcher=checkout / "aw", env={"AGENT_WAREHOUSE_JOB": JOB})
+    assert result.returncode == 0, result.stderr
+    said = _ran(result)
+    assert said["marker"] is None and said["shown"] in (None, [])
+
+
 @pytest.mark.parametrize("job", ["", "0123", "0123456789ABCDEF", f"{JOB}\n"])
 def test_install_env_is_refused_but_from_a_job(home, tmp_path, job) -> None:
     checkout = _checkout(tmp_path, "no-job")

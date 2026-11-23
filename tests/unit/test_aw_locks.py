@@ -236,6 +236,8 @@ else:
 """
 
 STARTING_OR_ENDING = "error: alpha on pve is held by a run that is starting or ending: try again"
+# The holder's job could not be read: its lock's probe met an error, which is said, never a free lock.
+UNREAD = "error: alpha on pve is held, and the run that holds it could not be read ({why}): try again"
 # The fleet's lock held exclusively with no running job named: an exclusive's write, or a holder that writes no record.
 FLEET_HELD = "error: the fleet is held for one write, or by a run that is starting or ending: try again"
 # A verb and its values that come to each kind of lock, as runs.run works it out (runs/lock_sets.py).
@@ -919,6 +921,44 @@ def test_a_refusal_whose_holder_cannot_be_told_says_so_and_never_fails(start, ho
     if other is not None:
         other.go(0)
         assert other.wait() == 0
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root opens what a file's mode forbids")
+def test_a_refusal_whose_holder_s_lock_cannot_be_read_says_the_error_and_never_fails(start, state) -> None:
+    # The holder runs, and its job's lock cannot be opened for a probe (its mode): an error, said, never a traceback and
+    # never a holder taken for gone (review/code/C21.md 1, C6's _running).
+    holder = start("holder", machines=[("pve", "alpha")], steps=[{}])
+    held = state / paths.JOBS / holder.first("taken")["taken"] / jobs.LOCK
+    held.chmod(0)
+    try:
+        refused = start("refused", machines=[("pve", "alpha")])
+        said = refused.first("refused")
+        assert (said["refused"], said["job"]) == (UNREAD.format(why="Permission denied"), None)
+        assert refused.wait() == 1 and "Traceback" not in refused.err
+    finally:
+        held.chmod(0o600)
+    holder.go(0)
+    assert holder.wait() == 0
+
+
+def test_a_refusal_whose_holder_s_lock_meets_a_descriptor_limit_says_so(start, own_job, state, monkeypatch) -> None:
+    holder = start("holder", machines=[("pve", "alpha")], steps=[{}])
+    held = os.fspath(state / paths.JOBS / holder.first("taken")["taken"] / jobs.LOCK)
+    real = os.open
+
+    def limited(where, *given, **named):
+        if os.fspath(where) == held:
+            raise OSError(errno.EMFILE, "Too many open files")
+        return real(where, *given, **named)
+
+    monkeypatch.setattr(os, "open", limited)
+    with pytest.raises(locks.Held) as refused:
+        locks.take(own_job, "machines", [("pve", "alpha")], "machine")
+    monkeypatch.undo()
+    assert (refused.value.sentence, refused.value.job) == (UNREAD.format(why="Too many open files"), None)
+    assert own_job.read()["locks"] == []
+    holder.go(0)
+    assert holder.wait() == 0
 
 
 def test_a_refusal_whose_holder_s_start_no_clock_can_say_names_no_one(start, state) -> None:

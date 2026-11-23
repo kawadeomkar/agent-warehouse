@@ -8,15 +8,19 @@ its node's ID, with that token or with an API access token; a 404 is a device no
 already; a 401 or a 403 is Denied. A node ID that is not one Tailscale gives - a slash, a newline, a dot - never reaches
 the fake (its /fake/asked lists every request made of the API), and the pattern it is held to is the tailscale role's.
 A certificate that does not verify sends nothing. What the fake does not say - a redirect, a body that is no answer,
-Tailscale's words echoing a secret - a stand-in transport answers. The rule with a test of its own: no error says the
-client secret or a token, even where Tailscale's words echo it.
+Tailscale's words echoing a secret - a stand-in transport answers. The rules with a test of their own: no error says the
+client secret or a token, even where Tailscale's words echo it, and no frame a Malformed is raised through holds the
+token an exchange answered; a base address written with the API's own path reads devices as the host's does; a node ID
+is said cut at 200 and sent whole; and every error survives a copy and a pickle.
 """
 
 from __future__ import annotations
 
+import copy
 import dataclasses
 import json
 import logging
+import pickle
 import re
 import ssl
 from pathlib import Path
@@ -29,10 +33,9 @@ from pki import proxmox_pki
 from test_aw_transport import _said
 
 from claude_vm.secret import MARK, Secret
-from claude_vm.vendors import trust
+from claude_vm.vendors import tailscale, trust
 from claude_vm.vendors.tailscale import (
     NODE_ID,
-    TAGGED,
     Denied,
     Device,
     Malformed,
@@ -236,14 +239,15 @@ def test_a_device_is_deleted_once_and_then_is_gone_already(fake) -> None:
 
 def test_a_token_that_may_not_reach_the_device_is_the_typed_refusal(fake) -> None:
     """A 403, which an access token an OAuth client was exchanged for meets on a device without its tags: Denied, by its
-    status alone, and nothing deleted. A token Tailscale does not take is Denied too, as a 401."""
+    status alone, and nothing deleted; why is the workflow's to say, which knows which credential the token is. A token
+    Tailscale does not take is Denied too, as a 401."""
     with fake.client() as client:
         for call, asked in ((client.device, "GET"), (client.delete_device, "DELETE")):
             with pytest.raises(Denied) as denied:
                 call(Secret(DENIED_TOKEN), "nGAMMA3CNTRL")
             assert denied.value.status == 403
-            assert str(denied.value) == (
-                f"Tailscale refused {asked} /api/v2/device/nGAMMA3CNTRL to the access token (403): {TAGGED}"
+            assert (
+                str(denied.value) == f"Tailscale refused {asked} /api/v2/device/nGAMMA3CNTRL to the access token (403)"
             )
             with pytest.raises(Denied) as denied:
                 call(Secret(CANARY), "nGAMMA3CNTRL")
@@ -270,6 +274,50 @@ def test_an_id_that_is_not_one_tailscale_gives_never_reaches_the_fake(fake) -> N
     assert fake.asked() == [] and fake.deleted() == []
     assert 'the node ID "nALPHA1CNTRL\\n" is not one' in str(NotANodeId("nALPHA1CNTRL\n"))
     assert str(NotANodeId(42)).startswith("the node ID (a value of type int) is not one")
+
+
+def test_a_long_node_id_is_said_cut_at_200_characters_and_sent_whole() -> None:
+    # The machine chose its length: what an error says of it is cut, as today's release cuts it, and the path holds it
+    # whole, since a cut one would be another device's.
+    long = "n" * 300
+    client = _stand_in(Answer(500, (), b"", "Internal Server Error"), Answer(403, (), b"", "Forbidden"))
+    with pytest.raises(Refused) as refused:
+        client.device(Secret(API_TOKEN), long)
+    with pytest.raises(Denied) as denied:
+        client.delete_device(Secret(API_TOKEN), long)
+    assert [path for (_, path), _ in client._transport.asked] == [f"device/{long}"] * 2  # type: ignore[attr-defined]
+    assert str(refused.value) == f"Tailscale answered GET /api/v2/device/{'n' * 200}… with 500: Internal Server Error"
+    assert str(denied.value) == f"Tailscale refused DELETE /api/v2/device/{'n' * 200}… to the access token (403)"
+    assert str(NotANodeId("n/" + "n" * 300)).startswith('the node ID "n/' + "n" * 198 + '" is not one')
+    assert tailscale.SHOWN == 200
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        Denied(403, "GET /api/v2/device/nALPHA1CNTRL", "the access token"),
+        Denied(401, "POST /api/v2/oauth/token", "the OAuth client"),
+        Refused(500, "internal error", "GET /api/v2/device/nALPHA1CNTRL"),
+        Refused(302, "", "POST /api/v2/oauth/token"),
+        NotANodeId("n/x"),
+        NotANodeId(42),
+    ],
+)
+def test_each_error_survives_a_copy_and_a_pickle_and_says_its_sentence_once(error) -> None:
+    for made in (copy.copy(error), copy.deepcopy(error), pickle.loads(pickle.dumps(error))):
+        assert type(made) is type(error) and str(made) == str(error)
+        assert getattr(made, "status", None) == getattr(error, "status", None)
+
+
+def test_a_base_address_written_with_the_api_s_own_path_reads_devices_as_the_host_s(fake) -> None:
+    # As Tailscale's documentation writes it: with the path put on twice every device would read as gone already.
+    for base in (f"{fake.base}/api/v2", f"{fake.base}/api/v2/"):
+        with Tailscale(base) as client:
+            assert repr(client) == f"Tailscale({fake.base!r})"
+            assert client.device(Secret(API_TOKEN), "nALPHA1CNTRL") == Device(
+                "nALPHA1CNTRL", "alpha.tail1234.ts.net", "ubuntu"
+            )
+    assert fake.asked() == ["/api/v2/device/nALPHA1CNTRL"] * 2
 
 
 def test_the_node_id_pattern_is_the_tailscale_role_s() -> None:
@@ -378,6 +426,14 @@ def test_an_exchange_s_200_that_holds_no_bearer_token_is_malformed_and_never_quo
         "Tailscale answered POST /api/v2/oauth/token with something that is not an access token"
     )
     assert not [text for text in _said(malformed.value, caplog, capsys, frames=False) if CANARY in text]
+    # Nor any frame of the client's that it was raised through: the answer and the token were read in a frame of their
+    # own, which ended first (this test's own frame holds the body it gave).
+    held, tb = [], malformed.value.__traceback__
+    while tb is not None:
+        if tb.tb_frame.f_code.co_filename == tailscale.__file__:
+            held += [value if isinstance(value, str) else repr(value) for value in tb.tb_frame.f_locals.values()]
+        tb = tb.tb_next
+    assert held and not [text for text in held if CANARY in text], held
 
 
 def test_a_device_s_200_that_is_no_device_is_malformed() -> None:

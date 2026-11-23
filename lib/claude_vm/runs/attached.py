@@ -21,6 +21,15 @@ and a kill (docs/architecture/engine.md §16.8).
   for any other status, and `cancelled` for 130.
 - SIGKILL: nothing is written, and the job reads `lost` once its lock is free (runs/job.py).
 
+While the run lives, a child the terminal stopped for asking a question there (runs/children.py's asking: SIGTTIN or
+SIGTTOU, a passphrase or a second factor asked by the `ssh` of a person's own ProxyJump, a question of `git`'s or
+`sudo`'s; route.py's `ssh` too, in a group of its own), and a process under one that the terminal stopped in a group of
+its own (claude_vm.proc's stopped_under, from the process table), is said at once, in a line that names its program
+and what to do, and ended with what is under it: a run answers no question at the terminal, and a child stopped there
+would hold its step to the run's end. The step that waited on it sees it killed, its machine's failure. A child meant
+to outlive the run (children.outlive: the editor, a page's opener) is never ended: it is left out of every tree the
+ladder remembers and ends.
+
 On every path but SIGKILL the terminal is put back as it was found, its echo with it; every child of the registry has
 ended or been ended before the loop closes, since asyncio kills an `ansible-playbook` it still holds when its loop
 closes and leaves the playbook's detached task workers running; the run's directory is removed; and the exit record is
@@ -32,11 +41,15 @@ connection's master daemonises out of the tree, so no end here reaches it, where
 would cut another run's connection.
 
 The tree is the process table's (claude_vm.proc), read with the interrupts held off, and only to end it: nothing here
-decides a job's state from it. Every thread of the ladder's own starts with the signals it takes blocked, so that they
-reach the run's thread alone and the hold is real; asyncio's own thread for each child on macOS is not the ladder's.
-While the ladder runs, Python's and asyncio's own messages stay off the person's terminal: an end Python drops (an
-Abandoned raised in a fork's hook) and asyncio's reports of a callback's error or a task left pending. Standard library
-only; asyncio, termios and claude_vm.proc are imported inside the functions that use them.
+decides a job's state from it. No thread blocks a signal: a process forked from a thread starts with that thread's
+mask, which stays through exec, so a program a call in a thread starts (route.py's `ssh`, a vendor's tool) would never
+take a Ctrl-C, a hangup or a kill. A signal the kernel hands another thread still runs its handler in the run's thread,
+wherever that is; so while the table is read and what it leads to signalled, and while the run closes, the handler
+only takes note, and each signal noted is handled as it came once that is done (`_held`): the hold is real whatever
+thread is alive, a body's own pool and asyncio's watcher on macOS among them. While the ladder runs, Python's and
+asyncio's own messages stay off the person's terminal: an end Python drops (an Abandoned raised in a fork's hook) and
+asyncio's reports of a callback's error or a task left pending. Standard library only; asyncio, termios and
+claude_vm.proc are imported inside the functions that use them.
 """
 
 from __future__ import annotations
@@ -48,7 +61,7 @@ import signal
 import sys
 import threading
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -82,6 +95,16 @@ STOPPING = "aw: stopping: what the run started has {grace} s to end, then it is 
 FINISHING = "aw: stopping once {reason} is finished: Ctrl-C again ends it now"
 # What is said where the run's work did not end once it was cancelled, and is left as it is.
 LEFT = "aw: the run's work did not end within {settle} s of being stopped, and is left unfinished"
+# How often the run looks for a child the terminal has stopped, and what it says of one. Every TABLE_LOOKS-th look it
+# also reads the process table for one stopped under a child in a group of its own, while such a child lives and the
+# run has a terminal: within a second, as the look of its own children is.
+ASKING_POLL = 0.2
+TABLE_LOOKS = 4
+ASKED = (
+    "aw: {program} stopped at the terminal to ask a question there (a key's passphrase, a second factor), which a run"
+    " never answers: it is ended, and its machine fails. Hold the key in an agent (ssh-add), or give a ProxyJump of"
+    " yours what it asks for in its own settings, then run it again"
+)
 # Why a run ended as it did, in its record.
 BY_CTRL_C = "Ctrl-C"
 BY_CTRL_C_TWICE = "Ctrl-C twice"
@@ -108,10 +131,12 @@ class Abandoned(KeyboardInterrupt):
 
 class _Threads(ThreadPoolExecutor):
     """The loop's default executor, where asyncio.to_thread runs the engine's blocking calls: each call on a daemon
-    thread of its own, started with the signals the ladder takes blocked, so they reach the run's thread alone and the
-    interrupts held off while the table is read stay held; never joined, so a call still running when the run has
-    ended holds nothing. A ThreadPoolExecutor by kind alone, as asyncio's set_default_executor asks: none of its pool
-    is used, and nothing of it is registered with the interpreter's exit, which joins a pool's threads."""
+    thread of its own, never joined, so a call still running when the run has ended holds nothing; and each call made
+    with no signal blocked, whatever its maker held, since a program it starts (route.py's `ssh`, a vendor's tool)
+    inherits its thread's mask through exec and would take no Ctrl-C, hangup or kill. A signal the kernel hands such a
+    thread runs its handler in the run's thread all the same (the ladder's `_held`). A ThreadPoolExecutor by kind alone,
+    as asyncio's set_default_executor asks: none of its pool is used, and nothing of it is registered with the
+    interpreter's exit, which joins a pool's threads."""
 
     def __init__(self) -> None:
         super().__init__(thread_name_prefix=THREADS)
@@ -129,20 +154,18 @@ class _Threads(ThreadPoolExecutor):
                 target=self._call, args=(future, fn, args, kwargs), name=f"{THREADS}-{next(self._numbers)}", daemon=True
             )
             self._calling.add(thread)
-        # A thread starts with its maker's signal mask: blocked from its first instruction, with no window.
-        held = signal.pthread_sigmask(signal.SIG_BLOCK, TAKEN)
         try:
             thread.start()
         except BaseException:
             with self._guard:
                 self._calling.discard(thread)
             raise
-        finally:
-            signal.pthread_sigmask(signal.SIG_SETMASK, held)
         return future
 
     def _call(self, future: Future, fn: Callable[..., Any], args: tuple, kwargs: dict) -> None:
-        signal.pthread_sigmask(signal.SIG_BLOCK, TAKEN)
+        # A thread starts with its maker's mask, which a call made while the run's thread holds the interrupts off (its
+        # close) would carry into every program it starts: none blocked, before anything of the call runs.
+        signal.pthread_sigmask(signal.SIG_SETMASK, ())
         try:
             if future.set_running_or_notify_cancel():
                 try:
@@ -277,6 +300,25 @@ def _terminal() -> tuple[int, list] | None:
     return None
 
 
+def _has_terminal() -> bool:
+    """Whether the run has a controlling terminal, the one thing that stops a process for asking a question there:
+    opened and closed, never read, and taken as no one's by the opening (O_NOCTTY)."""
+    try:
+        fd = os.open("/dev/tty", os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
+    except OSError:
+        return False
+    os.close(fd)
+    return True
+
+
+def _in_session(pid: int, session: int) -> bool:
+    """Whether pid, a child of this process, is in that session: one in a session of its own shares no terminal."""
+    try:
+        return os.getsid(pid) == session
+    except OSError:
+        return False
+
+
 def _put_back(found: tuple[int, list] | None) -> None:
     """The terminal's settings as the run found them, the echo among them, where anything changed them: SIGTTOU held
     off, so that a run a shell put in the background is not stopped by its own end. A terminal that has gone, after a
@@ -383,14 +425,27 @@ class _Ladder:
         self.reading: dict[int, asyncio.Future[bytes]] = {}
         # From the first moment of its close, a run's handler only takes note.
         self.closing = False
+        # While the table is read and what it leads to signalled, or the run closes (_held): how deep, and each signal
+        # whose handler ran meanwhile, to be handled as it came once nothing holds them.
+        self.holding = 0
+        self.noted: list[int] = []
         # What could not read the process table, or record the stop, said at the end.
         self.blind: list[str] = []
+        # The children the terminal stopped that were said and ended, the processes under them it stopped in a group of
+        # their own, by pid, and the task that looks for them.
+        self.asked: set[children.Child] = set()
+        self.stopped: set[int] = set()
+        self.watching: asyncio.Task | None = None
 
     # ---------------------------------------------------------------- the handler, and what it starts ----
 
     def signalled(self, signum: int, _frame: object) -> None:
         """The handler of TAKEN, in the run's thread. A first Ctrl-C is the loop's to handle; a second, SIGHUP and
-        SIGTERM end the tree here and, while the body runs, raise Abandoned, so that nothing stuck holds the end."""
+        SIGTERM end the tree here and, while the body runs, raise Abandoned, so that nothing stuck holds the end. While
+        the interrupts are held (_held) it only takes note, whatever thread the kernel handed the signal to."""
+        if self.holding:
+            self.noted.append(signum)
+            return
         ending = self.closing or (self.task is not None and self.task.done())
         if signum == signal.SIGINT:
             self.interrupts += 1
@@ -420,25 +475,58 @@ class _Ladder:
         with contextlib.suppress(RuntimeError):  # a loop already closed
             self.loop.call_soon_threadsafe(callback)
 
+    @contextlib.contextmanager
+    def _held(self) -> Iterator[None]:
+        """The interrupts held off, in the run's thread, while the table is read and what it leads to signalled, or the
+        run closes: blocked in this thread, and the handler, which a signal the kernel handed another thread still runs
+        here, only taking note meanwhile, so that no end begins inside another half way. Once the outermost hold ends,
+        each signal noted is handled as it came."""
+        held = signal.pthread_sigmask(signal.SIG_BLOCK, TAKEN)
+        self.holding += 1
+        try:
+            yield
+        finally:
+            try:
+                # One blocked meanwhile reaches the handler here, which still only takes note.
+                signal.pthread_sigmask(signal.SIG_SETMASK, held)
+            finally:
+                self.holding -= 1
+            self._take_noted()
+
+    def _take_noted(self) -> None:
+        """Each signal noted while the interrupts were held, handled now, in the order it came, once nothing holds them;
+        an end at once that one of them raises (Abandoned) raised once every one is handled."""
+        ending: Abandoned | None = None
+        while self.noted and not self.holding:
+            try:
+                self.signalled(self.noted.pop(0), None)
+            except Abandoned as raised:
+                ending = ending or raised
+        if ending is not None:
+            raise ending
+
     def remember(self) -> None:
-        """The tree under this process added to what is remembered of it, read with the interrupts held off: blocked
-        in this thread, and in every thread of the ladder's own from its start, so none of them takes one meanwhile."""
+        """The tree under this process added to what is remembered of it, read with the interrupts held off (_held).
+        Never a shared master's open, nor what is under it (children.opening): the master it leaves keeps its
+        ProxyCommand in the open's group, and no run ends a master; nor a child meant to outlive the run
+        (children.outliving), nor what is under it."""
         from claude_vm import proc
 
-        held = signal.pthread_sigmask(signal.SIG_BLOCK, proc.HELD)
-        try:
-            self.remembered.update(proc.snapshot(os.getpid()))
-        except proc.Blind as error:
-            self.blind.append(str(error))
-        finally:
-            signal.pthread_sigmask(signal.SIG_SETMASK, held)
+        with self._held():
+            try:
+                leaving = [*children.opening(), *children.outliving()]
+                self.remembered.update(proc.snapshot(os.getpid(), leaving=leaving))
+            except proc.Blind as error:
+                self.blind.append(str(error))
 
     def end_tree(self, signum: int) -> None:
-        """Everything under this process signalled, and what was remembered of it, never this process."""
+        """Everything under this process signalled, and what was remembered of it, never this process, nor a child
+        meant to outlive the run (children.outliving) or what is under it; the interrupts held off throughout."""
         from claude_vm import proc
 
-        self.remember()
-        proc.end_under(os.getpid(), self.remembered, signum, blind=self.blind.append)
+        with self._held():
+            self.remember()
+            proc.end_under(os.getpid(), self.remembered, signum, blind=self.blind.append, leaving=children.outliving())
 
     def _shielded(self, child: children.Child) -> bool:
         """Whether child began inside a shield still up."""
@@ -514,6 +602,74 @@ class _Ladder:
         if not self.now.done():
             self.now.set_result(None)
 
+    async def watch(self) -> None:
+        """For as long as the loop runs: each child the terminal has stopped for asking a question there
+        (children.asking: the registry's, and route.py's `ssh` in a group of its own), said at once and ended, its tree
+        and its group; and every TABLE_LOOKS-th look, while one of those lives in the run's session and the run has a
+        terminal, each process under them that the terminal stopped in a group none of them leads (proc.stopped_under:
+        a reader that made a group of its own, which stops alone, its parent waiting on it), said and ended the same
+        way. Once only for each; one the loop's look cannot read is said at the end, and the look ends."""
+        import asyncio
+
+        from claude_vm import proc
+
+        terminal = _has_terminal()
+        looks = 0
+        while True:
+            try:
+                for child, _signum in children.asking(self.job):
+                    if child in self.asked:
+                        continue
+                    self.asked.add(child)
+                    _say(ASKED.format(program=plain_text(child.program)))
+                    with self._held():
+                        proc.end(child.pid, signum=signal.SIGKILL, blind=self.blind.append)
+                looks += 1
+                if terminal and looks % TABLE_LOOKS == 0:
+                    terminal = self._stopped_under()
+            except Exception as error:
+                self.blind.append(f"a child stopped at the terminal could not be looked for: {plain_text(str(error))}")
+                return
+            await asyncio.sleep(ASKING_POLL)
+
+    def _stopped_under(self) -> bool:
+        """Each process under the run that the terminal stopped in a group of its own - one no child the look above
+        watches leads, since a stop at the terminal stops a whole group, its leader with it - said and ended, its tree
+        and its group: read from the process table, and only while a child the look watches lives in the run's
+        session, the one place a process under the run can share its terminal. False where the table cannot be read,
+        said at the end: the look of the run's own children goes on without it."""
+        from claude_vm import proc
+
+        watched = [child.pid for child in children.watched(self.job)]
+        session = os.getsid(0)
+        if not any(_in_session(pid, session) for pid in watched):
+            return True
+        with self._held():
+            leaving = [*children.opening(), *children.outliving()]
+            try:
+                stopped = proc.stopped_under(os.getpid(), leaving=leaving)
+            except proc.Blind as error:
+                self.blind.append(f"what the terminal stopped under the run could not be looked for: {error}")
+                return False
+            for pid, group, program in stopped:
+                if group in watched or pid in self.stopped:
+                    continue
+                self.stopped.add(pid)
+                _say(ASKED.format(program=plain_text(os.path.basename(program) or program)))
+                proc.end(pid, signum=signal.SIGKILL, blind=self.blind.append)
+        return True
+
+    def _unwatch(self) -> None:
+        """The look for a child the terminal stopped ended, before the loop closes."""
+        import asyncio
+
+        watching = self.watching
+        if watching is None or watching.done():
+            return
+        watching.cancel()
+        with contextlib.suppress(Exception):
+            self.loop.run_until_complete(asyncio.wait({watching}, timeout=SETTLE))
+
     # ---------------------------------------------------------------- the run ----
 
     async def until_done(self) -> None:
@@ -552,8 +708,9 @@ class _Ladder:
             self.end_tree(signal.SIGKILL)
         elif self.cut is None and raised is not None and not isinstance(raised, SystemExit):
             self.end_tree(signal.SIGKILL)
-        for child in children.live(self.job):
-            proc.end(child.pid, remembered=self.remembered, signum=signal.SIGKILL, blind=self.blind.append)
+        with self._held():
+            for child in children.live(self.job):
+                proc.end(child.pid, remembered=self.remembered, signum=signal.SIGKILL, blind=self.blind.append)
         moment = self.loop.time() + SETTLE
         await self._while_live(lambda: moment)
 
@@ -650,6 +807,7 @@ class _Ladder:
         found = _terminal()
         # The body called inside its task: whatever it raises, even as it is called, is the run's to end on.
         self.task = self.loop.create_task(self._body(body))
+        self.watching = self.loop.create_task(self.watch())
         previous = {}
         error: BaseException | None = None
         unraisable = sys.unraisablehook
@@ -668,18 +826,19 @@ class _Ladder:
             self._left()
         finally:
             self.closing = True
-            held = signal.pthread_sigmask(signal.SIG_BLOCK, TAKEN)
             try:
-                # A call in a thread still waiting stops at its next look.
-                self.ctx.stopping.set()
-                self._close_loop()
-                outcome, status, why, error = self.outcome()
-                _put_back(found)
-                self._end(outcome, status, why)
+                # The close held as a read of the table is: a signal meanwhile, in whichever thread, is noted, then
+                # handled once the record is written, which takes note of what to die of.
+                with self._held():
+                    # A call in a thread still waiting stops at its next look.
+                    self.ctx.stopping.set()
+                    self._unwatch()
+                    self._close_loop()
+                    outcome, status, why, error = self.outcome()
+                    _put_back(found)
+                    self._end(outcome, status, why)
             finally:
-                # A signal held meanwhile reaches the handler, which takes note of what to die of; then the handlers the
-                # run found are put back.
-                signal.pthread_sigmask(signal.SIG_SETMASK, held)
+                # Then the handlers the run found are put back.
                 for signum, handler in previous.items():
                     # None: a handler no Python installed, which leaves its default to put back.
                     signal.signal(signum, signal.SIG_DFL if handler is None else handler)

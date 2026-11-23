@@ -192,9 +192,12 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       day ahead. `tests/unit/test_pins.py` holds every armored block of each vendored key file to its vendor's
       fingerprints; `test_signed_downloads.py` runs both task files against `fake_downloads.py` with keys of its own.
     - The new engine verifies both in `lib/claude_vm/vendors/downloads.py` alone, which only returns a release's
-      version and digests, or an image's digest, once the signature verifies, with the caps and checks of the two task
-      files; it alone imports `openpgp`, and only `lib/claude_vm/vendors/keys.py` names a key file, which `test_pins.py`
-      holds to the same fingerprints (`tests/unit/test_aw_downloads.py`).
+      version and digests, or an image's digest (`signed_digest`: a list and its signature from URLs of their own, over
+      https, the key a `keys.Key` or its armored text with its fingerprint; `listed_digest` for an unsigned list, by the
+      same line reader), once the signature verifies - decided by whether `openpgp.verify` returned, never by a
+      refusal's words - with the caps and checks of the two task files. It alone reaches `openpgp`, by an import, by
+      its own `openpgp` or `verify` taken from it, or read off a name, and only `lib/claude_vm/vendors/keys.py` names
+      a key file, which `test_pins.py` holds to the same fingerprints (`tests/unit/test_aw_downloads.py`).
 - **Idempotence.** Molecule's idempotence stage re-runs converge and fails on any `changed` task.
 - **An API key and Remote Control are mutually exclusive.** `ANTHROPIC_API_KEY` outranks the
   claude.ai login in Claude Code's credential precedence, and only that login can establish a
@@ -447,7 +450,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `vm_control_name`; `just status`'s too), so a VM that reports a sibling's address is refused there, never
       riding the sibling's open connection; two VMs that report one address are both left out (`guest_addresses`).
       Deleting a VM keeps its key: under an identity no VM made later has, it can only match that VM again, and
-      refuses any other given it. `~/.ssh/known_hosts` is never edited.
+      refuses any other given it. `~/.ssh/known_hosts` is never edited. The new engine keeps every machine's key in
+      that file under its identity, and files a key there through `lib/claude_vm/ssh/hostkeys.py` alone
+      (`tests/unit/test_aw_hostkeys.py`).
     - A key kept there by address before 2.6 is copied in under the VM's identity once, before anything connects -
       in check mode too, whose connections take keys on first use - by `playbooks/tasks/host_keys.yml`, which every
       publisher and `just deploy --only ssh-config` import: then a comment, `# agent-warehouse carried <identity>`,
@@ -519,6 +524,30 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       scenarios' vars and the Vagrantfile: `auto` would ask this machine's ssh, through the developer's own config,
       where it dials a test's host. `test_vm_route.py` reads back what each writes and fails if one stops; a test of
       the route sets its own, its sockets in a directory of the test's.
+    - The new engine calls `route.py` as it stands (`lib/claude_vm/ssh/connections.py`), its `ssh` children in a
+      process group of their own (`process_group=0`, which today's callers do not pass) and `route`, `ensure_hop` and
+      `held` off the event loop, so that a terminal's first Ctrl-C kills none and has its silence read as an answer;
+      each end of one there (`end_all`, a limit, a caller ended) ends its group with it, a `Match exec`'s program
+      among it, where today's callers' `ssh` is ended by its pid alone, since it shares their own group;
+      `route` settles nothing where its `ssh -G` gave no answer, ended by a signal or out of its time
+      (`signalled_settles=False`), and refuses the route through the host where the hop's socket would pass
+      `route.SOCKET_MOST`, naming `vm_ssh_route: direct` or a shorter home; every line of the hop's own `ssh` pins
+      `ForwardX11=no` and `PermitLocalCommand=no` first (`route.hop_settings`' `pinned`). It keeps every
+      shared master, a machine's and the hop's, in the one control directory every run shares (`fleet/paths.py`'s
+      `control_dir()`, `~/.ansible/cp`: short, the account's alone, and the one layer 1's Ansible and the status probe
+      use), which `Connections` refuses where it is a link, another account's, or writable by its group or others
+      (`Unsafe`, with the `chmod 700` to run); a machine whose socket's path there would pass `route.SOCKET_MOST`
+      connects alone (`runner.Target.shared`), said once a run (`notes`), and the Proxmox host's `Target` is made but a
+      connection to it refused (`runner.HOST_TOO_LONG`), since every one rides the hop's. A machine's master is opened only by
+      `ensure`, as `children.MASTER` in a session of its own, which carries no job's marker, never for a first use
+      (`first_use`: no key filed under the identity), which is a connection of its own (`ControlPath=none`) until its
+      key is filed, and while its open runs a run remembers nothing of its tree (`children.opening`). The hop's master
+      is `route.py`'s: `ensure_hop` opens it with the engine's own environment, and so may any connection through the
+      hop whose `ProxyCommand` finds none live (its `ControlMaster=auto`), which then carries that child's job's
+      marker. No run ends a master; never `-O exit`; `-O stop` only through `route.hop_stop`, for the hop; and nothing
+      in `ssh/` tries a connection again. Until the engine settles its route once a run, `direct_only` refuses every
+      settled route but `direct`, naming `vm_ssh_route: direct`. `tests/unit/test_aw_ssh_connections.py` holds it, the
+      rules by scans.
 - **`just code` writes in one directory of its own on the VM, the session copies, the rest of Claude Code it
   carries and one fast-forward aside, and never answers VS Code's, Zed's or Claude Code's security questions.** Read
   [§4.9](docs/architecture/lifecycle.md#49-playbookscodeyml),
@@ -682,6 +711,12 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `PYTEST_CURRENT_TEST`, and `socket.getaddrinfo` and `connect` refused past loopback. A stand-in reached or a
       connection refused fails the test once it ends. It holds by `PATH`: a program started by its absolute path is
       not caught; and the network refusal is the test process's, so for a child it starts only the fakes hold it.
+    - The guard is a `MonkeyPatch` of its own, undone at its own teardown, and `aw_home` sets `AGENT_WAREHOUSE_HOME`
+      the same way, so a test's `monkeypatch.undo()` never lifts either. A test never sets `PATH`: as its call ends and
+      at its teardown, a `PATH` that finds this machine's own programs ahead of the stand-ins fails it. A stand-in of a
+      test's own goes first by `engine_guard.first_on_path(dir)` in its own process, or `first_on_path=` for a run, a
+      folder of the test's own directory either way. A fixture of a `test_aw_*.py` file wider than one test runs
+      outside the guard, so `WIDER_THAN_A_TEST` names each, with why.
     - Every run of `tools/aw` a test makes goes through the kit (`run_aw`, `aw_at_a_terminal`, `imports_of`, and
       `run_launcher` for the launcher at the checkout's top, `aw`): `python -I`, an environment built from
       `harness.PASSED_ON`'s names and the test's own home (the `home` fixture makes it), and the same stand-ins first
@@ -695,7 +730,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - `tests/unit/test_aw_guards.py` holds all of it: the marker and the home over every `test_aw_*.py` file, the
       guard of a test's own process (in a pytest of its own, so that the failure is the one asserted), a syntax-tree
       scan of every test file for a run of `tools/aw` outside the kit, the suite's own launchers among the starters,
-      the stand-ins, `env=` and `first_on_path`, and `REVEALS`.
+      the stand-ins, `env=` and `first_on_path`, the `PATH` a test sets and its own `monkeypatch` undone, the fixtures
+      wider than a test, and `REVEALS`.
 - **Every live output draws through one region and one way of drawing.** Read
   [§7.8](docs/architecture/custom-code.md#78-libclaude_vmtuilive_regionpy-and-screenpy--every-live-output)
   first.
@@ -832,7 +868,10 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       told `-O stop` - never `-O exit`, which cuts another run's tasks - and those VMs read again, through the pool;
       otherwise, and for one still unanswered after, the hop's words are each one's line. The login's line, written
       from a pool thread, is landed again on the main thread once the probes are joined, and a Ctrl-C ends the
-      hop's ssh too (`route.end_all`).
+      hop's ssh too (`route.end_all`). No ssh of a status run is started on its main thread, where Python raises the
+      Ctrl-C and could raise it between a start and its record: the route's settling and the hop's calls after the
+      probes go to the pool (`engine._off_main`), and each probe is started and recorded in one step under the lock
+      `reach.end_all` takes, as `route._started` does; `test_status_vms.py` and `test_status_settings.py` hold both.
     - With more than one host it reads every host at once, a child of `tools/status` each (`--emit`,
       `lib/claude_vm/status/hosts.py`): the engine is not safe twice in one process. Each child has its host's sources,
       vaults and `.cache/status/<host>/`; a host not answering fails the run only as the current host.
@@ -980,18 +1019,23 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       says a header's value or a peer's words: one `http.client` would refuse is `NotMade`, "the request could not be
       made"; what `http.client` raised of an answer is said by what it means, never in its words, which quote the
       answer; of a proxy's answer only its status.
-    - The proxy is `lib/claude_vm/vendors/proxy.py`'s `choose`: today's, from the environment under `requests`' rule,
-      at `network_proxy: environment`, with `none` the opt-in. It reads only the environment it is given, and of
+    - The proxy is `lib/claude_vm/vendors/proxy.py`'s `choose`: from the environment under `requests`' rule, at
+      `network_proxy: environment`, with `none` the opt-in. It reads only the environment it is given, and of
       `urllib.request` only `proxy_bypass_environment` and macOS's two readers of the system's settings.
     - The vendors' TLS context, and the Proxmox client's where a host keeps no anchor, is
       `lib/claude_vm/vendors/trust.py`'s alone: `certifi`'s file by its path, and then the file the setting
       `tls_ca_file` names, which adds to `certifi`'s list and never replaces it; never the system's store or a
       certificate variable - a change from 2.x, whose vendor calls trust the system's store.
     - Of the new engine only the modules `CONTEXTS` names, each with why, name what makes a TLS context or gives one
-      roots (`MAKERS`, by any spelling but as a type, or a call's `ssl=True`), set one of its checks (`CHECKS`:
+      roots (`MAKERS`, by any written spelling but as a type, or a call's `ssl=True`), set one of its checks (`CHECKS`:
       `check_hostname`, `verify_mode`, `verify_flags`, `hostname_checks_common_name`), or import one of today's modules
-      that does (`TODAYS_CONTEXTS`); and no module of the new engine names the interpreter's own store or its paths
-      (`DEFAULT_STORE`). The transport takes any context, so one made elsewhere could check nothing.
+      that does (`TODAYS_CONTEXTS`); no module takes `trust` or `status` from one `CONTEXTS` names, and those take
+      names of today's modules, never a module whole (`lib/claude_vm/pve/pin.py` binds `anchored_context` alone); and no
+      module of the new engine names the interpreter's own store or its paths (`DEFAULT_STORE`). The transport takes
+      any context, so one made elsewhere could check nothing. Past the rules: a name built at run time (`getattr` of a
+      string made there, `sys.modules`, `import_module` of a relative name), a keyword `check_hostname=False` handed to
+      a function, and the standard library's own TLS clients (`urllib.request.urlopen`, `xmlrpc.client`, `ftplib`,
+      `smtplib`, `imaplib`, `poplib`): a reviewer looks for those.
     - `tests/unit/test_aw_transport.py` holds the transport and the proxy, and `tests/unit/test_aw_vendor_trust.py`
       the computer's certificates, `CONTEXTS` and `DEFAULT_STORE`.
 - **One class sends the Proxmox token, on a connection whose certificate verified.** Read
@@ -1061,9 +1105,11 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       inherits, for the life of the process that made the job: the kernel lets the lock go when that process ends,
       however it ends, and nothing is ever left to clear.
     - `state` reads `running` while that lock is held (`cancelling` with a stop recorded), the outcome the record holds,
-      and `lost` where it holds none and the lock is free; `lost` is never written. Where the record is gone it is
+      and `lost` where it holds none and the lock is free; `lost` is never written. Only a lock file that is gone is
+      free: any other error of the lock's probe (a descriptor limit, a mode, a disk's error) is raised as itself by
+      `lock_held`, the lock's own answer, and by `state`, never read as a run that ended. Where the record is gone it is
       `None`, no such job, as `find` says, whatever the lock: a handle taken before a drop never reads `running` or
-      `lost` after it. It asks the lock before it reads the record, since a run writes its outcome before it ends:
+      `lost` after a drop that removed the record. It asks the lock before it reads the record, since a run writes its outcome before it ends:
       asked the other way round, a run that ends just after its record was read would read `lost`. A job the reading
       process made itself is read from what it holds, a shortcut, not a need: closing a second descriptor of a lock
       file does not let the first's lock go, since a `flock` belongs to its open file description, as experiment 40
@@ -1072,29 +1118,81 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       information, written by `create` alone, so that a pid `cancel` signals is the one `create` recorded.
     - Every string the record and an event hold is made plain (`text.plain_text`), and a `Secret` is refused before
       anything is written or heard. Only `create` writes a record from nothing. A change reads it strictly: one whose
-      record is gone, or is no record, raises `Gone`, and any other error of the read is raised as itself, so that
-      `Gone` is never said of a run that runs; a reader is never refused. A job dropped goes `job.json` first, unlinked
+      record is gone, or is no record (nested past what is read, or a directory, among them), raises `Gone`, and any
+      other error of the read is raised as itself, so that `Gone` is never said of a run whose record is whole; a
+      reader is never refused. A job dropped goes `job.json` first, unlinked
       under `store.locked` as every change is, so a writer lands before it or is refused; then its lock; then its
       folder, what cannot be removed left as it is, so that a refused run's refusal is never lost to a traceback, and
       `drop` returns the line that says where the record is left, if it is. Removed with the lock still open, NFS keeps
       the folder.
     - `tests/unit/test_aw_job.py` holds it, each state made by a run in a child process, with a scan of `runs/`.
-- **Every process a run starts carries the job's marker, but a shared SSH master; no child is handed a lock.** Read
+- **Every process a run starts carries the job's marker, but a shared SSH master and a child meant to outlive its run;
+  no child is handed a lock.** Read
   [§16.8](docs/architecture/engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run) first.
-    - A child of the new engine is started by `lib/claude_vm/runs/children.py`'s `start`, or by the SSH runner, which
-      marks its children with `children.env` and enters them with `register`: never another `Popen`,
-      `create_subprocess_exec` or any other of Python's ways. `start` gives the child `AGENT_WAREHOUSE_JOB`, the job's
+    - A child of the new engine is started by `lib/claude_vm/runs/children.py`'s `start`, the SSH runner's `ssh`
+      children too: never another `Popen`, `create_subprocess_exec` or any other of Python's ways, and no module but
+      `children.py` is a starter. `start` gives the child `AGENT_WAREHOUSE_JOB`, the job's
       ID, whatever environment it is handed, and takes it from a shared master, which other runs may ride after this
-      one ends; a process group or a session of its own; SIGINT, SIGTERM, SIGHUP and SIGQUIT at their defaults and
-      unblocked, since a run started under `nohup` ignores SIGINT; and standard input named, `/dev/null` in a session.
+      one ends; a process group or a session of its own; every signal a handler can be given at its default and none
+      blocked, since a run started under `nohup` ignores SIGINT and Python ignores SIGPIPE; and standard input named,
+      never the run's own descriptor 0, `/dev/null` in a session. The children `start` does not start are `route.py`'s
+      `ssh` (the hop, `ssh -G`) and `proc.py`'s `ps`: a run carries no marker it inherited, which the launcher at the
+      checkout's top unsets and `cli/main.py` takes out of the environment at once, so they carry none.
+    - A run's end ends its `ssh`, `ansible` and `program` children. A child meant to outlive its run, the editor or a
+      page's opener, is `outlive`'s, never `start`'s: unmarked, in a session of its own, its standard streams
+      `/dev/null`, in no registry, started by `subprocess` and never asyncio (whose transport kills a child it still
+      holds), and left out of every tree the ladder remembers and ends (`outliving`).
     - Every descriptor is closed in a child but its standard streams and those `pass_fds` names, which is how a pipe
       goes over on purpose; one of a lock the run holds, or a duplicate of it, is refused by the lock's name before
-      anything starts, since a child that held it would keep it past the run. A module of `runs/` that takes a lock
-      gives `children.HOLDERS` a function that lists them. Never `close_fds=False`, and never a fork with no exec
-      (`os.fork`, `os.forkpty`, `pty.fork`, a `fork` start method of `multiprocessing`): a forked child keeps every lock
-      until it execs. `pass_fds` and `set_inheritable(..., True)` appear only in `start`.
+      anything starts, a standard stream the child inherits among them, since a child that held it would keep it past
+      the run. A module of `runs/` that takes a lock gives `children.HOLDERS` a function that lists them. `close_fds` is
+      never anything but `True`, and never a fork with no exec (`os.fork`, `os.forkpty`, `pty.fork`, `posix`'s, a
+      `fork` start method of `multiprocessing`): a forked child keeps every lock until it execs. `pass_fds` and
+      `set_inheritable(..., True)` appear only in `start`, and nothing else makes a descriptor inheritable.
+    - A child the terminal stopped for asking a question there (SIGTTIN, or SIGTTOU as OpenSSH's `readpassphrase`
+      turns the echo off before it reads: the `ssh` of a person's own `ProxyJump`, a question of `git`'s or `sudo`'s),
+      which `children.asking` reads with `waitid`'s `WNOWAIT` - the registry's children and `route.py`'s `ssh` in a
+      process group of its own (`children.watched`, `route.leading`) - or a process under one stopped in a group of its
+      own, which the ladder reads from the process table while such a child lives in its session (`proc.stopped_under`),
+      is said by the run within a second, naming its program and what to do, and ended: never left stopped and
+      silent.
     - `tests/unit/test_aw_children.py` holds it, with real children that report what they were given, and scans of the
-      new engine's code for each rule.
+      new engine's code for each rule; `tests/unit/test_aw_attached.py` the opener and the question at a terminal.
+- **Every `ssh` the new engine starts carries `BatchMode=yes` and names the machine by its identity.** Read
+  [§16.6](docs/architecture/engine.md#166-ssh--the-runner-over-openssh) first.
+    - `lib/claude_vm/ssh/runner.py` builds every command line from a `Target`, each value held before any child starts:
+      the identity to `checks.HOST_KEY_ALIAS_RE`, the address to one IPv4 address (the one value a machine supplies,
+      and the only one of a machine's that reaches the line), the account, the port and every path to plain words. The
+      product's options come first, since `ssh` keeps the first value: `checks.vm_ssh_args` as it stands, the shared
+      socket (`ControlPath=none` where its path would pass `route.SOCKET_MOST`), `ControlMaster=no` (a child is never a
+      master), `BatchMode=yes`, `ForwardX11=no`, `PermitLocalCommand=no`, `StrictHostKeyChecking=yes` against the
+      product's own known-hosts file under `HostKeyAlias`, the limits on a connection, public keys alone (the Proxmox
+      host's too, until someone asks for more), `LogLevel=ERROR`; then the hop's; then the person's `vm_ssh_options`,
+      which may not name a key the product writes (`REFUSED_OPTIONS`) or one that undoes what every connection holds
+      (`UNDOING_OPTIONS`: `StdinNull`, `ForkAfterAuthentication`, `SessionType`, `RemoteCommand`, `ForwardX11*`,
+      `PermitLocalCommand`, `LocalCommand`), each refused by name, and give `StrictHostKeyChecking` only as `yes`; then
+      `--`, the address and the command. No `-F`: the person's own `~/.ssh/config` is read, as today.
+    - `accept-new` is written in `ssh/` only for a first use, into a fresh scratch file under the identity and never the
+      product's file or the person's, and for the Proxmox host, into the person's own `known_hosts` as today.
+    - A machine's key is filed only by `lib/claude_vm/ssh/hostkeys.py`, whose functions take no address: `taken` reads
+      the one line a first use's `ssh` wrote into its scratch file (`fresh`) under the identity, by name or hashed, and
+      `file` adds it to the product's file by name under `store.locked`, only where no key of its type is filed for the
+      identity, and raises `Changed` where another is. Nothing replaces or removes a line, and the person's own
+      known-hosts files are never read or written. `tests/unit/test_aw_hostkeys.py` holds it, with this machine's own
+      `ssh-keygen` for a name as `ssh` reads and hashes one.
+    - A secret reaches a child only on its standard input, revealed in `_bytes` alone (`REVEALS`). Every child is
+      started through `children.start` in a group of its own, its output read under bounds for a line, the whole, a
+      deadline and a silence, its group killed on a breach, and every string it gave made plain. Ending the local
+      `ssh` never ends the command on the machine. A 255 is `ssh`'s or the command's own: `Unreachable` keeps the
+      command's lines and whether the machine was heard. A held child (a sign-in's) and a forward (`ControlPath=none`)
+      are ended by their deadline, their caller or the run; a forward's deadline is required, and its far end is
+      `sleep <deadline>`, so it ends by itself after a run killed outright, nothing recorded on the machine.
+      `ansible_vars` gives layer 1's Ansible child the same options in the same order.
+    - `tests/unit/test_aw_ssh_runner.py` holds it against a stand-in `ssh` that records its words, environment and
+      standard input, with this machine's `ssh -G -F /dev/null` for the values the options hold, and scans: a child
+      named `ssh` is started in the new subpackages only from `ssh/`; no option is made of a machine's value but its
+      address; `accept-new` only in its two forms; no `ControlMaster` but `no` in the runner, whose first use rides no
+      master (`ControlPath=none`).
 
 ## Architecture, and why it looks like this
 
@@ -1121,7 +1219,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   the host (`add_host`), and the delete play forces `ansible_connection: local`. GitHub's release only signs gh
   out and revokes no token: revoking the one this project's device flow made ended every GitHub CLI sign-in of
   the account. Tailscale's device is deleted from the controller by the node's `Self.ID`, held to
-  `tailscale_node_id_pattern` before it goes into the API's path, and only when its name is the VM's or Tailscale's
+  `tailscale_node_id_pattern` before it goes into the API's path (the new engine holds it in
+  `lib/claude_vm/vendors/tailscale.py` alone, `NODE_ID` by `fullmatch`, which `tests/unit/test_aw_tailscale_api.py`
+  holds equal to the role's), and only when its name is the VM's or Tailscale's
   `-<n>` of it that is not the name another VM joins as - one of the listing's, or the other hosts' aliases'
   (`tailscale_release_other_vms`), made from its name as `tailscale_hostname` is made from this VM's - and no other VM
   may join under the VM's own (`tailscale_sibling_labels`). The pre-check honours
@@ -1306,11 +1406,16 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   its loop closes, since asyncio kills an `ansible-playbook` it still holds and leaves its task workers
   ([§16.8](docs/architecture/engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run)). Then nothing
   holds the process: the engine's blocking calls run on daemon threads of the ladder's own, the loop's default
-  executor, each started with the signals the ladder takes blocked and never joined, and where one is still in a call
-  once the record is written the process ends by `os._exit`, since Python joins a `ThreadPoolExecutor`'s threads at
-  exit; a call in a thread that waits is handed the run's `Context.stopping` (the Proxmox client's `follow`), never a
-  phase inside a shield; a question reads on the loop (`Context.typed`), never in a thread, and one Ctrl-C there ends
-  the run. `tests/unit/test_aw_attached.py` holds it, each rule by a test that fails without it.
+  executor, never joined, and where one is still in a call once the record is written the process ends by `os._exit`,
+  since Python joins a `ThreadPoolExecutor`'s threads at exit. No thread blocks a signal - each call runs with none
+  blocked, whatever its maker held - since a program a call in a thread starts (`route.py`'s `ssh`) keeps its thread's
+  mask through `exec`; while the run reads the process table and signals what it leads to, and while it closes, the
+  handler, which runs in the run's thread whatever thread the kernel handed the signal to, only takes note, and each
+  signal noted is handled once that is done (`_held`). A call in a thread that waits is handed the run's
+  `Context.stopping` (the Proxmox client's `follow`), set at a first Ctrl-C, at an end at once (a second, a SIGTERM, a
+  SIGHUP), at the grace's end and at the close, never a phase inside a shield; a question reads on the loop
+  (`Context.typed`), never in a thread, and one Ctrl-C there ends the run. `tests/unit/test_aw_attached.py` holds it,
+  each rule by a test that fails without it.
 - **A scenario's container is still booting when Molecule's create returns.** The boot empties `/tmp`
   (`systemd-tmpfiles-setup.service`, from `D /tmp` in the image's `tmp.conf`), where a module's payload is unpacked
   and read from while it runs: on a busy CI round five scenarios failed at their first fact gathering,

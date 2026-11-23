@@ -6,8 +6,11 @@ by the one check, today's habits applied, and the verb handed to its handler or 
 A refusal is one line on standard error, and exits 1 (words.py's EXITS), before any of the words reach a handler: it
 imports no Ansible and no module of the engine. Its sentence says no value typed but where today's does (the rules
 between options, lib/claude_vm/schema/rules.py). A Ctrl-C at deploy's question exits 130, as a cancelled run does.
-`--version` alone answers with the checkout aw runs from. Standard library only, and the modules of cli/, schema/ and
-fleet/paths.py, and of tui/ to ask deploy's question.
+`--version` alone answers with the checkout aw runs from. It takes a job's marker, AGENT_WAREHOUSE_JOB, out of its
+environment at once: a run is started by a marked process now and then (an agent's job, a terminal of an editor a run
+opened), and its own children are marked by the one way a run starts them (runs/children.py), so a child it starts any
+other way - route.py's ssh, proc.py's ps - would carry another job's ID. Standard library only, and the modules of
+cli/, schema/ and fleet/paths.py, and of tui/ to ask deploy's question.
 """
 
 from __future__ import annotations
@@ -19,6 +22,9 @@ from pathlib import Path
 from claude_vm.cli import before, dispatch, habits, parse
 from claude_vm.schema.words import EXITS, VERBS
 
+# A job's marker, which a run never inherits: runs/children.py's MARKER, held equal by tests/unit/test_aw_children.py.
+MARKER = "AGENT_WAREHOUSE_JOB"
+
 
 def checkout(program: str) -> Path:
     """The checkout aw runs from, worked out from tools/aw's own path and nothing else: not the working directory, the
@@ -29,6 +35,7 @@ def checkout(program: str) -> Path:
 def main(argv: list[str]) -> int:
     """argv as tools/aw hands it on: its own path, then the words typed. Returns the exit status."""
     program, words = argv[0], argv[1:]
+    os.environ.pop(MARKER, None)
     if words == ["--version"]:
         print(f"aw from the checkout {checkout(program)}")
         return EXITS["done"]

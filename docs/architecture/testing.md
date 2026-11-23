@@ -61,19 +61,28 @@ and a socket's `connect` refused for anything over IP that is not loopback, with
 the test ends, a stand-in that was reached or a connection that was refused fails it, even where the code swallowed
 the refusal. The guard is `PATH`'s: a program started by its absolute path, such as `/usr/bin/security`, is not caught,
 and neither is a local socket reached by its path. The network refusal is the test process's alone: for a child it
-starts, only the fakes hold it. The fixture `home` makes that home, for a test that writes there.
+starts, only the fakes hold it. The fixture `home` makes that home, for a test that writes there. The guard's changes
+are a `MonkeyPatch` of its own, undone at its own teardown, so a test's `monkeypatch.undo()` leaves them in place, and
+`aw_home` sets `AGENT_WAREHOUSE_HOME` the same way. As a test's call ends, before its own `monkeypatch` is undone, and
+again at its teardown, a `PATH` that finds this machine's own programs ahead of the stand-ins fails it: a folder of the
+test's own programs, a stand-in `ssh` say, goes first in its own process by `engine_guard.first_on_path(dir)`, held to
+the test's own directory as a run's `first_on_path=` is. pytest makes a fixture wider than one test before the guard
+holds and ends it after the guard lets go, so every such fixture of an engine file is named, with why, in
+`test_aw_guards.py`'s `WIDER_THAN_A_TEST`.
 
 A test reaches `tools/aw` through the kit alone. `run_aw` runs the program under `python -I` in an environment built
 from `harness.PASSED_ON`'s names and the home's, never the test's whole one, with the same stand-ins first on `PATH`,
 each of which fails the test once reached (`harness._fail_if_the_desktop_was_reached`); with `/dev/null` on its stdin
 unless the test gives a file or text, and a process group of its own, ended whole on a timeout. A test's `env=` never
 sets `PATH`, `HOME`, `BROWSER`, `AGENT_WAREHOUSE_HOME` or an `XDG_` variable, which would lift a guard unsaid: a program
-of the test's own, a stand-in `ssh` say, goes first on `PATH` by `first_on_path=(dir, ...)`, ahead of the stand-ins,
-which stay. `aw_at_a_terminal` runs it at a pseudo-terminal of its own; `run_launcher` runs the launcher at the
-checkout's top, `aw`, by its path in the same environment: this checkout's with the suite's own Python as `PYTHON` and
-never asked to install, or a copy of it in a checkout the test made; `imports_of` lists the modules a run loaded
-(`-X importtime`), or with `module=` what importing that one module of the checkout's `lib/` loaded, and
-`searched_for` is the canary search for a canned secret in what a run left, which fails when it read nothing.
+of the test's own, a stand-in `ssh` say, goes first on `PATH` by `first_on_path=(dir, ...)`, a folder of the test's own
+directory, ahead of the stand-ins, which stay. An `aw` command a test file names, in a NEXT STEPS line say, is held to
+the one table of verbs and options by `test_commands.py`, so a made-up option fails the suite. `aw_at_a_terminal` runs
+it at a pseudo-terminal of its own; `run_launcher` runs the launcher at the checkout's top, `aw`, by its path in the
+same environment: this checkout's with the suite's own Python as `PYTHON` and never asked to install, or a copy of it in
+a checkout the test made; `imports_of` lists the modules a run loaded (`-X importtime`), or with `module=` what
+importing that one module of the checkout's `lib/` loaded, and `searched_for` is the canary search for a canned secret
+in what a run left, which fails when it read nothing.
 
 pytest over `tests/unit/`, file by file:
 
@@ -96,9 +105,13 @@ pytest over `tests/unit/`, file by file:
   as a syntax tree for a call that starts a program, the suite's own launchers among them, given a string, a path
   built of `tools` and `aw`, or a name bound to one; each stand-in is first on a run's `PATH`, and one that was
   reached fails the test; a run inherits the listed names alone, a test's `env=` cannot lift a guard, and
-  `first_on_path` goes ahead of the stand-ins and keeps them. A `Secret` (`lib/claude_vm/secret.py`) never shows its
+  `first_on_path` goes ahead of the stand-ins and keeps them, for a run and in the test's own process, and takes only a
+  folder of the test's own directory; in a pytest of its own, a `PATH` a test set, by its `monkeypatch` or by hand,
+  fails it, and its own `monkeypatch` undone leaves the guard whole; every fixture of a `test_aw_*.py` file wider than
+  a test is named in `WIDER_THAN_A_TEST`, by a syntax-tree scan; and `imports_of` refuses a module's name that is no
+  dotted name, in its own sentence, before anything runs. A `Secret` (`lib/claude_vm/secret.py`) never shows its
   value in a `repr`, a `str`, an f-string, `format`, `%` or a log line, pickle and JSON refuse it, and a copy is
-  itself; only the modules `REVEALS` names, none yet, read `reveal`, called or kept as an attribute, or named to
+  itself; only the modules `REVEALS` names, the transport and the SSH runner, read `reveal`, called or kept as an attribute, or named to
   `getattr` or `methodcaller`.
 - **The hosts core** (`test_hosts_core.py`): the core in-process - which host, in its order, the names hyphenated, a
   refusal carrying the notes said before it; choosing and listing never open a vault or run a password script;
@@ -142,7 +155,9 @@ pytest over `tests/unit/`, file by file:
   every file of each VM unchanged after and the fakes' logs holding only reads; the engine against the roles' own
   tasks and vars in check mode on the same stand-ins, state by state, the two held equal; the host key,
   `status_ssh_args` held to `ansible.cfg`'s, the options as `ssh -G` resolves them (and as they reach a stand-in `ssh`,
-  first, in `test_status.py`'s run of the fleet), and ssh's two host-key refusals each said for what it is. Every
+  first, in `test_status.py`'s run of the fleet), and ssh's two host-key refusals each said for what it is. A
+  Ctrl-C at the main thread as each ssh of the hop's starts, and a run's end as a probe's connection starts, each
+  ssh ended before the run ends at once, and no ssh of a run through the hop started on the main thread. Every
   status run in a test gets that refusing stand-in `ssh` (`status_root`), so none reaches a VM or this machine's ssh,
   and keeps nothing: the snapshot and the upgrades cache are `test_status_settings.py`'s, in a folder of its own. WORK
   (`test_status_work.py`): the checkouts' `work` over real throwaway repositories - a worktree under
