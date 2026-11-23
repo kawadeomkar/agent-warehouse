@@ -101,7 +101,7 @@ LEFT = "aw: the run's work did not end within {settle} s of being stopped, and i
 ASKING_POLL = 0.2
 TABLE_LOOKS = 4
 ASKED = (
-    "aw: {program} stopped at the terminal to ask a question there (a key's passphrase, a second factor), which a run"
+    "aw: {child} stopped at the terminal to ask a question there (a key's passphrase, a second factor), which a run"
     " never answers: it is ended, and its machine fails. Hold the key in an agent (ssh-add), or give a ProxyJump of"
     " yours what it asks for in its own settings, then run it again"
 )
@@ -621,7 +621,7 @@ class _Ladder:
                     if child in self.asked:
                         continue
                     self.asked.add(child)
-                    _say(ASKED.format(program=plain_text(child.program)))
+                    _say(ASKED.format(child=plain_text(child.program)))
                     with self._held():
                         proc.end(child.pid, signum=signal.SIGKILL, blind=self.blind.append)
                 looks += 1
@@ -655,7 +655,7 @@ class _Ladder:
                 if group in watched or pid in self.stopped:
                     continue
                 self.stopped.add(pid)
-                _say(ASKED.format(program=plain_text(os.path.basename(program) or program)))
+                _say(ASKED.format(child=plain_text(os.path.basename(program) or program)))
                 proc.end(pid, signum=signal.SIGKILL, blind=self.blind.append)
         return True
 

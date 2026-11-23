@@ -1,0 +1,1143 @@
+"""The printer of a command (lib/claude_vm/schema/printer.py; docs/architecture/engine.md §16.2 and §16.3): the one way
+the new engine writes the command line a person types, the program as it was started and a verb's values, from the one
+table, and the one way a sentence names a command.
+
+For every verb of the table, its words, each option alone and beside the words, and each pair of options the rules
+between options allow, with the words and without, are printed, parsed again by aw's parser and held by the one check,
+and come back as they went in; and no verb, option or verb's words of the table lacks such a case. Every example line
+here, of every verb, is taken, parsed, printed and parsed again to the same values, before the habits and after them.
+A line is the program, the verb, its words, then its options, a value after a space but where it starts with - or is
+empty. A value with a space, a quote, a leading -, each character a POSIX shell reads,
+a backslash and a trailing one, two values of free text on one line, an empty value and a name that starts with a digit
+survive the trip, through shlex, /bin/sh and bash, and a value that starts with = is quoted, which zsh would expand; a
+value a terminal would not show as it is is never printed. A line made from values no run has taken never says a value
+of --set or settings --value back, and every call of the printer, through any name or a partial, says which it is. A
+value that is off is not said; a placeholder is <name>, the name help gives it, in a form line and a masked one alike,
+and each placeholder given back to aw, as a word or as JSON, is refused in a sentence of aw's own. The host's flag is
+given by every caller of a verb with the shared --host, and only a verb whose --host runs it against a host takes one.
+A value the one check refuses is never printed, and a rule between options is the run's to say. Every line, and every
+command a sentence names, is the program as it was started, quoted: aw where aw on PATH is the launcher, else what was
+typed, through the launcher; the one check's own sentences, the rules', help's usage lines and its closing paragraph
+among them; a program word a terminal would not show as it is, a byte that is no UTF-8 among them, is aw. No other
+module of the new engine's subpackages builds a string that names a command, aw or just and a verb anywhere in its text
+(prose that says just aside), outside the printer; only the printer names the program, as started or as its constant;
+only the printer and the check name a sentence's program field. Each module of schema/ imports alone, first, and
+nothing outside the standard library and schema/, and pve/ and vendors/ import the printer plainly, at the top of a
+file, as every module does.
+"""
+
+from __future__ import annotations
+
+import ast
+import itertools
+import os
+import re
+import shlex
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+from aw_kit import LAUNCHER, imports_of, on_path, run_aw, run_launcher
+from harness import REPO
+from test_aw_cli_parse import SAMPLES
+from test_aw_cli_words import SECRET_TEXT
+from test_aw_layout import NEW
+
+from claude_vm.cli import habits, main, parse
+from claude_vm.cli import help as helps
+from claude_vm.schema import check as checks
+from claude_vm.schema import printer, rules
+from claude_vm.schema.patterns import full
+from claude_vm.schema.printer import said
+from claude_vm.schema.words import BEFORE, LINES, PLACEHOLDER, VERBS, Line, Option, Verb, Words, placeholder
+from claude_vm.schema.words import HOST as SHARED_HOST
+
+# A value with a space, a quote and a leading -, which a value of free text may be: given as --long=value, quoted.
+AWKWARD = '-it\'s "two" words'
+# A value a person may have pasted where it does not belong: a line made from values no run took never says it.
+TYPED = "swordfish"
+# A VM's name that starts with a digit, as one may.
+DIGIT_FIRST = "2nd-vm"
+MODULE = "claude_vm.schema.printer"
+# The verbs whose row has the shared --host, which every caller of the printer gives a host's flag.
+SHARED = ("deploy", "code", "login", "status", "destroy")
+
+
+def _line(verb: str, values: dict, **given) -> str:
+    """The printer's line made from a run's own values, naming no host where the verb takes the shared one."""
+    return printer.line(verb, values, **{"host_flag": "", "refused": False, **given})
+
+
+def _argv(verb: str, values: dict, **given) -> list[str]:
+    return printer.argv(verb, values, **{"host_flag": "", "refused": False, **given})
+
+
+def _samples(option: Option) -> list[object]:
+    """The values option is given in the round trip: one its pattern takes, and where its pattern takes them, the
+    awkward one, an empty one and a name that starts with a digit; a count once and more; a value or nothing alone."""
+    if option.kind == "flag":
+        return [True]
+    if option.kind == "counted":
+        return [1, 3]
+    pattern = option.pattern or ""
+    sample = SAMPLES[pattern]
+    more = {
+        "text": [AWKWARD],
+        "assignment": [f"vm_note={AWKWARD}"],
+        "vm_names": [f"{DIGIT_FIRST},alpha"],
+        "host_name": ["9lab"],
+    }.get(pattern, [])
+    if option.kind == "repeatable":
+        return [[sample], [sample, *more]]
+    return [sample, *more, *([""] if full(pattern, "") else [])]
+
+
+def _word_samples(words: Words) -> list[object]:
+    """The words a verb is given in the round trip: one or several as it takes them, a name that starts with a digit
+    among them; none where it takes none (init's, whose pattern is none)."""
+    if words.pattern is None:
+        return []
+    singles = {
+        "vm_name": ["alpha", DIGIT_FIRST],
+        "text": ["two words", 'it\'s "two" words'],
+    }.get(words.pattern, [SAMPLES[words.pattern]])
+    return [singles] if words.plural else singles
+
+
+def _cases(verb: Verb) -> list[dict[str, object]]:
+    """Every case of verb's round trip: the verb alone; its words; each option alone and beside the words; and each
+    pair of options the rules between options allow, with the words and without."""
+    options = checks.options_of(verb)
+    words = [{verb.words.field: given} for given in _word_samples(verb.words)] if verb.words else []
+    cases: list[dict[str, object]] = [{}, *words]
+    for option in options:
+        for value in _samples(option):
+            cases += [{option.field: value}, *({option.field: value, **given} for given in words[:1])]
+    for first, second in itertools.combinations(options, 2):
+        for given in [{}, *words[:1]]:
+            case = {first.field: _samples(first)[0], second.field: _samples(second)[0], **given}
+            if checks.check(verb.name, case) is None:
+                cases.append(case)
+    return cases
+
+
+def _read(words: list[str], monkeypatch, *, with_rules: bool) -> parse.Reading:
+    """aw's parser on words, the rules between options run or not: a case a rule refuses still parses."""
+    if with_rules:
+        return parse.read(words)
+    with monkeypatch.context() as patched:
+        patched.setattr(rules, "run", lambda codes, values: None)
+        return parse.read(words)
+
+
+def _round_trip(verb: str, values: dict[str, object], monkeypatch) -> None:
+    """values printed, read by a shell as the person's would be, parsed again and held by the one check: as they went
+    in, and the check's answer to both the same."""
+    printed = _argv(verb, values)
+    assert printed[:1] == ["aw"] and shlex.split(_line(verb, values)) == printed, (verb, values)
+    takes = checks.check(verb, values)
+    reading = _read(printed[1:], monkeypatch, with_rules=takes is None)
+    assert (reading.verb, reading.before, reading.values) == (verb, {}, values), printed
+    assert checks.check(verb, reading.values) == takes
+
+
+# ---------------------------------------------------------------- the round trip, verb by verb ----
+
+
+@pytest.mark.parametrize("name", list(VERBS))
+def test_every_verb_s_values_come_back_from_its_line(name: str, monkeypatch) -> None:
+    for values in _cases(VERBS[name]):
+        _round_trip(name, values, monkeypatch)
+
+
+def test_no_verb_option_or_word_of_the_table_lacks_a_round_trip_case() -> None:
+    for name, verb in VERBS.items():
+        cases = _cases(verb)
+        given = {field for case in cases for field in case}
+        fields = {option.field for option in checks.options_of(verb)}
+        if verb.words is not None and verb.words.pattern is not None:
+            fields.add(verb.words.field)
+        assert given == fields and len(cases) > 1, name
+        if len(checks.options_of(verb)) > 1:
+            pairs = [case for case in cases if len(set(case) - {verb.words.field if verb.words else ""}) == 2]
+            assert pairs, f"{name}: no pair of options the rules allow"
+
+
+def test_the_words_before_the_verb_come_back_from_the_line() -> None:
+    for before in [{"attended": "1"}, {"detached_run": True}]:
+        printed = _argv("deploy", {"names": ["alpha"]}, before=before)
+        assert parse.read(printed[1:]) == parse.Reading("deploy", before, {"names": ["alpha"]})
+    everything = {option.field: SAMPLES.get(option.pattern or "", True) for option in BEFORE}
+    printed = _argv("status", {}, before=everything)
+    assert printed == ["aw", "--attended", "1", "--detached-run", "status"]
+    assert parse.read(printed[1:]).before == everything
+
+
+# Command lines as a person types them after aw, of every verb: the words given before a verb, the names habits split
+# and hyphenate, each kind of option, a value given after a space and with =.
+EXAMPLES = (
+    "help",
+    "help deploy",
+    "init",
+    "init --no-prompt",
+    "init --host lab2",
+    "init --tailscale off",
+    "init --address pve.example --github-user octocat --token-secret-file ~/.config/pve-token",
+    "install",
+    "install --lock",
+    "vault",
+    "vault --host lab2",
+    "deploy",
+    "deploy alpha",
+    "deploy alpha beta",
+    "deploy alpha,beta",
+    "deploy my_vm",
+    "deploy alpha --only configure",
+    "deploy --only provision",
+    "deploy --only configure",
+    "deploy --only ssh-config",
+    "deploy --only template",
+    "deploy --check",
+    "deploy alpha --tags claude_code",
+    "deploy alpha --repos a,b",
+    "deploy alpha --cores 8 --memory 16G",
+    "deploy alpha --set vm_cores=4 -vvv",
+    "deploy alpha --detach",
+    "--attended=1 deploy alpha",
+    "code alpha",
+    "code my_vm",
+    "code alpha --project repo",
+    "code alpha --editor zed",
+    "login",
+    "login alpha",
+    "login alpha beta",
+    "login alpha --only github",
+    "login --only claude",
+    "status",
+    "status --json",
+    "status --only=vms,work",
+    "status --only capacity",
+    "settings",
+    "settings --all",
+    "settings --changed",
+    "settings vm_cores",
+    "settings editor --value zed",
+    "destroy",
+    "destroy alpha",
+    "destroy alpha,beta",
+    "destroy --confirm=alpha alpha",
+    "release alpha",
+    "host",
+    "host --json",
+    "host lab2",
+    "logs",
+    "logs 0123456789abcdef --follow",
+    "cancel",
+    "mcp",
+    "mcp --remove",
+    "mcp --any-branch",
+)
+
+
+def test_every_example_comes_back_from_its_line() -> None:
+    for example in EXAMPLES:
+        reading = parse.read(shlex.split(example))
+        printed = _argv(reading.verb, reading.values, before=reading.before)
+        assert parse.read(printed[1:]) == reading, (example, printed)
+        assert shlex.split(_line(reading.verb, reading.values, before=reading.before)) == printed
+        # And after the habits, as a handler receives the values: names split and with - for _, no names said.
+        verb = VERBS[reading.verb]
+        values, _ = habits.names(verb, reading.values)
+        again = parse.read(_argv(reading.verb, values)[1:])
+        assert habits.names(verb, again.values)[0] == values, (example, values)
+
+
+def test_the_examples_name_every_verb() -> None:
+    assert {next(word for word in shlex.split(example) if not word.startswith("-")) for example in EXAMPLES} == set(
+        VERBS
+    )
+
+
+# ---------------------------------------------------------------- the form of a line ----
+
+
+def test_a_line_is_the_program_the_verb_its_words_then_its_options_in_the_table_s_order() -> None:
+    values = {
+        "names": ["alpha", DIGIT_FIRST],
+        "detach": True,
+        "verbosity": 2,
+        "set": ["vm_cores=4", "vm_memory=8G"],
+        "tags": "claude_code",
+        "only": "configure",
+    }
+    # As a person types it: the words straight after the verb, a value after a space.
+    assert _line("deploy", values) == (
+        "aw deploy alpha 2nd-vm --only configure --tags claude_code --set vm_cores=4 --set vm_memory=8G -vv --detach"
+    )
+    assert _line("login", {"names": ["alpha"], "only": "claude"}) == "aw login alpha --only claude"
+    # deploy's whole chain is its one verb, and no names is said by none, whatever the habits made of it.
+    assert _line("deploy", {"names": ["alpha"]}) == "aw deploy alpha"
+    assert _line("deploy", {"default_vm": True}) == "aw deploy"
+    assert _line("status", {"default_vm": False}) == "aw status"
+    assert _argv("deploy", {"default_vm": True, "cores": None}) == ["aw", "deploy"]
+    assert _line("help", {"recipe": "deploy"}) == "aw help deploy"
+    # A value that starts with - or is empty is given as --long=value, which the parser reads as a value.
+    assert _line("deploy", {"cores": "", "names": ["alpha"]}) == "aw deploy alpha --cores="
+    assert _argv("deploy", {"cores": "", "names": ["alpha"]}) == ["aw", "deploy", "alpha", "--cores="]
+    assert _line("settings", {"name": "vm_note", "value": "-x"}) == "aw settings vm_note --value=-x"
+    assert _argv("settings", {"name": "vm_note", "value": "-x y"}) == ["aw", "settings", "vm_note", "--value=-x y"]
+    for printed in (
+        _argv("deploy", values),
+        _argv("settings", {"name": "vm_note", "value": "-x y"}),
+        _argv("deploy", {"cores": "", "names": ["alpha"]}),
+    ):
+        reading = parse.read(printed[1:])
+        assert _argv(reading.verb, reading.values) == printed
+
+
+def test_a_value_that_is_off_is_not_said() -> None:
+    # The check takes each, and the parser gives each back as not given: a line says none of them.
+    for verb, values in [
+        ("status", {"json": False}),
+        ("deploy", {"set": []}),
+        ("deploy", {"names": []}),
+        ("deploy", {"verbosity": 0}),
+        ("deploy", {"start": False, "detach": False}),
+    ]:
+        assert checks.formed(verb, values) is None, values
+        printed = _argv(verb, values)
+        assert printed == ["aw", verb] and parse.read(printed[1:]).values == {}, values
+    assert _argv("status", {}, before={"detached_run": False}) == ["aw", "status"]
+    # A value of another type is no value that is off: refused, as the check refuses it.
+    for values in ({"cores": False}, {"check": 0}, {"tags": []}):
+        with pytest.raises(ValueError):
+            _argv("deploy", values)
+
+
+def test_a_placeholder_is_the_name_help_gives_it() -> None:
+    # The owner's ruling of 2026-11-22 (review/code/OWNER-9.md 1): <name>, lower case in angle brackets, never quoted,
+    # an option's value too, from words.py's placeholder, which help's rows show as well.
+    assert _line("destroy", {"names": PLACEHOLDER, "confirm": PLACEHOLDER}) == "aw destroy <name>... --confirm <names>"
+    assert _line("code", {"name": PLACEHOLDER}) == "aw code <name>"
+    assert _line("settings", {"name": PLACEHOLDER, "value": PLACEHOLDER}) == "aw settings <name> --value <value>"
+    assert _line("help", {"recipe": PLACEHOLDER}) == "aw help <recipe>"
+    assert _line("deploy", {"names": PLACEHOLDER, "set": PLACEHOLDER}) == "aw deploy <name>... --set <name>=<value>"
+    assert _line("init", {"token_secret_file": PLACEHOLDER}) == "aw init --token-secret-file <file>"
+    assert _line("code", {"name": "alpha", "host": PLACEHOLDER}) == "aw code alpha --host <host>"
+    assert _line("host", {"name": PLACEHOLDER, "remove": True}) == "aw host <name> --remove"
+    # Every option's, as help shows it: one function for both.
+    for verb in VERBS.values():
+        for option in checks.options_of(verb):
+            if option.kind in ("value", "repeatable"):
+                assert _argv(verb.name, {option.field: PLACEHOLDER})[-1] == placeholder(option), option
+                assert helps.shown(option).endswith(f" {placeholder(option)}"), option
+    # A flag and a count have no value to name; and a placeholder is never a value the one check takes.
+    for values in ({"check": PLACEHOLDER}, {"verbosity": PLACEHOLDER}):
+        with pytest.raises(ValueError):
+            _line("deploy", values)
+    assert checks.check("code", {"name": PLACEHOLDER}) is not None
+    assert checks.check("settings", {"name": "vm_note", "value": PLACEHOLDER}) is not None
+
+
+def test_the_line_ends_with_the_host_s_flag_which_every_caller_of_a_verb_with_the_shared_host_gives() -> None:
+    assert {name for name, verb in VERBS.items() if SHARED_HOST in verb.options} == set(SHARED)
+    assert _line("code", {"name": "alpha", "project": "app"}, host_flag="lab2") == (
+        "aw code alpha --project app --host lab2"
+    )
+    printed = _argv("code", {"name": "alpha"}, host_flag="lab2")
+    assert printed == ["aw", "code", "alpha", "--host", "lab2"]
+    assert parse.read(printed[1:]).values == {"name": "alpha", "host": "lab2"}
+    # "": one host, or a line that names none; a --host in the values needs no flag.
+    assert _line("deploy", {"names": ["alpha"]}) == "aw deploy alpha"
+    assert printer.line("code", {"name": "alpha", "host": "lab2"}, refused=False) == "aw code alpha --host lab2"
+    # None, on a verb with the shared --host whose values give none: refused, so no caller forgets the host.
+    for verb in SHARED:
+        for printing in (printer.line, printer.argv):
+            with pytest.raises(ValueError):
+                printing(verb, {}, refused=False)
+    # settings, vault and init run against the host their --host names: a flag there, and none for None.
+    for verb in printer.HOSTS_OWN:
+        assert printer.line(verb, {}, refused=False) == f"aw {verb}"
+        printed = printer.argv(verb, {}, host_flag="lab2", refused=False)
+        assert printed == ["aw", verb, "--host", "lab2"] and parse.read(printed[1:]).values == {"host": "lab2"}
+    # A verb with no --host; host's, which says which host a run would reach; one given --host already; a name no host
+    # has; today's spelling of the flag as one string; and init's --host, a host's name alone (a value that starts
+    # with -, which once printed a line the parser refused).
+    for verb, values, given in [
+        ("release", {"name": "alpha"}, "lab2"),
+        ("logs", {}, "lab2"),
+        ("host", {"json": True}, "lab2"),
+        ("code", {"name": "alpha", "host": "lab2"}, "lab2"),
+        ("code", {"name": "alpha"}, "Lab_2"),
+        ("code", {"name": "alpha"}, " --host lab2"),
+        ("init", {}, "-x"),
+    ]:
+        for printing in (printer.line, printer.argv):
+            with pytest.raises(ValueError):
+                printing(verb, values, host_flag=given, refused=False)
+
+
+# ---------------------------------------------------------------- values a shell must read as given ----
+
+# Each character a POSIX shell reads otherwise than as itself, in a word or at its start: a pasted line must give it
+# back as typed, never run a second command, expand or glob.
+SHELL = ["$(id)", "${x}", "`id`", ";", "|", "&", ">", "*", "?", "[a]", "~", "!", "#", "\\", "'", '"', " ", "="]
+AWKWARD_LINES = [
+    ("settings", {"name": "vm_note", "value": AWKWARD}),
+    ("settings", {"name": "vm_cores", "value": "--"}),
+    ("deploy", {"names": [DIGIT_FIRST], "set": [f"vm_note={AWKWARD}"], "cores": ""}),
+    ("destroy", {"names": [DIGIT_FIRST, "alpha"], "confirm": f"{DIGIT_FIRST},alpha"}),
+    ("mcp", {"browser": AWKWARD}),
+    ("code", {"name": DIGIT_FIRST}),
+    # A backslash, a trailing one, and two values of free text on one line, one ending in a backslash.
+    ("settings", {"name": "vm_note", "value": "a\\b\\"}),
+    ("deploy", {"names": ["alpha"], "set": ["vm_note=a\\", "vm_x=;touch p;#"]}),
+    ("mcp", {"browser": "a'b\\", "project-dir": "~/a b", "vault_key_file": "/k'\\"}),
+    ("deploy", {"names": ["alpha"], "set": ["vm_note=a;echo${IFS}SECOND-COMMAND-RAN"]}),
+    *(("settings", {"name": "vm_note", "value": value}) for c in SHELL for value in (c, f"a{c}b", f"{c}a")),
+    *(("deploy", {"names": ["alpha"], "set": [f"vm_note={c}", f"vm_x=a{c}"]}) for c in SHELL),
+]
+
+
+def _words_read(shell: str, line: str) -> list[str]:
+    """The words a shell reads line into, the program among them: printf says each on a line of its own, none of them
+    holding a newline, which no pattern takes."""
+    ran = subprocess.run(
+        [shell, "-c", f"printf '%s\\n' {line}"],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=30,
+    )
+    return ran.stdout.split("\n")[:-1]
+
+
+@pytest.mark.parametrize(("verb", "values"), AWKWARD_LINES)
+def test_a_value_any_posix_shell_reads_otherwise_survives_the_shell(verb, values, monkeypatch) -> None:
+    values = {key.replace("-", "_"): value for key, value in values.items()}
+    printed = _argv(verb, values)
+    for shell in ("/bin/sh", "bash"):
+        assert _words_read(shell, _line(verb, values)) == printed, shell
+    _round_trip(verb, values, monkeypatch)
+
+
+@pytest.mark.parametrize(
+    "character", ["\x85", "\x9b", "\u200b", "\u202e", "\u2028", "\u2029", "\ufeff", "\xad", "\udce9"]
+)
+def test_a_value_a_terminal_would_not_show_as_it_is_is_never_printed(character: str) -> None:
+    # A C1 control, a format character (a bidi override, a zero width space, a soft hyphen), a line or paragraph
+    # separator, a lone surrogate (a byte that is no UTF-8, as Python decodes one: review/code/H25.md 7): the patterns
+    # of free text take them, and the printer refuses each, saying nothing of it.
+    for verb, values in [
+        ("settings", {"name": "vm_note", "value": f"a{character}b"}),
+        ("deploy", {"names": ["alpha"], "set": [f"vm_note={character}"]}),
+        ("mcp", {"browser": character}),
+        ("mcp", {"extra": f"a{character}"}),
+    ]:
+        for printing in (_line, _argv):
+            with pytest.raises(ValueError) as refused:
+                printing(verb, values)
+            assert character not in str(refused.value) and str(refused.value).startswith("error: aw"), refused.value
+    # Masked, the value is not said, so nothing is refused.
+    masked = _line("settings", {"name": "vm_note", "value": f"a{character}"}, refused=True)
+    assert masked == "aw settings vm_note --value <value>"
+
+
+# ---------------------------------------------------------------- what is never printed ----
+
+
+def test_a_line_from_values_no_run_took_never_says_a_value_of_free_text_back() -> None:
+    # The free-text options are exactly those test_aw_cli_words.py's SECRET_TEXT says a secret may be typed into.
+    free = {(name, option.field) for name, verb in VERBS.items() for option in verb.options}
+    assert {(name, field) for name, field in free if field in printer.FREE_TEXT} == set(SECRET_TEXT)
+    cases = [("settings", {"name": "github_user", "value": TYPED}, "value")]
+    settings = [f"github_user={TYPED}", "vm_cores=4"]
+    cases += [(name, {"set": settings}, "set") for name, field in SECRET_TEXT if field == "set"]
+    for verb, values, field in cases:
+        [option] = [option for option in VERBS[verb].options if option.field == field]
+        assert TYPED in _line(verb, values)
+        masked = _line(verb, values, refused=True)
+        assert TYPED not in masked and TYPED not in " ".join(_argv(verb, values, refused=True)), masked
+        assert f"--{field} {placeholder(option)}" in masked and "vm_cores=4" not in masked, masked
+    # Only the free text: the rest of the line is said as it was given.
+    told = _line("settings", {"name": "github_user", "value": TYPED, "host": "lab2"}, refused=True)
+    assert told == "aw settings github_user --host lab2 --value <value>"
+
+
+# ---------------------------------------------------------------- the printer's names, by any road ----
+
+# The printer's module, by its dotted name.
+PRINTER_MODULE = "claude_vm.schema.printer"
+
+
+def _bindings(tree: ast.AST) -> tuple[set[str], dict[str, str]]:
+    """The names a module binds to the printer's module (printer, as schema/'s own modules name it, among them), and to
+    a name of the printer's, each by its name there: every import, absolute or relative, under any alias."""
+    modules, names = {"printer"}, {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules |= {alias.asname for alias in node.names if alias.name == PRINTER_MODULE and alias.asname}
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            for alias in node.names:
+                if alias.name == "printer" and (module.endswith("schema") or (node.level and not module)):
+                    modules.add(alias.asname or alias.name)
+                elif module == "printer" or module.endswith(".printer"):
+                    names[alias.asname or alias.name] = alias.name
+    return modules, names
+
+
+def _of_printer(node: ast.AST, modules: set[str]) -> bool:
+    """Whether node is the printer's module: a name bound to it, or claude_vm.schema.printer written whole."""
+    return (isinstance(node, ast.Name) and node.id in modules) or ast.unparse(node) == PRINTER_MODULE
+
+
+def _references(tree: ast.AST, wanted: tuple[str, ...], own: bool) -> list[ast.AST]:
+    """Each node of tree that reaches one of the printer's names in wanted: an attribute of its module, a name imported
+    from it under any alias, and in the printer's own source (own) the name itself."""
+    modules, names = _bindings(tree)
+    found: list[ast.AST] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr in wanted and _of_printer(node.value, modules):
+            found.append(node)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+            if names.get(node.id) in wanted or (own and node.id in wanted):
+                found.append(node)
+    return found
+
+
+def _printer_calls(source: str, own: bool = False) -> list[tuple[int, bool]]:
+    """Each use of the printer's line or argv in source, by its line, and whether it says refused: a call through any
+    name, a functools.partial of either whose own words say it, and any other use (a name bound to it, which a later
+    call would reach) as not saying it."""
+    tree = ast.parse(source)
+    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    found = []
+    for node in _references(tree, ("line", "argv"), own):
+        call = parents.get(node)
+        if isinstance(call, ast.Call) and (
+            call.func is node or (call.args and call.args[0] is node and _callee(call) == "partial")
+        ):
+            found.append((call.lineno, any(keyword.arg == "refused" for keyword in call.keywords)))
+        else:
+            found.append((getattr(node, "lineno", 0), False))
+    return sorted(found)
+
+
+def _callee(call: ast.Call) -> str:
+    return call.func.attr if isinstance(call.func, ast.Attribute) else getattr(call.func, "id", "")
+
+
+def test_every_call_of_the_printer_says_whether_its_values_were_refused() -> None:
+    # refused is keyword-only with no default, so a caller that leaves it out fails when it runs: this holds every call
+    # site, the ones no test reaches among them, whatever name the printer or its function is reached by.
+    assert "refused" not in {name for name, kind in _defaults(printer.line).items() if kind} | {
+        name for name, kind in _defaults(printer.argv).items() if kind
+    }
+    calls = {}
+    for path in _new_modules():
+        where = path.relative_to(REPO).as_posix()
+        for line, said_it in _printer_calls(path.read_text(), own=where in PRINTERS):
+            calls[(where, line)] = said_it
+    assert calls and [call for call, said_it in calls.items() if not said_it] == []
+
+
+@pytest.mark.parametrize(
+    ("source", "calls"),
+    [
+        ("printer.line('logs', {})\nprinter.argv('x', {}, refused=True)", [(1, False), (2, True)]),
+        ("line('x', {})", []),
+        # Through an alias of the module, of the function, or the module's whole name (review/code/H25.md 6).
+        (
+            "from claude_vm.schema import printer as p\np.line('x', {}, refused=True)\np.argv('x', {})",
+            [(2, True), (3, False)],
+        ),
+        ("from claude_vm.schema.printer import line as say\nsay('logs', {})", [(2, False)]),
+        ("from ..schema.printer import argv\nargv('x', {}, refused=False)", [(2, True)]),
+        ("import claude_vm.schema.printer\nclaude_vm.schema.printer.line('x', {})", [(2, False)]),
+        ("import claude_vm.schema.printer as shown\nshown.line('x', {}, refused=True)", [(2, True)]),
+        # A partial says it in its own words, or not at all; a name bound to the function is a call no scan follows.
+        ("import functools\nf = functools.partial(printer.line, refused=True)", [(2, True)]),
+        ("from functools import partial\nf = partial(printer.line, 'logs')", [(2, False)]),
+        ("say = printer.line\nsay('x', {}, refused=True)", [(1, False)]),
+    ],
+)
+def test_the_scan_of_the_printer_s_calls_follows_every_name(source: str, calls: list) -> None:
+    assert _printer_calls(source) == calls
+
+
+def test_the_printer_s_own_calls_are_read_by_their_names() -> None:
+    assert _printer_calls("line('x', {})\nline('x', {}, refused=True)", own=True) == [(1, False), (2, True)]
+
+
+def _defaults(function) -> dict[str, bool]:
+    """Each keyword-only parameter of function, and whether it has a default."""
+    import inspect
+
+    return {
+        name: parameter.default is not inspect.Parameter.empty
+        for name, parameter in inspect.signature(function).parameters.items()
+        if parameter.kind is inspect.Parameter.KEYWORD_ONLY
+    }
+
+
+def test_a_value_the_one_check_refuses_is_never_printed() -> None:
+    # The check's sentence, which never says the value: an option the verb has not got, a value of another type, one
+    # outside its pattern, a word where the verb takes none or one where it takes one, a word that starts with -.
+    for verb, values in [
+        ("deploy", {"core": "8"}),
+        ("deploy", {"cores": 8}),
+        ("deploy", {"cores": TYPED}),
+        ("deploy", {"names": [f"{TYPED}\n"]}),
+        ("status", {"detach": True}),
+        ("init", {"extra": TYPED}),
+        ("code", {"name": ["alpha", "beta"]}),
+        ("mcp", {"extra": f"-{TYPED}"}),
+        ("nothing", {}),
+    ]:
+        for printing in (_line, _argv):
+            with pytest.raises(ValueError) as refused:
+                printing(verb, values)
+            assert TYPED not in str(refused.value) and str(refused.value).startswith("error: aw"), refused.value
+    with pytest.raises(ValueError):
+        _argv("deploy", {}, before={"attended": "2"})
+
+
+def test_a_rule_between_options_is_the_run_s_to_say() -> None:
+    # deploy's question names the stage before its answer meets the rules: --start starts nothing under --only
+    # configure, which the check refuses and the printer prints.
+    values = {"only": "configure", "start": True}
+    assert checks.check("deploy", values) == rules.RULES["deploy.10"].check(values)
+    assert _line("deploy", values) == "aw deploy --only configure --start"
+
+
+# ---------------------------------------------------------------- a placeholder never runs ----
+
+
+def _given_back() -> list[tuple[str, list[str], dict[str, object], str]]:
+    """Each placeholder the printer or help writes, given back to aw as a word: every option that takes a value, of
+    every verb and before one, and every verb's words, <name> and, where the verb takes several, <name>...; each with
+    the verb, the words typed after aw, the values as JSON and the sentence that refuses them, aw's own text."""
+    cases = []
+    for option in BEFORE:
+        if option.kind == "value":
+            shown = placeholder(option)
+            sentence = f"error: aw --{option.long}: {shown} stands for the value: put yours in its place"
+            cases.append(("", [f"--{option.long}", shown, "status"], {option.field: shown}, sentence))
+    for name, verb in VERBS.items():
+        for option in verb.options:
+            if option.kind not in ("value", "repeatable"):
+                continue
+            shown = placeholder(option)
+            spelled = checks.spelled(option)
+            value = [shown] if option.kind == "repeatable" else shown
+            sentence = f"error: aw {name} {spelled}: {shown} stands for the value: put yours in its place"
+            cases.append((name, [name, spelled, shown], {option.field: value}, sentence))
+        words = verb.words
+        if words is not None:
+            one = placeholder(words)
+            sentence = f"error: aw {name}: {one} stands for the {words.name}: put yours in its place"
+            cases.append((name, [name, one], {words.field: [one] if words.plural else one}, sentence))
+            if words.plural:
+                several = f"{one}..."
+                sentence = f"error: aw {name}: {several} stands for the {words.name}s: put yours in their place"
+                cases.append((name, [name, several], {words.field: [several]}, sentence))
+    return cases
+
+
+GIVEN_BACK = _given_back()
+
+
+@pytest.mark.parametrize(("verb", "words", "values", "sentence"), GIVEN_BACK, ids=[" ".join(c[1]) for c in GIVEN_BACK])
+def test_a_placeholder_given_back_is_refused_as_a_word_and_as_json(verb, words, values, sentence) -> None:
+    # The owner's ruling of 2026-11-22 (review/code/OWNER-9.md 1): a placeholder stands for a value and never runs as
+    # one, through the command line, an agent's tool or the add-on's broker alike, in a sentence that says only aw's own
+    # text; and the printer never prints one as a value.
+    with pytest.raises(parse.Refused) as refused:
+        parse.read(words)
+    assert refused.value.sentence == sentence
+    check = checks.check_before(values) if not verb else checks.check(verb, values)
+    assert check == sentence
+    with pytest.raises(ValueError, match="stands for"):
+        _argv(verb or "status", {} if not verb else values, before=values if not verb else None)
+
+
+def test_only_the_values_of_free_text_would_pass_their_own_pattern_as_a_placeholder() -> None:
+    # Which is why the check refuses a placeholder before the pattern (review/code/OWNER-9.md 1, "What it gives"):
+    # settings --value and mcp --browser take one as text, and so do the words of init and mcp, which their rules
+    # refuse whatever they are; every other placeholder its pattern refuses too.
+    passing = []
+    for verb, words, values, _ in GIVEN_BACK:
+        row = VERBS.get(verb)
+        if row is None:
+            continue
+        held = [item for item in (*row.options, *([row.words] if row.words else [])) if item.field in values]
+        if all(item.pattern is None or full(item.pattern, words[-1]) for item in held):
+            passing.append(" ".join(words))
+    assert sorted(passing) == ["init <extra>", "mcp --browser <browser>", "mcp <extra>", "settings --value <value>"]
+
+
+def test_a_masked_line_and_a_form_line_each_print_a_placeholder() -> None:
+    masked = _line("settings", {"name": "vm_note", "value": TYPED}, refused=True)
+    form = _line("destroy", {"names": PLACEHOLDER, "confirm": PLACEHOLDER})
+    assert (masked, form) == ("aw settings vm_note --value <value>", "aw destroy <name>... --confirm <names>")
+    # Pasted at a shell, neither runs the command it shows: < and > are redirections, and a line that ends in > is no
+    # line a shell reads at all.
+    for printed in (masked, form):
+        ran = subprocess.run(
+            ["/bin/sh", "-n", "-c", printed], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30
+        )
+        assert ran.returncode != 0, printed
+    # Given back word by word, each is refused, never taken as the value it shows.
+    for printed in (masked, form):
+        with pytest.raises(parse.Refused, match="stands for"):
+            parse.read(shlex.split(printed.replace("<", "'<").replace(">", ">'"))[1:])
+
+
+# ---------------------------------------------------------------- zsh's =word ----
+
+
+def test_a_value_that_starts_with_equals_is_quoted_which_zsh_would_expand() -> None:
+    # zsh, macOS's shell, expands a word that starts with = to the path of the command it names (review/code/H25.md 5):
+    # shlex.quote leaves such a word bare, so the printer quotes it; an = later in a word is left as it is.
+    assert _line("settings", {"name": "vm_note", "value": "=ls"}) == "aw settings vm_note --value '=ls'"
+    assert _line("mcp", {"browser": "=ls"}) == "aw mcp --browser '=ls'"
+    assert _line("deploy", {"names": ["alpha"], "set": ["vm_note==ls"]}) == "aw deploy alpha --set vm_note==ls"
+    assert printer.quoted("=") == "'='" and printer.quoted("a=b") == "a=b" and printer.quoted("") == "''"
+    for word in ("=ls", "=", "==x", "a b", "it's", "plain"):
+        assert shlex.split(printer.quoted(word)) == [word], word
+
+
+# ---------------------------------------------------------------- the program as it was started ----
+
+
+def test_every_line_and_every_command_a_sentence_names_is_the_program_as_it_was_started(monkeypatch) -> None:
+    monkeypatch.setattr(printer, "_program", printer.PROGRAM)
+    printer.started_as("./aw")
+    assert printer.program() == "./aw" and _line("status", {}) == "./aw status"
+    # The one check's own sentences, a rule's and the table's, each through said.
+    assert (checks.command("deploy"), checks.help_of("deploy")) == ("./aw deploy", "./aw help deploy")
+    assert checks.no_such_command() == "error: ./aw has no such command (./aw help lists them)"
+    assert checks.check("code", {}) == "error: code opens one VM: ./aw code <name>"
+    assert said(SHARED_HOST.help or "").endswith("(./aw host lists them)")
+    assert said("{line}", {"line": Line("vault")}) == "./aw vault"
+    printer.started_as("/opt/my checkout/aw")
+    assert _line("status", {}) == "'/opt/my checkout/aw' status"
+    assert _argv("status", {}) == ["/opt/my checkout/aw", "status"]
+    # Nothing said, or a word no line could print as it is, a byte that is no UTF-8 among them: aw.
+    for word in (None, "", "-x/aw", "./a\x9bw", "./a‮w", "./a\nb", "./caf\udce9/aw"):
+        printer.started_as(word)
+        assert printer.program() == "aw", word
+
+
+# Programs started from a path a shell would split or end at: with a space, with a ', and one longer than help's width
+# with spaces in it, which a paragraph wrapped there would cut, were it not kept whole.
+AWKWARD_PROGRAMS = ["/opt/my checkout/aw", "/opt/it's/aw", "/opt/" + " ".join(["dir"] * 30) + "/aw"]
+
+
+@pytest.mark.parametrize("started", AWKWARD_PROGRAMS, ids=["space", "quote", "many-spaces"])
+def test_started_from_a_path_a_shell_would_split_every_line_says_the_program_quoted(started: str, monkeypatch) -> None:
+    # review/code/H25.md 1, 3 and 4: the lines, the sentences that name the program alone, help's usage lines and its
+    # closing paragraph, each the program quoted as one word a shell reads back, never cut where it is wrapped.
+    monkeypatch.setattr(printer, "_program", printer.PROGRAM)
+    printer.started_as(started)
+    program = shlex.quote(started)
+    assert program != started and (len(program) > helps.WIDTH) is (started == AWKWARD_PROGRAMS[-1])
+    assert _line("status", {}) == f"{program} status"
+    assert checks.command("deploy") == f"{program} deploy" and checks.command("") == program
+    assert said("{program}") == program
+    assert checks.no_such_command() == f"error: {program} has no such command ({program} help lists them)"
+    assert checks.no_option("", "--bogus") == (
+        f"error: {program} has no --bogus option before its command ({program} help lists them)"
+    )
+    assert helps.usage(VERBS["deploy"]) == f"{program} deploy [<name>...]"
+    closing = helps.closing()
+    joined = " ".join(closing)
+    assert f"exported or before {program}, moves the run logs" in joined
+    assert f": {program} deploy alpha -vvv." in joined and f"({program} host lists them)" in joined
+    # The program LOG_DIR goes before, the example and aw host each on one line, never cut where the paragraph wraps.
+    for whole in (f"{program},", f"{program} deploy alpha -vvv", f"{program} host"):
+        assert [line for line in closing if whole in line], (whole, closing)
+    for line in (_line("status", {}), helps.usage(VERBS["status"]).replace(" [<name>...]", "")):
+        assert _words_read("/bin/sh", line)[0] == started, line
+
+
+def test_main_takes_what_the_launcher_said_out_of_the_environment_at_once(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(printer, "_program", printer.PROGRAM)
+    monkeypatch.setenv(main.STARTED_AS, "./aw")
+    assert main.main([str(REPO / "tools" / "aw"), "help", "deploy"]) == 0
+    assert main.STARTED_AS not in os.environ and printer.program() == "./aw"
+    assert capsys.readouterr().out.startswith("Usage: ./aw deploy [<name>...]\n")
+    main.main([str(REPO / "tools" / "aw"), "help", "deploy"])
+    assert printer.program() == "aw"
+
+
+def _program_said(result: subprocess.CompletedProcess[str]) -> str:
+    """The program a run of aw help deploy said: its usage line's first word."""
+    assert result.returncode == 0, result.stderr
+    usage = result.stdout.splitlines()[0]
+    assert usage.startswith("Usage: ") and usage.endswith(" deploy [<name>...]"), usage
+    return usage.removeprefix("Usage: ").removesuffix(" deploy [<name>...]")
+
+
+def test_the_launcher_says_aw_where_aw_on_path_is_it_and_else_what_was_typed(home, tmp_path) -> None:
+    # An aw first on PATH that is another program, so that the developer's own PATH decides nothing.
+    other = tmp_path / "another-aw"
+    other.mkdir()
+    (other / "aw").write_text("#!/bin/sh\nexit 9\n")
+    (other / "aw").chmod(0o755)
+    typed = run_launcher("help", "deploy", home=home, launcher="./aw", cwd=REPO, first_on_path=(other,))
+    assert _program_said(typed) == "./aw"
+    whole = run_launcher("help", "deploy", home=home, cwd=tmp_path, first_on_path=(other,))
+    assert _program_said(whole) == shlex.quote(str(LAUNCHER))
+    # Through a link in a folder whose name a shell would split and end at: the program quoted (review/code/H25.md 1).
+    awkward = tmp_path / "it's my dir"
+    awkward.mkdir()
+    (awkward / "aw").symlink_to(LAUNCHER)
+    quoted = run_launcher("help", "deploy", home=home, launcher=awkward / "aw", cwd=tmp_path, first_on_path=(other,))
+    assert _program_said(quoted) == shlex.quote(str(awkward / "aw"))
+    assert _words_read("/bin/sh", _program_said(quoted)) == [str(awkward / "aw")]
+    for launcher in ("./aw", LAUNCHER):
+        linked = run_launcher("help", "deploy", home=home, launcher=launcher, cwd=REPO, first_on_path=(on_path(home),))
+        assert _program_said(linked) == "aw", launcher
+    # tools/aw run directly, as the agents' server runs it, is told nothing and says aw; told, it says what it is told.
+    assert _program_said(run_aw("help", "deploy", home=home)) == "aw"
+    told = run_aw("help", "deploy", home=home, env={main.STARTED_AS: "./aw"})
+    assert _program_said(told) == "./aw"
+
+
+def test_a_launcher_started_through_a_folder_whose_name_is_no_utf_8_says_aw_and_help_prints(home, tmp_path) -> None:
+    # review/code/H25.md 7: Linux takes such a name, Python reads the byte as a lone surrogate, and a UTF-8 terminal's
+    # strict output ended aw help in a traceback; the program is aw then, as for any word a terminal would not show.
+    folder = tmp_path / os.fsdecode(b"caf\xe9")
+    try:
+        folder.mkdir()
+    except OSError:
+        pytest.skip("this file system takes only UTF-8 names (macOS's)")
+    (folder / "aw").symlink_to(LAUNCHER)
+    locale = {"LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8"}
+    for words in (("help", "deploy"), ("help",)):
+        result = run_launcher(*words, home=home, launcher=folder / "aw", cwd=tmp_path, env=locale)
+        assert result.returncode == 0 and "Traceback" not in result.stderr, result.stderr
+    said = run_launcher("help", "deploy", home=home, launcher=folder / "aw", cwd=tmp_path, env=locale)
+    assert _program_said(said) == "aw"
+
+
+# ---------------------------------------------------------------- the one printer ----
+
+PRINTER = "lib/claude_vm/schema/printer.py"
+# The modules that write a command line: the printer alone.
+PRINTERS = {PRINTER}
+# The functions outside it that name a command in a sentence, each with why.
+NAMED_IN_A_SENTENCE = {
+    ("lib/claude_vm/cli/dispatch.py", "not_built"): "today's just <verb>, which does a verb's work until the flip, "
+    "when K14 takes the clause out: no command of aw's, so none the printer writes",
+}
+# The printer's names of the program: as it was started (program, _program) and its constant (PROGRAM). Only the
+# printer names them: help says the program through the check's command, and main.py hands it on by started_as.
+PROGRAM_NAMES = ("program", "_program", "PROGRAM")
+PROGRAMS = {PRINTER}
+# A sentence's field the printer fills with the program, and the modules whose strings may name it: the printer, and
+# the check, whose command names the program alone.
+PROGRAM_FIELD = "{" + printer.PROGRAM_FIELD + "}"
+PROGRAM_FIELDS = {PRINTER, "lib/claude_vm/schema/check.py"}
+# What a formatted value of an f-string is read as.
+FIELD = "\x00"
+# What may follow aw or just where a string names a command: a verb of the table, a recipe of the repository's own, a
+# formatted value, a field of str.format or of a % template, a Template's $, an option, or nothing yet.
+COMMAND_WORDS = set(VERBS) | {"lint", "test", "docs", "vagrant", "clean", "install"}
+_WORD = "(?:" + "|".join(sorted(map(re.escape, COMMAND_WORDS))) + r")(?![\w-])"
+_FILLED = re.escape(FIELD) + r"|\{|%|\$|-"
+COMMAND = re.compile(
+    # aw, which is no word of prose: before any of those, anywhere in a string.
+    rf"(?<![\w/.-])(?:\./)?aw\s+(?:\Z|{_FILLED}|{_WORD})"
+    # Today's just, an English word too: before a value, a field or an option; after run, a backtick or a quote; and
+    # where no word of prose comes before it, a recipe the string ends at, or that a value, an option or a closing
+    # mark follows. So prose that says just (just deploy it, you just install uv) is left alone.
+    rf"|(?<![\w/.-])just\s+(?:\Z|{_FILLED})"
+    rf"|(?:(?<=\b[Rr]un\s)|(?<=[`'\"(]))just\s+{_WORD}"
+    rf"|(?<![\w/.-])(?<![A-Za-z]\s)just\s+{_WORD}(?=\Z|\s*(?:{_FILLED}|[`'\")]))"
+)
+
+
+def _text(node: ast.AST) -> str | None:
+    """A string's text, a formatted value read as FIELD; None for anything else."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr):
+        return "".join(part.value if isinstance(part, ast.Constant) else FIELD for part in node.values)
+    return None
+
+
+def _names_a_command(text: str) -> bool:
+    """Whether text names a command anywhere in it: aw or just, as a word of its own, then a verb, a recipe, a value
+    formatted in, a field, an option, or a space that ends the string, which a piece joined after it would make a
+    command of; just as a command, never as prose."""
+    return COMMAND.search(text) is not None
+
+
+def _strings(source: str) -> list[tuple[int, str, str]]:
+    """Each string source builds, with its line and the function it is in ('' outside one): never a docstring, or a
+    string standing alone as a statement."""
+    found: list[tuple[int, str, str]] = []
+
+    def visit(node: ast.AST, function: str) -> None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            function = node.name
+        if isinstance(node, ast.Expr) and _text(node.value) is not None:
+            return
+        text = _text(node)
+        if text is not None:
+            found.append((getattr(node, "lineno", 0), function, text))
+            return
+        for child in ast.iter_child_nodes(node):
+            visit(child, function)
+
+    visit(ast.parse(source), "")
+    return found
+
+
+def _commands_built(source: str) -> list[tuple[int, str]]:
+    """Each string source builds that names a command, by its line and the function it is in."""
+    return [(line, function) for line, function, text in _strings(source) if _names_a_command(text)]
+
+
+def _program_fields(source: str) -> list[int]:
+    """The lines of each string source builds that names a sentence's program field."""
+    return [line for line, _, text in _strings(source) if PROGRAM_FIELD in text]
+
+
+def _names_program(source: str) -> bool:
+    """Whether source names the printer's program, as started or as its constant: an attribute of the printer's module
+    under any name, or a name imported from it."""
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and (
+            (node.module or "") == "printer" or (node.module or "").endswith(".printer")
+        ):
+            if any(alias.name in PROGRAM_NAMES for alias in node.names):
+                return True
+    return bool(_references(tree, PROGRAM_NAMES, own=False))
+
+
+def _new_modules() -> list[Path]:
+    return sorted(path for sub in NEW for path in (REPO / "lib" / "claude_vm" / sub).rglob("*.py"))
+
+
+def test_no_module_of_the_new_engine_builds_a_command_outside_the_printer() -> None:
+    outside: dict[str, list[int]] = {}
+    named = set()
+    for path in _new_modules():
+        where = path.relative_to(REPO).as_posix()
+        if where in PRINTERS:
+            continue
+        for line, function in _commands_built(path.read_text()):
+            if (where, function) in NAMED_IN_A_SENTENCE:
+                named.add((where, function))
+            else:
+                outside.setdefault(where, []).append(line)
+    assert outside == {}, "name a command as a Line said through schema/printer.py's said, or print it with its line"
+    assert named == set(NAMED_IN_A_SENTENCE), "an exception that names nothing any more: take it out"
+    assert (REPO / PRINTER).is_file()
+
+
+def test_only_the_printer_names_the_program() -> None:
+    # review/code/H25.md 1: the program as it was started is reachable by printer.program() and printer._program, not
+    # only by the constant, and a line made from either is a command outside the printer.
+    naming = {path.relative_to(REPO).as_posix() for path in _new_modules() if _names_program(path.read_text())}
+    assert naming <= PROGRAMS, sorted(naming - PROGRAMS)
+
+
+@pytest.mark.parametrize(
+    ("source", "names"),
+    [
+        ('x = f"{printer.program()} cancel {job}"', True),
+        ("x = printer._program", True),
+        ("x = printer.PROGRAM", True),
+        ("from claude_vm.schema.printer import program", True),
+        ("from ..schema.printer import PROGRAM as AW", True),
+        ("from claude_vm.schema import printer as p\nx = p.program()", True),
+        ("import claude_vm.schema.printer\nx = claude_vm.schema.printer._program", True),
+        ("x = program()", False),
+        ("x = printer.line('status', {}, refused=False)", False),
+        ("printer.started_as('./aw')", False),
+        ("x = checks.command('')", False),
+    ],
+)
+def test_the_scan_sees_the_program_named_by_any_road(source: str, names: bool) -> None:
+    assert _names_program(source) is names
+
+
+def test_only_the_printer_and_the_check_name_a_sentence_s_program_field() -> None:
+    # review/code/H25.md 1: said("{program} cancel {job}", ...) is a command by hand, through the sanctioned said.
+    found = {
+        where: lines
+        for path in _new_modules()
+        if (where := path.relative_to(REPO).as_posix()) not in PROGRAM_FIELDS
+        and (lines := _program_fields(path.read_text()))
+    }
+    assert found == {}, "a sentence names a command as a Line; the program alone is the check's command('')"
+    assert _program_fields((REPO / "lib/claude_vm/schema/check.py").read_text()), "the check's command names it"
+    assert _program_fields('x = said("{program} cancel {job}", {"job": job})') == [1]
+    assert _program_fields('x = f"{{program}} cancel"') == [1]
+    assert _program_fields('"""{program} in a docstring is said by nothing."""') == []
+
+
+# The module review/code/H25.md planted, with the three roads it took to a command outside the printer.
+PLANTED = """
+from claude_vm.schema import printer
+from claude_vm.schema.printer import line as say
+from claude_vm.schema.printer import said
+
+
+def by_the_program(job):
+    return f"{printer.program()} cancel {job}"
+
+
+def by_the_field(job):
+    return said("{program} cancel {job}", {"job": job})
+
+
+def by_a_template(verb):
+    return "aw %s --only configure" % verb
+
+
+def by_an_alias():
+    return say("logs", {})
+"""
+
+
+def test_the_module_the_review_planted_fails_every_guard() -> None:
+    assert _names_program(PLANTED)
+    assert _program_fields(PLANTED) == [12]
+    assert _commands_built(PLANTED) == [(16, "by_a_template")]
+    assert _printer_calls(PLANTED) == [(20, False)]
+
+
+@pytest.mark.parametrize(
+    ("source", "found"),
+    [
+        ('x = f"aw {verb}"', [(1, "")]),
+        ('x = "aw deploy alpha"', [(1, "")]),
+        ('x = "aw " + verb', [(1, "")]),
+        ('x = f"aw --attended=1 {verb}"', [(1, "")]),
+        ('def f(recipe):\n    return f"just {recipe} --help"', [(2, "f")]),
+        ('def g():\n    return ("aw help", "x")', [(2, "g")]),
+        ('x = "aw help deploy"', [(1, "")]),
+        # Anywhere in a string, as review/code/H9.md found them: in a sentence, indented, as ./aw, after a tab, a
+        # field of str.format, and today's just.
+        ('x = "error: aw deploy refused"', [(1, "")]),
+        ('x = f"error: the fleet is held by job {job}: `aw cancel {job}` stops it"', [(1, "")]),
+        ("x = f'  aw login {vm} --only github'", [(1, "")]),
+        ("x = './aw cancel ' + job", [(1, "")]),
+        ("x = 'aw\\tcancel'", [(1, "")]),
+        ("x = 'aw {} {}'.format('cancel', job)", [(1, "")]),
+        ("x = 'run just test unit'", [(1, "")]),
+        # A % template and a Template's $, as review/code/H25.md 6 found them missed.
+        ('x = "aw %s" % verb', [(1, "")]),
+        ('x = "aw %s --only %s" % (verb, stage)', [(1, "")]),
+        ('x = Template("aw $verb")', [(1, "")]),
+        # Today's just as a command: alone, before an option or a value, in backticks, after a sentence's colon.
+        ('x = "just deploy"', [(1, "")]),
+        ('x = "error: just deploy --only configure"', [(1, "")]),
+        ("x = 'use `just test unit` first'", [(1, "")]),
+        ('x = f"until then, use today\'s just {verb}"', [(1, "")]),
+        # Prose that says just, which the scan leaves alone (review/code/H25.md 6).
+        ('x = "just deploy it"', []),
+        ('x = "you just install uv"', []),
+        ('x = "it will just help"', []),
+        # Prose that names the program, and what the scan cannot see: pieces joined at run time, which only the
+        # printer's names of the program may make, and only the printer does.
+        ('x = "aw from the checkout " + path', []),
+        ('x = f"aw drives the fleet in {root}"', []),
+        ('x = "aw runs only from a virtualenv"', []),
+        ('x = "the program is aw, always"', []),
+        ('x = "draw deploy"', []),
+        ('x = "tools/aw deploy"', []),
+        ('"""aw deploy alpha is told in a docstring."""', []),
+        ('x = "aw"', []),
+        ('x = b"aw deploy"', []),
+        ("x = 'aw' + ' cancel ' + job", []),
+        ("x = ' '.join(['aw', 'cancel', job])", []),
+    ],
+)
+def test_the_scan_sees_a_command_named_anywhere_in_a_string(source: str, found: list) -> None:
+    assert _commands_built(source) == found
+
+
+def test_no_sentence_of_the_rules_or_the_table_holds_a_command_as_text() -> None:
+    # Each names its commands as Lines, which said fills with the printer's: so the scan above holds them, and each
+    # sentence a rule or the table says fills every field it names.
+    for code, rule in rules.RULES.items():
+        assert not _names_a_command(rule.sentence), code
+    texts = [verb.doc for verb in VERBS.values()] + [verb.words.help for verb in VERBS.values() if verb.words]
+    every = [option for verb in VERBS.values() for option in verb.options] + list(BEFORE)
+    texts += [option.help for option in every if option.help]
+    texts += [verb.tools for verb in VERBS.values() if isinstance(verb.tools, str)]
+    agents = [option.agent for option in every] + [verb.words.agent for verb in VERBS.values() if verb.words]
+    texts += [
+        one.why for agent in agents for one in (agent.values() if isinstance(agent, dict) else [agent]) if one.why
+    ]
+    for text in texts:
+        assert not _names_a_command(text) and "{" not in said(text) and "}" not in said(text), text
+    assert set(LINES) == {name for text in texts for name in re.findall(r"\{([a-z_]+)\}", text)}, (
+        "a line of LINES no sentence of the table names, or a sentence naming one LINES has not got"
+    )
+
+
+def test_the_check_s_sentences_name_the_command_as_the_printer_writes_it() -> None:
+    assert checks.help_of("") == _line("help", {})
+    for name in VERBS:
+        assert checks.command(name) == _line(name, {}), name
+        assert checks.help_of(name) == _line("help", {"recipe": name}), name
+
+
+# ---------------------------------------------------------------- what schema/ imports ----
+
+SCHEMA = sorted(f"claude_vm.schema.{path.stem}" for path in (REPO / "lib" / "claude_vm" / "schema").glob("[!_]*.py"))
+
+
+@pytest.mark.parametrize("module", SCHEMA)
+def test_each_module_of_schema_imports_alone_and_first_and_nothing_outside_schema(home, module) -> None:
+    # The check, the rules and the printer import one another as modules, so any of them may be the first imported:
+    # a name taken from one of them at its import would fail here for one order (schema/__init__.py). What importing
+    # the package alone loads is taken away: what is left is what the module itself brings.
+    added = imports_of(module=module, home=home) - imports_of(module="claude_vm.schema", home=home)
+    assert module in added, sorted(added)
+    assert sorted({name.split(".")[0] for name in added} - set(sys.stdlib_module_names) - {"claude_vm"}) == []
+    assert (
+        sorted(name for name in added if name.startswith("claude_vm.") and not name.startswith("claude_vm.schema"))
+        == []
+    )
+    assert "argparse" not in added and "subprocess" not in added
+
+
+def test_the_printer_is_a_module_of_schema_beside_the_check_and_the_rules() -> None:
+    assert {MODULE, "claude_vm.schema.check", "claude_vm.schema.rules", "claude_vm.schema.words"} <= set(SCHEMA)
+    assert not (REPO / "lib" / "claude_vm" / "cli" / "inverse.py").exists()
+
+
+@pytest.mark.parametrize("module", ["claude_vm.pve.client", "claude_vm.vendors.trust"])
+def test_pve_and_vendors_import_the_printer_when_they_are_imported_and_nothing_of_cli(home, module) -> None:
+    # review/code/H25.md 2: the printer is schema/'s, which they import plainly; no import waits for a sentence.
+    loaded = imports_of(module=module, home=home)
+    assert {module, MODULE} <= loaded
+    assert sorted(name for name in loaded if name.startswith("claude_vm.cli")) == []
+
+
+def test_no_module_of_the_new_engine_imports_the_printer_inside_a_function() -> None:
+    late = []
+    for path in _new_modules():
+        for function in ast.walk(ast.parse(path.read_text())):
+            if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for node in ast.walk(function):
+                if isinstance(node, ast.Import) and any(alias.name == PRINTER_MODULE for alias in node.names):
+                    late.append((path.relative_to(REPO).as_posix(), node.lineno))
+                elif isinstance(node, ast.ImportFrom) and (
+                    (node.module or "").endswith("printer") or any(alias.name == "printer" for alias in node.names)
+                ):
+                    late.append((path.relative_to(REPO).as_posix(), node.lineno))
+    assert late == [], "import the printer at the top of the file"

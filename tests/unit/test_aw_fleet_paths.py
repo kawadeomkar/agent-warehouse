@@ -55,7 +55,7 @@ KEY_NAMED = re.compile(r"\bvault-key\b(?!-)")
 FLEET = "lib/claude_vm/fleet/"
 REMOVES = frozenset({"unlink", "remove", "rmtree", "rmdir"})
 # Each module outside fleet/ that reads key_file, with why. A card that writes one adds it here in the same commit
-# (E4's engine/init.py, G8's engine/controller_writes.py, K4's migration, and D5 where its reader is outside fleet/).
+# (E4's engine/init.py, G8's engine/controller_writes.py, and D5 where its reader is outside fleet/).
 READ_THE_KEY: dict[str, str] = {}
 
 

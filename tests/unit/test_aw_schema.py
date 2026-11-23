@@ -1,11 +1,12 @@
 """The command line's patterns have one home, and one function holds a value to one (lib/claude_vm/schema/patterns.py;
 docs/architecture/engine.md §16.2).
 
-Each pattern takes and refuses what today's tests give the same pattern of the justfile, case for case, and refuses
-each value it takes with a newline after it: `full` holds a value whole, never up to a newline. Until the cutover the
-justfile holds a person's values to its own copy of each pattern, so every pattern of a person's recipe is held equal,
-text for text, to the one here of its name, and the two homes cannot drift while both exist. The module imports the
-standard library alone.
+Each pattern takes and refuses the values given here, most of them what today's tests give the same pattern of the
+justfile, and refuses each value it takes with a newline after it: `full` holds a value whole, never up to a newline.
+Each has its form in words and its examples: every example is held by its pattern and a near miss of each, written
+here, is not; no words hold a pattern's own characters; and `form` says the words and the first example, or the words
+alone where the pattern shows none, never the pattern itself (the owner's ruling of 2026-11-22, review/code/OWNER-9.md
+2, in the plan's folder). The module imports the standard library alone.
 """
 
 from __future__ import annotations
@@ -13,74 +14,13 @@ from __future__ import annotations
 import re
 import sys
 
-import harness
 import pytest
 from aw_kit import imports_of
 
 from claude_vm.schema import patterns
-from claude_vm.schema.patterns import PATTERNS, full
+from claude_vm.schema.patterns import PATTERNS, form, full
 
 MODULE = "claude_vm.schema.patterns"
-
-# Each pattern of a person's recipe in the justfile, (recipe, parameter), and the name of the pattern here that holds
-# the same value. The developer's recipes (the group develop) keep theirs: they are the repository's, not aw's.
-TODAY = {
-    ("help", "RECIPE"): "verb",
-    ("init", "ADDRESS"): "address",
-    ("init", "ON"): "address",
-    ("init", "TOKEN_USER"): "token_user",
-    ("init", "TOKEN_ID"): "proxmox_id",
-    ("init", "TOKEN_SECRET_FILE"): "secret_file",
-    ("init", "GITHUB_USER"): "github_user",
-    ("init", "STORAGE"): "proxmox_id",
-    ("init", "BRIDGE"): "proxmox_id",
-    ("init", "TAILSCALE"): "on_off",
-    ("init", "CERTIFICATE"): "fingerprint",
-    ("vault", "ON"): "host_name",
-    ("deploy", "NAMES"): "vm_name",
-    ("deploy", "ON"): "host_name",
-    ("deploy", "STAGE"): "stage",
-    ("deploy", "ROLES"): "roles",
-    ("deploy", "CORES"): "cores",
-    ("deploy", "MEMORY"): "memory",
-    ("deploy", "DISK"): "disk",
-    ("deploy", "REPOS"): "repos",
-    ("code", "NAME"): "vm_name",
-    ("code", "ON"): "host_name",
-    ("code", "PROJECT"): "project",
-    ("code", "IDE"): "editor",
-    ("code", "SESSION"): "session",
-    ("login", "NAMES"): "vm_name",
-    ("login", "ON"): "host_name",
-    ("login", "SIGN_IN"): "sign_in",
-    ("status", "NAMES"): "vm_name",
-    ("status", "ON"): "host_name",
-    ("status", "ONLY"): "sections",
-    ("settings", "NAME"): "setting_name",
-    ("settings", "VALUE"): "text",
-    ("settings", "ON"): "host_name",
-    ("destroy", "NAMES"): "vm_name",
-    ("destroy", "ON"): "host_name",
-    ("destroy", "CONFIRM"): "vm_names",
-    ("host", "NAME"): "current_host",
-    ("host", "ON"): "host_name",
-    ("host", "VMS"): "vm_names",
-    ("mcp", "EXTRA"): "text",
-    ("mcp", "SCREEN"): "attended",
-    ("mcp", "BROWSER"): "text",
-    ("mcp", "PROJECT_DIR"): "path",
-    ("mcp", "VAULT_PASSWORD_FILE"): "path",
-}
-# A pattern no recipe of the justfile has, and where it is from.
-NEW = {
-    "job_id": "a job's ID, which logs and cancel take: sixteen hex digits, as lib/claude_vm/mcp/jobs.py's find",
-    "assignment": "--set name=value, a setting's value for one run, on the verbs that read the settings",
-    "secret_name": "vault's word: one of the vault's named secrets, a lowercase name as the settings' are",
-    "ssh_fingerprint": "deploy --remove-key: one SSH key's SHA256 fingerprint, as ssh-keygen -l prints it",
-    "release": "install --version: a release, as its signed tag names it (v3.0.0, v3.0.0-rc.1), with or without the v",
-    "dependency_group": "install --without: the optional part of the installed program it goes without, mcp",
-}
-DEVELOP = {"lint", "test", "docs", "vagrant", "clean"}
 
 SESSION_ID = "0a608ad8-1b2c-4d3e-8f90-123456789abc"
 FINGERPRINT = ":".join(["AB"] * 32)
@@ -324,37 +264,9 @@ REFUSED = [
 ]
 
 
-def _of_a_person_s_recipes() -> dict[tuple[str, str], list[str]]:
-    """Each pattern of a recipe of the justfile a person runs, by (recipe, parameter), as just reads it."""
-    return {
-        (name, parameter["name"]): parameter["pattern"]
-        for name, recipe in harness.public_recipes().items()
-        if {"group": "develop"} not in recipe["attributes"]
-        for parameter in recipe["parameters"]
-        if parameter["pattern"] is not None
-    }
-
-
-def test_every_pattern_of_a_person_s_recipe_is_here_by_its_name_with_the_same_text() -> None:
-    develop = {
-        name for name, recipe in harness.public_recipes().items() if {"group": "develop"} in recipe["attributes"]
-    }
-    assert develop == DEVELOP
-    today = _of_a_person_s_recipes()
-    assert set(today) == set(TODAY), "a recipe's pattern was added or taken away: name it in TODAY and PATTERNS"
-    differ = {
-        key: (pattern, PATTERNS[TODAY[key]]) for key, pattern in today.items() if pattern != [PATTERNS[TODAY[key]]]
-    }
-    assert differ == {}, "the justfile and schema/patterns.py hold one value to two patterns: (justfile, here)"
-
-
-def test_every_pattern_here_is_one_of_today_s_or_says_where_it_is_from() -> None:
-    assert set(PATTERNS) == set(TODAY.values()) | set(NEW) and not set(NEW) & set(TODAY.values())
-
-
 @pytest.mark.parametrize("name", sorted(PATTERNS))
 def test_a_pattern_is_its_inner_text_with_no_anchor(name: str) -> None:
-    text = PATTERNS[name]
+    text = PATTERNS[name].text
     assert not text.startswith(("^", r"\A")) and not text.endswith(("$", r"\Z")), text
     re.compile(text)
 
@@ -401,3 +313,106 @@ def test_the_patterns_import_nothing_outside_the_standard_library(home) -> None:
     assert MODULE in added, sorted(added)
     tops = {name.split(".")[0] for name in added}
     assert sorted(tops - set(sys.stdlib_module_names) - {"claude_vm"}) == []
+
+
+# ---------------------------------------------------------------- what a value may be, in words ----
+
+# The examples patterns.py gives the two fingerprints, which no form shows: written here as there.
+EXAMPLE_FINGERPRINT = ":".join(["AB", "CD", "EF", "01", "23", "45", "67", "89"] * 4)
+EXAMPLE_SSH_FINGERPRINT = "SHA256:" + "Ab0+" * 10 + "xyz"
+# A near miss of each example of each pattern, by the example: one character or one part away, and refused. Written
+# here by hand, so that an example the pattern does not hold, or a pattern loosened past its words, fails.
+NEAR_MISSES: dict[str, dict[str, str]] = {
+    "vm_name": {"alpha": "-alpha", "dev-2.lab": "dev 2.lab"},
+    "vm_names": {"alpha,beta": "alpha;beta", "alpha": "_alpha"},
+    "host_name": {"lab2": "Lab2"},
+    "current_host": {"lab2": "lab_2"},
+    "cores": {"8": "08"},
+    "memory": {"16G": "16GB", "2048": "2048.5"},
+    "disk": {"128G": "128", "1T": "1TB"},
+    "repos": {"my-app,my-lib": "my-app,-my-lib"},
+    "roles": {"claude_code,dev_tools": "claude_code,dev-tools"},
+    "stage": {"configure": "config", "ssh-config": "ssh_config"},
+    "sign_in": {"github": "gh"},
+    "sections": {"vms,work": "vms, work", "sign-ins": "signins"},
+    "project": {"my-app": "my/app"},
+    "session": {"0a608ad8-1b2c-4d3e-8f90-123456789abc": "0A608AD8-1B2C-4D3E-8F90-123456789ABC"},
+    "setting_name": {"vm_cores": "vm-cores"},
+    "job_id": {"3f9a0c1e7b2d4a58": "3f9a0c1e7b2d4a5"},
+    "editor": {"zed": "Zed"},
+    "verb": {"deploy": "Deploy"},
+    "text": {"two words": "two\nlines"},
+    "path": {"~/projects/app": "projects/app", "/srv/aw": "srv/aw"},
+    "attended": {"1": "yes"},
+    "address": {"pve.example": "https://pve.example", "192.0.2.10": "192.0.2.10/24"},
+    "proxmox_id": {"local-lvm": "local lvm"},
+    "token_user": {"ansible@pve": "ansible@pve!ansible"},
+    "github_user": {"octocat": "octo_cat"},
+    "secret_file": {"~/secrets/token": "~/my secrets/token"},
+    "on_off": {"on": "yes"},
+    "fingerprint": {EXAMPLE_FINGERPRINT: EXAMPLE_FINGERPRINT[:-3]},
+    "assignment": {"vm_cores=8": "vm-cores=8"},
+    "secret_name": {"github_token": "github-token"},
+    "ssh_fingerprint": {EXAMPLE_SSH_FINGERPRINT: EXAMPLE_SSH_FINGERPRINT[:-1]},
+    "release": {"v3.0.0": "v3.0", "3.0.0-rc.1": "3.0.0-RC.1"},
+    "dependency_group": {"mcp": "dev"},
+}
+# What a pattern is written with, which no words may hold: a person reads the words, never a regular expression.
+PATTERN_CHARACTERS = "[]{}\\|?*^$"
+# What help and a refusal say for the owner's five rows of "Before and after" (OWNER-9.md 2), as worded here.
+BEFORE_AND_AFTER = {
+    "cores": "[a whole number from 1 to 999, e.g. 8]",
+    "memory": "[a whole number of MiB, or a whole number with M or G after it, e.g. 16G]",
+    "fingerprint": "[a SHA-256 fingerprint as openssl prints it: 32 pairs of hex digits joined by colons]",
+    "stage": "[one of template, provision, configure, ssh-config]",
+    "assignment": "[a setting's name, then = and its value for this run, e.g. vm_cores=8]",
+}
+
+
+def test_every_pattern_has_its_words_and_its_examples() -> None:
+    lacking = [
+        name
+        for name, pattern in PATTERNS.items()
+        if not isinstance(pattern.words, str)
+        or not pattern.words.strip()
+        or not isinstance(pattern.examples, tuple)
+        or not pattern.examples
+        or not all(isinstance(example, str) and example for example in pattern.examples)
+        or type(pattern.shown) is not bool
+    ]
+    assert lacking == []
+
+
+@pytest.mark.parametrize("name", sorted(PATTERNS))
+def test_each_example_is_held_by_its_pattern_and_a_near_miss_of_each_is_not(name: str) -> None:
+    assert set(NEAR_MISSES) == set(PATTERNS)
+    examples = PATTERNS[name].examples
+    assert tuple(NEAR_MISSES[name]) == examples, "a near miss for each example, in its order"
+    assert [example for example in examples if not full(name, example)] == []
+    assert [near for near in NEAR_MISSES[name].values() if full(name, near)] == []
+
+
+@pytest.mark.parametrize("name", sorted(PATTERNS))
+def test_no_words_hold_a_pattern_s_own_characters(name: str) -> None:
+    words = PATTERNS[name].words
+    assert [character for character in PATTERN_CHARACTERS if character in words] == [], words
+    # The words are a clause the form ends with its example: no full stop, and no example of their own.
+    assert not words.endswith(".") and "e.g." not in words and words == words.strip(), words
+
+
+@pytest.mark.parametrize("name", sorted(PATTERNS))
+def test_the_form_is_the_words_and_the_first_example_or_the_words_alone(name: str) -> None:
+    pattern = PATTERNS[name]
+    said = form(name)
+    assert said == (f"[{pattern.words}, e.g. {pattern.examples[0]}]" if pattern.shown else f"[{pattern.words}]")
+    assert pattern.text not in said and "pattern" not in said, said
+    assert "\n" not in said
+
+
+def test_the_owner_s_before_and_after_reads_as_written() -> None:
+    assert {name: form(name) for name in BEFORE_AND_AFTER} == BEFORE_AND_AFTER
+
+
+def test_form_with_a_name_it_does_not_have_raises() -> None:
+    with pytest.raises(KeyError):
+        form("vm_nmae")

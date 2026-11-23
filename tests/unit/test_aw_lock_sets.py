@@ -27,10 +27,10 @@ from harness import REPO
 from test_aw_locks import LIB, Run, _named, runs_started
 
 from claude_vm import runs, store
-from claude_vm.cli import before, habits, inverse, parse
+from claude_vm.cli import before, habits, parse
 from claude_vm.fleet import paths
 from claude_vm.runs import lock_sets, locks
-from claude_vm.schema import words
+from claude_vm.schema import printer, words
 from claude_vm.schema.words import BEFORE, VERBS
 
 # Each verb's kind, where its column gives it whatever its words.
@@ -103,7 +103,7 @@ def start(home: Path, state: Path, tmp_path: Path) -> Iterator[Callable[..., Run
 def _under_way(who: str) -> str:
     return (
         f"error: runs on machines of this fleet are under way, and {who} needs the whole fleet:"
-        f" `{inverse.line('logs', {})}` lists them"
+        f" `{printer.line('logs', {}, refused=False)}` lists them"
     )
 
 
@@ -210,7 +210,7 @@ def test_vault_rotate_and_host_name_are_refused_through_exclusive_while_a_run_ho
         verb, values = typed[0], _handed(typed)
         # No run: its own handler holds the fleet's lock for its one write, and makes no job.
         assert lock_sets.locks_for(verb, values) == lock_sets.FLEET and not VERBS[verb].changes
-        command = inverse.line(verb, values)
+        command = printer.line(verb, values, refused=False)
         with pytest.raises(locks.Held) as refused, locks.exclusive(state, command):
             pytest.fail(f"{command} took the fleet for its write beside a run")
         assert refused.value.sentence == _under_way(f"`{command}`")
