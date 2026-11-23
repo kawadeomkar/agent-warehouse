@@ -1,6 +1,7 @@
-"""What configure needs of a VM's base, checked first and by name (playbooks/configure.yml), and the checks of a base
-before it is built on (docs/architecture/lifecycle.md §4.1). The script runs here against a folder standing in for the
-VM, its paths pointed there."""
+"""What configure needs of a VM's base, checked first and by name (playbooks/configure.yml, and the new engine's system
+play, playbooks/system.yml, which runs the same check), and the checks of a base before it is built on
+(docs/architecture/lifecycle.md §4.1). The script runs here against a folder standing in for the VM, its paths pointed
+there."""
 
 from __future__ import annotations
 
@@ -20,8 +21,8 @@ UBUNTU = "ID=ubuntu\nID_LIKE=debian\n"
 EVERYTHING = ("apt-get", "systemctl", "cloud-init")
 
 
-def _script(cloud_init: bool) -> str:
-    plays = yaml.safe_load((REPO / "playbooks" / "configure.yml").read_text())
+def _script(cloud_init: bool, playbook: str = "configure.yml") -> str:
+    plays = yaml.safe_load((REPO / "playbooks" / playbook).read_text())
     (task,) = [t for play in plays for t in play.get("pre_tasks", []) if t.get("name") == "Read what the VM's base has"]
     return re.sub(r"\{\{.*?\}\}", " cloud-init" if cloud_init else "", task["ansible.builtin.raw"])
 
@@ -37,9 +38,11 @@ def _read(
     bits: str = "64",
     flags: str = "fpu sse2 avx avx2",
     marks: tuple[str, ...] = (),
+    playbook: str = "configure.yml",
 ) -> list[str]:
     """What the script prints of a stand-in VM holding files and commands, of the machine arch (None: uname names
-    none), with a userland of bits, a CPU of flags, and marks: musl's loader, ostree's or NixOS's mark."""
+    none), with a userland of bits, a CPU of flags, and marks: musl's loader, ostree's or NixOS's mark; the script as
+    playbook has it."""
     root = tmp_path / "vm"
     bin_dir = root / "bin"
     bin_dir.mkdir(parents=True)
@@ -62,7 +65,7 @@ def _read(
             mark
         ].write_text("")
     script = (
-        _script(cloud_init)
+        _script(cloud_init, playbook)
         .replace("/usr/bin/python3", str(root / "python3"))
         .replace("/usr/bin/sudo", str(root / "sudo"))
         .replace("/etc/os-release", str(root / "os-release"))
@@ -148,6 +151,29 @@ def test_a_machine_configure_can_never_run_on_is_refused_by_name(tmp_path, machi
 
 def test_cloud_init_is_not_asked_for_where_it_is_not_waited_for(tmp_path):
     assert _missing(tmp_path, commands=("apt-get", "systemctl"), cloud_init=False) == ""
+
+
+@pytest.mark.parametrize(
+    "machine",
+    [
+        {},
+        {"files": ("sudo",)},
+        {"commands": ("apt-get", "systemctl")},
+        {"release": 'ID=fedora\nID_LIKE="rhel"\n'},
+        {"arch": "armv7l"},
+        {"arch": "aarch64", "bits": "32", "flags": ""},
+        {"flags": "fpu sse2 sse4_2"},
+        {"marks": ("musl", "ostree")},
+        {"commands": ("apt-get", "systemctl"), "cloud_init": False},
+    ],
+)
+def test_the_system_play_checks_a_base_as_configure_does(tmp_path, machine):
+    # The new engine's system play runs the same check, copied as it stands: it says of every base what configure says,
+    # each stand-in's own folder apart.
+    said = [line.replace(str(tmp_path / "configure"), "<vm>") for line in _read(tmp_path / "configure", **machine)]
+    system = _read(tmp_path / "system", playbook="system.yml", **machine)
+    assert [line.replace(str(tmp_path / "system"), "<vm>") for line in system] == said
+    assert any(line.startswith("base-missing:") for line in said)
 
 
 @pytest.mark.parametrize(

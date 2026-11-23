@@ -193,7 +193,7 @@ configure_roles := 'common vscode_server dev_tools claude_code github_projects t
 scenario_roles := configure_roles + ' proxmox_template proxmox_vm'
 # Every Molecule scenario, the longest first, as test --jobs starts them, so that the short ones fill in beside it:
 # their order of time on CI's runners (2026-11). test_justfile.py holds it to the scenarios.
-molecule_order := 'provision configure image tailscale claude_code proxmox_vm common dev_tools vscode_server github_projects proxmox_template'
+molecule_order := 'provision configure image system tailscale claude_code proxmox_vm common dev_tools vscode_server github_projects proxmox_template'
 # Hooks lint already runs itself, so its hooks part skips them, the
 # production-profile ansible-lint and ruff never running a second time
 # (ruff-format even rewriting files). gitleaks is in it because its hook scans
@@ -1186,7 +1186,7 @@ lint ALL_HOOKS='' *PARTS:
 [arg('JOBS', long='jobs', pattern='[1-9]?', help="Run the Molecule scenarios this many at a time, the longest first, each one's whole output in a log of its own and a line as each ends; one at a time without it, as their images share one disk (just test molecule --jobs 4)")]
 [arg('ROLES', long='role', pattern='[a-z_,]*', help="Only these roles' scenarios, comma-separated: on its own it means the role part (just test --role common,claude_code)")]
 [arg('SHARD', long='shard', pattern='([1-9][0-9]*/[1-9][0-9]*)?', help='Only the I-th of N shards of the unit tests, each group of tests whole, as CI splits them: on its own it means the unit part (just test unit --shard 2/3)')]
-[arg('PARTS', pattern='unit|engine|molecule|role|integration|provision', help="unit (pytest over tests/unit/, a worker per CPU, no network), engine (only the new engine's tests, tests/unit/test_aw_*.py, which unit runs too: seconds, no Docker), molecule (every Molecule scenario: role, integration, provision), role (the roles' own scenarios), integration (the full configure playbook against a Docker container), provision (provision.yml and discover.yml against a fake Proxmox API)")]
+[arg('PARTS', pattern='unit|engine|molecule|role|integration|provision|system', help="unit (pytest over tests/unit/, a worker per CPU, no network), engine (only the new engine's tests, tests/unit/test_aw_*.py, which unit runs too: seconds, no Docker), molecule (every Molecule scenario: role, integration, provision, system), role (the roles' own scenarios), integration (the full configure playbook against a Docker container), provision (provision.yml and discover.yml against a fake Proxmox API), system (the new engine's system play, playbooks/system.yml, converged in a Docker container by its layer-1 child)")]
 [doc('Lint, then every test: unit and Molecule (the local quality gate)')]
 [group('develop')]
 [no-exit-message]
@@ -1223,13 +1223,13 @@ test ROLES='' SHARD='' JOBS='' SHORT='' *PARTS:
       done
       set -- role
     fi
-    if [ "$#" -eq 0 ]; then name=test lint=yes; set -- unit role integration provision; else name="test-$(IFS=-; printf %s "$*")" lint=; fi
+    if [ "$#" -eq 0 ]; then name=test lint=yes; set -- unit role integration provision system; else name="test-$(IFS=-; printf %s "$*")" lint=; fi
     # The short set lints first, as the gate does.
     [ -z "$short" ] || lint=yes
     parts=" $* "
-    case "$parts" in *" molecule "*) parts="$parts role integration provision " ;; esac
+    case "$parts" in *" molecule "*) parts="$parts role integration provision system " ;; esac
     runs() { case "$parts" in *" $1 "*) ;; *) return 1 ;; esac; }
-    if [ -n "$jobs" ] && ! runs role && ! runs integration && ! runs provision; then
+    if [ -n "$jobs" ] && ! runs role && ! runs integration && ! runs provision && ! runs system; then
       echo "error: --jobs runs Molecule scenarios side by side, and unit has none: just test molecule --jobs $jobs" >&2
       exit 1
     fi
@@ -1246,6 +1246,7 @@ test ROLES='' SHARD='' JOBS='' SHORT='' *PARTS:
         case "$scenario" in
         configure | image) part=integration ;;
         provision) part=provision ;;
+        system) part=system ;;
         *) part=role; case " $chosen " in *" $scenario "*) ;; *) continue ;; esac ;;
         esac
         if runs "$part"; then lanes="$lanes $scenario"; fi
@@ -1266,7 +1267,7 @@ test ROLES='' SHARD='' JOBS='' SHORT='' *PARTS:
     if [ -z {{ quote(live_run) }} ]; then
       stages=
       [ -z "$lint" ] || stages=lint
-      for part in unit engine short role integration provision; do
+      for part in unit engine short role integration provision system; do
         if runs "$part" && { [ -z "$lanes" ] || [ "$part" = unit ] || [ "$part" = engine ]; }; then stages="$stages $part"; fi
       done
       [ -z "$lanes" ] || stages="$stages molecule"
@@ -1315,6 +1316,9 @@ test ROLES='' SHARD='' JOBS='' SHORT='' *PARTS:
     fi
     if runs provision; then
       part provision --step provision --read molecule -- env PATH="$absbin:$PATH" "$absbin/molecule" test -s provision
+    fi
+    if runs system; then
+      part system --step system --read molecule -- env PATH="$absbin:$PATH" "$absbin/molecule" test -s system
     fi
 
 # The wiki in docs/ (docs/development/docs.md). Its reference pages are

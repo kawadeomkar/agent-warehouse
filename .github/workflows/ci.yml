@@ -302,6 +302,9 @@ jobs:
           - name: provision playbook, just code
             type: provision
             verify: verify_code.yml
+          # The new engine's system play, converged in a container by its layer-1 child.
+          - name: system play
+            type: system
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

@@ -106,6 +106,21 @@ def test_every_scenario_runs_the_one_image_pinned_by_digest():
     assert IMAGE.fullmatch(image), image
 
 
+def test_every_molecule_scenario_the_justfile_orders_is_a_job_of_ci_s():
+    # The justfile's molecule_order names every scenario (test_justfile.py holds that), and CI runs each: a role's in
+    # the molecule job's matrix, by --role, and the playbook scenarios in the playbooks job's, by the part of just test
+    # that runs each - the configure and image scenarios integration's, the new engine's system play its own.
+    order = re.search(r"^molecule_order := '([^']*)'$", (REPO / "justfile").read_text(), re.M)[1].split()
+    roles = JOBS["molecule"]["strategy"]["matrix"]["role"]
+    runs = [step["run"] for step in JOBS["molecule"]["steps"] if "run" in step]
+    assert runs == ["just test --role ${{ matrix.role }}"]
+    parts = {"configure": "integration", "image": "integration", "provision": "provision", "system": "system"}
+    assert sorted(order) == sorted([*roles, *parts])
+    assert {entry["type"] for entry in JOBS["playbooks"]["strategy"]["matrix"]["include"]} == set(parts.values())
+    runs = [step["run"] for step in JOBS["playbooks"]["steps"] if "run" in step]
+    assert runs == ["just test ${{ matrix.type }}"]
+
+
 def test_the_debian_job_runs_the_vpn_and_editor_roles_on_debian_pinned_by_digest():
     debian = JOBS["debian"]
     assert re.fullmatch(r"geerlingguy/docker-debian12-ansible@sha256:[0-9a-f]{64}", debian["env"]["MOLECULE_IMAGE"])

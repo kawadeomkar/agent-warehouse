@@ -1,0 +1,6 @@
+---
+# What every playbook scenario's guards hold it to (tests/unit/test_ssh_config.py, test_github_auth.py). This one writes
+# no SSH alias and starts no sign-in, and the layer-1 child that converges the container reads none of these: its
+# inventory is the one the engine writes for it.
+claude_ssh_config: false
+login_desktop: false
