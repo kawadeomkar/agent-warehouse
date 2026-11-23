@@ -87,7 +87,8 @@ class Row:
             raise ValueError(f"{self.name} has a description")
 
 
-# The closed list, in the order a person reads it.
+# The closed list, in the order a person reads it. Each is a secret the program is built to read: one a person could set
+# and nothing read would be a promise the program does not keep, so a name comes into the list with what reads it.
 ROWS: tuple[Row, ...] = (
     Row(
         "token",
@@ -131,13 +132,6 @@ ROWS: tuple[Row, ...] = (
         "A Tailscale auth key, so each new VM joins your tailnet with nothing to click: reusable or one-off, "
         "pre-approved and tagged, never ephemeral. Used only for a VM's first join. Unset, each VM signs in by "
         "Tailscale's web login.",
-    ),
-    Row(
-        "claude_setup_token",
-        "global",
-        "word",
-        "A long-lived token of your Claude account, as claude setup-token prints it, which signs Claude Code in on "
-        "each VM with nothing to click.",
     ),
     Row(
         "tailscale_api_token",

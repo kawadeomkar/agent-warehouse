@@ -2,18 +2,22 @@
 docs/architecture/engine.md §16.9).
 
 The key is made once, `O_EXCL` at 0600, at paths.key_file by default, and never written over. A run finds it in one
-order: AGENT_WAREHOUSE_VAULT_KEY_FILE, the one override, which names a file read and never run whatever its mode; then
-vault_key_command, whose running is not built yet and refuses; then the file vault_key_file names, "" the default. A
-place that exists and fails is a refusal and the next is never tried; with no place, the first sentence says what
-would open the vault, by vault_key_file and never the variable; a place that answers with what does not open the vault
-is the third. With no vault yet a key comes only from the key file: the variable's file and a command are refused there
-in one sentence, nothing read or run, and the key file left as it is. ANSIBLE_VAULT_PASSWORD_FILE is never read. A
-key file named in the fleet's folder, the state folder or the installed program's config folder is refused by name. A
-vault made by sealed.py under a key made here opens in a child with no terminal and standard input from /dev/null.
+order: AGENT_WAREHOUSE_VAULT_KEY_FILE, the one override, which names a file read and never run, even where it may be
+run; then vault_key_command, whose running is not built yet and refuses; then the file vault_key_file names, "" the
+default. A key file that the group or others may read is refused, whichever place it is, as ssh refuses such a key,
+before anything of it is read, in one sentence that says chmod 600 <file>. A place that exists and fails is a refusal
+and the next is never tried; with no place, the first sentence says what would open the vault, by vault_key_file and
+never the variable; a place that answers with what does not open the vault is the third. With no vault yet a key
+comes only from the key file: the variable's file and a command are refused there in one sentence, nothing read or
+run, and the key file left as it is. ANSIBLE_VAULT_PASSWORD_FILE is never read. A key file named in the fleet's
+folder, the state folder or the installed program's config folder is refused by name. A vault made by sealed.py under a
+key made here opens in a child with no terminal and standard input from /dev/null.
 
 The invariant with its own test: only vaultkey.py names the variable, and only paths.py and vaultkey.py the key file's
 name, so a run reads the key only through vaultkey.open; and no sentence holds the key or anything a file held: every
-key and fake secret a case uses is looked for in its refusals and in everything it and its children printed.
+key and fake secret a case uses is looked for in its refusals and in everything it and its children printed. The public
+half of every key a case makes, as good as the key for writing a vault, is looked for there too, and in every file under
+the case's own directory, its home among them.
 """
 
 from __future__ import annotations
@@ -33,7 +37,7 @@ from harness import REPO
 from pyrage import x25519
 
 from claude_vm.fleet import paths, record, sealed, vaultkey
-from claude_vm.schema.printer import said
+from claude_vm.schema.printer import quoted, said
 from claude_vm.schema.words import PLACEHOLDER, Line
 from claude_vm.secret import Secret
 
@@ -49,19 +53,44 @@ FAKES = (WORD, NOT_A_KEY, COMMAND_WORD)
 NEW = ("schema", "cli", "engine", "pve", "ssh", "vendors", "runs", "fleet", "guest", "control")
 
 
+def _public(key: Secret) -> str:
+    """key's public half as age writes one, age1...: what a vault is sealed to, never written or said."""
+    return str(x25519.Identity.from_str(key.reveal()).to_public())
+
+
+def _publics_nowhere(root: Path, used: list[str]) -> None:
+    """No file under root holds the public half of a key a case made. The key itself is in its key file by design."""
+    publics = [value for value in used if value.startswith("age1")]
+    for folder, _dirs, names in os.walk(root):
+        for name in names:
+            found = Path(folder) / name
+            if found.is_symlink() or not found.is_file():
+                continue
+            if not os.access(found, os.R_OK):
+                found.chmod(0o600)
+            data = found.read_bytes()
+            assert not [value for value in publics if value.encode() in data], f"{found} holds a key's public half"
+
+
 @pytest.fixture(autouse=True)
-def seen(capfd) -> Iterator[list[str]]:
-    """Every key and fake secret a case uses: none in anything it or its children printed, once it ends."""
+def seen(tmp_path: Path, capfd) -> Iterator[list[str]]:
+    """Every key, its public half and every fake secret a case uses: none in anything it or its children printed, and no
+    public half in a file under its own directory, once it ends."""
     used = list(FAKES)
     yield used
+    _publics_nowhere(tmp_path, used)
     out, err = capfd.readouterr()
     assert not [value for value in used if value in out or value in err], "a secret was printed"
 
 
+def _saw(seen: list[str], key: Secret) -> Secret:
+    """key, and its public half, among what nothing may say: key as given back."""
+    seen.extend((key.reveal(), _public(key)))
+    return key
+
+
 def _key(seen: list[str]) -> Secret:
-    made = str(x25519.Identity.generate())
-    seen.append(made)
-    return Secret(made)
+    return _saw(seen, Secret(str(x25519.Identity.generate())))
 
 
 def _refused(error: pytest.ExceptionInfo, seen: list[str]) -> str:
@@ -105,7 +134,7 @@ def fleet(home: Path) -> paths.Home:
 def made(fleet: paths.Home, seen: list[str]) -> Secret:
     """The home's own key file made here, and the fleet's vault sealed to it, with one secret in it."""
     key = vaultkey.make_key(paths.key_file(fleet))
-    seen.append(key.reveal())
+    _saw(seen, key)
     sealed.create(fleet, key)
     sealed.put(fleet, key, "github_token", Secret(WORD))
     return key
@@ -119,7 +148,7 @@ def test_a_key_is_made_once_at_the_home_s_key_file_and_never_over_one(home: Path
     path = paths.key_file(where)
     assert path == home / "vault-key"
     key = vaultkey.make_key(path)
-    seen.append(key.reveal())
+    _saw(seen, key)
     assert isinstance(key, Secret) and repr(key) == "Secret('********')"
     assert path.read_text() == key.reveal() + "\n"
     assert x25519.Identity.from_str(key.reveal())
@@ -133,7 +162,7 @@ def test_a_key_is_made_once_at_the_home_s_key_file_and_never_over_one(home: Path
     assert path.read_bytes() == before
     # Two keys made are two keys.
     other = vaultkey.make_key(home / "other-key")
-    seen.append(other.reveal())
+    _saw(seen, other)
     assert other.reveal() != key.reveal()
 
 
@@ -144,7 +173,7 @@ def test_a_key_s_folder_is_made_at_0700_and_its_file_at_0600_whatever_the_umask(
         key = vaultkey.make_key(path)
     finally:
         os.umask(was)
-    seen.append(key.reveal())
+    _saw(seen, key)
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert [stat.S_IMODE((tmp_path / name).stat().st_mode) for name in ("keys", "keys/deeper")] == [0o700, 0o700]
 
@@ -163,7 +192,7 @@ def test_a_key_is_never_written_through_a_link_and_a_folder_there_is_taken_as_it
     (tmp_path / "volume").mkdir()
     (tmp_path / "keys").symlink_to(tmp_path / "volume")
     key = vaultkey.make_key(tmp_path / "keys" / "vault-key")
-    seen.append(key.reveal())
+    _saw(seen, key)
     assert (tmp_path / "volume" / "vault-key").read_text() == key.reveal() + "\n"
 
 
@@ -298,6 +327,7 @@ def test_a_place_that_answers_with_no_key_is_the_third_sentence_never_saying_wha
     for case, text in holding.items():
         path = tmp_path / "holding"
         path.write_bytes(text.encode("utf-8", errors="surrogateescape"))
+        path.chmod(0o600)
         with pytest.raises(vaultkey.WrongKey) as refused:
             _open(fleet, home, "", **{VARIABLE: str(path)})
         assert _refused(refused, seen) == (
@@ -313,15 +343,102 @@ def test_the_key_s_line_may_end_in_white_space_of_either_system(home: Path, tmp_
 
 
 def test_a_file_the_variable_names_is_read_and_never_run(home: Path, tmp_path: Path, fleet, made, seen) -> None:
-    # Whatever its mode: a file that would leave a mark if it were run holds no key, and leaves none; a key in a file
-    # that may be run is read as the key.
+    # Even where it may be run: a file that would leave a mark if it were run holds no key, and leaves none; a key in a
+    # file that may be run is read as the key. Each is the person's alone (0700); one that others may read as well
+    # (0755) is refused for that before anything of it is read, and is never run either.
     mark = tmp_path / "ran"
-    script = _put(tmp_path / "a-script", f"#!/bin/sh\n: > {mark}\necho {made.reveal()}\n", mode=0o755)
+    script = _put(tmp_path / "a-script", f"#!/bin/sh\n: > {mark}\necho {made.reveal()}\n", mode=0o700)
     with pytest.raises(vaultkey.WrongKey, match="holds no age key"):
         _open(fleet, home, "", **{VARIABLE: str(script)})
     assert not mark.exists()
-    runnable = _put(tmp_path / "runnable-key", made.reveal() + "\n", mode=0o755)
+    runnable = _put(tmp_path / "runnable-key", made.reveal() + "\n", mode=0o700)
     assert _open(fleet, home, "", **{VARIABLE: str(runnable)}).reveal() == made.reveal()
+    for each in (script, runnable):
+        each.chmod(0o755)
+        with pytest.raises(vaultkey.Failed, match=r"can be read by other accounts \(its mode is 0755\)"):
+            _open(fleet, home, "", **{VARIABLE: str(each)})
+    assert not mark.exists()
+
+
+def _open_to_others(found: str, path: Path, mode: int) -> str:
+    """The sentence for a key file the group or others may read: found as the sentence names the place."""
+    return (
+        f"error: {found} can be read by other accounts (its mode is {mode:04o}), and the vault's key is read only"
+        f" from a file you alone can read, as ssh reads a private key: chmod 600 {quoted(str(path))}; nothing else is"
+        " tried"
+    )
+
+
+def test_a_key_file_other_accounts_can_read_is_refused_before_anything_of_it_is_read(
+    home: Path, tmp_path: Path, fleet, made, monkeypatch, seen
+) -> None:
+    # The owner's answer of 2026-11-23 to review 23 (D8.md 2): the key that opens every secret is taken only from a file
+    # this account alone can read, as ssh takes a private key, whichever place names it. Each file below holds the key
+    # that opens the vault, so the refusal is the mode's alone; nothing of the file is read, and it is left as it is.
+    given = _put(tmp_path / "given-key", made.reveal() + "\n")
+    named = _put(tmp_path / "a folder of mine" / "named key", made.reveal() + "\n")
+    places = {
+        "the variable's file": (f"{given}, the file {VARIABLE} names", given, "", {VARIABLE: str(given)}),
+        "vault_key_file's file": (f"{named}, the file vault_key_file names", named, str(named), {}),
+        "the home's own key file": (f"the key file {paths.key_file(fleet)}", paths.key_file(fleet), "", {}),
+    }
+    real, reads = os.read, []
+
+    def recorded(handle: int, most: int) -> bytes:
+        reads.append(handle)
+        return real(handle, most)
+
+    for case, (found, path, key_file, more) in places.items():
+        before = path.read_bytes()
+        for mode in (0o640, 0o604, 0o644):
+            path.chmod(mode)
+            reads.clear()
+            with monkeypatch.context() as patched:
+                patched.setattr(os, "read", recorded)
+                with pytest.raises(vaultkey.Failed) as refused:
+                    _open(fleet, home, key_file, **more)
+            assert _refused(refused, seen) == _open_to_others(found, path, mode), case
+            assert reads == [], f"{case} at {mode:04o} was read"
+            assert path.read_bytes() == before and stat.S_IMODE(path.stat().st_mode) == mode, case
+        # The person's alone, to read and write or to read alone: taken.
+        for mode in (0o600, 0o400):
+            path.chmod(mode)
+            assert _open(fleet, home, key_file, **more).reveal() == made.reveal(), (case, mode)
+    # A path a shell would split is said as one word, as chmod is to be given it.
+    assert "chmod 600 '" in _open_to_others("x", named, 0o644)
+
+
+def test_every_mode_that_lets_the_group_or_others_read_a_key_file_is_refused(
+    home: Path, tmp_path: Path, fleet, made, seen
+) -> None:
+    # Every one of the 64 modes the group's and others' bits make, beside the person's own read and write: refused
+    # where either may read, and taken where neither may, the bits to write or run aside.
+    given = _put(tmp_path / "given-key", made.reveal() + "\n")
+    refused, taken = [], []
+    for others in range(0o100):
+        mode = 0o600 | others
+        given.chmod(mode)
+        try:
+            assert _open(fleet, home, "", **{VARIABLE: str(given)}).reveal() == made.reveal()
+        except vaultkey.Failed as error:
+            assert str(error) == _open_to_others(f"{given}, the file {VARIABLE} names", given, mode)
+            refused.append(mode)
+        else:
+            taken.append(mode)
+    assert refused == [0o600 | others for others in range(0o100) if others & 0o044]
+    assert len(refused) == 48 and len(taken) == 16 and 0o600 in taken and 0o644 in refused
+
+
+def test_the_key_file_made_here_is_taken_whatever_the_umask(home: Path, fleet, seen) -> None:
+    # make_key makes its file the person's alone, so the rule never refuses the key init makes, under a umask that would
+    # have made any other file readable by all.
+    was = os.umask(0)
+    try:
+        key = _saw(seen, vaultkey.make_key(paths.key_file(fleet)))
+    finally:
+        os.umask(was)
+    assert stat.S_IMODE(paths.key_file(fleet).stat().st_mode) == 0o600
+    assert _open(fleet, home).reveal() == key.reveal()
 
 
 def test_ansible_s_vault_password_file_is_never_read_and_is_no_refusal(
@@ -382,12 +499,12 @@ def test_a_key_that_opens_with_no_vault_yet_is_given_back_once_it_is_an_age_key(
     home: Path, tmp_path: Path, fleet, seen
 ) -> None:
     key = vaultkey.make_key(paths.key_file(fleet))
-    seen.append(key.reveal())
+    _saw(seen, key)
     assert not sealed.path(fleet).exists()
     assert _open(fleet, home).reveal() == key.reveal()
     # The person's own key file, the one vault_key_file names, is the key file too.
     own = vaultkey.make_key(tmp_path / "keys" / "own")
-    seen.append(own.reveal())
+    _saw(seen, own)
     assert _open(fleet, home, str(tmp_path / "keys" / "own")).reveal() == own.reveal()
 
 
@@ -406,7 +523,7 @@ def test_with_no_vault_yet_the_variable_s_key_is_refused_and_the_key_file_kept(
     # Review 23 (D8.md 1): with no vault, open gave back the variable's key, over the home's own key file, and the
     # vault init made was sealed to it with no word. A new fleet's vault is sealed to its own key file's key alone.
     mine = vaultkey.make_key(paths.key_file(fleet))
-    seen.append(mine.reveal())
+    _saw(seen, mine)
     kept = paths.key_file(fleet).read_bytes()
     theirs = _key(seen)
     given = _put(tmp_path / "another-fleet-s-key", theirs.reveal() + "\n")
@@ -435,7 +552,7 @@ def test_with_no_vault_yet_a_command_is_refused_and_never_run(home: Path, tmp_pa
     program = _put(tmp_path / "program", f"#!/bin/sh\n: > {mark}\n", mode=0o755)
     for made in (False, True):
         if made:
-            seen.append(vaultkey.make_key(paths.key_file(fleet)).reveal())
+            _saw(seen, vaultkey.make_key(paths.key_file(fleet)))
         with pytest.raises(vaultkey.NoVaultYet) as refused:
             _open(fleet, home, "", key_command=[str(program), COMMAND_WORD])
         sentence = _refused(refused, seen)

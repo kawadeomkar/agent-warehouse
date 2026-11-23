@@ -2199,18 +2199,24 @@ a folder, and that each imports the standard library alone.
 `{"format": 1, "secrets": {"<entry>": "<value>"}}`, encrypted whole with age, armored, to the X25519 recipient of one
 random key, through `pyrage`, which only the functions that need it import. A read decrypts the whole file and returns
 the map, each value a `Secret`, and a write encrypts the whole map again, so no value can be read or swapped inside the
-file without the key; what that gives up, reading one secret without opening the others, a run that holds the key for
-its whole life never needs. The key is handed in, a `Secret` that holds an age identity: `sealed.py` never looks for it.
+file without the key, or its public half; what that gives up, reading one secret without opening the others, a run that
+holds the key for its whole life never needs. The key is handed in, a `Secret` that holds an age identity: `sealed.py`
+never looks for it. age seals to the key's public half and says nothing of who sealed, so one who held that half and
+could write `fleet/` could seal a vault of their own that opens with the key - a Tailscale auth key of theirs, which
+every new VM would join with. The vault is left so, since one who can write `fleet/` can already change the fleet's
+settings and its host's address, and the public half is never kept: `_seal` alone makes it, to hand it to age in the
+one call that seals, and no module writes or prints it.
 The names are a closed list, `secrets.ROWS`, each a `Row(name, scope, kind, description)`: each host's `token`, the
 secret of the engine's one token there; `vm_password`, the VMs' user's, the console's at a create and sudo's where it
 asks; an adopted machine's `become_password`; `anthropic_api_key`; and the optional `github_token`,
-`tailscale_auth_key`, `claude_setup_token`, and the credential that deletes a VM's device at a destroy,
-`tailscale_api_token` or an OAuth client's `tailscale_oauth_client_id` and `tailscale_oauth_client_secret`. No name is a
-setting's. A secret of the fleet's is kept under its name, a host's own as `<name>@<host>` and an adopted machine's as
-`<name>@<machine>` (`entry` makes the key, `parsed` reads one back); a name outside the list is refused, by its name
-only where it has a name's shape, and no refusal says a value. Each value is held to its row's kind (`KINDS`): a token's
-secret a UUID as Proxmox prints one, a password one line with no control character, a vendor's token one word, and
-Tailscale's auth key as today's `init` holds one, never an API token. `fleet.json`'s number for the vault is the one
+`tailscale_auth_key`, and the credential that deletes a VM's device at a destroy, `tailscale_api_token` or an OAuth
+client's `tailscale_oauth_client_id` and `tailscale_oauth_client_secret`. No name is a setting's, and each is a secret
+the program is built to read: a name comes into the list with what reads it. A secret of the fleet's is kept under its
+name, a host's own as `<name>@<host>` and an adopted machine's as `<name>@<machine>` (`entry` makes the key, `parsed`
+reads one back); a name outside the list is refused, by its name only where it has a name's shape, and no refusal says
+a value. Each value is held to its row's kind (`KINDS`): a token's secret a UUID as Proxmox prints one, a password one
+line with no control character, a vendor's token one word, and Tailscale's auth key as today's `init` holds one, never
+an API token. `fleet.json`'s number for the vault is the one
 `record.refuse_newer` reads, before anything is decrypted, and the vault's own `format` must equal it: a vault whose
 number differs is refused by name. `create` writes an empty vault beside the fleet's record, once; `write` replaces the
 map, only while the vault still holds `expect`, the map its caller read, compared under the lock, so a caller that read
@@ -2220,8 +2226,9 @@ writer holds, across reading `fleet.json`, opening the vault with the key and re
 writes it at `fleet.json`'s number, so the two numbers are read and written under one lock; a key that no longer opens
 the vault reads nothing and writes nothing, two writers lose neither change, and a writer killed part way leaves the old
 file. The plaintext is never on disk, and `_plain` and `_identity` alone read a `Secret`'s value there (`REVEALS`).
-`tests/unit/test_aw_fleet_sealed.py` holds it, with every file under a case's own directory read for every fake secret
-and key after the case.
+`tests/unit/test_aw_fleet_sealed.py` holds it, with every file under a case's own directory read for every fake secret,
+key and public half after the case, and a scan of every module of `lib/claude_vm/` and every program of `tools/` that
+holds the public half to that one call.
 
 **The vault's key: `vaultkey.py`.** The key is a random age key, one line in a file that holds it and nothing else, by
 default `paths.key_file`: at the top of a checkout's `.aw/` or of a named home, or in the data folder for the installed
@@ -2230,23 +2237,30 @@ umask, its folder made at 0700 through `files.folder` where it is missing, and o
 never written over, and nothing here removes, moves or rewrites one. A run finds it in one order, from the values its
 caller resolved (`vault_key_file` and `vault_key_command`), so the module reads no file of settings: first
 `AGENT_WAREHOUSE_VAULT_KEY_FILE`, the one override, for a script and the agents' server, the path of a file read and
-never run, whatever its mode, and never waited on (a pipe or a folder there is no file); then `vault_key_command`,
-whose place this is and whose running is not built yet, so a run where it is set refuses rather than read the file
-after it; then the file `vault_key_file` names, `""` the default. `ANSIBLE_VAULT_PASSWORD_FILE` is never read and is no
-refusal. `source` returns the first place that exists; `open` returns the key once the fleet's vault opens with it (with
-no vault yet, once the key file holds an age key: a new fleet's vault is sealed to its own key file's key, so there the
-variable's file and a command are refused, nothing read or run, `NoVaultYet`), or one sentence: nothing here opens the
-vault, with what would, by `vault_key_file` and never the variable - `init` where there is no vault, the key copied from
-the computer that made the fleet, or its file named in `vault_key_file`, where there is one (`NoKey`); the place failed,
-in the system's words made one line (`Failed`); or the place answered with what does not open this vault: no age key, or
-another fleet's key or a vault changed since, which age does not tell apart (`WrongKey`, from `sealed.py`'s
-`NotOpened`). A place that exists and fails is a refusal, and nothing after it is tried. A key file named in the fleet's
-folder, the state folder or the installed program's config folder is refused by name (`Misplaced`), by `paths.inside`,
-and a value that is no path is never said, since a key pasted there would be on the screen. Every refusal is a
-`sealed.Refused`, so a caller catches the vault's and the key's as one, and exits 1, or 3 from `status`; nothing here
-reads the terminal, so a run with nobody there opens the vault as one at a terminal does.
+never run, even where its mode lets it run, and never waited on (a pipe or a folder there is no file); then
+`vault_key_command`, whose place this is and whose running is not built yet, so a run where it is set refuses rather
+than read the file after it; then the file `vault_key_file` names, `""` the default. `ANSIBLE_VAULT_PASSWORD_FILE` is
+never read and is no refusal. Whichever place it is, a key file whose mode gives the group or others the right to read
+it is refused before anything of it is read, as `ssh` refuses such a private key, in one sentence that names its mode
+and says `chmod 600 <file>` (`Failed`): the key opens every secret of the fleet, so it is taken only from a file this
+account alone can read. `make_key` makes its file so; a key kept on a volume that shows every file as readable by all
+cannot be used from there. `source` returns the first place that exists; `open` returns the key once the fleet's
+vault opens with it (with no vault yet, once the key file holds an age key: a new fleet's vault is sealed to its own key
+file's key, so there the variable's file and a command are refused, nothing read or run, `NoVaultYet`), or one
+sentence: nothing here opens the vault, with what would, by `vault_key_file` and never the variable - `init` where
+there is no vault, the key copied from the computer that made the fleet, or its file named in `vault_key_file`, where
+there is one (`NoKey`); the place failed, in the system's words made one line, or is a file others can read (`Failed`);
+or the place answered with what does not open this vault: no age key, or another fleet's key or a vault changed since,
+which age does not tell apart (`WrongKey`, from `sealed.py`'s `NotOpened`). A place that exists and fails is a
+refusal, and nothing after it is tried. A key file named in the fleet's folder, the state folder or the installed
+program's config folder is refused by name (`Misplaced`), by `paths.inside`, and a value that is no path is never
+said, since a key pasted there would be on the screen. Every refusal is a `sealed.Refused`, so a caller catches the
+vault's and the key's as one, and exits 1, or 3 from `status`; nothing here reads the terminal, so a run with nobody
+there opens the vault as one at a terminal does.
 `tests/unit/test_aw_fleet_vaultkey.py` holds it, with a vault opened in a child with no terminal and standard input from
-`/dev/null`, and the scan that only `vaultkey.py` names the variable and only `paths.py` and `vaultkey.py` the key file.
+`/dev/null`, every mode of a key file's group and others read in turn, every public half a case makes looked for in its
+files and its output, and the scan that only `vaultkey.py` names the variable and only `paths.py` and `vaultkey.py` the
+key file.
 
 ## 16.10 `guest/` — the helper, the system layer's inputs, layer 2
 
