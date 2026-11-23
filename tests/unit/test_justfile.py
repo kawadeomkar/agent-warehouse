@@ -2393,8 +2393,9 @@ def test_test_runs_lint_and_every_test_or_the_parts_named(tmp_path: Path, args: 
         (["role"], "molecule"),
         (["integration"], "molecule"),
         (["provision"], "molecule"),
+        (["engine"], "pytest"),
     ],
-    ids=["lint", "unit", "role", "integration", "provision"],
+    ids=["lint", "unit", "role", "integration", "provision", "engine"],
 )
 def test_a_part_that_fails_fails_test(tmp_path: Path, args: list[str], tool: str) -> None:
     settings = _testing(tmp_path)
@@ -2525,6 +2526,27 @@ def test_unit_runs_the_unit_tests_or_one_shard_of_them_and_nothing_else(tmp_path
     assert not _runs(tmp_path, "yamllint") and not _runs(tmp_path, "molecule")
 
 
+UNIT = ["-p", "live_pytest", "tests/unit", "-n", "auto", "--dist", "loadgroup"]
+# The new engine's tests alone, those tests/unit/conftest.py marks engine: tests/unit named, as the unit part names it,
+# and pytest-xdist's loadgroup kept, so that a fixture's run is still made once.
+ENGINE = ["-p", "live_pytest", "tests/unit", "-m", "engine", "-n", "auto", "--dist", "loadgroup"]
+
+
+@pytest.mark.parametrize(("args", "expect"), [(["engine"], [ENGINE]), (["unit", "engine"], [UNIT, ENGINE])])
+def test_engine_runs_the_new_engine_s_tests_alone_and_nothing_else(tmp_path: Path, args, expect) -> None:
+    result = _just("test", *args, settings=_testing(tmp_path))
+    assert result.returncode == 0, _output(result)
+    assert _runs(tmp_path, "pytest") == expect
+    assert not _runs(tmp_path, "yamllint") and not _runs(tmp_path, "molecule")
+
+
+def test_the_gate_runs_the_new_engine_s_tests_once_in_the_unit_part(tmp_path: Path) -> None:
+    # Every test of tests/unit, the engine's among them: never a second time as a part of their own.
+    result = _just("test", settings=_testing(tmp_path))
+    assert result.returncode == 0, _output(result)
+    assert _runs(tmp_path, "pytest") == [UNIT]
+
+
 @pytest.mark.parametrize(
     ("args", "error"),
     [
@@ -2544,6 +2566,16 @@ def test_unit_runs_the_unit_tests_or_one_shard_of_them_and_nothing_else(tmp_path
         (["--shard", "1/2", "--jobs", "2"], "--jobs runs Molecule scenarios side by side, and unit has none"),
         (["molecule", "--jobs", "0"], NOT_MATCHED),
         (["molecule", "--jobs", "12"], NOT_MATCHED),
+        (
+            ["engine", "--shard", "1/2"],
+            "--shard splits the unit tests, which engine is not: just test unit --shard 1/2",
+        ),
+        (
+            ["--role", "common", "engine"],
+            "--role narrows the role scenarios, which engine does not run: just test --role common",
+        ),
+        (["engine", "--jobs", "2"], "--jobs runs Molecule scenarios side by side, and unit has none"),
+        (["bogus"], NOT_MATCHED),
     ],
 )
 def test_test_s_options_are_checked_before_anything_runs(tmp_path: Path, args: list[str], error: str) -> None:

@@ -44,6 +44,21 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
+`just test engine` runs the new engine's tests alone ([§16](engine.md)): every test of a file
+`tests/unit/test_aw_*.py`, which `conftest.py`'s hook marks `engine` before xdist's hook and pytest's `-m` see the
+tests, selected with `-m engine` on the same workers and groups as the unit part. They run no playbook and take
+seconds; `just test unit` still runs them with the rest. Such a test reaches `tools/aw` through
+`tests/unit/aw_kit.py` alone, which `conftest.py` registers. Its fixture `home` is the test's own fleet home, the
+directory `aw_home` names `AGENT_WAREHOUSE_HOME`, made, with `HOME` and the XDG folders in it too, in the test's
+process as well. `run_aw` runs the program under `python -I` in an environment built from `harness.PASSED_ON`'s
+names and the home's, never the test's whole one; with failing stand-ins first on `PATH`: a browser opener, a
+clipboard and this machine's `tailscale`, `gh` and `claude` (`harness._desktop`), and its `ssh`, `ansible-playbook`
+and login keychain, macOS's `security` and Linux's `secret-tool` (`harness._refused`), each of which fails the test
+once reached (`harness._fail_if_the_desktop_was_reached`); with `/dev/null` on its stdin unless the test gives a file
+or text, and a process group of its own, ended whole on a timeout. `aw_at_a_terminal` runs it at a pseudo-terminal
+of its own, `imports_of` lists the modules a run loaded (`-X importtime`), and `searched_for` is the canary search
+for a canned secret in what a run left, which fails when it read nothing.
+
 pytest over `tests/unit/`, file by file:
 
 - **The package** (`test_claude_vm.py`): `lib/` holds `claude_vm` alone; every core module imports in a fresh
@@ -55,6 +70,14 @@ pytest over `tests/unit/`, file by file:
   two writers through `store.py`, 300 changes each at once, lose none, and a replace keeps the file's mode;
   and every file in `filter_plugins/` is an adapter that loads nothing of the core when loaded, each of its filters
   the core's function of that name.
+- **The new engine's guards** (`test_aw_guards.py`): every test of a `test_aw_*.py` file, collected as the suite
+  collects it, is marked `engine` and set up with `conftest.py`'s own `aw_home`, made for it alone, and a 2.x file's
+  tests are not marked; no test file starts `tools/aw` but through the kit, each file read as a syntax tree for a
+  call that starts a program given a string, a path built of `tools` and `aw`, or a name bound to one; each stand-in
+  is first on a run's `PATH`, and one that was reached fails the test; a run inherits the listed names alone. A
+  `Secret` (`lib/claude_vm/secret.py`) never shows its value in a `repr`, a `str`, an f-string, `format`, `%` or a
+  log line, pickle and JSON refuse it, and a copy is itself; only the modules `REVEALS` names, none yet, call
+  `reveal()`.
 - **The hosts core** (`test_hosts_core.py`): the core in-process - which host, in its order, the names hyphenated, a
   refusal carrying the notes said before it; choosing and listing never open a vault or run a password script;
   `resolve` reads the environment it is given; the vault check decides and writes nothing; init, the switch and the
@@ -817,7 +840,7 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
 
 | Fake | Stands in for | Notes |
 |---|---|---|
-| `fake_pve_api.py` | the Proxmox REST API | TLS, token auth, stateful VMs, a guest agent, a request log; on request, a cluster listing that lags a start or stop, as a real one does; for `just status`, each VM's live figures, a day of `rrddata`, `pending`, the agent's `get-osinfo` and `get-fsinfo`, and the storages' fill and disks |
+| `fake_pve_api.py` | the Proxmox REST API | TLS, token auth, stateful VMs, a guest agent, a request log; on request, a cluster listing that lags a start or stop, as a real one does; for `just status`, each VM's live figures, a day of `rrddata`, `pending`, the agent's `get-osinfo` and `get-fsinfo`, and the storages' fill and disks; pools, users, roles, ACL entries and tokens made through Proxmox's own routes, a VM's configuration written only with the digest a read gave and locked while its clone or deletion runs, a race's loser failed in its task as Proxmox fails it, and tasks by UPID that run, end and fail on cue, for the new engine |
 | `fake_qm.sh` | `qm` on the PVE node | stateful, one config file per VMID, logs every invocation |
 | `fake_pve_cli.py` | `pveum`, `pvesh`, `pveversion`, `hostname` and `id` on the PVE node | for `tools/proxmox-access.sh`: the roles, users, ACLs and tokens in one file, answering the calls the script makes as a Proxmox VE 9.2 host was seen to - compact JSON, a refusal for what exists, the version's own guest-agent privilege - with every call logged and a write refused on cue |
 | `fake_virt_customize.sh` | `virt-customize` | so `proxmox_template` runs in a container |
@@ -868,6 +891,53 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
   set (`VM.Clone:0` granted without Propagate), else the whole role `tools/proxmox-access.sh`
   makes, with the guest-agent privilege of the version `/version` reports - 8.2.4 until
   `PUT /api2/json/fake/version?version=` changes it - and for the `noagent` token, without it.
+- Pools are also made, read, changed and deleted through Proxmox's own routes, as pve-manager's `PVE/API2/Pool.pm`
+  answers them: `POST /pools` with a comment, `GET /pools` (with `poolid` and `type`, a pool's members), `PUT /pools`
+  (`vms`, `storage`, `delete`, `allow-move`, every one checked before any is written), `DELETE /pools?poolid=` of an
+  empty pool, and the deprecated `/pools/<poolid>` forms; a refusal is a 500 with Proxmox's sentence after its label.
+  A pool a guest is a member of exists made or not, as before; the fake refuses a VMID it holds no guest for, which
+  Proxmox would take, since it keeps a guest's pool on the guest.
+- Users, roles, ACL entries and tokens are made as pve-access-control's API answers: `POST /access/users`,
+  `POST /access/roles`, `PUT /access/acl` (no groups), and `POST /access/users/<userid>/token/<tokenid>`, with
+  `privsep` 1 unless given, answering `info`, `value` and `full-tokenid`; `PUT` on the same path changes it, and with
+  `regenerate=1` makes a new secret, the old one refused from then on. Such a token is accepted with its own secret
+  alone, until its `expire`, and `GET /access/permissions` answers it from the ACL entries as Proxmox computes them:
+  the deepest entries of the path win, one above it only where it propagates, a pool member takes the roles held on
+  its pool without propagate, and with `privsep=1` the token's own entries are cut to what its user holds. Today's
+  tokens are answered by the table and the whole role as above, and everything else a made token asks as theirs is:
+  nothing is refused for lack of a privilege. `harness.fake_fleet(engine=True)` makes the new engine's pool, role,
+  user and its one token, and `harness.engine_token` gives the token's ID and secret.
+- A VM's configuration is written as qemu-server's `PVE/API2/Qemu.pm` writes it. A `PUT` or `POST` of it that sends
+  `digest` is refused, nothing written, unless that is the digest its `GET` gives now; one that sends none is taken, as
+  before, and `digest` is never kept. A `POST`'s task checks the digest and the lock again when it ends, as Proxmox's
+  worker does under the VM's lock, and fails, writing nothing, where a write made since changed the one or set the
+  other: the `PUT` made in between stands. A description is read back without its trailing white space, as Proxmox
+  reads one. A clone takes `description` over its source's, `pool`, which it joins when its task ends, `storage` (one
+  its node has) and `target` (another node, where the disk's storage is shared there: `PUT /api2/json/fake/storages`
+  marks one with `:shared`). It is refused, its 500 now with Proxmox's words, onto a VMID this node's VM holds; onto
+  one a container or another node's VM holds it passes the call, whose check reads this node's files alone, and fails
+  in its task. While a clone or a deletion runs, the VM's configuration holds `lock` (`clone`, `destroyed`) and a write
+  to it is refused as locked. `PUT /api2/json/fake/notes-limit?bytes=` bounds the description a configuration write
+  sends (a clone's has no limit), and `PUT /api2/json/fake/clone-inherits?tags=&description=` stops a clone taking its
+  source's tags and description. Each refusal's status and words are constants at the top of the fake, read from
+  Proxmox's source, for experiment 6 to correct.
+- Where Proxmox takes two calls and fails the loser in its worker, the fake can too: `PUT /api2/json/fake/clone-race`
+  has the next clone onto a VMID this node's VM holds, and the next configuration `POST` with a stale digest, pass the
+  call as a race's loser did, answer a UPID and fail in the task, changing nothing - the clone with the lock's timeout
+  while the winner's clone runs, else that the file exists; the `POST` with the digest's refusal. The fake answers one
+  request at a time, which is what makes each check and the write after it atomic; a test sends requests at once to
+  hold that.
+- Every call that answers a UPID makes a task of it, recorded in the state directory's `tasks.json` with its type, the
+  token that made it and its VM, and what the call changes is changed when the task ends, but for a clone's VM, there
+  from the call and locked until then. A task ends at once, so today's callers see it stopped at their first poll,
+  until `PUT /api2/json/fake/task-polls?polls=N` has those made after it answer running to N polls first;
+  `PUT /api2/json/fake/task-end?upid=` ends a running task nobody polls, or with no `upid` every one, as its worker
+  ends on the host whether or not anyone asks, so a run killed during a clone can be shown;
+  `PUT /api2/json/fake/task-fail?error=&type=` has the next task end with that error, changing nothing (a failed clone
+  leaves no VM), and its log, which `tasks/<upid>/log` gives as Proxmox numbers its lines, end `TASK ERROR:` and the
+  error. With no fixture set, every answer today's requests get is what it was before the tasks and digests, byte for
+  byte but for the clone onto a taken VMID: `tests/unit/test_aw_fake_pve.py` sends the requests
+  `tests/unit/fake_pve_replies.json` recorded from the fake before then, and compares.
 - What `just status` reads is shaped by that version, as Proxmox VE's own: from 9 the listing carries
   `memhost` and `rrddata` the `pressure*` fields, and a day is 1440 points; on 8 it is 70. A clone's config
   carries the template's meta `ctime`, as a real one does; its disk's `ctime` in the storage's content is when it

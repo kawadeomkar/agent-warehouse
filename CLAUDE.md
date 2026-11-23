@@ -39,6 +39,7 @@ just lint syntax                     # some of them: lock, yaml, ansible, python
 just test                            # lint, then every test: unit and every Molecule scenario — the CI gate
 just test unit                       # pytest over tests/unit/, a worker per CPU (pytest-xdist loadgroup)
 just test unit --shard 2/6           # one of the six shards CI runs (tests/unit/durations.json balances them)
+just test engine                     # only the new engine's tests (tests/unit/test_aw_*.py, marked engine): seconds
 just test --role proxmox_vm          # one role scenario (role: every role; molecule: every scenario)
 just test molecule --jobs 4          # the scenarios four at a time, the longest first, each in .logs/<stamp>-test-<scenario>.log
 just test provision                  # one playbook scenario (integration is the configure scenario)
@@ -136,8 +137,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   agent. Never add a VM to a committed inventory, and never hardcode a VM address in a default.
 - **No secrets in git.** Secrets go in `inventory/group_vars/all/vault.yml` (ansible-vault). CI runs
   gitleaks plus `tests/check_no_local_files.sh`, which blocks `hosts.yml`, `local.yml`, `vault.yml`,
-  `.vault_pass`, `host_vars/` and friends. `tests/unit/test_tracked_files.py` tests that guard both
-  ways — extend it when you change the patterns.
+  `.vault_pass`, `host_vars/`, the new engine's `.aw/` and friends. `tests/unit/test_tracked_files.py` tests that
+  guard both ways — extend it when you change the patterns.
 - **The ownership tag is the safety interlock.** Every VM this project creates carries
   `agent-warehouse` (`claude_vm_tag`). Discovery finds VMs by it, and both deletion and
   provisioning *refuse* an existing VM without it — provisioning also refuses a template. It is
@@ -643,6 +644,42 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   `claude_ssh_config_file` and `claude_ssh_user_config` into `MOLECULE_EPHEMERAL_DIRECTORY` with
   the `Include` off, the Vagrantfile sets `claude_ssh_config: false`, and
   `tests/unit/test_ssh_config.py` fails if any of them stops.
+- **Tests never read or write the developer's fleet folder.** Read
+  [§16.9](docs/architecture/engine.md#169-fleet--the-fleets-files-the-settings-the-secrets-and-the-fleets-mark)
+  first. The new engine keeps a fleet where `lib/claude_vm/fleet/paths.py` alone says: `AGENT_WAREHOUSE_HOME`
+  where it is set, a checkout's own `.aw/` (git-ignored, refused by `tests/check_no_local_files.sh`), or for an
+  installed program `~/.config/agent-warehouse/`, its state in `~/.local/state/agent-warehouse/` and its key file in
+  `~/.local/share/agent-warehouse/`.
+    - An autouse fixture in `tests/unit/conftest.py` (`aw_home`) points `AGENT_WAREHOUSE_HOME` into each test's own
+      directory, and before it a directory of the session's own, for a module's run; `harness.PASSED_ON` passes it
+      to every run. Never a session-scoped autouse fixture: it would join every test into one xdist group.
+    - The session fails if a name `paths` owns (`OWN`, `BENEATH_STATE`) was made, changed or removed in a fleet
+      folder of the developer's (`developers_folders`): the installed program's three, the checkout's own `.aw/` -
+      their real fleet, its key included, whenever they work from a checkout - and the main worktree's where the suite
+      runs from another, and the `AGENT_WAREHOUSE_HOME` they exported, read before the session replaces it. It
+      watches nothing else there: a sign-in on a machine the product configured writes `RESERVED_ON_A_MACHINE`'s
+      names into that same folder, and no file there is opened, so no `fleet_home` is followed.
+    - A home is the installed program's by the real path of both, never their text, so its key never lands in the
+      config folder through a link; a home inside the installed program's state folder is refused.
+    - Only `paths.py` names those folders and `AGENT_WAREHOUSE_HOME`; code on a machine names the folder there as
+      `paths.ON_A_MACHINE`, in `guest/` alone, joined to a reserved name. Only `paths.py` and `fleet/vaultkey.py` name
+      the key file; outside `fleet/` nothing names `paths.KEY` or `paths.OWN` or removes what reaches the key, and a
+      module reads `key_file` only where `READ_THE_KEY` lists it with why. Each change that removes files holds the key
+      byte for byte in its own test. `tests/unit/test_aw_fleet_paths.py` holds all of it.
+- **Tests never touch the login keychain, and a test reaches `tools/aw` only through its kit.** Read
+  [§11.1](docs/architecture/testing.md#111-unit--just-test-unit) first.
+    - Every run of `tools/aw` a test makes goes through `tests/unit/aw_kit.py` (`run_aw`, `aw_at_a_terminal`,
+      `imports_of`): `python -I`, an environment built from `harness.PASSED_ON`'s names and the test's own home
+      (the `home` fixture, `aw_home`'s directory with `HOME` and the XDG folders in it), and failing stand-ins first
+      on `PATH` for the desktop's openers and clipboards, this machine's `tailscale`, `gh` and `claude`, and its
+      `ssh`, `ansible-playbook` and login keychain - macOS's `security`, Linux's `secret-tool` (`harness._refused`).
+      One that was reached fails the test (`harness._fail_if_the_desktop_was_reached`).
+    - Every test of a file `tests/unit/test_aw_*.py` is marked `engine` by `tests/unit/conftest.py`'s `tryfirst` hook,
+      and `just test engine` runs them alone; `just test unit` still runs every test.
+    - A secret the new engine holds is a `Secret` (`lib/claude_vm/secret.py`): a mark wherever it is shown, never
+      pickled or turned into JSON. Only the modules `REVEALS` names call `reveal()`, each with why.
+    - `tests/unit/test_aw_guards.py` holds all of it: the marker and the home over every `test_aw_*.py` file, a
+      syntax-tree scan of every test file for a run of `tools/aw` outside the kit, the stand-ins, and `REVEALS`.
 - **Every live output draws through one region and one way of drawing.** Read
   [§7.8](docs/architecture/custom-code.md#78-libclaude_vmtuilive_regionpy-and-screenpy--every-live-output)
   first.
@@ -889,6 +926,14 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       40 000 characters.
     - Tests never run the real `claude`, read `~/.claude.json` or reach a real Ansible: `test_mcp_server.py` runs a
       copy of the checkout with stand-ins, `test_mcp_register.py` a stand-in `claude`.
+- **Nothing of today's product reaches the new engine until the cutover, and the new engine reuses only what it
+  names.** Read [§16.1](docs/architecture/engine.md#161-the-rule-between-the-two-engines) first. The engine that
+  replaces the playbooks at 3.0 is built beside them, in the subpackages `schema`, `cli`, `engine`, `pve`, `ssh`,
+  `vendors`, `runs`, `fleet`, `guest` and `control` of `lib/claude_vm/`, and run by `tools/aw`. Nothing of today's
+  product (the `justfile`, `deploy.yml`, `playbooks/`, `roles/`, `filter_plugins/`, `callback_plugins/`,
+  `inventory/`, `tools/` and today's modules of `lib/claude_vm/`) imports them or runs `tools/aw`. The new engine
+  imports of today's `lib/claude_vm/` only the modules `REUSED` names, each with its reason.
+  `tests/unit/test_aw_layout.py` holds both.
 
 ## Architecture, and why it looks like this
 

@@ -10,6 +10,7 @@ just lint syntax              # one of them: lock, yaml, ansible, python, just, 
 just test                     # just lint, then everything below but the last two: the local quality gate
 just test unit                # pytest over tests/unit/, a worker per CPU (plain pytest: one test at a time), no network
 just test unit --shard 2/6    # one of six shards of those, as CI splits them: the tests that share a run together
+just test engine              # only the new engine's tests, tests/unit/test_aw_*.py, which unit runs too: seconds
 just test molecule            # every Molecule (Docker) scenario: the three below
 just test molecule --jobs 4   # the same, four at a time: each in a log of its own (needs the disk and memory for four)
 just test role                # each role's scenario, incl. idempotence; --role common,dev_tools for some of them
@@ -22,6 +23,25 @@ just vagrant                  # configure.yml on a real VirtualBox VM (just vagr
 
 What each unit test file holds is in [§11.1](../architecture/testing.md#111-unit--just-test-unit), and how
 CI splits them into shards beside it.
+
+No test reads or writes your own fleet folder. The engine being built for 3.0 keeps a fleet where
+`lib/claude_vm/fleet/paths.py` says ([§16.9](../architecture/engine.md#169-fleet--the-fleets-files-the-settings-the-secrets-and-the-fleets-mark)):
+`.aw/` in a checkout, or `~/.config/agent-warehouse/` with its state in `~/.local/state/agent-warehouse/` and its
+key file in `~/.local/share/agent-warehouse/` for an installed program, and `AGENT_WAREHOUSE_HOME` moves all of it.
+Every unit test runs with `AGENT_WAREHOUSE_HOME` in a directory of its own (the `aw_home` fixture in
+`tests/unit/conftest.py`), every run the harness starts is given it, and a run of the suite fails, naming each path,
+if a test made, changed or removed one of the names `paths.py` owns in a fleet folder of yours: the installed
+program's three, this checkout's `.aw/`, the main worktree's `.aw/` when the suite runs from another worktree, and the
+folder your own `AGENT_WAREHOUSE_HOME` names, if you exported one. It reads their names alone and opens no file there.
+
+The new engine's tests are the files `tests/unit/test_aw_*.py`, every test of which is marked `engine`, and
+`just test engine` runs them alone, in seconds. Write one with `tests/unit/aw_kit.py`: the `home` fixture for the
+test's own home, and `run_aw` (or `aw_at_a_terminal`) to run `tools/aw`, never a `subprocess` call of your own, which
+`tests/unit/test_aw_guards.py` refuses. A run inherits only the variables it names and fails its test if it calls a
+browser opener, a clipboard, or this machine's `tailscale`, `gh`, `claude`, `ssh` or `ansible-playbook`; no test
+touches your login keychain, whose programs, `security` and `secret-tool`, are failing stand-ins there too. A secret
+the engine holds is a `Secret` (`lib/claude_vm/secret.py`), never shown, and `searched_for` looks for a canned one in
+what a run left ([§11.1](../architecture/testing.md#111-unit--just-test-unit)).
 
 At a terminal, `just lint` is drawn live, a row for each check, the running one's last line beside it and the
 ones to come listed; a check that fails prints its last lines above, and the summary names the checks it left

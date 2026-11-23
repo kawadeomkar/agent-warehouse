@@ -7,8 +7,10 @@ import inspect
 import json
 import os
 import re
+import shutil
 import statistics
 import subprocess
+import tempfile
 from pathlib import Path
 
 import ansible.module_utils
@@ -17,7 +19,13 @@ import pytest
 from ansible.module_utils import basic
 from ansible.module_utils.testing import patch_module_args
 
+from claude_vm.fleet import paths
+
 ROOT = Path(__file__).resolve().parents[2]
+# The new engine's test kit, whose fixture `home` every test may ask for (tests/unit/aw_kit.py).
+pytest_plugins = ("aw_kit",)
+# The new engine's tests: every test of a file named so, which `just test engine` runs alone (-m engine).
+ENGINE_FILES = "test_aw_"
 # What the modules in playbooks/library/ share, for the tests that load one by its path: Ansible puts a playbook's
 # module_utils folder on the path it builds the playbook's modules from, and nothing does in this process.
 ansible.module_utils.__path__.append(str(ROOT / "playbooks" / "module_utils"))
@@ -74,11 +82,121 @@ def fail_main(main, args):
 DURATIONS = ROOT / "tests" / "unit" / "durations.json"
 
 
+# The developer's own fleet folders, as the run found them, and what of them a test made, changed or removed; and the
+# directory of the session's own that AGENT_WAREHOUSE_HOME names before a test's own does (docs/development/testing.md).
+DEVELOPERS = pytest.StashKey[tuple]()
+TOUCHED = pytest.StashKey[list]()
+SESSION_HOME = pytest.StashKey[str]()
+
+
+def footprint(folders) -> dict[str, tuple]:
+    """Each name the new engine's fleet/paths.py owns in each of folders, and everything beneath one that is a
+    folder, as lstat sees it: a name made, changed or removed shows as a difference. Nothing else there is looked at
+    (a sign-in on a machine the product configured writes the names paths.RESERVED_ON_A_MACHINE reserves into the
+    same folder), and no file is opened: the key file is the developer's secret."""
+    found = {}
+    for top in (Path(folder) / name for folder in folders for name in (*paths.OWN, *paths.BENEATH_STATE)):
+        beneath = [Path(root) / entry for root, dirs, files in os.walk(top) for entry in (*dirs, *files)]
+        for path in (top, *beneath):
+            try:
+                seen = os.lstat(path)
+            except FileNotFoundError:
+                continue
+            found[str(path)] = (seen.st_mode, seen.st_size, seen.st_mtime_ns, seen.st_ctime_ns, seen.st_ino)
+    return found
+
+
+def _main_worktree(root: Path) -> Path | None:
+    """The main worktree of the checkout at root, which differs from it where the suite runs from another worktree:
+    the folder of git's common directory. None where git cannot say."""
+    try:
+        found = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            env={name: value for name, value in os.environ.items() if not name.startswith("GIT_")},
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    common = Path(found.stdout.strip())
+    return common.parent if found.returncode == 0 and common.is_absolute() and common.name == ".git" else None
+
+
+def developers_folders(environ, root: Path = ROOT) -> tuple[Path, ...]:
+    """The developer's own fleet folders, which no test touches: the installed program's three (the config, the state
+    and the data folder's agent-warehouse/), this checkout's .aw/ and the main worktree's, and the folder
+    AGENT_WAREHOUSE_HOME names where the developer exported it. Each by its name alone: no file of theirs is opened,
+    so no fleet_home is followed."""
+    folders = [*paths.installed(environ), root / paths.CHECKOUT_HOME]
+    main = _main_worktree(root)
+    if main is not None:
+        folders.append(main / paths.CHECKOUT_HOME)
+    if environ.get(paths.VARIABLE):
+        try:
+            folders.append(paths.home(root, environ).root)
+        except paths.Refused:
+            pass  # A home paths refuses is one the new engine never writes in.
+    return tuple(dict.fromkeys(folders))
+
+
+def watch_the_developers_folders(config, environ, root: Path = ROOT) -> None:
+    """Read the developer's fleet folders (developers_folders) before any test runs, with what environ exported: once,
+    in the process that ends the session, never in an xdist worker."""
+    if not hasattr(config, "workerinput"):
+        folders = developers_folders(environ, root)
+        config.stash[DEVELOPERS] = (folders, footprint(folders))
+
+
 def pytest_configure(config):
     # A kill or a hangup ends this process as Ctrl-C would, in the controller and in every worker: the test running
     # gets a KeyboardInterrupt, its run and everything under it ended by the harness on the way out, where the default
     # ended the process at once and left them (tests/unit/interrupts.py).
     interrupts.install()
+    # First, while AGENT_WAREHOUSE_HOME is still what the developer exported: a folder of theirs to watch.
+    watch_the_developers_folders(config, os.environ)
+    # Before a test's own directory (aw_home), what runs first - a module's playbook run, made once for its tests -
+    # gets a directory of the session's own, never the developer's fleet, whatever their shell exported.
+    config.stash[SESSION_HOME] = os.environ[paths.VARIABLE] = tempfile.mkdtemp(prefix="aw-home-")
+
+
+def pytest_unconfigure(config):
+    shutil.rmtree(config.stash.get(SESSION_HOME, ""), ignore_errors=True)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Fail the session if a test made, changed or removed a name the new engine owns in the developer's folders."""
+    watched = session.config.stash.get(DEVELOPERS, None)
+    if watched is None:
+        return
+    folders, before = watched
+    after = footprint(folders)
+    touched = sorted(path for path in before.keys() | after.keys() if before.get(path) != after.get(path))
+    if touched:
+        session.config.stash[TOUCHED] = touched
+        if session.exitstatus == pytest.ExitCode.OK:
+            session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    touched = config.stash.get(TOUCHED, [])
+    if touched:
+        terminalreporter.section("the developer's fleet folders", red=True)
+        terminalreporter.line("A test made, changed or removed these, where the tests never reach (fleet/paths.py):")
+        for path in touched:
+            terminalreporter.line(f"  {path}")
+
+
+@pytest.fixture(autouse=True)
+def aw_home(tmp_path, monkeypatch) -> Path:
+    """AGENT_WAREHOUSE_HOME in this test's own directory, which nothing here makes: the new engine's fleet, its state
+    and its key are there and never the developer's, and the harness passes it on to every run (PASSED_ON). Function
+    scoped, as a session-scoped autouse fixture would join every test to one xdist group (_shared)."""
+    home = tmp_path / "aw-home"
+    monkeypatch.setenv(paths.VARIABLE, str(home))
+    return home
 
 
 def pytest_addoption(parser):
@@ -135,8 +253,12 @@ def pytest_collection_modifyitems(config, items):
     a test that asks for a fixture by name any other way than a `fixture` parameter stays whole. A module's
     EACH_WORKER names the fixtures cheap enough to make again on each worker that needs one - a fake server - which
     join nothing. Only this project's fixtures count: pytest's own tmp_path rests on a session-scoped one, made per
-    worker anyway. First, so that xdist's own hook, which turns the marks into groups, sees them.
+    worker anyway. First, so that xdist's own hook, which turns the marks into groups, sees them, and pytest's own,
+    which selects by -m, sees the new engine's tests marked `engine` (every test of a file ENGINE_FILES names).
     """
+    for item in items:
+        if item.path.name.startswith(ENGINE_FILES):
+            item.add_marker(pytest.mark.engine)
     reached = {id(item): _shared(item) for item in items}
     whole = {item.module.__name__ for item in items if reached[id(item)] is None}
     parent: dict[str, str] = {}
