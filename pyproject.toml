@@ -75,6 +75,7 @@ addopts = "-ra -q"
 markers = [
   "xdist_group(name): run every test of the group on one xdist worker",
   "engine: a test of the new engine, every test of a file tests/unit/test_aw_*.py, which just test engine runs alone",
+  "tree: a test of today's suite that reads the tree (tests/unit/conftest.py's TREE), which just test --short runs",
 ]
 
 [tool.ruff]

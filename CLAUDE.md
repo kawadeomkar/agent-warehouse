@@ -40,6 +40,7 @@ just test                            # lint, then every test: unit and every Mol
 just test unit                       # pytest over tests/unit/, a worker per CPU (pytest-xdist loadgroup)
 just test unit --shard 2/6           # one of the six shards CI runs (tests/unit/durations.json balances them)
 just test engine                     # only the new engine's tests (tests/unit/test_aw_*.py, marked engine): seconds
+just test --short                    # lint, the engine's tests and today's that read the tree: for a change to no file of main's but CLAUDE.md and docs/
 just test --role proxmox_vm          # one role scenario (role: every role; molecule: every scenario)
 just test molecule --jobs 4          # the scenarios four at a time, the longest first, each in .logs/<stamp>-test-<scenario>.log
 just test provision                  # one playbook scenario (integration is the configure scenario)

@@ -288,29 +288,10 @@ def test_every_sha256_of_the_setup_action_is_beside_the_one_just_version() -> No
 # The archive the stand-in curl writes, and a SHA256 of something else.
 ARCHIVE = hashlib.sha256(b"an archive of the test's own\n").hexdigest()
 OTHER = hashlib.sha256(b"another archive\n").hexdigest()
-# Apple's sha256sum, as macOS 26 has it in /sbin (one of /sbin/md5's links: md5(1) in its coreutils mode), first on the
-# macOS runner's PATH. Read with -c, it checks a line it can read, and passes one it cannot - an empty digest, or one a
-# digit short - with a warning and exit 0, or exit 1 under --strict, and no line at all with exit 0 even then; without
-# -c it prints the digest of what it reads (macOS 26.7.3's own tool on a scratch file, 2026-11-22). @SHASUM@ is this
-# machine's shasum, which computes the digests.
-APPLE_SHA256SUM = r"""#!/bin/sh
-printf 'sha256sum %s\n' "$*" >> "$CALLS"
-case " $* " in *" -c "*) ;; *) exec @SHASUM@ -a 256 "$@" ;; esac
-strict=
-for word in "$@"; do [ "$word" != --strict ] || strict=1; done
-bad=0
-while IFS= read -r line; do
-  digest=${line%%  *} file=${line#*  }
-  case $digest in *[!0-9a-f]* | '') bad=$((bad + 1)); continue ;; esac
-  [ "${#digest}" -eq 64 ] || { bad=$((bad + 1)); continue; }
-  got=$(@SHASUM@ -a 256 < "$file")
-  [ "${got%% *}" = "$digest" ] || { echo "$file: FAILED"; exit 1; }
-  echo "$file: OK"
-done
-[ "$bad" -eq 0 ] && exit 0
-echo "sha256sum: WARNING: $bad line is improperly formatted" >&2
-[ -z "$strict" ]
-"""
+# The sha256sum each runner has - macOS 26's Apple one in /sbin, which passes a line it cannot read with exit 0 - is
+# asked nothing by the step, which compares shasum's digest itself: a stand-in that records its words and does nothing
+# else, first on both runners' PATH, so that any call of it shows in the calls each test holds the step to.
+RECORDED_SHA256SUM = '#!/bin/sh\nprintf "sha256sum %s\\n" "$*" >> "$CALLS"\n'
 
 
 def _checker_recording(name: str, real: str) -> str:
@@ -329,8 +310,8 @@ def _install_just(
     """The setup action's just step as GitHub runs a composite step's (bash, -e and pipefail) on a runner of that system
     and arch, its JUST_SHA256* variables the pins given. On PATH nothing but a stand-in curl that writes an archive of
     the test's own and records the URL, a stand-in tar that records its words, mkdir, and the two checkers the runner
-    has, each recording its words: this machine's shasum, and a sha256sum - on macOS Apple's (APPLE_SHA256SUM), on any
-    other system this machine's own where it has one. The run, and the calls the stand-ins recorded."""
+    has, each recording its words: this machine's shasum, and a sha256sum that does nothing else (RECORDED_SHA256SUM).
+    The run, and the calls the stand-ins recorded."""
     bin_dir, calls = tmp_path / "bin", tmp_path / "calls"
     bin_dir.mkdir()
     (bin_dir / "curl").write_text(
@@ -340,10 +321,7 @@ def _install_just(
     (bin_dir / "tar").write_text('#!/bin/sh\nprintf "tar %s\\n" "$*" >> "$CALLS"\n')
     shasum = shutil.which("shasum")
     (bin_dir / "shasum").write_text(_checker_recording("shasum", shasum))
-    if system == "macOS":
-        (bin_dir / "sha256sum").write_text(APPLE_SHA256SUM.replace("@SHASUM@", shasum))
-    elif shutil.which("sha256sum"):
-        (bin_dir / "sha256sum").write_text(_checker_recording("sha256sum", shutil.which("sha256sum")))
+    (bin_dir / "sha256sum").write_text(RECORDED_SHA256SUM)
     for tool in bin_dir.iterdir():
         tool.chmod(0o755)
     (bin_dir / "mkdir").symlink_to(shutil.which("mkdir"))
@@ -424,42 +402,14 @@ def test_an_archive_that_is_not_the_one_its_system_s_sha256_names_is_never_unpac
 def test_a_pin_that_is_no_sha256_is_refused_on_each_runner_whatever_its_sha256sum_passes(
     tmp_path, system, arch, pin, malformed
 ) -> None:
-    # macOS's own sha256sum, first on that runner's PATH, passes a line with either pin and exits 0 (the test below):
-    # the step compares the digest itself, so each is refused as a wrong one is, on both runners, and tar never runs.
+    # macOS's own sha256sum, first on that runner's PATH, passes a line with either pin and exits 0: the step asks it
+    # nothing and compares the digest itself, so each is refused as a wrong one is, on both runners, and tar never runs.
     archive = f"just-{_just_step()['env']['JUST_VERSION']}-{JUST_ARCHIVES[pin]}.tar.gz"
     run, calls = _install_just(tmp_path, system, arch, _pins(pin, malformed))
     assert run.returncode == 1, (run.stdout, run.stderr)
     assert run.stdout == _archive_refused(archive, malformed)
     assert [call.split()[0] for call in calls] == ["curl", "shasum"], calls
     assert not (tmp_path / "github-path").exists()
-
-
-@NEEDS_SHASUM
-def test_the_stand_in_for_macos_s_sha256sum_passes_a_line_it_cannot_read_as_macos_26_s_own_does(tmp_path) -> None:
-    # Held to what macOS 26's /sbin/sha256sum did, so that the test above meets a checker that fails open where
-    # Apple's does: were the stand-in stricter than Apple's, that test would hold nothing on macOS's road.
-    tool, calls, archive = tmp_path / "sha256sum", tmp_path / "calls", tmp_path / "archive"
-    tool.write_text(APPLE_SHA256SUM.replace("@SHASUM@", shutil.which("shasum")))
-    tool.chmod(0o755)
-    archive.write_bytes(b"an archive of the test's own\n")
-
-    def check(lines: str, *words: str) -> int:
-        env = {"PATH": "/usr/bin:/bin", "CALLS": str(calls)}
-        run = subprocess.run(
-            [tool, *words, "-c", "-"], input=lines, env=env, capture_output=True, text=True, timeout=60, check=False
-        )
-        return run.returncode
-
-    # Each line's digest, and the exit status with -c alone and with --strict as well.
-    for digest, alone, strict in [(ARCHIVE, 0, 0), (OTHER, 1, 1), ("", 0, 1), (ARCHIVE[:-1], 0, 1)]:
-        line = f"{digest}  {archive}\n"
-        assert (check(line), check(line, "--strict")) == (alone, strict), digest
-    assert (check(""), check("", "--strict")) == (0, 0)
-    env = {"PATH": "/usr/bin:/bin", "CALLS": str(calls)}
-    printed = subprocess.run(
-        [tool], input=archive.read_bytes(), env=env, capture_output=True, timeout=60, check=True
-    ).stdout
-    assert printed == f"{ARCHIVE}  -\n".encode()
 
 
 @NEEDS_SHASUM
@@ -2843,6 +2793,215 @@ def test_the_gate_runs_the_new_engine_s_tests_once_in_the_unit_part(tmp_path: Pa
     assert _runs(tmp_path, "pytest") == [UNIT]
 
 
+# The short set's one run, after lint: the new engine's tests and today's that read the tree (conftest.py's TREE), on
+# the unit part's workers and groups.
+SHORT = ["-p", "live_pytest", "tests/unit", "-m", "engine or tree", "-n", "auto", "--dist", "loadgroup"]
+
+
+def _branches(tmp_path: Path) -> dict[str, str]:
+    """A repository of the two branches the short set compares, as a card's worktree has them: main, with a file of
+    today's, CLAUDE.md, a page and a test of today's; base-first, which adds a module of the new engine; and the card's
+    branch from base-first's tip, checked out. The environment that points git at it (GIT_DIR, GIT_WORK_TREE), so a
+    recipe run reads it and never this checkout."""
+    work = tmp_path / "repo"
+    env = {**GIT_ENV, "GIT_DIR": str(work / ".git"), "GIT_WORK_TREE": str(work)}
+    for name in ("justfile", "CLAUDE.md", "docs/page.md", "tests/unit/test_today.py"):
+        (work / name).parent.mkdir(parents=True, exist_ok=True)
+        (work / name).write_text(f"{name}, as main has it\n")
+    _git(work, env, "init", "-q", "-b", "main")
+    _git(work, env, "add", "-A")
+    _git(work, env, "commit", "-q", "-m", "main")
+    _git(work, env, "checkout", "-q", "-b", "base-first")
+    (work / "lib").mkdir()
+    (work / "lib" / "engine.py").write_text("the new engine's\n")
+    _git(work, env, "add", "-A")
+    _git(work, env, "commit", "-q", "-m", "base-first")
+    _git(work, env, "checkout", "-q", "-b", "feat/card")
+    return env
+
+
+def _git(work: Path, env: dict[str, str], *args: str) -> None:
+    run = subprocess.run(["git", *args], cwd=work, env=_env(env), capture_output=True, text=True, timeout=60)
+    assert run.returncode == 0, run.stdout + run.stderr
+
+
+def _short_check(tmp_path: Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    """tools/check short, as just test --short runs it: base-first against main, in the repository env points at."""
+    return subprocess.run(
+        [str(REPO / "tools" / "check"), "short", "base-first", "main"],
+        cwd=tmp_path / "repo",
+        env=_env(env),
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+
+def _change(work: Path, env: dict[str, str], change: str) -> None:
+    """One change of the card's branch: written and not committed, or committed on it, as each case says."""
+    if change == "nothing":
+        return
+    if change == "an edit of base-first's own":
+        (work / "lib" / "engine.py").write_text("changed\n")
+    elif change == "a new module":
+        (work / "lib" / "more.py").write_text("new\n")
+    elif change == "a new engine test":
+        (work / "tests" / "unit" / "test_aw_more.py").write_text("new\n")
+    elif change == "CLAUDE.md and the pages":
+        (work / "CLAUDE.md").write_text("changed\n")
+        (work / "docs" / "page.md").write_text("changed\n")
+        (work / "docs" / "new.md").write_text("new\n")
+    elif change == "a file of main's, not committed":
+        (work / "justfile").write_text("changed\n")
+    elif change == "a file of main's, committed":
+        (work / "justfile").write_text("changed\n")
+        _git(work, env, "commit", "-q", "-am", "the card")
+    elif change == "a file of main's, deleted":
+        _git(work, env, "rm", "-q", "justfile")
+        _git(work, env, "commit", "-q", "-m", "the card")
+    elif change == "a file of main's, renamed":
+        _git(work, env, "mv", "justfile", "lib/justfile")
+        _git(work, env, "commit", "-q", "-m", "the card")
+    elif change == "a file of main's, its mode":
+        (work / "justfile").chmod(0o755)
+    elif change == "a test of today's":
+        (work / "tests" / "unit" / "test_today.py").write_text("changed\n")
+    elif change == "a new test of today's kind":
+        (work / "tests" / "unit" / "test_more.py").write_text("new\n")
+    elif change == "a new test of today's kind, in a folder":
+        (work / "tests" / "unit" / "units").mkdir()
+        (work / "tests" / "unit" / "units" / "test_more.py").write_text("new\n")
+    else:
+        raise AssertionError(change)
+
+
+@pytest.mark.parametrize(
+    ("change", "count"),
+    [
+        ("nothing", 0),
+        ("an edit of base-first's own", 1),
+        ("a new module", 1),
+        ("a new engine test", 1),
+        ("CLAUDE.md and the pages", 3),
+    ],
+)
+def test_the_short_set_takes_a_change_that_touches_no_file_of_main_s_but_claude_md_and_the_pages(
+    tmp_path: Path, change: str, count: int
+) -> None:
+    env = _branches(tmp_path)
+    _change(tmp_path / "repo", env, change)
+    check = _short_check(tmp_path, env)
+    assert check.returncode == 0, check.stdout + check.stderr
+    assert check.stdout == (
+        f"just test --short: {count} of the tree's paths differ from base-first's tip, none of them main's but"
+        " CLAUDE.md and docs/\n"
+    )
+
+
+MAIN_HAS = "which main has"
+NOT_RUN = "a test the short set does not run: a test of the new engine is a file tests/unit/test_aw_*.py"
+
+
+@pytest.mark.parametrize(
+    ("change", "named"),
+    [
+        ("a file of main's, not committed", [f"justfile, {MAIN_HAS}"]),
+        ("a file of main's, committed", [f"justfile, {MAIN_HAS}"]),
+        ("a file of main's, deleted", [f"justfile, {MAIN_HAS}"]),
+        # Its old name: --no-renames shows a rename as the file taken away from where main has it.
+        ("a file of main's, renamed", [f"justfile, {MAIN_HAS}"]),
+        ("a file of main's, its mode", [f"justfile, {MAIN_HAS}"]),
+        ("a test of today's", [f"tests/unit/test_today.py, {MAIN_HAS}"]),
+        ("a new test of today's kind", [f"tests/unit/test_more.py, {NOT_RUN}"]),
+        ("a new test of today's kind, in a folder", [f"tests/unit/units/test_more.py, {NOT_RUN}"]),
+    ],
+)
+def test_the_short_set_refuses_a_change_to_a_file_of_main_s_naming_it(tmp_path: Path, change: str, named) -> None:
+    env = _branches(tmp_path)
+    _change(tmp_path / "repo", env, change)
+    check = _short_check(tmp_path, env)
+    assert check.returncode == 1, check.stdout + check.stderr
+    lines = check.stderr.splitlines()
+    assert lines[0] == (
+        "error: just test --short is for a change that touches no file of main's but CLAUDE.md and docs/, and the tree"
+        " here differs from base-first's tip in:"
+    )
+    assert lines[1:-1] == [f"  {line}" for line in named], check.stderr
+    assert lines[-1].startswith("Run the whole set: just lint, just test unit"), check.stderr
+    assert check.stdout == ""
+
+
+def test_the_short_set_names_every_file_of_main_s_a_change_touches(tmp_path: Path) -> None:
+    env = _branches(tmp_path)
+    work = tmp_path / "repo"
+    for change in ("a file of main's, committed", "a test of today's", "a new module", "a new test of today's kind"):
+        _change(work, env, change)
+    check = _short_check(tmp_path, env)
+    assert check.returncode == 1, check.stdout + check.stderr
+    assert check.stderr.splitlines()[1:-1] == [
+        f"  justfile, {MAIN_HAS}",
+        f"  tests/unit/test_more.py, {NOT_RUN}",
+        f"  tests/unit/test_today.py, {MAIN_HAS}",
+    ]
+
+
+@pytest.mark.parametrize("missing", ["base-first", "main"])
+def test_the_short_set_refuses_where_a_branch_it_compares_is_not_there(tmp_path: Path, missing: str) -> None:
+    # As on a lane, whose checkout is main's with a worktree's files laid over it and no base-first: a refusal, never a
+    # pass, which a change it could not read would otherwise be.
+    env = _branches(tmp_path)
+    work = tmp_path / "repo"
+    _git(work, env, "checkout", "-q", "--detach")
+    _git(work, env, "branch", "-q", "-D", missing)
+    check = _short_check(tmp_path, env)
+    assert check.returncode == 1, check.stdout + check.stderr
+    assert check.stderr == (
+        "error: just test --short compares the tree with the branches base-first and main, and this repository has no"
+        f" branch {missing}: fetch it first\n"
+    )
+
+
+def test_the_short_set_refuses_outside_a_git_work_tree(tmp_path: Path) -> None:
+    (tmp_path / "repo").mkdir()
+    check = _short_check(tmp_path, {"GIT_CEILING_DIRECTORIES": str(tmp_path)})
+    assert check.returncode == 1, check.stdout + check.stderr
+    assert check.stderr.endswith("error: just test --short reads the change with git, and this is no git work tree\n")
+
+
+def test_short_lints_then_runs_the_engine_s_tests_and_today_s_that_read_the_tree_once(tmp_path: Path) -> None:
+    env = _branches(tmp_path)
+    _change(tmp_path / "repo", env, "a new module")
+    result = _just("test", "--short", settings=_testing(tmp_path), env=env)
+    assert result.returncode == 0, _output(result)
+    assert "just test --short: 1 of the tree's paths differ from base-first's tip" in _output(result)
+    order = (tmp_path / "order").read_text().split()
+    assert order.index("yamllint") < order.index("pytest"), order
+    assert _runs(tmp_path, "pytest") == [SHORT]
+    assert not _runs(tmp_path, "molecule")
+
+
+def test_short_refuses_a_change_to_a_file_of_main_s_before_anything_runs(tmp_path: Path) -> None:
+    env = _branches(tmp_path)
+    _change(tmp_path / "repo", env, "a file of main's, committed")
+    result = _just("test", "--short", settings=_testing(tmp_path), env=env)
+    assert result.returncode == 1, _output(result)
+    assert f"  justfile, {MAIN_HAS}\n" in result.stderr
+    assert not (tmp_path / "order").exists()
+
+
+@pytest.mark.parametrize("tool", ["yamllint", "pytest"])
+def test_a_part_of_the_short_set_that_fails_fails_it(tmp_path: Path, tool: str) -> None:
+    env = _branches(tmp_path)
+    settings = _testing(tmp_path)
+    _stand_in(tmp_path / "bin", tool, rc=1)
+    result = _just("test", "--short", settings=settings, env=env)
+    assert result.returncode != 0, _output(result)
+    assert len(_runs(tmp_path, tool)) == 1, _runs(tmp_path, tool)
+    # Lint first: a lint that fails ends the run before the tests start.
+    assert bool(_runs(tmp_path, "pytest")) == (tool == "pytest")
+
+
 @pytest.mark.parametrize(
     ("args", "error"),
     [
@@ -2871,6 +3030,12 @@ def test_the_gate_runs_the_new_engine_s_tests_once_in_the_unit_part(tmp_path: Pa
             "--role narrows the role scenarios, which engine does not run: just test --role common",
         ),
         (["engine", "--jobs", "2"], "--jobs runs Molecule scenarios side by side, and unit has none"),
+        # The short set is a set of its own, refused beside anything else before the branch is read.
+        (["--short", "unit"], "--short is a set of its own, with no part or other option: just test --short"),
+        (["--short", "engine"], "--short is a set of its own, with no part or other option: just test --short"),
+        (["--short", "--role", "common"], "--short is a set of its own, with no part or other option"),
+        (["--short", "--shard", "1/2"], "--short is a set of its own, with no part or other option"),
+        (["--short", "--jobs", "2"], "--short is a set of its own, with no part or other option"),
         (["bogus"], NOT_MATCHED),
     ],
 )

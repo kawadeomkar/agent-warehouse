@@ -23,9 +23,9 @@ one) - and uv (at the version `uv.lock` pins), making a virtualenv first on `PAT
 SHA256 beside the one version (`JUST_SHA256`, `JUST_SHA256_MACOS`), and refusing a runner of any other system before
 it downloads anything - restoring the uv and Galaxy caches, and running `just install`, which installs into that
 virtualenv as into any of a user's. The step compares the archive's digest with its pin itself, as a string, the
-digest `shasum -a 256`'s (Perl's, on both runners): no checker's reading of a line decides, since each runner has a
-`sha256sum` too, Ubuntu's GNU one and macOS 26's Apple one in `/sbin`, and Apple's passes a line it cannot read (an
-empty pin, or one a digit short) with exit 0. The Galaxy cache holds the
+digest `shasum -a 256`'s (Perl's, on both runners): no checker's reading of a line decides, and no runner's
+`sha256sum` is asked, since Apple's, on macOS 26, passes a line it cannot read (an empty pin, or one a digit short)
+with exit 0. The Galaxy cache holds the
 checkout's own collections folder (`tools/env-run --collections`), and its key hashes
 `requirements.yml`, which is only correct because those versions are exact. With `install: "false"` it stops
 after Python and uv: the docs workflow takes them from it, so their pins are written once. Every checkout, in every

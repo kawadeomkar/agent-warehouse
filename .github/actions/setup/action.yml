@@ -50,9 +50,9 @@ runs:
     # the runner's system - x86_64 Linux's, or arm64 macOS's - checked against the
     # SHA256 upstream publishes for it (SHA256SUMS beside it), copied here when the
     # pin was written. The step compares the digest itself, as a string, and no
-    # checker's reading of a line decides: each runner has a sha256sum (Ubuntu's
-    # GNU one; macOS 26's Apple one, in /sbin), and Apple's passes, with a warning
-    # and exit 0, a line it cannot read - an empty pin, or one a digit short. So
+    # checker's reading of a line decides: no runner's sha256sum is asked, since
+    # Apple's, on macOS 26, passes with a warning and exit 0 a line it cannot
+    # read - an empty pin, or one a digit short. So
     # the digest is shasum -a 256's (Perl's, on both runners) of the archive on
     # its standard input, which prints "<digest>  -", and the archive is taken
     # only where that is the pin and "  -": an empty or short pin, or a shasum
