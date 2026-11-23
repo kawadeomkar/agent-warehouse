@@ -1798,8 +1798,11 @@ it. `pointer_in` reads that line from a file's text, for `overrides.py`'s reader
 
 **The state and the key go with the home.** Whichever way the installed program's home is reached, by the variable or
 by a pointer, and however its path is spelled, its state folder and its key file are the installed program's own: a
-home is told to be that one by the real path of both, every link read, never by their text, so a `~/.config` that
-is a link into a dotfiles folder changes nothing. Two programs that drive one fleet share its jobs and its locks and
+home is told to be that one by the file system's identity of both, never by their text (`inside`: each made a real
+path, every link read, then the deepest part of the one that exists found among the other's parts by
+`os.path.samefile`, and the names below it, not made yet, compared as text), so a `~/.config` that is a link into a
+dotfiles folder changes nothing, and neither does a home spelled in another case on a disk that ignores case, as
+macOS's does by default. Two programs that drive one fleet share its jobs and its locks and
 open its vault with one key, and two fleets share neither. The key file is never in `fleet/`, which a person copies
 and may publish, nor in the state folder, which can be made again and which a cleanup may remove. In a checkout it is
 at the top of `.aw/`, and for the installed program in the data folder, never in the config folder that people keep
@@ -1907,14 +1910,43 @@ only while the file's digest is the one its caller read (`expect`), whole and in
 `paths.DIR_MODE`, a link where one goes refused; `set_current` writes
 `client.yml`'s `current_host` the same way. `literals(path)` is the one reader of a file of literals the fleet keeps, a
 host's `host.yml` too. Every refusal is a `Refused`, whose sentence never says a value back. Nothing else in `fleet/`
-writes a file but `files.py`, for `fleet.json`, and `hosts.py`'s `write`, a host's `host.yml` and anchor.
-A machine's recorded choices,
+writes a file but `files.py`, for `fleet.json` and `vault.age`, and `hosts.py`'s `write`, a host's `host.yml` and
+anchor. A machine's recorded choices,
 the design's third layer, are in its record, which is not read here. `tests/unit/test_aw_fleet_overrides.py` holds it:
 each layer over the one before, each home's file and none other, the path rule for each path row, the proxy's user and
 password refused at every way in by one check, each refusal with the file unchanged, the compare-and-swap, `--set`'s
 refusals with no value said, a size read alike, the reader of `client.yml` against `paths.py`'s own cases of
 `fleet_home`, and a scan that only `set`, `unset` and `set_current` write, and `files.py`'s `write` and `hosts.py`'s
 `write`.
+
+**The role options passed through: `passthrough.py`.** Every typed option of the roles that no row names - neither a
+row's name nor reached by a row's setting through today's wiring (`wiring.py`: `vm_cores` reaches `proxmox_vm_cores`) -
+may be set under the role's own name, as today's settings verb lets a person set it, held to its role's own
+`meta/argument_specs.yml` and handed to the role variable of the same name unchanged: no row is made for it and no fate
+entered by hand, so the spec is the one source of its type, choices and description. `options()` lists each, with its
+role, the entry point that first lists it (main first), the spec's type, choices, list elements, `no_log` and
+description, and `refused`: none for one passed through, else why it is no setting, as today's `tools/settings` refuses
+it, in the words a refusal says after its name. The vault's is one the spec marks `no_log` or that a name the vault
+holds reaches, so no secret is ever passed through; each machine's own is one made from the machine's name; a run's own
+is one a run sets for itself (`BY_A_RUN`); and `LEFT_OUT` names seven with their reasons: the host's connection, a field
+of each host's `host.yml`, and the certificate's switch the client has not (the four options today's connection
+settings fed); the two the run sets from `vpn`; and one a row of another name stands for (`destroy_allow_unrecorded`).
+`refusal(name)` says why of any other option of the roles a row does not have too: one a row's setting reaches is set
+through that row alone, and one whose spec takes any value has no type. Of today's 203 options, 87 are passed through.
+`overrides.py` takes the name of one passed through where it takes a row's, at home `fleet` and scope `global`: at the
+top of the fleet's `settings.yml`, and with `--set`, by `passthrough.row(name)`, its spec's type with no default; a path
+there is one on the machine the role runs on, held as one line of text and kept as typed, never made this computer's.
+`resolve` returns, after the rows, each such option the fleet's file or the run sets, and none set nowhere, since the
+role's own default applies where it runs; any other option of the roles is refused by its name and why, in a file and
+for one run, never saying the value. `typed(option, text)` holds typed text to the spec as `overrides.typed` holds text
+to a row. A kind of option no row's type holds (a list of anything but strings, choices of anything but a string) is
+refused as the table is made, before it could be passed through. `tests/unit/test_aw_fleet_passthrough.py` holds it:
+every option a row's, passed through or refused, none left out; each passed through carrying its spec; no secret passed
+through; each refusal's reason; a value held to its spec typed and in a file; and, against today's `tools/settings` run
+as a child over an inventory made from the example files, every name it lets a person set taken here as a row or an
+option, but the nine of today's settings with no row and the options left out by name, which the test names; every
+option it writes through another setting refused here through that setting's row; and every name it refuses no option
+here, refused for today's reason, role by role.
 
 **The hosts: `hosts.py`.** Each host is a folder of the fleet's files, `fleet/hosts/<name>/`, the first included, named
 as any host is (`hosts/model.py`'s `name_refusal`): `host.yml`, its own fields, which travel with the folder;
@@ -1966,10 +1998,10 @@ mode, since the data folder already holds `tools/env-run`'s `checkouts/` at the 
 asked for that is there is the person's and taken as it is, a link among them (a `~/.config` kept in a dotfiles folder,
 macOS's `/var`). `write(path, text)` writes a file whole through `store.replace`, its folder made by `folder`, a new
 file at 0600, one that is there keeping its mode, and through a link the file it names replaced: a file is one a person
-may keep elsewhere on purpose, a folder everything beneath it. `fleet.json`, the overrides' folders (`overrides.py`),
-a host's folders (`hosts.py`'s `write`), the jobs folder (`runs/job.py`) and the locks folder (`runs/locks.py`) are
-made through it, and nothing else of `fleet/` or `runs/` makes a folder but a job's own, inside the jobs folder, and a
-run's short-lived directory (16.8).
+may keep elsewhere on purpose, a folder everything beneath it. `fleet.json`, `vault.age` (`sealed.py`), the overrides'
+folders (`overrides.py`), a host's folders (`hosts.py`'s `write`), the jobs folder (`runs/job.py`) and the locks
+folder (`runs/locks.py`) are made through it, and nothing else of `fleet/` or `runs/` makes a folder but a job's own,
+inside the jobs folder, and a run's short-lived directory (16.8).
 
 **The fleet's ID and its record: `record.py`.** `fleet/fleet.json` is the computer's own record of a fleet:
 `FleetRecord(format, fleet, stores)`, the format of the file itself, the fleet's ID and the format number of every
@@ -2003,6 +2035,59 @@ VM: change it there, or retire it", which the base never writes and always refus
 `tests/unit/test_aw_fleet_mark.py` holds the three modules, with a scan that nothing else of `fleet/` or `runs/` makes
 a folder, and that each imports the standard library alone.
 
+**The vault: `secrets.py` and `sealed.py`.** The fleet's secrets are one file, `fleet/vault.age`: one JSON document,
+`{"format": 1, "secrets": {"<entry>": "<value>"}}`, encrypted whole with age, armored, to the X25519 recipient of one
+random key, through `pyrage`, which only the functions that need it import. A read decrypts the whole file and returns
+the map, each value a `Secret`, and a write encrypts the whole map again, so no value can be read or swapped inside the
+file without the key; what that gives up, reading one secret without opening the others, a run that holds the key for
+its whole life never needs. The key is handed in, a `Secret` that holds an age identity: `sealed.py` never looks for it.
+The names are a closed list, `secrets.ROWS`, each a `Row(name, scope, kind, description)`: each host's `token`, the
+secret of the engine's one token there; `vm_password`, the VMs' user's, the console's at a create and sudo's where it
+asks; an adopted machine's `become_password`; `anthropic_api_key`; and the optional `github_token`,
+`tailscale_auth_key`, `claude_setup_token`, and the credential that deletes a VM's device at a destroy,
+`tailscale_api_token` or an OAuth client's `tailscale_oauth_client_id` and `tailscale_oauth_client_secret`. No name is a
+setting's. A secret of the fleet's is kept under its name, a host's own as `<name>@<host>` and an adopted machine's as
+`<name>@<machine>` (`entry` makes the key, `parsed` reads one back); a name outside the list is refused, by its name
+only where it has a name's shape, and no refusal says a value. Each value is held to its row's kind (`KINDS`): a token's
+secret a UUID as Proxmox prints one, a password one line with no control character, a vendor's token one word, and
+Tailscale's auth key as today's `init` holds one, never an API token. `fleet.json`'s number for the vault is the one
+`record.refuse_newer` reads, before anything is decrypted, and the vault's own `format` must equal it: a vault whose
+number differs is refused by name. `create` writes an empty vault beside the fleet's record, once; `write` replaces the
+map, only while the vault still holds `expect`, the map its caller read, compared under the lock, so a caller that read
+before another's put is refused (`Changed`) and the put kept, as the overrides' writer is; `put` and `remove` change one
+entry of the map they read under the lock. Each holds `store.locked` on the fleet's folder, the lock `fleet.json`'s
+writer holds, across reading `fleet.json`, opening the vault with the key and replacing it through `files.write`, and
+writes it at `fleet.json`'s number, so the two numbers are read and written under one lock; a key that no longer opens
+the vault reads nothing and writes nothing, two writers lose neither change, and a writer killed part way leaves the old
+file. The plaintext is never on disk, and `_plain` and `_identity` alone read a `Secret`'s value there (`REVEALS`).
+`tests/unit/test_aw_fleet_sealed.py` holds it, with every file under a case's own directory read for every fake secret
+and key after the case.
+
+**The vault's key: `vaultkey.py`.** The key is a random age key, one line in a file that holds it and nothing else, by
+default `paths.key_file`: at the top of a checkout's `.aw/` or of a named home, or in the data folder for the installed
+program. `make_key(path)` makes one with `pyrage` and writes it `O_EXCL`, never through a link, at 0600 whatever the
+umask, its folder made at 0700 through `files.folder` where it is missing, and only where nothing is there: a key is
+never written over, and nothing here removes, moves or rewrites one. A run finds it in one order, from the values its
+caller resolved (`vault_key_file` and `vault_key_command`), so the module reads no file of settings: first
+`AGENT_WAREHOUSE_VAULT_KEY_FILE`, the one override, for a script and the agents' server, the path of a file read and
+never run, whatever its mode, and never waited on (a pipe or a folder there is no file); then `vault_key_command`,
+whose place this is and whose running is not built yet, so a run where it is set refuses rather than read the file
+after it; then the file `vault_key_file` names, `""` the default. `ANSIBLE_VAULT_PASSWORD_FILE` is never read and is no
+refusal. `source` returns the first place that exists; `open` returns the key once the fleet's vault opens with it (with
+no vault yet, once the key file holds an age key: a new fleet's vault is sealed to its own key file's key, so there the
+variable's file and a command are refused, nothing read or run, `NoVaultYet`), or one sentence: nothing here opens the
+vault, with what would, by `vault_key_file` and never the variable - `init` where there is no vault, the key copied from
+the computer that made the fleet, or its file named in `vault_key_file`, where there is one (`NoKey`); the place failed,
+in the system's words made one line (`Failed`); or the place answered with what does not open this vault: no age key, or
+another fleet's key or a vault changed since, which age does not tell apart (`WrongKey`, from `sealed.py`'s
+`NotOpened`). A place that exists and fails is a refusal, and nothing after it is tried. A key file named in the fleet's
+folder, the state folder or the installed program's config folder is refused by name (`Misplaced`), by `paths.inside`,
+and a value that is no path is never said, since a key pasted there would be on the screen. Every refusal is a
+`sealed.Refused`, so a caller catches the vault's and the key's as one, and exits 1, or 3 from `status`; nothing here
+reads the terminal, so a run with nobody there opens the vault as one at a terminal does.
+`tests/unit/test_aw_fleet_vaultkey.py` holds it, with a vault opened in a child with no terminal and standard input from
+`/dev/null`, and the scan that only `vaultkey.py` names the variable and only `paths.py` and `vaultkey.py` the key file.
+
 ## 16.10 `guest/` — the helper, the system layer's inputs, layer 2
 
 `lib/claude_vm/guest/` is where what the engine does inside a machine goes: the helper, which is sent to the machine
@@ -2011,6 +2096,29 @@ only, and layer 2, the rest of the work, in plain code. It imports `ssh/`, `sche
 starter of a child, and the run's directory), and nothing of `engine/`, `cli/` or `control/`, and no pydantic. A plugin
 of that Ansible child is the one code of the new engine that imports `ansible`. It lives under `guest/ansible/`, where
 the child's own configuration names it.
+
+**The helper, sent on standard input.** The helper is one Python program for a machine's own `python3`, held to Python
+3.9's syntax and to the standard library, and never installed: each use sends it whole on the machine's standard
+input. `lib/claude_vm/guest/bundle.py`'s `script(entry, asked)` packs its sources into one text after a mark on a line
+of its own (`MARK`), each defined in memory under the module name it is imported by, and ends with a call of the
+dispatcher, `lib/claude_vm/guest/helper/main.py` (`helper <verb> [words]`), handed the verb, its words and what it is
+asked, as JSON inside the text and never on a command line. The command line holds the bootstrap alone (`command()`:
+`/usr/bin/python3 -I -B -c` and `BOOTSTRAP`), which reads standard input whole and executes it from the mark: what comes
+before it, a password's line that `sudo -S` was handed and left there, is dropped unread, and since the mark is looked
+for after a newline, which such a line holds only at its end, no part of one is ever executed or said back. Its one verb
+is `probe`, today's status probe unchanged, with its fixed list of reads; a verb it does not know, a word too many or an
+ask that is not a JSON object is one line on standard error and exit status 2, nothing run. The sources are read by
+`sources()` alone, the one function of `lib/claude_vm/` outside `status/` that names `playbooks/module_utils/`: the
+probe's three files stay there until the cutover, since today's Ansible modules import them as `module_utils`, and
+`sources()` finds them from the package's own place, two folders below the checkout's top, never the working directory.
+A release is a checkout of a signed tag, so it holds the same files; the cutover moves them into `guest/helper/` (card
+K28), and `sources()` then reads the package's own files alone. The script defines `ansible` and `ansible.module_utils`
+as empty packages, so that the probe's own imports resolve on a machine with no Ansible. Today's `just status` bundles
+the same three files with `lib/claude_vm/status/reach.py`'s `probe_script`, which this module neither changes nor
+imports, since today's product never imports the new engine: the two print the same document for the same ask.
+`tests/unit/test_aw_guest_helper.py` holds that against today's stand-in VMs and through the SSH runner to a stand-in
+machine, with the sources' syntax and imports, the scan of what names the folder, and `ALLOWED` bounding every program
+the bundled probe runs.
 
 **Layer 1's child.** `lib/claude_vm/guest/layer1.py`'s `run` converges one machine with one `ansible-playbook`, started
 through `children.start` as an `ansible` child of the run, in a session of its own: it has no terminal, a terminal's

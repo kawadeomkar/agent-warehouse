@@ -45,7 +45,8 @@ REPLACES = {
     "lib/claude_vm/fleet/overrides.py": "the three files of overrides, by set and unset, and client.yml's current_host"
     " by set_current",
     "lib/claude_vm/fleet/files.py": "fleet.json, by record.write through files.write, its one writer of a file, which"
-    " makes the file's folder through files.folder first",
+    " makes the file's folder through files.folder first; and vault.age, by sealed.py's create, write, put and remove"
+    " through it, the ciphertext alone",
     "lib/claude_vm/fleet/hosts.py": "a host's host.yml and its anchor, by write alone, through _commit"
     " (tests/unit/test_aw_fleet_host_writer.py holds that)",
 }

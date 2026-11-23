@@ -1027,10 +1027,12 @@ ADDED: tuple[Row, ...] = (
         "path",
         the_homes_key_file,  # computed: the key file fleet.paths names for the running program's home
         "common",
-        "The file that holds the key the vault opens with. By default the key file in a folder of this computer's "
-        "own: at the top of the checkout's .aw/, beside client.yml, or in the data folder for the installed program; "
-        "never in the fleet's folder, which you copy, nor in the state folder, which a cleanup may remove. Back it up "
-        "apart from the fleet's folder. ~ at its start is your home; a relative path is refused by name.",
+        "The file that holds the key the vault opens with, and nothing else. Empty: the key file in a folder of this "
+        "computer's own, at the top of the checkout's .aw/, beside client.yml, or in the data folder for the installed "
+        "program. Never in the fleet's folder, which you copy, nor in the state folder, which a cleanup may remove, "
+        "nor in the installed program's config folder, which people publish: a file you name in one of them is "
+        "refused by name. Back it up apart from the fleet's folder. ~ at its start is your home; a relative path is "
+        "refused by name.",
     ),
     _client(
         "vault_key_command",

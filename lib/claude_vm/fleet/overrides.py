@@ -15,10 +15,13 @@ and is read from that file alone:
   `set_current` alone.
 
 A row of home `run` is in no file: it is given with `--set` alone. A setting in a file that is not its home is refused
-by name, with the line it is on and where it belongs.
+by name, with the line it is on and where it belongs. A role's option passed through (fleet/passthrough.py) is taken
+where a row's name is, at home `fleet` and scope `global`: at the top of the fleet's `settings.yml`, or with `--set`,
+held to its role's own spec; one of the roles' options that is no setting is refused by name with why.
 
 `read(home, host)` returns the three files of a host; `resolve(home, host, run)` the value of every row with the
-layer that set it, one of `LAYERS`: the table's default, then the file of the row's home, then the run's. `typed(row,
+layer that set it, one of `LAYERS`: the table's default, then the file of the row's home, then the run's; and after
+them, each option passed through that the fleet's file or the run sets, which has no default here. `typed(row,
 text)` holds typed text to a row's type, choices, form and least value, a path's rule (`~` the user's home, a path
 still relative refused by name, `""` unset) and `network_proxy` to vendors/proxy.py's one check of it, which refuses a
 user and a password; a file's value is held the same way. `run_values(texts, secrets=...)` holds the words of `--set`;
@@ -28,8 +31,8 @@ keeps, a host's host.yml too. Every refusal is a `Refused`, whose sentence never
 the wrong place would be on the screen. A machine's recorded choices, the design's third layer, are in the machine's
 record, which is not read here.
 
-Standard library and the table at import; the YAML reader is imported by the functions that read or write a file, and
-vendors/proxy.py by the one that holds network_proxy.
+Standard library, the table and the options passed through at import; the YAML reader is imported by the functions
+that read or write a file, and vendors/proxy.py by the one that holds network_proxy.
 """
 
 from __future__ import annotations
@@ -49,7 +52,7 @@ from types import MappingProxyType
 
 from claude_vm import store
 from claude_vm.fleet import files as fleet_files
-from claude_vm.fleet import paths, registry
+from claude_vm.fleet import passthrough, paths, registry
 from claude_vm.fleet.registry import Row
 from claude_vm.schema import patterns
 from claude_vm.secret import Secret
@@ -343,16 +346,32 @@ def _flow(text: str, kind: type) -> object:
 
 def _unknown(name: str) -> str:
     """Why a name is refused, never saying it back - a secret pasted for a name would be on the screen - but naming
-    the settings close to it."""
-    close = difflib.get_close_matches(name, [each.name for each in registry.rows()], n=3, cutoff=0.75)
+    the settings close to it, the role options passed through among them."""
+    names = [each.name for each in registry.rows()] + [each.name for each in passthrough.options() if not each.refused]
+    close = difflib.get_close_matches(name, names, n=3, cutoff=0.75)
     return "that is no setting's name" + (f" (did you mean {' or '.join(close)}?)" if close else "")
 
 
-def _row(name: str) -> Row:
+def _row_or_option(name: str) -> Row | None:
+    """The row of a setting, or the row a role's option passed through is read by; None for any other name."""
     try:
         return registry.row(name)
     except KeyError:
-        raise Refused(_unknown(name)) from None
+        pass
+    try:
+        return passthrough.row(name)
+    except KeyError:
+        return None
+
+
+def _row(name: str) -> Row:
+    """The row of a setting or of a role's option passed through; Refused for a role's option that is no setting, by
+    its name and why, and for any other name, which is never said back."""
+    found = _row_or_option(name)
+    if found is not None:
+        return found
+    why = passthrough.refusal(name)
+    raise Refused(f"{name} {why}" if why is not None else _unknown(name))
 
 
 def _holds_a_secret(texts: Iterable[str], secrets: Iterable[Secret]) -> bool:
@@ -621,10 +640,10 @@ def _settings(
         line = f"{path} line {lines.get((*under, key), 1) if isinstance(key, str) else 1}"
         if not isinstance(key, str) or not patterns.full("setting_name", key):
             raise Refused(f"{line}: {_key_named(key)} that is no setting's name")
-        try:
-            row = registry.row(key)
-        except KeyError:
-            raise Refused(f"{line}: {key} is no setting") from None
+        row = _row_or_option(key)
+        if row is None:
+            why = passthrough.refusal(key)
+            raise Refused(f"{line}: {key} {why if why is not None else 'is no setting'}")
         if not _here(row, kind, under[0] if under else None):
             raise Refused(f"{line}: {key} is not kept here: {_belongs(row)}")
         if value is None:
@@ -783,7 +802,9 @@ def resolve(
     it: the value run gives (`run_values`' result), else the one its home's file sets, else the table's default. A
     default worked out from something else is worked out here: from another row's value, the machine's name, this
     computer's user home, or the home's key file. With no machine named, a default made from the machine's name is None:
-    it has a value only for a machine. In the table's order."""
+    it has a value only for a machine. In the table's order; after the rows, each role's option passed through that the
+    run or the fleet's file sets, in fleet/passthrough.py's order: one set nowhere has no value here, since its role's
+    own default applies where the role runs."""
     env = os.environ if environ is None else environ
     layers = read(home, host, environ=env)
     if host is not None and machine is not None:
@@ -833,7 +854,15 @@ def resolve(
 
     for row in registry.rows():
         worked_out(row, ())
-    return {row.name: found[row.name] for row in registry.rows()}
+    resolved = {row.name: found[row.name] for row in registry.rows()}
+    for option in passthrough.options():
+        if option.refused is not None:
+            continue
+        if option.name in given:
+            resolved[option.name] = Value(option.name, given[option.name], RUN)
+        elif (set_by := _from_files(passthrough.row(option.name), layers, host, machine)) is not None:
+            resolved[option.name] = Value(option.name, set_by[1], set_by[0])
+    return resolved
 
 
 # ---------------------------------------------------------------- writing one value ----
@@ -936,9 +965,10 @@ def set(
     environ: Mapping[str, str] | None = None,
 ) -> str:
     """Write one setting's value into the file of its home, for host (and machine, for a row of scope machine; with
-    none, client.yml's vm_ssh_options for every machine), held to its row first: compare-and-swap on expect, the digest
-    of the file as the caller read it (File.digest), refused with nothing written where the file changed since. The
-    file's other keys are kept as they are. Returns the digest of the file after it."""
+    none, client.yml's vm_ssh_options for every machine), a role's option passed through at the top of the fleet's
+    settings.yml, held to its row first: compare-and-swap on expect, the digest of the file as the caller read it
+    (File.digest), refused with nothing written where the file changed since. The file's other keys are kept as they
+    are. Returns the digest of the file after it."""
     env = os.environ if environ is None else environ
     row = _row(name)
     try:

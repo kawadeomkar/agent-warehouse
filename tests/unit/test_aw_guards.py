@@ -49,6 +49,8 @@ REVEALS: dict[str, str] = {
     "lib/claude_vm/vendors/transport.py": "a request's header or form value, a token's above all, read in _plain alone",
     "lib/claude_vm/ssh/runner.py": "a child's standard input, a password or a sign-in's code above all, read in _bytes"
     " alone and written to the child",
+    "lib/claude_vm/fleet/sealed.py": "the vault's plaintext and its key, each value read in _plain and the key in"
+    " _identity alone, and encrypted in memory before anything is written",
 }
 
 # The fixtures of the engine's test files whose scope is wider than one test, each with why it may be: pytest makes
@@ -56,7 +58,8 @@ REVEALS: dict[str, str] = {
 # developer's PATH, environment and home, and the network open (docs/architecture/testing.md §11.1).
 WIDER_THAN_A_TEST: dict[str, str] = {
     "test_aw_fleet_paths.py::module_runs_environment": "harness._env of a directory of its own, what a module's run"
-    " made before its tests is given: it starts nothing and reaches nothing",
+    " made before its tests is given, and the installed program's folders as the developer's environment names them,"
+    " paths it opens none of: it starts nothing and reaches nothing",
     "test_aw_pve_agent.py::pki": "a certificate authority made in process with cryptography, for the fake Proxmox: it"
     " starts nothing and reaches nothing",
     "test_aw_pve_reads.py::pki": "a certificate authority made in process with cryptography, for the fake Proxmox: it"

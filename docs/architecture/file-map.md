@@ -273,11 +273,16 @@ lib/claude_vm/fleet/              a fleet's files: where they are, the hosts, th
                                   paths.py, the one resolver of a fleet's home, its state folder and its key file;
                                   registry.py, the settings table, a typed row written by hand for each setting;
                                   overrides.py, the plain files of what a person sets, in three layers, and --set;
+                                  passthrough.py, every typed role option no row names, passed through or refused;
                                   hosts.py, the hosts as a folder each, the current host, which one a run reaches,
                                   and host.yml's one writer, the anchor with it;
                                   files.py, the one maker of the fleet's folders, a link refused where one goes;
                                   record.py, fleet.json: the fleet's ID and every store's format number;
-                                  mark.py, the pool's mark and the one rule a changing run reads it by
+                                  mark.py, the pool's mark and the one rule a changing run reads it by;
+                                  secrets.py, the vault's closed list of named secrets, each with its scope and kind;
+                                  sealed.py, vault.age: the named secrets in one age file, encrypted whole;
+                                  vaultkey.py, the vault's key: made once in a file of this computer's own, found
+                                  in one order
 lib/claude_vm/guest/              inside a machine: the helper, the system layer's inputs, layer 2; layer1.py,
                                   one ansible-playbook for one machine, its configuration, inventory and
                                   environment made by the engine

@@ -13,7 +13,8 @@ pointer that line does not say is refused, so that the overrides' reader of `cli
 reads a home this module did not.
 
 The state folder and the key file are derived from the home, whichever way it was reached and however its path is
-spelled (a home is the installed program's by its real path, links read), so that two programs that drive one fleet
+spelled (a home is the installed program's by its identity on the file system, links read and case as the disk takes
+it: `inside`), so that two programs that drive one fleet
 share its jobs and its locks and open its vault with one key, and two fleets share neither. The key file is in neither
 the fleet's folder, which a person copies or publishes, nor the state folder, which can be made again and which a
 cleanup may remove: no folder `state`, `jobs_dir`, `locks_dir`, `logs_dir` or `status_cache` returns holds it, and a
@@ -204,18 +205,51 @@ def _pointer(client: Path, environ: Mapping[str, str]) -> Path | None:
 
 
 def _real(path: Path) -> Path:
-    """path as the file system resolves it, every link read: one folder has one answer however it is spelled. It
-    only reads, and a part that does not exist yet is kept as written."""
+    """path as the file system resolves it, every link read. It only reads, and a part that does not exist yet is kept
+    as written. A disk that ignores case (macOS's, by default) still gives one folder two real paths: `inside` asks the
+    file system which folder each is."""
     return Path(os.path.realpath(path))
 
 
+def _anchored(path: Path) -> tuple[Path, tuple[str, ...]]:
+    """path's deepest part that exists, and the names below it that do not yet, as written."""
+    here, below = path, ()
+    while not os.path.exists(here) and here.parent != here:
+        here, below = here.parent, (here.name, *below)
+    return here, below
+
+
+def _identical(a: Path, b: Path) -> bool:
+    """Whether a and b, which exist, are one file by the file system's own identity (device and inode)."""
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
+def inside(path: str | os.PathLike, folder: str | os.PathLike) -> bool:
+    """Whether path is folder or lies beneath it, however either is spelled: each made a real path, every link read,
+    then the deepest part of folder that exists found among path's parts by its identity (os.path.samefile), never by
+    its text, so that a disk that ignores case spells no folder two ways; the names below it that do not exist yet are
+    compared as text. It only reads."""
+    path, folder = _real(Path(os.path.abspath(path))), _real(Path(os.path.abspath(folder)))
+    top, wanted = _anchored(folder)
+    here, names = _anchored(path)
+    while True:
+        if _identical(here, top):
+            return names[: len(wanted)] == wanted
+        if here.parent == here:
+            return False
+        here, names = here.parent, (here.name, *names)
+
+
 def _same(a: Path, b: Path) -> bool:
-    return _real(a) == _real(b)
+    return inside(a, b) and inside(b, a)
 
 
 def _derived(root: Path, how: str, environ: Mapping[str, str], named: str, pointer: Path | None = None) -> Home:
     config, state, data = installed(environ)
-    if _real(root).is_relative_to(_real(state)):
+    if inside(root, state):
         # The state folder can be made again and a cleanup may remove it: a fleet's files and its key never live there.
         raise Refused(
             f"{named} is {root}, inside {state}, the installed program's state folder, which a cleanup may remove:"
