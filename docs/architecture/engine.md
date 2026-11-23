@@ -1730,7 +1730,8 @@ this computer's `client.yml` (a row of scope `host` in its map `hosts`, by the h
 `vm_ssh_options` at its top level for every machine and in its map `machines` for one, which outranks it). A setting in
 a file that is not its home is refused by name, with its line and where it belongs; a row of home `run` is in no file.
 `client.yml` also keeps `fleet_home`, read by YAML and held equal to what `paths.pointer_in` reads, so the file and the
-fleet's home never read it apart, and `current_host`, a host's name; a write keeps both as they are. `read(home, host)`
+fleet's home never read it apart, and `current_host`, a host's name, which `set_current` alone writes; every other write
+keeps both as they are. `read(home, host)`
 returns the three files of a host's run (`Layers`, each a `File` with its digest); `resolve(home, host, run)` every
 row's `Value` with the layer that set it (`LAYERS`: `default`, `fleet`, `host`, `client`, `run`): the value given for
 the run, else its home's file's, else the table's default, a default worked out from another row, the machine's name
@@ -1744,13 +1745,44 @@ hold a secret is never given for one run, and a value that holds one of the vaul
 each a `Secret`, struck and never revealed) is refused in the text and in the value; the result is what a run records as
 its inputs and `resolve`'s top layer. `set` and `unset` write one value into the file of its home, under `store.locked`,
 only while the file's digest is the one its caller read (`expect`), whole and in ASCII, read back as meant before
-`store.replace` puts it in place, a new file at `paths.FILE_MODE` in folders at `paths.DIR_MODE`. Every refusal is a
-`Refused`, whose sentence never says a value back. Nothing else in `fleet/` writes a file. A machine's recorded choices,
+`store.replace` puts it in place, a new file at `paths.FILE_MODE` in folders at `paths.DIR_MODE`; `set_current` writes
+`client.yml`'s `current_host` the same way. `literals(path)` is the one reader of a file of literals the fleet keeps, a
+host's `host.yml` too. Every refusal is a `Refused`, whose sentence never says a value back. Nothing else in `fleet/`
+writes a file. A machine's recorded choices,
 the design's third layer, are in its record, which is not read here. `tests/unit/test_aw_fleet_overrides.py` holds it:
 each layer over the one before, each home's file and none other, the path rule for each path row, the proxy's user and
 password refused at every way in by one check, each refusal with the file unchanged, the compare-and-swap, `--set`'s
 refusals with no value said, a size read alike, the reader of `client.yml` against `paths.py`'s own cases of
-`fleet_home`, and a scan that only `set` and `unset` write.
+`fleet_home`, and a scan that only `set`, `unset` and `set_current` write.
+
+**The hosts: `hosts.py`.** Each host is a folder of the fleet's files, `fleet/hosts/<name>/`, the first included, named
+as any host is (`hosts/model.py`'s `name_refusal`): `host.yml`, its own fields, which travel with the folder;
+`settings.yml`, its overrides; and, where it keeps one, `proxmox-trust.pem`, the anchor its API's certificate is
+verified against. `host.yml`'s fields are `FIELDS`, each held to what it takes: `address`, one word that starts with a
+letter or a digit; `api_port` (8006); the token's `token_user`, `user@realm`, and `token_id`, the three it must give;
+`ssh_user` (`root`) and `ssh_port` (22), which root SSH and the hop use, and `jump`, the account the hop logs in as
+where it is another; `trust_kind`, `node` or `ca`, beside the anchor and only there, with the `fingerprint` recorded for
+it; and `made`, what this fleet made on the host, each by what it is, its ID and who made it (`engine` or
+`administrator`), which a cleanup removes and nothing else. No field is one computer's: a key's path is the row
+`ssh_identity_file` in `client.yml`'s map `hosts`, and a setting given in `host.yml` is refused, saying where it is
+kept. `Layout(home)` is a second layout beside today's `hosts/layout.py`, with every method and attribute today's core
+uses of one, so `hosts/choose.py` and `hosts/model.py` read it as they stand: `hosts_rel` is `fleet/hosts`; a `Host`'s
+`local` is its resolved settings of scope `host`, from its own `settings.yml` and `client.yml`'s map for it over the
+table's defaults, which `defaults()` gives; its `first` marks the fleet's one host. The current host is `client.yml`'s
+`current_host`, this computer's own; with one host and none current a run reaches it, and with several and none current
+a run that names none is refused, since which one is this computer's to choose. A VM named is reached on the host its
+alias records, `# origin:` in the managed SSH config under this computer's home, as today, with `claude_ssh_config` off
+recording none. `reach(layout, request)` decides a run's host by today's rules (`choose.choose`), then keeps the
+refusals that still have a meaning: a host whose files cannot be used, and one whose `settings.yml` does not set each of
+`FLEET_KINDS`' `always` (`hosts/kinds.py`'s second table: the node, storage, bridge and template), taken all the same by
+a lenient request (`settings`, `vault`) that may put it right; a setting the fleet's file may not supply is refused by
+the overrides' reader there. It returns the host, its fields and anchor, and with several hosts the others' names and
+addresses a run keeps apart from its machines. What a host's files say is that host's problem, said in its place, and a
+run against another goes on. `make_current` writes `current_host` through `overrides.set_current`, held to a host of the
+fleet that can be used. A `Host`'s `local_file`, `vault_file`, `hosts_file` and `sources` name today's inventory and are
+read by no module of the new engine. `tests/unit/test_aw_fleet_hosts.py` holds it: today's cases of the layout and the
+choice on the new folders, each field's rule with no value said, the anchor beside its kind, the one writer of the
+current host, the literal list of `host.yml`'s fields, and the scan for today's files.
 
 ## 16.10 `guest/` — the helper, the system layer's inputs, layer 2
 

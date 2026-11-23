@@ -11,7 +11,8 @@ and is read from that file alone:
 - this computer's `client.yml`: a row of home `client`, at its top level; one of scope `host` in its map `hosts`, by the
   host's name, and never at its top level, since each host's is its own; and one of scope `machine` (`vm_ssh_options`)
   at its top level for every machine and in its map `machines` for one, which outranks it. Beside them, its
-  `fleet_home` (fleet/paths.py's) and `current_host` (the hosts', fleet/hosts.py) are kept as they are.
+  `fleet_home` (fleet/paths.py's) is kept as it is, and its `current_host` (the hosts', fleet/hosts.py) is written by
+  `set_current` alone.
 
 A row of home `run` is in no file: it is given with `--set` alone. A setting in a file that is not its home is refused
 by name, with the line it is on and where it belongs.
@@ -21,10 +22,11 @@ layer that set it, one of `LAYERS`: the table's default, then the file of the ro
 text)` holds typed text to a row's type, choices, form and least value, a path's rule (`~` the user's home, a path
 still relative refused by name, `""` unset) and `network_proxy` to vendors/proxy.py's one check of it, which refuses a
 user and a password; a file's value is held the same way. `run_values(texts, secrets=...)` holds the words of `--set`;
-`set` and `unset` write one value under `store.locked`, compare-and-swap on the digest of the file as the caller read
-it. Every refusal is a `Refused`, whose sentence never says a value back: a secret pasted in the wrong place would be
-on the screen. A machine's recorded choices, the design's third layer, are in the machine's record, which is not read
-here.
+`set` and `unset` write one value, and `set_current` client.yml's current host, under `store.locked`, compare-and-swap
+on the digest of the file as the caller read it. `literals(path)` is the one reader of a file of literals the fleet
+keeps, a host's host.yml too. Every refusal is a `Refused`, whose sentence never says a value back: a secret pasted in
+the wrong place would be on the screen. A machine's recorded choices, the design's third layer, are in the machine's
+record, which is not read here.
 
 Standard library and the table at import; the YAML reader is imported by the functions that read or write a file, and
 vendors/proxy.py by the one that holds network_proxy.
@@ -61,8 +63,11 @@ HOSTS = "hosts"
 # The two maps under a file's top level: client.yml's by a host's name, and the fleet's and client.yml's by
 # <host>/<machine>.
 MAPS = {FLEET: ("machines",), HOST: (), CLIENT: ("hosts", "machines")}
-# client.yml's keys that are no setting, each another module's, read here and kept as they are by every write.
+# client.yml's keys that are no setting, each another module's, read here and kept as they are by every write but
+# set_current's, which writes current_host.
 CLIENT_OWN = ("fleet_home", "current_host")
+# What a file of overrides holds, one and all, as a refusal says it.
+SETTING = ("setting", "settings")
 # A file that is not there reads as an empty one with this digest, which no file's content has.
 MISSING = ""
 # The most a file of overrides may hold: more is no settings file.
@@ -494,19 +499,19 @@ def _lines(text: str) -> dict[tuple[str, ...], int]:
     return found
 
 
-def _bytes(path: Path) -> bytes | None:
-    """The file's bytes, at most MOST of them; None where it is not there."""
+def _bytes(path: Path, what: tuple[str, str] = SETTING) -> bytes | None:
+    """The file's bytes, at most MOST of them; None where it is not there. what names what the file holds, as a
+    refusal says it (SETTING, or fleet/hosts.py's for a host's host.yml)."""
+    many = what[1]
     try:
         with open(path, "rb") as stream:
             data = stream.read(MOST + 1)
     except FileNotFoundError:
         return None
     except OSError as error:
-        raise Refused(f"{path} cannot be read ({error.strerror or error}): the settings are not known") from None
+        raise Refused(f"{path} cannot be read ({error.strerror or error}): the {many} are not known") from None
     if len(data) > MOST:
-        raise Refused(
-            f"{path} holds more than a file of settings does ({MOST} bytes at most): the settings are not known"
-        )
+        raise Refused(f"{path} holds more than a file of {many} does ({MOST} bytes at most): the {many} are not known")
     return data
 
 
@@ -514,27 +519,48 @@ def _digest(data: bytes | None) -> str:
     return MISSING if data is None else hashlib.sha256(data).hexdigest()
 
 
-def _raw(text: str, path: Path) -> tuple[dict, dict[tuple[str, ...], int]]:
-    """A file's text as a plain mapping, with the line each key is on: refused where it is no mapping of literals."""
+def _raw(text: str, path: Path, what: tuple[str, str] = SETTING) -> tuple[dict, dict[tuple[str, ...], int]]:
+    """A file's text as a plain mapping, with the line each key is on: refused where it is no mapping of literals.
+    what names one of what the file holds and all of them, as a refusal says them."""
     import yaml
 
+    one, many = what
     found = TEMPLATE.search(text)
     if found is not None:
-        raise Refused(f"{path} line {text.count(chr(10), 0, found.start()) + 1}: a setting {EXPRESSION}")
+        raise Refused(f"{path} line {text.count(chr(10), 0, found.start()) + 1}: a {one} {EXPRESSION}")
     try:
         data = _construct(text)
         lines = _lines(text)
     except yaml.MarkedYAMLError as error:
         mark = error.problem_mark or error.context_mark
         line = f" line {mark.line + 1}" if mark is not None else ""
-        raise Refused(f"{path}{line}: this is not a file of settings ({error.problem or error.context})") from None
+        raise Refused(f"{path}{line}: this is not a file of {many} ({error.problem or error.context})") from None
     except yaml.YAMLError:
-        raise Refused(f"{path}: this is not a file of settings, which is YAML") from None
+        raise Refused(f"{path}: this is not a file of {many}, which is YAML") from None
     if data is None:
         return {}, {}
     if not isinstance(data, dict):
-        raise Refused(f"{path} line {lines.get((), 1)}: this is not a mapping of settings to their values")
+        raise Refused(f"{path} line {lines.get((), 1)}: this is not a mapping of {many} to their values")
     return data, lines
+
+
+def literals(path: Path, what: tuple[str, str] = SETTING) -> tuple[dict, dict[tuple[str, ...], int]]:
+    """A file of literals the fleet keeps, as a plain mapping, with the line each key is on by the keys that lead to
+    it: the one reader of such a file, the three files of overrides and a host's host.yml (fleet/hosts.py) alike. Empty
+    where the file is not there. Refused, by its path and line, where it holds more than MOST bytes, is not UTF-8,
+    holds an expression anywhere, or is no mapping of literals: an anchor, an alias, a merge, a key given twice or a
+    second document among it. what names one of what the file holds and all of them, as a refusal says them."""
+    data = _bytes(path, what)
+    if data is None:
+        return {}, {}
+    return _raw(_text(data, path, what), path, what)
+
+
+def _text(data: bytes, path: Path, what: tuple[str, str] = SETTING) -> str:
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        raise Refused(f"{path} is not UTF-8 text: the {what[1]} are not known") from None
 
 
 def _belongs(row: Row) -> str:
@@ -667,13 +693,7 @@ def _own(data: dict, pointed: Path | None, path: Path, lines: dict, environ: Map
 
 def _file(path: Path, data: bytes | None, kind: str, environ: Mapping[str, str]) -> tuple[File, dict]:
     """A file of kind as read from its bytes, and its plain mapping, which a write changes."""
-    if data is None:
-        text = ""
-    else:
-        try:
-            text = data.decode("utf-8")
-        except UnicodeDecodeError:
-            raise Refused(f"{path} is not UTF-8 text: the settings are not known") from None
+    text = "" if data is None else _text(data, path)
     pointed = _pointed(text, path, environ) if kind == CLIENT else None
     raw, lines = _raw(text, path)
     maps = MAPS[kind]
@@ -864,12 +884,18 @@ def _folders(home: paths.Home, place: _Place) -> None:
 
 
 def _write(
-    home: paths.Home, place: _Place, change: Callable[[dict], None], expect: str, environ: Mapping[str, str]
+    home: paths.Home,
+    place: _Place,
+    change: Callable[[dict], None],
+    expect: str,
+    environ: Mapping[str, str],
+    own: Mapping[str, object] = MappingProxyType({}),
 ) -> str:
     """The one writer of a file of overrides: under store.locked, only while the file is still as the caller read it
-    (its digest is expect), changed by change, written whole, read back the same - client.yml's fleet_home read the
-    same by fleet/paths.py too - and replaced atomically. Returns the digest of what the file holds after. A change that
-    writes nothing into a file whose folder is not there makes no folder."""
+    (its digest is expect), changed by change, written whole, read back the same - client.yml's keys that are no
+    setting read back as they were but for what own says they become, fleet_home read the same by fleet/paths.py too -
+    and replaced atomically. Returns the digest of what the file holds after. A change that writes nothing into a file
+    whose folder is not there makes no folder."""
     if not place.path.parent.is_dir():
         nothing: dict = {}
         change(nothing)
@@ -889,7 +915,7 @@ def _write(
             return before.digest
         text = _dumped(after)
         written, again = _file(place.path, text.encode("utf-8"), place.kind, environ)
-        if again != after or (place.kind == CLIENT and written.own != before.own):
+        if again != after or (place.kind == CLIENT and dict(written.own) != {**before.own, **own}):
             raise Refused(f"{place.path} would not read back as it is meant to once written: nothing was written")
         store.replace(place.path, text, mode_if_new=paths.FILE_MODE)
         return written.digest
@@ -956,3 +982,18 @@ def unset(
                 del parent[key]
 
     return _write(home, place, change, expect, env)
+
+
+def set_current(home: paths.Home, host: str, expect: str, *, environ: Mapping[str, str] | None = None) -> str:
+    """Write client.yml's current_host, this computer's current host: a host's name, held to it here as the reader
+    holds it, and to a host of the fleet that can be used by its one caller, fleet/hosts.py's make_current, first.
+    Compare-and-swap on expect, as set; the file's settings and fleet_home are kept as they are. Returns the digest of
+    the file after it."""
+    env = os.environ if environ is None else environ
+    name = _host_name(host)
+    place = _Place(paths.client_file(home), CLIENT, ())
+
+    def change(raw: dict) -> None:
+        raw["current_host"] = name
+
+    return _write(home, place, change, expect, env, own={"current_host": name})

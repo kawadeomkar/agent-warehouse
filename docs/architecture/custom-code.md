@@ -1451,6 +1451,10 @@ host. `hosts/current` names the current host; `hosts/` is git-ignored and refuse
 - **The kinds table** (`kinds.py`): for each kind of host, as literal data, its inventory group, the settings each
   host of that kind always sets for itself, those of one network that are never inherited, its secret's two vault
   names and what `just host` shows. The resolver, `just host` and `just status` read it and name no Proxmox setting.
+  Beside it, `FLEET_KINDS` is the same kinds for the new engine's fleet of host folders
+  ([§16.9](engine.md#169-fleet--the-fleets-files-the-settings-the-secrets-and-the-fleets-mark)), which today's product
+  never reads: each host still sets its node, storage, bridge and template for itself, and the API's user, token ID,
+  port and certificate checking are no settings there.
 - **What never falls through.** The first host's own settings live in the shared files, so a host in `hosts/` would
   inherit whatever it leaves unset. Its token's secret: `proxmox_api_token_secret` in the inventory defaults reads the
   shared `vault_proxmox_api_token_secret` only while the run's Proxmox host was defined in the shared inventory's own

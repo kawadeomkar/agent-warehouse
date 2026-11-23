@@ -9,7 +9,7 @@ file is unchanged. A write is a compare-and-swap on the digest the caller read, 
 back as meant and makes a new file private. --set refuses a secret's row, an unknown name, a value the vault holds and
 a value of the wrong type, never saying the value back; a size reads alike in a file, for one run and typed.
 client.yml's fleet_home reads as fleet/paths.py reads it, by its own cases. Nothing in fleet/ writes a file but
-through set and unset.
+through set and unset, and set_current, which writes client.yml's current_host (tests/unit/test_aw_fleet_hosts.py).
 """
 
 from __future__ import annotations
@@ -39,7 +39,10 @@ FAKE_SECRET = "not-a-real-token-0000"
 TYPED = "swordfish-0000"
 # Each module of fleet/ that replaces a file through store.replace, with what it writes. A card whose module writes a
 # file of its own (the vault, fleet.json) adds its line here, with why, in the same commit.
-REPLACES = {"lib/claude_vm/fleet/overrides.py": "the three files of overrides, by set and unset alone"}
+REPLACES = {
+    "lib/claude_vm/fleet/overrides.py": "the three files of overrides, by set and unset, and client.yml's current_host"
+    " by set_current"
+}
 # A proxy's user and password, made up, which no refusal may say; and the sentence network_proxy is refused in for them.
 PROXY_USER = "proxyuser"
 PROXY_PASSWORD = "made-up-made-up-0000"
@@ -922,7 +925,7 @@ def test_the_scan_for_a_write_sees_each_way_to_name_one(source: str, found: list
     assert _writes(source) == found
 
 
-def test_nothing_in_fleet_writes_a_file_but_through_set_and_unset() -> None:
+def test_nothing_in_fleet_writes_a_file_but_through_set_unset_and_set_current() -> None:
     written = {}
     for path in sorted(FLEET.rglob("*.py")):
         writes = _writes(path.read_text())
@@ -930,7 +933,7 @@ def test_nothing_in_fleet_writes_a_file_but_through_set_and_unset() -> None:
             written[str(path.relative_to(REPO))] = writes
     assert sorted(written) == sorted(REPLACES), "a module of fleet/ that writes a file: name it in REPLACES, with why"
     assert all(REPLACES.values())
-    # In overrides.py, only _write replaces a file, and only set and unset call _write.
+    # In overrides.py, only _write replaces a file, and only set, unset and set_current call _write.
     assert written["lib/claude_vm/fleet/overrides.py"] == [("_write", "store.replace")]
     tree = ast.parse((FLEET / "overrides.py").read_text())
     callers = sorted(
@@ -940,7 +943,7 @@ def test_nothing_in_fleet_writes_a_file_but_through_set_and_unset() -> None:
         for node in ast.walk(function)
         if isinstance(node, ast.Name) and node.id == "_write" and function.name != "_write"
     )
-    assert callers == ["set", "unset"]
+    assert callers == ["set", "set_current", "unset"]
 
 
 # ---------------------------------------------------------------- review 12 ----
