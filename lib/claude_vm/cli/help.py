@@ -3,24 +3,26 @@
 `aw help`, and `aw` alone, lists every verb of the table in its order, each with the words it takes, [options] where
 it has any, and its doc, as `just` alone lists the recipes: help first, then each group under its name. Then the
 options given before any verb, but the hidden one, which the one check's refusal of such an option sends a person here
-for; then today's closing paragraph, with aw where it said just, and -v and --set where it named ANSIBLE_ARGS, each
-named on the verbs the table gives it. `aw help <verb>` prints one verb: its usage line as today's command reference
-writes a recipe's (`aw deploy [<name>...]`) and its doc, each option with its value's placeholder (`--cores <cores>`,
-words.py's `placeholder`) and its help, `--detach` last on a verb whose run is a job, then the words it takes with
-theirs. After the help of each option and of the words that the table holds to a pattern comes what a value may be,
-in words and with an example (the check's `form_of`: `[a whole number from 1 to 999 with no leading 0, e.g. 8]`), the
-option's or the words' own where the table gives them (init --bridge's `e.g. vmbr1`, not a storage's name), never the
-pattern itself, as the refusal of a value outside it says it too, but for the words of a verb that refuses any. An
-option the table marks as a later card's (`until`) is left out until that card. A verb no card has built yet is listed
-and helped as today: it is refused only when it runs. A second word after the verb is refused before this runs, in
-today's sentence (rules.py's help.1); a word that is no verb is refused here in the one check's sentence, which never
-says it.
+for; then today's closing paragraph, with aw where it said just, command where it said recipe, and -v and --set where
+it named ANSIBLE_ARGS, each named on the verbs the table gives it. `aw help <command>` prints one verb: its usage line
+as today's command reference writes a recipe's (`aw deploy [<name>...]`) and its doc, each option with its value's
+placeholder (`--cores <cores>`, words.py's `placeholder`) and its help, `--detach` last on a verb whose run is a job,
+then the words it takes with theirs. After the help of each option and of the words that the table holds to a pattern
+comes what a value may be, in words and with an example (the check's `form_of`: `[a whole number from 1 to 999 with no
+leading 0, e.g. 8]`), the option's or the words' own where the table gives them (init --bridge's `e.g. vmbr1`, not a
+storage's name), never the pattern itself, as the refusal of a value outside it says it too, but for the words of a
+verb that refuses any. An option the table marks as a later card's (`until`) is left out until that card. A verb no
+card has built yet is listed and helped as today: it is refused only when it runs. A second word after the verb is
+refused before this runs, in today's sentence (rules.py's help.1); a word that is no verb is refused here in the one
+check's sentence, which never says it.
 
 Every command help prints is the program as it was started, quoted, as the printer writes it: the usage lines, which
 begin with the check's `command` (the program and the verb) and whose words and options' spellings are help's own and
 the command reference's tables are written from (reference.py), the program the closing paragraph names, and every
 whole command line, for a person to paste, which the printer writes, the table's sentences' among them (printer.py's
-`said`). Help names no part of the program itself.
+`said`). Help names no part of the program itself. It is one of the few modules that may use the check's `command`
+(tests/unit/test_aw_cli_printer.py's COMMAND_USERS): a usage line is a form in brackets no line of the printer's
+writes, and the closing paragraph names the program alone; neither is a line to run.
 
 Standard library and schema/, the printer among it, only: nothing of the engine, no argparse and no child.
 """
@@ -45,12 +47,12 @@ USAGE = "Usage:"
 OPTIONS = "Options:"
 WORDS = "Words:"
 # Today's closing paragraph of just help (the justfile's help recipe), each sentence wrapped at WIDTH on lines of its
-# own: aw where it said just; -v and --set where it named ANSIBLE_ARGS, which aw reads no more, each on the verbs whose
-# row has it; the commands to paste written by the printer.
+# own: aw where it said just, and command where it said recipe; -v and --set where it named ANSIBLE_ARGS, which aw
+# reads no more, each on the verbs whose row has it; the commands to paste written by the printer.
 CLOSING = (
     "Without names, deploy and destroy act on agent-warehouse-default; status, login and deploy --only configure, "
     "--check or --only ssh-config act on every VM this project created.",
-    "Options go after the recipe's name: {verbose} says more of what the system layer does in {verbose_verbs}, {set} "
+    "Options go after the command's name: {verbose} says more of what the system layer does in {verbose_verbs}, {set} "
     "gives one setting a value for one run in {set_verbs}, and LOG_DIR=<dir>, exported or before {aw}, moves the run "
     "logs: {example}.",
     "With more than one Proxmox host, every command runs against the current one ({hosts} lists them), or the one "
@@ -183,11 +185,11 @@ def of(name: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def main(run: object, recipe: str | None = None, *, out: TextIO | None = None, err: TextIO | None = None) -> int:
+def main(run: object, command: str | None = None, *, out: TextIO | None = None, err: TextIO | None = None) -> int:
     """help's handler (words.py's row): the listing, or one verb's help, on standard output, and the exit status. A
     word that is no verb is refused on standard error in the one check's sentence, which never says it."""
-    if recipe is not None and recipe not in VERBS:
+    if command is not None and command not in VERBS:
         print(checks.no_such_command(), file=err or sys.stderr)
         return EXITS["refused"]
-    (out or sys.stdout).write(listing() if recipe is None else of(recipe))
+    (out or sys.stdout).write(listing() if command is None else of(command))
     return EXITS["done"]

@@ -141,7 +141,7 @@ help, a rule's refusal, the check's own and the Proxmox client's and the vendors
 the sentence, and never as text. The printer's `said(sentence, filled)` fills each field, a `Line` with the line the
 printer writes for it (below), so that every command a person reads is the program as it was started, spelled as the
 printer spells one; `LINES`, in the table, holds the commands the table's own sentences name (`aw host`,
-`aw help <recipe>`, `aw deploy alpha --tags claude_code`). `pve/` and `vendors/` say theirs through it too, importing
+`aw help <command>`, `aw deploy alpha --tags claude_code`). `pve/` and `vendors/` say theirs through it too, importing
 the printer as every module does. `placeholder` gives the name help gives a value or a verb's words, as help's rows, the
 command reference and a line that shows a command's form write it: lower case, in angle brackets, never quoted
 (`--cores <cores>`, `--set <name>=<value>`, `aw code <name>`, `<name>...` for several).
@@ -236,16 +236,22 @@ it unquoted, for a child's environment, never for a line.
 A line that gives a value or a verb's words as `PLACEHOLDER` is a form: it shows a command's shape, each placeholder
 written as `placeholder` writes it and never quoted (`aw destroy <name>... --confirm <names>`), and so is a line made
 from values no run has taken, whose free text is masked (below). A form is shown, never offered as the command to run:
-a line a person is told to run, NEXT STEPS' and the session notes' (16.4), holds none. Pasted at a shell, a form stops
-at its first `<`, a redirection, or is no line at all where it ends in `>`; given back to `aw` as a word or as JSON,
-each placeholder is refused by the one check, in `aw`'s own words. The values are the parser's or a handler's:
-`default_vm` is said by naming no VM, and a value that is off (a flag not given, a count of 0, an empty list) is not
-said. Each is held as the one check holds it but for the rules between options (`formed`), and one it refuses, a word
-that starts with `-`, or a value or word that holds a character of Unicode's categories Cc, Cf, Cs, Zl or Zp (a C1
-control, a bidi override, a lone surrogate, a line separator), which a terminal would act on, not show as it is, or
-which no UTF-8 output can write, raises `ValueError` with the check's kind of sentence, which never says the value; a
-rule is the run's to say, so a line may name a run that one refuses, as `deploy`'s question names the stage before its
-answer meets the rules.
+a line a person is told to run, NEXT STEPS' and the session notes' (16.4), holds none. Pasted at a shell, a
+placeholder is two redirections, `<name>` reading a file named `name` and writing one named as the word after it: a
+form that ends in one is no line a shell reads at all, and any other stops at its first `<` where the folder holds no
+file of that name, nothing run, made or emptied. Where the folder does hold a file named as each placeholder, the shell
+reads it, makes or empties a file named as the word after each `>` (`...`, `]`, `=`, `--host`), and runs `aw` with the
+words left, which `aw` refuses for every form the code writes but `host --remove`'s (`aw host <name> --remove`): its
+words left are `aw host`, a read, which lists the hosts into a file named `--remove`. A form that left a whole command
+would run it (`aw deploy <name>...` alone leaves `aw deploy`, the default VM's), so none is written. Given back to `aw`
+as a word or as JSON, each placeholder is refused by the one check, in `aw`'s own words. The values are the parser's or
+a handler's: `default_vm` is said by naming no VM, and a value that is off (a flag not given, a count of 0, an empty
+list) is not said. Each is held as the one check holds it but for the rules between options (`formed`), and one it
+refuses, a word that starts with `-`, or a value or word that holds a character of Unicode's categories Cc, Cf, Cs, Zl
+or Zp (a C1 control, a bidi override, a lone surrogate, a line separator), which a terminal would act on, not show as
+it is, or which no UTF-8 output can write, raises `ValueError` with the check's kind of sentence, which never says the
+value; a rule is the run's to say, so a line may name a run that one refuses, as `deploy`'s question names the stage
+before its answer meets the rules.
 
 `host_flag` is the host a line names. Every caller of a verb whose row has the shared `--host` (`deploy`, `code`,
 `login`, `status`, `destroy`) gives it where the values give no `--host`: a host's name, or `""` where the fleet has
@@ -264,24 +270,32 @@ an option, after `run`, a backtick or a quote, or with no word of prose before i
 that a value, an option or a closing mark follows. Its one exception is `cli/dispatch.py`'s `not_built`, whose
 `just <verb>` is today's program, which the flip takes out. Only the printer names the program, as started or as its
 constant (`program`, `_program`, `PROGRAM`), by any name a module binds to the printer or imports from it; only the
-printer and the check name a sentence's field `program`; and every use of `line` or `argv`, through any name or a
-`functools.partial`, says `refused`. What the scan cannot see is a command joined at run time from pieces that name
-none (`'aw' + ' cancel '`, a list joined), a path to the program other than `./aw` (`../aw deploy`), another case, or
-a call through `getattr`: only the printer's names of the program make the program, and only the printer reads them,
-which is how such a line is made. `tests/unit/test_aw_cli_printer.py` holds the printer: for every verb, its words,
-each option alone and beside them and each pair of options the rules allow come back from the line through the parser
-and the one check, and no verb or option lacks such a case; every example line the test gives, of every verb, comes
-back from its line, before the habits and after; a line's form; an awkward value, each character a POSIX shell reads
-otherwise, a backslash and a trailing one, two values of free text on one line, an empty value and a name that starts
-with a digit survive `/bin/sh` and `bash`, and a value that starts with `=` is quoted; a value a terminal would not show
-as it is is never printed; a value that is off is not said, a placeholder is the one `placeholder` writes, in a form
-line and a masked one alike, and each placeholder given back, as a word and as JSON, is refused; the host's flag; a
-value of free text is never said back from values no run took, and every call says `refused`; a value the check
-refuses is never printed; the program as it was started, quoted, in this process, from a path a shell would split and
-through the launcher, the check's sentences and help's among them; by scans of their syntax, the three guards above,
-which a module planted with all three roads fails; that no sentence of the rules or the table holds a command as text; and that
-each module of `schema/` imports alone and first and nothing outside `schema/`, and `pve/` and `vendors/` import the
-printer when they are imported, none of them inside a function.
+printer and the check name a sentence's field `program`; the check's `command`, the program and a verb, is used only by
+the modules that refuse (the check, the printer, `cli/parse.py` and `cli/dispatch.py`) and by help, for its usage
+lines and the program its closing paragraph names, each named with why, by any name a module binds to the check, its
+package or the function; and every use of `line` or `argv`, through any name or a `functools.partial`, says
+`refused`. What the scans cannot see is a command joined at run time from pieces that name none (`'aw' + ' cancel '`,
+a list joined), a path to the program other than `./aw` (`../aw deploy`), another case, a name reached through
+`getattr`, `vars` or `importlib`, and a string the printer made with words of a module's own joined to it
+(`printer.line(...) + ' ' + job`, a sentence that says words of its own after a line's field): a line to run is the
+printer's line, whole, and a sentence names its command as a `Line`, which is how such a line is made.
+`tests/unit/test_aw_cli_printer.py` holds the printer: for every verb, its words, each option alone and beside them and
+each pair of options the rules allow come back from the line through the parser and the one check, and no verb or
+option lacks such a case; every example line the test gives, of every verb, comes back from its line, before the habits
+and after; a line's form; an awkward value, each character a POSIX shell reads otherwise, a backslash and a trailing
+one, two values of free text on one line, an empty value and a name that starts with a digit survive `/bin/sh` and
+`bash`, and a value that starts with `=` is quoted; a value a terminal would not show as it is is never printed; a
+value that is off is not said, a placeholder is the one `placeholder` writes, in a form line and a masked one alike,
+and each placeholder given back, as a word and as JSON, is refused; each form the rules and the table write, help's
+usage lines and `deploy`'s question's lines, pasted into `/bin/sh` and `bash`, runs nothing in a folder with no file
+of a placeholder's name, and in one with a file of each leaves words `aw` refuses, but `host --remove`'s, written
+there; the host's flag; a value of free text is never said back from values no run took, and every call says
+`refused`; a value the check refuses is never printed; the program as it was started, quoted, in this process, from a
+path a shell would split and through the launcher, the check's sentences and help's among them; by scans of their
+syntax, the four guards above, which a module planted with the roads the reviews found fails, but for the roads the
+scans cannot see; that no sentence of the rules or the table holds a command as text; and that each module of
+`schema/` imports alone and first and nothing outside `schema/`, and `pve/` and `vendors/` import the printer when
+they are imported, none of them inside a function.
 
 ## 16.3 `cli/` — the `aw` program
 
@@ -400,8 +414,10 @@ lacks the packages. It tells the program how a person runs it again, in `AGENT_W
 `command -v aw` is this launcher by its physical path, else what was typed to start it; and its own sentences that say
 what to run (`--install-env`'s refusal, the environment it makes first, a uv that made none) say the program the same
 way, each word as the printer's `quoted` writes it (`word`: bare where every POSIX shell and zsh read it back as it is,
-else quoted as `shlex.quote` quotes it). It does not hold the word to the printer's categories of characters, which
-POSIX `sh` cannot read. It hands the program no job's
+else quoted as `shlex.quote` quotes it, and a word that starts with `=`). It does not hold the word to the printer's
+categories of characters, which POSIX `sh` cannot read. It says every line through `printf '%s\n'`, never `echo`,
+whose backslashes `dash` and macOS's `sh` read as escapes: a checkout in a folder whose name holds `\n`, `\t` or `\c`
+is said as it is, never as another path or cut short. It hands the program no job's
 marker it inherited: past `--install-env`, which reads it, `AGENT_WAREHOUSE_JOB` is unset, so the program's own
 environment, as the system shows it, carries none; and `main.py` takes one out of its environment at its start too,
 for `tools/aw` run directly, so that a child a run starts outside `children.start` (16.8) carries no other job's ID.
@@ -413,7 +429,10 @@ as a shell reads it back), and writes nothing outside the checkout for it.
 none says a value or has a usage block, `--detach`, `default_vm`, `RunWords`, in `run_words` and in the program, the
 dispatch's refusals, what a refusal imports, and the launcher run in checkouts the test makes, with a stand-in `uv`,
 through links, from folders whose version manager picks another Python or that hold a planted module, and with a
-`PYTHON` that is no virtualenv's or cannot be run. `tests/unit/test_aw_cli_rules.py` holds the rules and `deploy`'s
+`PYTHON` that is no virtualenv's or cannot be run; every line it says that names a path or the program said as it is,
+from checkouts in folders whose names a shell would split or hold a backslash before `n`, `t` or `c`, its three
+sentences with the program as the printer quotes it, a path typed that starts with `=` among them, and no `echo` in
+it. `tests/unit/test_aw_cli_rules.py` holds the rules and `deploy`'s
 question: every rule is named by the verbs whose rows run it; each refusal of a rule or a habit, and each of the
 parser's own, is run through the launcher, the words, status and sentence of each written there; each case of a rule is
 refused by the rule its code names, and each of the parser's own is the parser's sentence in the test's process too;

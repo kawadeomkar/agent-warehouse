@@ -20,7 +20,9 @@
 #
 # The program is told how a person runs it again, AGENT_WAREHOUSE_STARTED_AS, for every command line it prints: aw where
 # aw on PATH is this launcher, else what was typed to start it (./aw); and the launcher's own sentences that say what to
-# run say it the same way, quoted as the program's printer quotes a word. It is never handed a job's marker it inherited:
+# run say it the same way, quoted as the program's printer quotes a word. Every line it says, a path or the program in
+# it, goes through printf '%s\n', never echo, whose backslashes dash and macOS's sh read as escapes: a folder named with
+# \n, \t or \c in it would be said as another path, or cut. It is never handed a job's marker it inherited:
 # AGENT_WAREHOUSE_JOB is unset before anything but --install-env, which reads it, so the program's own environment, as
 # the system shows it, carries none, and nor does anything it starts.
 set -eu
@@ -59,7 +61,7 @@ started_as() {
   onpath=$(command -v aw 2>/dev/null) || onpath=
   case $onpath in
   /*) if [ "$(physical "$onpath")" = "$launcher" ]; then
-    echo aw
+    printf '%s\n' aw
     return
   fi ;;
   esac
@@ -110,7 +112,7 @@ pick() {
 install_env() {
   cd "$checkout"
   command -v "$uv" >/dev/null 2>&1 || {
-    echo "error: no $uv: install uv (https://docs.astral.sh/uv/getting-started/installation/), or name it with UV=" >&2
+    printf '%s\n' "error: no $uv: install uv (https://docs.astral.sh/uv/getting-started/installation/), or name it with UV=" >&2
     exit 1
   }
   if [ "${1:-}" = --lock ]; then
@@ -131,7 +133,7 @@ install_env() {
     ;;
   *)
     venv=${python%/bin/python}
-    echo "Installing into this checkout's own environment, $venv: PYTHON is unset and python3 is no virtualenv."
+    printf '%s\n' "Installing into this checkout's own environment, $venv: PYTHON is unset and python3 is no virtualenv."
     UV_PYTHON_DOWNLOADS=automatic UV_PROJECT_ENVIRONMENT="$venv" "$uv" sync --locked --managed-python --python "$managed_python"
     ;;
   esac
@@ -139,7 +141,7 @@ install_env() {
   # moves aside to pre-commit.legacy, which the hook runs first; a core.hooksPath folder, which may be every
   # repository's, is left alone.
   if git config core.hooksPath >/dev/null; then
-    echo "warning: git's core.hooksPath is set, so aw install put no git hook there: copy tools/git-hook into that folder as pre-commit to have one" >&2
+    printf '%s\n' "warning: git's core.hooksPath is set, so aw install put no git hook there: copy tools/git-hook into that folder as pre-commit to have one" >&2
   else
     hook=$(git rev-parse --git-path hooks/pre-commit)
     if ! cmp -s tools/git-hook "$hook" || ! [ -x "$hook" ]; then
@@ -156,13 +158,13 @@ install_env() {
       mkdir -p "$(dirname "$hook")"
       cp tools/git-hook "$hook"
       chmod 755 "$hook"
-      echo "$said"
+      printf '%s\n' "$said"
     fi
   fi
   # How to run aw from any folder, where aw on PATH is not this launcher: said, the folder made where it is missing, and
   # nothing written outside the checkout.
   if [ "$(started_as)" != aw ]; then
-    echo "To run aw from any folder, link it into ~/.local/bin and have that folder on your PATH: mkdir -p ~/.local/bin && ln -s $(word "$launcher") ~/.local/bin/aw"
+    printf '%s\n' "To run aw from any folder, link it into ~/.local/bin and have that folder on your PATH: mkdir -p ~/.local/bin && ln -s $(word "$launcher") ~/.local/bin/aw"
   fi
 }
 
@@ -173,7 +175,7 @@ if [ "${1:-}" = --install-env ]; then
   '' | *[!0123456789abcdef]*) job= ;;
   esac
   if [ "${#job}" -ne 16 ] || [ "$#" -gt 2 ] || { [ "$#" -eq 2 ] && [ "$2" != --lock ]; }; then
-    echo "error: --install-env is a step that $(program) install's run starts: run $(program) install" >&2
+    printf '%s\n' "error: --install-env is a step that $(program) install's run starts: run $(program) install" >&2
     exit 1
   fi
   shift
@@ -192,10 +194,10 @@ pick
 case $kind in
 managed)
   if ! [ -x "$python" ]; then
-    echo "This checkout has no Python environment yet: it is made first, from uv.lock, as $(program) install makes it." >&2
+    printf '%s\n' "This checkout has no Python environment yet: it is made first, from uv.lock, as $(program) install makes it." >&2
     (install_env) >&2
     if ! [ -x "$python" ]; then
-      echo "error: uv made no Python at $python: run $(program) install again, and read what it says" >&2
+      printf '%s\n' "error: uv made no Python at $python: run $(program) install again, and read what it says" >&2
       exit 1
     fi
   fi
@@ -204,7 +206,7 @@ managed)
   # A Python that cannot be run is said here, never in the shell's words for a failed exec; one that runs but is no
   # virtualenv's is the program's to refuse, in its own sentence, at no second start.
   if [ -z "$python" ] || ! [ -f "$python" ] || ! [ -x "$python" ]; then
-    echo "error: the Python $named cannot be run: set PYTHON to a virtualenv's python, or leave it unset and aw makes this checkout's own" >&2
+    printf '%s\n' "error: the Python $named cannot be run: set PYTHON to a virtualenv's python, or leave it unset and aw makes this checkout's own" >&2
     exit 1
   fi
   ;;

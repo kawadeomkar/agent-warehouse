@@ -47,7 +47,7 @@ REFUSALS: dict[str, tuple[list[str], int, str]] = {
     "help.1-1": (
         ["help", "deploy", "login"],
         1,
-        "error: aw help shows one recipe's options at a time (got: [deploy login])",
+        "error: aw help shows one command's options at a time (got: [deploy login])",
     ),
     "init.1-1": (
         ["init", "extra"],
