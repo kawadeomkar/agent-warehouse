@@ -1628,7 +1628,7 @@ and one rule: of the new engine, only `downloads.py` reaches `openpgp` - by an i
 
 `lib/claude_vm/runs/` is where a run goes: its one record and its text log, the kernel's file locks the run holds, the
 run's end on a signal, a run detached as the same program in a session of its own, and the run as a person reads it,
-from the stages its verb declares and the events it emits. It imports
+from the stages its verb declares and the events it emits, drawn as today's runs are. It imports
 `schema/`, the printer of a command among it for the line that cancels a run, and `fleet/`, and nothing of `cli/`,
 `engine/` or `control/`, and no pydantic.
 
@@ -2110,6 +2110,35 @@ VM name, the run's own first, then by matter in today's order, each line once, t
 `tests/unit/test_aw_run_model.py` holds it with canned runs (one machine, three, one failing in configure, one waiting for
 a sign-in, one cancelled), each event's effect, every refusal leaving the model as it was, a run fed by a job's own
 `emit`, and each rule above with a test of its own.
+
+**The run drawn: `view.py`.** `View(run, started_at=..., title, log, host, check)` draws the model as today's runs are
+drawn, with `tui/screen.py`'s lines, palette and cut and `tui/run.py`'s module-level functions (its marks, a report's and
+a failure's lines, a report's first sentence) and its two helpers for a summary's lines, as they stand: `tui/run.py`
+draws today's model of Ansible's tasks, whose counts, bars and windows of tasks the new model has not, so no base class
+is shared and today's file is unchanged. It gives `frame(now, cols, rows, glyph, color)`: the header (the run's title,
+its host beside a second, the clock it started, a dry run), every stage drawn but a quiet one where nothing failed, each
+row its mark, its label and its time at the right edge and, where the run has two machines or more and the work is each
+machine's, each machine's mark (`alpha ✓ · beta ⠴ · gamma ○`, or their count where they do not fit); under the running
+stage its steps, and under the stage or step under way each machine's latest line of work (`latest`, where today's
+window of tasks stood) and each wait for another run's section, with the time since; a wait for you on the stage's row,
+with what the run waits for, whose and since when; folded to the height as today's (the steps to come, then the stages to
+come, on a line each); a run of one stage drawn as its steps; and a footer (the run's clock, the stage or step it is at,
+waiting for you, stopping once a person stopped it, the log). `title_text(now)` says where the run is, waiting for you, or
+how it ended (done, failed, stopped), with no percentage, since nothing counts tasks. `ended_lines(now)` gives a line as
+each step and stage ends, for output that is no terminal, in today's columns: a stage of each machine's work is said once
+every machine of the run is through it or ended (or the run is over), so a fleet whose machines reach a stage one after
+another says it once. `above(cols, color)` gives what is said above the region since its last call, in the order said:
+each report whole, under its machine, wrapped and never cut, and each failure with where, whose, why and the log.
+`summary(now, cols, color, next_steps)` gives how the run ended (done; done with the machines that failed; failed, and
+where; stopped, and where), each stage's mark and time with each machine's mark and its steps' times and your time in
+them, what it never reached, each machine's reports a line each (the run's own under THIS MACHINE) but what NEXT STEPS
+says whole, and the totals; NEXT STEPS itself is the caller's to print after it, as today's run prints it. No line of a
+frame or a summary is wider than `cols - 1`. Nothing in it prints, reads a clock, a file or the terminal: the caller,
+the live view, prints what it gets. Provision's row says no VM ID or address: nothing declared carries them, and the
+run's report that the machine is up says its address above and under the machine in the summary.
+`tests/unit/test_aw_run_view.py` holds it with canned runs, each timed as the matching run of today's
+`tests/unit/test_run_view.py` and compared with it row for row where the two have the same stages, at every width and
+with `tests/unit/vt.py`, which counts no line wrapped at 80 or 100 columns.
 
 ## 16.9 `fleet/` — the fleet's files, the settings, the secrets and the fleet's mark
 
