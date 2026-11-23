@@ -946,6 +946,32 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   `lib/claude_vm/` only the modules `REUSED` names, each with its reason, and what those import in turn, all the way
   down, is in `REUSED` or `REACHED`, with the reason it is brought in; never Ansible. `tests/unit/test_aw_layout.py`
   holds both.
+- **One transport sends every HTTPS request of the engine, follows no redirect, reads no certificate variable, and
+  takes a proxy only as an argument.** Read
+  [§16.7](docs/architecture/engine.md#167-vendors--one-https-transport-tailscales-calls-verified-downloads) first.
+    - `lib/claude_vm/vendors/transport.py` is the only module of the new engine that imports `http.client` or wraps a
+      socket. It builds no context and reads no variable or setting: the caller gives it the `ssl.SSLContext`, the
+      proxy (an `http://` URL or none, through a CONNECT tunnel the transport asks for and reads itself) and
+      `peer_check`, called with the peer's certificate before anything is written. A 3xx is an answer. A certificate
+      that does not verify is `Untrusted`, an `Unreachable`, never tried again, whose sentence names `tls_ca_file`.
+    - A GET or HEAD is tried at most three times; any other method is sent once, and is `Unknown` once it has left.
+      Every body is held to `most`, every wait to its limit and the whole call to its deadline, making the connection
+      included - each address in turn, a proxy's CONNECT and its answer, the handshake - but the name's lookup, which
+      the system's resolver alone bounds. `http.client` never makes a connection.
+    - A header's value, or a part of one, and a form's value may be a `Secret`, revealed in `_plain` alone, and no
+      error says a header's value or a peer's words: one `http.client` would refuse is `NotMade`, "the request could
+      not be made"; what `http.client` raised of an answer is said by what it means, never in its words, which quote
+      the answer; of a proxy's answer only its status.
+    - The proxy is `lib/claude_vm/vendors/proxy.py`'s `choose`: today's, from the environment under `requests`' rule,
+      at `network_proxy: environment`, with `none` the opt-in. It reads only the environment it is given, and of
+      `urllib.request` only `proxy_bypass_environment` and macOS's two readers of the system's settings.
+    - The vendors' TLS context is `lib/claude_vm/vendors/trust.py`'s alone: `certifi`'s file by its path, or the file
+      the setting `tls_ca_file` names, and never the system's store or a certificate variable - a change from 2.x,
+      whose vendor calls trust the system's store. Of the new engine only the modules `CONTEXTS` names, each with why,
+      make an `ssl.SSLContext`, give one roots or set its `check_hostname` or `verify_mode`: the transport takes any
+      context, so one made elsewhere could check nothing.
+    - `tests/unit/test_aw_transport.py` holds the transport and the proxy, and `tests/unit/test_aw_vendor_trust.py`
+      the vendors' trust and `CONTEXTS`.
 
 ## Architecture, and why it looks like this
 
