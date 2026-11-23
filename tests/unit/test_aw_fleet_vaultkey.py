@@ -5,10 +5,11 @@ The key is made once, `O_EXCL` at 0600, at paths.key_file by default, and never 
 order: AGENT_WAREHOUSE_VAULT_KEY_FILE, the one override, which names a file read and never run whatever its mode; then
 vault_key_command, whose running is not built yet and refuses; then the file vault_key_file names, "" the default. A
 place that exists and fails is a refusal and the next is never tried; with no place, the first sentence says what
-would open the vault; a place that answers with what does not open the vault is the third. ANSIBLE_VAULT_PASSWORD_FILE
-is never read. A key file named in the fleet's folder, the state folder or the installed program's config folder is
-refused by name. A vault made by sealed.py under a key made here opens in a child with no terminal and standard input
-from /dev/null.
+would open the vault, by vault_key_file and never the variable; a place that answers with what does not open the vault
+is the third. With no vault yet a key comes only from the key file: the variable's file and a command are refused there
+in one sentence, nothing read or run, and the key file left as it is. ANSIBLE_VAULT_PASSWORD_FILE is never read. A
+key file named in the fleet's folder, the state folder or the installed program's config folder is refused by name. A
+vault made by sealed.py under a key made here opens in a child with no terminal and standard input from /dev/null.
 
 The invariant with its own test: only vaultkey.py names the variable, and only paths.py and vaultkey.py the key file's
 name, so a run reads the key only through vaultkey.open; and no sentence holds the key or anything a file held: every
@@ -33,7 +34,7 @@ from pyrage import x25519
 
 from claude_vm.fleet import paths, record, sealed, vaultkey
 from claude_vm.schema.printer import said
-from claude_vm.schema.words import Line
+from claude_vm.schema.words import PLACEHOLDER, Line
 from claude_vm.secret import Secret
 
 LIB = REPO / "lib"
@@ -339,36 +340,124 @@ def test_ansible_s_vault_password_file_is_never_read_and_is_no_refusal(
 # ---------------------------------------------------------------- no place at all ----
 
 
-def test_with_no_place_the_first_sentence_says_what_would_open_the_vault(home: Path, fleet, seen) -> None:
+def test_with_no_place_the_first_sentence_says_what_would_open_the_vault(
+    home: Path, tmp_path: Path, fleet, seen
+) -> None:
     key_file = paths.key_file(fleet)
     assert vaultkey.source(fleet, key_file="", key_command=(), environ=_env(home)) is None
-    looked = f"{VARIABLE} names no file, vault_key_command no command, and {key_file} is not there"
-    # No vault yet: init makes the fleet and its key.
+    init = said("{init}", {"init": Line("init")})
+    settings = said("{settings}", {"settings": Line("settings", {"name": "vault_key_file", "value": PLACEHOLDER})})
+    # No vault yet: init makes the fleet and its key, in the key file vault_key_file names, never the variable's.
     with pytest.raises(vaultkey.NoKey) as refused:
         _open(fleet, home)
-    init = said("{init}", {"init": Line("init")})
-    assert (
-        _refused(refused, seen)
-        == f"error: nothing here opens the fleet's vault: {looked}: {init} makes the fleet and its key"
+    sentence = _refused(refused, seen)
+    assert sentence == (
+        f"error: nothing here opens the fleet's vault: it has none yet, and the key file {key_file} (vault_key_file) is"
+        f" not there: {init} makes the fleet, its key there and its vault"
     )
-    # A vault there whose key is not: the fleet's folder was copied, and its key is to be copied apart from it.
+    assert VARIABLE not in sentence
+    # The person's own file, named and not there, is the one said.
+    own = tmp_path / "keys" / "one"
+    with pytest.raises(vaultkey.NoKey) as refused:
+        _open(fleet, home, str(own))
+    assert f"the key file {own} (vault_key_file) is not there" in _refused(refused, seen)
+    # A vault there whose key is not: the fleet's folder was copied, and its key is to be copied apart from it, or
+    # named in vault_key_file, never in the variable, which is a script's and the agents' server's.
     sealed.create(fleet, _key(seen))
     with pytest.raises(vaultkey.NoKey) as refused:
         _open(fleet, home)
-    assert _refused(refused, seen) == (
-        f"error: nothing here opens {sealed.path(fleet)}: {looked}: copy the key file of the computer that made the"
-        f" fleet to {key_file}, or name the file that holds it in {VARIABLE}"
+    sentence = _refused(refused, seen)
+    assert sentence == (
+        f"error: nothing here opens {sealed.path(fleet)}: the key file {key_file} (vault_key_file) is not there, and"
+        " vault_key_command names no command: copy the key file of the computer that made the fleet to"
+        f" {key_file}, or name the file that holds it in vault_key_file: {settings}"
     )
+    assert VARIABLE not in sentence
     # An empty variable is none.
     with pytest.raises(vaultkey.NoKey):
         _open(fleet, home, **{VARIABLE: ""})
 
 
-def test_a_key_that_opens_with_no_vault_yet_is_given_back_once_it_is_an_age_key(home: Path, fleet, seen) -> None:
+def test_a_key_that_opens_with_no_vault_yet_is_given_back_once_it_is_an_age_key(
+    home: Path, tmp_path: Path, fleet, seen
+) -> None:
     key = vaultkey.make_key(paths.key_file(fleet))
     seen.append(key.reveal())
     assert not sealed.path(fleet).exists()
     assert _open(fleet, home).reveal() == key.reveal()
+    # The person's own key file, the one vault_key_file names, is the key file too.
+    own = vaultkey.make_key(tmp_path / "keys" / "own")
+    seen.append(own.reveal())
+    assert _open(fleet, home, str(tmp_path / "keys" / "own")).reveal() == own.reveal()
+
+
+def _unmade(fleet: paths.Home, named: str, undo: str, nothing: str) -> str:
+    init = said("{init}", {"init": Line("init")})
+    return (
+        f"error: {named}, and the fleet has no vault yet: a new fleet's vault is sealed to the key in its own key file,"
+        f" {paths.key_file(fleet)} (vault_key_file), which {init} makes, and never to one named elsewhere: {undo} for"
+        f" {init}; {nothing}"
+    )
+
+
+def test_with_no_vault_yet_the_variable_s_key_is_refused_and_the_key_file_kept(
+    home: Path, tmp_path: Path, fleet, seen
+) -> None:
+    # Review 23 (D8.md 1): with no vault, open gave back the variable's key, over the home's own key file, and the
+    # vault init made was sealed to it with no word. A new fleet's vault is sealed to its own key file's key alone.
+    mine = vaultkey.make_key(paths.key_file(fleet))
+    seen.append(mine.reveal())
+    kept = paths.key_file(fleet).read_bytes()
+    theirs = _key(seen)
+    given = _put(tmp_path / "another-fleet-s-key", theirs.reveal() + "\n")
+    folder = tmp_path / "a-folder"
+    folder.mkdir()
+    # Whatever the variable's file is, or is not: nothing is read there, so no refusal of its own is said.
+    for path in (given, tmp_path / "missing", folder, _fifo(tmp_path / "a-pipe")):
+        for key_file in ("", str(paths.key_file(fleet))):
+            with pytest.raises(vaultkey.NoVaultYet) as refused:
+                _open(fleet, home, key_file, **{VARIABLE: str(path)})
+            assert _refused(refused, seen) == _unmade(
+                fleet, f"{VARIABLE} names {path}", f"unset {VARIABLE}", "nothing is read"
+            )
+    assert not sealed.path(fleet).exists()
+    assert paths.key_file(fleet).read_bytes() == kept
+    # Unset, the key file's key is given back, the vault is sealed to it, and the variable's key opens nothing.
+    assert _open(fleet, home).reveal() == mine.reveal()
+    sealed.create(fleet, mine)
+    with pytest.raises(vaultkey.WrongKey):
+        _open(fleet, home, **{VARIABLE: str(given)})
+    assert sealed.read(fleet, _open(fleet, home)) == {}
+
+
+def test_with_no_vault_yet_a_command_is_refused_and_never_run(home: Path, tmp_path: Path, fleet, seen) -> None:
+    mark = tmp_path / "ran"
+    program = _put(tmp_path / "program", f"#!/bin/sh\n: > {mark}\n", mode=0o755)
+    for made in (False, True):
+        if made:
+            seen.append(vaultkey.make_key(paths.key_file(fleet)).reveal())
+        with pytest.raises(vaultkey.NoVaultYet) as refused:
+            _open(fleet, home, "", key_command=[str(program), COMMAND_WORD])
+        sentence = _refused(refused, seen)
+        assert sentence == _unmade(
+            fleet, "vault_key_command names a command", "take it out of client.yml", "nothing is run"
+        )
+        assert str(program) not in sentence and not mark.exists()
+
+
+def test_a_key_from_the_variable_is_given_back_only_for_a_vault_it_opened(
+    home: Path, tmp_path: Path, fleet, monkeypatch, seen
+) -> None:
+    # A vault seen when the place was looked at, and gone when it was read: the variable's key is refused all the same.
+    theirs = _key(seen)
+    given = _put(tmp_path / "another-fleet-s-key", theirs.reveal() + "\n")
+    looked, vault = os.path.lexists, str(sealed.path(fleet))
+    monkeypatch.setattr(os.path, "lexists", lambda path: str(path) == vault or looked(path))
+    with pytest.raises(vaultkey.NoVaultYet) as refused:
+        _open(fleet, home, **{VARIABLE: str(given)})
+    assert _refused(refused, seen) == _unmade(
+        fleet, f"{VARIABLE} names {given}", f"unset {VARIABLE}", "nothing is read"
+    )
 
 
 def test_the_vault_s_own_refusals_are_its_own(home: Path, fleet, made, seen) -> None:

@@ -23,15 +23,21 @@ settings:
 
 `ANSIBLE_VAULT_PASSWORD_FILE`, which opens today's ansible-vault file, is never read and is no refusal.
 
-**One sentence when the vault cannot be opened.** `open(where, ...)` returns the key, a `Secret`, once the fleet's
-vault opens with it (where there is a vault yet), or raises one of three sentences: nothing here can open the vault,
-with what would (`NoKey`); the place that exists failed, in its own words made one line (`Failed`); the place answered
-and what it gave does not open this vault (`WrongKey`). A place that exists and fails is a refusal: the next place is
-never tried, and nothing is tried again. The vault's own refusals (no `fleet.json`, a newer format, a file that is no
-vault) are sealed.py's, raised as they are. Every refusal is a `sealed.Refused`, so a caller catches the vault's and
-the key's as one, and exits 1, or 3 from `status`. No refusal says the key, a value given where a path goes, or
-anything a file held. A run with nobody at the terminal opens the vault as one at a terminal does: nothing here reads
-the terminal or asks.
+**A new fleet's vault is sealed to its own key file's key.** Where the fleet has no vault yet, a key is given back only
+from the key file (`place`), which `aw init` makes: the variable's file and a command are refused there, in one
+sentence (`NoVaultYet`), and nothing is read or run, so that the vault `init` makes is never sealed, with no word, to a
+key named by a leftover export, a script's environment, or a project's settings, which reach every command Claude Code
+runs there.
+
+**One sentence when the vault cannot be opened.** `open(where, ...)` returns the key, a `Secret`, once the fleet's vault
+opens with it (where there is no vault yet, once the key file holds an age key), or raises one of three sentences:
+nothing here can open the vault, with what would, the key file `vault_key_file` names (`NoKey`); the place that exists
+failed, in its own words made one line (`Failed`); the place answered and what it gave does not open this vault
+(`WrongKey`). A place that exists and fails is a refusal: the next place is never tried, and nothing is tried again. The
+vault's own refusals (no `fleet.json`, a newer format, a file that is no vault) are sealed.py's, raised as they are.
+Every refusal is a `sealed.Refused`, so a caller catches the vault's and the key's as one, and exits 1, or 3 from
+`status`. No refusal says the key, a value given where a path goes, or anything a file held. A run with nobody at the
+terminal opens the vault as one at a terminal does: nothing here reads the terminal or asks.
 
 Standard library only at import, with fleet/ and the printer; `pyrage` is imported inside the functions that need it.
 """
@@ -46,7 +52,7 @@ from pathlib import Path
 
 from claude_vm.fleet import files, paths, sealed
 from claude_vm.schema.printer import said
-from claude_vm.schema.words import Line
+from claude_vm.schema.words import PLACEHOLDER, Line
 from claude_vm.secret import Secret
 from claude_vm.text import one_line, plain_text
 
@@ -77,6 +83,11 @@ class Failed(Refused):
 
 class WrongKey(Refused):
     """The place answered, and what it gave does not open this vault. Nothing else is tried."""
+
+
+class NoVaultYet(Refused):
+    """The fleet has no vault yet, and the place that exists is the variable's file or a command, not the key file: a
+    new fleet's vault is sealed to the key in its own key file alone, so nothing is read or run."""
 
 
 @dataclass(frozen=True)
@@ -234,16 +245,36 @@ def _key(found: Source, data: bytes) -> Secret:
 
 
 def _nothing(where: paths.Home, file: Path) -> str:
-    """The first sentence: no place exists, and what would open the vault."""
+    """The first sentence: no place exists, and what would open the vault, by the key file vault_key_file names and
+    never the variable, which is a script's and the agents' server's."""
     vault = sealed.path(where)
-    looked = f"{VARIABLE} names no file, vault_key_command no command, and {_shown(file)} is not there"
     if os.path.lexists(vault):
-        return (
-            f"error: nothing here opens {_shown(vault)}: {looked}: copy the key file of the computer that made the"
-            f" fleet to {_shown(file)}, or name the file that holds it in {VARIABLE}"
+        return f"error: nothing here opens {_shown(vault)}: " + said(
+            "the key file {file} (vault_key_file) is not there, and vault_key_command names no command: copy the key"
+            " file of the computer that made the fleet to {file}, or name the file that holds it in vault_key_file:"
+            " {settings}",
+            {
+                "file": _shown(file),
+                "settings": Line("settings", {"name": "vault_key_file", "value": PLACEHOLDER}),
+            },
         )
-    return f"error: nothing here opens the fleet's vault: {looked}: " + said(
-        "{init} makes the fleet and its key", {"init": Line("init")}
+    return "error: nothing here opens the fleet's vault: " + said(
+        "it has none yet, and the key file {file} (vault_key_file) is not there: {init} makes the fleet, its key there"
+        " and its vault",
+        {"file": _shown(file), "init": Line("init")},
+    )
+
+
+def _unmade(found: Source, file: Path) -> str:
+    """The sentence for a fleet with no vault yet where the place that exists is the variable's file or a command."""
+    if found.place == COMMAND:
+        named, undo, nothing = "vault_key_command names a command", "take it out of client.yml", "nothing is run"
+    else:
+        named, undo, nothing = f"{VARIABLE} names {_shown(found.path)}", f"unset {VARIABLE}", "nothing is read"
+    return f"error: {named}, and the fleet has no vault yet: " + said(
+        "a new fleet's vault is sealed to the key in its own key file, {file} (vault_key_file), which {init} makes,"
+        " and never to one named elsewhere: {undo} for {init}; {nothing}",
+        {"file": _shown(file), "init": Line("init"), "undo": undo, "nothing": nothing},
     )
 
 
@@ -255,12 +286,15 @@ def open(
     environ: Mapping[str, str] | None = None,
 ) -> Secret:
     """The vault's key, from the first place that exists (`source`), once the fleet's vault at where opens with it, or
-    with no vault yet once it is an age key. Raises NoKey, Failed or WrongKey, one sentence each, or Misplaced; the
-    vault's own refusals are sealed.py's, raised as they are."""
+    with no vault yet once it is an age key from the key file. Raises NoKey, Failed or WrongKey, one sentence each,
+    Misplaced, or NoVaultYet where there is no vault yet and the place is the variable's file or a command; the vault's
+    own refusals are sealed.py's, raised as they are."""
     env = os.environ if environ is None else environ
     found = source(where, key_file=key_file, key_command=key_command, environ=env)
     if found is None:
         raise NoKey(_nothing(where, place(where, key_file, environ=env)))
+    if found.place != FILE and not os.path.lexists(sealed.path(where)):
+        raise NoVaultYet(_unmade(found, place(where, key_file, environ=env)))
     if found.place == COMMAND:
         raise Failed(
             "error: vault_key_command names a command for the vault's key, and this version of the program runs none"
@@ -268,12 +302,16 @@ def open(
         )
     key = _key(found, _read(found))
     try:
-        sealed.read(where, key)
+        opened = sealed.read(where, key)
     except sealed.NotOpened:
         raise WrongKey(
             f"error: the key in {found.said()} does not open {_shown(sealed.path(where))}: it is another fleet's key,"
             " or the vault was changed after it was written; nothing else is tried"
         ) from None
+    if opened is None and found.place != FILE:
+        # The vault went between the look above and the read: a key from elsewhere than the key file is given back
+        # only for a vault it opened.
+        raise NoVaultYet(_unmade(found, place(where, key_file, environ=env)))
     return key
 
 
