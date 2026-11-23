@@ -586,6 +586,8 @@ NAMES_A_DESCRIPTION = {
     "lib/claude_vm/pve/client.py": "the client, which sends a clone's description as its caller gives it",
     "lib/claude_vm/pve/privileges.py": "the table, whose row for a configuration's write names the key it covers",
     "lib/claude_vm/pve/answers.py": "a configuration read back, its description among its fields",
+    "lib/claude_vm/fleet/passthrough.py": "a role's spec read, whose description of an option is what a person reads of"
+    " it: no VM's, and nothing sent",
 }
 
 

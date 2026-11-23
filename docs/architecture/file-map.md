@@ -273,6 +273,7 @@ lib/claude_vm/fleet/              a fleet's files: where they are, the hosts, th
                                   paths.py, the one resolver of a fleet's home, its state folder and its key file;
                                   registry.py, the settings table, a typed row written by hand for each setting;
                                   overrides.py, the plain files of what a person sets, in three layers, and --set;
+                                  passthrough.py, every typed role option no row names, passed through or refused;
                                   hosts.py, the hosts as a folder each, the current host, which one a run reaches,
                                   and host.yml's one writer, the anchor with it;
                                   files.py, the one maker of the fleet's folders, a link refused where one goes;

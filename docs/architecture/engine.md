@@ -1919,6 +1919,35 @@ refusals with no value said, a size read alike, the reader of `client.yml` again
 `fleet_home`, and a scan that only `set`, `unset` and `set_current` write, and `files.py`'s `write` and `hosts.py`'s
 `write`.
 
+**The role options passed through: `passthrough.py`.** Every typed option of the roles that no row names - neither a
+row's name nor reached by a row's setting through today's wiring (`wiring.py`: `vm_cores` reaches `proxmox_vm_cores`) -
+may be set under the role's own name, as today's settings verb lets a person set it, held to its role's own
+`meta/argument_specs.yml` and handed to the role variable of the same name unchanged: no row is made for it and no fate
+entered by hand, so the spec is the one source of its type, choices and description. `options()` lists each, with its
+role, the entry point that first lists it (main first), the spec's type, choices, list elements, `no_log` and
+description, and `refused`: none for one passed through, else why it is no setting, as today's `tools/settings` refuses
+it, in the words a refusal says after its name. The vault's is one the spec marks `no_log` or that a name the vault
+holds reaches, so no secret is ever passed through; each machine's own is one made from the machine's name; a run's own
+is one a run sets for itself (`BY_A_RUN`); and `LEFT_OUT` names seven with their reasons: the host's connection, a field
+of each host's `host.yml`, and the certificate's switch the client has not (the four options today's connection
+settings fed); the two the run sets from `vpn`; and one a row of another name stands for (`destroy_allow_unrecorded`).
+`refusal(name)` says why of any other option of the roles a row does not have too: one a row's setting reaches is set
+through that row alone, and one whose spec takes any value has no type. Of today's 203 options, 87 are passed through.
+`overrides.py` takes the name of one passed through where it takes a row's, at home `fleet` and scope `global`: at the
+top of the fleet's `settings.yml`, and with `--set`, by `passthrough.row(name)`, its spec's type with no default; a path
+there is one on the machine the role runs on, held as one line of text and kept as typed, never made this computer's.
+`resolve` returns, after the rows, each such option the fleet's file or the run sets, and none set nowhere, since the
+role's own default applies where it runs; any other option of the roles is refused by its name and why, in a file and
+for one run, never saying the value. `typed(option, text)` holds typed text to the spec as `overrides.typed` holds text
+to a row. A kind of option no row's type holds (a list of anything but strings, choices of anything but a string) is
+refused as the table is made, before it could be passed through. `tests/unit/test_aw_fleet_passthrough.py` holds it:
+every option a row's, passed through or refused, none left out; each passed through carrying its spec; no secret passed
+through; each refusal's reason; a value held to its spec typed and in a file; and, against today's `tools/settings` run
+as a child over an inventory made from the example files, every name it lets a person set taken here as a row or an
+option, but the nine of today's settings with no row and the options left out by name, which the test names; every
+option it writes through another setting refused here through that setting's row; and every name it refuses no option
+here, refused for today's reason, role by role.
+
 **The hosts: `hosts.py`.** Each host is a folder of the fleet's files, `fleet/hosts/<name>/`, the first included, named
 as any host is (`hosts/model.py`'s `name_refusal`): `host.yml`, its own fields, which travel with the folder;
 `settings.yml`, its overrides; and, where it keeps one, `proxmox-trust.pem`, the anchor its API's certificate is
