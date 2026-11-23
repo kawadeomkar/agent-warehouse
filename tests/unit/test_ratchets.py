@@ -122,6 +122,9 @@ PROXMOX_ELSEWHERE = {
     "lib/claude_vm/ansible/engine.py": 4,
     # The new engine's one writer of a VM's record, which reaches a VM by its node and its VMID, as every workflow will.
     "lib/claude_vm/engine/record.py": 3,
+    # The new engine's base template, found in the cluster's listing by its ID, and a template of the person's own by
+    # its name, whose ID is then read off the same entry.
+    "lib/claude_vm/engine/template.py": 2,
     "lib/claude_vm/mcp/confirm.py": 4,
     "lib/claude_vm/refs.py": 3,
     "lib/claude_vm/run/model.py": 4,

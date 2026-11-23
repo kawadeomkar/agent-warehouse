@@ -16,10 +16,14 @@ that is this engine's and that it cannot read - a format number it does not read
 format's, a key twice, a second block, an end with no start - is Unreadable: refused, and never rewritten, so that what
 a newer program or a person wrote is never lost to an older one.
 
-`parse(notes)` gives the block's fields, or None where the notes hold none: each value as a str, but the two lists, a
-tuple each. `repositories` keeps today's rule for a VM's own list (lib/claude_vm/proxmox.py's line of repositories):
-names split on commas, each kept only where it is a repository's name, so that a mangled line is still the VM's list
-and clones nothing it does not name; an empty value is a list too, of none, where a line left out is no list.
+`parse(notes)` gives the block's fields, or None where the notes hold none: each value as a str, but the three lists, a
+tuple each. `copied(fields, identity)` says whether they name a UUID that is not the VM's own: a clone made without a
+description of its own carries its source's notes, record and all (experiment 6), so such a record is a copy, which
+engine/record.py's read refuses (Copy) and status reads by the same function. A record that names no UUID, a VM's first
+form, cannot be told from a copy of one. `repositories` keeps today's rule for a VM's own list
+(lib/claude_vm/proxmox.py's line of repositories): names split on commas, each kept only where it is a repository's
+name, so that a mangled line is still the VM's list and clones nothing it does not name; an empty value is a list too,
+of none, where a line left out is no list.
 `render(notes, fields)` gives the notes with that block alone written from fields, every other line byte for byte as it
 was, and the block added last, after a blank line, where there was none; a field given None is left out. Both read the
 notes as Proxmox gives them back, which takes the white space off their end (`kept`), so a block rendered again from
@@ -59,8 +63,10 @@ END = "end of agent-warehouse record"
 # The fields of format 1, in the order render writes them: what the record is of; the SMBIOS UUID of the VM it was
 # written for (none in the first form a clone carries); the name the run asked for; the stage; whether the first start
 # went well (today's removal of the unfinished tag); the VM's own list of repositories; the size it was created with,
-# each part where the run gave one; the digest of the image it was made from; the VPNs a login of which was seen on it;
-# the digest it last converged to; the mark that an agent's run made it; and the run on it now, as information.
+# each part where the run gave one; the version of the build steps a template was built by; the digest of the image it
+# was made from, the URL that image was fetched from and the packages put into it, which a template's configuration
+# cannot show (engine/template.py compares them); the VPNs a login of which was seen on it; the digest it last converged
+# to; the mark that an agent's run made it; and the run on it now, as information.
 FIELDS = (
     "kind",
     "uuid",
@@ -71,14 +77,17 @@ FIELDS = (
     "cores",
     "memory",
     "disk",
+    "build",
     "image",
+    "image_url",
+    "packages",
     "joined",
     "converged",
     "made_by_agent",
     "job",
 )
 # The fields whose value is a list, comma-joined on its line.
-LISTS = frozenset({"repositories", "joined"})
+LISTS = frozenset({"repositories", "packages", "joined"})
 # The fields that are a mark: written as YES where set, and left out where not.
 FLAGS = frozenset({"provisioned", "made_by_agent"})
 YES = "yes"
@@ -109,6 +118,29 @@ class Unreadable(ValueError):
             f"the record in {whose} notes cannot be read: {why}; it is left as it is, never rewritten, until a person "
             "puts it right in Proxmox's page or removes it"
         )
+
+
+class Copy(Unreadable):
+    """The notes hold a record written for another VM: it names a UUID that is not this VM's own, as a clone carries
+    its source's notes. Refused as one Unreadable is, and never rewritten: this engine never takes it for the VM's
+    own."""
+
+    def __init__(self, whose: str = "a VM's") -> None:
+        self.why = "it names another VM's UUID"
+        ValueError.__init__(
+            self,
+            f"the record in {whose} notes was written for another VM, whose UUID it names, as a clone carries its "
+            "source's notes: it is not this VM's record, and is left as it is, never rewritten",
+        )
+
+
+def copied(fields: Mapping[str, str | tuple[str, ...]], identity: str) -> bool:
+    """Whether the record parse gave names a UUID that is not identity, the SMBIOS UUID of the VM whose notes hold it
+    ("" for a VM that has none): a copy, which a clone made without a description of its own carries from its source.
+    UUIDs are compared without regard to case. A record that names no UUID, a VM's first form at the stage cloning,
+    cannot be told from a copy of one by this."""
+    uuid = fields.get("uuid")
+    return isinstance(uuid, str) and bool(uuid) and uuid.lower() != (identity or "").lower()
 
 
 class TooLong(ValueError):

@@ -249,7 +249,9 @@ lib/claude_vm/cli/                aw, the program: the command line read against
 lib/claude_vm/engine/             the workflows, one module a verb, in place of the playbooks; record.py, a VM's record,
                                   typed, read from its notes and written there under Proxmox's digest; certificate.py,
                                   the API's certificate worked out with no credential: an anchor where the computer's
-                                  certificates do not verify the host, read over root SSH or vouched for by a person
+                                  certificates do not verify the host, read over root SSH or vouched for by a person;
+                                  template.py, the base template compared with what its settings would build, by GETs
+                                  alone
 lib/claude_vm/pve/                the typed Proxmox VE client, and the one table of each call's privilege; client.py,
                                   Proxmox, the one class that sends the token, and its reads and writes; answers.py,
                                   each answer's frozen record and its parsing function; pin.py, the connection the token

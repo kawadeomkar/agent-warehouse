@@ -14,6 +14,11 @@ lands with the first's change kept, and so does a write a person's edit came bet
 sends nothing; a block the engine cannot read, a record naming another VM's UUID and notes past the bound send nothing;
 and the label a VM is given is the setting vm_label's value, agent-warehouse by default, beside a person's tags.
 
+A record that names a UUID that is not the VM's own is a copy, which a clone made without a description of its own
+carries from its source (experiment 6): pve/record.py's copied says so, for status's reader too, and engine/record.py's
+read refuses it (Copy, an Unreadable of its own kind), so no reader takes it for the VM's own and no write is sent over
+it; a VM's first form, which names no UUID, is no copy by this (review 19, G1.md 2).
+
 The rules with a test of their own: no module of the new engine but engine/record.py names a VM's description to send
 it, the client, its table and its reader of answers aside; and importing claude_vm.pve.record loads nothing but the
 standard library and claude_vm.text.
@@ -34,7 +39,7 @@ from test_aw_transport import _new_engine, _rel
 
 from claude_vm import proxmox
 from claude_vm.engine import record
-from claude_vm.engine.record import Record, TooLong, Unreadable
+from claude_vm.engine.record import Copy, Record, TooLong, Unreadable
 from claude_vm.fleet import registry
 from claude_vm.pve import pin
 from claude_vm.pve import record as block
@@ -58,7 +63,10 @@ WHOLE = Record(
     cores=8,
     memory="16G",
     disk="128G",
+    build=1,
     image=DIGEST,
+    image_url="https://cloud-images.ubuntu.com/minimal/releases/noble/release/ubuntu-24.04-minimal-cloudimg-amd64.img",
+    packages=("qemu-guest-agent", "libc6"),
     joined=("tailscale",),
     converged="0" * 64,
     made_by_agent=True,
@@ -313,6 +321,15 @@ def test_writing_the_list_changes_that_line_alone() -> None:
         ({"disk": "128"}, "disk"),
         ({"image": DIGEST.upper()}, "image is a SHA-256"),
         ({"converged": "abc"}, "converged is a SHA-256"),
+        ({"build": 0}, "build is a whole number from 1"),
+        ({"build": True}, "build is a whole number from 1"),
+        ({"image_url": "ftp://example.invalid/x.img"}, "image_url is an http or https URL"),
+        ({"image_url": "https://"}, "image_url is an http or https URL"),
+        ({"build": "1"}, "build is a whole number from 1"),
+        ({"packages": ("Qemu",)}, "name each Debian package once"),
+        ({"packages": ("a",)}, "name each Debian package once"),
+        ({"packages": ("vim", "vim")}, "name each Debian package once"),
+        ({"packages": ("a,b",)}, "packages is a word with no comma"),
         ({"joined": ("wireguard",)}, "names each VPN once"),
         ({"joined": ("tailscale", "tailscale")}, "names each VPN once"),
         ({"job": "a‮b"}, "job"),
@@ -325,7 +342,14 @@ def test_a_record_holds_each_field_to_what_it_may_be(changes: dict, said: str) -
 
 
 @pytest.mark.parametrize(
-    "changes", [{"provisioned": 1}, {"made_by_agent": "yes"}, {"repositories": ["a"]}, {"joined": ["tailscale"]}]
+    "changes",
+    [
+        {"provisioned": 1},
+        {"made_by_agent": "yes"},
+        {"repositories": ["a"]},
+        {"joined": ["tailscale"]},
+        {"packages": ["vim"]},
+    ],
 )
 def test_a_record_s_flags_and_lists_are_of_their_own_types(changes: dict) -> None:
     with pytest.raises(TypeError):
@@ -347,10 +371,11 @@ def test_sized_is_any_part_of_the_size_the_vm_was_created_with() -> None:
 
 @dataclasses.dataclass(frozen=True)
 class _Config:
-    """The two fields of a VM's configuration that read reads."""
+    """The three fields of a VM's configuration that read reads: its notes, its number and its own UUID."""
 
     description: str
     vmid: int
+    identity: str = UUID
 
 
 @pytest.mark.parametrize(
@@ -368,6 +393,45 @@ def test_a_block_whose_values_are_not_what_their_fields_may_be_is_unreadable_and
 def test_read_gives_none_for_notes_with_no_record_of_the_engine_s() -> None:
     assert record.read(_Config(TODAY, 9010)) is None
     assert record.read(_Config(block.render(TODAY, WHOLE.fields()), 9010)) == WHOLE
+
+
+# Another VM's UUID, as a clone carries its source's record.
+SOURCE = "9a0e1c2d-3b4f-4a5b-8c6d-7e8f90a1b2c3"
+
+
+@pytest.mark.parametrize(
+    ("uuid", "identity", "copy"),
+    [
+        (UUID, UUID, False),
+        (UUID, UUID.upper(), False),
+        (UUID.upper(), UUID, False),
+        (SOURCE, UUID, True),
+        (UUID, "", True),
+        (None, UUID, False),
+        (None, "", False),
+    ],
+)
+def test_a_record_that_names_a_uuid_not_the_vm_s_own_is_a_copy(uuid, identity: str, copy: bool) -> None:
+    fields = {"kind": "vm", "stage": "cloning" if uuid is None else "finished", "uuid": uuid}
+    assert block.copied({key: value for key, value in fields.items() if value is not None}, identity) is copy
+
+
+@pytest.mark.parametrize("kind", ["vm", "template", "golden", "build"])
+def test_read_refuses_a_copy_of_another_vm_s_record_of_any_kind(kind: str) -> None:
+    copied = dataclasses.replace(WHOLE, kind=kind, uuid=SOURCE)
+    with pytest.raises(Copy) as refused:
+        record.read(_Config(block.render("mine", copied.fields()), 9010))
+    assert isinstance(refused.value, Unreadable)
+    assert "VM 9010's notes" in str(refused.value) and "another VM" in str(refused.value)
+    assert SOURCE not in str(refused.value) and UUID not in str(refused.value)
+    # The same record, in the notes of the VM it names, is that VM's own.
+    assert record.read(_Config(block.render("mine", copied.fields()), 9011, SOURCE)) == copied
+
+
+def test_a_first_form_names_no_uuid_and_is_read_whatever_the_vm_s_own() -> None:
+    first = Record(kind="vm", stage="cloning", name="alpha", job="3f9a0c1e7b2d4a58")
+    assert record.read(_Config(block.render("", first.fields()), 9010)) == first
+    assert record.read(_Config(block.render("", first.fields()), 9010, "")) == first
 
 
 # --------------------------------------------------------------------------- against the fake Proxmox ----
@@ -531,6 +595,22 @@ def test_a_block_the_engine_cannot_read_is_never_rewritten_and_nothing_is_sent(f
     assert applied == [] and fleet.puts() == [] and fleet.notes() == planted
 
 
+def test_a_copy_s_record_is_never_written_over_and_change_is_never_applied(fleet) -> None:
+    # As a clone made without a description of its own carries its source's record: beta's, in alpha's notes.
+    copied = block.render("mine", _made(fleet.identity(9011)).fields())
+    fleet.plant(description=copied)
+    applied = []
+    with fleet.client() as client:
+        with pytest.raises(Copy) as refused:
+            record.read(client.config("pve", 9010))
+        assert "VM 9010's notes" in str(refused.value)
+        with pytest.raises(Copy):
+            record.write(client, ALPHA, lambda current: applied.append(current) or current)
+        with pytest.raises(Copy):
+            record.write(client, ALPHA, lambda current: applied.append(current) or _made(fleet.identity()))
+    assert applied == [] and fleet.puts() == [] and fleet.notes() == copied
+
+
 def test_a_record_naming_another_vm_s_uuid_is_never_written(fleet) -> None:
     other = fleet.identity(9011)
     with fleet.client() as client, pytest.raises(ValueError, match="written only for the VM it names"):
@@ -588,6 +668,8 @@ NAMES_A_DESCRIPTION = {
     "lib/claude_vm/pve/answers.py": "a configuration read back, its description among its fields",
     "lib/claude_vm/fleet/passthrough.py": "a role's spec read, whose description of an option is what a person reads of"
     " it: no VM's, and nothing sent",
+    "lib/claude_vm/engine/template.py": "a template's record handed to today's proxmox_template_drift as the line of"
+    " notes it reads, in a configuration of its own: it sends nothing but GETs (tests/unit/test_aw_engine_template.py)",
 }
 
 
