@@ -1671,6 +1671,7 @@ fleet's folders (`fleet/files.py`).
 | `inputs` | The run's resolved inputs, a typed `--set` value among them |
 | `starter` | What started it: `{"kind": "terminal"}`, `{"kind": "detach"}`, or `{"kind": "mcp", "server": <id>}`, that server's own ID |
 | `host`, `machines` | The host the run is on, and the machines it names, by identity |
+| `making` | The machines it is making that have no identity yet, each by its stand-in key with the name a person chose, until its join |
 | `locks` | The names of the locks it holds |
 | `attached` | Whether it runs at a terminal |
 | `pid`, `started` | Its process and when it started: information for a person and for a machine's `job` line, never read to decide a state |
@@ -1714,13 +1715,27 @@ process's start or reads the process table for one, which a scan in the test hol
 
 **Events.** `emit(kind, machine, text, **data)` hands one event, with its time, to each listener the run registered
 with `listen` (the live view and the text log), in order and in the run's own process. The kinds are `stage`, `step`,
-`report`, `waiting`, `next` and `end`; another is refused, `child` among them, since a child the run started is its
-registry's (`children.py`). Every string an event carries goes through
+`report`, `waiting`, `next`, `join` and `end`; another is refused, `child` among them, since a child the run started is
+its registry's (`children.py`). Every string an event carries goes through
 `text.plain_text`, and a `Secret` anywhere in one is refused before anything is written or heard. What an agent and
 `logs` read is also kept in the record: a `waiting` (empty text: nothing), a `next` with its `matter` (an empty line
 removes it), a machine's `end` with its outcome and the stage its last `stage` event named, and the run's `end` (no
 machine) with its outcome and exit status. Only the process that made a job emits its events, listens to them or drops
 it.
+
+**A machine not yet made.** A machine is named by its identity, which a VM the run is making has not until its clone
+gives it its SMBIOS UUID. Until then the run names it by a stand-in key, `job.stand_in()`: `making:` and sixteen hex
+digits, a form no identity (`agent-warehouse-<SMBIOS UUID>`) and no VM's name (which has no colon) takes, so it is never
+taken for either. Its first event carries the name a person chose (`name=`), as an identity's first event does, and the
+record keeps it in `making`, the stand-in with that name, so that a run killed before the clone, read by `logs` or an
+agent, says what it was making, and `machines` keeps identities alone (`create` refuses a stand-in there). One `join`
+event, its machine the identity and its text the stand-in, joins the two: the identity joins `machines`, the stand-in
+leaves `making`, and what the record keeps under the stand-in moves to the identity, in its place: its outcome in
+`machine_outcomes`, its lines of `next`, and the run's `waiting` where it is the machine's. From then on the stand-in
+names nothing. Refused before anything is written or heard: a stand-in's first event with no name; an event that names a
+stand-in joined already; a join with no identity, or a stand-in for one; a join of a key that is no stand-in, of a
+stand-in joined already, or of one the run is not making; and a join to an identity the run has named before, given or
+in an event, which would make two machines one.
 
 **Reading and dropping.** `find(jobs_dir, job_id)` takes only what the pattern `job_id` holds, sixteen hex digits,
 and `listed(jobs_dir)` gives every job newest first. Each passes over a folder whose `job.json` is not there yet, or is gone, and a job that vanishes
@@ -2089,8 +2104,16 @@ name a person chose rides beside it, as an event's `name` (layer 1's steps carry
 mapping of identity to name; the model keeps each identity's name (`names`, `name(machine)`), and a drawer says the name
 wherever it says a machine. Every emitter passes the identity: an event whose machine is the name the run keeps for
 another key, or whose `name` is another key of the run's, is refused, so one machine is never two rows drawn under one
-name. The events it reads, their text plain as `emit` makes it (a tab, a line break and Unicode's format characters
-stay, and a drawer makes them visible):
+name. A VM the run is making has its row from its first event all the same, as today's run draws each VM by its name
+from the start: its events name it by its stand-in key, the first of them with its `name` (or the run's machines given
+with it and its name), and the `join` event moves everything the model keeps under the stand-in to the identity, in its
+place (`JOINED`): the machine's row in `machines`, its name, its part in every stage and step with their times and
+outcomes so far, the order its end came in (`_Book.ends`, which says what of every machine's it reads), the stage it
+reached, its waits, its reports, its failures, its outcome, its latest line and its NEXT STEPS lines. So the identity's
+events go on where the stand-in's left off, a failure said before the join is not said again at the machine's failed end
+after it (B2's rule and the end's "nothing of it failed" read a failure's machine), and nothing drawn changes: one row,
+before and after. From then on the stand-in is no key of the run's. The events it reads, their text plain as `emit`
+makes it (a tab, a line break and Unicode's format characters stay, and a drawer makes them visible):
 
 | Event | What the model makes of it |
 |---|---|
@@ -2100,6 +2123,7 @@ stay, and a drawer makes them visible):
 | `report` | Kept whole, in order, to be printed above the region |
 | `waiting` | Opens the wait of its machine and its `section`, in place of one open; an empty text ends that wait alone |
 | `next` | A line of NEXT STEPS for its machine and `matter`; an empty line removes it |
+| `join`, its machine the identity, its text the stand-in | Everything kept under the stand-in is kept under the identity from then on, each in its place (`JOINED`); the stand-in names nothing more |
 | `end` | With a machine: its outcome, the stage it reached (`stage`, else its own last `stage` event, as the job's record keeps it), why, and what of it is open ends (done, failed, stopped). With none: the run's end; everything open ends, done where the run succeeded and stopped where it failed or was cancelled, and no event is taken after it |
 
 A `stage` or a `step` is for one machine, or with no machine for every machine of the run: a machine with no part of its
@@ -2115,7 +2139,14 @@ says so, and one still open at the run's end is done where the run succeeded and
 cancelled: cut short, never failed, since what failed said so itself. An event of a stage the declaration lacks, of a
 step its stage does not declare, of a kind the job lacks, an ending other than done, skipped or failed, a NEXT STEPS
 line with no matter, a name that is no str, a machine named by the name the run keeps for another key or a name that is
-another key, and anything after the run's end are refused before anything is kept.
+another key, a stand-in's first event with no name (and a stand-in given with none), an event that names a stand-in
+joined already, a join with no identity or a stand-in for one, a join of a key that is no stand-in, of a stand-in joined
+already or of one the run does not know, a join to an identity the run keeps anything for (two machines would be one
+row), and anything after the run's end are refused before anything is kept, the order of the events counted included.
+`tests/unit/test_aw_run_join.py` holds the stand-in and its join: a run that makes a VM, its events under the stand-in
+from the first, the join, then the identity's, read as one row with its parts, its times and one outcome, equal at each
+event to the same run keyed by the identity from its first event; each thing the join moves, each refusal leaving the
+model as it was, the record across the join, and the live view through it, nothing drawn twice.
 
 What a drawer reads: `state(stage, step)` (to come, running, waiting, done, skipped, failed, stopped), `mark(machine,
 stage, step)` and `marks(stage, step)` (each machine's, none for a stage that is not each machine's), `running()` and
@@ -2196,11 +2227,14 @@ left out: the run goes on, and every listener after the view still hears it. Not
 sequence or reads the terminal itself: the region, the palette, the title and the echo are `tui/`'s. The model's
 machines are the job's own, `job.json`'s `machines`, by identity, the key every event of a machine names, each with the
 name a person chose where the caller gives it (`names`): the record keeps identities alone, and the view says a machine
-by its name. A job has one view: a second is refused (`RuntimeError`), the first keeping it. What the view says in the
-run's thread, each event's lines and standard error's lines above the region, is said whole, a Ctrl-C, a SIGTERM and a
-SIGHUP held off meanwhile and each delivered once it is said (`live_region.uninterrupted`, which also holds each of the
-region's writes and its count of the lines drawn): the ladder raises from its handler wherever the run's thread is, and
-a frame drawn but not counted would be left above the summary, an erase not counted would wipe lines said above it, and
+by its name. A row is keyed by the machine's identity, or, for a VM the run is making, by its stand-in key until its
+join: drawn by its name from its first event (from `job.json`'s `making` where the view is made after that event), and
+the join changes nothing drawn, one row before and after, the identity's events going on in it. A job has one view: a
+second is refused (`RuntimeError`), the first keeping it. What the view says in the run's thread, each event's lines and
+standard error's lines above the region, is said whole, a Ctrl-C, a SIGTERM and a SIGHUP held off meanwhile and each
+delivered once it is said (`live_region.uninterrupted`, which also holds each of the region's writes and its count of
+the lines drawn): the ladder raises from its handler wherever the run's thread is, and a frame drawn but not counted
+would be left above the summary, an erase not counted would wipe lines said above it, and
 a line counted as said but not written would be lost. Once a write to the stream fails nothing more is written there,
 and a stream whose pipe is broken (`aw … | head -1`) is pointed at `/dev/null`, so that Python's flush at the exit
 succeeds and the run ends with its own status. A question at the run's terminal finds the run's view by the job its

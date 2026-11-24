@@ -25,9 +25,11 @@ Nothing here writes an escape sequence or reads the terminal itself: the region,
 the terminal's echo the region's (tests/unit/test_aw_live.py holds every module of runs/ to that by a scan). The model's
 machines are the job's own (`job.json`'s `machines`), by identity, the key every event of a machine names, each with the
 name a person chose where the caller gives it (`names`): `job.json` keeps identities alone, and the view says a machine
-by its name, which an event's `name` also tells the model. A Live is made in the run's thread, which alone may take
-SIGWINCH for the region, and once a job: a second view of it is refused (RuntimeError), the first keeping it, and the
-job hands the one view every event from then on.
+by its name, which an event's `name` also tells the model. A machine the run is making, which has no identity yet, is
+keyed by its stand-in, drawn by its name from its first event (or from `job.json`'s `making`, where the view is made
+after it), and its join to its identity changes nothing drawn: one row, before and after. A Live is made in the run's
+thread, which alone may take SIGWINCH for the region, and once a job: a second view of it is refused (RuntimeError), the
+first keeping it, and the job hands the one view every event from then on.
 
 What the view says in the run's thread - each event's lines, standard error's lines above the region - is said whole,
 with a Ctrl-C, a SIGTERM and a SIGHUP held off meanwhile and delivered once it is said (tui/live_region.py's
@@ -236,6 +238,7 @@ class Live:
             raise RuntimeError(TWICE.format(job=job.id))
         record = job.read()
         machines = record.get("machines") or []
+        making = record.get("making") or {}
         started = record.get("started")
         self.job = job
         self._stream = stream if stream is not None else sys.stdout
@@ -243,7 +246,10 @@ class Live:
         self._clock = clock
         self._cancelled = cancelled
         named = dict(names or {})
-        self.run = model.Run(declared, clock(), {str(machine): named.get(str(machine)) for machine in machines})
+        given = {str(machine): named.get(str(machine)) for machine in machines}
+        # A machine the run is making with no identity yet, by its stand-in, with its name (job.json's `making`).
+        given.update({str(stand): str(name) for stand, name in dict(making).items()})
+        self.run = model.Run(declared, clock(), given)
         self.view = View(
             self.run,
             started_at=float(started) if isinstance(started, (int, float)) else time.time(),
