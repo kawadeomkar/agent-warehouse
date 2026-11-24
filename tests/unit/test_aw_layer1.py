@@ -3,7 +3,9 @@
 Every run here is a real ansible-playbook, started by layer1.run as a child of a job of this process's own, against a
 stand-in machine (tests/unit/aw_machine.py): a play of one task over the test-only local connection, which touches only
 the machine's directory, or a play of one ping over Ansible's own ssh connection to the stand-in ssh, which records the
-words it was given. The generated configuration read back by ansible-config is a fixed expectation; a play of one ping
+words it was given. The generated configuration read back by ansible-config is a fixed expectation, and a run's names
+the checkout's own folder of Galaxy collections until F6a, the one tools/env-run --collections names for the run's
+environment, where its answer is one absolute path given in time and refused otherwise; a play of one ping
 runs, its child in a session of its own and in the run's registry with its pid, with nothing on this process's
 terminal; the caller's ANSIBLE_*, PYTHON* and an exported stdout callback never reach the child, whose environment is
 the allow list and the engine's own; a target that is no machine's, a first use's, one with no key filed, an inventory
@@ -19,8 +21,10 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import importlib.util
 import json
 import os
+import re
 import shlex
 import shutil
 import signal
@@ -32,6 +36,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+import yaml
 from aw_machine import Machine, layer1_host, machine, ssh_stand_in, target
 from harness import REPO, repo_files
 
@@ -44,19 +49,42 @@ from claude_vm.schema import printer
 from claude_vm.ssh import hostkeys, runner
 
 LAYER1 = REPO / "lib" / "claude_vm" / "guest" / "layer1.py"
-# What the generated configuration sets, as ansible-config reads it back: every setting it changes but the two whose
-# values are paths of the run's own (CONFIG_FILE, DEFAULT_LOCAL_TMP), which the test reads apart.
+# What the generated configuration sets, as ansible-config reads it back: every setting it changes but those whose
+# values are paths of the run's own (CONFIG_FILE, DEFAULT_LOCAL_TMP, and the plugin folders and the collections' path
+# that name its empty folder, IN_THE_EMPTY_FOLDER), which the test reads apart.
 EXPECTED = {
     "ANSIBLE_PIPELINING": True,
+    "COLLECTIONS_SCAN_SYS_PATH": False,
     "DEFAULT_CALLBACK_PLUGIN_PATH": [str(layer1.CALLBACKS)],
+    "DEFAULT_FILTER_PLUGIN_PATH": [str(layer1.FILTERS)],
     "DEFAULT_FORKS": 1,
     "DEFAULT_ROLES_PATH": [str(layer1.ROLES)],
     "DEFAULT_STDOUT_CALLBACK": layer1.CALLBACK,
     "INJECT_FACTS_AS_VARS": False,
     "INVENTORY_ENABLED": ["yaml"],
 }
+# Every setting of a folder Ansible searches that names the run's own empty folder, by ansible-config's names.
+IN_THE_EMPTY_FOLDER = (
+    "BECOME_PLUGIN_PATH",
+    "COLLECTIONS_PATHS",
+    "DEFAULT_ACTION_PLUGIN_PATH",
+    "DEFAULT_CACHE_PLUGIN_PATH",
+    "DEFAULT_CLICONF_PLUGIN_PATH",
+    "DEFAULT_CONNECTION_PLUGIN_PATH",
+    "DEFAULT_HTTPAPI_PLUGIN_PATH",
+    "DEFAULT_INVENTORY_PLUGIN_PATH",
+    "DEFAULT_LOOKUP_PLUGIN_PATH",
+    "DEFAULT_MODULE_PATH",
+    "DEFAULT_MODULE_UTILS_PATH",
+    "DEFAULT_NETCONF_PLUGIN_PATH",
+    "DEFAULT_STRATEGY_PLUGIN_PATH",
+    "DEFAULT_TERMINAL_PLUGIN_PATH",
+    "DEFAULT_TEST_PLUGIN_PATH",
+    "DEFAULT_VARS_PLUGIN_PATH",
+    "DOC_FRAGMENT_PLUGIN_PATH",
+)
 # What the child's environment sets beside it, as Ansible reads it: the untrusted-template switch, by its variable.
-FROM_THE_ENVIRONMENT = {"_TEMPLAR_UNTRUSTED_TEMPLATE_BEHAVIOR": "error"}
+FROM_THE_ENVIRONMENT = {"_TEMPLAR_UNTRUSTED_TEMPLATE_BEHAVIOR": "ignore"}
 # The caller's variables a child must never be given, beside its own: Ansible's, Python's, a stdout callback exported,
 # and one of no tool's.
 CANARIES = {
@@ -78,6 +106,9 @@ LOOSENING = """Host *
   ForwardAgent yes
   CheckHostIP yes
   UpdateHostKeys yes
+  PreferredAuthentications gssapi-with-mic,hostbased,publickey
+  GSSAPIAuthentication yes
+  HostbasedAuthentication yes
 """
 
 
@@ -193,23 +224,190 @@ def test_the_generated_configuration_read_back_is_the_fixed_expectation(made) ->
     local_tmp = settings.pop("DEFAULT_LOCAL_TMP")
     # Ansible makes a folder of its own for each process under the configured one.
     assert Path(local_tmp["value"]).parent == directory / layer1.LOCAL_TMP, local_tmp
+    # Every other folder Ansible searches names the run's own empty one, by its real path wherever Ansible resolves it.
+    empty = {name: settings.pop(name) for name in IN_THE_EMPTY_FOLDER}
+    for name, entry in empty.items():
+        assert [os.path.realpath(each) for each in entry["value"]] == [os.path.realpath(directory / layer1.NONE)], name
     assert {name: entry["value"] for name, entry in settings.items()} == {**EXPECTED, **FROM_THE_ENVIRONMENT}
     origins = {name: entry["origin"] for name, entry in settings.items()}
     assert {origins.pop(name) for name in FROM_THE_ENVIRONMENT} == {f"env: {layer1.UNTRUSTED_VARIABLE}"}
-    assert {local_tmp["origin"], *origins.values()} == {str(config)}
+    assert {local_tmp["origin"], *origins.values(), *(entry["origin"] for entry in empty.values())} == {str(config)}
     assert layer1.ROLES == REPO.resolve() / "roles"
+    assert layer1.FILTERS == REPO.resolve() / "filter_plugins"
 
 
-def test_the_configuration_sets_ssh_args_empty_and_names_no_collections_path(made) -> None:
+def _keys(text: str) -> dict[str, list[str]]:
+    """Each key of a configuration's lines, with every value it is given there."""
+    found: dict[str, list[str]] = {}
+    for line in text.splitlines():
+        key, equals, value = line.partition(" = ")
+        if equals:
+            found.setdefault(key, []).append(value)
+    return found
+
+
+def test_the_configuration_names_every_folder_ansible_searches_and_ssh_args_offers_a_key_alone(made, tmp_path):
     directory = rundir.made(made)
     assert directory is not None
-    lines = layer1.configuration_text(directory).splitlines()
-    # Empty, set: Ansible's own default would put ControlMaster=auto ahead of the host's options.
-    assert lines[lines.index("[ssh_connection]") + 1] == "ssh_args ="
-    assert not [line for line in lines if line.startswith(("collections_path", "callbacks_enabled"))]
-    # The product's callback, by its folder beside the engine, and no other folder of callbacks.
-    assert [line for line in lines if line.startswith("callback_plugins")] == [f"callback_plugins = {layer1.CALLBACKS}"]
-    assert (layer1.CALLBACKS / f"{layer1.CALLBACK}.py").is_file()
+    text = layer1.configuration_text(directory)
+    lines, keys = text.splitlines(), _keys(text)
+    # Set, never Ansible's default, which would put ControlMaster=auto ahead of the host's options; public keys alone,
+    # ahead of Ansible's own PreferredAuthentications.
+    assert lines[lines.index("[ssh_connection]") + 1] == f"ssh_args = {layer1.SSH_ARGS}"
+    assert layer1.SSH_ARGS.split() == [
+        "-o",
+        "PreferredAuthentications=publickey",
+        "-o",
+        "GSSAPIAuthentication=no",
+        "-o",
+        "HostbasedAuthentication=no",
+    ]
+    assert "callbacks_enabled" not in keys
+    # The product's callback and today's filters, by their folders beside the engine, and no other of either.
+    assert keys["callback_plugins"] == [str(layer1.CALLBACKS)] and keys["filter_plugins"] == [str(layer1.FILTERS)]
+    assert (layer1.CALLBACKS / f"{layer1.CALLBACK}.py").is_file() and (layer1.FILTERS / "text.py").is_file()
+    # Every other folder, and the collections', the run's empty one, and Python's path not scanned for collections.
+    for key in (*layer1.PLUGIN_FOLDERS, "collections_path"):
+        assert keys[key] == [str(directory / layer1.NONE)], key
+    assert keys["collections_scan_sys_path"] == ["false"]
+    # A test's own folder of collections, where one is given, in its place.
+    assert _keys(layer1.configuration_text(directory, tmp_path))["collections_path"] == [str(tmp_path)]
+
+
+def test_every_folder_ansible_would_search_under_home_is_named(made) -> None:
+    # Read from the locked ansible-core's own definitions: each setting whose default is a folder of plugins or of
+    # collections under Ansible's home. A release that adds a kind of plugin fails here until the configuration
+    # names it.
+    base = Path(importlib.util.find_spec("ansible").origin).parent / "config" / "base.yml"
+    searched = set()
+    for setting in yaml.safe_load(base.read_text()).values():
+        default = setting.get("default") if isinstance(setting, dict) else None
+        if isinstance(default, str) and re.search(r"ANSIBLE_HOME ~ \"/(plugins/[a-z_]+|collections)", default):
+            searched |= {entry["key"] for entry in setting.get("ini", []) if entry.get("section") == "defaults"}
+    directory = rundir.made(made)
+    assert directory is not None
+    named = set(_keys(layer1.configuration_text(directory)))
+    assert len(searched) > 15 and searched - named == set(), sorted(searched - named)
+
+
+def _env_run_collections(env: dict[str, str]) -> Path:
+    """The folder of collections tools/env-run itself names for env's home and data folder, asked as every recipe of
+    today's product asks it."""
+    found = subprocess.run(
+        [str(REPO / "tools" / "env-run"), "--collections"],
+        env={name: env[name] for name in ("PATH", "HOME", "XDG_DATA_HOME") if name in env},
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+    return Path(found.stdout.rstrip("\n"))
+
+
+@pytest.mark.parametrize("data_home", ["the test's own", "another", "none, HOME's"])
+def test_the_run_s_configuration_names_the_checkout_s_collections_as_tools_env_run_finds_them(
+    made, root, tmp_path, data_home
+) -> None:
+    # Until F6a, the owner's answer of 2026-11-23: the checkout's own folder, the one today's product's runs read, for
+    # the run's own environment, asked of tools/env-run; a test's own folder of collections in its place, where given.
+    alpha = _alpha(root)
+    env = dict(os.environ)
+    if data_home == "another":
+        env["XDG_DATA_HOME"] = str(tmp_path / "data")
+    elif data_home == "none, HOME's":
+        env.pop("XDG_DATA_HOME", None)
+    ended = _run(made, target(alpha), _play(tmp_path, PING), env=env, test_connection=layer1_host(alpha))
+    assert ended.status == 0, ended.said
+    directory = rundir.made(made)
+    assert directory is not None
+    found = _env_run_collections(env)
+    assert _keys((directory / layer1.CONFIG).read_text())["collections_path"] == [str(found)]
+    # Under the run's own data folder, named for this checkout, never the process's own environment's.
+    data = Path(env.get("XDG_DATA_HOME") or Path(env["HOME"]) / ".local" / "share")
+    assert found.is_relative_to(data) and found.parent.name.startswith(f"{REPO.resolve().name}-"), found
+    # tools/env-run was a child of the run, and is gone.
+    assert children.live(made) == []
+    # A test's own folder, where one is given, names that one alone.
+    given = tmp_path / "collections"
+    given.mkdir()
+    ended = _run(
+        made, target(alpha), _play(tmp_path, PING), env=env, test_connection=layer1_host(alpha), test_collections=given
+    )
+    assert ended.status == 0, ended.said
+    assert _keys((directory / layer1.CONFIG).read_text())["collections_path"] == [str(given)]
+
+
+# What tools/env-run, put in its place, does: fail with a word on its standard error, answer what is no one absolute
+# path, or say nothing in time.
+ENV_RUN_FAULTS = {
+    "fails": ("echo 'error: no HOME' >&2; exit 3", "tools/env-run --collections ended with exit 3: error: no HOME"),
+    "a relative path": ("echo collections", "tools/env-run --collections answered no one absolute path"),
+    "two lines": ("printf '/a\\n/b\\n'", "tools/env-run --collections answered no one absolute path"),
+    "no line's end": ("printf /a", "tools/env-run --collections answered no one absolute path"),
+    "nothing in time": ('echo "$$" > "$0.pid"; exec sleep 600', "tools/env-run --collections said nothing in 1 s"),
+}
+
+
+@pytest.mark.parametrize("fault", sorted(ENV_RUN_FAULTS))
+def test_what_tools_env_run_answers_that_is_no_folder_is_refused_before_anything_is_written(
+    made, root, tmp_path, monkeypatch, fault
+) -> None:
+    script, said = ENV_RUN_FAULTS[fault]
+    stand_in = tmp_path / "env-run"
+    stand_in.write_text(f"#!/bin/sh\n{script}\n")
+    stand_in.chmod(0o755)
+    monkeypatch.setattr(layer1, "ENV_RUN", stand_in)
+    monkeypatch.setattr(layer1, "ENV_RUN_SECONDS", 1)
+    alpha = _alpha(root)
+    with pytest.raises(layer1.Refused) as refused:
+        _run(made, target(alpha), _play(tmp_path, PING), test_connection=layer1_host(alpha))
+    assert str(refused.value).startswith(said), str(refused.value)
+    assert _written(made) == [] and children.live(made) == []
+    pid = tmp_path / "env-run.pid"
+    if pid.exists():
+        # The one that said nothing was ended, and reaped.
+        with pytest.raises(ProcessLookupError):
+            os.kill(int(pid.read_text()), 0)
+
+
+def test_tools_env_run_is_given_only_what_it_reads_of_the_run_s_environment(made, root, tmp_path, monkeypatch) -> None:
+    stand_in = tmp_path / "env-run"
+    stand_in.write_text('#!/bin/sh\nenv > "$0.env"\necho /collections\n')
+    stand_in.chmod(0o755)
+    monkeypatch.setattr(layer1, "ENV_RUN", stand_in)
+    alpha = _alpha(root)
+    canaries = {"AW_CANARY": "1", "PYTHONPATH": "/canary", "ANSIBLE_COLLECTIONS_PATH": "/canary", "LANG": "C.UTF-8"}
+    env = {**os.environ, **canaries, "XDG_DATA_HOME": str(tmp_path / "data")}
+    ended = _run(made, target(alpha), _play(tmp_path, PING), env=env, test_connection=layer1_host(alpha))
+    assert ended.status == 0, ended.said
+    given = dict(line.split("=", 1) for line in (tmp_path / "env-run.env").read_text().splitlines() if "=" in line)
+    assert {name: given.get(name) for name in layer1.ENV_RUN_KEPT} == {name: env[name] for name in layer1.ENV_RUN_KEPT}
+    assert given[children.MARKER] == made.id
+    assert set(canaries).isdisjoint(given), sorted(set(canaries) & set(given))
+    directory = rundir.made(made)
+    assert directory is not None
+    assert _keys((directory / layer1.CONFIG).read_text())["collections_path"] == ["/collections"]
+
+
+def test_a_vars_plugin_under_the_caller_s_home_is_never_run(made, root, tmp_path) -> None:
+    # Ansible runs a vars plugin it finds in its default folders without its being enabled: one in the caller's
+    # ~/.ansible/plugins/vars would loosen the key's checking (review 22, F3.md 1). The configuration names its folders.
+    home = Path(os.environ["HOME"])
+    mark = tmp_path / "vars-plugin-ran"
+    planted = home / ".ansible" / "plugins" / "vars" / "aw_probe.py"
+    planted.parent.mkdir(parents=True)
+    planted.write_text(
+        "from ansible.plugins.vars import BaseVarsPlugin\n\n\n"
+        "class VarsModule(BaseVarsPlugin):\n"
+        "    def get_vars(self, loader, path, entities, cache=True):\n"
+        f"        open({str(mark)!r}, 'w').write('ran')\n"
+        "        return {'ansible_host_key_checking': False}\n"
+    )
+    alpha = _alpha(root)
+    ended = _run(made, target(alpha), _play(tmp_path, PING), test_connection=layer1_host(alpha))
+    assert ended.status == 0, ended.said
+    assert not mark.exists()
 
 
 # ---------------------------------------------------------------- a play runs ----
@@ -246,9 +444,17 @@ def test_a_play_of_one_ping_runs_through_layer1_on_a_stand_in_its_child_in_the_r
     # The configuration and the one host's inventory, in the run's directory, at 0600.
     directory = rundir.made(made)
     assert directory is not None
-    assert (directory / layer1.CONFIG).read_text() == layer1.configuration_text(directory)
+    checkout = _env_run_collections(dict(os.environ))
+    assert (directory / layer1.CONFIG).read_text() == layer1.configuration_text(directory, checkout)
     inventory = f"{layer1.INVENTORY_PREFIX}{alpha.identity}{layer1.INVENTORY_SUFFIX}"
-    assert [name for name in _written(made) if not name.startswith(layer1.LOCAL_TMP)] == [inventory, layer1.CONFIG]
+    assert [name for name in _written(made) if not name.startswith(layer1.LOCAL_TMP)] == [
+        layer1.NONE,
+        inventory,
+        layer1.CONFIG,
+    ]
+    # The empty folder every plugin folder but the product's own names, and the collections': empty, the run's own.
+    assert list((directory / layer1.NONE).iterdir()) == []
+    assert (directory / layer1.NONE).stat().st_mode & 0o777 == 0o700
     for name in (inventory, layer1.CONFIG):
         assert stat.S_IMODE((directory / name).stat().st_mode) == 0o600, name
     [(name, host)] = _inventory(made, alpha)["all"]["hosts"].items()
@@ -291,7 +497,7 @@ def test_the_child_s_environment_is_the_allow_list_and_the_engine_s_own(made, ro
     directory = rundir.made(made)
     assert directory is not None
     assert found[layer1.CONFIG_VARIABLE] == str(directory / layer1.CONFIG)
-    assert found[layer1.UNTRUSTED_VARIABLE] == "error"
+    assert found[layer1.UNTRUSTED_VARIABLE] == "ignore"
     assert found[layer1.EVENTS_VARIABLE].isdigit()
     assert found[children.MARKER] == made.id
     assert found["SSH_AUTH_SOCK"] == agent
@@ -310,7 +516,7 @@ def test_the_environment_keeps_only_the_allow_list_of_the_caller_s(tmp_path) -> 
         "LANG": "C.UTF-8",
         "SSH_AUTH_SOCK": "/s",
         layer1.CONFIG_VARIABLE: str(tmp_path / layer1.CONFIG),
-        layer1.UNTRUSTED_VARIABLE: "error",
+        layer1.UNTRUSTED_VARIABLE: "ignore",
         layer1.EVENTS_VARIABLE: "7",
     }
     assert layer1.environment({}, tmp_path / layer1.CONFIG, 7, 5)[layer1.VERBOSITY_VARIABLE] == "5"
@@ -348,6 +554,9 @@ def _forged(at: runner.Target, identity: str) -> runner.Target:
         ("an environment that is no mapping", "the run's environment is a mapping"),
         ("a redaction list of plain words", "the run's redaction list holds Secrets alone"),
         ("a redaction list that is one word", "the run's redaction list is a list of Secrets"),
+        ("a folder of collections with no test connection", "a folder of collections is a test's, given only beside"),
+        ("a folder of collections that is not there", "a test's folder of collections is an absolute path to a folder"),
+        ("an environment with no home", "the run's environment names neither HOME nor XDG_DATA_HOME, under which"),
     ],
 )
 def test_what_is_not_one_is_refused_before_anything_is_written_or_started(made, root, tmp_path, case, said) -> None:
@@ -396,6 +605,13 @@ def test_what_is_not_one_is_refused_before_anything_is_written_or_started(made, 
         given["redacted"] = ["a secret as a plain word"]
     elif case == "a redaction list that is one word":
         given["redacted"] = "a secret as a plain word"
+    elif case == "a folder of collections with no test connection":
+        given["test_collections"] = tmp_path
+    elif case == "a folder of collections that is not there":
+        given["test_connection"] = layer1_host(alpha)
+        given["test_collections"] = tmp_path / "absent"
+    elif case == "an environment with no home":
+        given["env"] = {name: os.environ[name] for name in ("PATH", "LANG") if name in os.environ}
     with pytest.raises(layer1.Refused) as refused:
         asyncio.run(layer1.run(made, at, play, variables, **given))
     assert said in str(refused.value)
@@ -534,6 +750,15 @@ def test_a_call_cancelled_ends_the_child_with_its_tree(made, root, tmp_path) -> 
 # ---------------------------------------------------------------- the connection ----
 
 
+# How the child's ssh logs in, as the configuration's ssh_args say it ahead of Ansible's own words: a key, and no
+# other way.
+AUTHENTICATION = {
+    "preferredauthentications": "publickey",
+    "gssapiauthentication": "no",
+    "hostbasedauthentication": "no",
+}
+
+
 def _real_ssh() -> str:
     found = shutil.which("ssh", path=os.defpath)
     if found is None:
@@ -565,7 +790,8 @@ def test_the_child_s_ssh_checks_the_key_strictly_in_the_product_s_file_over_a_ho
         alpha.identity,
     )
     assert (first["batchmode"], first["controlmaster"]) == ("yes", "no")
-    # The words Ansible gave ssh: no ssh_args of Ansible's own, so no -C, no master and no ControlPersist.
+    # The words Ansible gave ssh: no ssh_args of Ansible's own, so no -C, no master and no ControlPersist; the
+    # configuration's, a key and no other way to log in, ahead of Ansible's own PreferredAuthentications.
     calls = [call for call in alpha.calls() if call["outcome"] == "ran"]
     assert calls, alpha.calls()
     config = tmp_path / "loosening"
@@ -574,6 +800,10 @@ def test_the_child_s_ssh_checks_the_key_strictly_in_the_product_s_file_over_a_ho
         words = call["argv"][: call["argv"].index(alpha.address) + 1]
         assert "-C" not in words and not [word for word in words if word.lower().startswith("controlpersist")], words
         assert _first(words)["controlmaster"] == "no", words
+        authentication = {key: _first(words)[key] for key in AUTHENTICATION}
+        assert authentication == AUTHENTICATION, words
+        # Ansible's own still follows, and ssh keeps the first.
+        assert [word for word in words if word.startswith("PreferredAuthentications=")][1:], words
         shown = subprocess.run(
             [_real_ssh(), "-G", "-F", str(config), *words],
             stdin=subprocess.DEVNULL,
@@ -596,6 +826,7 @@ def test_the_child_s_ssh_checks_the_key_strictly_in_the_product_s_file_over_a_ho
             held["checkhostip"],
             held["updatehostkeys"],
         ) == ("yes", str(at.known_hosts), alpha.identity, "yes", "no", "no", "no", "no"), shown
+        assert {key: held[key] for key in AUTHENTICATION} == AUTHENTICATION, shown
 
 
 # ---------------------------------------------------------------- the rules with a test of their own ----
@@ -628,9 +859,13 @@ def test_the_argument_list_never_holds_key_value_after_e(tmp_path) -> None:
     assert found == [True]
 
 
+# What only a test gives layer 1: a test-only connection, and the folder of collections such a connection is found in.
+TEST_ONLY = ("test_connection", "test_collections")
+
+
 def _passes_the_test_connection(source: str, own: bool) -> list[str]:
-    """Each place source names the test-only connection: a keyword, a name, an attribute, a string, a docstring apart.
-    In layer1.py itself (own) only its parameter, and that parameter handed on by its own name."""
+    """Each place source names what only a test gives layer 1 (TEST_ONLY): a keyword, a name, an attribute, a string,
+    a docstring apart. In layer1.py itself (own) only its parameters, and each handed on by its own name."""
     found = []
     tree = ast.parse(source)
     documented = {
@@ -640,20 +875,20 @@ def _passes_the_test_connection(source: str, own: bool) -> list[str]:
         and ast.get_docstring(node, clean=False) is not None
     }
     for node in ast.walk(tree):
-        if isinstance(node, ast.keyword) and node.arg == "test_connection":
-            handed_on = isinstance(node.value, ast.Name) and node.value.id == "test_connection"
+        if isinstance(node, ast.keyword) and node.arg in TEST_ONLY:
+            handed_on = isinstance(node.value, ast.Name) and node.value.id == node.arg
             if not (own and handed_on):
-                found.append(f"line {node.value.lineno}: test_connection=")
-        elif isinstance(node, ast.Name) and node.id == "test_connection" and not own:
-            found.append(f"line {node.lineno}: test_connection")
-        elif isinstance(node, ast.Attribute) and node.attr == "test_connection":
-            found.append(f"line {node.lineno}: .test_connection")
-        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and "test_connection" in node.value:
+                found.append(f"line {node.value.lineno}: {node.arg}=")
+        elif isinstance(node, ast.Name) and node.id in TEST_ONLY and not own:
+            found.append(f"line {node.lineno}: {node.id}")
+        elif isinstance(node, ast.Attribute) and node.attr in TEST_ONLY:
+            found.append(f"line {node.lineno}: .{node.attr}")
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and any(n in node.value for n in TEST_ONLY):
             if id(node) in documented:
                 continue
             found.append(f"line {node.lineno}: a string")
-        elif isinstance(node, ast.arg) and node.arg == "test_connection" and not own:
-            found.append(f"line {node.lineno}: a parameter test_connection")
+        elif isinstance(node, ast.arg) and node.arg in TEST_ONLY and not own:
+            found.append(f"line {node.lineno}: a parameter {node.arg}")
     return found
 
 
@@ -670,9 +905,9 @@ def test_no_product_code_passes_the_test_only_connection() -> None:
         for path in product
         if (where := _passes_the_test_connection(path.read_text(), path == LAYER1))
     }
-    assert found == {}, "only a test gives layer 1 a test-only connection"
-    # Its own uses are seen too, and are its parameter alone.
-    assert "test_connection" in LAYER1.read_text()
+    assert found == {}, "only a test gives layer 1 a test-only connection or its folder of collections"
+    # Its own uses are seen too, and are its parameters alone.
+    assert all(name in LAYER1.read_text() for name in TEST_ONLY)
 
 
 @pytest.mark.parametrize(
@@ -692,6 +927,15 @@ def test_no_product_code_passes_the_test_only_connection() -> None:
         ("def f(test_connection=None):\n    return test_connection", True, []),
         ("layer1.run(job, t, p, name='a', host_flag='', env={})", False, []),
         ('def f():\n    """Passes no test_connection."""', False, []),
+        (
+            "layer1.run(job, t, p, name='a', host_flag='', env={}, test_collections=f)",
+            False,
+            ["line 1: test_collections="],
+        ),
+        ("run(**{'test_collections': f})", False, ["line 1: a string"]),
+        ("configuration_text(d, test_collections=test_connection)", True, ["line 1: test_collections="]),
+        ("_collections(test_collections, test_connection)", True, []),
+        ("def f(test_collections=None):\n    pass", False, ["line 1: a parameter test_collections"]),
     ],
 )
 def test_the_scan_sees_each_way_the_test_only_connection_is_passed(source, own, found) -> None:

@@ -2604,18 +2604,20 @@ def _molecule(tmp_path: Path) -> dict[str, list]:
         "role": [Path(d).name for d, run in zip(dirs, runs, strict=True) if run == ["test"]],
         "integration": [run for run in runs if run in (["test", "-s", "configure"], ["test", "-s", "image"])],
         "provision": [run for run in runs if run == ["test", "-s", "provision"]],
+        "system": [run for run in runs if run == ["test", "-s", "system"]],
     }
 
 
 @pytest.mark.parametrize(
     ("args", "runs"),
     [
-        ([], ["lint", "unit", "role", "integration", "provision"]),
+        ([], ["lint", "unit", "role", "integration", "provision", "system"]),
         (["unit"], ["unit"]),
-        (["molecule"], ["role", "integration", "provision"]),
+        (["molecule"], ["role", "integration", "provision", "system"]),
         (["role"], ["role"]),
         (["integration"], ["integration"]),
         (["provision"], ["provision"]),
+        (["system"], ["system"]),
         (["unit", "provision"], ["unit", "provision"]),
         (["--role", "common"], ["role"]),
     ],
@@ -2627,7 +2629,7 @@ def test_test_runs_lint_and_every_test_or_the_parts_named(tmp_path: Path, args: 
     assert bool(_runs(tmp_path, "yamllint")) == ("lint" in runs)
     assert bool(_runs(tmp_path, "pytest")) == ("unit" in runs)
     molecule = _molecule(tmp_path)
-    for part in ("role", "integration", "provision"):
+    for part in ("role", "integration", "provision", "system"):
         assert bool(molecule[part]) == (part in runs), (part, molecule)
 
 
@@ -2640,8 +2642,9 @@ def test_test_runs_lint_and_every_test_or_the_parts_named(tmp_path: Path, args: 
         (["integration"], "molecule"),
         (["provision"], "molecule"),
         (["engine"], "pytest"),
+        (["system"], "molecule"),
     ],
-    ids=["lint", "unit", "role", "integration", "provision", "engine"],
+    ids=["lint", "unit", "role", "integration", "provision", "engine", "system"],
 )
 def test_a_part_that_fails_fails_test(tmp_path: Path, args: list[str], tool: str) -> None:
     settings = _testing(tmp_path)
@@ -2697,14 +2700,16 @@ def _lanes_ran(tmp_path: Path) -> dict[str, str]:
 
 def test_molecule_order_names_every_scenario_once() -> None:
     order = _evaluate("molecule_order").split()
-    assert sorted(order) == sorted([*_evaluate("scenario_roles").split(), "configure", "image", "provision"]), order
+    assert sorted(order) == sorted(
+        [*_evaluate("scenario_roles").split(), "configure", "image", "provision", "system"]
+    ), order
     assert order[:2] == ["provision", "configure"], order
 
 
 def test_jobs_runs_the_scenarios_side_by_side_each_in_a_log_of_its_own(tmp_path: Path) -> None:
     result = _just("test", "molecule", "--jobs", "3", settings=[*_lanes(tmp_path), "stamp=20261106-120000"])
     assert result.returncode == 0, _output(result)
-    scenarios = [*_evaluate("scenario_roles").split(), "configure", "image", "provision"]
+    scenarios = [*_evaluate("scenario_roles").split(), "configure", "image", "provision", "system"]
     ran = _lanes_ran(tmp_path)
     assert sorted(ran) == sorted(scenarios), ran
     # Each with neither the run's log nor colour: every scenario's Ansible would write into that one file.
@@ -2715,7 +2720,7 @@ def test_jobs_runs_the_scenarios_side_by_side_each_in_a_log_of_its_own(tmp_path:
     for scenario in scenarios:
         assert re.search(rf"^{scenario} passed in \d+ s$", said, flags=re.M), (scenario, said)
         log = tmp_path / "logs" / f"20261106-120000-test-{scenario}.log"
-        folder = scenario if scenario not in ("configure", "image", "provision") else REPO.name
+        folder = scenario if scenario not in ("configure", "image", "provision", "system") else REPO.name
         assert log.read_text() == f"molecule ran in {folder}\n", scenario
     # Never one after another as well.
     assert "===== molecule:" not in said

@@ -12,12 +12,13 @@ just test unit                # pytest over tests/unit/, a worker per CPU (plain
 just test unit --shard 2/6    # one of six shards of those, as CI splits them: the tests that share a run together
 just test engine              # only the new engine's tests, tests/unit/test_aw_*.py, which unit runs too: seconds
 just test --short             # lint, the engine's tests and today's that read the tree: for a change to no file of main's but CLAUDE.md, docs/ and zensical.toml
-just test molecule            # every Molecule (Docker) scenario: the three below
+just test molecule            # every Molecule (Docker) scenario: the four below
 just test molecule --jobs 4   # the same, four at a time: each in a log of its own (needs the disk and memory for four)
 just test role                # each role's scenario, incl. idempotence; --role common,dev_tools for some of them
 just test integration         # playbooks/configure.yml end to end in a container
 just test provision           # provision.yml + discover.yml against a fake Proxmox API
-MOLECULE_PROVISION_VERIFY=verify_code.yml just test provision   # one half of it, as one of CI's two jobs
+just test system              # the new engine's system play, playbooks/system.yml, converged in a container by its layer-1 child
+MOLECULE_PROVISION_VERIFY=verify_code.yml just test provision   # one half of the provision scenario, as one of CI's two jobs
 just deploy --check           # dry run of configure.yml against your real VM (--check --diff)
 just vagrant                  # configure.yml on a real VirtualBox VM (just vagrant destroy removes it)
 ```

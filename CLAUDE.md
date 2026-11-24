@@ -44,6 +44,7 @@ just test --short                    # lint, the engine's tests and today's that
 just test --role proxmox_vm          # one role scenario (role: every role; molecule: every scenario)
 just test molecule --jobs 4          # the scenarios four at a time, the longest first, each in .logs/<stamp>-test-<scenario>.log
 just test provision                  # one playbook scenario (integration is the configure scenario)
+just test system                     # the new engine's system play in a container, through its layer-1 child
 just deploy                          # template (if missing) + provision + configure + the three sign-ins + the editor (VS Code by default), all idempotent (just deploy alpha: that VM)
 just deploy alpha --only configure   # one stage of it: template, provision, configure or ssh-config (fleet-wide also prunes); --check is the dry run
 just deploy alpha --tags claude_code # re-run one role, e.g. to push an API key (--tags beside names means --only configure)
@@ -1012,6 +1013,17 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   `lib/claude_vm/` only the modules `REUSED` names, each with its reason, and what those import in turn, all the way
   down, is in `REUSED` or `REACHED`, with the reason it is brought in; never Ansible. `tests/unit/test_aw_layout.py`
   holds both.
+- **Layer 1 is held to state modules.** Read
+  [§16.10](docs/architecture/engine.md#1610-guest--the-helper-the-system-layers-inputs-layer-2) first. Every task the
+  new engine's system play (`playbooks/system.yml`) reaches, the three roles' it runs with it, is a module of
+  `ansible.builtin` that converges a state, or a `command`, `shell`, `raw`, `script` or `expect` listed with its reason;
+  a module outside `ansible.builtin` fails but the three F6a replaces, and so does any file the play reaches that sets an
+  `ansible_` variable, which would outrank the connection the engine wrote. `tests/unit/test_aw_layer1_ratchet.py`
+  holds all three, by file and task. The play's opening tasks are `playbooks/configure.yml`'s, copied as they stand,
+  and `tests/unit/test_aw_layer1_play.py` holds them equal: a change to one is made to both. Until F6a takes them out,
+  those three load only from a folder of collections, so layer 1's configuration names the checkout's own, asked of
+  `tools/env-run --collections` for the run's environment and never worked out a second way; the same test file holds
+  that the product's child loads the play from it.
 - **Every command line the new engine prints, and every command a sentence of it names, is the printer's.** Read
   [§16.2](docs/architecture/engine.md#162-schema--the-command-lines-patterns-and-its-table-of-verbs-and-options) and
   [§16.3](docs/architecture/engine.md#163-cli--the-aw-program) first.

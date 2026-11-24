@@ -96,3 +96,12 @@ def test_both_plays_that_run_modules_as_root_make_it_before_their_roles():
     # A role run alone by TAGS can be a new VM's first.
     configure = _pre_tasks(REPO / "playbooks" / "configure.yml", "Configure Claude development VMs")
     assert next(t for t in configure if "ansible.builtin.import_tasks" in t)["tags"] == ["always"]
+
+
+def test_the_system_play_makes_it_before_its_roles_as_configure_does():
+    # The new engine's system play runs modules as root on a new machine too: the same import, tagged always, so that
+    # a part asked for alone with --tags still has it first.
+    system = _pre_tasks(REPO / "playbooks" / "system.yml", "Converge the machine's system layer")
+    imports = [task for task in system if task.get("ansible.builtin.import_tasks") == "tasks/remote_tmp.yml"]
+    assert len(imports) == 1 and imports[0]["tags"] == ["always"]
+    assert system.index(imports[0]) == len(system) - 1

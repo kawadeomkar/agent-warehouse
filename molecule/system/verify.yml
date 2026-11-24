@@ -1,0 +1,74 @@
+---
+# What the converges did, from converge.py's record of each, and what the system play left on the container, read over
+# Molecule's own connection: the system layer of the three roles, each a mark of its own - the user and the person's
+# key (common), the sshd drop-ins and the watch limit's file (the editor's server), the tools (dev_tools), the npm
+# package installed globally among them.
+- name: Verify the converges
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    # The record converge.py keeps, a line for each converge: the first changed the container, the last (the
+    # idempotence stage's) changed nothing, and none failed.
+    - name: Read what each converge did
+      ansible.builtin.slurp:
+        src: "{{ lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}/converged.jsonl"
+      register: system_verify_converged
+
+    - name: Assert the first converge changed the container and the last changed nothing
+      vars:
+        system_verify_runs: >-
+          {{ (system_verify_converged.content | b64decode).splitlines() | map('from_json') | list }}
+      ansible.builtin.assert:
+        that:
+          - system_verify_runs | length >= 2
+          - system_verify_runs[0].changed > 0
+          - system_verify_runs[-1].changed == 0
+          - system_verify_runs | map(attribute='status') | unique | list == [0]
+        quiet: true
+
+- name: Verify
+  hosts: all
+  become: true
+  tasks:
+    - name: Look up the user's home
+      ansible.builtin.getent:
+        database: passwd
+        key: dev
+
+    - name: Read the user's authorized keys
+      ansible.builtin.slurp:
+        src: "{{ ansible_facts.getent_passwd.dev[4] }}/.ssh/authorized_keys"
+      register: system_verify_keys
+
+    - name: Stat the files each role writes
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /etc/ssh/sshd_config.d/10-agent-warehouse.conf
+        - /etc/ssh/sshd_config.d/15-agent-warehouse-path.conf
+        - /etc/ssh/sshd_config.d/20-vscode-server.conf
+        - /etc/sysctl.d/60-vscode-server.conf
+        - /etc/apt/preferences.d/nodesource
+      register: system_verify_files
+
+    - name: Run the tools the user would use
+      ansible.builtin.command:
+        argv: "{{ item }}"
+      become: true
+      become_user: dev
+      loop:
+        - [node, --version]
+        - [uv, --version]
+        - [gh, --version]
+        - [cowsay, system]
+      register: system_verify_tools
+      changed_when: false
+
+    - name: Assert the system layer is there
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.getent_passwd.dev[5] == '/bin/bash'
+          - "'molecule@test' in (system_verify_keys.content | b64decode)"
+          - system_verify_files.results | map(attribute='stat.exists') | list == [true] * 5
+          - system_verify_tools.results | map(attribute='rc') | list == [0] * 4
+        quiet: true

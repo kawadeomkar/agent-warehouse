@@ -52,6 +52,10 @@ NOT_FACTS = {
     "ansible_inventory_sources",
     "ansible_managed",
 }
+# And every variable of the connection the new engine's system play holds to the inventory it writes, which it names in
+# a list of its own (playbooks/system.yml): none is a fact.
+(SYSTEM_PLAY,) = yaml.safe_load((REPO / "playbooks" / "system.yml").read_text())
+NOT_FACTS |= set(SYSTEM_PLAY["vars"]["system_connection_variables"])
 # A variable read at the top level, or through hostvars[host]., vars. or
 # ansible_facts., none of which holds a fact under its ansible_ name with the
 # injection off; not a key read off a register (job.ansible_job_id) or a path
