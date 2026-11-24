@@ -556,7 +556,7 @@ node's own certificate, byte for byte, or one the host's CA signed, and nothing 
 own, held to its fingerprint and not to a name, which the client then reaches at any address. The node's file is read
 for its first certificate alone: a custom certificate is served with its chain, and an intermediate of it taken for an
 anchor would pass whatever it issued, for any name, for the host's own. Where what it presents is none of the host's, or
-nothing, a refusal with `token_held`. Where root SSH does not answer, is not tried or reads no certificate, nothing on
+nothing, a refusal marked `impostor`. Where root SSH does not answer, is not tried or reads no certificate, nothing on
 the host vouches for what the address presents: its fingerprint is shown, and it is kept, as the node's own, only on the
 person's yes or where it is `--certificate`'s; with nobody there (`ask` None) and none given, a refusal that names
 `--certificate`. An anchor that no longer verifies is put in place of the one kept only on a yes that shows both
@@ -565,11 +565,80 @@ fingerprints, or where the new one was given. No sentence says to check less. Wh
 `trust.py`'s, and its probe that checks no name (`check_hostname=False`), which carries no credential, is handed only an
 anchor held to a fingerprint, the certificate the address presents, or, inside `proxmox_trust_presented`, the host's CA
 as root SSH read it: never the node's file, whose chain would make an anchor of each intermediate. A yes is the person's
-answer `True` and nothing else. The caller writes what is kept through `fleet/hosts.py`'s `write`, the anchor with its
-kind and fingerprint. `tests/unit/test_aw_engine_certificate.py` holds it against local TLS servers made as Proxmox
+answer `True` and nothing else. A `Kept` carries the `Pin` made of what it keeps (`pinned`), the one connection its
+caller sends the token through, so that no caller makes it again from what it wrote or read back; a `Refusal` carries
+none, and its `impostor` says only why. The caller writes what is kept through `fleet/hosts.py`'s `write`, the anchor
+with its kind and fingerprint. `tests/unit/test_aw_engine_certificate.py` holds it against local TLS servers made as Proxmox
 makes its certificates, each case of today's `init_check.yml` carried, the host's files read over root SSH from a
 stand-in machine (`tests/unit/aw_machine.py`, 16.10), and the rules that nothing in `engine/` builds a TLS context but
 through `pin` and nothing of the new engine reads `trust.py`'s `_store_files`.
+
+**`init` with nobody there: `init.py`.** `aw init --no-prompt`, or `aw init` with no terminal, asks nothing and makes
+nothing on Proxmox. It takes one typed mapping, `Given`: each value held to its kind by today's `init.init_answer` and
+Proxmox's own format of a name, and the token's secret from `--token-secret-file`, made absolute from the folder `init`
+was started in, or from `AGENT_WAREHOUSE_TOKEN_SECRET`, never from the command line and never both; a word after the
+options is the one check's refusal, never said. The variable is taken out of the process's own environment into a
+`Secret` at the very start of `init` (`taken`), as today's engine takes its own such variable out at once, so that
+nothing the run starts holds it: not root SSH's child, nor any other the runner or `runs/children.py` starts. A home
+whose root or `fleet/` is a link is refused before the run's job is made, and again by `unattended` before anything is
+sent or written, so that nothing is written through it, and the same command finishes once the folder itself is in its
+place. As its run, under the fleet's lock, `unattended` reads what is set (the host's folder, the three files of
+overrides, `fleet.json` and the vault, opened as `vaultkey.py` finds its key: a fleet
+with no key file yet has its key made once every check has passed, and a key named elsewhere for a fleet with no vault
+yet is `NoVaultYet`'s refusal); refuses a value given that differs from the one set, naming both, the secret unsaid,
+with nothing written; works out the API's certificate with `certificate.py`'s `work_out` and nobody to ask, the host's
+own certificates read over root SSH where nothing else vouches for them; and, where the secret was given, reads the
+pool with it through the `Pin` the `Kept` carries. Holding a token Proxmox takes for a pool whose comment carries a mark
+with `controller=none` is the authority: `fleet.json` takes the mark's fleet ID. A mark that names a control VM, another
+fleet than `fleet.json`'s, none or none that reads, and a pool or a token Proxmox refuses, are refusals with nothing
+written; with no secret given the fleet keeps its ID, or a new one gets one. Then each file through its one writer,
+none of whose locks is held around another's, each only where nothing is set: the key (`vaultkey.make_key` at
+`vault_key_file`'s place), `fleet.json`, the vault (`sealed.create`, then the secret as the host's `token`), `host.yml`
+and its anchor (`hosts.write`), with `made` recording by ID the pool, the user and the token the administrator made by
+hand where the secret was given, the host's storage, bridge and pool (`aw-fleet` where none is given or set), the
+fleet's `github_username` and `vpn`, and `client.yml`'s current host. The names written where none is given are the
+engine's own: the user `agent-warehouse@pve`, the token `aw`, the pool `aw-fleet`, and the first host `pve`. A run
+stopped after any write goes on from what it wrote, and the same run again writes nothing. The modes other cards build
+(`--check`, `--print-commands`, `--machines`) and the questions at a terminal are refused by name until each lands.
+`tests/unit/test_aw_engine_init.py` holds it against the fake Proxmox, through `tools/aw` with a refusing `ssh` first on
+`PATH` and in this process with root SSH a reader of the test's own; its runs through `tools/aw` from a home short
+enough for the host's shared socket, so that root SSH starts its child with that socket, as from a person's home, and
+a recording `ssh` holds that the child's
+environment has neither the variable nor the secret; with the invariant that no file under the fleet's home holds the
+secret in clear and the vault on disk is sealed. `tests/unit/fleet_fixture.py` gives any other test a
+whole fleet folder in one call, made by this run.
+
+**The fleet as the engine reads it: `fleet.py`.** `connect(home, reached)` opens the host a run is against: `fleet.json`'s
+record, the vault opened with its key as `vaultkey.py` finds it, the host's token from it, and one client pinned as the
+host keeps its anchor, through the proxy `network_proxy` gives; it sends nothing. A `Target` is a machine a run is
+against: its kind (`vm`), name, identity (`agent-warehouse-<its SMBIOS UUID>`), host, node, VMID, the account a run logs
+in as, its address, its record and whether it runs. What is the fleet's is its pool's members with a valid record,
+never a label: `refusal(target)` is the one check, which `owned(target)` raises, and every target a change is made on
+passes `owned`. It refuses a member with no record of this engine's, whatever tags it carries; a record that names
+another VM's UUID, or is a template's, a golden's or a build's on a VM that is no template (a copy: a clone sent without
+a description carries its source's notes); a record still in its clone's first form; a member whose configuration or
+record cannot be read, one the token holds `NoAccess` on among them; two members with one UUID, both; and a template.
+
+- `requested(host, names, create=..., change=...)` holds each name before Proxmox is asked anything: the pattern of a
+  VM's name, no host's name of the fleet's nor `localhost`, with the aliases on no name `ssh` would take for another
+  host, and for a deploy that would create no name another host's alias records. A changing run then reads the pool's
+  mark by `mark.py`'s rule before anything else. Named, each is the one member of its name: a name two members carry is
+  refused, one none carries is `Missing`, or for a deploy that would create, a name to create; with none, a creating
+  deploy asks for the default VM and every other run for every member, a member named after a host, one whose name
+  another carries and, changing, one it may not change each left out and said. A deploy that would create refuses a VM
+  of a new name outside the pool wherever the token may read `/vms` (`VM.Audit`), with today's sentence, a clone in flight
+  there said as one, and says where it may not; and asks each other host whether the name is a VM of its pool, refusing
+  one found there with today's sentence, which names the line that deploys it on that host, and saying and passing a
+  host that does not answer.
+- Whether a VM runs is read from its own endpoint, never the listing's status, which lags a run's own change. Its address
+  is its guest agent's alone, on its own network card, through `pve/agent.py`'s `address`; two targets of one read that
+  report one address are both left without one, said; a token refused the agent's call ends the read at once.
+- `members(host)` gives every VM of the pool as a target, `address(host, target)` one VM's address, asked once, and
+  `count_made_by_agent(host)` how many of the fleet's own an agent's run made.
+
+`tests/unit/test_aw_fleet.py` holds it on a whole fleet folder against the fake Proxmox under enforcement, carrying
+`tests/unit/test_vm_names.py`'s cases and the guest addresses' of `tests/unit/test_filters.py`, with scans that nothing
+here reads a label or the listing's status and that `requested` returns a target for a change through `owned`.
 
 ## 16.5 `pve/` — the typed Proxmox client and the one table of privileges
 
@@ -1024,10 +1093,13 @@ authenticates by public key alone, the Proxmox host's too: today's Ansible conne
 authentication, and those are added only if someone asks. `ControlMaster=no` means a child rides a master the engine
 opened in the shared directory (`connections.py`'s `ensure`), or connects alone where none lives, and is never a master
 itself. The hop's own `ssh`
-keeps `LogLevel=INFO`, which route.py pins because it reads `ssh`'s words, and the new engine's pins `ForwardX11=no` and
-`PermitLocalCommand=no` first on every line it is run with, the `ProxyCommand` a machine is given among them
-(`route.hop_settings`' `pinned`, which today's callers do not pass): a master the hop's open makes, or a `ProxyCommand`'s
-`ssh` that finds none live and becomes one, would otherwise run a person's `LocalCommand` here. `ansible_vars(target)` gives layer 1's
+keeps `LogLevel=INFO`, which route.py pins because it reads `ssh`'s words, and the new engine's pins `ForwardX11=no`,
+`PermitLocalCommand=no` and `ClearAllForwardings=yes` first on every line it is run with, the `ProxyCommand` a machine
+is given among them (`route.hop_settings`' `pinned`, which today's callers do not pass): a master the hop's open makes,
+or a `ProxyCommand`'s `ssh` that finds none live and becomes one, would otherwise run a person's `LocalCommand` here,
+and `-W` clears forwards only where a person's configuration says nothing of it, so their `ClearAllForwardings no`
+would have the `ProxyCommand` and the forward check open each `LocalForward`, `RemoteForward`, `DynamicForward` and
+`Tunnel` they give the host. `ansible_vars(target)` gives layer 1's
 Ansible child the address, the port, the account, the program and `ansible_ssh_common_args` holding exactly the same
 options in the same order, so that its `ssh`, `sftp` and `scp` ride the same master and a jump of the person's reaches
 the file transfers too.
@@ -1101,22 +1173,28 @@ group of their own (`process_group=0`, which today's callers do not pass), so th
 run takes as "finish the step", never kills one and has its silence read as an answer, and `route`, `ensure_hop` and
 `held` are coroutines that run it off the event loop, so that the run takes the Ctrl-C at once and its other tasks go on
 while one of them waits on its `ssh`. Each `ssh` route.py
-starts, the `ssh -G` of `route_settle` and `ssh_shown` too, is started and recorded in one step under the lock
-`route.end_all` takes, and ended by the thread that waits for it, at its limit or when its caller ends; a run that is
-stopped ends them with the rest of its tree, and `end_all`, which ends every one still running and starts none after, so that no
-`ssh -G` goes on to run a person's `Match exec`, is for a caller about to end at once: today's one, `status`, starts
-none of them on its main thread, where Python raises a Ctrl-C and could raise it between a start and its record, and
-starts and records its own probes (`status/reach.py`) in one step under the lock of its own `end_all`, which a run's end
-calls before `route.end_all`. Each of those ends ends the `ssh`
-with its process group, which it leads, so that the program a person's `Match exec` started, or a `ProxyCommand`'s,
-ends with it; today's callers' `ssh`, in their own process's group, is ended by its pid alone. A run watches each for a
-stop at the terminal as it watches its own children (`route.leading`, §16.8). `route(setting, host)`
+starts, the `ssh -G` of `route_settle` and `ssh_shown` too, is checked against the door, started and recorded in one
+step under the lock `route.end_all` takes, and ended by the thread that waits for it, at its limit or when its caller
+ends; a run that is stopped ends them with the rest of its tree, and `end_all`, which shuts the door under the same lock,
+ends every one still running and starts none after, so that no `ssh -G` goes on to run a person's `Match exec`, is for
+a caller about to end at once. Each of route.py's ends ends the `ssh` with its process group, which it leads, so that
+the program a person's `Match exec` started, or a `ProxyCommand`'s, ends with it: one the `Match exec` put in the
+background too, which outlives an `ssh -G` that has exited, since a leader not yet reaped is still ended with its group
+(`route._kill` decides by `returncode`, set once it is reaped, never by `poll()`, which would reap it and leave the
+group running); today's callers' `ssh`, in their own process's group, is ended by its pid alone. An `ssh -G`'s
+standard error is read from a file, as the hop's own `ssh`'s is, so that a program its `Match exec` left holding it
+never holds the answer back to the limit; one left by an `ssh -G` that exited by itself is the person's, as their own
+`ssh` leaves it. Today's one caller of `end_all`, `status`, starts none of them on its main thread, where Python raises
+a Ctrl-C and could raise it between a start and its record, and starts and records its own probes (`status/reach.py`)
+in one step under the lock of its own `end_all`, which a run's end calls before `route.end_all` and which ends a probe by
+its pid. A run watches each of route.py's for a stop at the terminal as it watches its own children (`route.leading`,
+§16.8). `route(setting, host)`
 settles it for the Proxmox host's own `Target` - its account, or `vm_ssh_jump`'s, its port, key and `ssh` - by
 `route.hop_settings` and `route.route_settle`, as `{route, setting, hop, policy, addresses}`, and raises
 `route.HopRefused` as it is, which names `vm_ssh_route: direct`; under `auto` only where the rule would go through the
-host, and where the `ssh -G` that says where `ssh` dials for the host gave no answer - ended by a signal, or out of its
-time, whose kill is a signal too - which settles nothing (`signalled_settles=False`, where today's callers settle from
-the address as written). Where the route goes through the host and the hop's socket would pass `route.SOCKET_MOST` (a
+host, and where the `ssh -G` that says where `ssh` dials for the host gave no answer - ended by a signal, out of its
+time, whose kill is a signal too, or not started, since the run is ending - which settles nothing
+(`signalled_settles=False`, where today's callers settle from the address as written). Where the route goes through the host and the hop's socket would pass `route.SOCKET_MOST` (a
 long home), `route` refuses it in this engine's words (`LONG_HOP`), naming `vm_ssh_route: direct` or a shorter home: the
 hop is one shared connection, and none can be bound there. `target_for(job, machine,
 settled, given)` gives a machine's `Target` the person's own options for it and, where the route goes through the host,
@@ -1168,12 +1246,12 @@ be used stopping the run with nothing dialled, a control directory that is a lin
 refused, a long one connecting alone, said once for the machines and the host together, a first Ctrl-C sent to the
 run's group while `ssh -G` settles the route killing no `ssh` (its stand-in waiting for a file the test writes after
 the Ctrl-C, never for a time), `route`, `ensure_hop` and `held` each waiting on an `ssh` held until a task on the same
-loop lets it go, an `ssh -G` ended by a signal or out of its time settling nothing, the hop's lines holding the two pins
-first, the route through the host refused from a long home while `direct` settles there, a master's open, a machine's
-and the hop's, left out of what a run remembers, and `direct_only`; and three rules by scans: no control command but
-`-O check` in the new subpackages, never `-O exit`;
-nothing in `ssh/` tries a connection again; and only `ensure` opens a master, with the kind that carries no marker,
-an f-string's `ControlMaster` and ssh's flags run together (`-NM`) read too.
+loop lets it go, an `ssh -G` ended by a signal or out of its time settling nothing, the hop's lines holding the three
+pins first, the route through the host refused from a long home while `direct` settles there, a master's open, a
+machine's and the hop's, left out of what a run remembers, and `direct_only`; and three rules by scans: no control
+command but `-O check` in the new subpackages, never `-O exit`; nothing in `ssh/` tries a connection again; and only
+`ensure` opens a master, with the kind that carries no marker, an f-string's `ControlMaster` and ssh's flags run
+together (`-NM`) read too.
 
 ## 16.7 `vendors/` — one HTTPS transport, Tailscale's calls, verified downloads
 
@@ -2133,7 +2211,7 @@ the template's ID has the table's default, and a host may set its own), taken al
 reader there. It returns the host, its fields and anchor, and with several hosts the others' names and
 addresses a run keeps apart from its machines. What a host's files say is that host's problem, said in its place, and a
 run against another goes on. `make_current` writes `current_host` through `overrides.set_current`, held to a host of the
-fleet that can be used. `write(layout, name, expect, change=..., anchor=...)` is `host.yml`'s one writer, and the
+fleet that can be used; `init` writes it there too, for the host it sets up where none is current. `write(layout, name, expect, change=..., anchor=...)` is `host.yml`'s one writer, and the
 anchor's: a compare-and-swap on the digest of what `Layout.state` read (the host's `host.yml` and its anchor, read under
 the lock a write takes), under `store.locked` on the host's folder, every field held to what the reader takes before
 anything is written, then read back through `fields` and `anchor`; never through a link, its folders made and held
@@ -2145,8 +2223,11 @@ stopped after any step leaves readable: a first anchor is staged beside the host
 the staged one is it, and where it gives none, the staged one is no anchor; one taken out goes the other way; and one
 put in the place of another leaves the old beside the new kind or the new beside the old, the fingerprint the new one
 records written first and the one it drops last, each holding the host to no more than one of the two. The next write
-puts right what a stopped one left. `tests/unit/test_aw_fleet_host_writer.py` holds it, a run stopped after each step of
-each kind of change among its cases. A `Host`'s `local_file`, `vault_file`, `hosts_file` and `sources` name today's
+puts right what a stopped one left. A `host.yml` that gives a kind beside no anchor and none staged, whose anchor a hand
+took out, every reader refuses, naming `init` as the way back; `Layout.state` gives it as a host that keeps none, so
+that a write that keeps an anchor, or none, mends it, and a write that leaves the anchor as it is is refused.
+`tests/unit/test_aw_fleet_host_writer.py` holds it, a run stopped after each step of each kind of change among its
+cases. A `Host`'s `local_file`, `vault_file`, `hosts_file` and `sources` name today's
 inventory and are read by no module of the new engine. `tests/unit/test_aw_fleet_hosts.py` holds it: today's cases of
 the layout and the choice on the new folders, each field's rule with no value said, the anchor beside its kind, the one
 writer of the current host, the literal list of `host.yml`'s fields, and the scan for today's files.
@@ -2273,27 +2354,71 @@ of that Ansible child is the one code of the new engine that imports `ansible`. 
 the child's own configuration names it.
 
 **The helper, sent on standard input.** The helper is one Python program for a machine's own `python3`, held to Python
-3.9's syntax and to the standard library, and never installed: each use sends it whole on the machine's standard
-input. `lib/claude_vm/guest/bundle.py`'s `script(entry, asked)` packs its sources into one text after a mark on a line
-of its own (`MARK`), each defined in memory under the module name it is imported by, and ends with a call of the
-dispatcher, `lib/claude_vm/guest/helper/main.py` (`helper <verb> [words]`), handed the verb, its words and what it is
-asked, as JSON inside the text and never on a command line. The command line holds the bootstrap alone (`command()`:
-`/usr/bin/python3 -I -B -c` and `BOOTSTRAP`), which reads standard input whole and executes it from the mark: what comes
-before it, a password's line that `sudo -S` was handed and left there, is dropped unread, and since the mark is looked
-for after a newline, which such a line holds only at its end, no part of one is ever executed or said back. Its one verb
-is `probe`, today's status probe unchanged, with its fixed list of reads; a verb it does not know, a word too many or an
-ask that is not a JSON object is one line on standard error and exit status 2, nothing run. The sources are read by
-`sources()` alone, the one function of `lib/claude_vm/` outside `status/` that names `playbooks/module_utils/`: the
-probe's three files stay there until the cutover, since today's Ansible modules import them as `module_utils`, and
-`sources()` finds them from the package's own place, two folders below the checkout's top, never the working directory.
-A release is a checkout of a signed tag, so it holds the same files; the cutover moves them into `guest/helper/` (card
-K28), and `sources()` then reads the package's own files alone. The script defines `ansible` and `ansible.module_utils`
-as empty packages, so that the probe's own imports resolve on a machine with no Ansible. Today's `just status` bundles
+3.10 and to the standard library, and never installed: each use sends it whole on the machine's standard input.
+`lib/claude_vm/guest/bundle.py`'s `script(entry, asked)` packs its sources into one text, each defined in memory under
+the module name it is imported by, and ends with a call of the dispatcher, `lib/claude_vm/guest/helper/main.py`
+(`helper <verb> [words]`), handed the verb, its words and what it is asked, as JSON inside the text and never on a
+command line. The text has a marked end (`frame`): a newline, then a line of its own, `MARK` and the script's length in
+bytes, then that many bytes. The command line holds the bootstrap alone (`command()`: `/usr/bin/python3 -I -B -c` and
+`BOOTSTRAP`), which first prints `STARTED`, a line of its own, so that its caller knows the machine's Python ran (and
+that `sudo` let it); then reads standard input a line at a time up to the mark's line, reads exactly the length it says,
+and executes that. What comes before the mark's line, a password's line that `sudo -S` was handed and left there, is
+read and dropped, never executed or said back: the mark's line is the whole of a line, and such a line holds a newline
+only at its end. What comes after the script is the verb's own standard input, which it reads on from where the
+bootstrap stopped (`sys.stdin.buffer`), never compiled with the script; no whole script is one line on standard error
+and exit status 2, nothing executed. Its one verb is `probe`, today's status probe unchanged, with its fixed list of
+reads; a verb it does not know, a word too many or an ask that is not a JSON object is one line on standard error and
+exit status 2, nothing run. The sources are read by `sources()` alone, the one function of `lib/claude_vm/` outside
+`status/` that names `playbooks/module_utils/`: the probe's three files stay there until the cutover, since today's
+Ansible modules import them as `module_utils`, and `sources()` finds them from the package's own place, two folders
+below the checkout's top, never the working directory. A release is a checkout of a signed tag, so it holds the same
+files; the cutover moves them into `guest/helper/` (card K28), and `sources()` then reads the package's own files alone.
+The script defines `ansible` and `ansible.module_utils` as empty modules, each source put in `sys.modules` before the
+one that imports it, so that the probe's own imports resolve on a machine with no Ansible. Today's `just status` bundles
 the same three files with `lib/claude_vm/status/reach.py`'s `probe_script`, which this module neither changes nor
-imports, since today's product never imports the new engine: the two print the same document for the same ask.
-`tests/unit/test_aw_guest_helper.py` holds that against today's stand-in VMs and through the SSH runner to a stand-in
-machine, with the sources' syntax and imports, the scan of what names the folder, and `ALLOWED` bounding every program
-the bundled probe runs.
+imports, since today's product never imports the new engine: the two print the same document for the same ask. The floor
+is held by a run, not a parser's flag: `tests/unit/test_aw_guest_helper.py` runs the script on a Python 3.10
+(`python:3.10-slim` under docker where it is pulled, as on a lane, or a `python3.10` of the computer's, the test skipped
+where neither is), which compiles every carried file with its own parser, finds each import in its own standard library,
+runs the probe and hands a verb what follows the script; and ruff's rules that would write past 3.10 (UP017, B905) are
+kept off the helper's folder, which `lib/**`'s `py313` would otherwise reach. The rule `just status` rests on is held
+over the whole bundle at run time: the script started by a test-only bootstrap that first sets an audit hook (PEP 578),
+every program its Python starts one of `ALLOWED`'s reads or `git_checkouts.py`'s, every file opened without a flag that
+writes, no file-system write; beside it, statically, each carried file starts a program only in the functions named with
+what each starts, those the probe never reaches among them (`process_argv`, `running_claude`, `overwrites`). The same
+file holds the script against today's stand-in VMs and through the SSH runner to a stand-in machine, with the sources'
+syntax and imports and the scan of what names the folder.
+
+**A helper verb run on a machine.** `lib/claude_vm/guest/remote.py`'s `helper(job, target, verb, words, ...)` is the one
+way the engine sends a program to a machine: it sends the script, always, then `stdin`, the verb's own input, after its
+marked end, over the SSH runner (§16.6), under the runner's limits, today's (`limits.seconds` the call's whole time); so
+no word of the verb's, nothing it is asked and nothing of its input is ever on the argument list of the `ssh` child. As
+root (the default) it goes through `/usr/bin/sudo` by its path, under `/usr/bin/env LC_ALL=C` so that sudo's words are
+its own: `sudo -n` first, and only where that is refused for want of a password (sudo's `a password is required`) and
+the caller's `password()` gives one, a `Secret`, the same input once more with `sudo -S -p ''` and the password's line
+in front. One `-S`, never a second: a wrong password costs sudo's three attempts, the lines after it read as the next
+two, and may lock an account where PAM counts them; and where sudo asks nothing, no password is sent. The password is
+read from its `Secret` by the runner alone; nothing else secret follows the helper, so `stdin` is bytes and never a
+`Secret`. What comes back is an `Answer` - the verb ran and ended by itself: its exit status, each line after the
+bootstrap's parsed as JSON, NaN, Infinity, a number past a float and a nesting past 64 levels refused, every string in
+it, keys too, made one plain line (`text.one_line`), and what it said on its standard error as one plain line - a
+`NotRun` - it never started: sudo refused it, or the machine's interpreter could not be run - or a `NotAnswered`: not
+reached (ssh's 255, or nothing said within its time), or out of its time, ended with what the run started for it, the
+lines it sent before kept where every one parses; or more than it may send, a line that is no JSON, or no first line of
+the bootstrap's, refused whole. `lib/claude_vm/guest/states.py`'s `read(job, target, parts, settings=...)` runs `probe`
+for the parts asked (`system`, `claude`, `github`, `work`, `tailscale`) and returns today's
+`lib/claude_vm/status/found.py`'s records of its answer (`ssh_found`), the parts not asked left out, so that a layer-2
+step and status say each state by one definition, today's, which `tests/unit/test_status_vms.py` holds to the roles' own
+tasks; `settings` is one machine's in the shape status keeps, the probe's ask under `asked`. It runs as root only where
+a part root reads is asked (Tailscale's), and where sudo refuses, as the machine's user once more, root's part said not
+read, as today's `just status` does; every other read is the user's, with no `sudo` at all. found.py is reused as it
+stands, one name taken from it, so `states.py` is one of the modules `tests/unit/test_aw_vendor_trust.py`'s `CONTEXTS`
+names (today's `status` makes a TLS context elsewhere), and no module of Ansible is loaded.
+`tests/unit/test_aw_guest_remote.py` holds it on F30's stand-in machines: each bound, each refusal and each answer
+above, the tree of a verb out of its time ended (`claude_vm.proc`'s), the command line held to the bootstrap with every
+canary of a verb's words, its ask, its input and the password in no word of `ssh`'s and no file of the machine's,
+`sudo`'s rule call by call, the states equal to `found.py`'s records of today's probe on the same machine, and a layer-2
+step that asks whether Claude is signed in, in a Python of its own, with no Ansible loaded.
 
 **Layer 1's child.** `lib/claude_vm/guest/layer1.py`'s `run` converges one machine with one `ansible-playbook`, started
 through `children.start` as an `ansible` child of the run, in a session of its own: it has no terminal, a terminal's

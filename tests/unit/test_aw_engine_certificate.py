@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import dataclasses
 import datetime
 import os
 import socket
@@ -134,6 +135,16 @@ def _worked(host: Host, given: str = "", root_ssh=None, ask=None) -> Kept | Refu
     outcome = asyncio.run(work_out(host, given, root_ssh, ask))
     for words in LOOSER:
         assert words not in outcome.said.lower(), (words, outcome.said)
+    if isinstance(outcome, Kept):
+        # What is kept carries the one connection a caller sends its token through, made of it as the client makes its
+        # own (review 20, E3.md 6): it reaches the host now, with no credential, so no caller makes it again.
+        assert isinstance(outcome.pinned, pin.Pin), outcome
+        assert outcome.pinned.anchored is (outcome.anchor is not None)
+        assert outcome.pinned.fingerprint == (outcome.anchor.fingerprint if outcome.anchor else "")
+        assert _through(outcome.pinned, host.api_port) == 401
+    else:
+        # A refusal holds nothing that a token could be sent through.
+        assert [field.name for field in dataclasses.fields(outcome)] == ["said", "impostor"]
     return outcome
 
 
@@ -165,7 +176,11 @@ def _keep(outcome: Kept, name: str = "lab", port: int = 8006) -> hosts.Reached:
 def _used(reached: hosts.Reached, port: int, tls_ca_file: str | None = None) -> int:
     """The client's own connection to the host, as reached, with no credential: the status of GET /version, which
     Proxmox answers 401 to no token once the certificate verified."""
-    kept = pin.kept(reached.anchor, reached.fields.fingerprint, tls_ca_file)
+    return _through(pin.kept(reached.anchor, reached.fields.fingerprint, tls_ca_file), port)
+
+
+def _through(kept: pin.Pin, port: int) -> int:
+    """GET /version at the host on port, with no credential, through kept: its status."""
     transport = pin.transport(f"https://127.0.0.1:{port}/api2/json", kept)
     try:
         return transport.request("GET", "version").status
@@ -364,7 +379,7 @@ def test_what_answers_with_none_of_the_host_s_certificates_holds_the_token(home,
     port = serve(impostor, handler)
     refused = _refused(_worked(_host(port), root_ssh=_read(host["ca"], host["node"]), ask=_asking(True)))
     presented = trust.pem_fingerprint(impostor["node"])
-    assert refused.token_held is True
+    assert refused.impostor is True
     assert refused.said.startswith(
         f"https://127.0.0.1:{port} presents a certificate (SHA-256 {presented}) that is none of the host's, as root SSH"
         " to 127.0.0.1 reads them, so something other than the Proxmox host answers there, and nothing was sent with"
@@ -378,7 +393,7 @@ def test_nothing_presented_where_root_ssh_read_the_host_s_holds_the_token(home, 
         free.bind(("127.0.0.1", 0))
         closed = free.getsockname()[1]
     refused = _refused(_worked(_host(closed), root_ssh=_read(pki["ca"], pki["node"])))
-    assert refused.token_held is True
+    assert refused.impostor is True
     assert refused.said.startswith(f"https://127.0.0.1:{closed} presented no certificate to read (")
     assert "so nothing shows that the Proxmox host answers there, and nothing was sent with the token" in refused.said
 
@@ -403,7 +418,7 @@ def test_what_the_custom_certificate_s_intermediate_issued_another_is_none_of_th
     ask = _asking(True) if there else None
     custom = _pem(leaf[0], intermediate[0])
     refused = _refused(_worked(_host(port), root_ssh=_read(proxmox["ca"], custom), ask=ask))
-    assert refused.token_held is True
+    assert refused.impostor is True
     presented = trust.pem_fingerprint(_pem(impostor[0]))
     assert f"presents a certificate (SHA-256 {presented}) that is none of the host's" in refused.said
     assert ask is None or ask.asked == []
@@ -448,7 +463,7 @@ def test_a_certificate_the_node_s_own_certificate_signed_is_none_of_the_host_s(h
     port = serve(_served(tmp_path / "signed", [signed[0]], signed[1]))
     ask = _asking(True)
     refused = _refused(_worked(_host(port), root_ssh=_read(proxmox["ca"], _pem(custom[0])), ask=ask))
-    assert refused.token_held is True and ask.asked == []
+    assert refused.impostor is True and ask.asked == []
 
 
 # ---------------------------------------------------------------- what only a person can vouch for ----
@@ -478,7 +493,7 @@ def test_with_nobody_there_only_the_fingerprint_given_keeps_it(home, serve, tmp_
     fingerprint = trust.pem_fingerprint(pki["node"])
     # --no-prompt, no --certificate: a refusal that names --certificate, with the fingerprint to compare.
     refused = _refused(_worked(_host(port), root_ssh=_unanswered))
-    assert refused.token_held is False
+    assert refused.impostor is False
     assert (
         f"presents a certificate (SHA-256 {fingerprint}) that nothing on the host vouches for (root SSH to 127.0.0.1"
         " did not answer: ssh: connect to host 127.0.0.1 port 22: Connection refused): only you can" in refused.said
@@ -615,7 +630,7 @@ def test_a_certificate_that_changed_is_put_in_place_on_a_yes_that_showed_both_fi
     first, second = proxmox_pki(tmp_path / "first", key_usage=True), proxmox_pki(tmp_path / "second", key_usage=True)
     port = serve(second)
     old, new = trust.pem_fingerprint(first["ca"]), trust.pem_fingerprint(second["ca"])
-    _keep(Kept(hosts.Anchor(first["ca"], "ca"), True, ""), port=port)
+    _keep(Kept(hosts.Anchor(first["ca"], "ca"), True, "", pin.kept(first["ca"])), port=port)
     reached = hosts.reach(hosts.Layout(paths.home(REPO)), Request(host="lab"))
     ask = _asking(True)
     kept = _kept(_worked(Host.of("lab", reached.fields, reached.anchor), "", _read(second["ca"], second["node"]), ask))
@@ -738,7 +753,9 @@ def test_nothing_in_engine_builds_a_tls_context_but_through_pin() -> None:
     from_pin = {
         node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute) and ast.unparse(node.value) == "pin"
     }
-    assert from_pin == {"kept"}
+    # kept makes every connection; Pin is the type of the one a Kept carries (review 20, E3.md 6), never made here.
+    assert from_pin == {"kept", "Pin"}
+    assert not [node for node in ast.walk(tree) if isinstance(node, ast.Call) and ast.unparse(node.func) == "pin.Pin"]
 
 
 def _named(tree: ast.AST) -> set[str]:

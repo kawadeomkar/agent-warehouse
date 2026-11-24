@@ -1,7 +1,7 @@
 """The helper's dispatcher, `helper <verb> [words]`, run on a machine by its own python3 from the script that
 guest/bundle.py makes (docs/architecture/engine.md §16.10).
 
-A program for the machine, not a module the engine imports: Python 3.9's syntax and the standard library alone, never
+A program for the machine, not a module the engine imports: Python 3.10 and the standard library alone, never
 claude_vm, which is not there. Before it calls main, the script defines each source it packs in memory under the name
 it is imported by, so a verb's module is taken from sys.modules, never from the machine's own path.
 

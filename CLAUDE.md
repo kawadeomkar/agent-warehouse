@@ -541,11 +541,15 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       and the run's other tasks go on while one of them waits on its `ssh` (a test holds each with an `ssh` held until
       a task on the same loop lets it go);
       each end of one there (`end_all`, a limit, a caller ended) ends its group with it, a `Match exec`'s program
-      among it, where today's callers' `ssh` is ended by its pid alone, since it shares their own group;
-      `route` settles nothing where its `ssh -G` gave no answer, ended by a signal or out of its time
+      among it - one put in the background too, which outlives an `ssh -G` that has exited, since `route._kill` decides
+      by `returncode` and never by `poll()`, which would reap the leader and leave its group - where today's callers'
+      `ssh` is ended by its pid alone, since it shares their own group; an `ssh -G`'s standard error is read from a
+      file, so a program its `Match exec` left holding it costs no answer; `route` settles nothing where its `ssh -G`
+      gave no answer, ended by a signal, out of its time or not started since the run is ending
       (`signalled_settles=False`), and refuses the route through the host where the hop's socket would pass
       `route.SOCKET_MOST`, naming `vm_ssh_route: direct` or a shorter home; every line of the hop's own `ssh` pins
-      `ForwardX11=no` and `PermitLocalCommand=no` first (`route.hop_settings`' `pinned`). It keeps every
+      `ForwardX11=no`, `PermitLocalCommand=no` and `ClearAllForwardings=yes` first (`route.hop_settings`' `pinned`),
+      so none takes a person's forwards or tunnel, which `-W` clears only by default. It keeps every
       shared master, a machine's and the hop's, in the one control directory every run shares (`fleet/paths.py`'s
       `control_dir()`, `~/.ansible/cp`: short, the account's alone, and the one layer 1's Ansible and the status probe
       use), which `Connections` refuses where it is a link, another account's, or writable by its group or others

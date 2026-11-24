@@ -21,7 +21,7 @@ them - and returns what the host keeps from then on (`Kept`), or why nothing tha
    is kept as the node's own, held to its fingerprint and not to a name, which B22's client then reaches whatever
    address it is given. The node's file is read for its first certificate alone: a custom one is served with its
    chain, and an intermediate of it taken for an anchor would pass whatever it issued, for any name, for the host's
-   own. Where what it presents is none of the host's, or nothing, the refusal is `token_held`: something other than
+   own. Where what it presents is none of the host's, or nothing, the refusal is an `impostor`'s: something other than
    the host answers there.
 3. Where root SSH does not answer, is not tried (`root_ssh` None), or reads no certificate, nothing on the host vouches
    for what the address presents: its fingerprint is shown, and it is kept as the node's own only on the person's yes,
@@ -30,11 +30,14 @@ them - and returns what the host keeps from then on (`Kept`), or why nothing tha
 An anchor kept is put in the place of one that no longer verifies only on a yes that shows both fingerprints, or where
 the new one is the one given; with nobody there (`ask` None: `--no-prompt`) and none given, what only a person can
 vouch for is a refusal that names `--certificate`. No sentence says to check less: there is no unchecked mode. Every
-refusal means the caller sends nothing that carries a credential; `token_held` says the reason is what answers.
+refusal means the caller sends nothing that carries a credential, and holds nothing it could send it through: a
+`Refusal` carries no connection, and `impostor` says only why, that what answers is not shown to be the host.
 
-What is returned is what pve/pin.py's `kept` takes, made through it once before it is returned: no context is built
-here but through pin, nothing here reads trust.py's `_store_files`, and the probes' contexts are trust.py's. The caller
-keeps an anchor through fleet/hosts.py's one writer, `write`, with its kind and fingerprint in one write. Standard
+What is returned is what pve/pin.py's `kept` takes, made through it once before it is returned and carried in the
+`Kept` (`pinned`), the one connection a caller sends its token through: no caller makes it again from what it wrote
+or read back, no context is built here but through pin, nothing here reads trust.py's `_store_files`, and the probes'
+contexts are trust.py's. The caller keeps an anchor through fleet/hosts.py's one writer, `write`, with its kind and
+fingerprint in one write. Standard
 library, trust.py's probes, fleet/, pve/pin.py, ssh/runner.py and the printer at import; asyncio inside the functions
 that wait.
 """
@@ -122,14 +125,17 @@ class Host:
 
     @classmethod
     def of(cls, name: str, fields: hosts.HostFile, anchor: str | None, tls_ca_file: str | None = None) -> Host:
-        """The host as its folder keeps it (fleet/hosts.py's fields and anchor)."""
+        """The host as its folder keeps it (fleet/hosts.py's fields and anchor): a kind and a fingerprint only beside an
+        anchor, so that a host.yml whose anchor a hand took out reads as a host that keeps none, which init then
+        writes again (Layout.state gives such a host)."""
+        held = anchor is not None
         return cls(
             name=name,
             address=fields.address,
             api_port=fields.api_port,
             anchor=anchor,
-            trust_kind=fields.trust_kind,
-            fingerprint=fields.fingerprint,
+            trust_kind=fields.trust_kind if held else None,
+            fingerprint=fields.fingerprint if held else "",
             tls_ca_file=tls_ca_file,
         )
 
@@ -176,21 +182,23 @@ class Question:
 @dataclasses.dataclass(frozen=True)
 class Kept:
     """What the host is held to from now on: the anchor to keep (fleet/hosts.py's Anchor), or None for none, where the
-    computer's certificates verify it; whether that differs from what it keeps now, and so is to be written; and what is
-    said of it."""
+    computer's certificates verify it; whether that differs from what it keeps now, and so is to be written; what is
+    said of it; and the Pin made of it (pve/pin.py's kept), the one connection a caller sends its token through."""
 
     anchor: hosts.Anchor | None
     changed: bool
     said: str
+    pinned: pin.Pin
 
 
 @dataclasses.dataclass(frozen=True)
 class Refusal:
-    """Nothing that carries a credential may be sent, and why. token_held: what answers at the address is not shown to
-    be the host, though root SSH read the host's certificates."""
+    """Nothing that carries a credential may be sent, and why: a Refusal holds no connection to send one through.
+    impostor: what answers at the address is not shown to be the host, though root SSH read the host's
+    certificates."""
 
     said: str
-    token_held: bool = False
+    impostor: bool = False
 
 
 Ask = Callable[[Question], Awaitable[bool]]
@@ -407,7 +415,7 @@ async def _found(host: Host, read: Read | None, no_ssh: str) -> _Found | Refusal
             f"https://{host.endpoint} presented no certificate to read ({one_line(presented['why'], 200)}), so nothing"
             f" shows that the Proxmox host answers there, and nothing was sent with the token. Check the address in"
             f" {host.host_file_said}, and that the host is up",
-            token_held=True,
+            impostor=True,
         )
     if not (presented["host"] or (own != "" and presented["fingerprint"] == pem_fingerprint(own))):
         return Refusal(
@@ -415,7 +423,7 @@ async def _found(host: Host, read: Read | None, no_ssh: str) -> _Found | Refusal
             f" host's, as root SSH to {host.address} reads them, so something other than the Proxmox host answers"
             f" there, and nothing was sent with the token. Check the address in {host.host_file_said}, and what"
             " answers at it",
-            token_held=True,
+            impostor=True,
         )
     fingerprint = presented["fingerprint"]
     kept = (
@@ -427,20 +435,30 @@ async def _found(host: Host, read: Read | None, no_ssh: str) -> _Found | Refusal
     return await _as_node(host, fingerprint, "", what, True, kept)
 
 
-def _kept(host: Host, found: _Found, said_text: str) -> Kept | Refusal:
-    """found kept for host, held first to what the client takes (pin.kept, the one way a context is made here);
-    changed where it is not what the host keeps now."""
-    anchor = found.anchor
+def _as_kept(host: Host, anchor: hosts.Anchor | None, changed: bool, said_text: str, what: str) -> Kept | Refusal:
+    """anchor kept for host, or none: the Pin made of it as the client takes it (pin.kept, the one way a context is made
+    here), carried in the Kept; a Refusal where what holds no certificate the client can use."""
     try:
-        pin.kept(anchor.pem, anchor.fingerprint, host.tls_ca_file)
+        if anchor is None:
+            pinned = pin.kept(None, "", host.tls_ca_file)
+        else:
+            pinned = pin.kept(anchor.pem, anchor.fingerprint, host.tls_ca_file)
     except ValueError:
-        return Refusal(f"{found.what} holds no certificate the client can use: nothing was sent with the token")
+        return Refusal(f"{what} holds no certificate the client can use: nothing was sent with the token")
+    except vendors_trust.Unusable as error:
+        return Refusal(str(error))
+    return Kept(anchor=anchor, changed=changed, said=said_text, pinned=pinned)
+
+
+def _kept(host: Host, found: _Found, said_text: str) -> Kept | Refusal:
+    """found kept for host, held first to what the client takes; changed where it is not what the host keeps now."""
+    anchor = found.anchor
     same = (
         host.anchor is not None
         and pem_certificates(host.anchor) == anchor.pem
         and (host.trust_kind, host.fingerprint.upper()) == (anchor.kind, anchor.fingerprint)
     )
-    return Kept(anchor=anchor, changed=not same, said=said_text)
+    return _as_kept(host, anchor, not same, said_text, found.what)
 
 
 async def _verified(host: Host, given: str) -> Kept | Refusal:
@@ -454,7 +472,7 @@ async def _verified(host: Host, given: str) -> Kept | Refusal:
             " tls_ca_file names)"
         )
         if not given:
-            return Kept(None, False, f"{verifies}: the host keeps no anchor, and every run checks it")
+            return _as_kept(host, None, False, f"{verifies}: the host keeps no anchor, and every run checks it", "")
         fingerprint = (await _shown(host.url))["fingerprint"]
         what = f"what https://{host.endpoint} presents"
         if given != fingerprint:
@@ -462,16 +480,18 @@ async def _verified(host: Host, given: str) -> Kept | Refusal:
                 f"--certificate {given} is not {what} (SHA-256 {fingerprint or 'none: nothing was read again'}), which"
                 " this computer's certificates verify: nothing was kept, and nothing sent with the token"
             )
-        return Kept(
+        return _as_kept(
+            host,
             None,
             False,
             f"{verifies}, and --certificate matched {what} (SHA-256 {fingerprint}): the host keeps no anchor, and every"
             " run checks it",
+            "",
         )
     anchor = hosts.Anchor(pem_certificates(host.anchor), host.trust_kind or "node", host.fingerprint.upper())
     verifies = f"Proxmox's certificate verifies against {host.anchor_said}"
     if not given:
-        return Kept(anchor, False, f"{verifies}: every run checks it")
+        return _as_kept(host, anchor, False, f"{verifies}: every run checks it", host.anchor_said)
     fingerprint = anchor.fingerprint if anchor.kind == "node" and anchor.fingerprint else pem_fingerprint(anchor.pem)
     if given != fingerprint:
         return Refusal(
@@ -479,11 +499,13 @@ async def _verified(host: Host, given: str) -> Kept | Refusal:
             f" {fingerprint}), against which Proxmox's certificate verifies: nothing was changed, and nothing sent with"
             " the token"
         )
-    return Kept(
+    return _as_kept(
+        host,
         anchor,
         False,
         f"{verifies}, and --certificate matched {KINDS[anchor.kind]} kept there (SHA-256 {fingerprint}): every run"
         " checks it",
+        host.anchor_said,
     )
 
 
