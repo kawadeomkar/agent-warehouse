@@ -2064,13 +2064,15 @@ imports nothing of `tui/`, which draws it. A machine is keyed by its identity (`
 `job.json`'s `machines`, a machine's `end` and layer 1's step events name it: one key for every event of a machine. The
 name a person chose rides beside it, as an event's `name` (layer 1's steps carry it) or as the run's machines given as a
 mapping of identity to name; the model keeps each identity's name (`names`, `name(machine)`), and a drawer says the name
-wherever it says a machine. The events it reads, their text plain as `emit` makes it (a tab, a line break and Unicode's
-format characters stay, and a drawer makes them visible):
+wherever it says a machine. Every emitter passes the identity: an event whose machine is the name the run keeps for
+another key, or whose `name` is another key of the run's, is refused, so one machine is never two rows drawn under one
+name. The events it reads, their text plain as `emit` makes it (a tab, a line break and Unicode's format characters
+stay, and a drawer makes them visible):
 
 | Event | What the model makes of it |
 |---|---|
 | `stage`, its text a stage's key | No `outcome`: the stage begins. `outcome` done, skipped or failed (with `why`): it ends, and so does whatever of its steps is still open for it |
-| `step`, its text a step's key, `stage` its stage | Begins or ends that step as a stage does; its start begins its stage where it had not begun |
+| `step`, its text a step's key, `stage` its stage | Begins or ends that step as a stage does; its start begins its stage where that had not begun for its machine, never one that has ended for it (its failure and its time kept) |
 | `step` that names no stage | A line of a machine's work (each of layer 1's events): kept as that machine's latest line, beginning and ending nothing |
 | `report` | Kept whole, in order, to be printed above the region |
 | `waiting` | Opens the wait of its machine and its `section`, in place of one open; an empty text ends that wait alone |
@@ -2079,29 +2081,30 @@ format characters stay, and a drawer makes them visible):
 
 A `stage` or a `step` is for one machine, or with no machine for every machine of the run: a machine with no part of its
 own in a stage or a step reads every machine's part where that began before the machine's own end, by the order the
-events came in, so a machine that has ended takes no part in a stage begun after it. A stage that ended reads failed for
-a machine where a step of it failed for that machine, and for the run where one did for any: the failure wins, as
-today's. A wait for the person is one with no section (a short section's wait,
-`locks.section`'s, is for another run); a wait also ends when its machine ends, at the cancel (`cancel(now)`, when a person
-stops the run: nobody is asked any more) and at the run's end. So a clear of one machine's wait, or of a wait with no
-section, never ends another machine's or a section's, where the job's record keeps one wait for the whole run. No count
-of tasks is guessed: a stage or a step is done when its event says so, and one still open at the run's end is done where
-the run succeeded and stopped where it failed or was cancelled: cut short, never failed, since what failed said so
-itself. An event of a stage the declaration lacks, of a step its stage does not declare, of a kind the job lacks, an
-ending other than done, skipped or failed, a NEXT STEPS line with no matter, a name that is no str, and anything after
-the run's end are refused before anything is kept.
+events came in, so a machine that has ended takes no part in a stage begun after it; its own begin while that part runs
+takes the part's start, so its time in the stage goes on. A stage that ended reads failed for a machine where a step of
+it failed for that machine, and for the run where one did for any: the failure wins, as today's. A wait for the person
+is one with no section (a short section's wait, `locks.section`'s, is for another run); a wait also ends when its
+machine ends, at the cancel (`cancel(now)`, when a person stops the run: nobody is asked any more) and at the run's end.
+So a clear of one machine's wait, or of a wait with no section, never ends another machine's or a section's, where the
+job's record keeps one wait for the whole run. No count of tasks is guessed: a stage or a step is done when its event
+says so, and one still open at the run's end is done where the run succeeded and stopped where it failed or was
+cancelled: cut short, never failed, since what failed said so itself. An event of a stage the declaration lacks, of a
+step its stage does not declare, of a kind the job lacks, an ending other than done, skipped or failed, a NEXT STEPS
+line with no matter, a name that is no str, a machine named by the name the run keeps for another key or a name that is
+another key, and anything after the run's end are refused before anything is kept.
 
 What a drawer reads: `state(stage, step)` (to come, running, waiting, done, skipped, failed, stopped), `mark(machine,
 stage, step)` and `marks(stage, step)` (each machine's, none for a stage that is not each machine's), `running()` and
 `running_stage()`, `seconds(now, stage, step, machine)`, the waits (`waiting()`, `waiting_for_you()`, `waited(now, ...)`
 for the person's time), `reports`, `failures` (each said once: a step that ended failed; a stage that ended failed for a
 machine with no failure of it said for that machine, or for every machine where none of it was said or where it cut
-short a part still open; a machine that ended failed with nothing of it failed before; and the run's own `why`, where it
-ended failed with nothing failed before or where it cut short a part still open, so a run that fails only because its
-machines did says nothing twice), `outcomes` (each machine's), the run's `outcome`, `exit` and `why`, `latest`,
-`names` and `name(machine)`, and `next_steps()`: NEXT STEPS by machine, by the name a person chose as today's orders by
-VM name, the run's own first, then by matter in today's order, each line once, through
-`lib/claude_vm/run/next_steps.py` as it stands.
+short a part still open; a machine that ended failed with nothing of it failed before, or where its end cut short a
+part still open; and the run's own `why`, where it ended failed with nothing failed before or where it cut short a part
+still open, so a run that fails only because its machines did says nothing twice), `outcomes` (each machine's), the
+run's `outcome`, `exit` and `why`, `latest`, `names` and `name(machine)`, and `next_steps()`: NEXT STEPS by machine,
+by the name a person chose as today's orders by VM name, the run's own first, then by matter in today's order, each
+line once, through `lib/claude_vm/run/next_steps.py` as it stands.
 `tests/unit/test_aw_run_model.py` holds it with canned runs (one machine, three, one failing in configure, one waiting for
 a sign-in, one cancelled), each event's effect, every refusal leaving the model as it was, a run fed by a job's own
 `emit`, and each rule above with a test of its own.

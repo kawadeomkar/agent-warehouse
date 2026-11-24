@@ -12,7 +12,10 @@ count of tasks is guessed: a stage or a step is done when its event says so.
 A machine is keyed by its identity (`agent-warehouse-<SMBIOS UUID>`), as `job.json`'s `machines`, a machine's `end` and
 layer 1's step events name it: one key for every event of a machine. The name a person chose rides beside it, as an
 event's `name` (layer 1's steps carry it) or as the run's machines given as a mapping of identity to name; the model
-keeps each identity's name (`names`, `name(machine)`), and a drawer says the name wherever it says a machine.
+keeps each identity's name (`names`, `name(machine)`), and a drawer says the name wherever it says a machine. Every
+emitter passes the identity (a workflow, layer 1's reader, a section's wait): an event whose machine is the name the run
+keeps for another key, or whose `name` is another key of the run's, would make one machine two rows drawn under one
+name, and is refused.
 
 The events, as the run emits them (job.KINDS; their strings are plain, as emit makes them, and a drawer makes them
 visible: a tab, a line break and Unicode's format characters stay here):
@@ -20,12 +23,14 @@ visible: a tab, a line break and Unicode's format characters stay here):
 - `stage`, its text a declared stage's key: with no `outcome` it begins; with `outcome` done, skipped or failed it ends,
   with `why` where it failed, and so does whatever of its steps is still open for it. For one machine, or with no
   machine for every machine of the run: a machine with no part of its own in a stage reads every machine's, where that
-  began before the machine's own end. A stage that ended reads failed for a machine where a step of it failed for that
-  machine (and for the run, where one did for any): the failure wins, as today's.
+  began before the machine's own end, and its own begin while that runs takes its start, so its time goes on. A stage
+  that ended reads failed for a machine where a step of it failed for that machine (and for the run, where one did for
+  any): the failure wins, as today's.
 - `step`, its text a step's key and `stage` the key of the stage that declares it: it begins or ends as a stage does,
-  and its start begins its stage where it had not begun. A `step` that names no stage is a line of a machine's work,
-  such as each of layer 1's events (guest/events.py, its text a task's name): kept as that machine's latest line, it
-  begins and ends nothing.
+  and its start begins its stage where that had not begun for its machine (one that has ended for it is not begun
+  again, its failure and its time kept). A `step` that names no stage is a line of a machine's work, such as each of
+  layer 1's events (guest/events.py, its text a task's name): kept as that machine's latest line, it begins and ends
+  nothing.
 - `report`: kept whole, in the order said, to be printed above the region.
 - `waiting`, its text what the run waits for: it opens the wait of its machine and its `section` (a short section's
   wait is another run's, runs/locks.py; one with no section is the person's), in place of one that was open; an empty
@@ -39,12 +44,14 @@ visible: a tab, a line break and Unicode's format characters stay here):
   never failed), every wait with it, and the run takes no event after it.
 
 An event of a stage the declaration does not have, a step its stage does not declare, a kind the job has not, an
-ending that is not done, skipped or failed, a NEXT STEPS line with no matter, a name that is no str, and any event
-after the run's end are refused before anything is kept. A failure is said once: each step that ended failed; a stage
-that ended failed for a machine where no failure of it was said for that machine, and one that ended failed for every
-machine where none of it was said at all or where it cut short a part still open; a machine that ended failed where
-nothing of it had; and the run that ended failed, its own `why`, where nothing had failed or where it cut short a part
-still open (so a run that ends failed only because its machines did says nothing twice).
+ending that is not done, skipped or failed, a NEXT STEPS line with no matter, a name that is no str, an event that
+names a machine by the name the run keeps for another key or whose name is another key, and any event after the run's
+end are refused before anything is kept. A failure is said once: each step that ended failed; a stage that ended
+failed for a machine where no failure of it was said for that machine, and one that ended failed for every machine
+where none of it was said at all or where it cut short a part still open; a machine that ended failed where nothing of
+it had failed or where its end cut short a part still open; and the run that ended failed, its own `why`, where nothing
+had failed or where it cut short a part still open (so a run or a machine that ends failed only because of a failure
+already said says nothing twice).
 
 Reused as it stands: run/next_steps.py's ordering. Not reused: run/model.py, whose input is Ansible's plays and which
 stays today's product's. It imports nothing of tui/ (tests/unit/test_aw_run_model.py).
@@ -137,10 +144,15 @@ class Progress:
         return part is not None and part.ended is None
 
     def begin(self, machine: str | None, now: float) -> None:
-        """Begun for machine, or for every machine: begun again where it had ended, left as it is where it runs."""
+        """Begun for machine, or for every machine: left as it is where it runs, begun again where it had ended; and a
+        machine's own begin while the part of every machine's that it reads runs takes that part's start, so its time
+        in it goes on."""
         part = self.parts.get(machine)
-        if part is None or part.ended is not None:
-            self.parts[machine] = Part(now, order=self.book.order)
+        if part is not None and part.ended is None:
+            return
+        read = self.of(machine) if part is None and machine is not None else None
+        began = read.began if read is not None and read.ended is None else now
+        self.parts[machine] = Part(began, order=self.book.order)
 
     def close_open(self, outcome: str, why: str, now: float) -> bool:
         """Every part still open ended so; whether there was one."""
@@ -281,7 +293,8 @@ class Run:
     """A run as a person reads it, from its declared stages and the events it emits, fed in order with the time given.
     machines are those the run was given, by identity, in their order: an iterable of identities, or a mapping of each
     identity to the name a person chose. A machine an event names that is not one is added after them, where it names
-    it in work that is each machine's."""
+    it in work that is each machine's, but never by the name the run keeps for another key (refused, as is a name that
+    is another key): one machine, one row."""
 
     def __init__(self, declared: Declared, now: float, machines: Iterable[str] | Mapping[str, str] = ()) -> None:
         if not isinstance(declared, Declared):
@@ -295,6 +308,7 @@ class Run:
         for machine, name in given:
             if not isinstance(machine, str) or not isinstance(name, (str, type(None))):
                 raise TypeError("a run's machines are identities, each a str, with a name, a str, where one is given")
+            self._one_row(machine, name)
             self._learn(machine)
             if name:
                 self.names[machine] = name
@@ -332,6 +346,7 @@ class Run:
         name = event.data.get("name")
         if name is not None and not isinstance(name, str):
             raise TypeError("a machine's name is a str")
+        self._one_row(event.machine, name)
         getattr(self, f"_on_{event.kind}")(event.machine, event.text, event.data, now)
         if name and event.machine is not None:
             self.names[event.machine] = name
@@ -384,7 +399,9 @@ class Run:
         outcome, why = _ending(data), _why(data)
         self._learn_in(stage.spec, machine)
         if outcome is None:
-            if not stage.open_for(machine):
+            # Its start begins its stage only where that had not begun for its machine: one that has ended for it stays
+            # as it ended, its failure and its time kept.
+            if stage.of(machine) is None:
                 stage.begin(machine, now)
             step.begin(machine, now)
             return
@@ -433,17 +450,20 @@ class Run:
             # From here the machine reads no part of every machine's that begins later (Progress.of).
             self._book.ends.setdefault(machine, self._book.order)
             # The host's own stages (the template's) are no machine's to end.
+            cut = False
             for progress in (each for each in self.stages.values() if each.spec.each_machine):
                 for step in progress.steps.values():
                     if step.open_for(machine):
-                        step.end(machine, closed, text, now)
+                        cut = step.end(machine, closed, text, now) or cut
                 if progress.open_for(machine):
-                    progress.end(machine, closed, text, now)
+                    cut = progress.end(machine, closed, text, now) or cut
             for wait in self.waiting():
                 if wait.machine == machine:
                     wait.until = now
             self.outcomes[machine] = MachineEnd(outcome, stage, text, now)
-            if outcome == "failed" and not any(failure.machine == machine for failure in self.failures):
+            # Its why, said where nothing of it had failed, or where its end cut short a part still open (which then
+            # reads failed), as the run's end and a stage's end for every machine say theirs.
+            if outcome == "failed" and (cut or not any(failure.machine == machine for failure in self.failures)):
                 self.failures.append(Failure(stage, None, machine, text, now - self.began, now))
             return
         status = data.get("exit")
@@ -563,6 +583,24 @@ class Run:
         if found is None:
             raise ValueError(f"{key!r} is no stage of {self.declared.title}: one of {', '.join(self.stages)}")
         return found
+
+    def _one_row(self, machine: str | None, name: str | None) -> None:
+        """Refused where an event, or a machine given, would make one machine two rows drawn under one name: its key is
+        the name the run keeps for another key, or its name is another key of the run's. Every emitter passes the
+        identity."""
+        if machine is None:
+            return
+        for key, kept in self.names.items():
+            if key != machine and kept == machine:
+                raise ValueError(
+                    f"{machine!r} is the name of a machine the run keys by {key!r}: an event names a machine by its"
+                    " key, its identity, and its name beside it"
+                )
+        if name and name != machine and name in self.machines:
+            raise ValueError(
+                f"{name!r} is the key of another machine of the run, so never the name of {machine!r}: an event names"
+                " a machine by its key, its identity, and its name beside it"
+            )
 
     def _learn(self, machine: str | None) -> None:
         if machine is not None and machine not in self.machines:
