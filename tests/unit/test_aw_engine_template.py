@@ -35,6 +35,7 @@ from pathlib import Path
 import pytest
 import yaml
 from aw_kit import imports_of
+from fleet_fixture import pinned
 from harness import ENGINE_POOL, _pve, _pve_requests, engine_grant, engine_token, fake_fleet
 from pki import proxmox_pki
 
@@ -66,7 +67,10 @@ SERVER = IMAGE.replace("/minimal/", "/server/")
 
 def _settings(**changes: object) -> dict[str, object]:
     """Every row's value for a run against the host lab, as fleet/overrides.py resolves them in this test's own home
-    (the settings' defaults: proxmox_template_vmid 9000, proxmox_node pve and the rest), with changes over them."""
+    (the settings' defaults: proxmox_template_vmid 9000, proxmox_node pve and the rest), with changes over them: the
+    host's settings this file's fleet is read with, the route to its VMs pinned direct first, as every fleet a test
+    makes pins it (fleet_fixture.pinned)."""
+    pinned("lab")
     resolved = overrides.resolve(paths.home(REPO), "lab")
     return {**{name: found.value for name, found in resolved.items()}, **changes}
 

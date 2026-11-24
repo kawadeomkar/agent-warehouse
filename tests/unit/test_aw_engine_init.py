@@ -522,7 +522,8 @@ def test_no_request_carries_the_token_before_the_certificate_is_settled(fake, se
     # Root SSH's child started, and was refused: the refusing ssh answered.
     assert unrouted(fake.ssh), ran.stderr
     assert not any(entry["token"] for entry in fake.calls()[sent:])
-    assert sorted(_files()) == ["fleet/hosts/pve/host.yml"]
+    # host.yml and the route to the host's VMs, which with_port wrote before init, as every fleet a test makes pins it.
+    assert sorted(_files()) == ["client.yml", "fleet/hosts/pve/host.yml"]
     _sealed(fake.secret)
 
 

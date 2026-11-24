@@ -32,6 +32,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
+from fleet_fixture import pinned
 from harness import REPO
 from pki import proxmox_pki
 from test_aw_transport import _new_engine, _rel
@@ -163,13 +164,14 @@ def _line(**values) -> str:
 
 
 def _keep(outcome: Kept, name: str = "lab", port: int = 8006) -> hosts.Reached:
-    """What outcome keeps, written through the host's one writer as init writes a host, and read back as a run reaches
-    it."""
+    """What outcome keeps, written through the host's one writer as init writes a host, the route to its VMs pinned
+    direct as every fleet a test makes pins it (fleet_fixture.pinned), and read back as a run reaches it."""
     layout = hosts.Layout(paths.home(REPO))
     state = layout.state(name)
     given = {"address": "127.0.0.1", "api_port": port, **FIELDS}
     hosts.write(layout, name, state.digest, change=lambda raw: raw.update(given), anchor=outcome.anchor)
     (layout.hosts_dir / name / "settings.yml").write_text(yaml.safe_dump(SETTINGS))
+    pinned(name)
     return hosts.reach(layout, Request(host=name))
 
 

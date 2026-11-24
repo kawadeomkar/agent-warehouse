@@ -547,8 +547,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `ssh` is ended by its pid alone, since it shares their own group; an `ssh -G`'s standard error is read from a
       file, so a program its `Match exec` left holding it costs no answer; `route` settles nothing where its `ssh -G`
       gave no answer, ended by a signal, out of its time, not started since the run is ending, or not run at all, the
-      `ssh` program or the temporary file its errors are read from not made (`signalled_settles=False`), and refuses
-      the route through the host where the hop's socket would pass
+      `ssh` program or the temporary file its errors are read from not made, or exited with an error, said in `ssh`'s
+      own words (`signalled_settles=False`), and refuses the route through the host where the hop's socket would pass
       `route.SOCKET_MOST`, naming `vm_ssh_route: direct` or a shorter home; every line of the hop's own `ssh` pins
       `ForwardX11=no`, `PermitLocalCommand=no` and `ClearAllForwardings=yes` first (`route.hop_settings`' `pinned`),
       so none takes a person's forwards or tunnel, which `-W` clears only by default. It keeps every
@@ -572,17 +572,23 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - A run of the new engine settles its route once, through `lib/claude_vm/engine/routes.py` alone (`settle`):
       `vm_ssh_route` as client.yml keeps it for the run's host (its map `hosts`, never another host's), `auto` worked
       out at each run from where `ssh -G` dials the host, the hop the host's own `Target` (`host_target`, root SSH's
-      too: host.yml's address, `ssh_user`, `ssh_port` and `jump`, this computer's `ssh_identity_file` and
-      `ssh_executable`), its login made at the run's start where `vm_ssh_options` for every machine names no jump, else
-      by the first machine that takes the hop. `Route.targets` is the one function that makes a machine's `Target`:
-      the person's `vm_ssh_options` for it, the hop where it brings no jump of its own and is a Proxmox VM, each held
-      (`held`) before anything connects, then one forward of its own to the first by name through the hop
-      (`Connections.forward`, `route.hop_forward`): a host that refuses to forward or that `ssh` cannot use stops the
-      run (`routes.Unusable`), and nothing dials a machine. `Route.ready()` makes sure of the shared connection again
-      before a step that reaches many machines and after a wait on a person, failing none. No module of `engine/` but
-      `routes.py` makes a `Target`; every fleet a test makes pins `vm_ssh_route: direct`
-      (`tests/unit/fleet_fixture.py`). `tests/unit/test_aw_routes.py` holds it, on stand-in machines and a stand-in
-      hop.
+      too: host.yml's address, `ssh_user` and `ssh_port`, this computer's `ssh_identity_file` and `ssh_executable`; the
+      hop logs in as host.yml's `jump` in place of `ssh_user` where it names one, `Connections.route`'s doing), its
+      login made at the run's start where `vm_ssh_options` for every machine names no jump, else by the first machine
+      that takes the hop. `Route.targets` is the one function that makes a machine's `Target`: the person's
+      `vm_ssh_options` for it, the hop where it brings no jump of its own and is a Proxmox VM, marked with the route it
+      was given (`routed_as`: `direct`, `hop` or `own`, by `connections.target_for` alone), every one held (`held`)
+      before anything connects, then the hop's login, then one forward of its own to the first by name through the
+      hop (`Connections.forward`, `route.hop_forward`): a host that refuses to forward or that `ssh` cannot use stops
+      the run (`routes.Unusable`), raised again by every later `targets`, and nothing dials a machine. The runner makes
+      no command line of a machine's `Target` unmarked, nor of one marked `hop` without its hop (a
+      `dataclasses.replace` that took it off is refused as it is made). `Route.ready()` makes sure of the shared
+      connection again before a step that reaches many machines and after a wait on a person, failing none. No module
+      of the new engine but `routes.py` and `ssh/`'s own makes a `Target` or changes one's route after it was made (a
+      scan sees the runner under any name, a `replace` of a `Target`'s route and the mark); every fleet a test makes
+      pins `vm_ssh_route: direct` before anything reads it (`tests/unit/fleet_fixture.py`'s `pinned`).
+      `tests/unit/test_aw_routes.py` holds it, on stand-in machines and a stand-in hop, each maker of a test's fleet
+      read back.
 - **`just code` writes in one directory of its own on the VM, the session copies, the rest of Claude Code it
   carries and one fast-forward aside, and never answers VS Code's, Zed's or Claude Code's security questions.** Read
   [§4.9](docs/architecture/lifecycle.md#49-playbookscodeyml),
