@@ -123,8 +123,8 @@ PROXMOX_ELSEWHERE = {
     # The new engine's one writer of a VM's record, which reaches a VM by its node and its VMID, as every workflow will.
     "lib/claude_vm/engine/record.py": 3,
     # The fleet as the new engine reads it: each member of the pool a target by its node and its VMID, and each read of
-    # it, its configuration, its state and its guest agent, made by its VMID.
-    "lib/claude_vm/engine/fleet.py": 27,
+    # it, its configuration, its state and its guest agent, made by its VMID. The one check is pve/ownership.py's.
+    "lib/claude_vm/engine/fleet.py": 26,
     "lib/claude_vm/mcp/confirm.py": 4,
     "lib/claude_vm/refs.py": 3,
     "lib/claude_vm/run/model.py": 4,

@@ -524,6 +524,8 @@ written for, but a VM's first form, which its clone carries before its UUID can 
 - `label(client, vm, value)` gives a VM the one label it carries in Proxmox's list, the setting `vm_label`'s value,
   `agent-warehouse` by default, beside a person's tags, under the same digest. Nothing decides anything from it: what is
   the fleet's is its pool's members with a record.
+- Both take the VM as an `Owned` (16.5), which the one check alone makes, and refuse anything else, a target a read gave
+  above all, before anything is sent.
 
 No other module of the new engine sends a VM's description to Proxmox. `tests/unit/test_aw_record.py` holds it: every
 field round-trips; a person's lines beside the block are kept byte for byte, today's record lines among them; a block
@@ -669,37 +671,57 @@ environment has neither the variable nor the secret; with the invariant that no 
 secret in clear and the vault on disk is sealed. `tests/unit/fleet_fixture.py` gives any other test a
 whole fleet folder in one call, made by this run.
 
-**The fleet as the engine reads it: `fleet.py`.** `connect(home, reached)` opens the host a run is against: `fleet.json`'s
-record, the vault opened with its key as `vaultkey.py` finds it, the host's token from it, and one client pinned as the
-host keeps its anchor, through the proxy `network_proxy` gives; it sends nothing. A `Target` is a machine a run is
-against: its kind (`vm`), name, identity (`agent-warehouse-<its SMBIOS UUID>`), host, node, VMID, the account a run logs
-in as, its address, its record and whether it runs. What is the fleet's is its pool's members with a valid record,
-never a label: `refusal(target)` is the one check, which `owned(target)` raises, and every target a change is made on
-passes `owned`. It refuses a member with no record of this engine's, whatever tags it carries; a record that names
-another VM's UUID, or is a template's, a golden's or a build's on a VM that is no template (a copy: a clone sent without
-a description carries its source's notes); a record still in its clone's first form; a member whose configuration or
-record cannot be read, one the token holds `NoAccess` on among them; two members with one UUID, both; and a template.
+**The fleet as the engine reads it: `fleet.py`.** A host is opened by `fleet/opened.py`'s `connect(home, reached)`
+(16.9), which `status` opens one by too; `fleet.py` gives it, its `Host` and its `Refused` as its own. A `Target` is a
+machine a run reads: its kind (`vm`), name, identity (`agent-warehouse-<its SMBIOS UUID>`), host, node, VMID, the
+account a run logs in as, its address, its record, whether it runs, and the digest of the configuration it was read
+from. What is the fleet's is its pool's members with a valid record, never a label, by `pve/ownership.py`'s one rule
+(16.5), which `status` judges by too: `refusal(target)` asks it of what was read, and `owned(target, job=)` raises it or
+returns the `Owned` only that module makes, the identity and the digest the decision was made on. A changing read gives
+each target its `Owned` (`Target.owned`); `members` and a read that changes nothing give targets for reading alone. No
+write takes a `Target`: the client's writes of a VM and `record.py`'s take an `Owned`, so every target a change is made
+on passes `owned`, and the client holds the VM to that read again where it reads it, and before a deletion, which
+Proxmox takes with no digest, to the read's digest too, so that a VMID another VM holds now, or a VM changed since, is
+never deleted as it was read (`failure-modes.md`'s racy VMIDs); `destroy` owns a VM again from a read made after its
+stop, which may apply pending changes. It refuses a member with no record of this engine's, whatever tags it carries;
+a record that names another VM's UUID, or is a template's, a golden's or a build's on a VM that is no template (a copy:
+a clone sent without a description carries its source's notes); a record still in its clone's first form, but to the
+run whose job it names, which writes the rest; a member whose configuration or record cannot be read, one the token
+holds `NoAccess` on among them; two members with one UUID, both; and a template.
 
 - `requested(host, names, create=..., change=...)` holds each name before Proxmox is asked anything: the pattern of a
   VM's name, no host's name of the fleet's nor `localhost`, with the aliases on no name `ssh` would take for another
-  host, and for a deploy that would create no name another host's alias records. A changing run then reads the pool's
-  mark by `mark.py`'s rule before anything else. Named, each is the one member of its name: a name two members carry is
-  refused, one none carries is `Missing`, or for a deploy that would create, a name to create; with none, a creating
-  deploy asks for the default VM and every other run for every member, a member named after a host, one whose name
-  another carries and, changing, one it may not change each left out and said. A deploy that would create refuses a VM
-  of a new name outside the pool wherever the token may read `/vms` (`VM.Audit`), with today's sentence, a clone in flight
-  there said as one, and says where it may not; and asks each other host whether the name is a VM of its pool, refusing
-  one found there with today's sentence, which names the line that deploys it on that host, and saying and passing a
-  host that does not answer.
-- Whether a VM runs is read from its own endpoint, never the listing's status, which lags a run's own change. Its address
-  is its guest agent's alone, on its own network card, through `pve/agent.py`'s `address`; two targets of one read that
-  report one address are both left without one, said; a token refused the agent's call ends the read at once.
-- `members(host)` gives every VM of the pool as a target, `address(host, target)` one VM's address, asked once, and
-  `count_made_by_agent(host)` how many of the fleet's own an agent's run made.
+  host, and for a deploy that would create no name another host's alias records and none Proxmox takes for no VM (the
+  client's `VM_NAME`). A deploy that would create is a changing run: asked without `change`, it is refused. A changing
+  run then reads the pool's mark by `mark.py`'s rule before anything else. Named, each is the one member of its name: a
+  name two members carry is refused, one none carries is `Missing`, or for a deploy that would create, a name to
+  create; with none, a creating deploy asks for the default VM and every other run for every member, a member named
+  after a host, one whose name another carries and, changing, one it may not change each left out and said. A deploy
+  that would create refuses a VM of a new name outside the pool wherever the token may read `/vms` (`VM.Audit`), with
+  today's sentence, a clone in flight there said as one, and says where it may not. An entry the listing gives with no
+  name, as it lists a guest its node has not reported yet, a clone in flight above all, is read by its own
+  configuration first: one of a new name is refused as above, a clone in flight that names no VM yet is refused as one
+  that may be of the name, and one that cannot be read (a node that is down) is said and passed. And it asks each other
+  host whether the name is a VM of its pool, refusing one found there with today's sentence, which names the line that
+  deploys it on that host, and saying and passing a host that does not answer, or whose files say no client that can
+  be made.
+- Whether a VM runs is read from its own endpoint, never a listing's status, the cluster's or a pool's, which lags a
+  run's own change. Its address is its guest agent's alone, on its own network card, through `pve/agent.py`'s
+  `address`, and held against every other running member the fleet owns, whether the read asked for it or not: one that
+  reports the same is left without one, both said, so that a VM asked alone is never given its sibling's address; a
+  token refused the agent's call ends the read at once.
+- `members(host)` gives every VM of the pool as a target for reading, `address(host, target)` one VM's address, asked
+  once and held against the others' as a read holds it (`Shared` where another reports it too: whatever answers there
+  would be taken for the VM, its host key filed under its identity at its first use), and `count_made_by_agent(host)`
+  how many of the fleet's own an agent's run made.
 
 `tests/unit/test_aw_fleet.py` holds it on a whole fleet folder against the fake Proxmox under enforcement, carrying
 `tests/unit/test_vm_names.py`'s cases and the guest addresses' of `tests/unit/test_filters.py`, with scans that nothing
-here reads a label or the listing's status and that `requested` returns a target for a change through `owned`.
+here reads a label or a listing's status (the fake lags a pool's listing as it lags the cluster's), that `requested`
+returns a target for a change through `owned`, that nothing here holds a record to its VM and nothing but
+`ownership.py`'s `refusal` reads the UUID a record names; and that every writer refuses a target, a deletion of a VM
+changed since its read is refused and the VM stays, and a VM asked alone or just started that reports a sibling's
+address is not given it.
 
 **The route to the machines: `routes.py`.** A run settles how it reaches its host's machines once, and every
 connection it makes holds to that: `settle(run, host)` is today's rule, `route.py` as it stands, called through
@@ -773,8 +795,9 @@ see is the runner's to refuse.
 ## 16.5 `pve/` — the typed Proxmox client and the one table of privileges
 
 `lib/claude_vm/pve/` is where the typed client of the Proxmox VE API goes, with the one table that names each call's
-privilege, which `init` grants from and the permission check reads, the wait for a started VM's address, and a VM's
-record as the text of its notes. It imports `vendors/` for its one HTTPS transport,
+privilege, which `init` grants from and the permission check reads, the wait for a started VM's address, a VM's
+record as the text of its notes, and the one rule of what is the fleet's, with the type every write of a VM takes. It
+imports `vendors/` for its one HTTPS transport,
 `schema/`, `secret.py` and, of today's modules, what `REUSED` names: `trust` for the anchor's context, `proxmox` for
 its parsers as they stand, `checks` for the names Proxmox gives, and `text`. It imports nothing of `engine/`, `cli/` or
 `control/`, and no pydantic. It is Proxmox's own folder in `tests/unit/test_ratchets.py`'s `PROXMOX_OWN`, beside
@@ -874,23 +897,31 @@ so that a host, or a proxy the computer's certificates trust, that echoes what i
 - **The writes, each sent once.** The transport sends no request but a `GET` twice, and one that left with no answer is
   its `Unknown`, passed as it is: a workflow settles it by reading the VM again, never by sending the write again.
   `clone(node, source, newid, name, pool, full, storage, description)` clones into the pool, a full clone by default,
-  with the notes given; `resize(node, vmid, disk, size)` grows a disk, never shrinking one; `start`, `shutdown` (with
-  its `timeout` and `force_stop`), `stop`, `to_template` and `delete(node, vmid, purge=False)`, which sends
+  with the notes given; `resize(vm, disk, size)` grows a disk, never shrinking one; `start`, `shutdown` (with its
+  `timeout` and `force_stop`), `stop`, `to_template(node, vmid)` and `delete(vm, purge=False)`, which sends
   `destroy-unreferenced-disks` alone: it takes the disks its configuration no longer lists but that carry its VMID
   too, as today's role does, and nothing outside the VM, so Proxmox leaves the host's backup jobs, replication and HA as
   they are and refuses to delete a VM a person put under HA or replication, as it refuses today's deletion. `purge`,
-  which would take the VMID out of each of them, is sent only where a caller asks for it. Each write answers a `Task`
+  which would take the VMID out of each of them, is sent only where a caller asks for it. Each write of a VM the fleet
+  has - its configuration's, a resize, a start, a shutdown, a stop, a deletion - takes the VM as an `Owned`, which the
+  one check alone makes (`ownership.py`, below), and refuses anything else, a target a read gave above all, before
+  anything is sent; a clone, which makes a VM from a template at a VMID none holds, and a conversion to a template do
+  not. Proxmox's `DELETE` takes no digest, so `delete` first reads the configuration again and holds its SMBIOS UUID and
+  its digest to the `Owned`'s: another VM at the VMID now, or a configuration changed since the read the VM was owned
+  on, a stop that applied pending changes among them, is `Changed`, with nothing sent, and the workflow owns it again
+  from a read made after. Each write answers a `Task`
   (its node, UPID, kind and VM; a clone's, the new VM's, with its `source`). A clone whose answer was lost is `Unknown`
   with the clone perhaps running at `newid`, its configuration locked `clone` until its worker ends: `clone`'s docstring
   says it is settled by reading `newid` again until that lock is gone, never by a clone under another VMID before then.
   No write changes a pool: a new VM joins the fleet's pool through its clone's `pool`. The VMID to clone onto, the record's text and any sequence of calls are the
   workflows' (16.4), not the client's.
-- **Every write of a VM's configuration sends `digest`.** `write_config(node, vmid, changes, digest)` is one `PUT`,
+- **Every write of a VM's configuration sends `digest`.** `write_config(vm, changes, digest)` is one `PUT`,
   synchronous: Proxmox writes the changes only while the configuration is still the one whose digest the write sends,
   in the call itself and under the VM's lock, so a `POST`'s window, a check at the call and the write in a task that a
-  write made between them fails, never opens. A stale digest is `DigestMismatch`, nothing written; `edit_config(node,
-  vmid, edit)` reads, applies `edit` to what it read, writes with that read's digest, and on a mismatch reads and
-  applies again, `EDITS` (three) times at most, then raises. `changes` holds only the keys the table's rows for the
+  write made between them fails, never opens. A stale digest is `DigestMismatch`, nothing written; `edit_config(vm,
+  edit)` reads, holds what it read to the `Owned`'s SMBIOS UUID (`Changed` where another VM holds the VMID now), applies
+  `edit` to it, writes with that read's digest, and on a mismatch reads and applies again, `EDITS` (three) times at
+  most, then raises. `changes` holds only the keys the table's rows for the
   write cover (`privileges.keys`), each under the row of the privilege Proxmox checks it with (qemu-server's
   `check_vm_modify_config_perm`): a key outside them, a network card's or `startup` above all, is refused before
   anything is sent, and needs its row first. Tags are a list, sent comma-joined, and read back through `proxmox.proxmox_tags`, which takes
@@ -1042,6 +1073,25 @@ byte for byte and never parsed: a person's own lines, and the lines today's prod
 It imports the standard library and `text.py` alone, so that `status` reads a record with no other part of the engine
 loaded, which `tests/unit/test_aw_record.py` reads from a fresh interpreter.
 
+**What is the fleet's: `ownership.py`.** Ownership is pool membership and a valid record of this engine's, never a
+label, and its one rule is here, in plain code with no client, so that every workflow, through `engine/fleet.py` (16.4),
+and `status`, which may not import the engine, judge a member of the pool by the same function. A `Member` is what a
+reader read of one: its name, node and VMID, its SMBIOS UUID and its configuration's digest, whether it is a VM and a
+template, why it could not be read, what its record names (its kind, UUID, stage and job, from the fields `parse` gives
+or the typed record renders, `Member.of`) and the other members that carry its UUID. `refusal(member, job="")` says why
+it is not the fleet's to change, "" where it is: a guest that is no VM; a template; one that could not be read; one
+with no record of this engine's, whatever tags it carries; a record of a template, a golden or a build on a VM that is
+no template, or one that names another VM's UUID (`copied`), each a copy; a record that names no UUID, but the first
+form of a clone (`first_form`), which the run whose job it names owns by naming that job, before it writes the rest; a
+VM with no SMBIOS UUID; and two members of one UUID, both. `owned(member, job=)` returns an `Owned` where it passes,
+`NotOwned` with that sentence where it does not, and is the one maker of one: its name, node, VMID, SMBIOS UUID and the
+digest of the configuration it was owned on. Made by hand, or by `dataclasses.replace` or `copy.replace` of one, it is
+a `TypeError`. The client's writes of a VM above and `engine/record.py`'s writer take an `Owned` and nothing else.
+`tests/unit/test_aw_ownership.py` holds each refusal, a record's fields judged alike whichever reader read them, the
+first form owned only with its job, an `Owned` made by `owned` alone, and that the module imports `record.py` and
+nothing of the engine or the client, and opening a host (`fleet/opened.py`, 16.9) nothing of the engine, pydantic,
+Ansible, Jinja2 or the MCP SDK, so that `status` may import both.
+
 **The base template judged: `template.py`.** What was read of the base template is judged here, in plain code with no
 client, so that `deploy`, through `engine/template.py`'s `compare` (16.4), and `status`, which may not import the
 engine and reads through a client of its own, judge it by the same functions and say the same lines. It imports nothing
@@ -1115,8 +1165,10 @@ the run's close made it fail (cut, or its transport found closed) and raised as 
 `Denied`, `Unverified`, `Malformed`), and each raised as itself while the run goes on, told by the mark and never the
 words - a marked failure in other words is `Stopped` too, and one in `CUT`'s words with no mark is raised as itself; a
 log whose read could not be made, whose lines are `()` as a log with none's are; a deletion's parameters,
-`destroy-unreferenced-disks` alone and `purge` only where asked for, read from the fake's log; and a UPID with a `/` in
-a part of its own `Malformed`. Its
+`destroy-unreferenced-disks` alone and `purge` only where asked for, read from the fake's log; a deletion of a VM whose
+configuration changed since it was owned, and of one whose VMID another VM holds now, `Changed` with no `DELETE` sent,
+as is an `edit_config` of the latter; a write given anything but an `Owned` refused with nothing sent; and a UPID with
+a `/` in a part of its own `Malformed`. Its
 rules: a `PUT` or a `POST` to a configuration's path with no `digest`, or an empty one, is refused before it is sent,
 `%`-escaped spellings of the path among them, while a path with a `%` is sent as it was given, `harness.fake_fleet`'s
 end fails a test where the fake was sent one, the path read decoded there too, and every method that sends one sends
@@ -1125,7 +1177,8 @@ the keys the table covers for it; both ways, every row of the table is one the f
 by (its `decided.log`, which `tests/unit/test_aw_fake_pve.py` holds whole, request by request, so that a row the fake
 logged and did not decide fails), a configuration's row by a write that sent one of its keys, and every call it makes
 has its rows, each method of the client driven against the fake under enforcement, a task another made read among them so
-that a task's rows are checked, and what it sent read from the fake's log; the words the client tells refusals
+that a task's rows are checked, a deletion's second look by the configuration's rows, and what it sent read from the
+fake's log; the words the client tells refusals
 and warnings apart by match the fake's constants; and no error of a write or a read, the version's included, says the
 token's secret where Proxmox's words echo it. `tests/unit/test_aw_pve_agent.py` runs the wait against the fake in the
 same way, with what a VM's agent reports planted as its root would make it say: an agent that fails its first two
@@ -2410,8 +2463,9 @@ said above the region with nobody reading and then a Ctrl-C, none of them lost.
 ## 16.9 `fleet/` — the fleet's files, the settings, the secrets and the fleet's mark
 
 `lib/claude_vm/fleet/` is where a fleet's files and its state go. `paths.py`, below, says where they are; the hosts as
-folders, the typed table of settings and its overrides, the one encrypted file of secrets, and the fleet's ID and mark
-go here beside it. It imports `schema/`, and nothing of `engine/`, `cli/` or `control/`, and no pydantic.
+folders, the typed table of settings and its overrides, the one encrypted file of secrets, the fleet's ID and mark, and
+a host opened from them go here beside it. It imports `schema/`, `pve/` for the client a host is opened with, and
+nothing of `engine/`, `cli/` or `control/`, and no pydantic.
 
 **Where a fleet is: `paths.py`.** `home(program_root, environ)` works out the fleet's home for the program at
 `program_root`, and returns it with the state folder and the key file derived from it. It is standard library only,
@@ -2766,6 +2820,23 @@ there opens the vault as one at a terminal does.
 `/dev/null`, every mode of a key file's group and others in turn, every public half a case makes looked for in its
 files and its output, and the scan that only `vaultkey.py` names the variable and only `paths.py` and `vaultkey.py` the
 key file.
+
+**A host opened: `opened.py`.** `connect(home, reached)` opens the host a run is against, as `hosts.py`'s `reach`
+chose it: `fleet.json`'s record, the vault opened with its key as `vaultkey.py` finds it, every host's token's secret
+it holds, and one client (`pve/client.py`) pinned as the host keeps its anchor (`pve/pin.py`'s `kept`), through the
+proxy `network_proxy` gives; it sends nothing, and its `Host`, a context manager, closes the client. Beside them a
+`Host` keeps what the route to its machines is settled from (`engine/routes.py`, 16.4): the fleet's home, `host.yml`
+as it was read (`fields`: its address, `ssh_user`, `ssh_port` and `jump`) and every setting's value for the run
+(`values`, read-only). `client_for` makes another host's client the same way, for a run that asks the fleet's other
+hosts. Where a host's files say no client that can be made - its address, its anchor or fingerprint, a file of
+certificates `tls_ca_file` names that is not there, cannot be read or holds none (`vendors/trust.py`'s `Unusable`), its
+proxy - it is `Refused`, one sentence, never a traceback, and asking another host says it and goes on. A `Host`'s repr
+holds neither the environment its settings were read from nor the hosts' layout that keeps it, nor the run's values (a
+path among them made from `HOME`), nor the secrets: a proxy that needs a password is given in `HTTPS_PROXY`. It is here
+and not in `engine/` so that every workflow (`engine/fleet.py`, 16.4) and `status`, which may not import the engine,
+open a host the one way; `tests/unit/test_aw_ownership.py` holds that it imports nothing of the engine, pydantic,
+Ansible, Jinja2 or the MCP SDK, and `tests/unit/test_aw_fleet.py` the refusal on each road, the repr and what the route
+is settled from.
 
 ## 16.10 `guest/` — the helper, the system layer's inputs, layer 2
 

@@ -30,6 +30,14 @@ disks alone: never purge, unless a caller asks for it, which would take the VM o
 replication and HA as well. The VMID a workflow asks for is its own to choose, the record's text is its own to write,
 and a sequence of calls is its own to make: none of them is this module's.
 
+A write of a VM the fleet has - its configuration's, a resize, a start, a shutdown, a stop, a deletion - is made on an
+Owned (pve/ownership.py), which the one check alone makes, and on nothing else: a target a read gave, a configuration
+or a VMID is a TypeError, before anything is sent. edit_config holds each configuration it reads to the Owned's SMBIOS
+UUID, and a deletion, which Proxmox takes with no digest, first reads the configuration again and holds both its UUID
+and its digest to the Owned's: a VMID that another VM holds now, or a configuration changed since the read ownership
+was decided on, is Changed, with nothing sent. A clone, which makes a VM at a VMID no VM holds from a template, and a
+conversion to a template are not such writes.
+
 The guest agent's one call, agent_interfaces, asks what a started VM's agent reports of its network cards, on a
 transport of its own whose read limit is AGENT_READ, shorter than every other read's, since Proxmox waits on the VM for
 the answer: agent.py reads the VM's address from it, and waits for one. A VM that is not running is NotRunning, and one
@@ -90,8 +98,10 @@ from .answers import (
     Version,
     VmConfig,
 )
+from .ownership import Owned
 
 __all__ = [
+    "Changed",
     "Denied",
     "DigestMismatch",
     "Exists",
@@ -241,6 +251,17 @@ class DigestMismatch(ProxmoxError):
         super().__init__(
             f"Proxmox refused {asked}: VM {vmid}'s configuration changed since it was read, and nothing was written"
         )
+
+
+class Changed(ProxmoxError):
+    """The VM at an Owned's VMID is not the one ownership was decided on: another VM's SMBIOS UUID is there (its VMID
+    taken again), or, before a deletion, its configuration changed since the read the Owned was made from. Nothing was
+    sent; the workflow reads the fleet again, and changes nothing on a VM it no longer owns."""
+
+    def __init__(self, vmid: int, why: str) -> None:
+        self.vmid = vmid
+        self.why = why
+        super().__init__(f"VM {vmid} {why}, so nothing was sent to it: own it again from a read made now")
 
 
 class Locked(ProxmoxError):
@@ -436,6 +457,22 @@ def _vmid(vmid: int) -> int:
     if isinstance(vmid, bool) or not isinstance(vmid, int) or not answers.LEAST_VMID <= vmid <= answers.MOST_VMID:
         raise ValueError(f"a VMID is a number from {answers.LEAST_VMID} to {answers.MOST_VMID}")
     return vmid
+
+
+def _owned(vm: Owned) -> tuple[str, int]:
+    """The node and VMID of vm, where it is an Owned, which pve/ownership.py's owned alone makes: TypeError for anything
+    else, a target a read gave, a configuration or a VMID among them, before anything is sent."""
+    if not isinstance(vm, Owned):
+        raise TypeError(
+            "a VM is written to only as an Owned, which the one check alone makes (pve/ownership.py's owned): never a"
+            " target a read gave, a configuration or a VMID"
+        )
+    return _node(vm.node), _vmid(vm.vmid)
+
+
+def _same(vm: Owned, config: VmConfig) -> bool:
+    """Whether config is of the VM vm was owned as: the same SMBIOS UUID, as Proxmox gives one, in either case."""
+    return bool(config.identity) and config.identity.lower() == vm.uuid.lower()
 
 
 def _upid(upid: str) -> str:
@@ -866,38 +903,40 @@ class Proxmox:
         upid = self._send("POST", f"nodes/{node}/qemu/{source}/clone", source, form=form, newid=newid)
         return answers.task(upid, node, "clone", newid, source)
 
-    def write_config(self, node: str, vmid: int, changes: Mapping[str, Any], digest: str) -> None:
-        """PUT changes to a VM's configuration with digest, the one the read they were made from gave, in one call:
-        Proxmox writes them only while the configuration is still that, under the VM's lock. changes' keys are those
-        privileges.keys gives the write (delete, a list of them, removes those); tags are a list of tags, sent
+    def write_config(self, vm: Owned, changes: Mapping[str, Any], digest: str) -> None:
+        """PUT changes to the configuration of vm, an Owned, with digest, the one the read they were made from gave, in
+        one call: Proxmox writes them only while the configuration is still that, under the VM's lock. changes' keys are
+        those privileges.keys gives the write (delete, a list of them, removes those); tags are a list of tags, sent
         comma-joined; sshkeys is the keys' text, one a line, sent percent-encoded whole, and read back as Proxmox keeps
         it, encoded. Raises DigestMismatch where another writer changed it since, nothing written; Locked where a clone,
         a deletion or a backup holds the VM; and the transport's Unknown where the call left and no answer came: read
         the configuration to know, since it is never sent again."""
-        node, vmid = _node(node), _vmid(vmid)
+        node, vmid = _owned(vm)
         form = _changes(changes)
         if not isinstance(digest, str) or not DIGEST.fullmatch(digest):
             raise ValueError("a configuration's write sends the digest its read gave")
         form["digest"] = digest
         self._send("PUT", f"nodes/{node}/qemu/{vmid}/config", vmid, form=form)
 
-    def edit_config(
-        self, node: str, vmid: int, edit: Callable[[VmConfig], Mapping[str, Any] | None]
-    ) -> Mapping[str, Any]:
-        """Read a VM's configuration, apply edit to it - a function of the VmConfig read that returns write_config's
-        changes, or nothing for none - and write them with the digest that read gave. Where another writer changed it in
-        between, read it again and apply edit again, EDITS times in all, then raise the last DigestMismatch. Returns the
-        changes written, {} where edit asked for none."""
+    def edit_config(self, vm: Owned, edit: Callable[[VmConfig], Mapping[str, Any] | None]) -> Mapping[str, Any]:
+        """Read the configuration of vm, an Owned, apply edit to it - a function of the VmConfig read that returns
+        write_config's changes, or nothing for none - and write them with the digest that read gave. Where another
+        writer changed it in between, read it again and apply edit again, EDITS times in all, then raise the last
+        DigestMismatch. Each read is held to vm's SMBIOS UUID first: Changed, with nothing sent and edit not applied,
+        where another VM holds its VMID now. Returns the changes written, {} where edit asked for none."""
+        node, vmid = _owned(vm)
         if not callable(edit):
             raise TypeError("edit is a function of the configuration read")
         stale: DigestMismatch | None = None
         for _ in range(EDITS):
             config = self.config(node, vmid)
+            if not _same(vm, config):
+                raise Changed(vmid, "is another VM than the one owned, its SMBIOS UUID not the one read")
             changes = edit(config)
             if not changes:
                 return {}
             try:
-                self.write_config(node, vmid, changes, config.digest)
+                self.write_config(vm, changes, config.digest)
             except DigestMismatch as refused:
                 stale = refused
                 continue
@@ -905,10 +944,10 @@ class Proxmox:
         assert stale is not None
         raise stale
 
-    def resize(self, node: str, vmid: int, disk: str, size: str) -> Task:
-        """PUT a VM's disk grown to size (40G), or by it (+8G): the Task. Proxmox never shrinks a disk, and leaves one
-        already that size as it is."""
-        node, vmid = _node(node), _vmid(vmid)
+    def resize(self, vm: Owned, disk: str, size: str) -> Task:
+        """PUT a disk of vm, an Owned, grown to size (40G), or by it (+8G): the Task. Proxmox never shrinks a disk, and
+        leaves one already that size as it is."""
+        node, vmid = _owned(vm)
         if not isinstance(disk, str) or not DISK.fullmatch(disk):
             raise ValueError("a disk is scsi0, virtio0, sata0 or ide0, ...")
         if not isinstance(size, str) or not SIZE.fullmatch(size):
@@ -916,15 +955,15 @@ class Proxmox:
         upid = self._send("PUT", f"nodes/{node}/qemu/{vmid}/resize", vmid, form={"disk": disk, "size": size})
         return answers.task(upid, node, "resize", vmid)
 
-    def start(self, node: str, vmid: int) -> Task:
-        """POST a VM started: the Task."""
-        node, vmid = _node(node), _vmid(vmid)
+    def start(self, vm: Owned) -> Task:
+        """POST vm, an Owned, started: the Task."""
+        node, vmid = _owned(vm)
         return answers.task(self._send("POST", f"nodes/{node}/qemu/{vmid}/status/start", vmid), node, "start", vmid)
 
-    def shutdown(self, node: str, vmid: int, timeout: int | None = None, force_stop: bool = False) -> Task:
-        """POST a VM shut down through its guest, waiting timeout seconds for it where given, and stopped then where
-        force_stop says so: the Task."""
-        node, vmid = _node(node), _vmid(vmid)
+    def shutdown(self, vm: Owned, timeout: int | None = None, force_stop: bool = False) -> Task:
+        """POST vm, an Owned, shut down through its guest, waiting timeout seconds for it where given, and stopped then
+        where force_stop says so: the Task."""
+        node, vmid = _owned(vm)
         form: dict[str, Any] = {}
         if timeout is not None:
             if isinstance(timeout, bool) or not isinstance(timeout, int) or timeout < 0:
@@ -937,9 +976,9 @@ class Proxmox:
         upid = self._send("POST", f"nodes/{node}/qemu/{vmid}/status/shutdown", vmid, form=form or None)
         return answers.task(upid, node, "shutdown", vmid)
 
-    def stop(self, node: str, vmid: int) -> Task:
-        """POST a VM stopped at once, as pulling its power would: the Task."""
-        node, vmid = _node(node), _vmid(vmid)
+    def stop(self, vm: Owned) -> Task:
+        """POST vm, an Owned, stopped at once, as pulling its power would: the Task."""
+        node, vmid = _owned(vm)
         return answers.task(self._send("POST", f"nodes/{node}/qemu/{vmid}/status/stop", vmid), node, "stop", vmid)
 
     def to_template(self, node: str, vmid: int) -> Task:
@@ -947,15 +986,23 @@ class Proxmox:
         node, vmid = _node(node), _vmid(vmid)
         return answers.task(self._send("POST", f"nodes/{node}/qemu/{vmid}/template", vmid), node, "template", vmid)
 
-    def delete(self, node: str, vmid: int, purge: bool = False) -> Task:
-        """DELETE a VM with its disks, those its configuration no longer lists but that carry its VMID too, as today's
-        role deletes one (destroy-unreferenced-disks): the Task. Nothing else is changed on the host: without purge,
-        which is sent only where a caller asks for it, Proxmox leaves its backup jobs, replication and HA as they are,
-        and refuses to delete a VM a person put under HA or replication, as it refuses today's deletion; with it, the
-        VMID is taken out of each of them too, a change outside the VM."""
-        node, vmid = _node(node), _vmid(vmid)
+    def delete(self, vm: Owned, purge: bool = False) -> Task:
+        """DELETE vm, an Owned, with its disks, those its configuration no longer lists but that carry its VMID too, as
+        today's role deletes one (destroy-unreferenced-disks): the Task. Proxmox's deletion takes no digest, so its
+        configuration is read again first and held to the read vm was owned on: Changed, with nothing sent, where
+        another VM holds its VMID now, or its configuration is not that one (a change made since, a stop that applied
+        pending changes among them: own it again from a read made after). Nothing else is changed on the host: without
+        purge, which is sent only where a caller asks for it, Proxmox leaves its backup jobs, replication and HA as they
+        are, and refuses to delete a VM a person put under HA or replication, as it refuses today's deletion; with it,
+        the VMID is taken out of each of them too, a change outside the VM."""
+        node, vmid = _owned(vm)
         if not isinstance(purge, bool):
             raise TypeError("purge is True or False")
+        now = self.config(node, vmid)
+        if not _same(vm, now):
+            raise Changed(vmid, "is another VM than the one owned, its SMBIOS UUID not the one read")
+        if now.digest != vm.digest:
+            raise Changed(vmid, "changed since the read it was owned on, and Proxmox's deletion takes no digest")
         query = {"destroy-unreferenced-disks": "1", **({"purge": "1"} if purge else {})}
         return answers.task(self._send("DELETE", f"nodes/{node}/qemu/{vmid}", vmid, query=query), node, "delete", vmid)
 

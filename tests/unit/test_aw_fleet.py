@@ -15,11 +15,23 @@ said and passed; a token refused the guest agent ends the read at once; the pool
 changing run. The rules with a test of their own: every target requested returns for a change passed owned(), the one
 check, which raises for one it refuses; nothing here reads a label for a decision, or the listing's status; and the
 reads send nothing but GETs.
+
+Review 38's fixes (card G28): a changing read gives each target its Owned, which pve/ownership.py alone makes, and a
+read that changes nothing gives none; every writer of the client's and engine/record.py's refuses a target and sends
+nothing; a deletion of an owned VM that changed between the read and the DELETE is refused, and the VM stays; a VM
+asked alone, and one a run just started, that reports the address of another running member the fleet owns is left
+out; a file of certificates tls_ca_file names that cannot be used is said on each road, never a traceback; repr(Host)
+holds nothing of the environment, nor the run's values; the opened host keeps what card G7's route is settled from,
+its values read-only; a creating read that changes nothing is refused, and so is a name Proxmox takes for
+no VM, before any host is asked; a pool's listing lags as the cluster's does, and neither is read for a VM's state; an
+entry the listing gives with no name is read by its configuration; and the first form of a clone is owned only by the
+run whose job it names.
 """
 
 from __future__ import annotations
 
 import ast
+import copy
 import dataclasses
 import json
 import os
@@ -44,15 +56,20 @@ from pki import proxmox_pki
 
 from claude_vm import proxmox
 from claude_vm.engine import fleet
+from claude_vm.engine import record as engine_record
 from claude_vm.engine.record import Record
-from claude_vm.fleet import hosts, paths
+from claude_vm.fleet import hosts, opened, overrides, paths
 from claude_vm.hosts.model import Request
-from claude_vm.pve import pin, privileges
+from claude_vm.pve import ownership, pin, privileges
 from claude_vm.pve import record as block
+from claude_vm.pve.client import Changed
 
 FLEET = REPO / "lib" / "claude_vm" / "engine" / "fleet.py"
+OWNERSHIP = REPO / "lib" / "claude_vm" / "pve" / "ownership.py"
 TOKEN = f"{ENGINE_USER}!{ENGINE_TOKEN}"
 ALPHA, BETA, GAMMA = 9010, 9011, 9012
+# A run's job, as a record names one.
+JOB = "2b3c4d5e6f708192"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -165,10 +182,16 @@ def test_a_fleet_wide_read_takes_every_recorded_member_with_its_identity_state_a
     assert alpha.running and alpha.address == "192.0.2.60" and by["beta"].address == "192.0.2.61"
     assert not by["gamma"].running and by["gamma"].address == ""
     assert all(fleet.refusal(target) == "" for target in found.targets)
-    # The same members, with no address read.
+    # Each owned, with the identity and the digest of the configuration it was owned on.
+    assert alpha.owned.identity == alpha.identity
+    assert alpha.owned.digest == alpha.digest == _config(fake, ALPHA)["digest"]
+    owning = [(target.owned.node, target.owned.vmid) for target in found.targets]
+    assert owning == [("pve", ALPHA), ("pve", BETA), ("pve", GAMMA)]
+    # The same members, for reading: no address read, and none owned; nor is a read that changes nothing.
     with _host() as host:
         assert [target.vmid for target in fleet.members(host)] == [ALPHA, BETA, GAMMA]
-        assert {target.address for target in fleet.members(host)} == {""}
+        assert {(target.address, target.owned) for target in fleet.members(host)} == {("", None)}
+    assert {target.owned for target in _requested(change=False).targets} == {None}
 
 
 def test_the_reads_send_nothing_but_gets(fake) -> None:
@@ -215,6 +238,21 @@ def test_a_name_this_computer_reaches_a_host_by_is_refused_before_proxmox_is_ask
     before = fake.sent()
     sentence = _refused("alpha", "lab.example", create=True)
     assert "lab.example" in sentence and "it names a host of the inventory" in sentence
+    assert fake.sent() == before
+
+
+@pytest.mark.parametrize("name", ["my_vm", "a" * 64, "alpha-", "alpha."])
+def test_a_name_to_create_that_proxmox_takes_for_no_vm_is_refused_before_any_host_is_asked(fake, name) -> None:
+    before = fake.sent()
+    sentence = _refused("alpha", name, create=True)
+    assert sentence == fleet.NOT_PROXMOX_S and name not in sentence
+    assert fake.sent() == before
+
+
+def test_a_deploy_that_would_create_is_a_changing_run(fake) -> None:
+    before = fake.sent()
+    with pytest.raises(ValueError, match="create is asked with change"):
+        _requested("newvm", create=True, change=False)
     assert fake.sent() == before
 
 
@@ -364,7 +402,88 @@ def test_owned_is_the_one_check_and_raises_for_a_target_it_refuses(fake, monkeyp
     unrecorded = dataclasses.replace(found.targets[0], record=None)
     with pytest.raises(fleet.NotOwned):
         check(unrecorded)
-    assert check(found.targets[0]) is found.targets[0]
+    # What it gives is an Owned, of the same VM as the one the read gave the target.
+    made = check(found.targets[0])
+    assert isinstance(made, ownership.Owned) and made == found.targets[0].owned
+
+
+def test_an_owned_is_made_by_owned_alone_and_never_by_hand_or_a_copy_s_change(fake) -> None:
+    alpha = _by_name(_requested("alpha"))["alpha"]
+    for made in (
+        lambda: ownership.Owned("alpha", "pve", ALPHA, "", ""),
+        lambda: ownership.Owned(fleet._as_member(alpha)),
+        lambda: ownership.Owned(fleet._as_member(alpha), object()),
+        lambda: dataclasses.replace(alpha.owned, vmid=BETA),
+        lambda: copy.replace(alpha.owned, vmid=BETA),
+    ):
+        with pytest.raises(TypeError, match="made by ownership.owned alone"):
+            made()
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        alpha.owned.vmid = BETA
+    # A target changed by hand is held as its fields now say, and owns nothing it did not own.
+    with pytest.raises(fleet.NotOwned):
+        fleet.owned(dataclasses.replace(alpha, record=None))
+
+
+def test_every_writer_refuses_a_target_and_sends_nothing(fake) -> None:
+    found = _requested("alpha")
+    alpha = found.targets[0]
+    # The client's refusal, and the record's writer's, each its own: the writer refuses before it reaches the client.
+    client, writer = "is written to only as an Owned", "record and label are written only to an Owned"
+    with _host() as host:
+        before = fake.sent()
+        writes = (
+            (lambda vm: host.client.write_config(vm, {"cores": 2}, alpha.digest), client),
+            (lambda vm: host.client.edit_config(vm, lambda config: {"cores": 2}), client),
+            (lambda vm: host.client.resize(vm, "scsi0", "+1G"), client),
+            (lambda vm: host.client.start(vm), client),
+            (lambda vm: host.client.shutdown(vm), client),
+            (lambda vm: host.client.stop(vm), client),
+            (lambda vm: host.client.delete(vm), client),
+            (lambda vm: engine_record.write(host.client, vm, lambda current: current), writer),
+            (lambda vm: engine_record.label(host.client, vm, "agent-warehouse"), writer),
+        )
+        for write, says in writes:
+            for given in (alpha, dataclasses.replace(alpha, owned=None), fleet._as_member(alpha)):
+                with pytest.raises(TypeError, match=says):
+                    write(given)
+        assert fake.sent() == before
+        # The target's Owned, the one way to change it.
+        engine_record.write(host.client, alpha.owned, lambda current: dataclasses.replace(current, job=JOB))
+    assert block.parse(_config(fake, ALPHA)["description"])["job"] == JOB
+
+
+def test_a_deletion_of_an_owned_vm_that_changed_since_the_read_is_refused_and_it_stays(fake) -> None:
+    alpha = _by_name(_requested("alpha"))["alpha"]
+    # A person's change between the read and the deletion: Proxmox's DELETE takes no digest, so it is read again.
+    _pve(fake.base, "PUT", f"nodes/pve/qemu/{ALPHA}/config", cores=3)
+    with _host() as host, pytest.raises(Changed) as changed:
+        host.client.delete(alpha.owned)
+    assert "changed since the read it was owned on" in str(changed.value)
+    assert _config(fake, ALPHA)["name"] == "alpha"
+    assert [call for call in fake.calls() if call["method"] == "DELETE"] == []
+    # Read again, it is owned again, by the read made now.
+    again = _by_name(_requested("alpha"))["alpha"]
+    assert again.owned.digest != alpha.owned.digest and again.owned.digest == _config(fake, ALPHA)["digest"]
+
+
+def test_the_first_form_of_a_clone_is_owned_only_by_the_run_whose_job_it_names(fake) -> None:
+    first = {"uuid": "", "stage": "cloning", "name": "delta", "job": JOB}
+    _vm(fake, 9013, "delta")
+    _record(fake, 9013, **first)
+    delta = _by_name(_requested("delta", change=False))["delta"]
+    for job in ("", "0123456789abcdef"):
+        with pytest.raises(fleet.NotOwned) as refused:
+            fleet.owned(delta, job=job)
+        assert "still the first form its clone carries" in refused.value.sentence
+    made = fleet.owned(delta, job=first["job"])
+    assert (made.vmid, made.identity) == (9013, delta.identity)
+    # The run writes the rest through it, and the VM is then owned by any run.
+    with _host() as host:
+        engine_record.write(
+            host.client, made, lambda current: dataclasses.replace(current, uuid=_uuid(fake, 9013), stage="unfinished")
+        )
+    assert _by_name(_requested("delta"))["delta"].owned is not None
 
 
 # --------------------------------------------------------------------------------------------- addresses ----
@@ -377,12 +496,40 @@ def test_two_vms_that_report_one_address_are_both_left_out(fake) -> None:
     by = _by_name(found)
     assert by["alpha"].address == by["beta"].address == ""
     assert by["alpha"].shared == by["beta"].shared == "192.0.2.60"
-    assert found.said == (
+    said = (
         "alpha (VMID 9010), beta (VMID 9011) report one address (192.0.2.60), so none of them is reached: nothing here"
-        " can tell which is telling the truth. Look at each one's address in Proxmox's console.",
+        " can tell which is telling the truth. Look at each one's address in Proxmox's console."
     )
-    # Named alone, alpha has its address: the sibling is no target of this read.
-    assert _by_name(_requested("alpha"))["alpha"].address == "192.0.2.60"
+    assert found.said == (said,)
+    # Named alone, each is left out all the same, and said with its sibling: its address is held against every running
+    # member's the fleet owns, a target of the read or not.
+    for name in ("alpha", "beta"):
+        alone = _requested(name)
+        assert (alone.targets[0].address, alone.targets[0].shared, alone.said) == ("", "192.0.2.60", (said,))
+    # gamma, which reports its own, keeps it.
+    assert _by_name(_requested("gamma"))["gamma"].address == ""
+    _pve(fake.base, "POST", f"nodes/pve/qemu/{GAMMA}/status/start")
+    assert _by_name(_requested("gamma"))["gamma"].address == "192.0.2.62"
+
+
+def test_a_vm_a_run_just_started_that_reports_a_sibling_s_address_is_not_given_it(fake) -> None:
+    # gamma, started by the run, its agent reporting alpha's address on its own card: whatever answers there would be
+    # taken for gamma, its host key filed under gamma's identity at its first use.
+    gamma = _by_name(_requested("gamma"))["gamma"]
+    _pve(fake.base, "POST", f"nodes/pve/qemu/{GAMMA}/status/start")
+    _answer(fake, GAMMA, _mac(fake, GAMMA), "192.0.2.60")
+    with _host() as host:
+        with pytest.raises(fleet.Shared) as shared:
+            fleet.address(host, gamma)
+        assert shared.value.address == "192.0.2.60"
+        assert shared.value.sentence.startswith("gamma (VMID 9012), alpha (VMID 9010) report one address (192.0.2.60)")
+        # Its own address, once it reports it, is its.
+        _answer(fake, GAMMA, _mac(fake, GAMMA), "192.0.2.70")
+        assert fleet.address(host, gamma) == "192.0.2.70"
+        # A stopped sibling's agent says nothing: beta stopped, gamma may report what beta did.
+        _pve(fake.base, "POST", f"nodes/pve/qemu/{BETA}/status/stop")
+        _answer(fake, GAMMA, _mac(fake, GAMMA), "192.0.2.61")
+        assert fleet.address(host, gamma) == "192.0.2.61"
 
 
 @pytest.mark.parametrize("given", ["192.0.2.7\nProxyCommand nc 203.0.113.9 22", "0.0.0.0", "224.0.0.1", "240.0.0.1"])
@@ -397,14 +544,16 @@ def test_an_address_on_another_card_is_never_taken(fake) -> None:
 
 
 def test_the_listing_s_lag_is_never_read_for_what_a_run_just_changed(fake) -> None:
+    # The pool's listing lags as the cluster's does: Proxmox fills both from the status pvestatd last polled.
     _pve(fake.base, "PUT", "fake/listing-lag", listings=5)
     _pve(fake.base, "POST", f"nodes/pve/qemu/{GAMMA}/status/start")
     gamma = _by_name(_requested("gamma"))["gamma"]
     assert gamma.running and gamma.address == "192.0.2.62"
-    # The cluster's listing still says it is stopped.
+    # Both listings still say it is stopped.
     with _host() as host:
         listed = {entry.vmid: entry.status for entry in host.client.resources("vm")}
-    assert listed[GAMMA] == "stopped"
+        pooled = {entry.vmid: entry.status for entry in host.client.pool(ENGINE_POOL).members}
+    assert listed[GAMMA] == pooled[GAMMA] == "stopped"
 
 
 def test_a_token_refused_the_guest_agent_ends_the_read_at_once(fake) -> None:
@@ -459,6 +608,39 @@ def test_a_clone_in_flight_outside_the_pool_is_said_as_one(fake) -> None:
         _pve(fake.base, "PUT", "fake/task-end")
     assert sentence.startswith('A VM named "delta" (VMID 9020) is being cloned, its configuration under lock: clone')
     assert "already exists" not in sentence
+
+
+def test_an_entry_listed_with_no_name_is_read_by_its_configuration_before_a_creating_read_passes_it(fake) -> None:
+    # The cluster lists a guest its node has not reported yet with no name: a VM made seconds ago, a clone in flight.
+    engine_grant(fake.base, "/vms", "VM.Audit")
+    _pve_vm(fake.base, 9013, "delta", running=False)
+    _pve(fake.base, "PUT", "fake/unnamed", vmid=9013)
+    with _host() as host:
+        assert {entry.vmid: entry.name for entry in host.client.resources("vm")}[9013] == ""
+    assert _refused("delta", create=True).startswith('A VM named "delta" already exists (VMID 9013)')
+    # One of another name is passed; one whose node is down, said, as one not looked at.
+    found = _requested("echo", create=True)
+    assert found.new == ("echo",) and found.outside is True
+    unread = [line for line in found.said if "listed with no name" in line]
+    assert [line.split(",")[0] for line in unread] == [f"VMID {v} on pve2 is listed with no name" for v in (8000, 8001)]
+    assert all("595" in line and line.endswith("whether it is a VM named echo is not known.") for line in unread)
+
+
+def test_a_clone_in_flight_listed_with_no_name_is_refused_though_its_name_cannot_be_read(fake) -> None:
+    engine_grant(fake.base, "/vms", "VM.Audit")
+    _pve(fake.base, "PUT", "fake/task-polls", polls=1000)
+    _pve(fake.base, "POST", "nodes/pve/qemu/9000/clone", newid=9020, name="delta", pool=ENGINE_POOL)
+    _pve(fake.base, "PUT", "fake/unnamed", vmid=9020)
+    try:
+        # Its configuration names it, as the fake's clone does: said as the clone in flight of that name.
+        assert _refused("delta", create=True).startswith('A VM named "delta" (VMID 9020) is being cloned')
+        # Proxmox's own holds its lock and no name yet, until the worker writes the rest: it may be any name's.
+        _pve(fake.base, "PUT", "fake/unnamed", vmid=9020, configuration=1)
+        sentence = _refused("echo", create=True)
+    finally:
+        _pve(fake.base, "PUT", "fake/task-end")
+    assert sentence.startswith("VMID 9020 is being cloned, its configuration under lock: clone and naming no VM yet")
+    assert "it may be one named echo" in sentence
 
 
 def test_the_count_of_vms_an_agent_made_counts_the_fleet_s_own(fake) -> None:
@@ -522,6 +704,69 @@ def test_a_name_another_host_has_is_refused_with_today_s_sentence(fake, nuc) -> 
     assert _requested("echo", create=True).new == ("echo",)
 
 
+def _anchorless(host: str) -> None:
+    """host keeps no anchor, so that its client verifies against the computer's certificates, with the file tls_ca_file
+    names added: the setting names a file that is not there."""
+    where = paths.home(REPO)
+    layout = hosts.Layout(where)
+    hosts.write(layout, host, layout.state(host).digest, anchor=None)
+    assert layout.anchor(host, layout.fields(host)) is None
+    missing = str(where.root / "no-such-ca.pem")
+    overrides.set(where, "tls_ca_file", missing, None, overrides.read(where, None).client.digest)
+
+
+def test_a_file_of_certificates_that_cannot_be_used_is_said_on_each_road_never_a_traceback(fake, nuc) -> None:
+    # Another host's, while it asks whether that host has a VM of the name: said, and passed.
+    _anchorless("nuc")
+    found = _requested("delta", create=True)
+    assert found.new == ("delta",) and found.said[-1].startswith("nuc did not answer")
+    # The run's host's, as it opens it: one sentence, which names the setting.
+    where = paths.home(REPO)
+    reached = hosts.reach(hosts.Layout(where), Request())
+    anchorless = dataclasses.replace(
+        reached, anchor=None, fields=dataclasses.replace(reached.fields, trust_kind=None, fingerprint="")
+    )
+    with pytest.raises(fleet.Refused) as refused:
+        fleet.connect(where, anchorless)
+    assert refused.value.sentence.startswith("pve's API cannot be reached as its files say:")
+    assert "tls_ca_file" in refused.value.sentence
+
+
+def test_an_opened_host_s_repr_holds_nothing_of_the_environment(fake, monkeypatch) -> None:
+    # A proxy that needs a password is given in HTTPS_PROXY, as every secret a person exported is in the environment.
+    mark = "pw-g28-repr-mark"
+    monkeypatch.setenv("HTTPS_PROXY", f"http://someone:{mark}@proxy.example:3128")
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1")
+    monkeypatch.setenv("G28_EXPORTED", f"{mark}-exported")
+    where = paths.home(REPO)
+    with fleet.connect(where, hosts.reach(hosts.Layout(where), Request())) as host:
+        shown = repr(host)
+    assert mark not in shown and "HTTPS_PROXY" not in shown and "G28_EXPORTED" not in shown
+    # Nor the run's values (card G7's), a path among them made from HOME and vm_ssh_options what a person wrote.
+    assert "vm_ssh_route" not in shown and "values=" not in shown
+    assert shown.startswith("Host(name='pve'")
+
+
+def test_an_opened_host_keeps_what_its_route_is_settled_from(fake) -> None:
+    # Card G7's fields, which engine/routes.py settles a route from, carried with the opening of a host into
+    # fleet/opened.py (card G28): the fleet's home, host.yml as it was read, and the run's values, read-only.
+    where = paths.home(REPO)
+    reached = hosts.reach(hosts.Layout(where), Request())
+    with opened.connect(where, reached) as host:
+        assert host.home == where and host.fields == reached.fields
+        assert host.values["vm_ssh_route"] == overrides.resolve(where, reached.host.name)["vm_ssh_route"]
+        assert host.values["vm_ssh_route"].value == "direct"
+        with pytest.raises(TypeError):
+            host.values["vm_ssh_route"] = overrides.Value("vm_ssh_route", "host", overrides.RUN)
+
+
+def test_the_engine_opens_a_host_and_judges_a_member_by_what_status_may_import() -> None:
+    # One way to open a host and one ownership rule, which status reads by too (card G16): the engine's are those.
+    assert (fleet.connect, fleet.Host, fleet.Refused) == (opened.connect, opened.Host, opened.Refused)
+    assert issubclass(fleet.NotOwned, opened.Refused) and fleet.Owned is ownership.Owned
+    assert fleet.IDENTITY == ownership.IDENTITY and fleet.KIND == ownership.KIND
+
+
 def test_a_host_that_does_not_answer_is_said_and_passed(fake, nuc) -> None:
     with_port(_free_port(), "nuc")
     found = _requested("delta", create=True)
@@ -557,29 +802,36 @@ def test_a_pool_with_no_mark_or_another_fleet_s_refuses_a_changing_run(fake) -> 
 # -------------------------------------------------------------------------------------- the rules by scans ----
 
 
-def _functions() -> dict[str, ast.FunctionDef]:
-    tree = ast.parse(FLEET.read_text())
+def _functions(path: Path = FLEET) -> dict[str, ast.FunctionDef]:
+    tree = ast.parse(path.read_text())
     return {node.name: node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
 
 
-def _reading(attribute: str) -> set[str]:
-    """The functions of engine/fleet.py that read attribute of anything."""
+def _reading(attribute: str, path: Path = FLEET) -> set[str]:
+    """The functions of the module at path, engine/fleet.py unless told, that read attribute of anything."""
     return {
         name
-        for name, function in _functions().items()
+        for name, function in _functions(path).items()
         if any(isinstance(node, ast.Attribute) and node.attr == attribute for node in ast.walk(function))
     }
 
 
-def test_requested_returns_a_target_for_a_change_through_owned_and_refusal_alone_decides() -> None:
+def test_requested_returns_a_target_for_a_change_through_owned_and_the_one_rule_alone_decides() -> None:
     called = {
         node.func.id
         for node in ast.walk(_functions()["requested"])
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
     }
     assert "owned" in called
-    # The one check is refusal's, which owned raises: no other function holds a record to the VM it is in.
-    assert _reading("uuid") == {"refusal"}
+    # The one check is pve/ownership.py's refusal, which owned raises: nothing here holds a record to the VM it is in,
+    # and there no function but refusal reads the UUID a record names, nor makes an Owned but owned.
+    assert _reading("uuid") == set() and _reading("record_uuid", OWNERSHIP) == {"refusal"}
+    making = {
+        name
+        for name, function in _functions(OWNERSHIP).items()
+        if any(isinstance(node, ast.Name) and node.id == "_MINT" for node in ast.walk(function))
+    }
+    assert making == {"__init__", "owned"}
 
 
 def test_nothing_here_reads_a_label_or_the_listing_s_status_for_a_decision() -> None:

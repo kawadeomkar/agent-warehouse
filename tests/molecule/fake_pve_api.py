@@ -26,7 +26,15 @@ key at all.
 fixture turns on the lag with PUT /api2/json/fake/listing-lag?listings=N: then,
 after a start or a stop, the next N listings still report the status from
 before it, the way a real cluster lists the status pvestatd last polled, up to
-ten seconds old. /nodes/<node>/qemu/<id>/status/current is never stale.
+ten seconds old. A pool's listing of its members (GET /pools?poolid=), which
+Proxmox fills from the same polled status, lags by the same map, and each
+listing of either counts. /nodes/<node>/qemu/<id>/status/current is never stale.
+
+PUT /api2/json/fake/unnamed?vmid=N has /cluster/resources, and a pool's listing,
+give that guest with no name or template key, as the cluster lists a guest its
+node has not reported yet - a VM made seconds ago, a clone still running - which
+only its own configuration names; with &configuration=1 its configuration holds
+no name either, as a clone's holds none until its worker writes the rest.
 
 A started VM's guest agent fails its first two polls, so every wait for it is
 exercised; a fixture that is not about that wait answers from the first with
@@ -469,6 +477,8 @@ REFUSE_NEXT = []
 # PUT /api2/json/fake/vanish?vmid=
 VANISH = {}
 STALE = {}
+# Guests the listings give with no name or template key (see the docstring), by VMID. PUT /api2/json/fake/unnamed?vmid=
+UNNAMED = set()
 # What /version reports, and each token's privileges by path where a fixture
 # set them: {(token id, path): [privilege, ...]}.
 VERSION = {"version": "8.2.4"}
@@ -779,7 +789,7 @@ def resource(vm):
     # statistics, which the cluster drops five minutes after a node stops
     # reporting. A guest on a node that is down is therefore listed with
     # neither, and consumers that index `name` without a default fall over.
-    if vm["node"] != DOWN_NODE or NODES_ONLINE[DOWN_NODE] or NODES_NAMED[DOWN_NODE]:
+    if (vm["node"] != DOWN_NODE or NODES_ONLINE[DOWN_NODE] or NODES_NAMED[DOWN_NODE]) and vm["vmid"] not in UNNAMED:
         entry["name"] = vm["name"]
         entry["template"] = vm["template"]
     if vm["node"] == DOWN_NODE and NODES_ONLINE[DOWN_NODE]:
@@ -790,6 +800,19 @@ def resource(vm):
     if vm["config"].get("tags"):
         entry["tags"] = vm["config"]["tags"]
     return entry
+
+
+def lagged(entries):
+    """entries, a listing's, each guest's status as the listing gives it while the lag is on (see the docstring): the
+    status from before its last start or stop, for as many listings, of the cluster or of a pool, as the lag said."""
+    for entry in entries:
+        stale = STALE.get(entry.get("vmid"))
+        if stale:
+            entry["status"] = stale[0]
+            stale[1] -= 1
+            if stale[1] <= 0:
+                del STALE[entry["vmid"]]
+    return entries
 
 
 def resource_for(vm, pooled):
@@ -1165,7 +1188,7 @@ class Handler(BaseHTTPRequestHandler):
             if poolid not in pool_names():
                 return self._reply(500, None, f"pool '{poolid}' does not exist")
             info = POOLS.get(poolid, {}).get("info", {})
-            listed = {"poolid": poolid, **info, "members": pool_members(poolid, params.get("type"))}
+            listed = {"poolid": poolid, **info, "members": lagged(pool_members(poolid, params.get("type")))}
             # The deprecated form answers the one pool, not a list of it.
             return self._reply(200, listed if deprecated else [listed])
         if method == "POST":
@@ -1459,6 +1482,14 @@ class Handler(BaseHTTPRequestHandler):
             # Not a PVE endpoint: a fixture's switch for the listing's lag.
             LISTING_LAG["listings"] = int(params.get("listings", "0"))
             return self._reply(200, dict(LISTING_LAG))
+        if parts[:2] == ["fake", "unnamed"] and method == "PUT":
+            # Not a PVE endpoint: a guest the listings give with no name, as one its node has not reported yet; with
+            # configuration=1, its configuration holds none either, as a clone's holds none until its worker writes it.
+            UNNAMED.add(int(params["vmid"]))
+            if params.get("configuration") == "1":
+                VMS[int(params["vmid"])]["config"].pop("name", None)
+                save_state()
+            return self._reply(200, sorted(UNNAMED))
         if parts[:2] == ["fake", "agent-ready-after"] and method == "PUT":
             # Not a PVE endpoint: how many polls of a started VM's agent fail, for a fixture not about the wait.
             AGENT_READY["after"] = int(params.get("polls", str(AGENT_READY_AFTER)))
@@ -1579,14 +1610,7 @@ class Handler(BaseHTTPRequestHandler):
                 for vm in VMS.values()
                 if (scope is None or vm.get("pool") == scope) and self._sees("vm", f"/vms/{vm['vmid']}", True)
             ]
-            for entry in entries:
-                stale = STALE.get(entry["vmid"])
-                if stale:
-                    entry["status"] = stale[0]
-                    stale[1] -= 1
-                    if stale[1] <= 0:
-                        del STALE[entry["vmid"]]
-            return self._reply(200, entries)
+            return self._reply(200, lagged(entries))
         if parts == ["cluster", "nextid"]:
             return self._reply(200, str(next(i for i in range(NEXTID_LOWER, NEXTID_LOWER + 10000) if i not in VMS)))
         if parts[:2] == ["fake", "storages"] and method == "PUT":
