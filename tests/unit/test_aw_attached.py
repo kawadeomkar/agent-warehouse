@@ -169,6 +169,16 @@ if way.startswith("stopping"):
         die_of(signum)
 
     attached._end_now, attached._die_of = marked_then_end_now, marked_then_die_of
+if way == "stopping-close":
+    # Whether the run's stop is set as the close begins, written on the run's thread: set there, a call in a thread has
+    # the whole close to stop in; set later, it is always cut.
+    close_loop = attached._Ladder._close_loop
+
+    def seen_then_close_loop(self):
+        mark(folder / "close-began", repr(self.ctx.stopping.is_set()))
+        close_loop(self)
+
+    attached._Ladder._close_loop = seen_then_close_loop
 if way == "slow-table":
     # The process table read slowly once, when the test asks, with a mark where a read begins inside another; slept in
     # short steps, so that the handler of a signal the kernel hands the call's thread runs at once, between two. Each
@@ -1192,6 +1202,9 @@ def test_a_call_in_a_thread_handed_the_run_s_stop_is_stopped_by_the_ladder(way, 
         assert stopped - at < 1.0, stopped - at
     else:
         assert stopped >= float((tmp_path / "returned").read_text())
+        # Set as the close begins, before the body's generators are closed and the record written (review/code/C29.md
+        # 2): held by no clock.
+        assert (tmp_path / "close-began").read_text() == "True", "the close began with the run's stop not yet set"
 
 
 # ---------------------------------------------------------------- a question ----
