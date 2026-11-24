@@ -1044,25 +1044,28 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - `lib/claude_vm/schema/printer.py`'s `line` and `argv` write it from the one table: the program as it was started
       (`aw` where `aw` on `PATH` is the checkout's launcher, else what was typed, from `AGENT_WAREHOUSE_STARTED_AS`,
       which the launcher sets and `main.py` takes out of the environment at once), the verb, its words, its options
-      (`--long value`, and `--long=value` only for a value that starts with `-` or is empty), the host's flag last;
-      each word quoted by `quoted` for a POSIX shell and zsh (`shlex.quote`, and a word that starts with `=`), the
-      program too; a value, a word or a program word with a character of the categories Cc, Cf, Cs, Zl or Zp refused,
-      the program then `aw`.
+      (`--long value`, and `--long=value` only for a value that starts with `-` or is empty), the host's flag, and a
+      form's placeholders last; each word quoted by `quoted` for a POSIX shell and zsh (`shlex.quote`, and a word that
+      starts with `=`), the program too; a value, a word or a program word with a character of the categories Cc, Cf,
+      Cs, Zl or Zp refused, the program then `aw`.
     - A sentence names a command as a `Line`, said through the printer's `said`, never as text; the field `program`,
       which `said` fills with the program quoted, is named only by the printer and `schema/check.py`'s `command`. The
       printer is `schema/`'s, imported at the top of a file by every module that uses it, `pve/` and `vendors/` among
       them; it, the check and the rules import one another as modules, never a name from one, so any may come first.
     - The check's `command`, the program and a verb, is used only by the modules that refuse and by help's usage lines
       and closing paragraph, each named with why (`COMMAND_USERS`): never with words of a module's own joined after it
-      into a line. What no scan sees is a string the printer made with words joined to it
-      (`printer.line(...) + ' ' + job`, a sentence's words after a line's field), a name reached through `getattr`, and
-      pieces joined that name no command: a line to run is the printer's whole line.
+      into a line. A line the printer made is never extended: never an operand of `+` or `%`, added to, or in what a
+      `join` or `format` takes, and in an f-string followed by its end, punctuation or prose, never a field; a sentence
+      `said` says is never built at its call, and a `Line`'s field in it is followed the same way. What no scan sees is
+      a line carried where that scan does not follow it (an attribute, a container, another module's function), a name
+      reached through `getattr`, and pieces joined that name no command: a line to run is the printer's whole line.
     - A placeholder is `<name>`, from `lib/claude_vm/schema/words.py`'s `placeholder`, in a line's form, a masked
       value and help's rows alike (`--cores <cores>`, `--set <name>=<value>`); a line with one is a form, never offered
-      as the command to run, and the one check refuses a placeholder given back as a word or as JSON. Pasted at a
-      shell, a form runs nothing, or, in a folder holding a file named as each placeholder, leaves words `aw` refuses,
-      but `host --remove`'s, which leaves `aw host`, a read: a form that would leave a whole command
-      (`aw deploy <name>...` alone, the default VM's) is never written.
+      as the command to run, and the one check refuses a placeholder given back as a word or as JSON. A form writes
+      its placeholders last, after every part with a real value (`aw host --remove <name>`), so pasted at a shell it is
+      no line a shell reads, or, where its one placeholder is a verb's names (`<name>...`), leaves its real values,
+      which the printer writes only where the one check refuses them (its `takes`): `aw deploy <name>...` alone, the
+      default VM's, is a `ValueError`. No form leaves a whole command, with no exception.
     - `host_flag` is given by every caller of a verb whose row has the shared `--host` and whose values give none
       (`None` is a `ValueError` there), and taken only by a verb whose `--host` runs it against a host; `refused` is
       keyword-only with no default, so every caller says whether a value of free text may be said back.
@@ -1071,8 +1074,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       (today's `just <verb>`, until the flip) its one exception; the program, as started or as `PROGRAM`, named only by
       the printer, by any name a module gives it; the field `program` only by the printer and the check; the check's
       `command`, by any name, only by `COMMAND_USERS`; every use of `line` or `argv`, through any name or a
-      `functools.partial`, saying `refused`; each form the rules, the table, help and `deploy`'s question write, pasted
-      into `/bin/sh` and `bash`; each module of `schema/` imported alone, first.
+      `functools.partial`, saying `refused`; no printer's line extended, by a scan of its own; every form of the
+      printer's whole domain (each verb, each placeholder beside the rest, masked and not) and help's usage lines,
+      pasted into `/bin/sh` and `bash`; each module of `schema/` imported alone, first.
 - **One transport sends every HTTPS request of the engine, follows no redirect, reads no certificate variable, and
   takes a proxy only as an argument.** Read
   [§16.7](docs/architecture/engine.md#167-vendors--one-https-transport-tailscales-calls-verified-downloads) first.

@@ -221,8 +221,8 @@ and nothing else, and write a line as a person types one: the program as it was 
 verb, in the table's order; the verb, `deploy`'s whole chain as its one verb; the verb's words straight after it; its
 options in the table's order, `--detach` last as the parser gives it, a value after a space (`--only configure`) and as
 `--long=value` only where it starts with `-` or is empty, so the parser reads it as a value, a flag bare, `-v` repeated
-in one word, `--set` once for each value; and last the host's flag, `--host <name>`. Parsing the line gives the same
-values back.
+in one word, `--set` once for each value; then the host's flag, `--host <name>`; and last, in a form, its placeholders
+(below). Parsing the line gives the same values back.
 
 The program is `aw` where `aw` on `PATH` is the checkout's launcher, else what the person typed to start it (`./aw`):
 the launcher says which in `AGENT_WAREHOUSE_STARTED_AS`, which `cli/main.py` takes out of its environment at once and
@@ -236,16 +236,23 @@ it unquoted, for a child's environment, never for a line.
 A line that gives a value or a verb's words as `PLACEHOLDER` is a form: it shows a command's shape, each placeholder
 written as `placeholder` writes it and never quoted (`aw destroy <name>... --confirm <names>`), and so is a line made
 from values no run has taken, whose free text is masked (below). A form is shown, never offered as the command to run:
-a line a person is told to run, NEXT STEPS' and the session notes' (16.4), holds none. Pasted at a shell, a
-placeholder is two redirections, `<name>` reading a file named `name` and writing one named as the word after it: a
-form that ends in one is no line a shell reads at all, and any other stops at its first `<` where the folder holds no
-file of that name, nothing run, made or emptied. Where the folder does hold a file named as each placeholder, the shell
-reads it, makes or empties a file named as the word after each `>` (`...`, `]`, `=`, `--host`), and runs `aw` with the
-words left, which `aw` refuses for every form the code writes but `host --remove`'s (`aw host <name> --remove`): its
-words left are `aw host`, a read, which lists the hosts into a file named `--remove`. A form that left a whole command
-would run it (`aw deploy <name>...` alone leaves `aw deploy`, the default VM's), so none is written. Given back to `aw`
-as a word or as JSON, each placeholder is refused by the one check, in `aw`'s own words. The values are the parser's or
-a handler's: `default_vm` is said by naming no VM, and a value that is off (a flag not given, a count of 0, an empty
+a line a person is told to run, NEXT STEPS' and the session notes' (16.4), holds none. A form writes its placeholders
+last: the verb's words, then each option in the table's order, whose value is a placeholder or is masked, after every
+part with a real value, the host's flag among them (`aw host --remove <name>`,
+`aw init --host far --address <address>`). Pasted at a shell, a placeholder is two redirections, `<name>` reading a
+file named `name` and writing one named as the word after it, so a real value after a placeholder would be taken for a
+file's name and the word before the placeholder handed a value; written last, none is. A form that ends in a
+placeholder's `>` is no line a shell reads at all, and nor is one where a `>` meets the next placeholder's `<`: every
+form but one whose one placeholder is a verb's names, `<name>...`, which ends in `...`, the name of the file its `>`
+writes. That one stops at its `<` where the folder holds no file named `name`, nothing run, made or emptied; where it
+holds one, the shell reads it, makes or empties `...`, and runs
+`aw` with the line's other words, its real values. So the printer writes it only where the one check, its rules among
+them, refuses those words (`aw deploy --tags claude_code <name>...` leaves `aw deploy --tags claude_code`, which
+`deploy.7` refuses), and raises `ValueError` where it takes them (`aw deploy <name>...` alone would leave `aw deploy`,
+the default VM's), asking the check's `takes`, which says no rule's sentence, since a rule's sentence names such a
+form. No form the printer writes leaves a whole command, with no exception. Given back to `aw` as a word or as JSON,
+each placeholder is refused by the one check, in `aw`'s own words. The values are the parser's or a handler's:
+`default_vm` is said by naming no VM, and a value that is off (a flag not given, a count of 0, an empty
 list) is not said. Each is held as the one check holds it but for the rules between options (`formed`), and one it
 refuses, a word that starts with `-`, or a value or word that holds a character of Unicode's categories Cc, Cf, Cs, Zl
 or Zp (a C1 control, a bidi override, a lone surrogate, a line separator), which a terminal would act on, not show as
@@ -273,12 +280,23 @@ constant (`program`, `_program`, `PROGRAM`), by any name a module binds to the p
 printer and the check name a sentence's field `program`; the check's `command`, the program and a verb, is used only by
 the modules that refuse (the check, the printer, `cli/parse.py` and `cli/dispatch.py`) and by help, for its usage
 lines and the program its closing paragraph names, each named with why, by any name a module binds to the check, its
-package or the function; and every use of `line` or `argv`, through any name or a `functools.partial`, says
-`refused`. What the scans cannot see is a command joined at run time from pieces that name none (`'aw' + ' cancel '`,
-a list joined), a path to the program other than `./aw` (`../aw deploy`), another case, a name reached through
-`getattr`, `vars` or `importlib`, and a string the printer made with words of a module's own joined to it
-(`printer.line(...) + ' ' + job`, a sentence that says words of its own after a line's field): a line to run is the
-printer's line, whole, and a sentence names its command as a `Line`, which is how such a line is made.
+package or the function; every use of `line` or `argv`, through any name or a `functools.partial`, says `refused`;
+and a printer's line is never extended: a call of `line` or `argv`, of `said` whose sentence is one field (`"{line}"`),
+of a function of the module's own that returns one, a name bound to one in the same function, or an f-string that ends
+in one, is never an operand of `+` or `%`, an element of what a `%` template takes, added to, or anywhere in what
+`join`, `format` or `format_map` takes, and in an f-string is followed by the string's end, punctuation or a word of
+prose (letters alone, no verb of the table's, no word that starts with `-` before the next punctuation), never by a
+field; and a sentence `said` says is never built at its call (by `+`, `%`, an f-string, `join` or `format`), and in a
+literal one, or a constant of its module's, each field a `Line` fills (given at the call, from `LINES`, or each field,
+where the call gives its values otherwise than as a mapping written there) is followed as a line in an f-string must
+be; the rules' and the table's sentences are held so through the Lines they are said with. The check's own `command`
+and `help_of`, which name the command a refusal is about with the option it refuses after it, are no line in its own
+module: the guard of the check's `command` holds them. What the scans cannot see is a command joined at run time from
+pieces that name none (`'aw' + ' cancel '`, a list joined), a path to the program other than `./aw` (`../aw deploy`),
+another case, a name reached through `getattr`, `vars` or `importlib`, and a printer's line carried where the scan of a
+line extended does not follow it (an attribute, a container, another module's function, a word of prose that is a
+value): a line to run is the printer's line, whole, and a sentence names its command as a `Line`, which is how such a
+line is made.
 `tests/unit/test_aw_cli_printer.py` holds the printer: for every verb, its words, each option alone and beside them and
 each pair of options the rules allow come back from the line through the parser and the one check, and no verb or
 option lacks such a case; every example line the test gives, of every verb, comes back from its line, before the habits
@@ -286,13 +304,16 @@ and after; a line's form; an awkward value, each character a POSIX shell reads o
 one, two values of free text on one line, an empty value and a name that starts with a digit survive `/bin/sh` and
 `bash`, and a value that starts with `=` is quoted; a value a terminal would not show as it is is never printed; a
 value that is off is not said, a placeholder is the one `placeholder` writes, in a form line and a masked one alike,
-and each placeholder given back, as a word and as JSON, is refused; each form the rules and the table write, help's
-usage lines and `deploy`'s question's lines, pasted into `/bin/sh` and `bash`, runs nothing in a folder with no file
-of a placeholder's name, and in one with a file of each leaves words `aw` refuses, but `host --remove`'s, written
-there; the host's flag; a value of free text is never said back from values no run took, and every call says
+and each placeholder given back, as a word and as JSON, is refused; a form's placeholders last, over the printer's
+whole domain (for every verb, each field a form may give as a placeholder and each value of free text masked, alone,
+beside each other field given a value or a placeholder, and beside every other field at once, refused and not, with
+each host's flag the verb takes) and help's usage lines, each pasted into `/bin/sh` and `bash`, running nothing in a
+folder with no file of a placeholder's name, and in one with a file of each nothing or words `aw` refuses, with no
+exception, and the printer refusing only a form whose one placeholder is its names beside words the check takes; the
+host's flag; a value of free text is never said back from values no run took, and every call says
 `refused`; a value the check refuses is never printed; the program as it was started, quoted, in this process, from a
 path a shell would split and through the launcher, the check's sentences and help's among them; by scans of their
-syntax, the four guards above, which a module planted with the roads the reviews found fails, but for the roads the
+syntax, the five guards above, which a module planted with the roads the reviews found fails, but for the roads the
 scans cannot see; that no sentence of the rules or the table holds a command as text; and that each module of
 `schema/` imports alone and first and nothing outside `schema/`, and `pve/` and `vendors/` import the printer when
 they are imported, none of them inside a function.

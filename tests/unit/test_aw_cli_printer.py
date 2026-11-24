@@ -13,8 +13,12 @@ survive the trip, through shlex, /bin/sh and bash, and a value that starts with 
 value a terminal would not show as it is is never printed. A line made from values no run has taken never says a value
 of --set or settings --value back, and every call of the printer, through any name or a partial, says which it is. A
 value that is off is not said; a placeholder is <name>, the name help gives it, in a form line and a masked one alike,
-and each placeholder given back to aw, as a word or as JSON, is refused in a sentence of aw's own. The host's flag is
-given by every caller of a verb with the shared --host, and only a verb whose --host runs it against a host takes one.
+and each placeholder given back to aw, as a word or as JSON, is refused in a sentence of aw's own. A form writes its
+placeholders last, and over the printer's whole domain, every verb with each placeholder beside the rest, a form pasted
+into /bin/sh and bash runs nothing, or words aw refuses, with no exception; and no module of the new engine extends a
+printer's line with words of its own, by +, %, a join or an f-string, or says a sentence built at its call. The host's
+flag is given by every caller of a verb with the shared --host, and only a verb whose --host runs it against a host
+takes one.
 A value the one check refuses is never printed, and a rule between options is the run's to say. Every line, and every
 command a sentence names, is the program as it was started, quoted: aw where aw on PATH is the launcher, else what was
 typed, through the launcher; the one check's own sentences, the rules', help's usage lines and its closing paragraph
@@ -326,7 +330,7 @@ def test_a_placeholder_is_the_name_help_gives_it() -> None:
     assert _line("deploy", {"names": PLACEHOLDER, "set": PLACEHOLDER}) == "aw deploy <name>... --set <name>=<value>"
     assert _line("init", {"token_secret_file": PLACEHOLDER}) == "aw init --token-secret-file <file>"
     assert _line("code", {"name": "alpha", "host": PLACEHOLDER}) == "aw code alpha --host <host>"
-    assert _line("host", {"name": PLACEHOLDER, "remove": True}) == "aw host <name> --remove"
+    assert _line("host", {"name": PLACEHOLDER, "remove": True}) == "aw host --remove <name>"
     # Every option's, as help shows it: one function for both.
     for verb in VERBS.values():
         for option in checks.options_of(verb):
@@ -714,67 +718,231 @@ def test_a_masked_line_and_a_form_line_each_print_a_placeholder() -> None:
             parse.read(shlex.split(printed.replace("<", "'<").replace(">", ">'"))[1:])
 
 
-def _forms(monkeypatch) -> list[str]:
-    """Each form schema/ writes, as a person reads it: every Line a rule's sentence names whatever the values, and as
-    each case of test_aw_cli_rules.py's REFUSALS breaks its rule, and the table's own (LINES), said; help's usage lines;
-    and deploy's question's lines, with two values of --set masked (cli/habits.py's) - each that holds a placeholder."""
-    lines = [line for rule in rules.RULES.values() for line in rule.lines.values()] + list(LINES.values())
-    for key, (words, _, _) in REFUSALS.items():
-        rule = rules.RULES.get(key.rpartition("-")[0])
-        if rule is None:
-            continue
-        try:
-            values = _read(words, monkeypatch, with_rules=False).values
-        except parse.Refused:
-            continue
-        lines += [filled for filled in (rule.breaks(values) or {}).values() if isinstance(filled, Line)]
-    forms = {said("{line}", {"line": line}) for line in lines} | {helps.usage(verb) for verb in VERBS.values()}
-    for values in ({"names": ["configure", "alpha"]}, {"only": "configure"}, {"names": ["alpha"], "verbosity": 2}):
-        forms.add(printer.line("deploy", {**values, "set": ["a=b", "c=d"]}, host_flag="", refused=True))
-    return sorted(form for form in forms if "<" in form)
+def test_a_form_writes_its_placeholders_last() -> None:
+    # review/code/H31.md 1: every option or word whose value is a placeholder, or is masked, after every part with a
+    # real value, the host's flag among them; the words first, then the options in the table's order.
+    assert _line("init", {"host": "far", "address": PLACEHOLDER}) == "aw init --host far --address <address>"
+    assert printer.line("init", {"address": PLACEHOLDER, "no_prompt": True, "host": "far"}, refused=False) == (
+        "aw init --host far --no-prompt --address <address>"
+    )
+    assert _line("host", {"name": PLACEHOLDER, "remove": True}) == "aw host --remove <name>"
+    assert _line("code", {"name": PLACEHOLDER}, host_flag="lab2") == "aw code --host lab2 <name>"
+    assert _line("code", {"name": PLACEHOLDER, "project": "app", "editor": PLACEHOLDER}) == (
+        "aw code --project app <name> --editor <editor>"
+    )
+    assert _line("deploy", {"names": PLACEHOLDER, "tags": "claude_code"}) == "aw deploy --tags claude_code <name>..."
+    masked = _line("deploy", {"names": ["alpha"], "set": ["a=b"], "verbosity": 2, "detach": True}, refused=True)
+    assert masked == "aw deploy alpha -vv --detach --set <name>=<value>"
+    # A line with no placeholder is as it was: the words straight after the verb, the options in the table's order.
+    assert _line("code", {"name": "alpha", "project": "app"}, host_flag="lab2") == (
+        "aw code alpha --project app --host lab2"
+    )
 
 
-# What a shell leaves of a form, where its folder holds a file named as each placeholder, by the form, wherever it is a
-# command aw takes: host --remove's form leaves aw host, a read that lists the hosts, which the shell writes into a file
-# named --remove. Every other form is no line a shell reads, or leaves words aw refuses (docs/architecture/engine.md
-# §16.2; review/code/H27.md 4).
-TAKEN_WHEN_PASTED = {"{program} host <name> --remove": ["host"]}
+def test_a_form_whose_one_placeholder_is_its_names_is_written_only_where_the_rest_is_refused() -> None:
+    # <name>... ends in the file its > writes, so a shell runs the rest where a file named name is there: the printer
+    # writes such a form only where the one check, its rules among them, refuses the rest (aw deploy --tags claude_code,
+    # deploy.7's), and asks it without saying a rule's sentence, which names this very form.
+    assert checks.check("deploy", {"tags": "claude_code"}) == rules.RULES["deploy.7"].check({"tags": "claude_code"})
+    assert not checks.takes("deploy", {"tags": "claude_code"}) and checks.takes("deploy", {})
+    for verb, values, flag in [
+        ("deploy", {}, ""),
+        ("deploy", {"only": "configure"}, ""),
+        ("login", {}, ""),
+        ("login", {}, "lab2"),
+        ("status", {"json": True}, ""),
+    ]:
+        for printing in (printer.line, printer.argv):
+            with pytest.raises(ValueError, match="would leave a command the one check takes") as refused:
+                printing(verb, {"names": PLACEHOLDER, **values}, host_flag=flag, refused=False)
+            assert str(refused.value).startswith(f"error: a form of aw {verb} "), refused.value
+    # Beside another placeholder, or a value masked, it is no line a shell reads: written.
+    assert _line("deploy", {"names": PLACEHOLDER, "set": PLACEHOLDER}) == "aw deploy <name>... --set <name>=<value>"
+    assert _line("deploy", {"names": PLACEHOLDER, "set": ["a=b"]}, refused=True) == (
+        "aw deploy <name>... --set <name>=<value>"
+    )
 
 
-def test_a_form_pasted_at_a_shell_runs_nothing_or_words_aw_refuses_but_one_read(tmp_path, monkeypatch) -> None:
-    said_to = tmp_path / "said"
-    stand_in = tmp_path / "bin" / "aw"
-    stand_in.parent.mkdir()
-    stand_in.write_text(f'#!/bin/sh\nfor word in "$@"; do printf \'%s\\n\' "$word"; done > "{said_to}"\n')
-    stand_in.chmod(0o755)
+def _placeheld(verb: Verb) -> list[str]:
+    """The fields of verb a form may give as PLACEHOLDER: each option that takes a value, and its words, but words it
+    refuses whole (init's and mcp's <extra>), which no form names."""
+    fields = [option.field for option in checks.options_of(verb) if option.kind in ("value", "repeatable")]
+    return fields + ([verb.words.field] if verb.words is not None and not verb.words.refused else [])
+
+
+def _real(verb: Verb, field: str) -> object:
+    """A real value for one of verb's fields: its option's first sample of the round trip, or the verb's first words."""
+    if verb.words is not None and field == verb.words.field:
+        return _word_samples(verb.words)[0]
+    [option] = [option for option in checks.options_of(verb) if option.field == field]
+    return _samples(option)[0]
+
+
+def _host_flags(verb: str, values: dict[str, object]) -> list[str | None]:
+    """The host's flags a line of verb is printed with: none and one for a verb whose --host runs it against a host,
+    "" and one for a verb with the shared --host, and none where the values give --host."""
+    if printer.HOST in values:
+        return [None]
+    if verb in SHARED:
+        return ["", "lab2"]
+    return [None, "lab2"] if verb in printer.HOSTS_OWN else [None]
+
+
+def _domain() -> list[tuple[str, dict[str, object], bool, str | None]]:
+    """The printer's whole domain of forms, each as a verb, its values, refused and the host's flag: for every verb,
+    each field a form may give as PLACEHOLDER, and each value of free text masked, alone; beside each other field
+    given a real value, or a placeholder; and beside every other field given a real value at once. Each made from
+    values as a run took them and as none has, and with each host's flag the verb takes."""
+    cases = []
+    for verb in VERBS.values():
+        held = _placeheld(verb)
+        words = [verb.words.field] if verb.words is not None and not verb.words.refused else []
+        fields = [option.field for option in checks.options_of(verb)] + words
+        shown = [(field, PLACEHOLDER) for field in held]
+        shown += [(field, _real(verb, field)) for field in fields if field in printer.FREE_TEXT]
+        for field, value in shown:
+            others = [other for other in fields if other != field]
+            company: list[dict[str, object]] = [{}]
+            company += [{other: _real(verb, other)} for other in others]
+            company += [{other: PLACEHOLDER} for other in held if other != field]
+            company.append({other: _real(verb, other) for other in others})
+            for more in company:
+                values = {field: value, **more}
+                for refused in (False, True) if value is PLACEHOLDER else (True,):
+                    cases += [(verb.name, values, refused, flag) for flag in _host_flags(verb.name, values)]
+    return cases
+
+
+# A placeholder as the printer writes it, as one word of a form: <name>, <name>... and <name>=<value>.
+PLACEHOLDER_WORD = re.compile(r"<[a-z-]+>(?:=<[a-z-]+>)?(?:\.\.\.)?")
+
+
+def _placeholders_last(form: str) -> bool:
+    """Whether no word with a real value stands after a placeholder in form: after its first placeholder, each word is
+    a placeholder, or an option spelled before one."""
+    words = shlex.split(form)
+    first = next(index for index, word in enumerate(words) if PLACEHOLDER_WORD.fullmatch(word))
+    after = words[first:]
+    return all(
+        PLACEHOLDER_WORD.fullmatch(word)
+        or (word.startswith("-") and index + 1 < len(after) and PLACEHOLDER_WORD.fullmatch(after[index + 1]))
+        for index, word in enumerate(after)
+    )
+
+
+# Each form pasted as a person pastes it, read by the shell that runs this, in the folder of its own its number names:
+# the line is read as typed, and a syntax error ends only the subshell it is read in.
+PASTED = """\
+cd "$1" || exit 9
+number=0
+while IFS= read -r form; do
+    ( cd "$number" && eval "$form" ) < /dev/null > /dev/null 2>&1
+    number=$((number + 1))
+done < "$2"
+"""
+
+
+def _paste(tmp_path: Path, shell: str, forms: list[str], held: bool) -> tuple[dict[int, list[str]], dict[int, list]]:
+    """Each form pasted into shell in a folder of its own, which holds a file named as each of its placeholders where
+    held, else nothing: the words the stand-in aw was given, by the form's number, where it ran; and the names of what
+    the shell made in its folder, where it made any."""
+    root = tmp_path / f"{Path(shell).name}-{'held' if held else 'empty'}"
+    root.mkdir()
+    for number, form in enumerate(forms):
+        (root / str(number)).mkdir()
+        for name in re.findall(r"<([^<>]+)>", form) if held else []:
+            (root / str(number) / name).write_text("x\n")
+    (tmp_path / "forms").write_text("".join(f"{form}\n" for form in forms))
+    (tmp_path / "pasted.sh").write_text(PASTED)
+    subprocess.run(
+        [shell, str(tmp_path / "pasted.sh"), str(root), str(tmp_path / "forms")],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        check=True,
+        timeout=600,
+    )
+    left, made = {}, {}
+    for number, form in enumerate(forms):
+        if (said_to := root / f"{number}.said").exists():
+            left[number] = said_to.read_text().splitlines()
+        named = set(re.findall(r"<([^<>]+)>", form)) if held else set()
+        if there := sorted(path.name for path in (root / str(number)).iterdir() if path.name not in named):
+            made[number] = there
+    return left, made
+
+
+@pytest.fixture
+def pasted_aw(tmp_path, monkeypatch) -> str:
+    """A stand-in aw that every line names, by its absolute path: it writes the words it was given into a file beside
+    the folder it runs in, and does nothing else. The program as each line says it."""
+    program = tmp_path / "bin" / "aw"
+    program.parent.mkdir()
+    program.write_text('#!/bin/sh\nfor word in "$@"; do printf \'%s\\n\' "$word"; done > "$(pwd).said"\n')
+    program.chmod(0o755)
     monkeypatch.setattr(printer, "_program", printer.PROGRAM)
-    printer.started_as(str(stand_in))
-    program = printer.quoted(str(stand_in))
-    forms = _forms(monkeypatch)
-    assert len(forms) >= 10 and all(form.startswith(f"{program} ") for form in forms), forms
-    names = sorted({name for form in forms for name in re.findall(r"<([^<>]+)>", form)})
-    taken: dict[str, list[str]] = {}
-    for index, (shell, form) in enumerate(itertools.product(("/bin/sh", "bash"), forms)):
-        empty, held = tmp_path / f"empty-{index}", tmp_path / f"held-{index}"
-        empty.mkdir()
-        held.mkdir()
-        for name in names:
-            (held / name).write_text("x\n")
-        for folder in (empty, held):
-            said_to.unlink(missing_ok=True)
-            subprocess.run([shell, "-c", form], cwd=folder, stdin=subprocess.DEVNULL, capture_output=True, timeout=30)
-            left = said_to.read_text().splitlines() if said_to.exists() else None
-            if folder == empty:
-                # Its first < finds no file: nothing runs, and nothing is made or emptied.
-                assert left is None and list(empty.iterdir()) == [], (shell, form)
-            elif left is not None:
-                key = form.replace(program, "{program}", 1)
-                try:
-                    parse.read(left)
-                except parse.Refused:
-                    continue
-                taken[key] = left
-    assert taken == TAKEN_WHEN_PASTED
+    printer.started_as(str(program))
+    return printer.quoted(str(program))
+
+
+def test_a_form_pasted_at_a_shell_never_leaves_a_whole_command(tmp_path, pasted_aw) -> None:
+    # review/code/H31.md 1: held over the printer's whole domain, never a list of the forms the code writes, so a form
+    # any module writes is held. Its placeholders last, no real value stands where a shell would take it for a file's
+    # name: in a folder with no file of a placeholder's name nothing runs or is made, and in one with a file of each a
+    # shell runs nothing, or words aw refuses. No form is an exception. Help's usage lines are pasted too.
+    forms, unwritten = set(), []
+    for verb, values, refused, flag in _domain():
+        try:
+            forms.add(printer.line(verb, values, refused=refused, host_flag=flag))
+        except ValueError:
+            unwritten.append((verb, values, refused, flag))
+    printed = sorted(form for form in forms if "<" in form)
+    usages = sorted(form for form in (helps.usage(verb) for verb in VERBS.values()) if "<" in form)
+    assert len(printed) > 1000 and all(form.startswith(f"{pasted_aw} ") for form in printed + usages), len(printed)
+    assert [form for form in printed if not _placeholders_last(form)] == []
+    # Each placeholder of the table is in a form the printer writes.
+    for verb in VERBS.values():
+        own = [form for form in printed if form.startswith(f"{pasted_aw} {verb.name} ")]
+        for item in (*checks.options_of(verb), *([verb.words] if verb.words is not None else [])):
+            if item.field in _placeheld(verb):
+                shown = placeholder(item) if isinstance(item, Words) else f"{checks.spelled(item)} {placeholder(item)}"
+                assert any(shown in form for form in own), (verb.name, shown)
+    # The printer refuses only a form whose one placeholder is its names, beside values the one check takes.
+    assert unwritten
+    for verb, values, refused, flag in unwritten:
+        row = VERBS[verb]
+        shown = {key for key, value in values.items() if value is PLACEHOLDER or (refused and key in printer.FREE_TEXT)}
+        assert row.words is not None and row.words.plural and shown == {row.words.field}, (verb, values, refused)
+        real = {key: value for key, value in values.items() if value is not PLACEHOLDER}
+        assert checks.takes(verb, {**real, **({printer.HOST: flag} if flag else {})}), (verb, values)
+    forms = printed + usages
+    taken = {}
+    for shell in ("/bin/sh", "bash"):
+        assert _paste(tmp_path, shell, forms, held=False) == ({}, {}), shell
+        left, _ = _paste(tmp_path, shell, forms, held=True)
+        assert left, "no form reached a shell's words: the held folders hold nothing a form reads"
+        for number, words in left.items():
+            try:
+                parse.read(words)
+            except parse.Refused:
+                continue
+            taken[forms[number]] = words
+    assert taken == {}
+
+
+def test_the_forms_review_39_pasted_run_nothing_in_a_folder_holding_their_placeholder(tmp_path, pasted_aw) -> None:
+    # review/code/H31.md 1: fleet/hosts.py's way out, once aw init --address <address> --host far, left aw init
+    # --address far run in a folder holding a file named address, and engine/init.py's left init with the host's name as
+    # its address; written placeholder last, no shell reads either, and nothing is made.
+    forms = [
+        said("{init}", {"init": Line("init", {"host": "far", "address": PLACEHOLDER})}),
+        said("{init}", {"init": Line("init", {"address": PLACEHOLDER, "no_prompt": True, "host": "far"})}),
+    ]
+    assert forms == [
+        f"{pasted_aw} init --host far --address <address>",
+        f"{pasted_aw} init --host far --no-prompt --address <address>",
+    ]
+    for shell in ("/bin/sh", "bash"):
+        assert _paste(tmp_path, shell, forms, held=True) == ({}, {}), shell
 
 
 # ---------------------------------------------------------------- zsh's =word ----
@@ -1169,7 +1337,8 @@ def test_the_check_s_own_command_is_read_by_its_name() -> None:
 
 # The module review/code/H27.md 1 planted, by its four plain roads: the check's command, and the program alone, with
 # words of the module's own after it; and a line and a sentence the printer made, with words of the module's own joined
-# to them. The first two fail the guard above; the last two pass every guard, which is what no scan sees (§16.2).
+# to them. The first two fail the guard above; the last two pass it and every scan of strings, and fail the scan of a
+# printer's line extended (review/code/H31.md 2, below).
 PLANTED_COMMAND = """
 from claude_vm.schema import check as checks
 from claude_vm.schema import printer
@@ -1195,7 +1364,7 @@ def by_a_sentence_and_words(value):
 
 def test_the_module_h27_s_review_planted_fails_the_guard_of_the_check_s_command() -> None:
     assert _command_uses(PLANTED_COMMAND) == [8, 12]
-    # The printer's own output with words joined to it: no guard sees it, as §16.2 and CLAUDE.md say.
+    # The printer's own output with words joined to it: no scan of strings sees it; the scan of a line extended does.
     seen = (
         _names_program(PLANTED_COMMAND),
         _program_fields(PLANTED_COMMAND),
@@ -1203,6 +1372,269 @@ def test_the_module_h27_s_review_planted_fails_the_guard_of_the_check_s_command(
         [said_it for _, said_it in _printer_calls(PLANTED_COMMAND)],
     )
     assert seen == (False, [], [], [True])
+    assert _extended(PLANTED_COMMAND) == [16, 20]
+
+
+# ---------------------------------------------------------------- a printer's line, whole ----
+
+# The calls that build a string from what they are given, which a line among it would be extended by.
+JOINING = ("join", "format", "format_map")
+# What may follow a printer's line in a string that does not end there: punctuation, which ends the line's words, or a
+# space and a word of prose, letters alone, up to the next punctuation or field holding no word that starts with -.
+_PUNCTUATION = re.compile(r"\s*[^\w\s{-]")
+_PROSE = re.compile(r"\s+([A-Za-z]+(?:'[a-z]+)?)(?=[\s,.;:)!?`'\"]|\Z)")
+# The modules whose own function of a command is no line: the check's command and help_of name the command a refusal is
+# about, the option it refuses after it, held to COMMAND_USERS by the guard of the check's command.
+NOT_LINES = {CHECK: "command and help_of name the command a refusal is about, with the option refused after it"}
+
+
+def _kept_whole(text: str, field_next: bool) -> bool:
+    """Whether text, which follows a printer's line in a string, leaves it whole: the string's end, spaces at its end,
+    punctuation, or a space and a word of prose that is no verb of the table's, with no word that starts with - before
+    the next punctuation; never a field straight after it."""
+    if not text.strip():
+        return not field_next
+    if _PUNCTUATION.match(text):
+        return True
+    words = re.split(r"[^\w\s'-]", text, maxsplit=1)[0]
+    first = _PROSE.match(text)
+    if first is None or re.search(r"(?:^|\s)-", words):
+        return False
+    return first.group(1).lower() not in COMMAND_WORDS
+
+
+def _one_field(node: ast.AST | None) -> bool:
+    """Whether node is a sentence that is one field and nothing else ("{line}"), which said makes a line."""
+    return (
+        isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and re.fullmatch(r"\{\w+\}", node.value) is not None
+    )
+
+
+def _fields_kept_whole(sentence: str, fields: set[str] | None) -> bool:
+    """Whether each of fields in a sentence said (each of its fields, for None) is followed by what leaves a line
+    whole."""
+    for found in re.finditer(r"\{(\w+)\}", sentence):
+        if fields is None or found.group(1) in fields:
+            rest = sentence[found.end() :]
+            if not _kept_whole(rest.split("{", 1)[0], "{" in rest):
+                return False
+    return True
+
+
+def _a_line_object(node: ast.AST | None) -> bool:
+    """Whether node makes a Line: Line(...), by its name or as an attribute."""
+    return isinstance(node, ast.Call) and (
+        getattr(node.func, "id", None) == "Line" or getattr(node.func, "attr", None) == "Line"
+    )
+
+
+def _extended(source: str, own: bool = False, functions: bool = True) -> list[int]:
+    """The line of each place in source where a printer's line is extended, by any name source gives the printer or its
+    functions. A printer's line is a call of line or argv, a call of said whose sentence is one field, a call of a
+    function of the module's own that returns one (but where functions is false), a name bound to one in the same
+    function, or an f-string that ends in one. It is extended where it is an operand of + or %, an element of what a %
+    template takes, or added to; anywhere in what join, format or format_map takes; or followed in an f-string by a
+    field, a word that starts with -, or anything but the string's end, punctuation or a word of prose. And a sentence
+    said is never built at its call (+, %, an f-string, join, format, format_map), and in a literal one, or a constant
+    of the module's, each field a Line fills, given at the call or from LINES, or each of its fields where the call
+    gives them as anything but a mapping written there, is followed as a line in an f-string must be."""
+    tree = ast.parse(source)
+    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    makers = {id(node) for node in _references(tree, ("line", "argv"), own)}
+    sayers = {id(node) for node in _references(tree, ("said",), own)}
+    constants = {
+        target.id: node.value.value
+        for node in tree.body
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str)
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    }
+
+    def said_of(node: ast.AST) -> bool:
+        return isinstance(node, ast.Call) and id(node.func) in sayers
+
+    def made(node: ast.AST | None) -> bool:
+        return isinstance(node, ast.Call) and (
+            id(node.func) in makers or (said_of(node) and bool(node.args) and _one_field(node.args[0]))
+        )
+
+    def scope(node: ast.AST) -> ast.AST:
+        while node in parents and not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            node = parents[node]
+        return node
+
+    def either(test, node: ast.AST | None) -> bool:
+        """Whether test takes node, or either value of a conditional expression node is."""
+        if isinstance(node, ast.IfExp):
+            return either(test, node.body) or either(test, node.orelse)
+        return test(node)
+
+    def returning(test) -> set[str]:
+        """The module's own functions that return what test takes, in either branch of a conditional."""
+        return {
+            node.name
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and any(isinstance(inner, ast.Return) and either(test, inner.value) for inner in ast.walk(node))
+        }
+
+    lines_returned = returning(made) if functions else set()
+    objects_returned = returning(_a_line_object)
+    objects_named = {
+        target.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign) and _a_line_object(node.value)
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    }
+
+    def called(node: ast.AST, names: set[str]) -> bool:
+        return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in names
+
+    bound: set[tuple[int, str]] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and either(
+            lambda value: made(value) or called(value, lines_returned), node.value
+        ):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            bound |= {(id(scope(node)), target.id) for target in targets if isinstance(target, ast.Name)}
+
+    def a_line(node: ast.AST) -> bool:
+        if made(node) or called(node, lines_returned):
+            return True
+        if isinstance(node, ast.IfExp):
+            return a_line(node.body) or a_line(node.orelse)
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and (id(scope(node)), node.id) in bound:
+            return True
+        last = node.values[-1] if isinstance(node, ast.JoinedStr) and node.values else None
+        return isinstance(last, ast.FormattedValue) and a_line(last.value)
+
+    def a_line_given(node: ast.AST) -> bool:
+        """Whether a value given at said's call fills its field with a command: a Line, a printer's line, or a name or
+        a call of the module's own that is one."""
+        named = isinstance(node, ast.Name) and node.id in objects_named
+        return _a_line_object(node) or called(node, objects_returned) or named or a_line(node)
+
+    found: set[int] = set()
+    for node in ast.walk(tree):
+        if said_of(node) and node.args:
+            sentence = node.args[0]
+            if isinstance(sentence, ast.Name) and sentence.id in constants:
+                sentence = ast.Constant(constants[sentence.id])
+            built = isinstance(sentence, (ast.BinOp, ast.JoinedStr)) or (
+                isinstance(sentence, ast.Call)
+                and isinstance(sentence.func, ast.Attribute)
+                and sentence.func.attr in JOINING
+            )
+            if built:
+                found.add(node.lineno)
+            elif isinstance(sentence, ast.Constant) and isinstance(sentence.value, str):
+                filled = node.args[1] if len(node.args) > 1 else None
+                fields: set[str] | None = None
+                if filled is None or isinstance(filled, ast.Dict):
+                    pairs = zip(filled.keys, filled.values, strict=True) if isinstance(filled, ast.Dict) else []
+                    keys = {key.value: value for key, value in pairs if isinstance(key, ast.Constant)}
+                    fields = (set(LINES) - set(keys)) | {key for key, value in keys.items() if a_line_given(value)}
+                if not _fields_kept_whole(sentence.value, fields):
+                    found.add(node.lineno)
+        if isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Name):
+            if (id(scope(node)), node.target.id) in bound or a_line(node.value):
+                found.add(node.lineno)
+        if not a_line(node):
+            continue
+        parent = parents.get(node)
+        while isinstance(parent, (ast.Tuple, ast.List)):
+            parent = parents.get(parent)
+        if isinstance(parent, ast.BinOp) and isinstance(parent.op, (ast.Add, ast.Mod)):
+            found.add(node.lineno)
+        above, below = parents.get(node), node
+        while above is not None and not isinstance(above, ast.stmt):
+            if isinstance(above, ast.Call) and getattr(above.func, "attr", None) in JOINING and below is not above.func:
+                found.add(node.lineno)
+                break
+            above, below = parents.get(above), above
+        holder = parents.get(node)
+        if isinstance(holder, ast.FormattedValue) and isinstance(parents.get(holder), ast.JoinedStr):
+            joined = parents[holder]
+            rest = joined.values[joined.values.index(holder) + 1 :]
+            text = rest[0].value if rest and isinstance(rest[0], ast.Constant) else ""
+            field_next = len(rest) > (1 if rest and isinstance(rest[0], ast.Constant) else 0)
+            if not _kept_whole(str(text), field_next):
+                found.add(node.lineno)
+    return sorted(found)
+
+
+def test_no_module_of_the_new_engine_extends_a_printer_s_line() -> None:
+    # review/code/H31.md 2: a line to run is the printer's whole line, and a sentence names its command as a Line: a
+    # line with words of a module's own joined to it is unquoted, unmasked and held by no check.
+    extended = {}
+    for path in _new_modules():
+        where = path.relative_to(REPO).as_posix()
+        if lines := _extended(path.read_text(), own=where in PRINTERS, functions=where not in NOT_LINES):
+            extended[where] = lines
+    assert extended == {}, "say the line whole, or name the command as a Line said through said"
+    assert all(why.strip() for why in NOT_LINES.values()) and set(NOT_LINES) <= set(COMMAND_USERS)
+    # The check's own command, read as a line, is followed by the option a refusal names: what NOT_LINES is for.
+    assert _extended((REPO / CHECK).read_text())
+
+
+@pytest.mark.parametrize(
+    ("source", "lines"),
+    [
+        # The roads review/code/H31.md 2 planted: a line with words joined by +, in an f-string, and a sentence said
+        # with a value joined to it.
+        ("x = printer.line('cancel', {}, refused=False) + ' ' + job", [1]),
+        ("x = f\"{printer.line('cancel', {}, refused=False)} {job}\"", [1]),
+        ("x = printer.said('{line} vm_note --value ' + value, {'line': Line('settings')})", [1]),
+        # By any name, and through a name bound to it, a function that returns one, or an f-string that ends in one.
+        ("from claude_vm.schema.printer import line as say\nx = say('logs', {}, refused=False) + ' -v'", [2]),
+        ("from ..schema import printer as p\nx = '%s %s' % (p.line('logs', {}, refused=False), job)", [2]),
+        ("def f(job):\n    run = printer.line('cancel', {}, refused=False)\n    return run + ' ' + job", [3]),
+        ("def f(job):\n    run = printer.line('cancel', {}, refused=False)\n    run += job", [3]),
+        ("def f(job):\n    run = printer.line('cancel', {}, refused=False)\n    return f'{run} --force'", [3]),
+        ("def g():\n    return printer.said('{init}', {'init': Line('init')})\n\nx = g() + ' --check'", [4]),
+        ("def g(v):\n    return printer.said('{x}', {}) if v else ''\n\nx = g(1) + ' -v'", [4]),
+        ("x = (printer.line('logs', {}, refused=False) if a else '') + job", [1]),
+        ("x = f\"run {printer.line('logs', {}, refused=False)}\" + job", [1]),
+        ("x = ' '.join([printer.line('logs', {}, refused=False), job])", [1]),
+        ("x = ' '.join(printer.argv('logs', {}, refused=False))", [1]),
+        ("x = '{} {}'.format(printer.line('logs', {}, refused=False), job)", [1]),
+        ("x = printer.argv('logs', {}, refused=False) + [job]", [1]),
+        # In an f-string: a field, a word that starts with -, a verb, or a word a value would be after it.
+        ("x = f\"{printer.line('logs', {}, refused=False)}{job}\"", [1]),
+        ("x = f\"{printer.line('logs', {}, refused=False)} cancel\"", [1]),
+        ("x = f\"{printer.line('logs', {}, refused=False)} vm_note\"", [1]),
+        ("x = f\"{printer.line('logs', {}, refused=False)} and --all\"", [1]),
+        # A sentence said: built at its call, or a Line's field, from the call, LINES or a constant, followed by words
+        # of a command; every field where the values come in a mapping not written at the call.
+        ("x = printer.said(f'{{line}} {value}', {'line': Line('logs')})", [1]),
+        ("from claude_vm.schema.printer import said as say\nx = say('{line} ' + v, {'line': Line('x')})", [2]),
+        ("x = printer.said('{line} {job}', {'line': Line('cancel'), 'job': job})", [1]),
+        ("x = printer.said('{line} -v', {'line': Line('logs')})", [1]),
+        ("x = printer.said('see {help} {more}', {'more': more})", [1]),
+        ("FORM = '{line} --all'\nx = printer.said(FORM, {'line': Line('logs')})", [2]),
+        ("ASK = Line('logs')\nx = printer.said('{line} {job}', {'line': ASK, 'job': job})", [2]),
+        ("def ask():\n    return Line('logs')\n\nx = printer.said('{a} {b}', {'a': ask(), 'b': b})", [4]),
+        ("x = printer.said('{line} {job}', filled)", [1]),
+        # Whole: the string's end, punctuation, prose; a sentence whose fields hold text; a prefix of prose.
+        ("x = f\"error: run {printer.line('init', {}, refused=False)}\"", []),
+        ("x = f\"`{printer.line('logs', {}, refused=False)}` lists them\"", []),
+        ("def f():\n    line = printer.said('{line}', {'line': Line('x')})\n    return f'{a} {line} rebuilds it.'", []),
+        ("x = f\"{printer.said('{init}', {'init': Line('init')})} writes {what}\"", []),
+        ("x = printer.said('{init} sets one up', {'init': Line('init')})", []),
+        ("x = printer.said('{file} (its name) holds it: {init}', {'file': shown(f), 'init': Line('init')})", []),
+        ("x = 'error: ' + printer.said('{init} sets one up', {'init': Line('init')})", []),
+        ("x = printer.said('{names} {be} no VM', {'names': listed, 'be': 'is'})", []),
+        ("x = printer.said(option.help or '')", []),
+        # Not the printer's: another module's line, said or join.
+        ("x = other.line('x') + job", []),
+        ("x = ' '.join([checks.spelled(option), job])", []),
+    ],
+)
+def test_the_scan_of_a_line_extended_sees_every_road(source: str, lines: list) -> None:
+    assert _extended(source) == lines
 
 
 @pytest.mark.parametrize(
@@ -1274,6 +1706,31 @@ def test_no_sentence_of_the_rules_or_the_table_holds_a_command_as_text() -> None
     assert set(LINES) == {name for text in texts for name in re.findall(r"\{([a-z_]+)\}", text)}, (
         "a line of LINES no sentence of the table names, or a sentence naming one LINES has not got"
     )
+
+
+def test_each_command_a_rule_or_the_table_names_is_said_whole(monkeypatch) -> None:
+    # review/code/H31.md 2: a sentence said from the table or a rule is no literal at its call, so the scan of a line
+    # extended reads it here: each field a Line fills (the rule's own, LINES, and those a broken rule gives, as each
+    # case of test_aw_cli_rules.py's REFUSALS breaks it) is followed by its end, punctuation or prose.
+    given: dict[str, set[str]] = {}
+    for key, (words, _, _) in REFUSALS.items():
+        code = key.rpartition("-")[0]
+        if code not in rules.RULES:
+            continue
+        try:
+            values = _read(words, monkeypatch, with_rules=False).values
+        except parse.Refused:
+            continue
+        filled = rules.RULES[code].breaks(values) or {}
+        given.setdefault(code, set()).update(name for name, value in filled.items() if isinstance(value, Line))
+    assert given.get("deploy.7") == {"named", "every"}, given.get("deploy.7")
+    for code, rule in rules.RULES.items():
+        assert _fields_kept_whole(rule.sentence, set(rule.lines) | set(LINES) | given.get(code, set())), code
+    texts = [verb.doc for verb in VERBS.values()] + [verb.words.help for verb in VERBS.values() if verb.words]
+    texts += [option.help for verb in VERBS.values() for option in verb.options if option.help]
+    for text in texts:
+        assert _fields_kept_whole(text, set(LINES)), text
+    assert not _fields_kept_whole("error: {remove} --force", {"remove"})
 
 
 def test_the_check_s_sentences_name_the_command_as_the_printer_writes_it() -> None:

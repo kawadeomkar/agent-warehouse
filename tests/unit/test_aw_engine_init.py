@@ -615,8 +615,8 @@ def test_a_further_host_is_card_e10_s(fake, secret_file) -> None:
     files = _files()
     ran = _init(fake, "--no-prompt", "--host", "nuc", "--address", "127.0.0.1")
     assert ran.returncode == 1 and ran.stderr == (
-        "error: nuc is no host of the fleet's (pve): a further host is set up by aw init --address <address> --host"
-        " nuc, not built yet (card E10 builds it)\n"
+        "error: nuc is no host of the fleet's (pve): a further host is set up by aw init --host nuc --address"
+        " <address>, not built yet (card E10 builds it)\n"
     ), ran
     assert _files() == files
 
