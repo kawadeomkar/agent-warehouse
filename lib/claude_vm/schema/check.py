@@ -17,7 +17,8 @@ number; a verb's words are a list of strings where it takes several and a string
 the parser was given more than one, which the rules see as given before the verb's one word is held to its number; and
 `detach` is a flag of every verb whose run is a job. A key the verb has no option for is refused, and one whose value is
 None is taken as not given. `formed(verb, values)` is the check but for the rules between options: what the printer of
-a command holds a line to (printer.py).
+a command holds a line to (printer.py). `takes(verb, values)` is whether the check takes them, its rules among them,
+with no sentence said: what the printer asks of the words a form would leave a shell to run.
 
 Every command a sentence here names, the verb refused and where its options are listed among them, is the printer's,
 through printer.py's `said`, so it is the program as it was started, quoted. `command` names the verb a refusal is
@@ -259,6 +260,20 @@ def formed(verb: str, values: Mapping[str, object]) -> str | None:
     if row is None:
         return no_such_command()
     return _hold(verb, options_of(row), row.words, values) or _number(verb, row.words, values)
+
+
+def takes(verb: str, values: Mapping[str, object]) -> bool:
+    """Whether check takes values, its rules among them, with no rule's sentence said: what the printer asks of the
+    words a form leaves a shell to run (printer.py), since a rule's sentence names forms the printer writes, and saying
+    one there would ask the printer again."""
+    row = VERBS.get(verb)
+    if row is None:
+        return False
+    if _hold(verb, options_of(row), row.words, values):
+        return False
+    if any(rules.RULES[code].breaks(values) is not None for code in row.rules):
+        return False
+    return _number(verb, row.words, values) is None
 
 
 def check_before(values: Mapping[str, object]) -> str | None:
