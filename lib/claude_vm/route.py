@@ -740,8 +740,9 @@ def route_settle(setting, hop: dict, limit=None, *, process_group=None, signalle
     then that name's addresses here, now. The ``ssh -G`` is started as _run starts its ssh, so that end_all ends it
     (_asked). ``process_group`` is _run's, for the ``ssh -G``. With ``signalled_settles`` false, the new engine's, an
     ``ssh -G`` that gave no answer settles nothing - one a signal ended, one past its limit (whose kill is a signal
-    too), one not started since the run is ending, and one that could not be run at all, the ssh program or the
-    temporary file its standard error is read from not made, said with what could not be: HopRefused, naming
+    too), one not started since the run is ending, one that could not be run at all, the ssh program or the temporary
+    file its standard error is read from not made, said with what could not be, and one that exited with an error, a
+    line of the person's configuration it refused for the host, said in ssh's own words: HopRefused, naming
     vm_ssh_route, where today's callers settle from the address as written, which may be ``direct`` where the person's
     configuration sends the host to a tailnet."""
     import subprocess
@@ -753,11 +754,20 @@ def route_settle(setting, hop: dict, limit=None, *, process_group=None, signalle
     argv = [hop["ssh"], *_place(hop), "-G", _destination(hop)]
     limit = limit or LIMITS["config"]
     unanswered = ""
+    way_out = "run it again, or set vm_ssh_route: direct or host"
     try:
         shown = _asked(argv, limit, process_group=process_group)
         text = shown.stdout if shown.returncode == 0 else ""
         if shown.returncode < 0:
             unanswered = f"was ended by a signal ({-shown.returncode}) before it said where ssh dials for it"
+        elif shown.returncode != 0:
+            # A line ssh refuses for the host alone - one the hop's own lines outrank, such as a ControlPath with a
+            # token ssh does not know - leaves where it dials unsaid: the address as written is no answer.
+            unanswered = (
+                f"exited {shown.returncode} without saying where ssh dials for it"
+                f" ({ssh_said(shown.stderr).rstrip('.') or 'it said nothing'})"
+            )
+            way_out = "mend what ssh says of your ssh configuration for the host, or set vm_ssh_route: direct or host"
     except subprocess.TimeoutExpired:
         # ssh -G prints its answer as it exits, and _asked waits for ssh alone (a Match exec's program has /dev/null
         # for its output, and its standard error is a file): past the limit, it said nothing.
@@ -771,8 +781,7 @@ def route_settle(setting, hop: dict, limit=None, *, process_group=None, signalle
         text, unanswered = "", f"could not be run ({what})"
     if unanswered and not signalled_settles:
         raise HopRefused(
-            f"ssh -G for the Proxmox host {unanswered}, so the route under vm_ssh_route: auto is not settled",
-            "run it again, or set vm_ssh_route: direct or host",
+            f"ssh -G for the Proxmox host {unanswered}, so the route under vm_ssh_route: auto is not settled", way_out
         )
     dialled = ssh_g_hostname(text, hop["host"])
     addresses = addresses_of(dialled)

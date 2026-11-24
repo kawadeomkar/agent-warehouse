@@ -23,6 +23,7 @@ of the test's where a machine's root has put another program in its place.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import os
 import pwd
@@ -139,6 +140,12 @@ def _reached(tmp_path: Path, engine_guard, **state) -> Machine:
     filed(made)
     engine_guard.first_on_path(ssh_stand_in(root, [made]))
     return made
+
+
+def _direct(at: runner.Target) -> runner.Target:
+    """at marked as a route settled straight at it marks one (connections.target_for): a Target made for an address no
+    target() gives, which the runner connects to only marked."""
+    return dataclasses.replace(at, routed_as="direct")
 
 
 def _helper(job: jobs.Job, made: Machine, verb: str = "probe", **given) -> remote.Outcome:
@@ -274,12 +281,14 @@ def test_nothing_said_within_its_time_is_not_reached(tmp_path, engine_guard, job
 
 def test_an_address_no_machine_has_is_not_reached(tmp_path, engine_guard, job) -> None:
     alpha = _reached(tmp_path, engine_guard)
-    elsewhere = runner.machine(
-        alpha.identity,
-        "203.0.113.200",
-        alpha.account,
-        "/aw-machines/cp",
-        known_hosts=alpha.directory.parent / "known_hosts",
+    elsewhere = _direct(
+        runner.machine(
+            alpha.identity,
+            "203.0.113.200",
+            alpha.account,
+            "/aw-machines/cp",
+            known_hosts=alpha.directory.parent / "known_hosts",
+        )
     )
     outcome = asyncio.run(remote.helper(job, elsewhere, "probe", as_root=False, python="python3", env=dict(os.environ)))
     assert isinstance(outcome, remote.NotAnswered) and not outcome.reached, outcome
@@ -531,12 +540,14 @@ def test_where_sudo_refuses_the_user_s_reads_stand_and_root_s_part_is_said_not_r
 
 def test_a_machine_not_reached_is_said_so(tmp_path, engine_guard, job) -> None:
     alpha = _reached(tmp_path, engine_guard)
-    elsewhere = runner.machine(
-        alpha.identity,
-        "203.0.113.200",
-        alpha.account,
-        "/aw-machines/cp",
-        known_hosts=alpha.directory.parent / "known_hosts",
+    elsewhere = _direct(
+        runner.machine(
+            alpha.identity,
+            "203.0.113.200",
+            alpha.account,
+            "/aw-machines/cp",
+            known_hosts=alpha.directory.parent / "known_hosts",
+        )
     )
     records = asyncio.run(
         states.read(
@@ -559,7 +570,7 @@ def test_the_parts_are_the_probe_s(tmp_path, engine_guard, job) -> None:
 # A layer-2 step, in a Python of its own: is Claude signed in on the machine? What it found, and what of Ansible it
 # loaded.
 LAYER_2 = """
-import asyncio, json, os, sys
+import asyncio, dataclasses, json, os, sys
 given = json.loads(sys.argv[1])
 sys.path.insert(0, given["lib"])
 from pathlib import Path
@@ -575,6 +586,8 @@ async def signed_in():
     try:
         at = runner.machine(given["identity"], given["address"], given["account"], given["control"],
                             known_hosts=given["known_hosts"])
+        # Marked as a route settled straight at it marks one (connections.target_for).
+        at = dataclasses.replace(at, routed_as="direct")
         records = await states.read(job, at, ["claude"], settings=given["settings"], name="alpha", python="python3",
                                     env=dict(os.environ))
     finally:

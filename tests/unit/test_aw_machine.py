@@ -30,6 +30,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import base64
+import dataclasses
 import hmac
 import json
 import os
@@ -113,6 +114,12 @@ def _run(job: jobs.Job, at: runner.Target, command: list[str], stdin=None) -> ru
     return asyncio.run(runner.run(job, at, command, stdin, runner.LIMITS, dict(os.environ)))
 
 
+def _direct(at: runner.Target) -> runner.Target:
+    """at marked as a route settled straight at it marks one (connections.target_for), which a test of the stand-ins
+    reaches without a route: a Target made for an address no target() gives."""
+    return dataclasses.replace(at, routed_as="direct")
+
+
 def _stand_in(folder: Path, words: list[str]) -> subprocess.CompletedProcess[str]:
     """The stand-in ssh in folder run by its path with words, as a run's ssh is given them."""
     return subprocess.run(
@@ -179,7 +186,9 @@ def test_after_a_run_only_the_machine_s_own_directory_has_changed(two, made, tmp
 
 def test_an_address_no_machine_has_comes_back_as_the_runner_s_unreachable(two, made, tmp_path) -> None:
     alpha, beta, folder = two
-    stranger = runner.machine(alpha.identity, "203.0.113.250", alpha.account, CONTROL, known_hosts=tmp_path / "kh")
+    stranger = _direct(
+        runner.machine(alpha.identity, "203.0.113.250", alpha.account, CONTROL, known_hosts=tmp_path / "kh")
+    )
     got = _run(made, stranger, ["touch", "landed"])
     assert isinstance(got, runner.Unreachable) and got.lines == (), got
     assert "203.0.113.250 port 22: No route to host" in got.said
@@ -357,7 +366,9 @@ def test_a_connection_naming_one_machine_s_identity_at_another_s_address_is_refu
     alpha, beta, _ = two
     # alpha's identity at beta's address: beta answers there, with its own key, where the file holds alpha's under
     # that name.
-    sibling = runner.machine(alpha.identity, beta.address, beta.account, CONTROL, known_hosts=known_hosts(alpha))
+    sibling = _direct(
+        runner.machine(alpha.identity, beta.address, beta.account, CONTROL, known_hosts=known_hosts(alpha))
+    )
     got = _run(made, sibling, ["touch", "landed"])
     assert isinstance(got, runner.Unreachable), got
     assert "WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!" in got.said
@@ -406,7 +417,9 @@ def test_a_first_use_files_the_machine_s_key_under_its_identity_as_ssh_does(two,
     # key is read where something vouches for it before a first use, never from the first use alone.
     (tmp_path / "elsewhere").mkdir()
     elsewhere = hostkeys.fresh(tmp_path / "elsewhere", alpha.identity)
-    wrong = runner.machine(alpha.identity, beta.address, beta.account, CONTROL, known_hosts=elsewhere, first_use=True)
+    wrong = _direct(
+        runner.machine(alpha.identity, beta.address, beta.account, CONTROL, known_hosts=elsewhere, first_use=True)
+    )
     assert _run(made, wrong, ["true"]) == runner.Done(0, (), "")
     assert hostkeys.taken(elsewhere, alpha.identity) == hostkeys.parse(beta.key)
     # Another key under the identity in the scratch file is refused at a first use too, as ssh refuses a changed key.

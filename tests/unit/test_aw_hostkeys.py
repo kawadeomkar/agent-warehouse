@@ -12,6 +12,7 @@ neither read nor written; nothing here removes or replaces a line, a deleted mac
 from __future__ import annotations
 
 import base64
+import dataclasses
 import hashlib
 import hmac
 import inspect
@@ -393,8 +394,10 @@ def test_a_first_use_takes_the_one_line_ssh_wrote_and_it_is_filed_by_name(tmp_pa
         os.umask(old)
     assert scratch.parent == run.resolve() and scratch.read_bytes() == b""
     assert stat.S_IMODE(scratch.stat().st_mode) == 0o600
-    # The runner takes it as a first use's file, and names it as the one ssh may add a line to.
+    # The runner takes it as a first use's file, and names it as the one ssh may add a line to: a Target marked as a
+    # route settled straight at the machine marks one (connections.target_for), which the runner connects to alone.
     target = runner.machine(IDENTITY, ADDRESS, "dev", CONTROL, known_hosts=scratch, first_use=True)
+    target = dataclasses.replace(target, routed_as="direct")
     assert f'UserKnownHostsFile="{scratch}"' in runner.argv(target, ["true"])
     # As ssh writes one under HostKeyAlias: appended, the name or its hash, the key, a line end.
     with scratch.open("a") as stream:
