@@ -127,9 +127,9 @@ checked only, never from a VM name.
 Scenarios are slow and disk-hungry. Run the ones your change touches, one at a time, rather than
 `just test`, until you are ready to finish; `--jobs N` runs them N at a time on a machine with the room.
 
-`common`, `vscode_server`, `dev_tools`, `claude_code`, `github_projects`, `tailscale` and the `configure`
-scenario install packages inside the container and need working Docker DNS. `proxmox_vm`, `proxmox_template` and
-the `provision` scenario talk only to local fakes, so they still run when the network is down —
+`common`, `vscode_server`, `dev_tools`, `claude_code`, `github_projects`, `tailscale` and the `configure` and
+`system` scenarios install packages inside the container and need working Docker DNS. `proxmox_vm`,
+`proxmox_template` and the `provision` scenario talk only to local fakes, so they still run when the network is down —
 if apt fails to resolve a mirror, that is the machine, not the change.
 
 ## Invariants — do not break these
@@ -1027,42 +1027,68 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   `lib/claude_vm/` only the modules `REUSED` names, each with its reason, and what those import in turn, all the way
   down, is in `REUSED` or `REACHED`, with the reason it is brought in; never Ansible. `tests/unit/test_aw_layout.py`
   holds both.
-- **Layer 1 is held to state modules.** Read
-  [§16.10](docs/architecture/engine.md#1610-guest--the-helper-the-system-layers-inputs-layer-2) first. Every task the
-  new engine's system play (`playbooks/system.yml`) reaches, the three roles' it runs with it, is a module of
-  `ansible.builtin` that converges a state, or a `command`, `shell`, `raw`, `script` or `expect` listed with its reason;
-  a module outside `ansible.builtin` fails but the three F6a replaces, and so does any file the play reaches that sets an
-  `ansible_` variable, which would outrank the connection the engine wrote. `tests/unit/test_aw_layer1_ratchet.py`
-  holds all three, by file and task. The play's opening tasks are `playbooks/configure.yml`'s, copied as they stand,
-  and `tests/unit/test_aw_layer1_play.py` holds them equal: a change to one is made to both. Until F6a takes them out,
-  those three load only from a folder of collections, so layer 1's configuration names the checkout's own, asked of
-  `tools/env-run --collections` for the run's environment and never worked out a second way; the same test file holds
-  that the product's child loads the play from it.
+- **Layer 1 is held to state modules, and reaches nothing of this computer.** Read
+  [§16.10](docs/architecture/engine.md#1610-guest--the-helper-the-system-layers-inputs-layer-2) first. What the new
+  engine's system play (`playbooks/system.yml`) reaches, the three roles it runs with it, is held by
+  `tests/unit/test_aw_layer1_ratchet.py`, through a walk of its own that reads what Ansible reads.
+    - The walk follows every road to a task: the play's task lists and handlers; an include or import in any spelling
+      (short, `ansible.builtin.`, `ansible.legacy.`); a role the play names, one included or imported from anywhere, and
+      one a role's `meta/main.yml` names among its dependencies; each role's files in every spelling Ansible takes
+      (`main.yaml`, `main.json`, a `main/` folder of defaults or vars, a file an include's `_from` names); the play's
+      `vars_files`; the roles' templates. A road it does not follow - a playbook imported, an include in a handler, a
+      name only a run can say, a collection's role or a `collections` keyword, a role in the play's own roles folder,
+      a template outside a role or one that includes another - raises `Unfollowed` and fails every test: follow it in
+      the walk, never pass it over.
+    - Every task it reaches is a module of `ansible.builtin` that converges a state, or a `command`, `shell`, `raw`,
+      `script` or `expect` that `REASONS` lists with its reason and with its module and arguments as Ansible's own
+      parser reads them: a changed command changes its entry in the same commit, and two such tasks of one file and
+      name fail as one key. A module outside `ansible.builtin` fails but the three F6a replaces.
+    - Nothing it reaches sets a variable whose name begins `ansible_`, which would outrank the connection the engine
+      wrote: no vars of a play, block, task, role entry or dependency, no `vars_files`, `vars_prompt`, role default or
+      var, fact (a templated name refused), register, loop variable, include's `apply` or `add_host`, and no
+      `include_vars` at all.
+    - Nothing it reaches runs or writes on this computer: no `delegate_to`, `local_action` or `connection` keyword, no
+      `fetch`, no play over any host but `all`, no `with_` loop, and no lookup but the five `LOOKUPS` lists by its file
+      and whole string, read in every file the walk read and in the templates.
+    - The play's opening tasks are `playbooks/configure.yml`'s, copied as they stand, and
+      `tests/unit/test_aw_layer1_play.py` holds them equal: a change to one is made to both. Its first check reads the
+      inventory back by `ansible_inventory_sources`, never by `inventory_file`, a host's variable that a file beside the
+      play could point at a forged copy.
+    - Until F6a takes them out, those three load only from a folder of collections, so layer 1's configuration names the
+      checkout's own, asked of `tools/env-run --collections` for the run's environment and never worked out a second
+      way, and held to `requirements.yml`'s pins before the child starts, each collection's own `MANIFEST.json` at its
+      pin, with today's `tools/check collections`'s verdict (`tests/unit/test_aw_layer1.py` holds the two equal): a
+      folder not there, a collection at another version or not there, and a `tools/env-run` not there to run are each
+      refused in one sentence that names `just install`. The play's test file holds that the product's child loads the
+      play from it, and from no folder that only passes the check.
 - **Every command line the new engine prints, and every command a sentence of it names, is the printer's.** Read
   [§16.2](docs/architecture/engine.md#162-schema--the-command-lines-patterns-and-its-table-of-verbs-and-options) and
   [§16.3](docs/architecture/engine.md#163-cli--the-aw-program) first.
     - `lib/claude_vm/schema/printer.py`'s `line` and `argv` write it from the one table: the program as it was started
       (`aw` where `aw` on `PATH` is the checkout's launcher, else what was typed, from `AGENT_WAREHOUSE_STARTED_AS`,
       which the launcher sets and `main.py` takes out of the environment at once), the verb, its words, its options
-      (`--long value`, and `--long=value` only for a value that starts with `-` or is empty), the host's flag last;
-      each word quoted by `quoted` for a POSIX shell and zsh (`shlex.quote`, and a word that starts with `=`), the
-      program too; a value, a word or a program word with a character of the categories Cc, Cf, Cs, Zl or Zp refused,
-      the program then `aw`.
+      (`--long value`, and `--long=value` only for a value that starts with `-` or is empty), the host's flag, and a
+      form's placeholders last; each word quoted by `quoted` for a POSIX shell and zsh (`shlex.quote`, and a word that
+      starts with `=`), the program too; a value, a word or a program word with a character of the categories Cc, Cf,
+      Cs, Zl or Zp refused, the program then `aw`.
     - A sentence names a command as a `Line`, said through the printer's `said`, never as text; the field `program`,
       which `said` fills with the program quoted, is named only by the printer and `schema/check.py`'s `command`. The
       printer is `schema/`'s, imported at the top of a file by every module that uses it, `pve/` and `vendors/` among
       them; it, the check and the rules import one another as modules, never a name from one, so any may come first.
     - The check's `command`, the program and a verb, is used only by the modules that refuse and by help's usage lines
       and closing paragraph, each named with why (`COMMAND_USERS`): never with words of a module's own joined after it
-      into a line. What no scan sees is a string the printer made with words joined to it
-      (`printer.line(...) + ' ' + job`, a sentence's words after a line's field), a name reached through `getattr`, and
-      pieces joined that name no command: a line to run is the printer's whole line.
+      into a line. A line the printer made is never extended: never an operand of `+` or `%`, added to, or in what a
+      `join` or `format` takes, and in an f-string followed by its end, punctuation or prose, never a field; a sentence
+      `said` says is never built at its call, and a `Line`'s field in it is followed the same way. What no scan sees is
+      a line carried where that scan does not follow it (an attribute, a container, another module's function), a name
+      reached through `getattr`, and pieces joined that name no command: a line to run is the printer's whole line.
     - A placeholder is `<name>`, from `lib/claude_vm/schema/words.py`'s `placeholder`, in a line's form, a masked
       value and help's rows alike (`--cores <cores>`, `--set <name>=<value>`); a line with one is a form, never offered
-      as the command to run, and the one check refuses a placeholder given back as a word or as JSON. Pasted at a
-      shell, a form runs nothing, or, in a folder holding a file named as each placeholder, leaves words `aw` refuses,
-      but `host --remove`'s, which leaves `aw host`, a read: a form that would leave a whole command
-      (`aw deploy <name>...` alone, the default VM's) is never written.
+      as the command to run, and the one check refuses a placeholder given back as a word or as JSON. A form writes
+      its placeholders last, after every part with a real value (`aw host --remove <name>`), so pasted at a shell it is
+      no line a shell reads, or, where its one placeholder is a verb's names (`<name>...`), leaves its real values,
+      which the printer writes only where the one check refuses them (its `takes`): `aw deploy <name>...` alone, the
+      default VM's, is a `ValueError`. No form leaves a whole command, with no exception.
     - `host_flag` is given by every caller of a verb whose row has the shared `--host` and whose values give none
       (`None` is a `ValueError` there), and taken only by a verb whose `--host` runs it against a host; `refused` is
       keyword-only with no default, so every caller says whether a value of free text may be said back.
@@ -1071,8 +1097,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       (today's `just <verb>`, until the flip) its one exception; the program, as started or as `PROGRAM`, named only by
       the printer, by any name a module gives it; the field `program` only by the printer and the check; the check's
       `command`, by any name, only by `COMMAND_USERS`; every use of `line` or `argv`, through any name or a
-      `functools.partial`, saying `refused`; each form the rules, the table, help and `deploy`'s question write, pasted
-      into `/bin/sh` and `bash`; each module of `schema/` imported alone, first.
+      `functools.partial`, saying `refused`; no printer's line extended, by a scan of its own; every form of the
+      printer's whole domain (each verb, each placeholder beside the rest, masked and not) and help's usage lines,
+      pasted into `/bin/sh` and `bash`; each module of `schema/` imported alone, first.
 - **One transport sends every HTTPS request of the engine, follows no redirect, reads no certificate variable, and
   takes a proxy only as an argument.** Read
   [§16.7](docs/architecture/engine.md#167-vendors--one-https-transport-tailscales-calls-verified-downloads) first.

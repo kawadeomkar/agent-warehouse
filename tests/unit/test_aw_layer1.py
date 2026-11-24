@@ -5,7 +5,10 @@ stand-in machine (tests/unit/aw_machine.py): a play of one task over the test-on
 the machine's directory, or a play of one ping over Ansible's own ssh connection to the stand-in ssh, which records the
 words it was given. The generated configuration read back by ansible-config is a fixed expectation, and a run's names
 the checkout's own folder of Galaxy collections until F6a, the one tools/env-run --collections names for the run's
-environment, where its answer is one absolute path given in time and refused otherwise; a play of one ping
+environment, where its answer is one absolute path given in time and refused otherwise, and the folder is held to
+requirements.yml's pins as today's tools/check collections holds it, with the same verdict, a folder not there, a
+collection at another version or not there, and a tools/env-run not there to run each refused in a sentence that names
+just install before anything is written or started; a play of one ping
 runs, its child in a session of its own and in the run's registry with its pid, with nothing on this process's
 terminal; the caller's ANSIBLE_*, PYTHON* and an exported stdout callback never reach the child, whose environment is
 the allow list and the engine's own; a target that is no machine's, a first use's, one with no key filed, an inventory
@@ -37,6 +40,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from aw_kit import collections_folder, plant_collections, requirements_pins
 from aw_machine import Machine, layer1_host, machine, ssh_stand_in, target
 from harness import REPO, repo_files
 
@@ -47,6 +51,10 @@ from claude_vm.runs import children, rundir
 from claude_vm.runs import job as jobs
 from claude_vm.schema import printer
 from claude_vm.ssh import hostkeys, runner
+
+# Until F6a, every run here but those with a folder of collections of their own finds the checkout's folder planted at
+# requirements.yml's pins in the test's home, which layer 1 holds it to before its child starts.
+pytestmark = pytest.mark.usefixtures("installed")
 
 LAYER1 = REPO / "lib" / "claude_vm" / "guest" / "layer1.py"
 # What the generated configuration sets, as ansible-config reads it back: every setting it changes but those whose
@@ -290,21 +298,6 @@ def test_every_folder_ansible_would_search_under_home_is_named(made) -> None:
     assert len(searched) > 15 and searched - named == set(), sorted(searched - named)
 
 
-def _env_run_collections(env: dict[str, str]) -> Path:
-    """The folder of collections tools/env-run itself names for env's home and data folder, asked as every recipe of
-    today's product asks it."""
-    found = subprocess.run(
-        [str(REPO / "tools" / "env-run"), "--collections"],
-        env={name: env[name] for name in ("PATH", "HOME", "XDG_DATA_HOME") if name in env},
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=True,
-    )
-    return Path(found.stdout.rstrip("\n"))
-
-
 @pytest.mark.parametrize("data_home", ["the test's own", "another", "none, HOME's"])
 def test_the_run_s_configuration_names_the_checkout_s_collections_as_tools_env_run_finds_them(
     made, root, tmp_path, data_home
@@ -317,11 +310,11 @@ def test_the_run_s_configuration_names_the_checkout_s_collections_as_tools_env_r
         env["XDG_DATA_HOME"] = str(tmp_path / "data")
     elif data_home == "none, HOME's":
         env.pop("XDG_DATA_HOME", None)
+    found = plant_collections(collections_folder(env))
     ended = _run(made, target(alpha), _play(tmp_path, PING), env=env, test_connection=layer1_host(alpha))
     assert ended.status == 0, ended.said
     directory = rundir.made(made)
     assert directory is not None
-    found = _env_run_collections(env)
     assert _keys((directory / layer1.CONFIG).read_text())["collections_path"] == [str(found)]
     # Under the run's own data folder, named for this checkout, never the process's own environment's.
     data = Path(env.get("XDG_DATA_HOME") or Path(env["HOME"]) / ".local" / "share")
@@ -372,8 +365,9 @@ def test_what_tools_env_run_answers_that_is_no_folder_is_refused_before_anything
 
 
 def test_tools_env_run_is_given_only_what_it_reads_of_the_run_s_environment(made, root, tmp_path, monkeypatch) -> None:
+    held = plant_collections(tmp_path / "held")
     stand_in = tmp_path / "env-run"
-    stand_in.write_text('#!/bin/sh\nenv > "$0.env"\necho /collections\n')
+    stand_in.write_text(f'#!/bin/sh\nenv > "$0.env"\necho {held}\n')
     stand_in.chmod(0o755)
     monkeypatch.setattr(layer1, "ENV_RUN", stand_in)
     alpha = _alpha(root)
@@ -387,7 +381,150 @@ def test_tools_env_run_is_given_only_what_it_reads_of_the_run_s_environment(made
     assert set(canaries).isdisjoint(given), sorted(set(canaries) & set(given))
     directory = rundir.made(made)
     assert directory is not None
-    assert _keys((directory / layer1.CONFIG).read_text())["collections_path"] == ["/collections"]
+    assert _keys((directory / layer1.CONFIG).read_text())["collections_path"] == [str(held)]
+
+
+# Until F6a: each way the checkout's folder of collections is not what requirements.yml pins, and what is said of it.
+UNREADY = {
+    "not there": "this checkout's Galaxy collections, which the system play needs until F6a, are not installed"
+    " ({folder} is no folder): run just install",
+    "a pin moved": "this checkout's Galaxy collections in {folder} are not the ones requirements.yml pins"
+    " (ansible.posix 2.2.1, pinned 2.2.2), and the system play needs them until F6a: run just install",
+    "a collection not there": "this checkout's Galaxy collections in {folder} are not the ones requirements.yml pins"
+    " (community.general not there, pinned 12.4.0), and the system play needs them until F6a: run just install",
+    "a manifest that says no version": "this checkout's Galaxy collections in {folder} are not the ones"
+    " requirements.yml pins (community.docker of a version it cannot say, pinned 5.3.0), and the system play needs them"
+    " until F6a: run just install",
+    "a version no sentence says": "this checkout's Galaxy collections in {folder} are not the ones requirements.yml"
+    " pins (community.proxmox of a version it cannot say, pinned 2.0.0), and the system play needs them until F6a:"
+    " run just install",
+}
+
+
+def _unready(folder: Path, case: str) -> None:
+    """folder, planted at requirements.yml's pins, made what case says."""
+    manifests = folder / "ansible_collections"
+    if case == "not there":
+        shutil.rmtree(folder)
+    elif case == "a pin moved":
+        plant_collections(folder, {"ansible.posix": "2.2.1"})
+    elif case == "a collection not there":
+        shutil.rmtree(manifests / "community" / "general")
+    elif case == "a manifest that says no version":
+        (manifests / "community" / "docker" / layer1.MANIFEST).write_text(json.dumps({"collection_info": {}}))
+    elif case == "a version no sentence says":
+        plant_collections(folder, {"community.proxmox": "2.0.0\x1b[2J"})
+
+
+@pytest.mark.parametrize("case", sorted(UNREADY))
+def test_a_checkout_s_collections_not_at_requirements_pins_are_refused_naming_just_install(
+    made, root, tmp_path, installed, case
+) -> None:
+    # As today's tools/check collections refuses before every recipe's run: here once tools/env-run has answered,
+    # before the play's child starts and before anything is written.
+    assert requirements_pins()["ansible.posix"] == "2.2.2" and requirements_pins()["community.general"] == "12.4.0"
+    _unready(installed, case)
+    alpha = _alpha(root)
+    with pytest.raises(layer1.Refused) as refused:
+        _run(made, target(alpha), _play(tmp_path, PING), test_connection=layer1_host(alpha))
+    assert str(refused.value) == UNREADY[case].format(folder=installed)
+    assert _written(made) == [] and children.live(made) == []
+
+
+def test_the_folder_s_verdict_is_today_s_tools_check_collections_own(tmp_path) -> None:
+    # Held equal: what today's recipes run before every Ansible run, ansible-galaxy --offline against requirements.yml
+    # with the folder as the collections' path, and layer 1's own reading of each collection's MANIFEST.json, over the
+    # same folders.
+    def check(folder: Path) -> bool:
+        ran = subprocess.run(
+            [str(REPO / "tools" / "check"), "collections", str(Path(sys.executable).parent)],
+            cwd=REPO,
+            env={
+                "PATH": os.environ["PATH"],
+                "HOME": os.environ["HOME"],
+                "LANG": "C.UTF-8",
+                "ANSIBLE_COLLECTIONS_PATH": str(folder),
+            },
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        return ran.returncode == 0
+
+    def held(folder: Path) -> bool:
+        try:
+            return layer1.held_collections(folder) == folder
+        except layer1.Refused:
+            return False
+
+    verdicts = {}
+    for case in ("at every pin", "a pin moved", "a collection not there"):
+        folder = plant_collections(tmp_path / case)
+        if case != "at every pin":
+            _unready(folder, case)
+        verdicts[case] = (check(folder), held(folder))
+    assert verdicts == {
+        "at every pin": (True, True),
+        "a pin moved": (False, False),
+        "a collection not there": (False, False),
+    }
+
+
+def test_layer1_reads_the_pins_the_kit_reads_and_no_other() -> None:
+    assert layer1.pins() == requirements_pins()
+    assert list(layer1.pins()) == [
+        "community.proxmox",
+        "community.general",
+        "community.docker",
+        "ansible.posix",
+        "community.library_inventory_filtering_v1",
+    ]
+    assert layer1.REQUIREMENTS == REPO.resolve() / "requirements.yml"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        None,
+        "collections: [",
+        "collections: {}\n",
+        "collections:\n  - name: ansible.posix\n",
+        "collections:\n  - name: ansible.posix\n    version: 2.2\n",
+        "collections:\n  - {name: ansible.posix, version: '1'}\n  - {name: ansible.posix, version: '1'}\n",
+        "collections:\n  - {name: posix, version: '1'}\n",
+    ],
+    ids=["not there", "no YAML", "no list", "no version", "a version no string", "twice", "no namespace"],
+)
+def test_a_requirements_yml_that_pins_nothing_readable_is_refused_before_anything_starts(
+    made, root, tmp_path, monkeypatch, text
+) -> None:
+    requirements = tmp_path / "requirements.yml"
+    if text is not None:
+        requirements.write_text(text)
+    monkeypatch.setattr(layer1, "REQUIREMENTS", requirements)
+    alpha = _alpha(root)
+    with pytest.raises(layer1.Refused, match=f"^{re.escape(str(requirements))}"):
+        _run(made, target(alpha), _play(tmp_path, PING), test_connection=layer1_host(alpha))
+    assert _written(made) == [] and children.live(made) == []
+
+
+@pytest.mark.parametrize("fault", ["not there", "not executable", "no program"])
+def test_a_tools_env_run_that_is_not_there_to_run_is_refused_by_name(made, root, tmp_path, monkeypatch, fault) -> None:
+    stand_in = tmp_path / "env-run"
+    if fault != "not there":
+        # A file the system cannot run: no #! line, no machine's code.
+        stand_in.write_bytes(b"\x00\x01 not a program\n" if fault == "no program" else b"#!/bin/sh\necho /x\n")
+        stand_in.chmod(0o755 if fault == "no program" else 0o644)
+    monkeypatch.setattr(layer1, "ENV_RUN", stand_in)
+    alpha = _alpha(root)
+    with pytest.raises(layer1.Refused) as refused:
+        _run(made, target(alpha), _play(tmp_path, PING), test_connection=layer1_host(alpha))
+    assert str(refused.value) == (
+        f"{stand_in}, which finds this checkout's Galaxy collections that the system play needs until F6a, is not"
+        " there to run: take it from git again, then run just install"
+    )
+    assert _written(made) == [] and children.live(made) == []
 
 
 def test_a_vars_plugin_under_the_caller_s_home_is_never_run(made, root, tmp_path) -> None:
@@ -444,7 +581,7 @@ def test_a_play_of_one_ping_runs_through_layer1_on_a_stand_in_its_child_in_the_r
     # The configuration and the one host's inventory, in the run's directory, at 0600.
     directory = rundir.made(made)
     assert directory is not None
-    checkout = _env_run_collections(dict(os.environ))
+    checkout = collections_folder(dict(os.environ))
     assert (directory / layer1.CONFIG).read_text() == layer1.configuration_text(directory, checkout)
     inventory = f"{layer1.INVENTORY_PREFIX}{alpha.identity}{layer1.INVENTORY_SUFFIX}"
     assert [name for name in _written(made) if not name.startswith(layer1.LOCAL_TMP)] == [

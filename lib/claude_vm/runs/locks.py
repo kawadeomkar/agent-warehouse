@@ -414,7 +414,8 @@ def changing_run_lives(state: str | os.PathLike) -> bool:
 async def section(ctx: Context, name: str, *, shared: bool = False, machine: str | None = None) -> AsyncIterator[None]:
     """One short section of the run ctx gives, by its lock file's name (lock_sets.section_name, `<word>-<host>`): its
     lock taken, shared or exclusively, waiting for it where another run holds it, with a `waiting` event that names it
-    (about machine, or the whole run), and that wait alone cleared once it is taken. A wait ends once the run is
+    (about machine, by the key its events name: its identity, or a VM's stand-in until its join, runs/job.py; or the
+    whole run), and that wait alone cleared once it is taken, before the block begins. A wait ends once the run is
     stopping: asyncio.CancelledError. Entered outside any shield, since a Ctrl-C ends the wait inside one too; and
     `nextid` outside `template`, never inside it. Let go when the block ends, however it ends."""
     if not isinstance(name, str) or not SECTION.fullmatch(name):

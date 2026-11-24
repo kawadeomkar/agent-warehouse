@@ -221,8 +221,8 @@ and nothing else, and write a line as a person types one: the program as it was 
 verb, in the table's order; the verb, `deploy`'s whole chain as its one verb; the verb's words straight after it; its
 options in the table's order, `--detach` last as the parser gives it, a value after a space (`--only configure`) and as
 `--long=value` only where it starts with `-` or is empty, so the parser reads it as a value, a flag bare, `-v` repeated
-in one word, `--set` once for each value; and last the host's flag, `--host <name>`. Parsing the line gives the same
-values back.
+in one word, `--set` once for each value; then the host's flag, `--host <name>`; and last, in a form, its placeholders
+(below). Parsing the line gives the same values back.
 
 The program is `aw` where `aw` on `PATH` is the checkout's launcher, else what the person typed to start it (`./aw`):
 the launcher says which in `AGENT_WAREHOUSE_STARTED_AS`, which `cli/main.py` takes out of its environment at once and
@@ -236,16 +236,23 @@ it unquoted, for a child's environment, never for a line.
 A line that gives a value or a verb's words as `PLACEHOLDER` is a form: it shows a command's shape, each placeholder
 written as `placeholder` writes it and never quoted (`aw destroy <name>... --confirm <names>`), and so is a line made
 from values no run has taken, whose free text is masked (below). A form is shown, never offered as the command to run:
-a line a person is told to run, NEXT STEPS' and the session notes' (16.4), holds none. Pasted at a shell, a
-placeholder is two redirections, `<name>` reading a file named `name` and writing one named as the word after it: a
-form that ends in one is no line a shell reads at all, and any other stops at its first `<` where the folder holds no
-file of that name, nothing run, made or emptied. Where the folder does hold a file named as each placeholder, the shell
-reads it, makes or empties a file named as the word after each `>` (`...`, `]`, `=`, `--host`), and runs `aw` with the
-words left, which `aw` refuses for every form the code writes but `host --remove`'s (`aw host <name> --remove`): its
-words left are `aw host`, a read, which lists the hosts into a file named `--remove`. A form that left a whole command
-would run it (`aw deploy <name>...` alone leaves `aw deploy`, the default VM's), so none is written. Given back to `aw`
-as a word or as JSON, each placeholder is refused by the one check, in `aw`'s own words. The values are the parser's or
-a handler's: `default_vm` is said by naming no VM, and a value that is off (a flag not given, a count of 0, an empty
+a line a person is told to run, NEXT STEPS' and the session notes' (16.4), holds none. A form writes its placeholders
+last: the verb's words, then each option in the table's order, whose value is a placeholder or is masked, after every
+part with a real value, the host's flag among them (`aw host --remove <name>`,
+`aw init --host far --address <address>`). Pasted at a shell, a placeholder is two redirections, `<name>` reading a
+file named `name` and writing one named as the word after it, so a real value after a placeholder would be taken for a
+file's name and the word before the placeholder handed a value; written last, none is. A form that ends in a
+placeholder's `>` is no line a shell reads at all, and nor is one where a `>` meets the next placeholder's `<`: every
+form but one whose one placeholder is a verb's names, `<name>...`, which ends in `...`, the name of the file its `>`
+writes. That one stops at its `<` where the folder holds no file named `name`, nothing run, made or emptied; where it
+holds one, the shell reads it, makes or empties `...`, and runs
+`aw` with the line's other words, its real values. So the printer writes it only where the one check, its rules among
+them, refuses those words (`aw deploy --tags claude_code <name>...` leaves `aw deploy --tags claude_code`, which
+`deploy.7` refuses), and raises `ValueError` where it takes them (`aw deploy <name>...` alone would leave `aw deploy`,
+the default VM's), asking the check's `takes`, which says no rule's sentence, since a rule's sentence names such a
+form. No form the printer writes leaves a whole command, with no exception. Given back to `aw` as a word or as JSON,
+each placeholder is refused by the one check, in `aw`'s own words. The values are the parser's or a handler's:
+`default_vm` is said by naming no VM, and a value that is off (a flag not given, a count of 0, an empty
 list) is not said. Each is held as the one check holds it but for the rules between options (`formed`), and one it
 refuses, a word that starts with `-`, or a value or word that holds a character of Unicode's categories Cc, Cf, Cs, Zl
 or Zp (a C1 control, a bidi override, a lone surrogate, a line separator), which a terminal would act on, not show as
@@ -273,12 +280,23 @@ constant (`program`, `_program`, `PROGRAM`), by any name a module binds to the p
 printer and the check name a sentence's field `program`; the check's `command`, the program and a verb, is used only by
 the modules that refuse (the check, the printer, `cli/parse.py` and `cli/dispatch.py`) and by help, for its usage
 lines and the program its closing paragraph names, each named with why, by any name a module binds to the check, its
-package or the function; and every use of `line` or `argv`, through any name or a `functools.partial`, says
-`refused`. What the scans cannot see is a command joined at run time from pieces that name none (`'aw' + ' cancel '`,
-a list joined), a path to the program other than `./aw` (`../aw deploy`), another case, a name reached through
-`getattr`, `vars` or `importlib`, and a string the printer made with words of a module's own joined to it
-(`printer.line(...) + ' ' + job`, a sentence that says words of its own after a line's field): a line to run is the
-printer's line, whole, and a sentence names its command as a `Line`, which is how such a line is made.
+package or the function; every use of `line` or `argv`, through any name or a `functools.partial`, says `refused`;
+and a printer's line is never extended: a call of `line` or `argv`, of `said` whose sentence is one field (`"{line}"`),
+of a function of the module's own that returns one, a name bound to one in the same function, or an f-string that ends
+in one, is never an operand of `+` or `%`, an element of what a `%` template takes, added to, or anywhere in what
+`join`, `format` or `format_map` takes, and in an f-string is followed by the string's end, punctuation or a word of
+prose (letters alone, no verb of the table's, no word that starts with `-` before the next punctuation), never by a
+field; and a sentence `said` says is never built at its call (by `+`, `%`, an f-string, `join` or `format`), and in a
+literal one, or a constant of its module's, each field a `Line` fills (given at the call, from `LINES`, or each field,
+where the call gives its values otherwise than as a mapping written there) is followed as a line in an f-string must
+be; the rules' and the table's sentences are held so through the Lines they are said with. The check's own `command`
+and `help_of`, which name the command a refusal is about with the option it refuses after it, are no line in its own
+module: the guard of the check's `command` holds them. What the scans cannot see is a command joined at run time from
+pieces that name none (`'aw' + ' cancel '`, a list joined), a path to the program other than `./aw` (`../aw deploy`),
+another case, a name reached through `getattr`, `vars` or `importlib`, and a printer's line carried where the scan of a
+line extended does not follow it (an attribute, a container, another module's function, a word of prose that is a
+value): a line to run is the printer's line, whole, and a sentence names its command as a `Line`, which is how such a
+line is made.
 `tests/unit/test_aw_cli_printer.py` holds the printer: for every verb, its words, each option alone and beside them and
 each pair of options the rules allow come back from the line through the parser and the one check, and no verb or
 option lacks such a case; every example line the test gives, of every verb, comes back from its line, before the habits
@@ -286,13 +304,16 @@ and after; a line's form; an awkward value, each character a POSIX shell reads o
 one, two values of free text on one line, an empty value and a name that starts with a digit survive `/bin/sh` and
 `bash`, and a value that starts with `=` is quoted; a value a terminal would not show as it is is never printed; a
 value that is off is not said, a placeholder is the one `placeholder` writes, in a form line and a masked one alike,
-and each placeholder given back, as a word and as JSON, is refused; each form the rules and the table write, help's
-usage lines and `deploy`'s question's lines, pasted into `/bin/sh` and `bash`, runs nothing in a folder with no file
-of a placeholder's name, and in one with a file of each leaves words `aw` refuses, but `host --remove`'s, written
-there; the host's flag; a value of free text is never said back from values no run took, and every call says
+and each placeholder given back, as a word and as JSON, is refused; a form's placeholders last, over the printer's
+whole domain (for every verb, each field a form may give as a placeholder and each value of free text masked, alone,
+beside each other field given a value or a placeholder, and beside every other field at once, refused and not, with
+each host's flag the verb takes) and help's usage lines, each pasted into `/bin/sh` and `bash`, running nothing in a
+folder with no file of a placeholder's name, and in one with a file of each nothing or words `aw` refuses, with no
+exception, and the printer refusing only a form whose one placeholder is its names beside words the check takes; the
+host's flag; a value of free text is never said back from values no run took, and every call says
 `refused`; a value the check refuses is never printed; the program as it was started, quoted, in this process, from a
 path a shell would split and through the launcher, the check's sentences and help's among them; by scans of their
-syntax, the four guards above, which a module planted with the roads the reviews found fails, but for the roads the
+syntax, the five guards above, which a module planted with the roads the reviews found fails, but for the roads the
 scans cannot see; that no sentence of the rules or the table holds a command as text; and that each module of
 `schema/` imports alone and first and nothing outside `schema/`, and `pve/` and `vendors/` import the printer when
 they are imported, none of them inside a function.
@@ -900,8 +921,9 @@ parameters name only where its route lists entries of that kind (its `LISTINGS`)
 call no row names is refused, since nothing would check it. So a row added on a route the client already sends, which
 would widen `init`'s role, fails a test unless the fake checks it. `tests/unit/test_aw_pve_privileges.py` holds every
 privilege to a list of Proxmox VE 9's, the module to the standard library, the rows' shape, `needed` to each row's
-first privilege on its first kind, each key of a configuration's write to one row, and the fake and the harness to no
-privilege name of their own but today's.
+first privilege on its first kind and to a literal set for every kind (a row that widens `init`'s role, which the fake
+checks and every other test passes, fails there until its pin is changed with it, where a reviewer reads it), each key
+of a configuration's write to one row, and the fake and the harness to no privilege name of their own but today's.
 
 **A started VM's address: `agent.py`.** The client's one call to the guest agent, `agent_interfaces(node, vmid,
 deadline)`, asks what the VM's agent reports of its network cards (`network-get-interfaces`, `VM.GuestAgent.Audit`) on a
@@ -1036,8 +1058,9 @@ rules: a `PUT` or a `POST` to a configuration's path with no `digest`, or an emp
 end fails a test where the fake was sent one, the path read decoded there too, and every method that sends one sends
 `digest` (a syntax-tree test of the module); a configuration's write sends only
 the keys the table covers for it; both ways, every row of the table is one the fake decided a request of the client's
-by (its `decided.log`), a configuration's row by a write that sent one of its keys, and every call it makes has its
-rows, each method of the client driven against the fake under enforcement, a task another made read among them so
+by (its `decided.log`, which `tests/unit/test_aw_fake_pve.py` holds whole, request by request, so that a row the fake
+logged and did not decide fails), a configuration's row by a write that sent one of its keys, and every call it makes
+has its rows, each method of the client driven against the fake under enforcement, a task another made read among them so
 that a task's rows are checked, and what it sent read from the fake's log; the words the client tells refusals
 and warnings apart by match the fake's constants; and no error of a write or a read, the version's included, says the
 token's secret where Proxmox's words echo it. `tests/unit/test_aw_pve_agent.py` runs the wait against the fake in the
@@ -1648,6 +1671,7 @@ fleet's folders (`fleet/files.py`).
 | `inputs` | The run's resolved inputs, a typed `--set` value among them |
 | `starter` | What started it: `{"kind": "terminal"}`, `{"kind": "detach"}`, or `{"kind": "mcp", "server": <id>}`, that server's own ID |
 | `host`, `machines` | The host the run is on, and the machines it names, by identity |
+| `making` | The machines it is making that have no identity yet, each by its stand-in key with the name a person chose, until its join |
 | `locks` | The names of the locks it holds |
 | `attached` | Whether it runs at a terminal |
 | `pid`, `started` | Its process and when it started: information for a person and for a machine's `job` line, never read to decide a state |
@@ -1691,13 +1715,27 @@ process's start or reads the process table for one, which a scan in the test hol
 
 **Events.** `emit(kind, machine, text, **data)` hands one event, with its time, to each listener the run registered
 with `listen` (the live view and the text log), in order and in the run's own process. The kinds are `stage`, `step`,
-`report`, `waiting`, `next` and `end`; another is refused, `child` among them, since a child the run started is its
-registry's (`children.py`). Every string an event carries goes through
+`report`, `waiting`, `next`, `join` and `end`; another is refused, `child` among them, since a child the run started is
+its registry's (`children.py`). Every string an event carries goes through
 `text.plain_text`, and a `Secret` anywhere in one is refused before anything is written or heard. What an agent and
 `logs` read is also kept in the record: a `waiting` (empty text: nothing), a `next` with its `matter` (an empty line
 removes it), a machine's `end` with its outcome and the stage its last `stage` event named, and the run's `end` (no
 machine) with its outcome and exit status. Only the process that made a job emits its events, listens to them or drops
 it.
+
+**A machine not yet made.** A machine is named by its identity, which a VM the run is making has not until its clone
+gives it its SMBIOS UUID. Until then the run names it by a stand-in key, `job.stand_in()`: `making:` and sixteen hex
+digits, a form no identity (`agent-warehouse-<SMBIOS UUID>`) and no VM's name (which has no colon) takes, so it is never
+taken for either. Its first event carries the name a person chose (`name=`), as an identity's first event does, and the
+record keeps it in `making`, the stand-in with that name, so that a run killed before the clone, read by `logs` or an
+agent, says what it was making, and `machines` keeps identities alone (`create` refuses a stand-in there). One `join`
+event, its machine the identity and its text the stand-in, joins the two: the identity joins `machines`, the stand-in
+leaves `making`, and what the record keeps under the stand-in moves to the identity, in its place: its outcome in
+`machine_outcomes`, its lines of `next`, and the run's `waiting` where it is the machine's. From then on the stand-in
+names nothing. Refused before anything is written or heard: a stand-in's first event with no name; an event that names a
+stand-in joined already; a join with no identity, or a stand-in for one; a join of a key that is no stand-in, of a
+stand-in joined already, or of one the run is not making; and a join to an identity the run has named before, given or
+in an event, which would make two machines one.
 
 **Reading and dropping.** `find(jobs_dir, job_id)` takes only what the pattern `job_id` holds, sixteen hex digits,
 and `listed(jobs_dir)` gives every job newest first. Each passes over a folder whose `job.json` is not there yet, or is gone, and a job that vanishes
@@ -2066,8 +2104,16 @@ name a person chose rides beside it, as an event's `name` (layer 1's steps carry
 mapping of identity to name; the model keeps each identity's name (`names`, `name(machine)`), and a drawer says the name
 wherever it says a machine. Every emitter passes the identity: an event whose machine is the name the run keeps for
 another key, or whose `name` is another key of the run's, is refused, so one machine is never two rows drawn under one
-name. The events it reads, their text plain as `emit` makes it (a tab, a line break and Unicode's format characters
-stay, and a drawer makes them visible):
+name. A VM the run is making has its row from its first event all the same, as today's run draws each VM by its name
+from the start: its events name it by its stand-in key, the first of them with its `name` (or the run's machines given
+with it and its name), and the `join` event moves everything the model keeps under the stand-in to the identity, in its
+place (`JOINED`): the machine's row in `machines`, its name, its part in every stage and step with their times and
+outcomes so far, the order its end came in (`_Book.ends`, which says what of every machine's it reads), the stage it
+reached, its waits, its reports, its failures, its outcome, its latest line and its NEXT STEPS lines. So the identity's
+events go on where the stand-in's left off, a failure said before the join is not said again at the machine's failed end
+after it (B2's rule and the end's "nothing of it failed" read a failure's machine), and nothing drawn changes: one row,
+before and after. From then on the stand-in is no key of the run's. The events it reads, their text plain as `emit`
+makes it (a tab, a line break and Unicode's format characters stay, and a drawer makes them visible):
 
 | Event | What the model makes of it |
 |---|---|
@@ -2077,6 +2123,7 @@ stay, and a drawer makes them visible):
 | `report` | Kept whole, in order, to be printed above the region |
 | `waiting` | Opens the wait of its machine and its `section`, in place of one open; an empty text ends that wait alone |
 | `next` | A line of NEXT STEPS for its machine and `matter`; an empty line removes it |
+| `join`, its machine the identity, its text the stand-in | Everything kept under the stand-in is kept under the identity from then on, each in its place (`JOINED`); the stand-in names nothing more |
 | `end` | With a machine: its outcome, the stage it reached (`stage`, else its own last `stage` event, as the job's record keeps it), why, and what of it is open ends (done, failed, stopped). With none: the run's end; everything open ends, done where the run succeeded and stopped where it failed or was cancelled, and no event is taken after it |
 
 A `stage` or a `step` is for one machine, or with no machine for every machine of the run: a machine with no part of its
@@ -2092,7 +2139,14 @@ says so, and one still open at the run's end is done where the run succeeded and
 cancelled: cut short, never failed, since what failed said so itself. An event of a stage the declaration lacks, of a
 step its stage does not declare, of a kind the job lacks, an ending other than done, skipped or failed, a NEXT STEPS
 line with no matter, a name that is no str, a machine named by the name the run keeps for another key or a name that is
-another key, and anything after the run's end are refused before anything is kept.
+another key, a stand-in's first event with no name (and a stand-in given with none), an event that names a stand-in
+joined already, a join with no identity or a stand-in for one, a join of a key that is no stand-in, of a stand-in joined
+already or of one the run does not know, a join to an identity the run keeps anything for (two machines would be one
+row), and anything after the run's end are refused before anything is kept, the order of the events counted included.
+`tests/unit/test_aw_run_join.py` holds the stand-in and its join: a run that makes a VM, its events under the stand-in
+from the first, the join, then the identity's, read as one row with its parts, its times and one outcome, equal at each
+event to the same run keyed by the identity from its first event; each thing the join moves, each refusal leaving the
+model as it was, the record across the join, and the live view through it, nothing drawn twice.
 
 What a drawer reads: `state(stage, step)` (to come, running, waiting, done, skipped, failed, stopped), `mark(machine,
 stage, step)` and `marks(stage, step)` (each machine's, none for a stage that is not each machine's), `running()` and
@@ -2173,11 +2227,14 @@ left out: the run goes on, and every listener after the view still hears it. Not
 sequence or reads the terminal itself: the region, the palette, the title and the echo are `tui/`'s. The model's
 machines are the job's own, `job.json`'s `machines`, by identity, the key every event of a machine names, each with the
 name a person chose where the caller gives it (`names`): the record keeps identities alone, and the view says a machine
-by its name. A job has one view: a second is refused (`RuntimeError`), the first keeping it. What the view says in the
-run's thread, each event's lines and standard error's lines above the region, is said whole, a Ctrl-C, a SIGTERM and a
-SIGHUP held off meanwhile and each delivered once it is said (`live_region.uninterrupted`, which also holds each of the
-region's writes and its count of the lines drawn): the ladder raises from its handler wherever the run's thread is, and
-a frame drawn but not counted would be left above the summary, an erase not counted would wipe lines said above it, and
+by its name. A row is keyed by the machine's identity, or, for a VM the run is making, by its stand-in key until its
+join: drawn by its name from its first event (from `job.json`'s `making` where the view is made after that event), and
+the join changes nothing drawn, one row before and after, the identity's events going on in it. A job has one view: a
+second is refused (`RuntimeError`), the first keeping it. What the view says in the run's thread, each event's lines and
+standard error's lines above the region, is said whole, a Ctrl-C, a SIGTERM and a SIGHUP held off meanwhile and each
+delivered once it is said (`live_region.uninterrupted`, which also holds each of the region's writes and its count of
+the lines drawn): the ladder raises from its handler wherever the run's thread is, and a frame drawn but not counted
+would be left above the summary, an erase not counted would wipe lines said above it, and
 a line counted as said but not written would be lost. Once a write to the stream fails nothing more is written there,
 and a stream whose pipe is broken (`aw … | head -1`) is pointed at `/dev/null`, so that Python's flush at the exit
 succeeds and the run ends with its own status. A question at the run's terminal finds the run's view by the job its
@@ -2282,7 +2339,8 @@ file and command, `tls_ca_file`, `network_proxy`, `run_lock`, `run_forks`, `run_
 `destroy_allow_unrecorded`, `github_username`, and two for one run alone; and `CONNECTION`, counted apart, this
 computer's own SSH that today's guides document outside the example (`ssh_identity_file`, `ssh_executable`,
 `vm_ssh_options`). A `Row` is the setting's name; its type (`TYPES`: `bool`, `int`, `str`, `path`, `list[str]`, `dict`,
-`size`; a `size`, `vm_disk_size`'s alone, a whole number with G or T after it, in either case, as `deploy --disk` takes
+`size`, `text`; a `text`, no row's but a role's option of several lines alone (`passthrough.py`'s `TEXT`, below), a
+string that may hold line breaks; a `size`, `vm_disk_size`'s alone, a whole number with G or T after it, in either case, as `deploy --disk` takes
 one, and kept with its unit capital; a `path`, of which there are seven, is a path on this computer, and `overrides.py`
 reads one, typed or in a file, with `~` at its start the user's home, refuses one still relative, `~user` among them, by
 the setting's name, and keeps `""` as unset, never the working folder) and choices, the argument spec's of the role
@@ -2320,12 +2378,12 @@ agent may change today's `ALLOWED` with `VALUES`' rule, every name of `ALLOWED` 
 
 **The overrides: `overrides.py`.** What a person sets is kept in plain files of literals, written by hand or by the
 engine, never sealed, each a YAML mapping of setting names to values and nothing else: no expression, no anchor, alias,
-merge or key given twice, no line break inside a value. Each row is read from the file of its home alone: the fleet's
-`fleet/settings.yml` (a row of scope `machine` in its map `machines`, by `<host>/<machine>`, never at its top level,
-which would give every machine one value), each host's `fleet/hosts/<name>/settings.yml`, which no other host reads, and
-this computer's `client.yml` (a row of scope `host` in its map `hosts`, by the host's name, never at its top level;
-`vm_ssh_options` at its top level for every machine and in its map `machines` for one, which outranks it). A setting in
-a file that is not its home is refused by name, with its line and where it belongs; a row of home `run` is in no file.
+merge or key given twice, no line break inside a value but a `text`'s. Each row is read from the file of its home
+alone: the fleet's `fleet/settings.yml` (a row of scope `machine` in its map `machines`, by `<host>/<machine>`, never at
+its top level, which would give every machine one value), each host's `fleet/hosts/<name>/settings.yml`, which no other
+host reads, and this computer's `client.yml` (a row of scope `host` in its map `hosts`, by the host's name, never at its
+top level; `vm_ssh_options` at its top level for every machine and in its map `machines` for one, which outranks it). A
+setting in a file that is not its home is refused by name, with its line and where it belongs; a row of home `run` is in no file.
 `client.yml` also keeps `fleet_home`, read by YAML and held equal to what `paths.pointer_in` reads, so the file and the
 fleet's home never read it apart, and `current_host`, a host's name, which `set_current` alone writes; every other write
 keeps both as they are. `read(home, host)`
@@ -2336,8 +2394,10 @@ the run, else its home's file's, else the table's default, a default worked out 
 typed text to its row's type, choices, form and least value, a path by the path rule and `network_proxy` by
 `vendors/proxy.py`'s one check, which refuses a user and a password, refusing an expression and a control character in
 the text and again in the value YAML's escapes make of it; a value in a file is held the same way, so
-`vm_disk_size: 128g` in a file, `--set vm_disk_size=128g` and `128G` typed are one value.
-`run_values(texts, secrets=...)` types the words of `--set`: a name that is no row's is refused unsaid, a row that may
+`vm_disk_size: 128g` in a file, `--set vm_disk_size=128g` and `128G` typed are one value. A `text` is never typed:
+`typed`, `--set` and a value given for one run refuse it, naming the fleet's `settings.yml`, where a person writes it as
+YAML's block (`name: |`, then its lines indented) and where it holds line breaks, no other control character and no
+expression. `run_values(texts, secrets=...)` types the words of `--set`: a name that is no row's is refused unsaid, a row that may
 hold a secret is never given for one run, and a value that holds one of the vault's secrets (every caller names them,
 each a `Secret`, struck and never revealed) is refused in the text and in the value; the result is what a run records as
 its inputs and `resolve`'s top layer. `set` and `unset` write one value into the file of its home, under `store.locked`,
@@ -2364,11 +2424,18 @@ role, the entry point that first lists it (main first), the spec's type, choices
 description, and `refused`: none for one passed through, else why it is no setting, as today's `tools/settings` refuses
 it, in the words a refusal says after its name. The vault's is one the spec marks `no_log` or that a name the vault
 holds reaches, so no secret is ever passed through; each machine's own is one made from the machine's name; a run's own
-is one a run sets for itself (`BY_A_RUN`); and `LEFT_OUT` names seven with their reasons: the host's connection, a field
-of each host's `host.yml`, and the certificate's switch the client has not (the four options today's connection
-settings fed); the two the run sets from `vpn`; and one a row of another name stands for (`destroy_allow_unrecorded`).
+is one a run sets for itself (`BY_A_RUN`); and `LEFT_OUT` names twenty-three with their reasons, each held elsewhere: the
+host's connection, a field of each host's `host.yml` or the anchor beside it, and the certificate's switch the client
+has not (the four options today's connection settings fed, the address and the anchor's path); the client's own bound
+on a call; the ownership tags, since a VM is the fleet's by its pool and its record; the two the run sets from `vpn` and
+the one that names it in the VPN's messages; the template a run chooses and the golden's build VM a role sets for
+itself; a folder of this computer's; each machine's own repositories and whether its Tailscale had a login, which its
+record keeps; the three lines that name a machine's host and the two routes to it, the run's; and one a row of another
+name stands for (`destroy_allow_unrecorded`).
 `refusal(name)` says why of any other option of the roles a row does not have too: one a row's setting reaches is set
-through that row alone, and one whose spec takes any value has no type. Of today's 203 options, 87 are passed through.
+through that row alone, and one whose spec takes any value has no type. Of today's 203 options, 71 are passed through.
+The two whose value is several lines by what it is (`TEXT`: `proxmox_template_image_key`, an armored key, and
+`claude_code_global_instructions`, a whole `CLAUDE.md`) are each read by a row of type `text`.
 `overrides.py` takes the name of one passed through where it takes a row's, at home `fleet` and scope `global`: at the
 top of the fleet's `settings.yml`, and with `--set`, by `passthrough.row(name)`, its spec's type with no default; a path
 there is one on the machine the role runs on, held as one line of text and kept as typed, never made this computer's.
@@ -2378,7 +2445,10 @@ for one run, never saying the value. `typed(option, text)` holds typed text to t
 to a row. A kind of option no row's type holds (a list of anything but strings, choices of anything but a string) is
 refused as the table is made, before it could be passed through. `tests/unit/test_aw_fleet_passthrough.py` holds it:
 every option a row's, passed through or refused, none left out; each passed through carrying its spec; no secret passed
-through; each refusal's reason; a value held to its spec typed and in a file; and, against today's `tools/settings` run
+through, nor an option that `defaults.yml` or a role's own task file, handler or `vars/main.yml` sets (a scan of them);
+each refusal's reason; a value held to its spec typed and in a file; each `text` read back whole from the fleet's file,
+the vendored key among them, a control character but the line's end and an expression refused by its line, and neither
+typed; and, against today's `tools/settings` run
 as a child over an inventory made from the example files, every name it lets a person set taken here as a row or an
 option, but the nine of today's settings with no row and the options left out by name, which the test names; every
 option it writes through another setting refused here through that setting's row; and every name it refuses no option
@@ -2637,7 +2707,14 @@ play's roles call a collection's module, which ansible-core resolves as the play
 collections named the product's own child cannot load the play at all. `checkout_collections` asks `tools/env-run
 --collections` for it, a `program` child of the run given only the run's `PATH`, `HOME` and `XDG_DATA_HOME`, so that
 it is found as every recipe finds it and never worked out a second way; an answer that is not one absolute path, or
-none within 30 s, is refused before anything is written. For that time this folder is the one place under the caller's
+none within 30 s, is refused before anything is written. The folder it names is then held to `requirements.yml`'s pins
+before the play's child starts (`held_collections`), as today's `tools/check collections` holds it before every
+recipe's run: each collection pinned there, at its pin, by its own `MANIFEST.json`, where `ansible-galaxy` reads an
+installed collection's version, read by the engine itself rather than by a second child (about 2 s of `ansible-galaxy`
+a run). A folder that is not there, a collection at another version or not there, and a `tools/env-run` that is not
+there to run (no file, none executable, or one the system cannot run) are each refused in one sentence that names `just
+install`, which fills the folder, before anything is written, never Ansible's exit 4 at the load or a bare
+`FileNotFoundError`. For that time this folder is the one place under the caller's
 home that Ansible searches: it holds the collections pinned there, and a collection's vars plugin runs only where it
 is enabled, which the configuration enables none of. F6a, once built-in modules replace those three, takes the folder
 out, and the collections' path is the run's empty folder again. Ansible still adds the play's own folders beside it
@@ -2672,7 +2749,9 @@ runs (cancelled) ends the child with its tree (`claude_vm.proc`), its detached t
 (`test_collections`), named in place of the checkout's. `tests/unit/test_aw_layer1.py` holds it: the configuration read
 back by `ansible-config dump --only-changed`, every folder ansible-core's own definitions search under its home named,
 a run's folder of collections the one `tools/env-run --collections` names for the run's environment, which is given
-only what it reads, and an answer of it that is no folder refused, a vars plugin under the caller's home never run, a
+only what it reads, and an answer of it that is no folder refused, the folder held to `requirements.yml`'s pins with
+today's `tools/check collections`'s own verdict over the same folders, each way it is not ready and a `tools/env-run`
+not there to run refused in its sentence, a vars plugin under the caller's home never run, a
 play of one ping on a stand-in with its child in the run's registry, the environment as a task's module sees it, each
 refusal before anything is written, SIGINT to the child's group and a cancelled call each leaving nothing, the words
 Ansible's own ssh connection gave the stand-in `ssh` held by this computer's `ssh -G` over a `Host *` that loosens
@@ -2687,48 +2766,109 @@ the wait, the base's check by `raw`, the facts, cloud-init's wait and root's tem
 Its first task is today's check of the options in effect (`playbooks/tasks/host_keys.yml`'s), made whole: each variable
 of the connection - every variable of Ansible's ssh connection and of `sudo`, the connection's name, the interpreter and
 become's own, held to ansible-core's own documentation - is the inventory's the engine wrote, as written, or set
-nowhere. It is read as the host's own variables are, so that an extra variable, a variables file beside the play or a
+nowhere, the inventory read back by its own source, `ansible_inventory_sources`, which no source of a host's variables
+outranks, never by `inventory_file`, a host's variable that a file beside the play could point at a forged copy. It is
+read as the host's own variables are, so that an extra variable, a variables file beside the play or a
 vars plugin that would loosen the host key's checking or replace the program fails it by name before anything
 connects; the play's own vars and its roles' are none of those, and the ratchet holds every file the play reaches to
 setting no `ansible_` variable. `system.variables(path, document, secrets=...)` writes the play's variables through
 `variables.write` alone, after refusing by its name a setting the engine cannot serve yet: `common_user_passwordless_sudo`
-other than true, which needs a become password that no play is handed before F24. Layer 1 is held to state modules:
-`tests/unit/test_aw_layer1_ratchet.py` walks every task file the play reaches (`golden.reached`'s walker, the roles'
-handlers with them) and fails on a `command`, `shell`, `raw`, `script` or `expect` its list gives no reason, on a module
-outside `ansible.builtin` but the three F6a replaces with built-in ones (`ansible.posix.authorized_key`,
-`ansible.posix.sysctl`, `community.general.npm`), and on any file that sets an `ansible_` variable. Until F6a those three
-need their collections, from the checkout's own folder that layer 1's configuration names for now (above), or a
-test's in its place, the scenario's. The `system` scenario
+other than true, which needs a become password that no play is handed before F24.
+
+Layer 1 is held to state modules, and reaches nothing of this computer: `tests/unit/test_aw_layer1_ratchet.py` holds
+what the play reaches through a walk of its own that reads what Ansible reads. It follows the play's pre-tasks, tasks,
+post-tasks and handlers, a block's three parts among them; an include or import of tasks in any spelling (short,
+`ansible.builtin.`, `ansible.legacy.`), from the including file's folder or a role's `tasks/`; a role the play names,
+one included or imported from anywhere, and one a role's `meta/main.yml` names among its dependencies, found in the
+roles' folder; each role's tasks, handlers, defaults, vars and meta in every spelling Ansible's own `_load_role_yaml`
+takes (`main.yml`, `main.yaml`, `main.json`, `main`, a `main/` folder of defaults or vars, the file an include's
+`_from` names), read through Ansible's own `find_vars_files`; the play's `vars_files`; and each template a role's
+template task renders. What it does not follow it never passes over: a playbook imported, an include in a handler
+(Ansible resolves those otherwise), a file or role named by a template, a collection's role, a `collections` keyword
+(under which a short name can stand for a collection's module), a role in the play's own roles folder (searched before
+`roles_path`), a template outside a role or one that includes another each raise `Unfollowed`, which fails every test.
+Four tests read what it found. A `command`, `shell`, `raw`, `script` or `expect` is listed in `REASONS` with its reason
+and with its module and arguments as Ansible's `ModuleArgsParser` reads them, so that a reason is held to what runs: a
+new one, one no longer reached and one whose words changed under its name each fail, and two such tasks of one file and
+name fail as one key. A module outside `ansible.builtin` fails but the three F6a replaces with built-in ones
+(`ansible.posix.authorized_key`, `ansible.posix.sysctl`, `community.general.npm`). Nothing it reaches sets a variable
+whose name begins `ansible_` - the vars of a play, block, task, role entry or dependency, `vars_files`, `vars_prompt`, a
+role's defaults and vars, a fact (a templated name refused), a register, a loop's variable, an include's `apply`,
+`add_host` - nor includes variables at all, which the play's first check cannot see. And nothing runs or writes on this
+computer: no `delegate_to`, `local_action` or `connection` on a play, role entry, block, task or `apply`, no `fetch`,
+no play over any host but `all`, no `with_` loop, and no lookup but the five `LOOKUPS` lists by its file and whole
+string (the check's read of the inventory, `remote_tmp.yml`'s setting, and the three vendors' keys), found in every
+string of every file the walk read and in the templates. Until F6a those three modules need their collections, from
+the checkout's own folder that layer 1's configuration names for now (above), or a test's in its place, the
+scenario's. The `system` scenario
 (`molecule/system/`, [§11.3](testing.md#113-playbook-scenarios--just-test-integration-and-provision)) converges a
 container through `layer1.run` with the test-only `community.docker.docker` connection, twice, the second changing
 nothing. `tests/unit/test_aw_layer1_play.py` holds the opening tasks equal to the guest play's, a part asked for running
 that role alone, the check passing the inventory the engine wrote and failing a fact or a variables file beside the play
 by the variable's name, a machine's output holding `{{` read as its text by a message, a fact, a condition and an
-assert, the refusal, and the product's own child, started as the engine starts it, loading the play from the checkout's
-folder of collections: with none there it exits 4 at the load, unable to resolve `ansible.posix.authorized_key` (F6's
-finding), and with it the play starts.
+assert, a file beside the play that points `inventory_file` at a forged copy failing the check, the refusal, and the
+product's own child, started as the engine starts it, loading the play from the checkout's folder of collections: with
+none there the run is refused, naming `just install`, before anything starts; held at its pins with no module in it,
+the child exits 4 at the load, unable to resolve `ansible.posix.authorized_key` (F6's finding), so the play needs what
+is in it; and with the checkout's real folder the play starts.
 
 **A play's variables.** ansible-core loads an extra-variables file as a trusted source, so a string in it that holds
 `{{`, `{%` or `{#` would be rendered as a template: a setting would be code. `lib/claude_vm/guest/variables.py`'s
 `write(path, document, secrets=...)` writes the play's variables as one JSON file, `vars.json` in the run's directory,
 in which every string is `{"__ansible_unsafe": <the string>}` (`wrap`): Ansible's loader reads the file as JSON first,
 and its decoder hands such a string on as text, without the trusted mark. The standard library writes it, at 0600,
-whole, beside the path and then put in its place, never through a link. Nothing is written where a variable names the
-play's connection (any `ansible_` name: an extra variable outranks the inventory, where the SSH runner's options are, so
-no variable of the file names a connection's option), where a key anywhere begins `__ansible`, which the decoder reads
-as its own, or anything else would fail Ansible's JSON decoding (an integer past 64 bits, a float that is not finite, a
+whole, beside the path and then put in its place, never through a link. Nothing is written where a variable's name is
+not one a role variable's is (held first, so that a refusal never says a name with a control character), where a
+variable names the play's connection (any `ansible_` name: an extra variable outranks the inventory, where the SSH
+runner's options are, so no variable of the file names a connection's option), where a variable is named as one of
+`FIXED`, which an extra variable would outrank for every task of the play - the inventory's own name of the machine
+(`aw_name`), Ansible's magic variables (`inventory_hostname`, `group_names`, `inventory_file`, `hostvars`, ...) and
+every name ansible-core reserves (`get_reserved_names()`: `omit`, whose value would make every `default(omit)` of the
+roles pass one, the keywords of a play, a block and a task, and the templates' globals, such as `lookup` and `range`),
+where a key anywhere begins `__ansible`, which the decoder reads as its own, or anything else would fail Ansible's JSON decoding (an integer past 64 bits, a float that is not finite, a
 nesting past 32 levels), since its loader then reads the very same text as YAML, where a wrapped string is a plain
 mapping and its string a trusted template; where a string is no text UTF-8 holds, which fails the YAML too; where a
 value is of a type no variable holds, a `Secret` above all; or where the document holds a secret the run opened, in a
 name, a string or the file's text, which the refusal never says back: no secret is ever in this file. `layer1.run` holds
 the file it is given to the same rules (`held`) before anything is written or started. The decoder is under
 `ansible._internal`, so the tests, not Ansible's documentation, hold this across releases:
-`tests/unit/test_aw_variables.py` loads a written file through Ansible's own loader, in a Python of its own, and finds
-no string trusted (the same document unwrapped, every string trusted), and through a real child on a stand-in machine a
+`tests/unit/test_aw_variables.py` holds `FIXED` equal to what a child of the locked ansible-core gives a host, a play
+and a role's task beside an inventory's and a play's own, and its reserved names; it loads a written file through
+Ansible's own loader, in a Python of its own, and finds no string trusted (the same document unwrapped, every string trusted), and through a real child on a stand-in machine a
 wrapped `{{ 7 * 7 }}` reaches a task as that text, an unwrapped one is templated, with the untrusted-template switch at
 `error` the wrapped one used as a template fails its task, and every kind of value comes back as it went; a walk of
 every file written finds no bare string leaf. They are among the tests that must pass before the ansible-core pin moves
 ([§13](toolchain.md)).
+
+**The play's variables from the settings.** Layer 1 hands the system play one variables file and an inventory of one
+host, and nothing else: no `group_vars` or `host_vars`, and none of today's wiring in
+`inventory/group_vars/all/defaults.yml`, is read. `lib/claude_vm/guest/wiring.py`'s
+`role_variables(settings, target, parts, profile={})` makes that file's document as a pure function of the settings:
+`settings` is `overrides.resolve`'s for the machine's run, `target` the machine's name, one VM name as layer 1 holds it,
+`parts` the play's parts asked for, whose roles' variables it gives after the play's own
+(`configure_wait_for_cloud_init`, its row's value), and `profile` what a kind of machine lays under a person's settings
+(empty for a VM), by a setting's or an option's name, each laid only where the person set nothing: a row at its default,
+an option set nowhere. Its `TABLE`, written by hand as plain data and evaluating no template, gives each variable of the
+three roles' specs, every entry point's, its source: a row of the settings table (`common_user`, `vscode_server_user`
+and `dev_tools_user` are `vm_user`'s value, `common_user_ssh_public_keys` `vm_ssh_public_keys`', `common_extra_packages`
+`vm_extra_packages`', `vscode_server_enabled` `vscode_remote`'s, and the six of `dev_tools` that are rows of their own
+name those rows'); the machine's name (`common_hostname`, whose role default reads `inventory_hostname`, the identity in
+layer 1's inventory); or the role's own option of the same name, passed through (`passthrough.py`), handed only where
+the settings hold it, so that set nowhere the role's own default applies, those worked out from the machine's facts
+among them. `INTERNALS` gives `common_user_password` the empty string, with its reason: it matters only with
+passwordless sudo off, which `system.variables` refuses until F24 hands the password to Ansible's own become-password
+file on a pipe, so no secret is ever in the file. A name of the settings that is a variable made here and no row of its
+own name - `common_user`, `common_hostname`, `common_user_password` - is refused by name, as `--set` and the fleet's
+file refuse `common_user_password` as the vault's; so are a part that is none of the play's, a target that is no VM name
+and a profile's name that is no setting or option of the table. Every value is a copy.
+`tests/unit/test_aw_guest_wiring.py` holds the table to the roles' specs, every variable in it or among the internals
+once; each setting to the row today's wiring reaches the variable from, both ways; each option to `passthrough.py`'s,
+both ways; and the output, for the registry's defaults and three sets of overrides (the rows the play reads, every
+option of its roles, values given for one run), equal variable by variable to what a child of the locked ansible-core
+gives the same roles, with a machine's facts set, from today's example inventory with the same values in `local.yml`,
+against the one host's inventory layer 1 writes and the file the play's own writer made, loaded as extra variables. The
+`system` scenario converges its container from `role_variables` alone, its settings written into a fleet home of its own
+and given with `--set`, with no `group_vars` or `host_vars` beside the play or the inventory.
 
 **Layer 1's events.** The product's stdout callback (`guest/ansible/callback_plugins/aw_events.py`) writes each event
 of the play as one line of JSON on the events pipe, whose descriptor `AGENT_WAREHOUSE_EVENTS` names and which it makes

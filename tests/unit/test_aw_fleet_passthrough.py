@@ -4,14 +4,18 @@ Every option of the roles is one of three, and none is left out: a row's (its na
 through the wiring), passed through, or refused with why. An option passed through carries its role's spec - its
 type, choices, list elements and description, and the entry point that first lists it - and is held to that spec when
 typed and in a file: a value outside its type or its choices is refused, a list's elements are held, a path on the
-machine is kept as typed. A secret is never passed through, whatever reaches it. The overrides take its name where they
-take a row's, at the top of the fleet's settings.yml and with --set, and refuse one of the roles' options that is no
-setting by its name and why, in a file and for one run, never saying the value.
+machine is kept as typed. A secret is never passed through, whatever reaches it, nor a value the project's defaults or
+a role's own task sets, unless another part of the engine holds it and it is left out by name. The overrides take its
+name where they take a row's, at the top of the fleet's settings.yml and with --set, and refuse one of the roles'
+options that is no setting by its name and why, in a file and for one run, never saying the value. The two whose value
+is several lines by what they are, an armored key and a whole CLAUDE.md, are each a text: taken from the fleet's file
+as YAML's block holds them and read back whole, the vendored key itself among them, with no control character but the
+line's end and no expression, and never typed, the refusal naming the file.
 
 Until the cutover, today's tools/settings is run as a child, against an inventory made from the example files, with a
 home and a collections path of its own: every name it lets a person set (its change starts with its own command) is
 taken here, as a row or as an option passed through, but the nine of today's settings the table has no row for and the
-three options left out by name, which the test names; every option it writes through another setting is refused here
+options left out by name, which the test names; every option it writes through another setting is refused here
 through that setting's row; and every name it refuses is no option here, refused for today's reason. After the cutover
 the same test reads the roles' specs alone.
 """
@@ -36,10 +40,13 @@ from claude_vm.fleet.overrides import Refused, Value
 from claude_vm.fleet.passthrough import (
     ANY_VALUE,
     BY_A_RUN,
+    HOST_FLAG,
     LEFT_OUT,
     PER_MACHINE,
     SECRET,
     SET_BY_A_RUN,
+    SSH_VIA,
+    TEXT,
     THROUGH,
 )
 from claude_vm.secret import Secret
@@ -60,9 +67,32 @@ LEFT = ("proxmox_api_user", "proxmox_api_token_id", "proxmox_api_port", "proxmox
 # The four options those four fed today, left out by name with that reason: today's tool writes the first three as the
 # settings that feed them, and the fourth by its own name.
 LEFT_WITH_THEM = ("proxmox_vm_api_port", "proxmox_vm_api_user", "proxmox_vm_api_token_id", "proxmox_vm_validate_certs")
-# Today's settable names the engine does not take: the nine with no row, and the one of the four options today's tool
-# writes by its own name.
-NOT_TAKEN = (*OLDER, OLDER_VPN, *LEFT, "proxmox_vm_validate_certs")
+# The options another part of the engine holds, which today's tool writes by their own names, left out by name with why:
+# the host's address and its certificate's anchor (host.yml, and the anchor beside it), the client's bound on a call,
+# the ownership tags (the pool and the record), the one naming vpn in the VPN's messages, the template a run chooses,
+# the golden's build VM a role sets for itself, a folder of this computer's, each machine's own repositories and
+# Tailscale login (its record), the three lines naming a machine's host and the two routes to it (the run's).
+HELD_ELSEWHERE = (
+    "proxmox_vm_api_host",
+    "proxmox_vm_ca_path",
+    "proxmox_vm_api_timeout",
+    "proxmox_vm_tags",
+    "proxmox_vm_tags_1x",
+    "tailscale_off_setting",
+    "proxmox_vm_template_name",
+    "proxmox_template_build_vm",
+    "proxmox_template_known_hosts_dir",
+    "github_projects_vm_repos",
+    "tailscale_joined_tag",
+    "claude_code_host_flag",
+    "github_projects_host_flag",
+    "tailscale_host_flag",
+    "claude_code_ssh_via",
+    "github_projects_ssh_via",
+)
+# Today's settable names the engine does not take: the nine with no row, the one of the four options today's tool
+# writes by its own name, and the options another part of the engine holds.
+NOT_TAKEN = (*OLDER, OLDER_VPN, *LEFT, "proxmox_vm_validate_certs", *HELD_ELSEWHERE)
 # An option today's tool writes by its own name that a row of another name takes, with today's behaviour (D4).
 TAKEN_AS = {"proxmox_vm_allow_untagged_delete": "destroy_allow_unrecorded"}
 # Today's refused names that are rows: one that may hold a secret, never given for one run and refused a value by the
@@ -124,8 +154,8 @@ def test_every_option_of_the_roles_is_a_row_s_passed_through_or_refused_and_none
     # What options() lists is every option no row names, each passed or refused, and nothing else.
     listed = {each.name for each in passthrough.options()}
     assert set(passed) <= listed <= set(names) and not listed & rows
-    # 203 options today: 87 passed through, the rest a row's or refused.
-    assert (len(names), len(passed)) == (203, 87)
+    # 203 options today: 71 passed through, the rest a row's or refused.
+    assert (len(names), len(passed)) == (203, 71)
 
 
 def test_an_option_passed_through_carries_its_role_s_spec() -> None:
@@ -173,8 +203,13 @@ def test_an_option_is_read_by_a_row_of_its_spec_s_type_the_fleet_s_for_the_whole
             "fleet",
             each.role,
         )
-        assert row.type == passthrough.ROW_TYPES[each.type]
+        assert row.type == ("text" if each.name in TEXT else passthrough.ROW_TYPES[each.type]), each.name
         assert not (row.secret or row.agent or row.values or row.form or row.least is not None)
+    # The two of several lines by what they are, each passed through as a text, a string of its spec with no choices.
+    assert sorted(TEXT) == ["claude_code_global_instructions", "proxmox_template_image_key"]
+    for name in TEXT:
+        assert _passed()[name].type == "str" and not _passed()[name].choices, name
+        assert passthrough.row(name).type == "text" and "text" in registry.TYPES
     # A path is one on the machine the role runs on: a string, never this computer's path.
     assert passthrough.row("tailscale_marker_dir").type == "str"
     for name in ("tailscale_enabled", "proxmox_vm_cores", "vm_cores", "tailscale_auth_key", TYPED):
@@ -191,6 +226,11 @@ def test_a_new_kind_of_option_is_refused_before_it_is_passed_through() -> None:
     ]:
         with pytest.raises(ValueError, match=said):
             passthrough._row_type("made_up_option", spec)
+    # A text is a string of its spec with no choices: a spec that changed its type or gained choices is refused.
+    for spec in ({"type": "list", "elements": "str"}, {"type": "str", "choices": ["a"]}, {"type": "path"}):
+        with pytest.raises(ValueError, match="only a string with no choices holds"):
+            passthrough._row_type("claude_code_global_instructions", spec)
+    assert passthrough._row_type("claude_code_global_instructions", {"type": "str"}) == "text"
 
 
 # ---------------------------------------------------------------- what is no setting ----
@@ -232,13 +272,28 @@ def test_a_secret_is_never_passed_through_whatever_reaches_it() -> None:
 def test_the_options_left_out_by_name_are_each_a_role_s_option_refused_for_its_reason() -> None:
     specs = wiring.specs()
     every = {name for role in ROLES for name in specs[role]}
-    assert set(LEFT_OUT) == {*LEFT_WITH_THEM, OLDER_VPN, "tailscale_wanted", *TAKEN_AS}
+    assert set(LEFT_OUT) == {*LEFT_WITH_THEM, OLDER_VPN, "tailscale_wanted", *TAKEN_AS, *HELD_ELSEWHERE}
+    assert len(HELD_ELSEWHERE) == len(set(HELD_ELSEWHERE)) == 16
     for name, why in LEFT_OUT.items():
         assert name in every and name not in _row_names(), name
         assert passthrough.refusal(name) == why == passthrough.option(name).refused
     for name, row in TAKEN_AS.items():
         assert LEFT_OUT[name] == THROUGH.format(row=row) and registry.row(row).type == "bool"
     assert "host.yml" in LEFT_OUT["proxmox_vm_api_port"] and "always checked" in LEFT_OUT["proxmox_vm_validate_certs"]
+    assert "host.yml" in LEFT_OUT["proxmox_vm_api_host"] and "anchor" in LEFT_OUT["proxmox_vm_ca_path"]
+    assert {name for name, why in LEFT_OUT.items() if why == HOST_FLAG} == {
+        "claude_code_host_flag",
+        "github_projects_host_flag",
+        "tailscale_host_flag",
+    }
+    assert {name for name, why in LEFT_OUT.items() if why == SSH_VIA} == {
+        "claude_code_ssh_via",
+        "github_projects_ssh_via",
+    }
+    for name in ("proxmox_vm_tags", "proxmox_vm_tags_1x"):
+        assert "its pool and its record" in LEFT_OUT[name], name
+    for name in ("github_projects_vm_repos", "tailscale_joined_tag"):
+        assert LEFT_OUT[name].startswith("is each machine's own: its record keeps"), name
 
 
 def test_a_machine_s_own_a_run_s_own_and_one_of_any_value_are_refused() -> None:
@@ -250,6 +305,56 @@ def test_a_machine_s_own_a_run_s_own_and_one_of_any_value_are_refused() -> None:
     per_machine = sorted(name for name in every if passthrough.refusal(name) == PER_MACHINE)
     assert per_machine == ["common_hostname", "proxmox_vm_name"]
     assert sorted(name for name in every if passthrough.refusal(name) == ANY_VALUE) == ["proxmox_vm_id"]
+
+
+def _walked(node: object, path: Path, found: dict[str, set[str]]) -> None:
+    """Each name a set_fact's or a vars: mapping sets, at any depth of a task file's YAML, noted with its file."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key in ("set_fact", "ansible.builtin.set_fact", "vars") and isinstance(value, dict):
+                for name in value:
+                    if name != "cacheable":
+                        found.setdefault(str(name), set()).add(str(path.relative_to(REPO)))
+            _walked(value, path, found)
+    elif isinstance(node, list):
+        for item in node:
+            _walked(item, path, found)
+
+
+def _set_in_the_tree() -> dict[str, set[str]]:
+    """Every name the project's defaults.yml gives a value, and every name a role's own task file or handler sets for
+    the play (a set_fact's key, a vars: key at any depth) or its vars/main.yml holds, with the files that set it: what
+    outranks an option's own default where today's product runs the role, so a value the run or the role works out."""
+    found: dict[str, set[str]] = {}
+    defaults = REPO / "inventory" / "group_vars" / "all" / "defaults.yml"
+    for name in yaml.safe_load(defaults.read_text()) or {}:
+        found.setdefault(str(name), set()).add(str(defaults.relative_to(REPO)))
+    for role in ROLES:
+        folder = REPO / "roles" / role
+        for path in sorted([*folder.glob("tasks/**/*.yml"), *folder.glob("handlers/**/*.yml")]):
+            _walked(yaml.safe_load(path.read_text()), path, found)
+        internals = folder / "vars" / "main.yml"
+        if internals.is_file():
+            for name in yaml.safe_load(internals.read_text()) or {}:
+                found.setdefault(str(name), set()).add(str(internals.relative_to(REPO)))
+    return found
+
+
+def test_no_option_passed_through_is_one_defaults_yml_or_a_role_s_own_tasks_set() -> None:
+    # A value the project's defaults or a role's own task sets is the run's or the role's, never a person's setting: a
+    # person's value for it, handed to the play as an extra variable, would outrank the role's own set_fact for the
+    # whole run. Each such option is a row's, refused, or left out by name with why.
+    found = _set_in_the_tree()
+    set_here = {name: sorted(found[name]) for name in _passed() if name in found}
+    assert set_here == {}, f"passed through, yet set by the project or a role: {set_here}"
+    # The scan reads what it is meant to: a line of defaults.yml, a mapping there, a role's set_fact, a task's vars, and
+    # a role's vars/main.yml.
+    assert "inventory/group_vars/all/defaults.yml" in found["proxmox_vm_api_host"]
+    assert "inventory/group_vars/all/defaults.yml" in found["tailscale_off_setting"]
+    assert "roles/proxmox_template/tasks/golden_build.yml" in found["proxmox_template_build_vm"]
+    assert "roles/claude_code/tasks/remote_control.yml" in found["claude_code_unit_retired"]
+    assert "roles/common/vars/main.yml" in found["common_ssh_path"]
+    assert set(HELD_ELSEWHERE) - set(found) == {"proxmox_template_known_hosts_dir"}
 
 
 def test_the_module_imports_the_standard_library_the_table_and_today_s_wiring_alone(home) -> None:
@@ -307,6 +412,85 @@ def test_typed_text_its_spec_does_not_take_is_refused_with_no_value_said(name: s
         passthrough.typed(passthrough.option(name), text)
     assert str(refused.value).startswith(said), str(refused.value)
     assert text not in str(refused.value)
+
+
+# The vendored key a cloud image's list of digests is signed by, and a CLAUDE.md of two lines: text of several lines.
+KEY_FILE = REPO / "roles" / "proxmox_template" / "files" / "ubuntu-cloudimage.asc"
+INSTRUCTIONS = "# Every project\nWrite British English, and say what a change is for.\n"
+
+
+def _block(name: str, text: str) -> str:
+    """A setting whose value is text, written as a person writes one in the fleet's settings.yml: YAML's literal block,
+    its lines indented two spaces, an empty line left empty."""
+    return f"{name}: |\n" + "".join(f"  {line}\n" if line else "\n" for line in text.splitlines())
+
+
+def test_a_text_of_several_lines_is_taken_from_the_fleet_s_file_and_read_back_whole(home) -> None:
+    key = KEY_FILE.read_text()
+    assert key.count("\n") > 10 and key.endswith("-----\n"), "the vendored key is several lines, ending with one"
+    where = _where()
+    text = "vm_cores: 4\n" + _block("proxmox_template_image_key", key)
+    path = _put(_fleet_file(where), text + _block("claude_code_global_instructions", INSTRUCTIONS))
+    read = overrides.read(where, None).fleet.settings
+    assert read["proxmox_template_image_key"] == key
+    assert read["claude_code_global_instructions"] == INSTRUCTIONS
+    found = overrides.resolve(where, "lab")
+    assert found["proxmox_template_image_key"] == Value("proxmox_template_image_key", key, "fleet")
+    assert found["claude_code_global_instructions"] == Value("claude_code_global_instructions", INSTRUCTIONS, "fleet")
+    # Written by the one writer, and read back whole again; the file's other settings as they were.
+    digest = overrides.read(where, None).fleet.digest
+    again = "# Two\n\nlines, and one empty between them\n"
+    overrides.set(where, "claude_code_global_instructions", again, None, digest)
+    read = overrides.read(where, None).fleet.settings
+    assert (read["claude_code_global_instructions"], read["proxmox_template_image_key"], read["vm_cores"]) == (
+        again,
+        key,
+        4,
+    )
+    assert yaml.safe_load(path.read_text())["claude_code_global_instructions"] == again
+
+
+@pytest.mark.parametrize(
+    ("value", "line", "said"),
+    [
+        ('"one\\r\\ntwo\\n"', 1, "takes text whose one control character is the line's end"),
+        ('"one\\ttwo\\n"', 1, "takes text whose one control character is the line's end"),
+        ('"one\\x1b]0;x\\x07two\\n"', 1, "takes text whose one control character is the line's end"),
+        ('"one\\u2028two"', 1, "takes text whose one control character is the line's end"),
+        ("|\n  one\n  {{ lookup('pipe', 'id') }}\n", 3, "a setting takes a value, never an expression"),
+        ("|\n  one\n  {# two #}\n", 3, "a setting takes a value, never an expression"),
+    ],
+)
+def test_a_text_holds_no_control_character_but_the_line_s_end_and_no_expression(home, value, line, said) -> None:
+    where = _where()
+    path = _put(_fleet_file(where), f"claude_code_global_instructions: {value}\n")
+    with pytest.raises(Refused) as refused:
+        overrides.read(where, None)
+    named = "" if said.startswith("a setting") else "claude_code_global_instructions "
+    assert str(refused.value).startswith(f"{path} line {line}: {named}{said}"), str(refused.value)
+    path.unlink()
+    held = yaml.safe_load(f"v: {value}")["v"]
+    with pytest.raises(Refused, match="nothing was written"):
+        overrides.set(where, "claude_code_global_instructions", held, None, overrides.MISSING)
+    assert not path.exists()
+
+
+def test_a_text_is_never_typed_and_its_refusal_names_the_file_it_is_written_in(home) -> None:
+    said = f"claude_code_global_instructions {overrides.TEXT_TYPED}"
+    assert "settings.yml" in said and "name: |" in said
+    option = passthrough.option("claude_code_global_instructions")
+    for refusing in (
+        lambda: overrides.run_values(["claude_code_global_instructions=one line"], secrets=()),
+        lambda: passthrough.typed(option, "one line"),
+        lambda: overrides.typed(passthrough.row(option.name), "one line"),
+        lambda: overrides.resolve(_where(), None, {option.name: "one line"}),
+    ):
+        with pytest.raises(Refused) as refused:
+            refusing()
+        assert str(refused.value) == said
+    with pytest.raises(Refused) as refused:
+        overrides.run_values(["proxmox_template_image_key=x"], secrets=())
+    assert str(refused.value) == f"proxmox_template_image_key {overrides.TEXT_TYPED}"
 
 
 def test_an_option_refused_is_refused_typed_for_its_reason() -> None:
@@ -383,6 +567,10 @@ def test_set_and_unset_write_an_option_at_the_top_of_the_fleet_s_file(home) -> N
         "tailscale_enabled",
         "tailscale_wanted",
         "proxmox_vm_allow_untagged_delete",
+        "proxmox_vm_template_name",
+        "proxmox_template_build_vm",
+        "github_projects_host_flag",
+        "github_projects_vm_repos",
     ],
 )
 def test_a_role_s_option_that_is_no_setting_is_refused_by_name_and_why_never_saying_the_value(home, name) -> None:

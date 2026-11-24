@@ -17,6 +17,16 @@ the run's own process; no event is written to a file of its own. What an agent a
 is kept in the record: what it waits for, NEXT STEPS, each machine's outcome, and at the end the run's. Every string
 the record and an event hold is made plain (`text.plain_text`), and a `Secret` is refused before anything is written.
 
+A machine is named in the record and the events by its identity (`agent-warehouse-<its SMBIOS UUID>`), which a VM the
+run is making does not have until its clone gives it one. Until then the run names it by a stand-in key (`stand_in()`,
+of a form no identity and no VM's name takes), its first event carrying the name a person chose (`name=`), and the
+record keeps it in `making`, the stand-in with that name: so a run killed before the clone says what it was making,
+while `machines` keeps identities alone. One `join` event, its machine the identity and its text the stand-in, joins the
+two: the identity joins `machines`, the stand-in leaves `making`, and what the record keeps under the stand-in (its
+outcome, its NEXT STEPS lines, the run's wait) moves to the identity. From then on the stand-in names nothing: an event
+that names it is refused, and so is a join of a stand-in joined already, of a key that is no stand-in or none this run
+is making, and to an identity the run has named before; each before anything is written or heard.
+
 Standard library only; the jobs folder is made as every folder of the fleet's is (fleet/files.py), and `store`
 replaces the record whole under a lock on its folder, so two writers (the run, and a `cancel` recording a stop) lose
 neither change. Only `create` writes a record from nothing, and only it writes the job's ID, its pid and its start. A
@@ -33,6 +43,7 @@ import errno
 import fcntl
 import json
 import os
+import re
 import secrets
 import shutil
 import stat
@@ -53,8 +64,12 @@ ID_HEX = 16
 RECORD = "job.json"
 LOCK = "lock"
 # The kinds of event a run emits: its declared stages and their steps, a report, what it waits for, a NEXT STEPS line,
-# and an end (a machine's, or with no machine the run's). A child the run started is its registry's (runs/children.py).
-KINDS = ("stage", "step", "report", "waiting", "next", "end")
+# the join of a machine's stand-in key to its identity, and an end (a machine's, or with no machine the run's). A child
+# the run started is its registry's (runs/children.py).
+KINDS = ("stage", "step", "report", "waiting", "next", "join", "end")
+# A machine the run is making, named before it has an identity: `making:` and sixteen hex digits, a form no identity
+# (agent-warehouse-<SMBIOS UUID>, checks.HOST_KEY_ALIAS_RE) and no VM's name (no colon) takes. Held whole (fullmatch).
+STAND_IN = re.compile(r"making:[0-9a-f]{16}")
 # The outcomes a run or a machine ends with, written; and every state a reader tells, derived.
 OUTCOMES = ("succeeded", "failed", "cancelled")
 STATES = ("running", "cancelling", *OUTCOMES, "lost")
@@ -69,6 +84,7 @@ FIELDS = (
     "starter",  # what started it: {"kind": terminal | detach | mcp, "server": the MCP server's own ID}
     "host",  # the host the run is on, or None
     "machines",  # the machines it names, by identity
+    "making",  # the machines it is making that have no identity yet: {stand-in key: the name a person chose}
     "locks",  # the names of the locks it holds
     "attached",  # whether it runs at a terminal
     "pid",  # the run's process: information, never read to decide a state
@@ -145,6 +161,17 @@ def _is_id(name: object) -> bool:
     return isinstance(name, str) and patterns.full("job_id", name)
 
 
+def stand_in() -> str:
+    """A new stand-in key, for a machine a run is about to make: the key its events name until a `join` event joins it
+    to the identity its clone gives it. Its first event carries the name a person chose (`name=`)."""
+    return f"making:{secrets.token_hex(8)}"
+
+
+def is_stand_in(key: object) -> bool:
+    """Whether key is of a stand-in's form (STAND_IN), held whole."""
+    return isinstance(key, str) and STAND_IN.fullmatch(key) is not None
+
+
 class Job:
     """A job's folder: one this process made (`create`), or one it read (`find`, `listed`)."""
 
@@ -153,6 +180,12 @@ class Job:
         self._listeners: list[Listener] = []
         # The stage each machine last reached, from its stage events: written with its outcome.
         self._stages: dict[str, str] = {}
+        # Of the run this process made (only it emits): the machines it is making, by stand-in, with their names, as
+        # the record's `making` keeps them; each stand-in joined, with its identity; and every machine the run has
+        # named, the machines given and the identities joined among them.
+        self._making: dict[str, str] = {}
+        self._joined: dict[str, str] = {}
+        self._named: set[str] = set()
 
     def __repr__(self) -> str:
         return f"Job({str(self.folder)!r})"
@@ -245,8 +278,10 @@ class Job:
 
     def emit(self, kind: str, machine: str | None, text: str, **data: object) -> Event:
         """One event of this run: checked, made plain, kept in the record where its kind is one an agent or `logs`
-        reads (`waiting`, `next`, an `end`), then handed to each listener in order. Refused before anything is written
-        or heard: a kind not in KINDS, a Secret anywhere in it, and an end with no outcome."""
+        reads (`waiting`, `next`, an `end`, a `join`, and the first event of a machine not yet made), then handed to
+        each listener in order. Refused before anything is written or heard: a kind not in KINDS, a Secret anywhere in
+        it, an end with no outcome, a machine not yet made first named with no name, an event that names a stand-in
+        joined already, and a join the module refuses."""
         if self._held_here() is None:
             raise RuntimeError(f"job {self.id} is not this process's: only the run that made a job emits its events")
         if kind not in KINDS:
@@ -265,6 +300,17 @@ class Job:
         change = self._recorded(event)
         if change is not None:
             self._change(change)
+        if kind == "join":
+            assert event.machine is not None
+            del self._making[event.text]
+            self._joined[event.text] = event.machine
+            if event.text in self._stages:
+                self._stages[event.machine] = self._stages.pop(event.text)
+        elif is_stand_in(event.machine) and event.machine not in self._making:
+            assert event.machine is not None
+            self._making[event.machine] = str(event.data["name"])
+        if event.machine is not None:
+            self._named.add(event.machine)
         if kind == "stage" and event.machine is not None:
             self._stages[event.machine] = event.text
         for listener in self._listeners:
@@ -272,8 +318,79 @@ class Job:
         return event
 
     def _recorded(self, event: Event) -> Callable[[dict], dict] | None:
-        """How event changes the record, checked before anything is written; None for a kind the record keeps
-        nothing of."""
+        """How event changes the record, checked before anything is written; None where the record keeps nothing of
+        it. A machine not yet made is named first by an event that says its name, which the record's `making` takes;
+        a stand-in joined already names nothing."""
+        machine = event.machine
+        if machine is not None and machine in self._joined:
+            raise ValueError(
+                f"{machine!r} was joined to {self._joined[machine]!r}: every event after a machine's join names its"
+                " identity"
+            )
+        if event.kind == "join":
+            return self._join(event)
+        change = self._kept(event)
+        if machine is None or not is_stand_in(machine) or machine in self._making:
+            return change
+        name = event.data.get("name")
+        if not isinstance(name, str) or not name:
+            raise ValueError(
+                f"{machine!r} names a machine not yet made for the first time: its first event says its name (name=)"
+            )
+
+        stand, named = machine, name
+
+        def making(record: dict) -> dict:
+            made = {**record, "making": {**(record.get("making") or {}), stand: named}}
+            return change(made) if change is not None else made
+
+        return making
+
+    def _join(self, event: Event) -> Callable[[dict], dict]:
+        """How a join changes the record, checked before anything is written: the identity (its machine) joins
+        `machines`, the stand-in (its text) leaves `making`, and what the record keeps under the stand-in, its outcome,
+        its NEXT STEPS lines and the run's wait, is kept under the identity, in its place. Refused: a join with no
+        identity or a stand-in for one, of a key that is no stand-in, of a stand-in joined already or not one this run
+        is making, and to an identity the run has named before."""
+        identity, stand = event.machine, event.text
+        if identity is None or is_stand_in(identity):
+            raise ValueError("a join names the machine's identity, the key every later event of it names")
+        if not is_stand_in(stand):
+            raise ValueError(f"a join's text is the stand-in key it joins to the identity, and {stand!r} is none")
+        if stand in self._joined:
+            raise ValueError(f"{stand!r} was joined to {self._joined[stand]!r} already: a stand-in is joined once")
+        if stand not in self._making:
+            raise ValueError(f"{stand!r} is no machine this run is making: its first event names it with its name")
+        if identity in self._named:
+            raise ValueError(f"{identity!r} is a machine the run has named already, never the identity of {stand!r}")
+
+        def moved(key: object) -> object:
+            return identity if key == stand else key
+
+        def joined(record: dict) -> dict:
+            making = {key: name for key, name in (record.get("making") or {}).items() if key != stand}
+            outcomes = record.get("machine_outcomes") or {}
+            steps = [
+                {**step, "machine": identity} if isinstance(step, dict) and step.get("machine") == stand else step
+                for step in record.get("next") or []
+            ]
+            waiting = record.get("waiting")
+            if isinstance(waiting, dict) and waiting.get("machine") == stand:
+                waiting = {**waiting, "machine": identity}
+            return {
+                **record,
+                "machines": [*(record.get("machines") or []), identity],
+                "making": making,
+                "machine_outcomes": {moved(key): ended for key, ended in outcomes.items()},
+                "next": steps,
+                "waiting": waiting,
+            }
+
+        return joined
+
+    def _kept(self, event: Event) -> Callable[[dict], dict] | None:
+        """How an event of a kind the record keeps changes it (`waiting`, `next`, an `end`), checked before anything
+        is written; None for a kind the record keeps nothing of."""
         machine, text, data = event.machine, event.text, dict(event.data)
         if event.kind == "waiting":
             if text:
@@ -361,6 +478,11 @@ def create(
         raise TypeError("a job's host is a str or None")
     if isinstance(machines, str) or not all(isinstance(machine, str) for machine in machines):
         raise TypeError("a job's machines are a list of str")
+    if any(is_stand_in(machine) for machine in machines):
+        raise ValueError(
+            "a job's machines are identities: a machine not yet made is named by its stand-in in the run's events, and"
+            " kept in `making` until its join"
+        )
     if not isinstance(attached, bool):
         raise TypeError("whether a job is attached is a bool")
     if not isinstance(starter, Mapping) or starter.get("kind") not in STARTERS:
@@ -380,6 +502,7 @@ def create(
         "starter": dict(starter),
         "host": host,
         "machines": list(machines),
+        "making": {},
         "locks": [],
         "attached": attached,
         "pid": os.getpid(),
@@ -417,6 +540,7 @@ def create(
         raise
     _HELD[_key(folder)] = held
     job = Job(folder)
+    job._named.update(record["machines"])
     try:
         job._change(lambda _: {**record, "id": job.id}, first=True)
     except BaseException as error:

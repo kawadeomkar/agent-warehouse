@@ -11,10 +11,14 @@ sets, by name, before anything after it runs. The play's own vars and its roles'
 instead (test_aw_layer1_ratchet.py). Its list of variables is held to ansible-core's own: every variable of its ssh
 connection and of sudo. The untrusted-template
 switch layer 1 gives its child is at ignore: a module's result holding {{ is read as its text by a message, a fact, a
-condition and an assert, where at error each of them fails. Started as the engine starts it, the product's child loads
-the play only from the checkout's own folder of Galaxy collections, which its configuration names until F6a: with none
-there, ansible-core fails as the play loads, on ansible.posix.authorized_key (F6's finding (a)), and with it the play
-starts. And a setting the engine cannot serve yet is refused by
+condition and an assert, where at error each of them fails. The check reads the inventory back by its own source,
+ansible_inventory_sources, which no source of the host's variables outranks: a variables file beside the play that
+points inventory_file at a forged copy saying what it sets fails it (review 45's low 3). Started as the engine starts
+it, the product's child loads the play only from the checkout's own folder of Galaxy collections, which its
+configuration names until F6a, held to requirements.yml's pins first: with none there, the run is refused naming just
+install and nothing starts; held at its pins with no module in it, ansible-core fails as the play loads, on
+ansible.posix.authorized_key (F6's finding (a)), so the play needs what is in it; and with the checkout's real folder
+the play starts. And a setting the engine cannot serve yet is refused by
 name before anything is written: common_user_passwordless_sudo other than true.
 """
 
@@ -26,12 +30,14 @@ import base64
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
 import yaml
+from aw_kit import collections_folder, plant_collections
 from aw_machine import Machine, filed, layer1_host, machine, ssh_stand_in, target
 from harness import REPO
 
@@ -41,6 +47,10 @@ from claude_vm.guest import variables as play_variables
 from claude_vm.runs import children, rundir
 from claude_vm.runs import job as jobs
 from claude_vm.ssh import hostkeys
+
+# Until F6a, every run here but the one that holds the folder itself finds the checkout's folder of Galaxy collections
+# planted at requirements.yml's pins in the test's home, which layer 1 holds it to before its child starts.
+pytestmark = pytest.mark.usefixtures("installed")
 
 CONFIGURE = REPO / "playbooks" / "configure.yml"
 GUEST_PLAY = "Configure Claude development VMs"
@@ -154,29 +164,21 @@ class Loaded(Exception):
     """The play's start heard: the child loaded the play, and is ended there, before any task of it."""
 
 
-def test_the_product_s_child_loads_the_system_play_from_the_checkout_s_collections(
-    made, tmp_path, engine_guard
+def test_the_product_s_child_loads_the_system_play_from_the_checkout_s_collections_held_to_their_pins(
+    made, tmp_path, engine_guard, installed
 ) -> None:
     # Started as the engine starts it: the product's own configuration (no test-only connection or folder), the run's
     # environment, the play, over Ansible's own ssh to the stand-in machine, whose own key is filed (the stand-in ssh
     # first on PATH, so that nothing reaches past it). The checkout's folder is the one tools/env-run --collections
-    # names for the run's environment, this test's own home: first not there, then the checkout's real one linked in.
+    # names for the run's environment, this test's own home: first not there, then at requirements.yml's pins with no
+    # module in it, then the checkout's real one linked in.
     root = tmp_path / "machines"
     alpha = machine(root, "alpha")
     filed(alpha)
     engine_guard.first_on_path(ssh_stand_in(root, [alpha]))
     env = dict(os.environ)
-    found = subprocess.run(
-        [str(REPO / "tools" / "env-run"), "--collections"],
-        env={name: env[name] for name in ("PATH", "HOME", "XDG_DATA_HOME") if name in env},
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=True,
-    )
-    folder = Path(found.stdout.rstrip("\n"))
-    assert folder.is_relative_to(Path(env["HOME"])) and not folder.exists(), folder
+    folder = collections_folder(env)
+    assert folder == installed and folder.is_relative_to(Path(env["HOME"])), folder
     heard: list[jobs.Event] = []
     made.listen(heard.append)
 
@@ -189,12 +191,20 @@ def test_the_product_s_child_loads_the_system_play_from_the_checkout_s_collectio
     def converge() -> layer1.Ended:
         return asyncio.run(layer1.run(made, target(alpha), system.PLAY, name="alpha", host_flag="", env=env))
 
-    # The folder taken out: the play does not load, and no play starts.
+    # The folder not there: refused before anything is written or started, naming just install, never Ansible's exit 4.
+    shutil.rmtree(folder)
+    with pytest.raises(layer1.Refused, match=r"are not installed \(.* is no folder\): run just install\Z"):
+        converge()
+    directory = rundir.made(made)
+    assert directory is not None and list(directory.iterdir()) == []
+    assert heard == [] and children.live(made) == []
+    # At its pins, with no module in it: held, and the play does not load, nor any play start: it needs what is in it.
+    plant_collections(folder)
     ended = converge()
     assert ended.status == 4 and UNRESOLVED in ended.said, ended.said
     assert heard == [] and children.live(made) == []
-    # The folder there: the play loads and starts, never that failure.
-    folder.parent.mkdir(parents=True)
+    # The checkout's real folder there: the play loads and starts, never that failure.
+    shutil.rmtree(folder)
     folder.symlink_to(_collections(), target_is_directory=True)
     with pytest.raises(Loaded, match="^Converge the machine's system layer$"):
         converge()
@@ -280,16 +290,19 @@ def test_the_check_reads_every_variable_of_the_connection_and_of_sudo(tmp_path) 
 
 
 def _checked(
-    made: jobs.Job, tmp_path: Path, before: list | None = None, beside: dict[str, dict] | None = None
+    made: jobs.Job,
+    tmp_path: Path,
+    before: list | None = None,
+    beside: dict[str, dict | Callable[[Machine], dict]] | None = None,
 ) -> tuple[layer1.Ended, dict[str, dict], Machine]:
     """The play's check, as the play has it, then a task that marks the machine, run through layer 1's child on a
     stand-in; before, tasks ahead of the check, and beside, files of variables beside the play, by their paths there
-    (with {identity} for the machine's)."""
+    (with {identity} for the machine's), each given as written or made for the machine."""
     alpha = _alpha(tmp_path)
     for path, written in (beside or {}).items():
         where = tmp_path / "play" / path.format(identity=alpha.identity)
         where.parent.mkdir(parents=True, exist_ok=True)
-        where.write_text(yaml.safe_dump(written))
+        where.write_text(yaml.safe_dump(written(alpha) if callable(written) else written))
     check = SYSTEM["pre_tasks"][0]
     after = {"name": "after", "ansible.builtin.file": {"path": str(alpha.home / "after"), "state": "touch"}}
     play = {"hosts": "all", "gather_facts": False, "vars": SYSTEM["vars"], "pre_tasks": [*(before or []), check, after]}
@@ -340,6 +353,27 @@ def test_a_variables_file_of_the_host_s_or_every_host_s_beside_the_play_fails_th
     assert ended.status != 0
     said = results[CHECK]["message"]
     assert said.startswith(f"{alpha.identity}: ansible_host_key_checking, ansible_ssh_args set where it outranks"), said
+
+
+def test_a_variables_file_that_points_inventory_file_at_a_forged_copy_fails_the_check(made, tmp_path) -> None:
+    # Review 45's low 3: inventory_file is a host variable, which a source the check guards against can set too. A copy
+    # of the inventory that says what the file beside the play says would pass a check that read the inventory back by
+    # that name; the check reads its own source, ansible_inventory_sources, which no source of a host's variables sets.
+    loosened = OUTRANKING["ansible_ssh_common_args"]
+    forged = tmp_path / "forged.json"
+
+    def host_vars(alpha: Machine) -> dict:
+        document = layer1.inventory_document(target(alpha), "alpha", layer1_host(alpha))
+        document["all"]["hosts"][alpha.identity]["ansible_ssh_common_args"] = loosened
+        forged.write_text(json.dumps(document))
+        return {"ansible_ssh_common_args": loosened, "inventory_file": str(forged)}
+
+    ended, results, alpha = _checked(made, tmp_path, beside={"host_vars/{identity}.yml": host_vars})
+    assert forged.is_file() and ended.status != 0
+    said = results[CHECK]["message"]
+    assert said.startswith(f"{alpha.identity}: ansible_ssh_common_args set where it outranks"), said
+    assert "after" not in results and not (alpha.home / "after").exists()
+    assert "ansible_inventory_sources | first" in SYSTEM["pre_tasks"][0]["vars"]["system_inventory"]
 
 
 def test_a_variable_of_the_connection_the_play_or_a_role_sets_is_held_by_the_ratchet_s_scan() -> None:

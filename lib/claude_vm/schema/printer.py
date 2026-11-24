@@ -10,9 +10,9 @@ one table (words.py) and nothing else, in this order: the program as it was star
 (`before`: --attended 1, --detached-run), in the table's order; the verb, deploy's whole chain as its one verb; the
 verb's words as given, straight after it; its options in the table's order, --detach last as the parser gives it: a
 value as --long value, and as --long=value only where it starts with - or is empty, so that the parser reads it as a
-value; a flag bare; a counted option in one word, -v repeated (-vvv); a repeatable one once for each value; and last
-the host's flag, --host <name>. So a line reads as a person types it, and parsing it (lib/claude_vm/cli/parse.py) gives
-the same values back.
+value; a flag bare; a counted option in one word, -v repeated (-vvv); a repeatable one once for each value; then the
+host's flag, --host <name>; and last, in a form, its placeholders (below). So a line reads as a person types it, and
+parsing it (lib/claude_vm/cli/parse.py) gives the same values back.
 
 The program is aw where aw on PATH is this checkout's launcher, else what the person typed to start it (./aw), as the
 launcher at the checkout's top says and cli/main.py hands on (`started_as`); aw where nothing says otherwise, as for
@@ -32,8 +32,20 @@ it is (a C1 control, a bidi override, a lone surrogate, a line separator). A rul
 so a line may name a run that a rule refuses: deploy's question names the stage before its answer meets the rules. A
 value or a verb's words given as `PLACEHOLDER` are named by the name help gives them (words.py's `placeholder`): <name>,
 <name>... for several, and an option's value as <cores>, never quoted. Such a line is a form, which shows a command's
-shape (aw destroy <name>... --confirm <names>): a line offered as the command to run holds none, and the one check
-refuses a placeholder given back to aw.
+shape (aw destroy <name>... --confirm <names>), and so is a line whose value of free text is masked (`refused`, below):
+a line offered as the command to run holds none, and the one check refuses a placeholder given back to aw.
+
+A form writes its placeholders last: the verb's words, then each option in the table's order, whose value is a
+placeholder or is masked, after every part with a real value, the host's flag among them (aw host --remove <name>, aw
+init --host far --address <address>). Pasted at a shell, a placeholder is two redirections, <name> reading a file named
+name and writing one named as the word after it, so no real value stands where a shell would take it for a file's name
+and hand the word before the placeholder a value. A form that ends in a placeholder's > is no line a shell reads, and
+nor is one where a > meets the next placeholder's <: every form but one whose one placeholder is a verb's names,
+<name>..., which ends in ..., the name of the file its > writes. That one stops at its < where no file is named name,
+nothing run, made or emptied; where one is, a shell runs the line's other words, its real values, so the printer writes
+it only where the one check, its rules among them, refuses those (check.py's `takes`), and raises ValueError where it
+takes them: aw deploy <name>... alone would leave aw deploy, the default VM's. aw deploy --tags claude_code <name>...
+leaves aw deploy --tags claude_code, which a rule refuses. So no form the printer writes leaves a whole command.
 
 `host_flag` is the host a line names. Every caller of a verb whose row has the shared --host (deploy, code, login,
 status, destroy) gives it where the values give no --host: a host's name, or "" where the fleet has one host or the
@@ -57,7 +69,7 @@ from collections.abc import Mapping
 
 from claude_vm.schema import check as checks
 from claude_vm.schema.patterns import full
-from claude_vm.schema.words import BEFORE, LINES, PLACEHOLDER, VERBS, Line, Option, Verb, placeholder
+from claude_vm.schema.words import BEFORE, LINES, PLACEHOLDER, VERBS, Line, Option, Verb, Words, placeholder
 from claude_vm.schema.words import HOST as SHARED_HOST
 
 # The program a line names where nothing says otherwise: the product's command line is aw alone (the owner's word 1).
@@ -212,14 +224,43 @@ def _words(
         if option.field in before_given:
             words += _option("", option, before_given[option.field], False)
     words.append((verb, False))
+    # A form's placeholders, its verb's words first, then each option in the table's order whose value is one or is
+    # masked: written after every part with a real value, the host's flag among them.
+    last: list[tuple[str, bool]] = []
     if row.words is not None and row.words.field in given:
-        words += _verb_words(verb, row, given[row.words.field])
+        (last if row.words.field in placeheld else words).extend(_verb_words(verb, row, given[row.words.field]))
     for option in checks.options_of(row):
         if option.field in given:
             if option.field in placeheld and option.kind not in ("value", "repeatable"):
                 raise ValueError(f"error: {checks.command(verb)} {checks.spelled(option)} has no value to name")
-            words += _option(verb, option, given[option.field], refused and option.field in FREE_TEXT)
-    return words + _host_flag(row, given, host_flag)
+            masked = refused and option.field in FREE_TEXT
+            shown = _option(verb, option, given[option.field], masked)
+            (last if masked or option.field in placeheld else words).extend(shown)
+    words += _host_flag(row, given, host_flag)
+    if row.words is not None and len(last) == 1 and row.words.plural and row.words.field in placeheld:
+        _leaves_no_command(verb, row.words, _real(given, placeheld, host_flag))
+    return words + last
+
+
+def _real(given: Mapping[str, object], placeheld: set[str], host_flag: str | None) -> dict[str, object]:
+    """The values a line gives a real value, its host's flag among them: what a shell leaves of a form whose one
+    placeholder is a verb's names."""
+    real = {key: value for key, value in given.items() if key not in placeheld}
+    return {**real, HOST: host_flag} if host_flag else real
+
+
+def _leaves_no_command(verb: str, words: Words, real: Mapping[str, object]) -> None:
+    """ValueError where a form whose one placeholder is a verb's names, <name>..., would leave a whole command at a
+    shell. Every other form ends in a placeholder's >, or puts a > before the next placeholder's <, which no shell
+    reads; this one ends in ..., the file its > writes, so a shell in a folder holding a file named as the placeholder
+    runs the line's other words, its real values: a form is written only where the one check, its rules among them,
+    refuses those. Asked without a sentence said, since a rule's sentence names forms this printer writes."""
+    if checks.takes(verb, real):
+        raise ValueError(
+            f"error: a form of {checks.command(verb)} whose one placeholder is its {words.name}s would leave a command"
+            " the one check takes, where a shell reads it: give it a value the rules refuse there, or another"
+            " placeholder"
+        )
 
 
 def _verb_words(verb: str, row: Verb, typed: object) -> list[tuple[str, bool]]:

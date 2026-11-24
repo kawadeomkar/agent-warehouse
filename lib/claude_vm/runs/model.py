@@ -17,6 +17,18 @@ emitter passes the identity (a workflow, layer 1's reader, a section's wait): an
 keeps for another key, or whose `name` is another key of the run's, would make one machine two rows drawn under one
 name, and is refused.
 
+A VM the run is making has no identity until its clone gives it one, and has its row from its first event all the same:
+until then its events name it by a stand-in key (job.stand_in(), of a form no identity and no VM's name takes), the
+first of them with its `name` (or the run's machines given with it, its name beside it), and one `join` event joins the
+two. The join moves everything the model keeps under the stand-in to the identity, in its place (JOINED): the machine's
+row in `machines`, its name, its part in every stage and step (with their times and their outcomes so far), when it
+ended (the order its end came in), the stage it reached, its waits, its reports, its failures, its outcome, its latest
+line and its NEXT STEPS lines; so the identity's events go on where the stand-in's left off, a failure said before the
+join is not said again at the machine's end after it, and nothing drawn changes. From then on the stand-in is no key of
+the run's: an event that names it is refused, as are a join of a stand-in joined already, of a key that is no stand-in
+or none the run knows, a join to a stand-in or to an identity the run keeps anything for, and a stand-in's first event
+with no name.
+
 The events, as the run emits them (job.KINDS; their strings are plain, as emit makes them, and a drawer makes them
 visible: a tab, a line break and Unicode's format characters stay here):
 
@@ -37,6 +49,8 @@ visible: a tab, a line break and Unicode's format characters stay here):
   text ends that wait alone, of that machine and that section. A wait also ends when its machine ends, at the cancel
   (`cancel`, when a person stops the run) and at the run's end.
 - `next`, a line of NEXT STEPS for its machine and `matter`; an empty line removes it.
+- `join`, its machine the identity and its text the stand-in key it joins to it: everything kept under the stand-in is
+  kept under the identity from then on (JOINED), and the stand-in names nothing more.
 - `end`: with a machine, that machine's outcome (succeeded, failed or cancelled), the stage it reached (`stage`, else
   the last of its own `stage` events, as the job's record keeps it) and why; what of it is still open in the stages that
   are each machine's ends as its outcome says (done, failed, stopped), and so do its waits. With none, the run's end:
@@ -45,8 +59,9 @@ visible: a tab, a line break and Unicode's format characters stay here):
 
 An event of a stage the declaration does not have, a step its stage does not declare, a kind the job has not, an
 ending that is not done, skipped or failed, a NEXT STEPS line with no matter, a name that is no str, an event that
-names a machine by the name the run keeps for another key or whose name is another key, and any event after the run's
-end are refused before anything is kept. A failure is said once: each step that ended failed; a stage that ended
+names a machine by the name the run keeps for another key or whose name is another key, a join or a stand-in's event
+the paragraph on a VM the run is making refuses, and any event after the run's end are refused before anything is kept,
+the order of the events counted included. A failure is said once: each step that ended failed; a stage that ended
 failed for a machine where no failure of it was said for that machine, and one that ended failed for every machine
 where none of it was said at all or where it cut short a part still open; a machine that ended failed where nothing of
 it had failed, or where its end cut short a step still open or a stage in which no failure was said for it; and the
@@ -60,13 +75,13 @@ stays today's product's. It imports nothing of tui/ (tests/unit/test_aw_run_mode
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from collections.abc import Iterable, Iterator, Mapping
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 from claude_vm.run.next_steps import NEXT_STATS
 from claude_vm.run.next_steps import next_steps as ordered
-from claude_vm.runs.job import KINDS, OUTCOMES
+from claude_vm.runs.job import KINDS, OUTCOMES, is_stand_in
 from claude_vm.runs.stages import Declared, Stage, Step
 
 if TYPE_CHECKING:
@@ -84,6 +99,23 @@ BY_RUN_OUTCOME = {"succeeded": "done", "failed": "stopped", "cancelled": "stoppe
 STATES = ("to come", "running", "waiting", *ENDS, "stopped")
 # The states of a stage that has ended, which a failed step of it turns to failed.
 ENDED = ("done", "skipped", "stopped")
+# What a join moves from a machine's stand-in key to its identity, everything the model keeps by machine, each in its
+# place (Run._rekey): the row in `machines`, the name, its part in each stage and step (their times and outcomes so
+# far), the order its end came in (_Book.ends), the stage it reached, its waits, reports and failures, its outcome, its
+# latest line, and its NEXT STEPS lines.
+JOINED = (
+    "machines",
+    "names",
+    "parts",
+    "ends",
+    "reached",
+    "waits",
+    "reports",
+    "failures",
+    "outcomes",
+    "latest",
+    "next",
+)
 
 
 @dataclass
@@ -293,9 +325,10 @@ class Line:
 class Run:
     """A run as a person reads it, from its declared stages and the events it emits, fed in order with the time given.
     machines are those the run was given, by identity, in their order: an iterable of identities, or a mapping of each
-    identity to the name a person chose. A machine an event names that is not one is added after them, where it names
-    it in work that is each machine's, but never by the name the run keeps for another key (refused, as is a name that
-    is another key): one machine, one row."""
+    identity to the name a person chose; a machine not yet made by its stand-in key, with its name. A machine an event
+    names that is not one is added after them, where it names it in work that is each machine's, but never by the name
+    the run keeps for another key (refused, as is a name that is another key): one machine, one row, which a join keeps
+    when the stand-in's machine gets its identity."""
 
     def __init__(self, declared: Declared, now: float, machines: Iterable[str] | Mapping[str, str] = ()) -> None:
         if not isinstance(declared, Declared):
@@ -305,10 +338,14 @@ class Run:
         self.machines: list[str] = []
         # The name a person chose for each identity, as given or as an event's `name` said it.
         self.names: dict[str, str] = {}
+        # Each stand-in joined, with the identity it was joined to: a key that names nothing any more.
+        self._joined: dict[str, str] = {}
         given = machines.items() if isinstance(machines, Mapping) else ((machine, None) for machine in machines)
         for machine, name in given:
             if not isinstance(machine, str) or not isinstance(name, (str, type(None))):
                 raise TypeError("a run's machines are identities, each a str, with a name, a str, where one is given")
+            if is_stand_in(machine) and not name:
+                raise ValueError(f"{machine!r} is a machine not yet made, given with no name: it comes with its name")
             self._one_row(machine, name)
             self._learn(machine)
             if name:
@@ -347,6 +384,16 @@ class Run:
         name = event.data.get("name")
         if name is not None and not isinstance(name, str):
             raise TypeError("a machine's name is a str")
+        if event.machine in self._joined:
+            raise ValueError(
+                f"{event.machine!r} was joined to {self._joined[event.machine]!r}: every event after a machine's join"
+                " names its identity"
+            )
+        if event.kind != "join" and is_stand_in(event.machine) and event.machine not in self.names and not name:
+            raise ValueError(
+                f"{event.machine!r} names a machine not yet made for the first time: its first event says its name"
+                " (name=)"
+            )
         self._one_row(event.machine, name)
         getattr(self, f"_on_{event.kind}")(event.machine, event.text, event.data, now)
         if name and event.machine is not None:
@@ -436,6 +483,22 @@ class Run:
             self._next[(machine, matter)] = text
         else:
             self._next.pop((machine, matter), None)
+
+    def _on_join(self, machine: str | None, stand: str, data: Mapping[str, object], now: float) -> None:
+        """The stand-in key of a machine not yet made (the text) joined to its identity (the machine): checked whole,
+        then everything kept under the stand-in kept under the identity (_rekey)."""
+        if machine is None or is_stand_in(machine):
+            raise ValueError("a join names the machine's identity, the key every later event of it names")
+        if not is_stand_in(stand):
+            raise ValueError(f"a join's text is the stand-in key it joins to the identity, and {stand!r} is none")
+        if stand in self._joined:
+            raise ValueError(f"{stand!r} was joined to {self._joined[stand]!r} already: a stand-in is joined once")
+        if stand not in self.names:
+            raise ValueError(f"{stand!r} is no machine of the run's: its first event names it with its name")
+        if self._holds(machine):
+            raise ValueError(f"the run keeps {machine!r} for another machine, so it is never the identity of {stand!r}")
+        self._rekey(stand, machine)
+        self._joined[stand] = machine
 
     def _on_end(self, machine: str | None, text: str, data: Mapping[str, object], now: float) -> None:
         outcome = data.get("outcome")
@@ -605,6 +668,62 @@ class Run:
                 f"{name!r} is the key of another machine of the run, so never the name of {machine!r}: an event names"
                 " a machine by its key, its identity, and its name beside it"
             )
+
+    def _progresses(self) -> Iterator[Progress]:
+        """Every stage's progress and every step's."""
+        for progress in self.stages.values():
+            yield progress
+            yield from progress.steps.values()
+
+    def _holds(self, key: str) -> bool:
+        """Whether the run keeps anything under key: any of what a join moves (JOINED)."""
+        return (
+            key in self.machines
+            or key in self.names
+            or any(key in progress.parts for progress in self._progresses())
+            or key in self._book.ends
+            or key in self._reached
+            or any(each.machine == key for each in (*self.waits, *self.reports, *self.failures))
+            or key in self.outcomes
+            or key in self.latest
+            or any(machine == key for machine, _ in self._next)
+        )
+
+    def _rekey(self, old: str, new: str) -> None:
+        """Everything the run keeps under old kept under new, each in its place, so that the order of each (a row, a
+        report, a NEXT STEPS line) is as it was: each of JOINED, in its order."""
+
+        def renamed(found: dict) -> None:
+            kept = [(new if key == old else key, value) for key, value in found.items()]
+            found.clear()
+            found.update(kept)
+
+        # machines: the row, where it was.
+        self.machines[:] = [new if machine == old else machine for machine in self.machines]
+        # names
+        renamed(self.names)
+        # parts: the machine's own part in each stage and each step, with its times and how it ended.
+        for progress in self._progresses():
+            renamed(progress.parts)
+        # ends: the order its end came in, which says what of every machine's it reads (Progress.of).
+        renamed(self._book.ends)
+        # reached: the stage its own last stage event named.
+        renamed(self._reached)
+        # waits
+        for wait in self.waits:
+            if wait.machine == old:
+                wait.machine = new
+        # reports and failures: B2's rule and a machine's failed end read a failure's machine for what was said.
+        self.reports[:] = [replace(each, machine=new) if each.machine == old else each for each in self.reports]
+        self.failures[:] = [replace(each, machine=new) if each.machine == old else each for each in self.failures]
+        # outcomes
+        renamed(self.outcomes)
+        # latest
+        renamed(self.latest)
+        # next: its NEXT STEPS lines, each kept by (machine, matter).
+        lines = [((new if machine == old else machine, matter), line) for (machine, matter), line in self._next.items()]
+        self._next.clear()
+        self._next.update(lines)
 
     def _learn(self, machine: str | None) -> None:
         if machine is not None and machine not in self.machines:

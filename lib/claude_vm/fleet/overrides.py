@@ -2,8 +2,8 @@
 with `--set` for one run above them (docs/architecture/engine.md §16.9).
 
 A file is a YAML mapping of setting names to literals and nothing else: no comment of an example's, no expression, no
-anchor or alias, no key twice, no line break inside a value. Each row of the table (fleet/registry.py) has one home,
-and is read from that file alone:
+anchor or alias, no key twice, no line break inside a value but a text's. Each row of the table (fleet/registry.py) has
+one home, and is read from that file alone:
 
 - the fleet's `fleet/settings.yml`: a row of home `fleet`, at its top level, and one of scope `machine` in its map
   `machines`, by `<host>/<machine>`, never at its top level, which would give every machine one value;
@@ -17,7 +17,11 @@ and is read from that file alone:
 A row of home `run` is in no file: it is given with `--set` alone. A setting in a file that is not its home is refused
 by name, with the line it is on and where it belongs. A role's option passed through (fleet/passthrough.py) is taken
 where a row's name is, at home `fleet` and scope `global`: at the top of the fleet's `settings.yml`, or with `--set`,
-held to its role's own spec; one of the roles' options that is no setting is refused by name with why.
+held to its role's own spec; one of the roles' options that is no setting is refused by name with why. A row of type
+text (an option whose value is several lines by what it is, passthrough's TEXT: an armored key, a whole CLAUDE.md) is
+kept in the fleet's file alone, where a person writes it as YAML's block holds it (name: |, then its lines indented),
+and may hold line breaks but no other control character and no expression: it is never typed, so `--set` refuses it,
+naming the file it is written in.
 
 `read(home, host)` returns the three files of a host; `resolve(home, host, run)` the value of every row with the
 layer that set it, one of `LAYERS`: the table's default, then the file of the row's home, then the run's; and after
@@ -80,6 +84,8 @@ MOST = 1 << 20
 # break, which no setting of one line holds (YAML reads NEL and the two Unicode separators as line breaks too).
 TEMPLATE = re.compile(r"\{\{|\{%|\{#")
 CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
+# What a text of several lines may never hold: every control character CONTROL refuses but the line's end, \n.
+TEXT_CONTROL = re.compile(r"[\x00-\x09\x0b-\x1f\x7f-\x9f\u2028\u2029]")
 EXPRESSION = "takes a value, never an expression ({{ }}, {% %} or {# #})"
 # Typed text for a boolean, in either case, as today's settings take it.
 TRUE = ("true", "yes", "on", "y", "t", "1")
@@ -100,7 +106,13 @@ TAKES = {
     "list[str]": "a list of strings: comma-separated (a,b) or as YAML ([a, b])",
     "dict": "a mapping, as YAML ({key: value}) or key=value,key=value",
     "size": "a whole number with G or T after it, capital or small (128G)",
+    "text": "text of one line or several, with no control character but the line's end",
 }
+# Why a text is never typed, as a refusal says it after the setting's name: it is written in the fleet's file.
+TEXT_TYPED = (
+    f"is text of several lines, which is never typed: write it in the fleet's {SETTINGS}, at its top, as a block"
+    " (name: |, then its lines indented)"
+)
 
 
 class Refused(ValueError):
@@ -240,6 +252,12 @@ def _held(row: Row, value: object, environ: Mapping[str, str]) -> object:
         return _literal(value)
     if not isinstance(value, str):
         raise takes
+    if kind == "text":
+        if TEXT_CONTROL.search(value):
+            raise _Off("takes text whose one control character is the line's end")
+        if TEMPLATE.search(value):
+            raise _Off(EXPRESSION)
+        return value
     _one_line(value)
     if kind == "path":
         return _expanded(value, environ)
@@ -279,13 +297,16 @@ def _takes(row: Row) -> str:
 def typed(row: Row, text: str, *, environ: Mapping[str, str] | None = None) -> object:
     """text, as a person typed it (after --value or --set), as the value row takes, in the form it is kept; or Refused,
     with a sentence that names the setting and never says the value. An expression and a control character are refused
-    in the text, and again in the value it parses to, where YAML's escapes could make one."""
+    in the text, and again in the value it parses to, where YAML's escapes could make one. A text of several lines is
+    never typed: it is refused, naming the file it is written in (TEXT_TYPED)."""
     if not isinstance(text, str):
         raise TypeError(f"typed text is a str, not a {type(text).__name__}")
     env = os.environ if environ is None else environ
     try:
-        _one_line(text)
         kind = row.type
+        if kind == "text":
+            raise _Off(TEXT_TYPED, ends=True)
+        _one_line(text)
         if kind == "bool":
             if text.lower() not in TRUE + FALSE:
                 raise _Off(f"takes {_takes(row)}")
@@ -814,6 +835,8 @@ def resolve(
         row = _row(name)
         if row.secret:
             raise Refused(f"{name} may hold a secret, which the run's record would keep: it is never given for one run")
+        if row.type == "text":
+            raise Refused(f"{name} {TEXT_TYPED}")
         try:
             given[name] = _held(row, value, env)
         except _Off as off:

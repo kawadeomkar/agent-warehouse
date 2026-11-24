@@ -85,7 +85,7 @@ REFUSALS: dict[str, tuple[list[str], int, str]] = {
     "deploy.7-1": (
         ["deploy", "--tags=claude_code"],
         1,
-        "error: --tags on its own configures the VMs named beside it: aw deploy <name>... --tags claude_code, or every"
+        "error: --tags on its own configures the VMs named beside it: aw deploy --tags claude_code <name>..., or every"
         " VM this project created with aw deploy --only configure --tags claude_code",
     ),
     "deploy.8-1": (
@@ -159,7 +159,7 @@ REFUSALS: dict[str, tuple[list[str], int, str]] = {
     "host.4-1": (
         ["host", "--remove"],
         1,
-        "error: --remove deletes the host named beside it: aw host <name> --remove",
+        "error: --remove deletes the host named beside it: aw host --remove <name>",
     ),
     "mcp.1-1": (["mcp", "extra"], 1, "error: aw mcp takes only its options (aw help mcp), and nothing after them"),
     "mcp.2-1": (
@@ -436,8 +436,9 @@ def test_the_question_names_each_answer_s_command_line_as_the_printer_writes_it(
         "s or v, or Enter to run nothing: ",
     ]
     masked = "<name>=<value>"
-    assert stage == f"aw deploy alpha --only configure --tags claude_code --set {masked} -v"
-    assert vms == f"aw deploy alpha configure --tags claude_code --set {masked} -v"
+    # The masked value is a placeholder, written last (review/code/H31.md 1).
+    assert stage == f"aw deploy alpha --only configure --tags claude_code -v --set {masked}"
+    assert vms == f"aw deploy alpha configure --tags claude_code -v --set {masked}"
     assert TYPED not in said
     # And with no --set: each answer's command line in full.
     _, said = _typed(["deploy", "alpha", "configure", "--tags", "claude_code"], "v\n")
@@ -682,7 +683,9 @@ def test_a_token_file_relative_to_a_folder_whose_path_has_a_space_is_taken(home)
     (spaced / "secret").write_text("01234567-89ab-cdef-0123-456789abcdef\n")
     result = run_launcher("init", "--token-secret-file=secret", home=home, cwd=spaced, first_on_path=(on_path(home),))
     assert result.returncode == 1 and result.stdout == "", result
-    assert result.stderr.startswith(drives + "error: the host pve has no address yet: give it, as aw init --address")
+    # Its form writes the placeholder last, after every real value (review/code/H31.md 1).
+    said = "error: the host pve has no address yet: give it, as aw init --no-prompt --address <address>; nothing"
+    assert result.stderr.startswith(drives + said), result.stderr
     assert not paths.fleet_dir(paths.home(REPO)).exists()
 
 
@@ -843,7 +846,7 @@ def test_tags_beside_names_means_only_configure() -> None:
 
 def test_tags_without_names_is_refused_and_the_fleet_takes_only_configure() -> None:
     sentence = _refused("deploy", "--tags", "claude_code")
-    assert "--tags on its own configures the VMs named beside it: aw deploy <name>... --tags claude_code" in sentence
+    assert "--tags on its own configures the VMs named beside it: aw deploy --tags claude_code <name>..." in sentence
     assert "aw deploy --only configure --tags claude_code" in sentence
     fleet = _values("deploy", "--only", "configure", "--tags", "claude_code")
     assert fleet == {"only": "configure", "tags": "claude_code", "default_vm": False}

@@ -255,6 +255,7 @@ def test_the_record_holds_what_the_run_is(jobs_dir) -> None:
             "starter": {"kind": "mcp", "server": "0f1e2d3c"},
             "host": "pve",
             "machines": ["alpha", "beta"],
+            "making": {},
             "locks": [],
             "attached": False,
             "pid": os.getpid(),

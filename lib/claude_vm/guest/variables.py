@@ -14,6 +14,13 @@ It refuses, before anything is written:
 - a variable whose name is no role variable's (`NAME`), and above all one that begins `ansible_`: those name the play's
   connection - `ansible_ssh_common_args`, `ansible_host_key_checking`, `ansible_ssh_executable`, `ansible_user` - and
   an extra variable outranks the inventory, where the SSH runner's options are (layer1.py);
+- a variable named as one of `FIXED`: the inventory's own name of the machine (layer1.py's `NAME_VARIABLE`), Ansible's
+  magic variables (`inventory_hostname`, `group_names`, `inventory_file`, ...) and the names ansible-core reserves
+  (`get_reserved_names()`: `omit`, a play's and a task's keywords, Jinja's globals such as `lookup` and `range`). An
+  extra variable outranks each of them for every task of the play: `omit` set would make every `default(omit)` of the
+  roles pass a value, `inventory_hostname` would rename the host, `lookup` would be text no task could call. The list is
+  written here, since this module imports no Ansible; tests/unit/test_aw_variables.py holds it to the locked
+  ansible-core's own;
 - a key anywhere that begins `__ansible`, which Ansible's decoder reads as its own (`__ansible_unsafe`,
   `__ansible_vault`, `__ansible_type`): one it cannot read fails the JSON decoding, and Ansible's loader then reads the
   very same text as YAML, where a wrapped string is a plain mapping and its string a template it trusts;
@@ -54,6 +61,109 @@ RESERVED = "__ansible"
 CONNECTION = "ansible_"
 # A play's variable: a role variable's name, as the roles' argument_specs.yml name them.
 NAME = re.compile(r"[a-z][a-z0-9_]*")
+# The names no play's variable takes, but those that begin CONNECTION, which are refused for that: the name the
+# inventory gives the machine a person chose (layer1.py's NAME_VARIABLE, which this module cannot import, since layer1
+# imports it); every magic variable ansible-core 2.21.6 gives a host, a play and a role's task (Host.get_magic_vars and
+# VariableManager.get_vars), hostvars among them, which it gives every play; and every name its get_reserved_names()
+# returns, the keywords of a play, a role, a block and a task, and the globals of its templates. Held equal to the
+# locked ansible-core's by tests/unit/test_aw_variables.py, so that a release that adds one fails there.
+FIXED = frozenset(
+    {
+        # The machine's name, as the inventory layer 1 writes gives it.
+        "aw_name",
+        # Ansible's magic variables.
+        "environment",
+        "group_names",
+        "groups",
+        "hostvars",
+        "inventory_dir",
+        "inventory_file",
+        "inventory_hostname",
+        "inventory_hostname_short",
+        "play_hosts",
+        "playbook_dir",
+        "role_name",
+        "role_names",
+        "role_path",
+        "role_uuid",
+        "vars",
+        # What get_reserved_names() returns: the keywords, and the templates' globals.
+        "action",
+        "always",
+        "any_errors_fatal",
+        "args",
+        "async",
+        "async_val",
+        "become",
+        "become_exe",
+        "become_flags",
+        "become_method",
+        "become_user",
+        "block",
+        "changed_when",
+        "check_mode",
+        "collections",
+        "connection",
+        "cycler",
+        "debugger",
+        "delay",
+        "delegate_facts",
+        "delegate_to",
+        "dict",
+        "diff",
+        "fact_path",
+        "failed_when",
+        "force_handlers",
+        "gather_facts",
+        "gather_timeout",
+        "handlers",
+        "hosts",
+        "ignore_errors",
+        "ignore_unreachable",
+        "joiner",
+        "lipsum",
+        "local_action",
+        "lookup",
+        "loop",
+        "loop_control",
+        "loop_with",
+        "max_fail_percentage",
+        "module_defaults",
+        "name",
+        "namespace",
+        "no_log",
+        "notify",
+        "now",
+        "omit",
+        "order",
+        "poll",
+        "port",
+        "post_tasks",
+        "pre_tasks",
+        "q",
+        "query",
+        "range",
+        "register",
+        "remote_user",
+        "rescue",
+        "retries",
+        "roles",
+        "run_once",
+        "serial",
+        "strategy",
+        "tags",
+        "tasks",
+        "throttle",
+        "timeout",
+        "undef",
+        "until",
+        "validate_argspec",
+        "vars_files",
+        "vars_prompt",
+        "when",
+        "with_",
+    }
+)
 # How deep a value may nest, a wrapped string's own level included: a role's options are a few levels at most.
 DEPTH_MOST = 32
 # What a scan of a file's nesting reads: a JSON string whole, its escapes inside it, or a bracket outside one.
@@ -154,16 +264,22 @@ def _hold(value: object, depth: int) -> None:
 
 
 def _names(document: Mapping[str, object]) -> None:
-    """Each variable a role variable's name, none the connection's."""
+    """Each variable a role variable's name, none the connection's and none of FIXED: the name is held to NAME before
+    a sentence says it."""
     for name in document:
+        if not NAME.fullmatch(name):
+            raise Refused(
+                "a play's variable is named as a role variable is: lower-case letters, digits and underscores"
+            )
         if name.startswith(CONNECTION):
             raise Refused(
                 f"{name} names the play's connection, which the inventory alone gives, from the SSH runner's options:"
                 f" a play's variables never hold one"
             )
-        if not NAME.fullmatch(name):
+        if name in FIXED:
             raise Refused(
-                "a play's variable is named as a role variable is: lower-case letters, digits and underscores"
+                f"{name} is a name Ansible gives the play itself, or the inventory the machine's: a play's variables"
+                f" never hold one, which would outrank it for every task"
             )
 
 

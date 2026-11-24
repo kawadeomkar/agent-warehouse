@@ -360,9 +360,10 @@ class Unverified(ProxmoxError):
         self.code = code
         self.anchored = anchored
         # Each command it names is the printer's (schema/printer.py's said): the program as it was started.
-        filled = {"reason": self.reason, "address": one_line(address, 100), "init": Line("init")}
-        renewed = (
-            ", then {init} reads the host's new one and asks before it keeps it in the old one's place"
+        filled: dict[str, object] = {"reason": self.reason, "address": one_line(address, 100), "init": Line("init")}
+        # Said apart and given as a field: a sentence said is a literal, never one joined at its call.
+        filled["renewed"] = (
+            said(", then {init} reads the host's new one and asks before it keeps it in the old one's place", filled)
             if anchored
             else ""
         )
@@ -376,8 +377,8 @@ class Unverified(ProxmoxError):
             )
         elif code == EXPIRED:
             sentence = said(
-                "the Proxmox host's certificate, or one that issued it, has expired ({reason}): renew it on the host"
-                + renewed,
+                "the Proxmox host's certificate, or one that issued it, has expired ({reason}): renew it on the"
+                " host{renewed}",
                 filled,
             )
         elif code == NOT_YET_VALID:
@@ -385,7 +386,7 @@ class Unverified(ProxmoxError):
             sentence = said(
                 "the Proxmox host's certificate, or one that issued it, is not valid yet ({reason}), and this"
                 " computer's clock says {now}: if that is behind, set this computer's clock right; if not, the host's"
-                " clock was ahead when the certificate was made: renew it there" + renewed,
+                " clock was ahead when the certificate was made: renew it there{renewed}",
                 {**filled, "now": now},
             )
         elif anchored:
