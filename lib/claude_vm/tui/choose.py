@@ -19,8 +19,8 @@ line (collapsed).
 The same menu, its keys read by a caller's coroutine (asked): the new engine's questions, which read on the run's
 event loop, never in a thread (docs/architecture/engine.md §16.8). Its keys come as a read gives them, several at once
 or a sequence in parts, and are split as ask reads them one at a time (split); the drawing (Shown) and the terminal's
-settings (raw) are ask's own, and a change of the settings a signal interrupts is made again (live_region's
-set_terminal).
+settings (raw) are ask's own, each change of the settings is TCSAFLUSH's, which discards what was typed and not read,
+and a change a signal interrupts is made again (live_region's set_terminal).
 
 Stdlib only; imported as claude_vm.tui.choose (docs/architecture/custom-code.md §7.10).
 """
@@ -336,14 +336,16 @@ async def asked(menu, read, stdin, stdout, color=True):
     read, b"" at the end of the input, or None where nothing was typed within seconds. The same menu, keys and answers,
     and the same end: Interrupted at the terminal's interrupt key, read as a byte, the menu erased and the terminal left
     as it was found whatever happens, its interrupt key's signal back among it, a change a signal interrupted made again
-    (live_region.set_terminal). A read's error, or its cancellation, goes through as itself. Stdin's descriptor is read
-    only through read."""
+    (live_region.set_terminal). Each change is TCSAFLUSH's, as getpass makes them: the keys typed before the menu and
+    whatever is still unread once it is answered are discarded, never an answer and never left for the shell. A read's
+    error, or its cancellation, goes through as itself. Stdin's descriptor is read only through read."""
     stdin_fd = stdin.fileno()
     settings = termios.tcgetattr(stdin_fd)
     interrupt = interrupt_of(settings)
     shown = Shown(menu, stdout, color)
-    termios.tcflush(stdin_fd, termios.TCIFLUSH)
-    set_terminal(stdin_fd, termios.TCSANOW, raw(settings))
+    # TCSAFLUSH, as getpass sets and puts back: the keys typed before flushed in the call that makes the terminal raw,
+    # and what is still unread once the menu is answered discarded with the change back, never left for the shell.
+    set_terminal(stdin_fd, termios.TCSAFLUSH, raw(settings))
     try:
         chosen = menu["chosen"]
         shown.draw(chosen)
@@ -371,4 +373,4 @@ async def asked(menu, read, stdin, stdout, color=True):
                     return then
     finally:
         shown.erase()
-        set_terminal(stdin_fd, termios.TCSADRAIN, settings)
+        set_terminal(stdin_fd, termios.TCSAFLUSH, settings)

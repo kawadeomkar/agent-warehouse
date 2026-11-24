@@ -31,10 +31,14 @@ event, no record and no line on the screen.
   none is asked once more, saying the choices, and a second is left at the default, said.
 - A hidden answer: read in cooked mode with the echo off, and returned as a Secret.
 
-The terminal's settings are put back as they were found once each question ends, however it ends: a change of them
-that a signal interrupts (the run's first Ctrl-C, a resize) is made again (tui/live_region.py's set_terminal), never
-left undone. Standard library and the project's own modules only: asyncio is imported inside the functions that use
-it.
+The terminal's settings are put back as they were found once each question ends, however it ends, and each change of
+them is TCSAFLUSH's, as getpass makes it: the keys typed before are flushed by the change that sets the question's
+mode, and what was typed at the question and not read (the rest of a paste, a hidden answer's second line) is
+discarded by the change back, never left in the terminal's input for the shell once the run has ended. A change that
+a signal interrupts (the run's first Ctrl-C, a resize) is made again (tui/live_region.py's set_terminal), never left
+undone. A choice's words and note are one line of plain text (Choice), as the question's own words are: a name from
+Proxmox or a machine never reaches the terminal with its escapes. Standard library and the project's own modules only:
+asyncio is imported inside the functions that use it.
 """
 
 from __future__ import annotations
@@ -81,7 +85,9 @@ _TURNS: weakref.WeakKeyDictionary[Context, asyncio.Lock] = weakref.WeakKeyDictio
 @dataclass(frozen=True)
 class Choice:
     """One answer of a choice: the value given back, the words shown (the value where none are given) and a note beside
-    them."""
+    them. The words and the note are kept as one line of plain text (text.one_line): a name from Proxmox or a machine
+    may hold an escape sequence or a newline, which the menu would write to the terminal as it is, and the line it
+    leaves, the typed choice and the step event read the same words. The value is given back as it was given."""
 
     value: str
     text: str = ""
@@ -93,8 +99,8 @@ class Choice:
                 raise TypeError(f"a choice's {name} is a str")
         if not self.value:
             raise ValueError("a choice has a value to give back")
-        if not self.text:
-            object.__setattr__(self, "text", self.value)
+        object.__setattr__(self, "text", one_line(self.text, None) or one_line(self.value, None))
+        object.__setattr__(self, "note", one_line(self.note, None))
 
 
 @dataclass(frozen=True)
@@ -267,14 +273,16 @@ def _prompt(text: str) -> str:
 async def _line(context: Context, fd: int, out: IO[str], prompt: str, *, echo: bool) -> str:
     """A line read at the terminal in its cooked mode, with its signal keys, and the echo on or off: the keys typed
     before flushed, the prompt written, then each read the terminal gives until the line ends or the input does. The
-    line, without its end; the settings put back as found however it ends, and a line ended where the echo did not end
-    it."""
+    line, without its end; the settings put back as found however it ends, what was typed after the line and not read
+    discarded with them, and a line ended where the echo did not end it."""
     found = termios.tcgetattr(fd)
     mode = list(found)
     on = termios.ICANON | termios.ISIG
     mode[3] = (found[3] | on | termios.ECHO) if echo else ((found[3] | on) & ~(termios.ECHO | termios.ECHONL))
-    termios.tcflush(fd, termios.TCIFLUSH)
-    live_region.set_terminal(fd, termios.TCSANOW, mode)
+    # TCSAFLUSH, as getpass sets and puts back: the keys typed before are flushed in the same call that sets the mode,
+    # so none typed between a flush and the change is taken; and what is still unread once the line is read - the rest
+    # of a paste, the line after a token - is discarded with the change back, never left for the shell after the run.
+    live_region.set_terminal(fd, termios.TCSAFLUSH, mode)
     got = b""
     try:
         _write(out, prompt)
@@ -284,7 +292,7 @@ async def _line(context: Context, fd: int, out: IO[str], prompt: str, *, echo: b
                 break
             got += more
     finally:
-        live_region.set_terminal(fd, termios.TCSADRAIN, found)
+        live_region.set_terminal(fd, termios.TCSAFLUSH, found)
     if not echo or not got.endswith(b"\n"):
         _write(out, "\n")
     return got.decode(errors="replace").rstrip("\r\n")

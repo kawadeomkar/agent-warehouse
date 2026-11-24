@@ -2273,30 +2273,44 @@ answer the same with the echo off; a choice is `tui/choose.py`'s menu where the 
 gives them (`choose.split` cuts them as `choose.ask` reads them one at a time), its keys raw, where Ctrl-C is a byte:
 the terminal's settings, its signal keys among them, are put back first and the run is then sent SIGINT, as for a
 Ctrl-C anywhere else; where the menu cannot be drawn, the choice is typed, a number, a value or its words, asked once
-more where it is none of them, and left at its default after a second. The terminal's settings are put back as found
-once each question ends, however it ends, a change of them that a signal interrupts made again
-(`live_region.set_terminal`, which the region's own switch of the echo uses too): `TCSADRAIN` waits for the output to
-drain, and a signal whose handler raises nothing, the run's first Ctrl-C or a resize, ends that wait with `EINTR`.
+more where it is none of them, and left at its default after a second. A choice's words and its note are one line of
+plain text (`Choice`, through `text.one_line`), as the question's own words are: a node, a storage, a bridge or a
+machine's name comes from Proxmox or a machine and may hold an escape sequence or a newline, which the menu would
+otherwise write to the terminal as it is; the value is given back as it was given. The terminal's settings are put back
+as found once each question ends, however it ends, and each change of them, the question's mode and the change back, is
+`TCSAFLUSH`'s, as `getpass` makes it: the keys typed before are flushed by the change that sets the mode, never one
+typed between a flush and the change, and what was typed at the question and not read (the rest of a paste, the line
+after a token) is discarded by the change back, never left in the terminal's input for the shell to run once the run
+has ended. A change that a signal interrupts is made again (`live_region.set_terminal`, which the region's own switch
+of the echo uses too): `TCSAFLUSH` and `TCSADRAIN` wait for the output to drain, and a signal whose handler raises
+nothing, the run's first Ctrl-C or a resize, ends that wait with `EINTR`.
 
 The live view steps aside for a question as the view's paragraph above says, `Live.of(context.job)` and `with
 view.aside():` (`LiveRegion.aside`: erased and paused, the echo on; after, the echo off and nothing drawn for half a
 second, `live_region.SETTLE_SECONDS`, so questions one after another show no frame between them). Beside the region,
-`aside` keeps what the view would say meanwhile and says it once the question ends, however it ends (and at the run's
-end, before the summary, where a second Ctrl-C ends the run with the question still up), so that nothing lands inside
-the question; while it is up the terminal's title says the run waits for you, and the wait it opens rings the bell
-only where the person has had nothing to answer for `QUIET_SECONDS` (ten seconds, since the view began, the last bell
-or the last answer), as today's prompt rings it.
+`aside` keeps what the view would say meanwhile - its lines above the region, the lines of standard error it says above
+the region (a line of the ladder's, a warning), and the line of an event it refuses - each with the stream it goes to,
+and says them once the question ends, however it ends, in the order they came (and at the run's end, before the
+summary, where a second Ctrl-C ends the run with the question still up), so that nothing lands inside the question;
+while it is up the terminal's title says the run waits for you, and the wait it opens rings the bell only where the
+person has had nothing to answer for `QUIET_SECONDS` (ten seconds, since the view began, the last bell or the last
+answer), as today's prompt rings it.
 `tests/unit/test_aw_ask.py` holds it at a pseudo-terminal, a run made by `runs.run` in a child process asking through a
-live view: a yes or no picked with the arrow keys, a choice typed and picked at a terminal that cannot draw the menu,
-two questions asked at once from two tasks, the second drawn only once the first is answered, a report said while a
-question is up shown after it and never on its line, a line, a hidden answer whose characters reach neither the screen,
-the record nor the run's events, the region gone while a question is up and back after it, Enter taking the default,
-Ctrl-C at a line, a hidden answer and the menu ending the run, and keys typed before the question not taken as its
-answer; with standard input on `/dev/null`, the default at once and the line that says so; and in its own process, every
-refusal of `Question`, a question with no default among them, two questions asked at once taking turns, how the menu's
-keys are cut, a question and the menu putting the terminal back through an `EINTR`, what the view says kept while a
-question is up or said before the summary where the run's end cuts the question short, and the bell rung only after a
-quiet while. `tests/unit/test_live_region.py` holds the region's own switch of the echo to the same through an `EINTR`.
+live view: a yes or no picked with the arrow keys, a choice typed and picked at a terminal that cannot draw the menu, a
+choice whose words and note hold an OSC, an erase of the screen, a colour and a newline drawn as plain text (the
+screen read back with `tests/unit/vt.py`), two questions asked at once from two tasks, the second drawn only once the
+first is answered, a report, a line on standard error and an event the view refuses, each said while a question is up,
+shown after it and never on its line, a line, a hidden answer whose characters reach neither the screen, the record nor
+the run's events, two lines pasted at a line and at a hidden answer, the second never left in the terminal's input once
+the run has ended, the region gone while a question is up and back after it, Enter taking the default, Ctrl-C at a
+line, a hidden answer and the menu ending the run, and keys typed before the question not taken as its answer; with
+standard input on `/dev/null`, the default at once and the line that says so; and in its own process, every refusal of
+`Question`, a question with no default among them, a choice's words and note made plain, two questions asked at once
+taking turns, how the menu's keys are cut, what is typed at the menu after its answer never left, a question and the
+menu putting the terminal back through an `EINTR`, each change `TCSAFLUSH`'s, what the view says kept while a question
+is up, a refused event's line among it, or said before the summary where the run's end cuts the question short, and the
+bell rung only after a quiet while. `tests/unit/test_live_region.py` holds the region's own switch of the echo to the
+same through an `EINTR`.
 
 ## 16.9 `fleet/` — the fleet's files, the settings, the secrets and the fleet's mark
 
