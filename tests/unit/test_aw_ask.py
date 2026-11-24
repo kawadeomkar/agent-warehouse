@@ -9,7 +9,8 @@ the screen, the run's record nor its events (aw_kit.searched_for), given back as
 keys typed before a question was there never its answer; two lines pasted at a line or a hidden answer, the second
 never left in the terminal's input once the run has ended; two questions asked at once, from two tasks, the second
 drawn only once the first is answered; a report, a line on standard error and an event the view refuses, said while a
-question is up, shown after it, never on its line; a choice whose words and note hold escapes and newlines drawn as
+question is up, shown after it, never on its line, and so where a Ctrl-C or a SIGTERM cuts the question short, its line
+ended where it was cut; a choice whose words and note hold escapes and newlines drawn as
 plain text, nothing of the menu left behind; a choice typed, and asked once more, where the terminal cannot draw the
 menu; one Ctrl-C at a line, a hidden answer and the menu ending the run, cancelled, with the echo back; the region gone
 from the screen while a question is up, the title saying the run waits for you, and a frame drawn again only half a
@@ -43,6 +44,7 @@ import os
 import pty
 import re
 import select
+import signal
 import subprocess
 import sys
 import termios
@@ -117,7 +119,11 @@ QUESTIONS = {
     "line-paste": [ADDRESS],
     "hidden-paste": [KEY],
     "node": [NODE],
+    "held-ctrl-c": [ADDRESS],
+    "held-term": [ADDRESS],
 }
+# Ways that say lines while their question is up: a report, standard error's lines, or all of them.
+HOLDING = ("report", "stderr", "held-ctrl-c", "held-term")
 # Ways whose questions are asked at once, each from a task of its own, as two machines' work would ask them.
 AT_ONCE = {
     "both": [ADDRESS, USER],
@@ -164,6 +170,7 @@ def kept(answer):
 
 
 async def body(ctx):
+    (folder / "pid").write_text(str(os.getpid()))
     out = Kept(sys.stdout)
     atexit.register(lambda: (folder / "kept.json").write_text(json.dumps(out.writes)))
     ctx.job.listen(heard)
@@ -187,24 +194,24 @@ async def body(ctx):
     if way in AT_ONCE:
         await asyncio.gather(*(asked(*question) for question in AT_ONCE[way]))
     for question in QUESTIONS.get(way, ()):
-        if way in ("report", "stderr"):
-            # Once the question is up, the run says a report, as another machine's work would; or a line on standard
-            # error, as the ladder or a warning would, and an event the live view refuses (a stage deploy has not).
+        if way in HOLDING:
+            # Once the question is up, the run says a line on standard error, as the ladder or a warning would, and an
+            # event the live view refuses (a stage deploy has not); and a report, as another machine's work would.
             up = asyncio.Event()
             ctx.job.listen(lambda event: event.kind == "waiting" and event.text and up.set())
 
             async def report():
                 await up.wait()
-                if way == "report":
-                    ctx.emit("report", "alpha", "alpha is up at 192.0.2.61")
-                else:
+                if way != "report":
                     print("aw: a line on standard error while a question is up", file=sys.stderr, flush=True)
                     ctx.emit("step", "alpha", "nope", stage="no-such-stage")
+                if way != "stderr":
+                    ctx.emit("report", "alpha", "alpha is up at 192.0.2.61")
                 (folder / "reported").write_text("")
 
             reporting = asyncio.ensure_future(report())
         await asked(*question)
-        if way in ("report", "stderr"):
+        if way in HOLDING:
             await reporting
     ctx.emit("step", "alpha", "claude", stage="sign-in", outcome="done")
     await asyncio.sleep(1.0)
@@ -239,6 +246,8 @@ echo = bool(termios.tcgetattr(0)[3] & termios.ECHO)
 print(json.dumps({"echo": echo, "status": status, "left": left}), flush=True)
 """
 WATCHED = re.compile(rb'\{"echo": (true|false), "status": (-?\d+), "left": (\d+)\}')
+# A key of a way's plan that is no key: SIGTERM sent to the run, by the pid it wrote down.
+TERM = b"<SIGTERM>"
 CHILD = [sys.executable, "-I", "-X", "utf8", "-c", RUN]
 HINT = choose.HINT.encode()
 
@@ -303,13 +312,16 @@ def _at_a_terminal(home: Path, folder: Path, way: str, plan: Plan, *, term: str 
         found = output.find(wanted, state["at"])
         if found < 0 or (raw and not harness._in_raw_mode(master)):
             return
-        if way in ("report", "stderr") and not (folder / "reported").is_file():
+        if way in ("report", "stderr", "held-ctrl-c", "held-term") and not (folder / "reported").is_file():
             # The answer typed only once the run has said its report, or its lines, while the question is up.
             return
         left.pop(0)
         state["at"] = found + len(wanted)
         for key in keys:
-            os.write(master, key)
+            if key == TERM:
+                os.kill(int((folder / "pid").read_text()), signal.SIGTERM)
+            else:
+                os.write(master, key)
             time.sleep(0.15)
 
     rc, raw = harness._at_a_pseudo_terminal(argv, folder, env, size=(100, 30), act=act, timeout=90, poll=0.05)
@@ -484,6 +496,46 @@ def test_one_ctrl_c_at_a_question_ends_the_run(way, plan, home, tmp_path) -> Non
     # The wait it opened ended with it, and nothing was said answered.
     assert [event["text"] for event in ran.of("waiting")][-1] == ""
     assert [event for event in ran.of("step") if event["data"].get("stage") is None] == []
+
+
+def _first(lines: list[str], start: str) -> int:
+    """Where the first of lines that starts with start is, its indent aside; -1 where none does."""
+    return next((at for at, line in enumerate(lines) if line.lstrip().startswith(start)), -1)
+
+
+@pytest.mark.parametrize(
+    ("way", "end", "status", "record", "question"),
+    [
+        ("held-ctrl-c", b"\x03", 130, ("cancelled", 130, "Ctrl-C"), "Proxmox host address: 192^C"),
+        ("held-term", TERM, -signal.SIGTERM, ("cancelled", 143, "SIGTERM"), "Proxmox host address: 192"),
+    ],
+    ids=["a Ctrl-C", "a SIGTERM"],
+)
+def test_a_question_cut_short_ends_its_line_before_what_was_kept_is_said(
+    way, end, status, record, question, home, tmp_path
+) -> None:
+    # A line on standard error, an event the view refuses and a report, said while a question is up; then, part of an
+    # answer typed, the run is stopped there: the question's line ends where it was cut, and each line kept, the
+    # ladder's own after them, is said on a line of its own (the screen read back with tests/unit/vt.py).
+    ran = _at_a_terminal(home, tmp_path, way, [(b"Proxmox host address: ", [b"192", end], False)])
+    assert ran.watched == {"echo": True, "status": status}, ran.text
+    assert (ran.record["outcome"], ran.record["exit"], ran.record["why"]) == record, ran.record
+    assert ran.answers is None, ran.answers
+    screen = VT(100, 30)
+    screen.feed(ran.raw)
+    lines = screen.transcript()
+    asked = [at for at, line in enumerate(lines) if line.startswith("Proxmox host address:")]
+    assert [lines[at] for at in asked] == [question], lines
+    said = lines[asked[0] + 1 :]
+    kept = [
+        _first(said, "aw: a line on standard error while a question is up"),
+        _first(said, "aw: the live view left out an event it could not take (step alpha: nope)"),
+        _first(said, "alpha is up at 192.0.2.61"),
+    ]
+    assert -1 not in kept and kept == sorted(kept), said
+    assert said[kept[0]] == "aw: a line on standard error while a question is up", said
+    if way == "held-ctrl-c":
+        assert _first(said, "aw: stopping") > kept[-1], said
 
 
 def test_where_the_menu_cannot_be_drawn_a_choice_is_typed_and_asked_once_more(home, tmp_path) -> None:

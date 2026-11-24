@@ -2268,7 +2268,9 @@ every read through `Context.typed`, on the loop and never in a thread, so one Ct
 process's controlling terminal opened by its name, and never through `getpass`. Then an empty `waiting` event ends that
 wait alone, and a `step` event, a line of the machine's work, says what was answered: the line, the choice's words, or
 of a hidden answer only that one was given. A line is read in the terminal's cooked mode with its echo on; a hidden
-answer the same with the echo off; a choice is `tui/choose.py`'s menu where the terminal can draw it
+answer the same with the echo off; either question's line is ended wherever the person's Enter did not end it on the
+screen, however its read ends (a hidden answer, the end of the input, a Ctrl-C, a SIGTERM), so that what the view kept
+while it was up is said from a line of its own; a choice is `tui/choose.py`'s menu where the terminal can draw it
 (`choose.can_choose`), picked with the arrow keys through `choose.asked`, the menu's keys read as a read on the loop
 gives them (`choose.split` cuts them as `choose.ask` reads them one at a time), its keys raw, where Ctrl-C is a byte:
 the terminal's settings, its signal keys among them, are put back first and the run is then sent SIGINT, as for a
@@ -2300,7 +2302,8 @@ live view: a yes or no picked with the arrow keys, a choice typed and picked at 
 choice whose words and note hold an OSC, an erase of the screen, a colour and a newline drawn as plain text (the
 screen read back with `tests/unit/vt.py`), two questions asked at once from two tasks, the second drawn only once the
 first is answered, a report, a line on standard error and an event the view refuses, each said while a question is up,
-shown after it and never on its line, a line, a hidden answer whose characters reach neither the screen, the record nor
+shown after it and never on its line, and so when a Ctrl-C or a SIGTERM cuts the question short, the question's line
+ended where it was cut, a line, a hidden answer whose characters reach neither the screen, the record nor
 the run's events, two lines pasted at a line and at a hidden answer, the second never left in the terminal's input once
 the run has ended, the region gone while a question is up and back after it, Enter taking the default, Ctrl-C at a
 line, a hidden answer and the menu ending the run, and keys typed before the question not taken as its answer; with
