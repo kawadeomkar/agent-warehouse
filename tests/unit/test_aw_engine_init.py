@@ -852,10 +852,16 @@ def _read(raw: bytes) -> str:
 
 def _grants(fake: Fake) -> None:
     """The engine's token granted what its table needs on the fake's node, its storage and its bridge, as init's grants
-    give it (card E1), each its own role: each listed to the token, and one it can use."""
+    give it (card E1), each its own role: each listed to the token, and one it can use. And on the fake's second node,
+    pve2, which is offline: so that it is not one to use for being offline alone (review 54, E5.md 3)."""
     from claude_vm.pve import privileges
 
-    listed = (("node", "/nodes/pve"), ("storage", "/storage/local-lvm"), ("bridge", "/sdn/zones/localnetwork/vmbr0"))
+    listed = (
+        ("node", "/nodes/pve"),
+        ("node", "/nodes/pve2"),
+        ("storage", "/storage/local-lvm"),
+        ("bridge", "/sdn/zones/localnetwork/vmbr0"),
+    )
     for kind, path in listed:
         engine_grant(fake.base, path, ",".join(sorted(privileges.needed(kind))))
 
@@ -907,8 +913,9 @@ def test_every_answer_typed_writes_the_files_and_the_same_again_asks_nothing(fak
     # Each question under today's block, in the report's order, the host's first.
     order = [said.index(asked.decode()) for asked, _, _ in plan]
     assert order == sorted(order) and said.count(engine_init.ASKED) == len(plan), said
-    # The rows above each say what cannot be used and why: the second node is offline, and the token lacks a privilege
-    # of its table on the second storage, which is no answer of its question.
+    # The rows above each say what cannot be used and why: the second node is offline, though the token holds there all
+    # its table asks, and the token lacks a privilege of its table on the second storage; neither is an answer of its
+    # question, whose only one is asked about as a yes or no.
     assert re.search(r"-  pve2 +offline", said), said
     assert re.search(r"-  ceph +rbd +the token lacks Datastore.AllocateSpace on /storage/ceph", said), said
     assert record.read(where) == record.first(fleet)
@@ -961,6 +968,32 @@ def test_a_certificate_nothing_vouches_for_is_kept_only_on_a_yes_and_enter_is_no
     assert rc == 1, said
     assert "was not trusted: nothing was kept, and nothing sent with the token" in said and SECRET_ASKED not in raw
     assert _files() == files and all(not entry["token"] for entry in fake.calls()[sent:])
+
+
+def test_the_token_s_secret_typed_wrong_twice_is_asked_again_with_the_rule_left_and_never_shown(fake, tmp_path) -> None:
+    # Review 54, E5.md 3: the token's secret, hidden, typed in a form that is not one, twice. Its second asking says the
+    # rule alone and what Enter does; the second is left, said; neither answer is on the screen, in the run's record or
+    # log, or in any file of the fleet's home, and the vault holds no secret.
+    mark_pool(fake.base, record.new_id())
+    with_port(fake.port)
+    _public_key("id_ed25519.pub", PUBLIC_KEY)
+    wrong = ("0123-not-the-secret", "the-secret-typed-wrong-again")
+    plan: Plan = [
+        (TRUST_ASKED, [UP, ENTER], True),
+        (SECRET_ASKED, [wrong[0].encode() + b"\n"], False),
+        (SECRET_ASKED, [wrong[1].encode() + b"\n"], False),
+        (GITHUB_ASKED, [b"\n"], False),
+        (VPN_ASKED, [ESC], True),
+    ]
+    rc, raw = _asked(fake, plan)
+    said = _read(raw)
+    assert rc == 0, said
+    first = raw.index(SECRET_ASKED) + len(SECRET_ASKED)
+    again = raw[first : raw.index(SECRET_ASKED, first)].decode(errors="replace")
+    assert "That is not the 36-character secret pveum printed" in again and engine_init.LATER in again, again
+    assert "either, so API token secret is left as it was: the next aw init asks again" in said, said
+    _no_secret_said(raw, tmp_path, *wrong)
+    assert _opened() == {}
 
 
 def test_an_answer_outside_its_kind_is_asked_once_more_saying_the_rule_and_a_second_is_left(fake, tmp_path) -> None:
