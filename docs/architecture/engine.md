@@ -921,8 +921,9 @@ parameters name only where its route lists entries of that kind (its `LISTINGS`)
 call no row names is refused, since nothing would check it. So a row added on a route the client already sends, which
 would widen `init`'s role, fails a test unless the fake checks it. `tests/unit/test_aw_pve_privileges.py` holds every
 privilege to a list of Proxmox VE 9's, the module to the standard library, the rows' shape, `needed` to each row's
-first privilege on its first kind, each key of a configuration's write to one row, and the fake and the harness to no
-privilege name of their own but today's.
+first privilege on its first kind and to a literal set for every kind (a row that widens `init`'s role, which the fake
+checks and every other test passes, fails there until its pin is changed with it, where a reviewer reads it), each key
+of a configuration's write to one row, and the fake and the harness to no privilege name of their own but today's.
 
 **A started VM's address: `agent.py`.** The client's one call to the guest agent, `agent_interfaces(node, vmid,
 deadline)`, asks what the VM's agent reports of its network cards (`network-get-interfaces`, `VM.GuestAgent.Audit`) on a
@@ -1057,8 +1058,9 @@ rules: a `PUT` or a `POST` to a configuration's path with no `digest`, or an emp
 end fails a test where the fake was sent one, the path read decoded there too, and every method that sends one sends
 `digest` (a syntax-tree test of the module); a configuration's write sends only
 the keys the table covers for it; both ways, every row of the table is one the fake decided a request of the client's
-by (its `decided.log`), a configuration's row by a write that sent one of its keys, and every call it makes has its
-rows, each method of the client driven against the fake under enforcement, a task another made read among them so
+by (its `decided.log`, which `tests/unit/test_aw_fake_pve.py` holds whole, request by request, so that a row the fake
+logged and did not decide fails), a configuration's row by a write that sent one of its keys, and every call it makes
+has its rows, each method of the client driven against the fake under enforcement, a task another made read among them so
 that a task's rows are checked, and what it sent read from the fake's log; the words the client tells refusals
 and warnings apart by match the fake's constants; and no error of a write or a read, the version's included, says the
 token's secret where Proxmox's words echo it. `tests/unit/test_aw_pve_agent.py` runs the wait against the fake in the
