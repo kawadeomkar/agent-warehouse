@@ -846,7 +846,8 @@ The `system` scenario runs no play of Molecule's own on its container. Its `conv
 writes the play's variables through `lib/claude_vm/guest/system.py`, files a made-up key under the machine's identity
 (layer 1 asks for one, and the test-only connection never reads it), and starts layer 1's child through `layer1.run`
 with its test-only connection, `community.docker.docker` to the container, and the folder of collections the
-scenario's own Ansible was given, since the child's configuration names none of its own. The task is changed exactly
+scenario's own Ansible was given, which the configuration names in place of the checkout's own folder (the product's
+until F6a, [§16.10](engine.md#1610-guest--the-helper-the-system-layers-inputs-layer-2)). The task is changed exactly
 when the play changed something, so that the idempotence stage holds the second converge to no change; `verify.yml`
 reads the driver's record of each converge, the first having changed the container, then what the three roles left
 there.

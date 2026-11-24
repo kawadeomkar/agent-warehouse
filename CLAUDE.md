@@ -1020,7 +1020,10 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   a module outside `ansible.builtin` fails but the three F6a replaces, and so does any file the play reaches that sets an
   `ansible_` variable, which would outrank the connection the engine wrote. `tests/unit/test_aw_layer1_ratchet.py`
   holds all three, by file and task. The play's opening tasks are `playbooks/configure.yml`'s, copied as they stand,
-  and `tests/unit/test_aw_layer1_play.py` holds them equal: a change to one is made to both.
+  and `tests/unit/test_aw_layer1_play.py` holds them equal: a change to one is made to both. Until F6a takes them out,
+  those three load only from a folder of collections, so layer 1's configuration names the checkout's own, asked of
+  `tools/env-run --collections` for the run's environment and never worked out a second way; the same test file holds
+  that the product's child loads the play from it.
 - **Every command line the new engine prints, and every command a sentence of it names, is the printer's.** Read
   [§16.2](docs/architecture/engine.md#162-schema--the-command-lines-patterns-and-its-table-of-verbs-and-options) and
   [§16.3](docs/architecture/engine.md#163-cli--the-aw-program) first.
