@@ -274,7 +274,9 @@ async def _line(context: Context, fd: int, out: IO[str], prompt: str, *, echo: b
     """A line read at the terminal in its cooked mode, with its signal keys, and the echo on or off: the keys typed
     before flushed, the prompt written, then each read the terminal gives until the line ends or the input does. The
     line, without its end; the settings put back as found however it ends, what was typed after the line and not read
-    discarded with them, and a line ended where the echo did not end it."""
+    discarded with them, and the question's line ended wherever the person's Enter did not end it on the screen -
+    however the read ends, a Ctrl-C or a SIGTERM included - so that what is said next, the view's lines kept while it
+    was up among it, begins on a line of its own."""
     found = termios.tcgetattr(fd)
     mode = list(found)
     on = termios.ICANON | termios.ISIG
@@ -292,9 +294,15 @@ async def _line(context: Context, fd: int, out: IO[str], prompt: str, *, echo: b
                 break
             got += more
     finally:
-        live_region.set_terminal(fd, termios.TCSAFLUSH, found)
-    if not echo or not got.endswith(b"\n"):
-        _write(out, "\n")
+        try:
+            live_region.set_terminal(fd, termios.TCSAFLUSH, found)
+        finally:
+            # A hidden answer's Enter, the end of the input, and a read cut short (a Ctrl-C echoed as ^C, a SIGTERM)
+            # leave the cursor on the question's line, where the view's kept lines would otherwise be said. A terminal
+            # that has gone fails the write, which is never raised over the question's own end.
+            if not echo or not got.endswith(b"\n"):
+                with contextlib.suppress(OSError, ValueError):
+                    _write(out, "\n")
     return got.decode(errors="replace").rstrip("\r\n")
 
 
