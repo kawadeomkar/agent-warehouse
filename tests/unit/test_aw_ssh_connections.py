@@ -137,8 +137,12 @@ if "-N" in argv and first("ControlMaster=") == "yes":
     if os.path.exists(os.path.join(here, "hold-open")):
         # The open's ProxyCommand, as ssh starts one, in the open's process group: the master the open leaves keeps it.
         proxy = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], stdin=subprocess.DEVNULL)
-        with open(os.path.join(here, "proxy.pid"), "w") as kept:
-            kept.write(str(proxy.pid))
+        # Written beside and renamed into place, so that the test, which reads it as soon as it is there, reads it
+        # whole or not at all.
+        kept = os.path.join(here, "proxy.pid")
+        with open(kept + ".part", "w") as part:
+            part.write(str(proxy.pid))
+        os.rename(kept + ".part", kept)
     hold("open")
     if os.path.exists(socket):
         # A master never takes a path over: beside one, live or dead, ssh goes on as a connection of its own.
@@ -934,6 +938,7 @@ def test_a_run_remembers_nothing_of_the_hop_s_open_while_it_runs(short_dir, stan
         # Another child of the run's, which is remembered.
         other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], stdin=subprocess.DEVNULL)
         try:
+            # The stand-in renames proxy.pid into place, so that here and in the finally below it is read whole.
             await asyncio.to_thread(_until, lambda: (stand_in / "proxy.pid").exists(), "the open's ProxyCommand")
             [opened] = [call["pid"] for call in _calls(stand_in) if "-N" in call["argv"]]
             tree = {opened, int((stand_in / "proxy.pid").read_text())}
