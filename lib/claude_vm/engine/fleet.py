@@ -5,18 +5,22 @@ A host is opened by fleet/opened.py's `connect(home, reached)`, which status ope
 `connect` and `Refused` are that module's, given here as this one's.
 
 **What is the fleet's.** Ownership is pool membership and a valid record (engine/record.py), never a label: nothing here
-reads a VM's tags for a decision. The one rule is pve/ownership.py's, which status judges by too: `refusal(target)`
-asks it of what was read of the target, and `owned(target)` raises it (`NotOwned`) or returns the `Owned` that
-ownership.py alone makes, the identity and the digest of the configuration the decision was made on. A `Target` is
-what a read gave, for reading: no write takes one. The client's writes of a VM and engine/record.py's writer take an
-Owned, so a change is made on nothing but what passed `owned`, and the client holds the VM to that read again where it
-reads it, before a deletion to its digest too. It refuses a member with no record of this engine's, whatever tags it
-carries; a record whose UUID is not the VM's own (a copy, as a clone sent without a description carries its source's
-notes), and one of kind template, build or golden on a VM that is no template; a record still in its first form, which
-names no UUID yet, but to the run whose job it names (`job`), which writes the rest; a member whose configuration or
-record the token may not read, or that cannot be read; two members with one UUID, both (a restore without `unique`
-keeps its source's); and a template, which is never a target. A changing read gives each target it returns its Owned
-(`Target.owned`); a read that changes nothing gives none.
+reads a VM's tags for a decision. The one rule is pve/ownership.py's, which status judges by too: each target a read
+makes carries the `Member` ownership.py's `Member.read` made of its configuration as the client read it (`member`, set
+here alone and carried on by this module's own changes of a target, never by a caller's `dataclasses.replace`, which
+leaves it none), and `refusal(target)` asks the rule of that member, and `owned(target)` raises it (`NotOwned`) or
+returns the `Owned` that ownership.py alone makes, the identity and the digest of the configuration the decision was
+made on. A target with no member - made by hand, or changed by `dataclasses.replace` after its read, a record given to
+it among them - is a TypeError to both: what is judged is what was read, never a target's fields. A `Target` is what a
+read gave, for reading: no write takes one. The client's writes of a VM and engine/record.py's writer take an Owned, so
+a change is made on nothing but what passed `owned`, and the client holds the VM it reaches to that read again. It
+refuses a member with no record of this engine's, whatever tags it carries; a record whose UUID is not the VM's own (a
+copy, as a clone sent without a description carries its source's notes), and one of kind template, build or golden on
+a VM that is no template; a record still in its first form, which names no UUID yet, but to the run that cloned it, by
+its own job, which the record names, and its own clone's task (`job`, `clone`: never read from the record judged),
+which writes the rest; a member whose configuration or record the token may not read, or that cannot be read; two
+members with one UUID, both (a restore without `unique` keeps its source's); and a template, which is never a target. A
+changing read gives each target it returns its Owned (`Target.owned`); a read that changes nothing gives none.
 
 **Names.** `requested(host, names, create=..., change=...)` holds each name before Proxmox is asked anything: today's
 pattern of a VM's name, and for a deploy that would create, the name Proxmox takes for a VM (pve/client.py's VM_NAME);
@@ -65,7 +69,7 @@ from ..fleet import hosts, mark, overrides, paths
 from ..fleet.opened import LOCALHOST, Host, Refused, client_for, connect, sentence
 from ..hosts import model
 from ..pve import agent, ownership
-from ..pve.answers import Malformed, Pool, ProxmoxError, Resource, VmConfig
+from ..pve.answers import Malformed, Pool, ProxmoxError, Resource, Task, VmConfig
 from ..pve.client import VM_NAME, Denied, NoAgent, NotRunning, Proxmox
 from ..pve.client import Refused as Answered
 from ..pve.ownership import IDENTITY, KIND, Owned
@@ -147,7 +151,8 @@ class Target:
     configuration or record could not be read ("" where they were); the VMIDs of the other members that carry its UUID;
     the MAC of its own network card, which its address is read on; the address another member reported too; and the
     digest of the configuration it was read from. It is for reading: a change is made on its Owned, which a changing
-    read gives it (owned, None in any other read) and owned() alone makes."""
+    read gives it (owned, None in any other read) and owned() alone makes, from the Member its read made (member, which
+    no constructor takes and dataclasses.replace leaves None: see the module's docstring)."""
 
     kind: str
     name: str
@@ -166,6 +171,7 @@ class Target:
     shared: str = ""
     digest: str = ""
     owned: Owned | None = None
+    member: ownership.Member | None = dataclasses.field(default=None, init=False, repr=False, compare=False)
 
     @property
     def said(self) -> str:
@@ -189,34 +195,40 @@ class Requested:
 # ------------------------------------------------------------------------------------------ the one check ----
 
 
-def _as_member(target: Target) -> ownership.Member:
-    """What was read of target, as the one rule reads it (pve/ownership.py)."""
-    return ownership.Member.of(
-        target.name,
-        target.node,
-        target.vmid,
-        found=None if target.record is None else target.record.fields(),
-        uuid=target.identity.removeprefix(IDENTITY),
-        digest=target.digest,
-        kind=target.kind,
-        template=target.template,
-        unread=target.unread,
-        twins=target.twins,
-    )
+def _read(target: Target) -> ownership.Member:
+    """The Member target's read made of it, which the one rule judges: TypeError for a target no read made, or one
+    changed by dataclasses.replace after its read."""
+    if not isinstance(target, Target) or target.member is None:
+        raise TypeError(
+            "a target is judged only as a read made it (members, requested): never one made by hand, nor one"
+            " dataclasses.replace or copy.replace changed after its read"
+        )
+    return target.member
 
 
-def refusal(target: Target, job: str = "") -> str:
-    """Why target is not the fleet's to change, "" where it is: pve/ownership.py's one check, of what was read of it.
-    job: the run's own job, which the first form of the clone it made names."""
-    return ownership.refusal(_as_member(target), job)
+def _kept(target: Target, **changes: object) -> Target:
+    """target with changes made by this module, after its read - its Owned, its address - still carrying the Member
+    its read made: a caller's dataclasses.replace leaves it none."""
+    changed = dataclasses.replace(target, **changes)
+    object.__setattr__(changed, "member", target.member)
+    return changed
 
 
-def owned(target: Target, *, job: str = "") -> Owned:
-    """The Owned a change on target is made through, made by pve/ownership.py's owned alone: NotOwned, saying why, where
-    refusal() says the fleet may not change it. job: the run's own job, which the first form of the clone it made
-    names, so that it writes the rest. The one gate every change passes."""
+def refusal(target: Target, job: str = "", clone: Task | None = None) -> str:
+    """Why target is not the fleet's to change, "" where it is: pve/ownership.py's one check, of what its read read.
+    job and clone: the run's own job and its own clone's task, which own the first form of the clone it made."""
+    return ownership.refusal(_read(target), job, clone)
+
+
+def owned(target: Target, *, job: str = "", clone: Task | None = None) -> Owned:
+    """The Owned a change on target is made through, made by pve/ownership.py's owned alone, of what its read read:
+    NotOwned, saying why, where refusal() says the fleet may not change it; TypeError for a target no read made. job and
+    clone: the run's own job and its own clone's task (the clone call's answer, or its job record's), which own the
+    first form of the clone it made, so that it writes the rest: never read from the record judged. The one gate
+    every change passes."""
+    member = _read(target)
     try:
-        return ownership.owned(_as_member(target), job=job)
+        return ownership.owned(member, job=job, clone=clone)
     except ownership.NotOwned as refused:
         raise NotOwned(refused.sentence) from None
 
@@ -246,11 +258,13 @@ def _running(host: Host, node: str, vmid: int) -> bool:
         return False
 
 
-def _member(host: Host, entry: Resource, config: VmConfig | None, unread: str) -> Target:
+def _member(host: Host, entry: Resource, config: VmConfig | None, unread: str, twins: tuple[int, ...] = ()) -> Target:
     """The target a pool's member is, from its configuration where it was read (config), else from the listing alone,
-    unread saying why."""
+    unread saying why; twins, the VMIDs of the other members that carry its UUID. It carries the Member the one rule
+    judges: pve/ownership.py's Member.read of the configuration, the typed record's refusal passed to it as its own,
+    and for a member whose configuration was not read, one that says why, which the rule refuses."""
     if config is None:
-        return Target(
+        target = Target(
             kind=KIND,
             name=entry.name,
             identity="",
@@ -260,7 +274,11 @@ def _member(host: Host, entry: Resource, config: VmConfig | None, unread: str) -
             user=host.user,
             template=entry.template,
             unread=unread,
+            twins=twins,
         )
+        unknown = ownership.Member(entry.name, entry.node, entry.vmid, template=entry.template, unread=unread)
+        object.__setattr__(target, "member", unknown)
+        return target
     # Its SMBIOS UUID as Proxmox gives it (proxmox.smbios_uuid), the name its SSH host key is filed under.
     identity = f"{IDENTITY}{config.identity}" if config.identity else ""
     found: record.Record | None = None
@@ -269,7 +287,7 @@ def _member(host: Host, entry: Resource, config: VmConfig | None, unread: str) -
             found = record.read(config)
         except record.Unreadable as error:
             unread = f"{sentence(error)}: it is never changed or deleted"
-    return Target(
+    target = Target(
         kind=KIND,
         name=config.name or entry.name,
         identity=identity,
@@ -281,16 +299,19 @@ def _member(host: Host, entry: Resource, config: VmConfig | None, unread: str) -
         running=False if config.template else _running(host, config.node, config.vmid),
         template=config.template,
         unread=unread,
+        twins=twins,
         mac=config.mac,
         digest=config.digest,
     )
+    object.__setattr__(target, "member", ownership.Member.read(config, unread=unread, twins=twins))
+    return target
 
 
 def _members(host: Host, pool: Pool) -> tuple[Target, ...]:
     """Every VM of the pool, as a target: its configuration read from its own endpoint, a member the token may not read
     (NoAccess on it, which the pool's listing still names) or that cannot be read said as such and never changed; and
     the VMIDs that carry one UUID marked on each of them."""
-    found: list[Target] = []
+    read: list[tuple[Resource, VmConfig | None, str]] = []
     for entry in pool.members:
         if entry.type != QEMU or entry.vmid is None:
             continue
@@ -307,18 +328,20 @@ def _members(host: Host, pool: Pool) -> tuple[Target, ...]:
                 f"the configuration of {entry.name or 'the VM'} (VMID {entry.vmid}) could not be read"
                 f" ({one_line(sentence(error), SAID_MOST)}): it is never changed or deleted"
             )
-        found.append(_member(host, entry, config, unread))
-    uuids = Counter(target.identity for target in found if target.identity)
+        read.append((entry, config, unread))
+    configs = [config for _, config, _ in read if config is not None and config.identity]
+    uuids = Counter(config.identity for config in configs)
     return tuple(
-        dataclasses.replace(
-            target,
-            twins=tuple(
-                other.vmid for other in found if other.identity == target.identity and other.vmid != target.vmid
-            ),
+        _member(
+            host,
+            entry,
+            config,
+            unread,
+            tuple(other.vmid for other in configs if other.identity == config.identity and other.vmid != config.vmid)
+            if config is not None and uuids[config.identity] > 1
+            else (),
         )
-        if uuids[target.identity] > 1
-        else target
-        for target in found
+        for entry, config, unread in read
     )
 
 
@@ -402,9 +425,9 @@ def _addressed(
     counts = Counter(found for found in reported.values() if found)
     shared = {identity for identity, found in reported.items() if found and counts[found] > 1}
     found = [
-        dataclasses.replace(target, address="", shared=reported[target.identity])
+        _kept(target, address="", shared=reported[target.identity])
         if target.identity in shared
-        else dataclasses.replace(target, address=reported[target.identity])
+        else _kept(target, address=reported[target.identity])
         if target.identity in reported
         else target
         for target in targets
@@ -693,7 +716,7 @@ def requested(host: Host, names: Sequence[str] = (), *, create: bool = False, ch
         else:
             (targets, lines), new = _every(host, everyone, change), []
         if change:
-            targets = [dataclasses.replace(target, owned=owned(target)) for target in targets]
+            targets = [_kept(target, owned=owned(target)) for target in targets]
         outside = True
         if new:
             outside, more = _outside(host, everyone, new)

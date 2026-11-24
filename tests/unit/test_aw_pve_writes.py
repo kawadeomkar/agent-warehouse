@@ -8,8 +8,13 @@ and alpha are the pool's members; beta and gamma are not.
 
 A clone into the pool with a description is proved by the new VM's own configuration. A clone onto a VMID that is taken
 is Exists, at the call or in its task in each of Proxmox's three sentences, and nothing is ever deleted at that VMID. A
-configuration's write sends the digest its read gave, and a stale one is DigestMismatch with nothing written;
-edit_config reads and applies again, three times at most. A write to a VM a clone or a deletion holds is Locked, and
+configuration's write sends the digest of the read its Owned was made on, and takes none of its caller's, and a stale
+one is DigestMismatch with nothing written; edit_config reads and applies again, three times at most. No write of an
+Owned reaches another VM at its VMID (card G28): every other write reads the configuration first and holds its SMBIOS
+UUID to the Owned's, Changed with nothing sent, a resize sending that read's digest. A conversion to a template is made
+on a Building alone, a build VM of the asking run's own, and held to its UUID and digest as a deletion is; a VM of the
+fleet, a template, another run's build VM and one at another clone's VMID are refused. A write to a VM a clone or a
+deletion holds is Locked, and
 tried once; so is one that meets its configuration's file lock, and a clone's task that meets its source's lock names
 the source. A write whose answer is cut is the transport's Unknown, sent once. A task that fails raises with the last
 lines of its log, made plain; one that ends with warnings is a success, its warnings' lines kept; one that runs past its
@@ -44,6 +49,7 @@ import urllib.parse
 from pathlib import Path
 
 import pytest
+from aw_kit import owned_as_recorded
 from harness import (
     ENGINE_POOL,
     ENGINE_TOKEN,
@@ -61,8 +67,8 @@ from pki import proxmox_pki
 from test_aw_pve_agent import _holding
 from test_aw_transport import _said, _Tunnel
 
-from claude_vm import proxmox
 from claude_vm.pve import answers, ownership, pin, privileges
+from claude_vm.pve import record as block
 from claude_vm.pve.client import (
     DEADLINES,
     EDITS,
@@ -91,7 +97,7 @@ from claude_vm.pve.client import (
     _file_locked,
     _taken,
 )
-from claude_vm.pve.ownership import Owned
+from claude_vm.pve.ownership import Building, NotOwned, Owned
 from claude_vm.secret import MARK, Secret
 from claude_vm.vendors.transport import CLOSED, CUT, Answer, Closed, TimedOut, Unreachable, Untrusted
 
@@ -101,6 +107,10 @@ EACH_WORKER = {"pki"}
 CLIENT = REPO / "lib" / "claude_vm" / "pve" / "client.py"
 # The SMBIOS UUID of a VM a test makes up, for an Owned no write reads (_vm).
 MADE_UP = "0f0e0d0c-0b0a-4908-8706-050403020100"
+# Another VM's SMBIOS UUID, put at an owned VMID as a VM cloned there after the read would carry its own.
+OTHER = "9a0e1c2d-3b4f-4a5b-8c6d-7e8f90a1b2c3"
+# The asking run's job, as a build VM's record names it, and another run's.
+JOB, ANOTHER_JOB = "2b3c4d5e6f708192", "0123456789abcdef"
 # A token's secret no error may say: low in entropy, so that gitleaks takes it for no key.
 CANARY = "unit-test-pve-writes-canary-value"
 # What the fake says where it refuses, as it says it: the constants at its top, which experiment 6 corrects (A21).
@@ -159,17 +169,26 @@ class Fleet:
         """A VM's configuration as today's token reads it."""
         return _pve(self.base, "GET", f"nodes/pve/qemu/{vmid}/config")["data"]
 
+    def read(self, vmid: int) -> answers.VmConfig:
+        """A VM's configuration as today's token reads it, as the client's answers make one: so that the client asks
+        nothing more of it."""
+        return answers.config(self.raw(vmid), "pve", vmid, "net0")
+
     def owned(self, vmid: int) -> Owned:
         """The VM at vmid as a write takes it: an Owned, which ownership.owned alone makes, of its configuration now as
-        today's token reads it (so that the client asks nothing more of it), its record given as one of the fleet's
-        own. Whether a member is the fleet's is the one check's (test_aw_ownership.py, test_aw_fleet.py): here, what
-        each write sends."""
-        raw = self.raw(vmid)
-        uuid = proxmox.smbios_uuid(raw)
-        member = ownership.Member(
-            str(raw.get("name", "")), "pve", vmid, uuid=uuid, digest=raw["digest"], recorded="vm", record_uuid=uuid
-        )
-        return ownership.owned(member)
+        today's token reads it, its record taken as one of the fleet's own (aw_kit's owned_as_recorded). Whether a
+        member is the fleet's is the one check's (test_aw_ownership.py, test_aw_fleet.py): here, what each write
+        sends."""
+        return owned_as_recorded(self.read(vmid))
+
+    def building(self, vmid: int, clone: Task, job: str = JOB, kind: str = "build") -> Building:
+        """The VM at vmid, given a record of kind (build) of its own UUID and job, as a run that clones a build VM
+        writes one, and judged from a read made now: the Building pve/ownership.py's building makes of it for the run
+        of JOB whose clone's task clone is. NotOwned where building refuses it."""
+        config = self.read(vmid)
+        fields = {"kind": kind, "uuid": config.identity, "job": job, "stage": "finished" if kind == "vm" else None}
+        _pve(self.base, "PUT", f"nodes/pve/qemu/{vmid}/config", description=block.render("", fields))
+        return ownership.building(ownership.Member.read(self.read(vmid)), job=JOB, clone=clone)
 
     def tasks(self) -> dict:
         """Every task the fake made, by its UPID, as its tasks.json records them."""
@@ -190,13 +209,15 @@ def fleet(tmp_path, pki):
         yield Fleet(base, tmp_path, Token(token_id, Secret(secret)), pki)
 
 
+def _made_up(vmid: int) -> dict:
+    """The configuration of a VM a test makes up, as Proxmox would answer it: its digest, its name, its SMBIOS UUID."""
+    return {"digest": "0" * 40, "name": f"vm-{vmid}", "smbios1": f"uuid={MADE_UP}"}
+
+
 def _vm(vmid: int, node: str = "pve") -> Owned:
     """An Owned of VMID vmid on node, for a write a test refuses before it is sent or answers itself: what it was owned
-    on is made up, and never read."""
-    member = ownership.Member(
-        f"vm-{vmid}", node, vmid, uuid=MADE_UP, digest="0" * 40, recorded="vm", record_uuid=MADE_UP
-    )
-    return ownership.owned(member)
+    on is made up (_made_up), which a test that answers a write's read answers again."""
+    return owned_as_recorded(answers.config(_made_up(vmid), node, vmid, "net0"))
 
 
 def _cloned(client: Proxmox, newid: int = 9020, name: str = "delta", **kwargs) -> Task:
@@ -274,16 +295,20 @@ def test_a_clone_whose_vmid_its_task_finds_taken_is_exists_in_each_of_proxmox_s_
 # ------------------------------------------------------------------------------- a configuration's write ----
 
 
-def test_a_write_sends_the_digest_its_read_gave_and_a_stale_one_writes_nothing(fleet) -> None:
+def test_a_write_sends_the_digest_its_owned_was_made_on_and_a_stale_one_writes_nothing(fleet) -> None:
+    """write_config takes no digest of its caller's: it sends the one of the read the Owned was made on, so a second
+    write of the same Owned, after the first changed the configuration, is refused."""
+    owned = fleet.owned(9010)
     with fleet.client() as client:
-        read = client.config("pve", 9010)
-        assert client.write_config(fleet.owned(9010), {"description": "one", "cores": 4}, read.digest) is None
+        assert client.write_config(owned, {"description": "one", "cores": 4}) is None
         with pytest.raises(DigestMismatch) as stale:
-            client.write_config(fleet.owned(9010), {"description": "two"}, read.digest)
+            client.write_config(owned, {"description": "two"})
         after = client.config("pve", 9010)
+        with pytest.raises(TypeError):
+            client.write_config(owned, {"description": "three"}, after.digest)
     assert stale.value.vmid == 9010 and "changed since it was read" in str(stale.value)
     assert (after.description, after.values["cores"]) == ("one", "4")
-    assert [params["digest"] for params in fleet.sent("PUT", "nodes/pve/qemu/9010/config")] == [read.digest] * 2
+    assert [params["digest"] for params in fleet.sent("PUT", "nodes/pve/qemu/9010/config")] == [owned.digest] * 2
 
 
 def test_two_edit_config_calls_on_one_vm_both_land_the_second_after_a_re_read(fleet) -> None:
@@ -383,10 +408,10 @@ def test_a_write_during_a_running_clone_is_locked(fleet) -> None:
         read = client.config("pve", 9020)
         assert read.lock == SAID["CLONE_LOCK"]
         with pytest.raises(Denied):
-            client.write_config(fleet.owned(9020), {"description": "early"}, read.digest)
+            client.write_config(fleet.owned(9020), {"description": "early"})
         _pve(fleet.base, "PUT", "fake/pool-member", vmid=9020, pool=ENGINE_POOL)
         with pytest.raises(Locked) as locked:
-            client.write_config(fleet.owned(9020), {"description": "early"}, read.digest)
+            client.write_config(fleet.owned(9020), {"description": "early"})
         assert (locked.value.vmid, locked.value.lock) == (9020, "clone") and "try again" in str(locked.value)
         _pve(fleet.base, "PUT", "fake/task-end", upid=clone.upid)
         assert client.follow(clone).ok
@@ -529,11 +554,11 @@ def test_a_write_that_meets_its_configuration_s_file_lock_at_the_call_is_locked_
         _echo(held.format(newid=9020)),
     )
     with pytest.raises(Locked) as locked:
-        client.write_config(_vm(9010), {"cores": 2}, "0" * 40)
+        client.write_config(_vm(9010), {"cores": 2})
     assert (locked.value.vmid, locked.value.lock) == (9010, FILE)
     # Another VM's file is not this VM's lock.
     with pytest.raises(Refused):
-        client.write_config(_vm(9010), {"cores": 2}, "0" * 40)
+        client.write_config(_vm(9010), {"cores": 2})
     with pytest.raises(Locked) as source:
         client.clone("pve", 9000, 9020, "delta", ENGINE_POOL)
     assert (source.value.vmid, source.value.lock) == (9000, FILE)
@@ -972,14 +997,15 @@ def test_a_run_that_stops_while_its_task_still_runs_is_stopped_and_reads_no_log(
 
 def test_each_write_answers_a_task_of_its_kind_that_changes_the_vm_when_it_ends(fleet) -> None:
     with fleet.client() as client:
-        _cloned(client)
+        clone = _cloned(client)
+        digest = fleet.raw(9020)["digest"]
         steps = [
             (lambda: client.resize(fleet.owned(9020), "scsi0", "40G"), "resize"),
             (lambda: client.start(fleet.owned(9020)), "start"),
             (lambda: client.shutdown(fleet.owned(9020), timeout=30, force_stop=True), "shutdown"),
             (lambda: client.start(fleet.owned(9020)), "start"),
             (lambda: client.stop(fleet.owned(9020)), "stop"),
-            (lambda: client.to_template("pve", 9020), "template"),
+            (lambda: client.to_template(fleet.building(9020, clone)), "template"),
         ]
         made = []
         for write, kind in steps:
@@ -997,7 +1023,8 @@ def test_each_write_answers_a_task_of_its_kind_that_changes_the_vm_when_it_ends(
         with pytest.raises(Refused) as gone:
             client.config("pve", 9020)
     assert gone.value.status == 500 and "does not exist" in gone.value.reason
-    assert fleet.sent("PUT", "nodes/pve/qemu/9020/resize") == [{"disk": "scsi0", "size": "40G"}]
+    # A resize sends the digest of the read it held the VM's identity to first.
+    assert fleet.sent("PUT", "nodes/pve/qemu/9020/resize") == [{"disk": "scsi0", "size": "40G", "digest": digest}]
     assert fleet.sent("POST", "nodes/pve/qemu/9020/status/shutdown") == [{"timeout": "30", "forceStop": "1"}]
     assert fleet.sent("POST", "nodes/pve/qemu/9020/status/start") == [{}, {}]
     assert fleet.sent("DELETE", "nodes/pve/qemu/9020") == [{"destroy-unreferenced-disks": "1"}]
@@ -1051,12 +1078,87 @@ def test_a_deletion_is_held_to_the_read_its_vm_was_owned_on_and_sends_nothing_wh
 
 
 @pytest.mark.parametrize("write", ["write_config", "edit_config", "resize", "start", "shutdown", "stop", "delete"])
+def test_no_write_of_an_owned_vm_reaches_another_vm_at_its_vmid(fleet, write) -> None:
+    """Between the read alpha was owned on and a write, its VMID can be another VM's (card G28, review 51's P2): as root
+    writes them here, another SMBIOS UUID and a person's notes. A write that reads the configuration first is Changed,
+    with nothing sent but that read; write_config, which reads nothing, sends the Owned's own digest, which Proxmox
+    refuses (DigestMismatch), nothing written. Either way the VM there is as it was."""
+    owned = fleet.owned(9010)
+    _pve(fleet.base, "PUT", "nodes/pve/qemu/9010/config", smbios1=f"uuid={OTHER}", description="a person's notes")
+    there = fleet.raw(9010)
+    call = {
+        "write_config": lambda client: client.write_config(owned, {"description": "written over"}),
+        "edit_config": lambda client: client.edit_config(owned, lambda config: {"description": "written over"}),
+        "resize": lambda client: client.resize(owned, "scsi0", "+1G"),
+        "start": lambda client: client.start(owned),
+        "shutdown": lambda client: client.shutdown(owned, timeout=30, force_stop=True),
+        "stop": lambda client: client.stop(owned),
+        "delete": lambda client: client.delete(owned),
+    }[write]
+    with fleet.client() as client:
+        with pytest.raises(DigestMismatch if write == "write_config" else Changed) as refused:
+            call(client)
+    assert refused.value.vmid == 9010
+    if write == "write_config":
+        assert fleet.writes() == [("PUT", "nodes/pve/qemu/9010/config")]
+    else:
+        assert "is another VM than the one owned" in str(refused.value)
+        assert fleet.writes() == []
+    assert fleet.raw(9010) == there
+
+
+def test_only_a_build_vm_of_the_run_s_own_is_made_a_template(fleet) -> None:
+    """A conversion to a template cannot be undone, and is made on a Building alone, which pve/ownership.py's building
+    makes from a fresh read of a VM whose record is of kind build, of the asking run's own job, at the VMID its own
+    clone made (card G28, review 51's P4): a VM of the fleet, by a bare VMID or as an Owned, is refused before anything
+    is sent; so are a template, a build VM of another run's job and one at another clone's VMID. Its configuration is
+    read again first and held to the Building's, as a deletion's is."""
+    with fleet.client() as client:
+        clone = _cloned(client)
+        other = _cloned(client, 9021, "epsilon")
+        before = len(fleet.asked())
+        # A VM of the fleet, by a bare VMID or as an Owned.
+        for refused in (lambda: client.to_template("pve", 9010), lambda: client.to_template(fleet.owned(9010))):
+            with pytest.raises(TypeError):
+                refused()
+        assert fleet.asked()[before:] == []
+        # The template, another run's build VM, a VM of the fleet's record, and a build VM at another clone's VMID.
+        with pytest.raises(NotOwned, match="is a template already"):
+            ownership.building(ownership.Member.read(fleet.read(9000)), job=JOB, clone=clone)
+        with pytest.raises(NotOwned, match="the build VM of another run's job"):
+            fleet.building(9020, clone, job=ANOTHER_JOB)
+        with pytest.raises(NotOwned, match="a VM of the fleet, which is never made a template"):
+            fleet.building(9020, clone, kind="vm")
+        with pytest.raises(NotOwned, match="not the VM the asking run's own clone made"):
+            fleet.building(9020, other)
+        # Changed since it was judged, or another VM at its VMID: nothing sent but the read.
+        made = fleet.building(9020, clone)
+        _pve(fleet.base, "PUT", "nodes/pve/qemu/9020/config", cores=3)
+        with pytest.raises(Changed, match="changed since the read it was judged a build VM on"):
+            client.to_template(made)
+        made = fleet.building(9020, clone)
+        _pve(fleet.base, "PUT", "nodes/pve/qemu/9020/config", smbios1=f"uuid={OTHER}")
+        with pytest.raises(Changed, match="is another VM than the build VM"):
+            client.to_template(made)
+        assert fleet.writes() == [("POST", "nodes/pve/qemu/9000/clone")] * 2
+        assert not client.config("pve", 9020).template
+        # The run's own build VM, judged now, is made a template.
+        assert client.follow(client.to_template(fleet.building(9021, other))).ok
+        assert client.config("pve", 9021).template and not client.config("pve", 9010).template
+    assert fleet.writes()[2:] == [("POST", "nodes/pve/qemu/9021/template")]
+
+
+@pytest.mark.parametrize(
+    "write", ["write_config", "edit_config", "resize", "start", "shutdown", "stop", "delete", "to_template"]
+)
 def test_a_vm_is_written_to_only_as_an_owned_and_anything_else_sends_nothing(fleet, write) -> None:
     rest = {
-        "write_config": ({"cores": 2}, "0" * 40),
+        "write_config": ({"cores": 2},),
         "edit_config": (lambda config: {"cores": 2},),
         "resize": ("scsi0", "+1G"),
     }.get(write, ())
+    # A conversion to a template takes a Building alone (pve/ownership.py's building), an Owned among what it refuses.
+    says = "made a template only as a Building" if write == "to_template" else "only as an Owned"
 
     @dataclasses.dataclass(frozen=True)
     class Like:
@@ -1070,7 +1172,7 @@ def test_a_vm_is_written_to_only_as_an_owned_and_anything_else_sends_nothing(fle
         before = len(fleet.asked())
         like = Like("pve", 9010, read.identity, read.digest)
         for given in (read, like, 9010, ("pve", 9010)):
-            with pytest.raises(TypeError, match="only as an Owned"):
+            with pytest.raises(TypeError, match=says):
                 getattr(client, write)(given, *rest)
         assert fleet.asked()[before:] == []
 
@@ -1081,18 +1183,18 @@ def test_a_vm_is_written_to_only_as_an_owned_and_anything_else_sends_nothing(fle
 @pytest.mark.parametrize(
     ("write", "args"),
     [
-        ("write_config", (_vm(9010), {"net0": "virtio,bridge=vmbr1"}, "0" * 40)),
-        ("write_config", (_vm(9010), {"digest": "0" * 40}, "0" * 40)),
-        ("write_config", (_vm(9010), {"startup": "order=1"}, "0" * 40)),
-        ("write_config", (_vm(9010), {"delete": "cores"}, "0" * 40)),
-        ("write_config", (_vm(9010), {"delete": ["net0"]}, "0" * 40)),
-        ("write_config", (_vm(9010), {"tags": "a,b"}, "0" * 40)),
-        ("write_config", (_vm(9010), {"tags": ["a b"]}, "0" * 40)),
-        ("write_config", (_vm(9010), {"cores": True}, "0" * 40)),
-        ("write_config", (_vm(9010), {"sshkeys": b"key"}, "0" * 40)),
-        ("write_config", (_vm(9010), {}, "0" * 40)),
-        ("write_config", (_vm(9010), {"cores": 2}, "not a digest")),
-        ("write_config", (_vm(9010), {"cores": 2}, None)),
+        ("write_config", (_vm(9010), {"net0": "virtio,bridge=vmbr1"})),
+        ("write_config", (_vm(9010), {"digest": "0" * 40})),
+        ("write_config", (_vm(9010), {"startup": "order=1"})),
+        ("write_config", (_vm(9010), {"delete": "cores"})),
+        ("write_config", (_vm(9010), {"delete": ["net0"]})),
+        ("write_config", (_vm(9010), {"tags": "a,b"})),
+        ("write_config", (_vm(9010), {"tags": ["a b"]})),
+        ("write_config", (_vm(9010), {"cores": True})),
+        ("write_config", (_vm(9010), {"sshkeys": b"key"})),
+        ("write_config", (_vm(9010), {})),
+        # A digest of the caller's: write_config sends its Owned's alone (card G28).
+        ("write_config", (_vm(9010), {"cores": 2}, "0" * 40)),
         ("clone", ("pve", 9000, 9020, "a name", ENGINE_POOL)),
         ("clone", ("pve", 9000, 9020, "delta", "../access")),
         ("clone", ("pve", 9000, 9020, "delta", ENGINE_POOL, False, "local-lvm")),
@@ -1148,7 +1250,7 @@ def test_a_write_answered_with_a_upid_that_holds_a_slash_is_malformed(pki, upid)
     with pytest.raises(Malformed):
         answers.task(upid, "pve", "start", 9010)
     client = Proxmox("https://127.0.0.1:9", pin.kept(pki["ca"]), Token(f"{ENGINE_USER}!{ENGINE_TOKEN}", Secret(CANARY)))
-    client._transport = _Answers(VERSION, _data(upid))
+    client._transport = _Answers(VERSION, CONFIG, _data(upid))
     with pytest.raises(Malformed):
         client.start(_vm(9010))
     assert answers.task(upid.replace("/", "-"), "pve", "start", 9010).upid == upid.replace("/", "-")
@@ -1158,8 +1260,12 @@ def test_a_write_answered_with_a_upid_that_holds_a_slash_is_malformed(pki, upid)
 
 
 # The client's public methods that send no request of rows named for them: follow polls a task through task_status and
-# task_log, edit_config reads and writes through config and write_config, and close sends nothing.
+# task_log, edit_config reads and writes by config's and write_config's rows, and close sends nothing.
 APART = {"follow", "edit_config", "close"}
+# The writes that read the VM's configuration first, by config's rows, and hold the VM at its VMID to what it was
+# judged on (card G28): every one but write_config, which sends its Owned's digest, and a clone, which makes a VM where
+# none is.
+LOOK_FIRST = {"resize", "start", "shutdown", "stop", "to_template", "delete"}
 
 
 def _sent_by_each_method(fleet: Fleet) -> dict[str, list[dict]]:
@@ -1195,7 +1301,7 @@ def _sent_by_each_method(fleet: Fleet) -> dict[str, list[dict]]:
             *[
                 (
                     "write_config",
-                    lambda changes=changes: client.write_config(fleet.owned(9020), changes, fleet.raw(9020)["digest"]),
+                    lambda changes=changes: client.write_config(fleet.owned(9020), changes),
                 )
                 for changes in (
                     {"description": "the record", "tags": ["agent-warehouse"]},
@@ -1210,7 +1316,7 @@ def _sent_by_each_method(fleet: Fleet) -> dict[str, list[dict]]:
             ("shutdown", lambda: client.shutdown(fleet.owned(9020), timeout=30, force_stop=True)),
             ("start", lambda: client.start(fleet.owned(9020))),
             ("stop", lambda: client.stop(fleet.owned(9020))),
-            ("to_template", lambda: client.to_template("pve", 9020)),
+            ("to_template", lambda: client.to_template(fleet.building(9020, made[0]))),
             ("delete", lambda: client.delete(fleet.owned(9020))),
         ]
         for name, step in steps:
@@ -1247,10 +1353,11 @@ def test_every_row_is_a_call_the_client_makes_and_every_call_it_makes_has_its_ro
     assert set(sent) == named
     for name, requests in sent.items():
         assert requests, name
-        # A deletion reads the VM's configuration again first, by config's rows (card G28), then sends its own.
-        looks = requests[:1] if name == "delete" else []
+        # A write that holds the VM at its VMID reads its configuration first, by config's rows (card G28), then sends
+        # its own.
+        looks = requests[:1] if name in LOOK_FIRST else []
         assert [(request["method"], request["path"].rsplit("/", 1)[-1]) for request in looks] == (
-            [("GET", "config")] if name == "delete" else []
+            [("GET", "config")] if name in LOOK_FIRST else []
         )
         for request in requests:
             rows = privileges.for_request(request["method"], request["path"].removeprefix("/api2/json"))
@@ -1310,7 +1417,7 @@ def _config_puts_without_digest(source: str) -> tuple[list[str], list[str]]:
 
 def test_every_method_that_sends_a_put_or_a_post_to_a_config_path_sends_digest() -> None:
     putting, without = _config_puts_without_digest(CLIENT.read_text())
-    assert putting == ["write_config"] and without == []
+    assert putting == ["_write"] and without == []
 
 
 @pytest.mark.parametrize("method", ["PUT", "POST"])
@@ -1447,6 +1554,10 @@ def _data(value) -> Answer:
     return Answer(200, (), json.dumps({"data": value}).encode(), "OK")
 
 
+# A made-up VM's configuration (_made_up), as a write that holds the VM at its VMID reads it first: _vm's own.
+CONFIG = _data(_made_up(9010))
+
+
 ECHOES = {
     "the header": f"PVEAPIToken={ENGINE_USER}!{ENGINE_TOKEN}={CANARY}",
     "the secret cut by a control character": f"{CANARY[:7]}\x07{CANARY[7:]} refused",
@@ -1455,16 +1566,20 @@ ECHOES = {
 RAISED = {
     "a read's Refused": (lambda c: c.config("pve", 9010), lambda echo: [VERSION, _echo(echo)], Refused),
     "a write's Refused": (
-        lambda c: c.write_config(_vm(9010), {"cores": 2}, "0" * 40),
+        lambda c: c.write_config(_vm(9010), {"cores": 2}),
         lambda echo: [VERSION, _echo(echo)],
         Refused,
     ),
     "DigestMismatch": (
-        lambda c: c.write_config(_vm(9010), {"cores": 2}, "0" * 40),
+        lambda c: c.write_config(_vm(9010), {"cores": 2}),
         lambda echo: [VERSION, _echo(f"checksum mismatch {echo}")],
         DigestMismatch,
     ),
-    "Locked": (lambda c: c.start(_vm(9010)), lambda echo: [VERSION, _echo(f"VM is locked (clone) {echo}")], Locked),
+    "Locked": (
+        lambda c: c.start(_vm(9010)),
+        lambda echo: [VERSION, CONFIG, _echo(f"VM is locked (clone) {echo}")],
+        Locked,
+    ),
     "Exists": (
         lambda c: c.clone("pve", 9000, 9020, "delta", ENGINE_POOL),
         lambda echo: [VERSION, _echo(f"unable to create VM 9020: config file already exists {echo}")],

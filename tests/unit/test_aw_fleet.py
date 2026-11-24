@@ -25,7 +25,9 @@ holds nothing of the environment, nor the run's values; the opened host keeps wh
 its values read-only; a creating read that changes nothing is refused, and so is a name Proxmox takes for
 no VM, before any host is asked; a pool's listing lags as the cluster's does, and neither is read for a VM's state; an
 entry the listing gives with no name is read by its configuration; and the first form of a clone is owned only by the
-run whose job it names.
+run that cloned it, by its own job and its own clone's task, never by the job its record names. And review 51's: what
+is judged is the Member a target's read made, so a target changed after its read (a record given to it by
+dataclasses.replace above all) and a Member made by hand of a VM outside the pool are refused, nothing sent.
 """
 
 from __future__ import annotations
@@ -60,7 +62,7 @@ from claude_vm.engine import record as engine_record
 from claude_vm.engine.record import Record
 from claude_vm.fleet import hosts, opened, overrides, paths
 from claude_vm.hosts.model import Request
-from claude_vm.pve import ownership, pin, privileges
+from claude_vm.pve import answers, ownership, pin, privileges
 from claude_vm.pve import record as block
 from claude_vm.pve.client import Changed
 
@@ -70,6 +72,8 @@ TOKEN = f"{ENGINE_USER}!{ENGINE_TOKEN}"
 ALPHA, BETA, GAMMA = 9010, 9011, 9012
 # A run's job, as a record names one.
 JOB = "2b3c4d5e6f708192"
+# A clone's task, as Proxmox names one.
+UPID = "UPID:pve:00000001:00000000:00000000:qmclone:9000:root@pam:"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -399,9 +403,9 @@ def test_owned_is_the_one_check_and_raises_for_a_target_it_refuses(fake, monkeyp
     monkeypatch.setattr(fleet, "owned", recorded)
     found = _requested()
     assert sorted(passed) == sorted(target.vmid for target in found.targets) == [ALPHA, BETA, GAMMA]
-    unrecorded = dataclasses.replace(found.targets[0], record=None)
-    with pytest.raises(fleet.NotOwned):
-        check(unrecorded)
+    # A target changed after its read carries no member its read made: owned() refuses it, whatever it says.
+    with pytest.raises(TypeError, match="as a read made it"):
+        check(dataclasses.replace(found.targets[0], record=None))
     # What it gives is an Owned, of the same VM as the one the read gave the target.
     made = check(found.targets[0])
     assert isinstance(made, ownership.Owned) and made == found.targets[0].owned
@@ -411,8 +415,8 @@ def test_an_owned_is_made_by_owned_alone_and_never_by_hand_or_a_copy_s_change(fa
     alpha = _by_name(_requested("alpha"))["alpha"]
     for made in (
         lambda: ownership.Owned("alpha", "pve", ALPHA, "", ""),
-        lambda: ownership.Owned(fleet._as_member(alpha)),
-        lambda: ownership.Owned(fleet._as_member(alpha), object()),
+        lambda: ownership.Owned(alpha.member),
+        lambda: ownership.Owned(alpha.member, object()),
         lambda: dataclasses.replace(alpha.owned, vmid=BETA),
         lambda: copy.replace(alpha.owned, vmid=BETA),
     ):
@@ -420,9 +424,41 @@ def test_an_owned_is_made_by_owned_alone_and_never_by_hand_or_a_copy_s_change(fa
             made()
     with pytest.raises(dataclasses.FrozenInstanceError):
         alpha.owned.vmid = BETA
-    # A target changed by hand is held as its fields now say, and owns nothing it did not own.
-    with pytest.raises(fleet.NotOwned):
+    # A target changed by hand owns nothing: what is judged is what its read read, which a change leaves it none of.
+    with pytest.raises(TypeError, match="as a read made it"):
         fleet.owned(dataclasses.replace(alpha, record=None))
+    with pytest.raises(TypeError, match="as a read made it"):
+        fleet.refusal(copy.replace(alpha, name="alpha"))
+
+
+def test_a_target_or_member_no_read_made_is_never_owned_and_nothing_reaches_its_vm(fake) -> None:
+    """Review 51's P1: a target read for reading, of a member with no record, given a record by dataclasses.replace,
+    and a Member made by hand of a VM outside the pool, each passed the one check and was owned, and a stop of it was
+    sent. What is judged is the Member its reader made from what it read: each is a TypeError, nothing sent."""
+    _vm(fake, 9013, "delta")
+    _pve_vm(fake.base, 9014, "epsilon", running=True)
+    delta = _by_name(_requested("delta", change=False))["delta"]
+    assert delta.record is None and delta.owned is None
+    with pytest.raises(fleet.NotOwned, match="no record of this engine's"):
+        fleet.owned(delta)
+    given = dataclasses.replace(delta, record=Record(kind="vm", uuid=_uuid(fake, 9013), stage="finished"))
+    epsilon = ownership.Member(
+        "epsilon",
+        "pve",
+        9014,
+        uuid=_uuid(fake, 9014),
+        digest=_config(fake, 9014)["digest"],
+        recorded="vm",
+        record_uuid=_uuid(fake, 9014),
+        stage="finished",
+    )
+    assert ownership.refusal(epsilon) == ""
+    before = fake.sent()
+    with pytest.raises(TypeError, match="as a read made it"):
+        fleet.owned(given)
+    with pytest.raises(TypeError, match="made it from what it read"):
+        ownership.owned(epsilon)
+    assert fake.sent() == before
 
 
 def test_every_writer_refuses_a_target_and_sends_nothing(fake) -> None:
@@ -433,7 +469,7 @@ def test_every_writer_refuses_a_target_and_sends_nothing(fake) -> None:
     with _host() as host:
         before = fake.sent()
         writes = (
-            (lambda vm: host.client.write_config(vm, {"cores": 2}, alpha.digest), client),
+            (lambda vm: host.client.write_config(vm, {"cores": 2}), client),
             (lambda vm: host.client.edit_config(vm, lambda config: {"cores": 2}), client),
             (lambda vm: host.client.resize(vm, "scsi0", "+1G"), client),
             (lambda vm: host.client.start(vm), client),
@@ -444,7 +480,7 @@ def test_every_writer_refuses_a_target_and_sends_nothing(fake) -> None:
             (lambda vm: engine_record.label(host.client, vm, "agent-warehouse"), writer),
         )
         for write, says in writes:
-            for given in (alpha, dataclasses.replace(alpha, owned=None), fleet._as_member(alpha)):
+            for given in (alpha, dataclasses.replace(alpha, owned=None), alpha.member):
                 with pytest.raises(TypeError, match=says):
                     write(given)
         assert fake.sent() == before
@@ -467,16 +503,22 @@ def test_a_deletion_of_an_owned_vm_that_changed_since_the_read_is_refused_and_it
     assert again.owned.digest != alpha.owned.digest and again.owned.digest == _config(fake, ALPHA)["digest"]
 
 
-def test_the_first_form_of_a_clone_is_owned_only_by_the_run_whose_job_it_names(fake) -> None:
+def test_the_first_form_of_a_clone_is_owned_only_by_the_run_that_cloned_it(fake) -> None:
+    """The job a first form names is written in its notes, which any reader reads: the run that cloned it owns it by its
+    own job and its own clone's task, whose VMID is the member's, never by the job the record names (review 51's P5:
+    `fleet.owned(delta, job=delta.record.job)` owned any first form)."""
     first = {"uuid": "", "stage": "cloning", "name": "delta", "job": JOB}
     _vm(fake, 9013, "delta")
     _record(fake, 9013, **first)
     delta = _by_name(_requested("delta", change=False))["delta"]
-    for job in ("", "0123456789abcdef"):
+    # The run's clone of delta, as its clone call answered it; and one of another VMID.
+    clone = answers.task(UPID, "pve", "clone", 9013, 9000)
+    elsewhere = answers.task(UPID, "pve", "clone", 9014, 9000)
+    for job, task in (("", clone), ("0123456789abcdef", clone), (delta.record.job, None), (JOB, elsewhere)):
         with pytest.raises(fleet.NotOwned) as refused:
-            fleet.owned(delta, job=job)
+            fleet.owned(delta, job=job, clone=task)
         assert "still the first form its clone carries" in refused.value.sentence
-    made = fleet.owned(delta, job=first["job"])
+    made = fleet.owned(delta, job=JOB, clone=clone)
     assert (made.vmid, made.identity) == (9013, delta.identity)
     # The run writes the rest through it, and the VM is then owned by any run.
     with _host() as host:
@@ -824,14 +866,21 @@ def test_requested_returns_a_target_for_a_change_through_owned_and_the_one_rule_
     }
     assert "owned" in called
     # The one check is pve/ownership.py's refusal, which owned raises: nothing here holds a record to the VM it is in,
-    # and there no function but refusal reads the UUID a record names, nor makes an Owned but owned.
-    assert _reading("uuid") == set() and _reading("record_uuid", OWNERSHIP) == {"refusal"}
-    making = {
-        name
-        for name, function in _functions(OWNERSHIP).items()
-        if any(isinstance(node, ast.Name) and node.id == "_MINT" for node in ast.walk(function))
-    }
-    assert making == {"__init__", "owned"}
+    # and there no function but refusal reads the UUID a record names (and build_refusal, which judges a build VM by
+    # the same rule), nor makes an Owned but owned, nor a Building but building, each through its own type's
+    # constructor alone.
+    assert _reading("uuid") == set() and _reading("record_uuid", OWNERSHIP) == {"refusal", "build_refusal"}
+    tree = ast.parse(OWNERSHIP.read_text())
+    scopes = [("", tree.body), *((node.name, node.body) for node in tree.body if isinstance(node, ast.ClassDef))]
+    for key, maker, made in (("_MINT", "owned", "Owned"), ("_BUILDING", "building", "Building")):
+        making = {
+            (scope, function.name)
+            for scope, body in scopes
+            for function in body
+            if isinstance(function, ast.FunctionDef)
+            and any(isinstance(node, ast.Name) and node.id == key for node in ast.walk(function))
+        }
+        assert making == {(made, "__init__"), ("", maker)}, (key, making)
 
 
 def test_nothing_here_reads_a_label_or_the_listing_s_status_for_a_decision() -> None:
