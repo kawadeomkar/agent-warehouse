@@ -61,7 +61,8 @@ from pki import proxmox_pki
 from test_aw_pve_agent import _holding
 from test_aw_transport import _said, _Tunnel
 
-from claude_vm.pve import answers, pin, privileges
+from claude_vm import proxmox
+from claude_vm.pve import answers, ownership, pin, privileges
 from claude_vm.pve.client import (
     DEADLINES,
     EDITS,
@@ -71,6 +72,7 @@ from claude_vm.pve.client import (
     REFUSED_STATUS,
     STALE,
     TAKEN,
+    Changed,
     Denied,
     DigestMismatch,
     Exists,
@@ -89,6 +91,7 @@ from claude_vm.pve.client import (
     _file_locked,
     _taken,
 )
+from claude_vm.pve.ownership import Owned
 from claude_vm.secret import MARK, Secret
 from claude_vm.vendors.transport import CLOSED, CUT, Answer, Closed, TimedOut, Unreachable, Untrusted
 
@@ -96,6 +99,8 @@ from claude_vm.vendors.transport import CLOSED, CUT, Answer, Closed, TimedOut, U
 # (tests/unit/conftest.py).
 EACH_WORKER = {"pki"}
 CLIENT = REPO / "lib" / "claude_vm" / "pve" / "client.py"
+# The SMBIOS UUID of a VM a test makes up, for an Owned no write reads (_vm).
+MADE_UP = "0f0e0d0c-0b0a-4908-8706-050403020100"
 # A token's secret no error may say: low in entropy, so that gitleaks takes it for no key.
 CANARY = "unit-test-pve-writes-canary-value"
 # What the fake says where it refuses, as it says it: the constants at its top, which experiment 6 corrects (A21).
@@ -154,6 +159,18 @@ class Fleet:
         """A VM's configuration as today's token reads it."""
         return _pve(self.base, "GET", f"nodes/pve/qemu/{vmid}/config")["data"]
 
+    def owned(self, vmid: int) -> Owned:
+        """The VM at vmid as a write takes it: an Owned, which ownership.owned alone makes, of its configuration now as
+        today's token reads it (so that the client asks nothing more of it), its record given as one of the fleet's
+        own. Whether a member is the fleet's is the one check's (test_aw_ownership.py, test_aw_fleet.py): here, what
+        each write sends."""
+        raw = self.raw(vmid)
+        uuid = proxmox.smbios_uuid(raw)
+        member = ownership.Member(
+            str(raw.get("name", "")), "pve", vmid, uuid=uuid, digest=raw["digest"], recorded="vm", record_uuid=uuid
+        )
+        return ownership.owned(member)
+
     def tasks(self) -> dict:
         """Every task the fake made, by its UPID, as its tasks.json records them."""
         return json.loads((self.directory / "pve" / "tasks.json").read_text())
@@ -171,6 +188,15 @@ def fleet(tmp_path, pki):
         engine_grant(base, "/storage/local-lvm", ",".join(sorted(privileges.needed("storage"))))
         token_id, secret = engine_token(tmp_path)
         yield Fleet(base, tmp_path, Token(token_id, Secret(secret)), pki)
+
+
+def _vm(vmid: int, node: str = "pve") -> Owned:
+    """An Owned of VMID vmid on node, for a write a test refuses before it is sent or answers itself: what it was owned
+    on is made up, and never read."""
+    member = ownership.Member(
+        f"vm-{vmid}", node, vmid, uuid=MADE_UP, digest="0" * 40, recorded="vm", record_uuid=MADE_UP
+    )
+    return ownership.owned(member)
 
 
 def _cloned(client: Proxmox, newid: int = 9020, name: str = "delta", **kwargs) -> Task:
@@ -251,9 +277,9 @@ def test_a_clone_whose_vmid_its_task_finds_taken_is_exists_in_each_of_proxmox_s_
 def test_a_write_sends_the_digest_its_read_gave_and_a_stale_one_writes_nothing(fleet) -> None:
     with fleet.client() as client:
         read = client.config("pve", 9010)
-        assert client.write_config("pve", 9010, {"description": "one", "cores": 4}, read.digest) is None
+        assert client.write_config(fleet.owned(9010), {"description": "one", "cores": 4}, read.digest) is None
         with pytest.raises(DigestMismatch) as stale:
-            client.write_config("pve", 9010, {"description": "two"}, read.digest)
+            client.write_config(fleet.owned(9010), {"description": "two"}, read.digest)
         after = client.config("pve", 9010)
     assert stale.value.vmid == 9010 and "changed since it was read" in str(stale.value)
     assert (after.description, after.values["cores"]) == ("one", "4")
@@ -272,10 +298,10 @@ def test_two_edit_config_calls_on_one_vm_both_land_the_second_after_a_re_read(fl
             seen.append(config.digest)
             if len(seen) == 1:
                 # The other writer lands between this read and its write.
-                assert client.edit_config("pve", 9010, first) == {"description": "notes\nfirst"}
+                assert client.edit_config(fleet.owned(9010), first) == {"description": "notes\nfirst"}
             return {"description": f"{config.description}\nsecond"}
 
-        assert client.edit_config("pve", 9010, second) == {"description": "notes\nfirst\nsecond"}
+        assert client.edit_config(fleet.owned(9010), second) == {"description": "notes\nfirst\nsecond"}
         assert client.config("pve", 9010).description == "notes\nfirst\nsecond"
     assert len(seen) == 2 and seen[0] != seen[1]
     puts = fleet.sent("PUT", "nodes/pve/qemu/9010/config")
@@ -293,7 +319,7 @@ def test_a_writer_that_always_loses_raises_after_three_tries(fleet) -> None:
         return {"description": "never"}
 
     with fleet.client() as client, pytest.raises(DigestMismatch):
-        client.edit_config("pve", 9010, loses)
+        client.edit_config(fleet.owned(9010), loses)
     assert len(applied) == EDITS == 3 and len(set(applied)) == 3
     assert len(fleet.sent("PUT", "nodes/pve/qemu/9010/config")) == 3
     assert fleet.raw(9010).get("description", "") != "never"
@@ -301,15 +327,15 @@ def test_a_writer_that_always_loses_raises_after_three_tries(fleet) -> None:
 
 def test_an_edit_that_asks_for_nothing_writes_nothing(fleet) -> None:
     with fleet.client() as client:
-        assert client.edit_config("pve", 9010, lambda config: None) == {}
-        assert client.edit_config("pve", 9010, lambda config: {}) == {}
+        assert client.edit_config(fleet.owned(9010), lambda config: None) == {}
+        assert client.edit_config(fleet.owned(9010), lambda config: {}) == {}
     assert fleet.writes() == []
 
 
 def test_sshkeys_are_sent_percent_encoded_whole_and_read_back_as_proxmox_keeps_them(fleet) -> None:
     encoded = urllib.parse.quote(KEYS, safe="")
     with fleet.client() as client:
-        client.edit_config("pve", 9010, lambda config: {"sshkeys": KEYS, "ciuser": "dev", "ipconfig0": "ip=dhcp"})
+        client.edit_config(fleet.owned(9010), lambda config: {"sshkeys": KEYS, "ciuser": "dev", "ipconfig0": "ip=dhcp"})
         kept = client.config("pve", 9010).values["sshkeys"]
     (sent,) = fleet.sent("PUT", "nodes/pve/qemu/9010/config")
     assert sent["sshkeys"] == kept == encoded and urllib.parse.unquote(kept) == KEYS
@@ -318,7 +344,7 @@ def test_sshkeys_are_sent_percent_encoded_whole_and_read_back_as_proxmox_keeps_t
 
 def test_tags_are_sent_comma_joined_and_read_back_in_either_spelling(fleet) -> None:
     with fleet.client() as client:
-        client.edit_config("pve", 9010, lambda config: {"tags": ["agent-warehouse", "aw-made"]})
+        client.edit_config(fleet.owned(9010), lambda config: {"tags": ["agent-warehouse", "aw-made"]})
         tags = client.config("pve", 9010).tags
     (sent,) = fleet.sent("PUT", "nodes/pve/qemu/9010/config")
     assert sent["tags"] == "agent-warehouse,aw-made" and fleet.raw(9010)["tags"] == "agent-warehouse;aw-made"
@@ -327,7 +353,7 @@ def test_tags_are_sent_comma_joined_and_read_back_in_either_spelling(fleet) -> N
 
 def test_a_key_removed_is_sent_in_delete(fleet) -> None:
     with fleet.client() as client:
-        client.edit_config("pve", 9010, lambda config: {"delete": ["ciuser", "onboot"]})
+        client.edit_config(fleet.owned(9010), lambda config: {"delete": ["ciuser", "onboot"]})
     (sent,) = fleet.sent("PUT", "nodes/pve/qemu/9010/config")
     assert sent["delete"] == "ciuser,onboot" and not {"ciuser", "onboot"} & set(fleet.raw(9010))
 
@@ -339,9 +365,9 @@ def test_a_write_while_a_deletion_holds_the_vm_is_locked_and_tried_once(fleet) -
     with fleet.client() as client:
         _cloned(client)
         _pve(fleet.base, "PUT", "fake/task-polls", polls=3)
-        deletion = client.delete("pve", 9020)
+        deletion = client.delete(fleet.owned(9020))
         with pytest.raises(Locked) as locked:
-            client.edit_config("pve", 9020, lambda config: {"description": "late"})
+            client.edit_config(fleet.owned(9020), lambda config: {"description": "late"})
         assert (locked.value.vmid, locked.value.lock) == (9020, SAID["DELETION_LOCK"])
         assert client.follow(deletion).ok
     assert len(fleet.sent("PUT", "nodes/pve/qemu/9020/config")) == 1
@@ -357,14 +383,14 @@ def test_a_write_during_a_running_clone_is_locked(fleet) -> None:
         read = client.config("pve", 9020)
         assert read.lock == SAID["CLONE_LOCK"]
         with pytest.raises(Denied):
-            client.write_config("pve", 9020, {"description": "early"}, read.digest)
+            client.write_config(fleet.owned(9020), {"description": "early"}, read.digest)
         _pve(fleet.base, "PUT", "fake/pool-member", vmid=9020, pool=ENGINE_POOL)
         with pytest.raises(Locked) as locked:
-            client.write_config("pve", 9020, {"description": "early"}, read.digest)
+            client.write_config(fleet.owned(9020), {"description": "early"}, read.digest)
         assert (locked.value.vmid, locked.value.lock) == (9020, "clone") and "try again" in str(locked.value)
         _pve(fleet.base, "PUT", "fake/task-end", upid=clone.upid)
         assert client.follow(clone).ok
-        client.edit_config("pve", 9020, lambda config: {"description": "landed"})
+        client.edit_config(fleet.owned(9020), lambda config: {"description": "landed"})
         assert client.config("pve", 9020).description == "landed"
 
 
@@ -420,7 +446,7 @@ def test_a_post_whose_answer_is_cut_is_unknown_and_the_fake_saw_it_once(fleet) -
 def test_a_failed_task_raises_with_the_last_lines_of_its_log_made_plain(fleet) -> None:
     _pve(fleet.base, "PUT", "fake/task-fail", error="start failed: \x1b[31mno\x1b[0m\x07 room", type="qmstart")
     with fleet.client() as client:
-        task = client.start("pve", 9010)
+        task = client.start(fleet.owned(9010))
         with pytest.raises(TaskFailed) as failed:
             client.follow(task)
     assert failed.value.task == task and failed.value.error == "start failed: no room"
@@ -441,10 +467,10 @@ def test_a_task_that_ended_with_warnings_is_a_success_its_warnings_kept_for_the_
     _pve(fleet.base, "PUT", "fake/task-warn", warning=f"{WARNING}\nsecond \x1b[31mone\x1b[0m", type="qmstart")
     with fleet.client() as client:
         _cloned(client)
-        task = client.start("pve", 9020)
+        task = client.start(fleet.owned(9020))
         status = client.follow(task)
         assert client.current("pve", 9020).status == "running"
-        plain = client.follow(client.stop("pve", 9020))
+        plain = client.follow(client.stop(fleet.owned(9020)))
     assert status.ok and (status.exitstatus, status.warnings) == ("WARNINGS: 2", 2)
     assert status.lines == (f"WARN: {WARNING}", "WARN: second one", "TASK WARNINGS: 2")
     assert fleet.sent("GET", f"nodes/pve/tasks/{task.upid}/log") == [{"start": "0", "limit": "500"}]
@@ -474,7 +500,7 @@ def test_a_task_that_meets_its_vm_s_configuration_file_lock_is_locked(fleet) -> 
     with fleet.client() as client:
         _cloned(client)
         with pytest.raises(Locked) as locked:
-            client.follow(client.start("pve", 9020))
+            client.follow(client.start(fleet.owned(9020)))
     assert (locked.value.vmid, locked.value.lock) == (9020, FILE) and "try again" in str(locked.value)
 
 
@@ -503,11 +529,11 @@ def test_a_write_that_meets_its_configuration_s_file_lock_at_the_call_is_locked_
         _echo(held.format(newid=9020)),
     )
     with pytest.raises(Locked) as locked:
-        client.write_config("pve", 9010, {"cores": 2}, "0" * 40)
+        client.write_config(_vm(9010), {"cores": 2}, "0" * 40)
     assert (locked.value.vmid, locked.value.lock) == (9010, FILE)
     # Another VM's file is not this VM's lock.
     with pytest.raises(Refused):
-        client.write_config("pve", 9010, {"cores": 2}, "0" * 40)
+        client.write_config(_vm(9010), {"cores": 2}, "0" * 40)
     with pytest.raises(Locked) as source:
         client.clone("pve", 9000, 9020, "delta", ENGINE_POOL)
     assert (source.value.vmid, source.value.lock) == (9000, FILE)
@@ -520,7 +546,7 @@ def test_a_write_that_meets_its_configuration_s_file_lock_at_the_call_is_locked_
 def test_a_task_past_its_deadline_raises_and_is_not_waited_for_longer(fleet) -> None:
     _pve(fleet.base, "PUT", "fake/task-polls", polls=100_000)
     with fleet.client() as client:
-        task = client.start("pve", 9010)
+        task = client.start(fleet.owned(9010))
         began = time.monotonic()
         with pytest.raises(TaskTimedOut) as late:
             client.follow(task, deadline=0.6)
@@ -557,7 +583,7 @@ def _still_runs(fleet: Fleet, task: Task) -> bool:
 def test_a_follow_whose_run_stops_between_polls_is_stopped_at_once_and_the_task_goes_on(fleet) -> None:
     _pve(fleet.base, "PUT", "fake/task-polls", polls=100_000)
     with fleet.client() as client:
-        task = client.start("pve", 9010)
+        task = client.start(fleet.owned(9010))
         stop = threading.Event()
         thread, ended = _following(client, task, stop)
         status = f"nodes/pve/tasks/{task.upid}/status"
@@ -590,7 +616,7 @@ def test_a_follow_whose_run_stops_between_polls_is_stopped_at_once_and_the_task_
 def test_a_follow_whose_run_stops_during_a_poll_lets_the_poll_end_and_asks_no_other(fleet) -> None:
     _pve(fleet.base, "PUT", "fake/task-polls", polls=100_000)
     with fleet.client() as client:
-        task = client.start("pve", 9010)
+        task = client.start(fleet.owned(9010))
         asked, release = threading.Event(), threading.Event()
         polled = client._get
 
@@ -687,7 +713,7 @@ def test_a_poll_that_fails_once_the_run_has_stopped_is_the_stop_only_where_the_r
 def test_a_follow_whose_run_is_already_stopping_asks_nothing(fleet) -> None:
     _pve(fleet.base, "PUT", "fake/task-polls", polls=100_000)
     with fleet.client() as client:
-        task = client.start("pve", 9010)
+        task = client.start(fleet.owned(9010))
         stop = threading.Event()
         stop.set()
         with pytest.raises(Stopped):
@@ -698,7 +724,7 @@ def test_a_follow_whose_run_is_already_stopping_asks_nothing(fleet) -> None:
 def test_a_follow_not_stopped_follows_its_task_to_its_end(fleet) -> None:
     _pve(fleet.base, "PUT", "fake/task-polls", polls=3)
     with fleet.client() as client:
-        task = client.start("pve", 9010)
+        task = client.start(fleet.owned(9010))
         status = client.follow(task, stop=threading.Event())
     assert status.ok and not status.running
 
@@ -948,11 +974,11 @@ def test_each_write_answers_a_task_of_its_kind_that_changes_the_vm_when_it_ends(
     with fleet.client() as client:
         _cloned(client)
         steps = [
-            (lambda: client.resize("pve", 9020, "scsi0", "40G"), "resize"),
-            (lambda: client.start("pve", 9020), "start"),
-            (lambda: client.shutdown("pve", 9020, timeout=30, force_stop=True), "shutdown"),
-            (lambda: client.start("pve", 9020), "start"),
-            (lambda: client.stop("pve", 9020), "stop"),
+            (lambda: client.resize(fleet.owned(9020), "scsi0", "40G"), "resize"),
+            (lambda: client.start(fleet.owned(9020)), "start"),
+            (lambda: client.shutdown(fleet.owned(9020), timeout=30, force_stop=True), "shutdown"),
+            (lambda: client.start(fleet.owned(9020)), "start"),
+            (lambda: client.stop(fleet.owned(9020)), "stop"),
             (lambda: client.to_template("pve", 9020), "template"),
         ]
         made = []
@@ -966,7 +992,7 @@ def test_each_write_answers_a_task_of_its_kind_that_changes_the_vm_when_it_ends(
             if kind in ("start", "shutdown", "stop"):
                 assert client.current("pve", 9020).status == ("running" if kind == "start" else "stopped")
         assert client.config("pve", 9020).template
-        deletion = client.delete("pve", 9020)
+        deletion = client.delete(fleet.owned(9020))
         assert (deletion.kind, deletion.vmid) == ("delete", 9020) and client.follow(deletion).ok
         with pytest.raises(Refused) as gone:
             client.config("pve", 9020)
@@ -985,17 +1011,68 @@ def test_a_deletion_sends_destroy_unreferenced_disks_alone_and_purge_only_where_
     with fleet.client() as client:
         _cloned(client)
         _cloned(client, 9021, "epsilon")
-        assert client.follow(client.delete("pve", 9020)).ok
-        assert client.follow(client.delete("pve", 9021, purge=True)).ok
+        assert client.follow(client.delete(fleet.owned(9020))).ok
+        assert client.follow(client.delete(fleet.owned(9021), purge=True)).ok
     assert fleet.sent("DELETE", "nodes/pve/qemu/9020") == [{"destroy-unreferenced-disks": "1"}]
     assert fleet.sent("DELETE", "nodes/pve/qemu/9021") == [{"destroy-unreferenced-disks": "1", "purge": "1"}]
 
 
 def test_a_delete_of_a_vm_outside_the_pool_is_denied_and_it_stays(fleet) -> None:
     with fleet.client() as client, pytest.raises(Denied) as denied:
-        client.delete("pve", 9012)
+        client.delete(fleet.owned(9012))
     assert denied.value.status == 403
     assert fleet.raw(9012)["name"] == "gamma" and fleet.writes() == [("DELETE", "nodes/pve/qemu/9012")]
+
+
+def test_a_deletion_is_held_to_the_read_its_vm_was_owned_on_and_sends_nothing_where_it_changed(fleet) -> None:
+    """Proxmox's DELETE takes no digest, and a VMID can be another VM's between a read and the deletion (card G28):
+    the configuration is read again first, its SMBIOS UUID and its digest held to the Owned's."""
+    with fleet.client() as client:
+        _cloned(client)
+        owned = fleet.owned(9020)
+        # A person's change since the read.
+        _pve(fleet.base, "PUT", "nodes/pve/qemu/9020/config", cores=3)
+        with pytest.raises(Changed) as changed:
+            client.delete(owned)
+        assert changed.value.vmid == 9020 and "changed since the read it was owned on" in str(changed.value)
+        # Another VM at the VMID: the one owned deleted, and one made again there, with an SMBIOS UUID of its own.
+        again = fleet.owned(9020)
+        assert client.follow(client.delete(again)).ok
+        _cloned(client, 9020, "other")
+        for write in (lambda: client.delete(again), lambda: client.edit_config(again, lambda config: {"cores": 2})):
+            with pytest.raises(Changed) as other:
+                write()
+            assert "is another VM than the one owned" in str(other.value)
+        assert fleet.raw(9020)["name"] == "other"
+        # Owned again from a read made now, it is deleted.
+        assert client.follow(client.delete(fleet.owned(9020))).ok
+    assert len(fleet.sent("DELETE", "nodes/pve/qemu/9020")) == 2
+    assert fleet.sent("PUT", "nodes/pve/qemu/9020/config") == []
+
+
+@pytest.mark.parametrize("write", ["write_config", "edit_config", "resize", "start", "shutdown", "stop", "delete"])
+def test_a_vm_is_written_to_only_as_an_owned_and_anything_else_sends_nothing(fleet, write) -> None:
+    rest = {
+        "write_config": ({"cores": 2}, "0" * 40),
+        "edit_config": (lambda config: {"cores": 2},),
+        "resize": ("scsi0", "+1G"),
+    }.get(write, ())
+
+    @dataclasses.dataclass(frozen=True)
+    class Like:
+        node: str
+        vmid: int
+        uuid: str
+        digest: str
+
+    with fleet.client() as client:
+        read = client.config("pve", 9010)
+        before = len(fleet.asked())
+        like = Like("pve", 9010, read.identity, read.digest)
+        for given in (read, like, 9010, ("pve", 9010)):
+            with pytest.raises(TypeError, match="only as an Owned"):
+                getattr(client, write)(given, *rest)
+        assert fleet.asked()[before:] == []
 
 
 # --------------------------------------------------------------------------- held before anything is sent ----
@@ -1004,28 +1081,28 @@ def test_a_delete_of_a_vm_outside_the_pool_is_denied_and_it_stays(fleet) -> None
 @pytest.mark.parametrize(
     ("write", "args"),
     [
-        ("write_config", ("pve", 9010, {"net0": "virtio,bridge=vmbr1"}, "0" * 40)),
-        ("write_config", ("pve", 9010, {"digest": "0" * 40}, "0" * 40)),
-        ("write_config", ("pve", 9010, {"startup": "order=1"}, "0" * 40)),
-        ("write_config", ("pve", 9010, {"delete": "cores"}, "0" * 40)),
-        ("write_config", ("pve", 9010, {"delete": ["net0"]}, "0" * 40)),
-        ("write_config", ("pve", 9010, {"tags": "a,b"}, "0" * 40)),
-        ("write_config", ("pve", 9010, {"tags": ["a b"]}, "0" * 40)),
-        ("write_config", ("pve", 9010, {"cores": True}, "0" * 40)),
-        ("write_config", ("pve", 9010, {"sshkeys": b"key"}, "0" * 40)),
-        ("write_config", ("pve", 9010, {}, "0" * 40)),
-        ("write_config", ("pve", 9010, {"cores": 2}, "not a digest")),
-        ("write_config", ("pve", 9010, {"cores": 2}, None)),
+        ("write_config", (_vm(9010), {"net0": "virtio,bridge=vmbr1"}, "0" * 40)),
+        ("write_config", (_vm(9010), {"digest": "0" * 40}, "0" * 40)),
+        ("write_config", (_vm(9010), {"startup": "order=1"}, "0" * 40)),
+        ("write_config", (_vm(9010), {"delete": "cores"}, "0" * 40)),
+        ("write_config", (_vm(9010), {"delete": ["net0"]}, "0" * 40)),
+        ("write_config", (_vm(9010), {"tags": "a,b"}, "0" * 40)),
+        ("write_config", (_vm(9010), {"tags": ["a b"]}, "0" * 40)),
+        ("write_config", (_vm(9010), {"cores": True}, "0" * 40)),
+        ("write_config", (_vm(9010), {"sshkeys": b"key"}, "0" * 40)),
+        ("write_config", (_vm(9010), {}, "0" * 40)),
+        ("write_config", (_vm(9010), {"cores": 2}, "not a digest")),
+        ("write_config", (_vm(9010), {"cores": 2}, None)),
         ("clone", ("pve", 9000, 9020, "a name", ENGINE_POOL)),
         ("clone", ("pve", 9000, 9020, "delta", "../access")),
         ("clone", ("pve", 9000, 9020, "delta", ENGINE_POOL, False, "local-lvm")),
         ("clone", ("pve", 9000, 99, "delta", ENGINE_POOL)),
-        ("resize", ("pve", 9010, "efidisk0", "40G")),
-        ("resize", ("pve", 9010, "scsi0", "-1G")),
-        ("resize", ("pve", 9010, "scsi0", "40G&delete=1")),
-        ("shutdown", ("pve", 9010, -1)),
-        ("delete", ("pve/../x", 9010)),
-        ("delete", ("pve", 9010, "yes")),
+        ("resize", (_vm(9010), "efidisk0", "40G")),
+        ("resize", (_vm(9010), "scsi0", "-1G")),
+        ("resize", (_vm(9010), "scsi0", "40G&delete=1")),
+        ("shutdown", (_vm(9010), -1)),
+        ("delete", (_vm(9010, node="pve/../x"),)),
+        ("delete", (_vm(9010), "yes")),
         ("follow", ("UPID:pve:00000001:00000000:00000000:qmstart:1:root@pam:",)),
     ],
 )
@@ -1073,7 +1150,7 @@ def test_a_write_answered_with_a_upid_that_holds_a_slash_is_malformed(pki, upid)
     client = Proxmox("https://127.0.0.1:9", pin.kept(pki["ca"]), Token(f"{ENGINE_USER}!{ENGINE_TOKEN}", Secret(CANARY)))
     client._transport = _Answers(VERSION, _data(upid))
     with pytest.raises(Malformed):
-        client.start("pve", 9010)
+        client.start(_vm(9010))
     assert answers.task(upid.replace("/", "-"), "pve", "start", 9010).upid == upid.replace("/", "-")
 
 
@@ -1118,7 +1195,7 @@ def _sent_by_each_method(fleet: Fleet) -> dict[str, list[dict]]:
             *[
                 (
                     "write_config",
-                    lambda changes=changes: client.write_config("pve", 9020, changes, fleet.raw(9020)["digest"]),
+                    lambda changes=changes: client.write_config(fleet.owned(9020), changes, fleet.raw(9020)["digest"]),
                 )
                 for changes in (
                     {"description": "the record", "tags": ["agent-warehouse"]},
@@ -1128,13 +1205,13 @@ def _sent_by_each_method(fleet: Fleet) -> dict[str, list[dict]]:
                     {"memory": 2048, "delete": ["balloon"]},
                 )
             ],
-            ("resize", lambda: client.resize("pve", 9020, "scsi0", "+1G")),
-            ("start", lambda: client.start("pve", 9020)),
-            ("shutdown", lambda: client.shutdown("pve", 9020, timeout=30, force_stop=True)),
-            ("start", lambda: client.start("pve", 9020)),
-            ("stop", lambda: client.stop("pve", 9020)),
+            ("resize", lambda: client.resize(fleet.owned(9020), "scsi0", "+1G")),
+            ("start", lambda: client.start(fleet.owned(9020))),
+            ("shutdown", lambda: client.shutdown(fleet.owned(9020), timeout=30, force_stop=True)),
+            ("start", lambda: client.start(fleet.owned(9020))),
+            ("stop", lambda: client.stop(fleet.owned(9020))),
             ("to_template", lambda: client.to_template("pve", 9020)),
-            ("delete", lambda: client.delete("pve", 9020)),
+            ("delete", lambda: client.delete(fleet.owned(9020))),
         ]
         for name, step in steps:
             before = len(fleet.asked())
@@ -1170,9 +1247,15 @@ def test_every_row_is_a_call_the_client_makes_and_every_call_it_makes_has_its_ro
     assert set(sent) == named
     for name, requests in sent.items():
         assert requests, name
+        # A deletion reads the VM's configuration again first, by config's rows (card G28), then sends its own.
+        looks = requests[:1] if name == "delete" else []
+        assert [(request["method"], request["path"].rsplit("/", 1)[-1]) for request in looks] == (
+            [("GET", "config")] if name == "delete" else []
+        )
         for request in requests:
             rows = privileges.for_request(request["method"], request["path"].removeprefix("/api2/json"))
-            assert rows and {call.name for call, _ in rows} == {name}, (name, request["method"], request["path"])
+            own = "config" if request in looks else name
+            assert rows and {call.name for call, _ in rows} == {own}, (name, request["method"], request["path"])
     decided = _decided(fleet)
     for row, call in enumerate(privileges.CALLS):
         assert row in decided, call
@@ -1372,16 +1455,16 @@ ECHOES = {
 RAISED = {
     "a read's Refused": (lambda c: c.config("pve", 9010), lambda echo: [VERSION, _echo(echo)], Refused),
     "a write's Refused": (
-        lambda c: c.write_config("pve", 9010, {"cores": 2}, "0" * 40),
+        lambda c: c.write_config(_vm(9010), {"cores": 2}, "0" * 40),
         lambda echo: [VERSION, _echo(echo)],
         Refused,
     ),
     "DigestMismatch": (
-        lambda c: c.write_config("pve", 9010, {"cores": 2}, "0" * 40),
+        lambda c: c.write_config(_vm(9010), {"cores": 2}, "0" * 40),
         lambda echo: [VERSION, _echo(f"checksum mismatch {echo}")],
         DigestMismatch,
     ),
-    "Locked": (lambda c: c.start("pve", 9010), lambda echo: [VERSION, _echo(f"VM is locked (clone) {echo}")], Locked),
+    "Locked": (lambda c: c.start(_vm(9010)), lambda echo: [VERSION, _echo(f"VM is locked (clone) {echo}")], Locked),
     "Exists": (
         lambda c: c.clone("pve", 9000, 9020, "delta", ENGINE_POOL),
         lambda echo: [VERSION, _echo(f"unable to create VM 9020: config file already exists {echo}")],

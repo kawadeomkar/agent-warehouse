@@ -1,81 +1,92 @@
 """The fleet as the engine reads it: a host's pool members, each a target with its identity, record, state and address,
 and every machine the product must not touch refused before anything changes (docs/architecture/engine.md §16.4).
 
-`connect(home, reached)` opens the host a run is against (fleet/hosts.py's `reach` chose it): `fleet.json`'s record,
-the vault opened with its key as fleet/vaultkey.py finds it, the host's token's secret from it, and one client
-(pve/client.py) pinned as the host keeps its anchor (pve/pin.py's `kept`), through the proxy the setting
-`network_proxy` gives. It sends nothing; a `Host` closes its client.
+A host is opened by fleet/opened.py's `connect(home, reached)`, which status opens one by too (card G16): `Host`,
+`connect` and `Refused` are that module's, given here as this one's.
 
 **What is the fleet's.** Ownership is pool membership and a valid record (engine/record.py), never a label: nothing here
-reads a VM's tags for a decision. `refusal(target)` is the one check, and `owned(target)` raises it (`NotOwned`): a
-member with no record of this engine's, whatever tags it carries; a record whose UUID is not the VM's own (a copy, as a
-clone sent without a description carries its source's notes), and one of kind template, build or golden on a VM that
-is no template; a record still in its first form, which names no UUID yet; a member whose configuration or record the
-token may not read, or that cannot be read; two members with one UUID, both (a restore without `unique` keeps its
-source's); and a template, which is never a target. Every function that returns a target for a change returns it
-through `owned`.
+reads a VM's tags for a decision. The one rule is pve/ownership.py's, which status judges by too: `refusal(target)`
+asks it of what was read of the target, and `owned(target)` raises it (`NotOwned`) or returns the `Owned` that
+ownership.py alone makes, the identity and the digest of the configuration the decision was made on. A `Target` is
+what a read gave, for reading: no write takes one. The client's writes of a VM and engine/record.py's writer take an
+Owned, so a change is made on nothing but what passed `owned`, and the client holds the VM to that read again where it
+reads it, before a deletion to its digest too. It refuses a member with no record of this engine's, whatever tags it
+carries; a record whose UUID is not the VM's own (a copy, as a clone sent without a description carries its source's
+notes), and one of kind template, build or golden on a VM that is no template; a record still in its first form, which
+names no UUID yet, but to the run whose job it names (`job`), which writes the rest; a member whose configuration or
+record the token may not read, or that cannot be read; two members with one UUID, both (a restore without `unique`
+keeps its source's); and a template, which is never a target. A changing read gives each target it returns its Owned
+(`Target.owned`); a read that changes nothing gives none.
 
 **Names.** `requested(host, names, create=..., change=...)` holds each name before Proxmox is asked anything: today's
-pattern of a VM's name; no name of a host of the fleet's, nor `localhost` (a VM's SSH alias would take this computer's
-connections to that host); with the aliases on, no name ssh would take for another host (`checks.ssh_alias_refusal`, a
-dot allowed in a name given); and for a deploy that would create, no name whose alias records another host of the
-fleet. Then, with the token, it reads the pool once: for a changing run, the pool's mark is held to D2's rule
-(fleet/mark.py's `may_change`) before anything else is read. With names, each is the one member of its name: a name two
-members carry is refused, a name no member carries is `Missing` (or, creating, a name to create), and one that is no
-target the run may change is `NotOwned`. With none, a deploy that would create asks for the default VM
-(`vm_default_name`) and every other run for every member, a member named after a host, one whose name another member
-carries, and, for a changing run, one the run may not change each left out and said. A deploy that would create looks
-each name to create up among the host's VMs outside the pool, wherever the token may read `/vms` (`VM.Audit` there,
-which `init` grants by default), and refuses one it finds with today's sentence (a clone in flight there, under `lock:
-clone`, is said as one); where the token may not, it says so, and the plan the run prints before it creates says it
-too (`Requested.outside`). And it asks every other host of the fleet whether a VM of each name no alias places is its
-own, refusing one found there with today's sentence, and saying and passing a host that does not answer.
+pattern of a VM's name, and for a deploy that would create, the name Proxmox takes for a VM (pve/client.py's VM_NAME);
+no name of a host of the fleet's, nor `localhost` (a VM's SSH alias would take this computer's connections to that
+host); with the aliases on, no name ssh would take for another host (`checks.ssh_alias_refusal`, a dot allowed in a name
+given); and for a deploy that would create, no name whose alias records another host of the fleet. A deploy that would
+create is a changing run: create without change is refused. Then, with the token, it reads the pool once: for a
+changing run, the pool's mark is held to D2's rule (fleet/mark.py's `may_change`) before anything else is read. With
+names, each is the one member of its name: a name two members carry is refused, a name no member carries is `Missing`
+(or, creating, a name to create), and one that is no target the run may change is `NotOwned`. With none, a deploy that
+would create asks for the default VM (`vm_default_name`) and every other run for every member, a member named after a
+host, one whose name another member carries, and, for a changing run, one the run may not change each left out and
+said. A deploy that would create looks each name to create up among the host's VMs outside the pool, wherever the token
+may read `/vms` (`VM.Audit` there, which `init` grants by default), and refuses one it finds with today's sentence (a
+clone in flight there, under `lock: clone`, is said as one); an entry the listing gives with no name, as it lists a VM
+made seconds ago whose node has not reported it yet, is read by its own configuration first, a clone in flight that
+names no VM yet refused as one that may be of the name, and one that cannot be read said; where the token may not read
+`/vms`, it says so, and the plan the run prints before it creates says it too (`Requested.outside`). And it asks every
+other host of the fleet whether a VM of each name no alias places is its own, refusing one found there with today's
+sentence, and saying and passing a host that does not answer.
 
-**State and address.** Whether a VM runs is read from the VM's own endpoint (`current`), never the listing's status,
-which lags what a run itself just changed by up to ten seconds. A VM's address is taken from its guest agent alone, on
-its own network card (the MAC of `proxmox_nic`), through pve/agent.py's `address` (today's `checks.guest_ipv4`): one
-IPv4 address `ipaddress` parses, never 0.0.0.0, multicast or reserved. Two targets of one read that report one address
-are both left without one, and said. A token Proxmox refuses the agent's call (`Denied`, by its status alone) ends the
-read at once; anything else one VM's agent says leaves that VM without an address.
+**State and address.** Whether a VM runs is read from the VM's own endpoint (`current`), never a listing's status, the
+cluster's or a pool's, which lags what a run itself just changed by up to ten seconds. A VM's address is taken from its
+guest agent alone, on its own network card (the MAC of `proxmox_nic`), through pve/agent.py's `address` (today's
+`checks.guest_ipv4`): one IPv4 address `ipaddress` parses, never 0.0.0.0, multicast or reserved. A VM whose address
+another running member the fleet owns reports too is left without one, and said: in a read, among every such member of
+the pool, the targets asked or not, so that a VM asked alone is never given its sibling's address; and in `address`, the
+road for one VM a run just started, `Shared`. A token Proxmox refuses the agent's call (`Denied`, by its status alone)
+ends the read at once; anything else one VM's agent says leaves that VM without an address.
 
 `count_made_by_agent(host)` counts the members the fleet owns whose record says an agent's run made them (card I's cap).
 
 Every refusal is `Refused`, one sentence with no "error: " before it, which never says the token or a secret. Blocking,
-as the client is: a workflow calls these in a thread. Standard library, fleet/, pve/, vendors/, schema/ and today's
-checks.py and hosts/ at import.
+as the client is: a workflow calls these in a thread. Standard library, fleet/, pve/, schema/, vendors/transport.py,
+engine/record.py and today's checks.py, hosts/ and text.py at import.
 """
 
 from __future__ import annotations
 
 import dataclasses
-import os
 from collections import Counter
-from collections.abc import Mapping, Sequence
-from types import MappingProxyType
+from collections.abc import Sequence
 
 from .. import checks
-from ..fleet import hosts, mark, overrides, paths, sealed, secrets, vaultkey
-from ..fleet import record as fleet_record
+from ..fleet import hosts, mark, overrides, paths
+from ..fleet.opened import LOCALHOST, Host, Refused, client_for, connect, sentence
 from ..hosts import model
-from ..pve import agent, pin
+from ..pve import agent, ownership
 from ..pve.answers import Malformed, Pool, ProxmoxError, Resource, VmConfig
-from ..pve.client import Denied, NoAgent, NotRunning, Proxmox, Token
+from ..pve.client import VM_NAME, Denied, NoAgent, NotRunning, Proxmox
 from ..pve.client import Refused as Answered
+from ..pve.ownership import IDENTITY, KIND, Owned
 from ..schema.patterns import PATTERNS, full
 from ..schema.printer import said
 from ..schema.words import Line
-from ..secret import Secret
 from ..text import one_line
-from ..vendors import proxy
 from ..vendors.transport import TimedOut, TransportError, Unreachable
 from . import record
 
 __all__ = [
+    "IDENTITY",
+    "KIND",
+    "LOCALHOST",
     "Host",
     "Missing",
     "NotOwned",
+    "Owned",
     "Refused",
     "Requested",
+    "Shared",
     "Target",
     "address",
     "connect",
@@ -86,12 +97,6 @@ __all__ = [
     "requested",
 ]
 
-# The kind of target a Proxmox VM is (card J3 adds the machine that is none).
-KIND = "vm"
-# The name every computer reaches itself by: no VM takes it, as no host of the fleet's.
-LOCALHOST = "localhost"
-# A VM's identity, its SSH host key's name: this prefix and its SMBIOS UUID (proxmox.ssh_host_key_alias).
-IDENTITY = "agent-warehouse-"
 # A pool's member that is a VM, as Proxmox lists it.
 QEMU = "qemu"
 # What the VM's own endpoint says of one that runs.
@@ -105,14 +110,11 @@ AUDIT = "VM.Audit"
 AGENT_PRIVILEGE = "VM.GuestAgent.Audit"
 # The most of a VM's word an error of one VM's quotes.
 SAID_MOST = 200
-
-
-class Refused(Exception):
-    """One sentence that says why a run reads or changes nothing here: never a secret, with no "error: " before it."""
-
-    def __init__(self, sentence: str) -> None:
-        self.sentence = sentence
-        super().__init__(sentence)
+# What a name to create is held to: the name Proxmox takes for a VM, said without the name given.
+NOT_PROXMOX_S = (
+    "a name to create is no name Proxmox gives a VM: letters, digits, dots and dashes, at most 63, starting and ending"
+    " with a letter or a digit"
+)
 
 
 class NotOwned(Refused):
@@ -127,14 +129,25 @@ class Missing(Refused):
         super().__init__(sentence)
 
 
+class Shared(Refused):
+    """A VM reports an address another running member the fleet owns reports too, so it is not reached: the
+    address."""
+
+    def __init__(self, sentence: str, address: str) -> None:
+        self.address = address
+        super().__init__(sentence)
+
+
 @dataclasses.dataclass(frozen=True)
 class Target:
-    """A machine a run is against: a Proxmox VM (kind vm), its name, its identity (agent-warehouse-<its SMBIOS UUID>, ""
+    """A machine a run reads: a Proxmox VM (kind vm), its name, its identity (agent-warehouse-<its SMBIOS UUID>, ""
     where its configuration gives none), the host's name, its node and VMID, the account a run logs in as (vm_user), its
-    address ("" for none: stopped, not answering, or one another target reports too), its record (None for none), and
+    address ("" for none: stopped, not answering, or one another member reports too), its record (None for none), and
     whether it runs, from its own endpoint. Beside them, what refusal() reads: whether it is a template; why its
     configuration or record could not be read ("" where they were); the VMIDs of the other members that carry its UUID;
-    the MAC of its own network card, which its address is read on; and the address another target reported too."""
+    the MAC of its own network card, which its address is read on; the address another member reported too; and the
+    digest of the configuration it was read from. It is for reading: a change is made on its Owned, which a changing
+    read gives it (owned, None in any other read) and owned() alone makes."""
 
     kind: str
     name: str
@@ -151,6 +164,8 @@ class Target:
     twins: tuple[int, ...] = ()
     mac: str = ""
     shared: str = ""
+    digest: str = ""
+    owned: Owned | None = None
 
     @property
     def said(self) -> str:
@@ -158,55 +173,12 @@ class Target:
         return f"{self.name} (VMID {self.vmid})" if self.name else f"the VM with no name (VMID {self.vmid})"
 
 
-@dataclasses.dataclass(frozen=True, eq=False)
-class Host:
-    """The host a run is against, opened: its name, its client, its pool, the network card a VM's address is read on
-    (proxmox_nic), the account a run logs in as (vm_user), the default VM's name (vm_default_name), whether the aliases
-    are on (claude_ssh_config), fleet.json's record, the fleet's hosts (layout), the environment its settings were read
-    from, the names a VM may not take (localhost and the fleet's hosts) and those this computer reaches a host by (with
-    each host's address), and every host's token's secret the vault holds, by the host's name, which asking another host
-    needs. Beside them, what the route to its machines is settled from (engine/routes.py): the fleet's home, its
-    host.yml as it was read (fields: its address, ssh_user, ssh_port and jump), and every setting's value for the run
-    against it (values, overrides.resolve's, read-only), vm_ssh_route, ssh_identity_file, ssh_executable and
-    vm_ssh_options among them. A context manager that closes the client."""
-
-    name: str
-    client: Proxmox
-    pool: str
-    nic: str
-    user: str
-    default_name: str
-    aliases: bool
-    fleet: fleet_record.FleetRecord
-    layout: hosts.Layout
-    environ: Mapping[str, str]
-    hosts_named: tuple[str, ...]
-    reached_by: tuple[str, ...]
-    home: paths.Home
-    fields: hosts.HostFile
-    values: Mapping[str, overrides.Value]
-    tokens: Mapping[str, Secret] = dataclasses.field(repr=False)
-
-    def __enter__(self) -> Host:
-        return self
-
-    def __exit__(self, *exc: object) -> None:
-        self.close()
-
-    def close(self) -> None:
-        self.client.close()
-
-    @property
-    def host_flag(self) -> str:
-        """The host's flag a line that names a command ends with: the host's name with more than one, "" with one."""
-        return self.name if self.layout.many() else ""
-
-
 @dataclasses.dataclass(frozen=True)
 class Requested:
-    """What requested found: the targets, in the pool's order; the names a deploy would create, which no member carries;
-    every line said and passed (a member left out and why, a host that did not answer, the outside not looked at), in
-    order; and whether a VM of each name to create was looked for outside the pool."""
+    """What requested found: the targets, in the pool's order, each with its Owned where the read was a changing one;
+    the names a deploy would create, which no member carries; every line said and passed (a member left out and why, an
+    address two report, a host that did not answer, the outside not looked at), in order; and whether a VM of each name
+    to create was looked for outside the pool."""
 
     targets: tuple[Target, ...]
     new: tuple[str, ...] = ()
@@ -214,175 +186,39 @@ class Requested:
     outside: bool = True
 
 
-# ---------------------------------------------------------------------------------------- opening a host ----
-
-
-def _words(error: BaseException | str) -> str:
-    """A refusal of fleet/'s, or another error, as one sentence of this module's: one line, no "error: " before it."""
-    return one_line(str(error), None).removeprefix("error: ")
-
-
-def _tokens(opened: Mapping[str, Secret]) -> dict[str, Secret]:
-    """Of the vault's map, each host's token's secret, by the host's name."""
-    found = {}
-    for entry, value in opened.items():
-        try:
-            row, owner = secrets.parsed(entry)
-        except secrets.Refused:
-            continue
-        if row.name == "token" and owner is not None:
-            found[owner] = value
-    return found
-
-
-def _client(
-    name: str,
-    fields: hosts.HostFile,
-    anchor: str | None,
-    values: Mapping[str, overrides.Value],
-    tokens: Mapping[str, Secret],
-    environ: Mapping[str, str],
-) -> Proxmox:
-    """The client of the host called name, as its folder keeps it: its address and port, its anchor (with its
-    fingerprint beside it, where it keeps one) or the computer's certificates, its token from the vault, and the proxy
-    the setting network_proxy gives for its address. It sends nothing."""
-    secret = tokens.get(name)
-    if secret is None:
-        raise Refused(
-            said(
-                "the vault holds no token's secret for {name}, so nothing of it can be read: {vault} puts it",
-                {"name": name, "vault": Line("vault", {"name": "token", "host": name})},
-            )
-        )
-    # The address and port as a URL has them: an IPv6 address in brackets.
-    at = f"[{fields.address}]" if ":" in fields.address else fields.address
-    url = f"https://{at}:{fields.api_port}"
-    try:
-        pinned = pin.kept(anchor, fields.fingerprint if anchor is not None else "", values["tls_ca_file"].value or None)
-        through = proxy.choose(values["network_proxy"].value, environ, url)
-        token = Token(f"{fields.token_user}!{fields.token_id}", secret)
-    except (ValueError, OSError) as error:
-        raise Refused(f"{name}'s API cannot be reached as its files say: {_words(error)}") from None
-    return Proxmox(url, pinned, token, through)
-
-
-def _named_hosts(layout: hosts.Layout) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """The names no VM may take (localhost, and each host of the fleet's), and every name this computer reaches one of
-    them by: those, and each host's address."""
-    named = [LOCALHOST, *(name for name in layout.folders() if not model.name_refusal(name))]
-    addresses = [one.address for one in layout.every() if one.address]
-    return tuple(dict.fromkeys(named)), tuple(dict.fromkeys([*named, *addresses]))
-
-
-def connect(
-    home: paths.Home,
-    reached: hosts.Reached,
-    values: Mapping[str, overrides.Value] | None = None,
-    *,
-    environ: Mapping[str, str] | None = None,
-) -> Host:
-    """The host reached is, opened: see the module's docstring. values is every setting's value for the run against it
-    (overrides.resolve's), read here where it is not given. Refused, in one sentence, where the fleet has no record, the
-    vault cannot be opened or holds no token for the host, the host names no pool, or its files say no API that can be
-    reached. Sends nothing."""
-    env = os.environ if environ is None else environ
-    name = reached.host.name
-    layout = hosts.Layout(home, env)
-    try:
-        if values is None:
-            values = overrides.resolve(home, name, environ=env)
-        fleet = fleet_record.read(home)
-        if fleet is None:
-            raise Refused(
-                said("the fleet has no record of its own (fleet.json) yet: {init} writes it", {"init": Line("init")})
-            )
-        key = vaultkey.open(
-            home,
-            key_file=values["vault_key_file"].value,
-            key_command=values["vault_key_command"].value,
-            environ=env,
-        )
-        tokens = _tokens(sealed.read(home, key) or {})
-        named, reached_by = _named_hosts(layout)
-    except (sealed.Refused, fleet_record.Refused, overrides.Refused, paths.Refused, hosts.Refused) as error:
-        raise Refused(_words(error)) from None
-    pool = values["proxmox_pool"].value
-    if not pool:
-        raise Refused(
-            said(
-                "{name} names no pool (proxmox_pool), and the fleet's VMs are its members: {init} writes it",
-                {"name": name, "init": Line("init", {"host": name})},
-            )
-        )
-    return Host(
-        name=name,
-        client=_client(name, reached.fields, reached.anchor, values, tokens, env),
-        pool=pool,
-        nic=values["proxmox_nic"].value,
-        user=values["vm_user"].value,
-        default_name=values["vm_default_name"].value,
-        aliases=values["claude_ssh_config"].value is not False,
-        fleet=fleet,
-        layout=layout,
-        environ=env,
-        hosts_named=named,
-        reached_by=reached_by,
-        home=home,
-        fields=reached.fields,
-        values=MappingProxyType(dict(values)),
-        tokens=MappingProxyType(tokens),
-    )
-
-
 # ------------------------------------------------------------------------------------------ the one check ----
 
 
-def refusal(target: Target) -> str:
-    """Why target is not the fleet's to change, "" where it is: the one check, decided from the target alone, never
-    from a label. See the module's docstring."""
-    if target.kind != KIND:
-        return f"{target.said} is no Proxmox VM, which is all this host's runs change"
-    if target.template:
-        return f"{target.said} is a template, which is never a target"
-    if target.unread:
-        return target.unread
-    found = target.record
-    if found is None:
-        return (
-            f"{target.said} is a member of the pool with no record of this engine's in its notes, so this fleet did"
-            " not make it, whatever tags it carries: it is never changed or deleted"
-        )
-    if found.kind != KIND:
-        return (
-            f"{target.said} holds a {found.kind}'s record and is no template, so it is a copy of another's notes (a"
-            " clone sent without a description carries its source's record): it is never changed or deleted"
-        )
-    if not found.uuid:
-        return (
-            f"{target.said}'s record is still the first form its clone carries, which names no UUID: the run that"
-            " clones a VM writes the rest, and until then nothing tells it from a copy"
-        )
-    if found.uuid != target.identity.removeprefix(IDENTITY) or not target.identity:
-        return (
-            f"{target.said}'s record names another VM's UUID ({found.uuid}), so it is a copy of that VM's notes, as a"
-            " clone carries its source's: it is never changed or deleted"
-        )
-    if target.twins:
-        others = ", ".join(str(vmid) for vmid in target.twins)
-        return (
-            f"{target.said} carries one UUID with VMID {others}, as a restore without unique leaves them, so nothing"
-            " tells them apart: none of them is changed"
-        )
-    return ""
+def _as_member(target: Target) -> ownership.Member:
+    """What was read of target, as the one rule reads it (pve/ownership.py)."""
+    return ownership.Member.of(
+        target.name,
+        target.node,
+        target.vmid,
+        found=None if target.record is None else target.record.fields(),
+        uuid=target.identity.removeprefix(IDENTITY),
+        digest=target.digest,
+        kind=target.kind,
+        template=target.template,
+        unread=target.unread,
+        twins=target.twins,
+    )
 
 
-def owned(target: Target) -> Target:
-    """target, where the fleet may change it: NotOwned, saying why, where refusal() says it may not. The one gate every
-    target a change is made on passes."""
-    why = refusal(target)
-    if why:
-        raise NotOwned(why)
-    return target
+def refusal(target: Target, job: str = "") -> str:
+    """Why target is not the fleet's to change, "" where it is: pve/ownership.py's one check, of what was read of it.
+    job: the run's own job, which the first form of the clone it made names."""
+    return ownership.refusal(_as_member(target), job)
+
+
+def owned(target: Target, *, job: str = "") -> Owned:
+    """The Owned a change on target is made through, made by pve/ownership.py's owned alone: NotOwned, saying why, where
+    refusal() says the fleet may not change it. job: the run's own job, which the first form of the clone it made
+    names, so that it writes the rest. The one gate every change passes."""
+    try:
+        return ownership.owned(_as_member(target), job=job)
+    except ownership.NotOwned as refused:
+        raise NotOwned(refused.sentence) from None
 
 
 # ----------------------------------------------------------------------------------------- the members ----
@@ -399,11 +235,11 @@ def _pool(host: Host) -> Pool:
             " nothing was read. Check the token's grant on the pool"
         ) from None
     except (ProxmoxError, TransportError) as error:
-        raise Refused(f"the pool {host.pool} on {host.name} could not be read: {_words(error)}") from None
+        raise Refused(f"the pool {host.pool} on {host.name} could not be read: {sentence(error)}") from None
 
 
 def _running(host: Host, node: str, vmid: int) -> bool:
-    """Whether the VM runs, from its own endpoint, never the listing's status, which lags what a run just changed."""
+    """Whether the VM runs, from its own endpoint, never a listing's status, which lags what a run just changed."""
     try:
         return host.client.current(node, vmid).status == RUNNING
     except (Denied, Answered, Malformed):
@@ -432,7 +268,7 @@ def _member(host: Host, entry: Resource, config: VmConfig | None, unread: str) -
         try:
             found = record.read(config)
         except record.Unreadable as error:
-            unread = f"{_words(error)}: it is never changed or deleted"
+            unread = f"{sentence(error)}: it is never changed or deleted"
     return Target(
         kind=KIND,
         name=config.name or entry.name,
@@ -446,6 +282,7 @@ def _member(host: Host, entry: Resource, config: VmConfig | None, unread: str) -
         template=config.template,
         unread=unread,
         mac=config.mac,
+        digest=config.digest,
     )
 
 
@@ -468,7 +305,7 @@ def _members(host: Host, pool: Pool) -> tuple[Target, ...]:
         except (Answered, Malformed) as error:
             unread = (
                 f"the configuration of {entry.name or 'the VM'} (VMID {entry.vmid}) could not be read"
-                f" ({one_line(_words(error), SAID_MOST)}): it is never changed or deleted"
+                f" ({one_line(sentence(error), SAID_MOST)}): it is never changed or deleted"
             )
         found.append(_member(host, entry, config, unread))
     uuids = Counter(target.identity for target in found if target.identity)
@@ -486,11 +323,12 @@ def _members(host: Host, pool: Pool) -> tuple[Target, ...]:
 
 
 def members(host: Host) -> tuple[Target, ...]:
-    """Every VM of the host's pool, as a target, with no address read: Refused where the pool cannot be read."""
+    """Every VM of the host's pool, as a target for reading, with no address read and no Owned: Refused where the pool
+    cannot be read. A change is made on owned(target)."""
     try:
         return _members(host, _pool(host))
     except (ProxmoxError, TransportError) as error:
-        raise Refused(f"{host.name} could not be read: {_words(error)}") from None
+        raise Refused(f"{host.name} could not be read: {sentence(error)}") from None
 
 
 def count_made_by_agent(host: Host) -> int:
@@ -501,12 +339,12 @@ def count_made_by_agent(host: Host) -> int:
 # ------------------------------------------------------------------------------------------ the addresses ----
 
 
-def address(host: Host, target: Target) -> str | None:
-    """target's address, from its guest agent on its own network card, asked once whatever is known of whether it
-    runs (a VM the run just started is asked too): None where it reports none, does not run, has no agent or does not
-    answer. Refused at once where Proxmox refuses the token the agent's call, told by its status alone (Denied)."""
+def _asked(host: Host, target: Target) -> str:
+    """What target's guest agent reports as its address on its own network card, asked once whatever is known of
+    whether it runs: "" where it reports none, does not run, has no agent or does not answer. Refused at once where
+    Proxmox refuses the token the agent's call, told by its status alone (Denied)."""
     if not target.mac:
-        return None
+        return ""
     try:
         interfaces = host.client.agent_interfaces(target.node, target.vmid, host.client.agent_call_most)
     except Denied as error:
@@ -515,36 +353,67 @@ def address(host: Host, target: Target) -> str | None:
             " gives, so no VM's address can be read and nothing was reached"
         ) from None
     except (NotRunning, NoAgent, Answered, Malformed, TimedOut, Unreachable):
-        return None
+        return ""
     except (ProxmoxError, TransportError) as error:
-        raise Refused(f"{target.said}'s address could not be asked: {_words(error)}") from None
-    return agent.address(interfaces, target.mac)
+        raise Refused(f"{target.said}'s address could not be asked: {sentence(error)}") from None
+    return agent.address(interfaces, target.mac) or ""
 
 
-def _addressed(host: Host, targets: Sequence[Target]) -> tuple[tuple[Target, ...], list[str]]:
-    """targets, each owned one that runs given its address; two that report one address each left with none, said."""
+def _reported(host: Host, everyone: Sequence[Target]) -> dict[str, str]:
+    """Each running member of everyone that the fleet owns, by its identity (one member's alone: two that carry one UUID
+    are owned by none), with the address its guest agent reports ("" for none): the members a VM's address is held
+    against."""
+    return {target.identity: _asked(host, target) for target in everyone if target.running and not refusal(target)}
+
+
+def _one_address(shared: Sequence[Target], addresses: Sequence[str]) -> str:
+    """The line that says the members shared report one address each, and that none of them is reached."""
+    names = ", ".join(target.said for target in shared)
+    return (
+        f"{names} report one address ({', '.join(sorted(set(addresses)))}), so none of them is reached: nothing here"
+        " can tell which is telling the truth. Look at each one's address in Proxmox's console."
+    )
+
+
+def address(host: Host, target: Target) -> str | None:
+    """target's address, from its guest agent on its own network card, asked once whatever is known of whether it
+    runs (a VM the run just started is asked too), and held against the address every other running member of the pool
+    that the fleet owns reports: None where it reports none, does not run, has no agent or does not answer; Shared
+    where another member reports it too, since nothing tells which is telling the truth, and whatever answers there
+    would be taken for this VM. Refused at once where Proxmox refuses the token the agent's call, told by its status
+    alone (Denied)."""
+    found = _asked(host, target)
+    if not found:
+        return None
+    siblings = [member for member in members(host) if member.identity != target.identity]
+    reported = _reported(host, siblings)
+    same = [member for member in siblings if reported.get(member.identity) == found]
+    if same:
+        raise Shared(_one_address([target, *same], [found]), found)
+    return found
+
+
+def _addressed(
+    host: Host, targets: Sequence[Target], everyone: Sequence[Target]
+) -> tuple[tuple[Target, ...], list[str]]:
+    """targets, each owned one that runs given its address; one whose address another running member the fleet owns
+    reports too, a target of this read or not, left with none, and said."""
+    reported = _reported(host, everyone)
+    counts = Counter(found for found in reported.values() if found)
+    shared = {identity for identity, found in reported.items() if found and counts[found] > 1}
     found = [
-        dataclasses.replace(target, address=address(host, target) or "")
-        if target.running and not refusal(target)
+        dataclasses.replace(target, address="", shared=reported[target.identity])
+        if target.identity in shared
+        else dataclasses.replace(target, address=reported[target.identity])
+        if target.identity in reported
         else target
         for target in targets
     ]
-    reported = Counter(target.address for target in found if target.address)
-    shared = [target for target in found if target.address and reported[target.address] > 1]
-    lines = []
-    if shared:
-        vmids = {target.vmid for target in shared}
-        found = [
-            dataclasses.replace(target, address="", shared=target.address) if target.vmid in vmids else target
-            for target in found
-        ]
-        names = ", ".join(target.said for target in shared)
-        lines.append(
-            f"{names} report one address ({', '.join(sorted({target.address for target in shared}))}), so none of them"
-            " is reached: nothing here can tell which is telling the truth. Look at each one's address in Proxmox's"
-            " console."
-        )
-    return tuple(found), lines
+    asked = {reported[target.identity] for target in targets if target.identity in shared}
+    if not asked:
+        return tuple(found), []
+    sharing = [member for member in everyone if member.identity in shared and reported[member.identity] in asked]
+    return tuple(found), [_one_address(sharing, [reported[member.identity] for member in sharing])]
 
 
 # ---------------------------------------------------------------------------------------------- the names ----
@@ -558,6 +427,8 @@ def _hold(host: Host, names: Sequence[str], create: bool) -> None:
     """Each name given held before Proxmox is asked anything: see the module's docstring."""
     if not all(isinstance(name, str) and full("vm_name", name) and "," not in name for name in names):
         raise Refused(f"a name given is no VM's name: {PATTERNS['vm_name'].words}")
+    if create and not all(VM_NAME.fullmatch(name) for name in names):
+        raise Refused(NOT_PROXMOX_S)
     taken = [name for name in names if name in host.hosts_named]
     if taken:
         which = "is the name" if len(taken) == 1 else "are names"
@@ -579,7 +450,7 @@ def _hold(host: Host, names: Sequence[str], create: bool) -> None:
         try:
             origins = host.layout.origins(list(names))
         except hosts.Refused as error:
-            raise Refused(_words(error)) from None
+            raise Refused(sentence(error)) from None
         theirs = {name: origin for name, origin in origins.items() if origin != host.name}
         if theirs:
             where = host.layout.alias_file()
@@ -663,8 +534,9 @@ def _by_name(
 
 
 def _outside(host: Host, everyone: Sequence[Target], new: Sequence[str]) -> tuple[bool, list[str]]:
-    """Whether each name to create was looked for among the host's VMs outside the pool, and the line that says it was
-    not; Refused for a VM of such a name found there, as today's role refuses an existing VM it does not own."""
+    """Whether each name to create was looked for among the host's VMs outside the pool, and the lines that say it was
+    not, or that an entry listed with no name could not be read; Refused for a VM of such a name found there, as today's
+    role refuses an existing VM it does not own, and for a clone in flight there that names no VM yet."""
     try:
         held = host.client.permissions(EVERY_VM).privileges
     except (Denied, Answered, Malformed):
@@ -680,30 +552,53 @@ def _outside(host: Host, everyone: Sequence[Target], new: Sequence[str]) -> tupl
         listed = host.client.resources("vm")
     except Denied as error:
         raise Refused(f"{error}: the host's VMs could not be listed, so nothing was made") from None
+    lines: list[str] = []
     for entry in listed:
-        if entry.type != QEMU or entry.vmid in ours or entry.name not in new:
+        if entry.type != QEMU or entry.vmid is None or entry.vmid in ours or (entry.name and entry.name not in new):
             continue
+        # One of a name to create, or one listed with no name, as the listing gives a guest its node has not reported
+        # to the cluster yet: a VM made seconds ago, a clone in flight above all, may be one of a name to create.
+        config: VmConfig | None = None
         try:
-            lock = host.client.config(entry.node, entry.vmid).lock
-        except (Denied, Answered, Malformed):
-            lock = ""
+            config = host.client.config(entry.node, entry.vmid)
+        except (Denied, Answered, Malformed) as error:
+            if not entry.name:
+                lines.append(
+                    f"VMID {entry.vmid} on {entry.node} is listed with no name, and its configuration could not be read"
+                    f" ({one_line(sentence(error), SAID_MOST)}), so whether it is a VM named {', '.join(new)} is not"
+                    " known."
+                )
+                continue
+        name = entry.name or (config.name if config is not None else "")
+        lock = config.lock if config is not None else ""
+        if not name:
+            if lock == CLONING:
+                raise Refused(
+                    f"VMID {entry.vmid} is being cloned, its configuration under lock: clone and naming no VM yet, and"
+                    f" is no member of the pool {host.pool}: it may be one named {', '.join(new)}, made by a run under"
+                    " way, or left by one that stopped. Run this again once its clone has ended."
+                )
+            continue
+        if name not in new:
+            continue
         if lock == CLONING:
             raise Refused(
-                f'A VM named "{entry.name}" (VMID {entry.vmid}) is being cloned, its configuration under lock: clone,'
+                f'A VM named "{name}" (VMID {entry.vmid}) is being cloned, its configuration under lock: clone,'
                 f" and is no member of the pool {host.pool} yet: a run making it is under way, or one stopped and left"
                 " it. Run this again once its clone has ended."
             )
-        if entry.template:
+        template = config.template if config is not None else entry.template
+        if template:
             raise Refused(
-                f'"{entry.name}" is the name of a template (VMID {entry.vmid}) outside the pool {host.pool}. Refusing'
+                f'"{name}" is the name of a template (VMID {entry.vmid}) outside the pool {host.pool}. Refusing'
                 " to configure it. Pick a different name."
             )
         raise Refused(
-            f'A VM named "{entry.name}" already exists (VMID {entry.vmid}) and is no member of the pool {host.pool}, so'
+            f'A VM named "{name}" already exists (VMID {entry.vmid}) and is no member of the pool {host.pool}, so'
             " this fleet did not create it. Refusing to change it, or to make a second VM of its name. Pick a different"
             " name."
         )
-    return True, []
+    return True, lines
 
 
 def _other(host: Host, name: str) -> tuple[Proxmox, str]:
@@ -717,11 +612,11 @@ def _other(host: Host, name: str) -> tuple[Proxmox, str]:
         anchor = host.layout.anchor(name, fields)
         values = overrides.resolve(host.layout.home, name, environ=host.environ)
     except (hosts.Refused, overrides.Refused, paths.Refused) as error:
-        raise Refused(_words(error)) from None
+        raise Refused(sentence(error)) from None
     pool = values["proxmox_pool"].value
     if not pool:
         raise Refused(f"{name} names no pool (proxmox_pool)")
-    return _client(name, fields, anchor, values, host.tokens, host.environ), pool
+    return client_for(name, fields, anchor, values, host.tokens, host.environ), pool
 
 
 def _elsewhere(host: Host, names: Sequence[str]) -> list[str]:
@@ -774,8 +669,12 @@ def _elsewhere(host: Host, names: Sequence[str]) -> list[str]:
 def requested(host: Host, names: Sequence[str] = (), *, create: bool = False, change: bool = True) -> Requested:
     """The targets a run against host asks for by names, each with its address where it runs: see the module's
     docstring. create: a deploy that may create (names default to the default VM's; a name no member carries is one to
-    create). change: a run that changes something, which reads the pool's mark by D2's rule before anything else and
-    returns each target through owned(). Refused, Missing or NotOwned, in one sentence, before anything is changed."""
+    create), which is a changing run (ValueError without change). change: a run that changes something, which reads
+    the pool's mark by D2's rule before anything else and gives each target its Owned through owned(); a read that
+    changes nothing gives targets for reading alone. Refused, Missing or NotOwned, in one sentence, before anything is
+    changed."""
+    if create and not change:
+        raise ValueError("a deploy that would create changes something: create is asked with change")
     chosen = tuple(names) or ((host.default_name,) if create else ())
     _hold(host, chosen, create)
     lines: list[str] = []
@@ -787,22 +686,22 @@ def requested(host: Host, names: Sequence[str] = (), *, create: bool = False, ch
             except mark.Refused as error:
                 rule = str(error)
             if rule is not None:
-                raise Refused(_words(rule))
+                raise Refused(sentence(rule))
         everyone = _members(host, pool)
         if chosen:
             targets, new = _by_name(host, everyone, chosen, create)
         else:
             (targets, lines), new = _every(host, everyone, change), []
         if change:
-            targets = [owned(target) for target in targets]
+            targets = [dataclasses.replace(target, owned=owned(target)) for target in targets]
         outside = True
         if new:
             outside, more = _outside(host, everyone, new)
             lines += more
         if create:
             lines += _elsewhere(host, chosen)
-        addressed, more = _addressed(host, targets)
+        addressed, more = _addressed(host, targets, everyone)
         lines += more
     except (ProxmoxError, TransportError) as error:
-        raise Refused(f"{host.name} could not be read: {_words(error)}") from None
+        raise Refused(f"{host.name} could not be read: {sentence(error)}") from None
     return Requested(addressed, tuple(new), tuple(lines), outside)

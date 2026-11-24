@@ -255,9 +255,9 @@ lib/claude_vm/engine/             the workflows, one module a verb, in place of 
                                   certificates do not verify the host, read over root SSH or vouched for by a person;
                                   template.py, the base template compared with what its settings would build, by GETs
                                   alone; init.py, init with nobody there: a whole fleet folder written, the vault sealed;
-                                  fleet.py, the fleet as the engine reads it: a host's pool members as targets, and
-                                  what is refused; access.py, the one list of what init makes on a host, and the check
-                                  of each against what is there
+                                  fleet.py, the fleet as the engine reads it: a host's pool members as targets, what is
+                                  refused, and the Owned of each a changing read may change; access.py, the one list of
+                                  what init makes on a host, and the check of each against what is there
 lib/claude_vm/pve/                the typed Proxmox VE client, and the one table of each call's privilege; client.py,
                                   Proxmox, the one class that sends the token, and its reads and writes; answers.py,
                                   each answer's frozen record and its parsing function; pin.py, the connection the token
@@ -266,7 +266,8 @@ lib/claude_vm/pve/                the typed Proxmox VE client, and the one table
                                   VM's address from its guest agent, waited for; record.py, a VM's record as the text of
                                   its notes, parsed and rendered with nothing of the engine's but text.py; template.py,
                                   the base template judged from what was read of it, with no client, which deploy and
-                                  status judge by alike
+                                  status judge by alike; ownership.py, the one rule of what is the fleet's, which status
+                                  judges by too, and the Owned every write of a VM takes, which it alone makes
 lib/claude_vm/ssh/                the runner over OpenSSH: ssh as a child, host keys taken at first use, the control
                                   directory, the children a run holds
 lib/claude_vm/vendors/            one HTTPS transport, Tailscale's calls, downloads held to a signature or a digest;
@@ -292,7 +293,8 @@ lib/claude_vm/fleet/              a fleet's files: where they are, the hosts, th
                                   secrets.py, the vault's closed list of named secrets, each with its scope and kind;
                                   sealed.py, vault.age: the named secrets in one age file, encrypted whole;
                                   vaultkey.py, the vault's key: made once in a file of this computer's own, found
-                                  in one order
+                                  in one order; opened.py, a host opened from these files, its client among them, the
+                                  one way every workflow and status open one
 lib/claude_vm/guest/              inside a machine: the helper, the system layer's inputs, layer 2; layer1.py,
                                   one ansible-playbook for one machine, its configuration, inventory and
                                   environment made by the engine; variables.py, the play's variables as one

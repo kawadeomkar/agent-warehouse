@@ -25,6 +25,10 @@ record that names a UUID other than the VM's own, nor rewrites a block it cannot
 `label(client, vm, value)` writes the one label a VM carries in Proxmox's list, the setting `vm_label`'s value, beside
 whatever tags a person gave it, under the same digest; nothing decides anything from it.
 
+Both write a VM the fleet owns, an `Owned` (pve/ownership.py), which the one check alone makes, and refuse anything
+else before anything is sent, a target a read gave above all; the client holds each configuration they read to the
+Owned's SMBIOS UUID.
+
 `change` may be applied more than once, so it is a function of the record it is given alone, with no other effect.
 """
 
@@ -33,16 +37,16 @@ from __future__ import annotations
 import dataclasses
 import re
 from collections.abc import Callable, Mapping
-from typing import Protocol
 
 from ..pve import record as block
 from ..pve.answers import VmConfig
 from ..pve.client import TAG, Proxmox
+from ..pve.ownership import Owned
 from ..pve.record import Copy, TooLong, Unreadable
 from ..schema.patterns import full
 from ..vpn.model import MARK
 
-__all__ = ["Copy", "Record", "TooLong", "Unreadable", "Vm", "label", "read", "write"]
+__all__ = ["Copy", "Record", "TooLong", "Unreadable", "label", "read", "write"]
 
 # A VM's identity as answers.config reads it from smbios1 (proxmox.smbios_uuid): lower case, 8-4-4-4-12.
 UUID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
@@ -55,17 +59,6 @@ BUILD_FORM = re.compile(r"[1-9][0-9]{0,8}")
 URL = re.compile(r"https?://\S{1,2040}")
 # A package put into a template's image: a Debian package's name (Debian Policy, 5.6.1), lower case.
 PACKAGE = re.compile(r"[a-z0-9][a-z0-9+.-]{1,99}")
-
-
-class Vm(Protocol):
-    """A VM where Proxmox keeps it: the node it is on and its number there, as a VmConfig, a listing's entry or a
-    workflow's target give them."""
-
-    @property
-    def node(self) -> str: ...
-
-    @property
-    def vmid(self) -> int: ...
 
 
 @dataclasses.dataclass(frozen=True)
@@ -211,9 +204,19 @@ def _whose(config: VmConfig) -> str:
     return f"VM {config.vmid}'s"
 
 
-def _edit(client: Proxmox, vm: Vm, edit: Callable[[VmConfig], Mapping[str, object] | None]) -> None:
+def _owned(vm: Owned) -> Owned:
+    """vm, where it is an Owned: TypeError for anything else, before anything is sent."""
+    if not isinstance(vm, Owned):
+        raise TypeError(
+            "a VM's record and label are written only to an Owned, which the one check alone makes (pve/ownership.py's"
+            " owned): never a target a read gave, a configuration or a VMID"
+        )
+    return vm
+
+
+def _edit(client: Proxmox, vm: Owned, edit: Callable[[VmConfig], Mapping[str, object] | None]) -> None:
     """edit applied to vm's configuration, and written under the digest of the read it was applied to."""
-    client.edit_config(vm.node, vm.vmid, edit)
+    client.edit_config(vm, edit)
 
 
 def read(config: VmConfig) -> Record | None:
@@ -238,14 +241,16 @@ def read(config: VmConfig) -> Record | None:
     return found
 
 
-def write(client: Proxmox, vm: Vm, change: Callable[[Record | None], Record | None]) -> Record | None:
-    """Apply change to the record in vm's notes and write it there under the digest of the read it was made from: the
-    record the notes then hold. change is given the record read (None where there is none) and gives the record to
-    write, or None, or the same, for no change: it may be applied again, after another writer's change was read, up to
-    the client's EDITS times, after which the last DigestMismatch is raised. Nothing is sent where the notes, as Proxmox
-    will give them back, would be what they are. Unreadable, before anything is sent, where the notes hold a block this
-    engine cannot read, and Copy where they hold another VM's record, before change is applied; ValueError where change
-    gives a record that names a UUID other than the VM's own; TooLong where the notes would pass 8192 characters."""
+def write(client: Proxmox, vm: Owned, change: Callable[[Record | None], Record | None]) -> Record | None:
+    """Apply change to the record in the notes of vm, an Owned, and write it there under the digest of the read it was
+    made from: the record the notes then hold. change is given the record read (None where there is none) and gives the
+    record to write, or None, or the same, for no change: it may be applied again, after another writer's change was
+    read, up to the client's EDITS times, after which the last DigestMismatch is raised. Nothing is sent where the
+    notes, as Proxmox will give them back, would be what they are. TypeError where vm is no Owned; Unreadable, before
+    anything is sent, where the notes hold a block this engine cannot read, and Copy where they hold another VM's
+    record, before change is applied; ValueError where change gives a record that names a UUID other than the VM's own;
+    TooLong where the notes would pass 8192 characters; the client's Changed where another VM holds vm's VMID now."""
+    _owned(vm)
     if not callable(change):
         raise TypeError("change is a function of the record read")
     outcome: list[Record | None] = [None]
@@ -276,10 +281,12 @@ def write(client: Proxmox, vm: Vm, change: Callable[[Record | None], Record | No
     return outcome[0]
 
 
-def label(client: Proxmox, vm: Vm, value: str) -> None:
-    """Give vm the label value, the setting vm_label's, beside the tags it has, under the digest of the read: nothing
-    sent where it carries it already, as Proxmox gives tags back, in lower case. ValueError for a value that is not one
-    tag Proxmox takes, as the setting's own rule holds it (fleet/registry.py's PROXMOX_TAG)."""
+def label(client: Proxmox, vm: Owned, value: str) -> None:
+    """Give vm, an Owned, the label value, the setting vm_label's, beside the tags it has, under the digest of the read:
+    nothing sent where it carries it already, as Proxmox gives tags back, in lower case. TypeError where vm is no Owned;
+    ValueError for a value that is not one tag Proxmox takes, as the setting's own rule holds it (fleet/registry.py's
+    PROXMOX_TAG)."""
+    _owned(vm)
     if not isinstance(value, str):
         raise TypeError("a label is text")
     if not TAG.fullmatch(value):

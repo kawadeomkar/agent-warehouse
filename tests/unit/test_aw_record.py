@@ -41,9 +41,10 @@ from claude_vm import proxmox
 from claude_vm.engine import record
 from claude_vm.engine.record import Copy, Record, TooLong, Unreadable
 from claude_vm.fleet import registry
-from claude_vm.pve import pin
+from claude_vm.pve import ownership, pin
 from claude_vm.pve import record as block
 from claude_vm.pve.client import EDITS, DigestMismatch, Proxmox, Token
+from claude_vm.pve.ownership import Owned
 from claude_vm.schema.patterns import PATTERNS
 from claude_vm.secret import Secret
 
@@ -454,17 +455,6 @@ def pki(tmp_path_factory):
     return proxmox_pki(tmp_path_factory.mktemp("pki"), key_usage=True)
 
 
-@dataclasses.dataclass(frozen=True)
-class At:
-    """A VM where Proxmox keeps it."""
-
-    node: str
-    vmid: int
-
-
-ALPHA = At("pve", 9010)
-
-
 @dataclasses.dataclass
 class Fleet:
     """The fake at base, its state in directory, the engine's token, and the certificates it serves (pki)."""
@@ -486,6 +476,17 @@ class Fleet:
 
     def identity(self, vmid: int = 9010) -> str:
         return proxmox.smbios_uuid(self.config(vmid))
+
+    def owned(self) -> Owned:
+        """alpha as the writer takes it: an Owned, which ownership.owned alone makes, of its configuration now as
+        today's token reads it, its record given as one of the fleet's own. Whether a member is the fleet's is the one
+        check's (test_aw_ownership.py, test_aw_fleet.py): here, what the writer sends."""
+        config = self.config()
+        uuid = proxmox.smbios_uuid(config)
+        member = ownership.Member(
+            "alpha", "pve", 9010, uuid=uuid, digest=config["digest"], recorded="vm", record_uuid=uuid
+        )
+        return ownership.owned(member)
 
     def puts(self) -> list[dict]:
         """The parameters of every PUT the client sent to alpha's configuration."""
@@ -523,7 +524,7 @@ def test_a_record_written_reads_back_field_for_field_beside_the_notes_the_vm_had
     assert had.startswith(proxmox.TEMPLATE_RECORD_1X) and block.parse(had) is None
     whole = dataclasses.replace(WHOLE, uuid=fleet.identity())
     with fleet.client() as client:
-        assert record.write(client, ALPHA, lambda current: whole) == whole
+        assert record.write(client, fleet.owned(), lambda current: whole) == whole
         assert record.read(client.config("pve", 9010)) == whole
     assert fleet.notes() == f"{had}\n\n{block.render('', whole.fields())}"
     (sent,) = fleet.puts()
@@ -539,10 +540,10 @@ def test_of_two_writers_the_second_is_refused_reads_again_and_lands_with_the_fir
             seen.append(current)
             if len(seen) == 1:
                 # The first writer lands between this read and its write.
-                record.write(client, ALPHA, lambda now: _made(identity, job="3f9a0c1e7b2d4a58"))
+                record.write(client, fleet.owned(), lambda now: _made(identity, job="3f9a0c1e7b2d4a58"))
             return dataclasses.replace(current or _made(identity), provisioned=True)
 
-        written = record.write(client, ALPHA, second)
+        written = record.write(client, fleet.owned(), second)
         assert record.read(client.config("pve", 9010)) == written
     assert seen == [None, _made(identity, job="3f9a0c1e7b2d4a58")]
     assert (written.job, written.provisioned) == ("3f9a0c1e7b2d4a58", True)
@@ -562,7 +563,7 @@ def test_a_write_survives_a_person_s_edit_between_its_read_and_its_write(fleet) 
                 fleet.plant(description=f"{had}\nadded by a person", tags="agent-warehouse;mine")
             return _made(identity)
 
-        assert record.write(client, ALPHA, change) == _made(identity)
+        assert record.write(client, fleet.owned(), change) == _made(identity)
     assert applied == [None, None]
     notes = fleet.notes()
     assert notes.startswith(f"{had}\nadded by a person\n\n")
@@ -580,19 +581,19 @@ def test_a_writer_that_always_loses_raises_after_the_client_s_tries_and_writes_n
         return _made(identity)
 
     with fleet.client() as client, pytest.raises(DigestMismatch):
-        record.write(client, ALPHA, loses)
+        record.write(client, fleet.owned(), loses)
     assert len(applied) == EDITS and block.parse(fleet.notes()) is None
 
 
 def test_a_second_write_of_the_same_record_sends_nothing(fleet) -> None:
     made = _made(fleet.identity(), repositories=("one",))
     with fleet.client() as client:
-        record.write(client, ALPHA, lambda current: made)
+        record.write(client, fleet.owned(), lambda current: made)
         # Proxmox takes the white space off the notes' end: a person's trailing lines change nothing either.
         fleet.plant(description=fleet.notes() + "\n\n  \n")
-        assert record.write(client, ALPHA, lambda current: current) == made
-        assert record.write(client, ALPHA, lambda current: None) == made
-        assert record.write(client, ALPHA, lambda current: dataclasses.replace(current)) == made
+        assert record.write(client, fleet.owned(), lambda current: current) == made
+        assert record.write(client, fleet.owned(), lambda current: None) == made
+        assert record.write(client, fleet.owned(), lambda current: dataclasses.replace(current)) == made
     assert len(fleet.puts()) == 1
 
 
@@ -602,7 +603,7 @@ def test_a_block_the_engine_cannot_read_is_never_rewritten_and_nothing_is_sent(f
     fleet.plant(description=planted)
     applied = []
     with fleet.client() as client, pytest.raises(Unreadable) as refused:
-        record.write(client, ALPHA, lambda current: applied.append(current) or _made(fleet.identity()))
+        record.write(client, fleet.owned(), lambda current: applied.append(current) or _made(fleet.identity()))
     assert "VM 9010's notes" in str(refused.value)
     assert applied == [] and fleet.puts() == [] and fleet.notes() == planted
 
@@ -617,16 +618,16 @@ def test_a_copy_s_record_is_never_written_over_and_change_is_never_applied(fleet
             record.read(client.config("pve", 9010))
         assert "VM 9010's notes" in str(refused.value)
         with pytest.raises(Copy):
-            record.write(client, ALPHA, lambda current: applied.append(current) or current)
+            record.write(client, fleet.owned(), lambda current: applied.append(current) or current)
         with pytest.raises(Copy):
-            record.write(client, ALPHA, lambda current: applied.append(current) or _made(fleet.identity()))
+            record.write(client, fleet.owned(), lambda current: applied.append(current) or _made(fleet.identity()))
     assert applied == [] and fleet.puts() == [] and fleet.notes() == copied
 
 
 def test_a_record_naming_another_vm_s_uuid_is_never_written(fleet) -> None:
     other = fleet.identity(9011)
     with fleet.client() as client, pytest.raises(ValueError, match="written only for the VM it names"):
-        record.write(client, ALPHA, lambda current: _made(other))
+        record.write(client, fleet.owned(), lambda current: _made(other))
     assert fleet.puts() == [] and block.parse(fleet.notes()) is None
 
 
@@ -634,7 +635,7 @@ def test_notes_past_8192_characters_are_refused_before_anything_is_sent(fleet) -
     _pve(fleet.base, "PUT", "fake/notes-limit", bytes=block.MOST)
     fleet.plant(description="x" * (block.MOST - 20))
     with fleet.client() as client, pytest.raises(TooLong) as refused:
-        record.write(client, ALPHA, lambda current: _made(fleet.identity()))
+        record.write(client, fleet.owned(), lambda current: _made(fleet.identity()))
     assert "VM 9010's notes" in str(refused.value) and "nothing was sent" in str(refused.value)
     assert fleet.puts() == []
 
@@ -644,7 +645,7 @@ def test_a_write_of_the_most_notes_proxmox_takes_lands(fleet) -> None:
     made = _made(fleet.identity())
     fleet.plant(description="x" * (block.MOST - len(block.render("", made.fields())) - 2))
     with fleet.client() as client:
-        record.write(client, ALPHA, lambda current: made)
+        record.write(client, fleet.owned(), lambda current: made)
     assert len(fleet.notes()) == block.MOST and block.parse(fleet.notes()) == _fields(made)
 
 
@@ -653,16 +654,16 @@ def test_the_label_written_is_the_setting_vm_label_s_value_beside_a_person_s_tag
     assert default == "agent-warehouse" and registry.row("vm_label").form.allows(default)
     fleet.plant(tags="mine")
     with fleet.client() as client:
-        record.label(client, ALPHA, default)
+        record.label(client, fleet.owned(), default)
         assert client.config("pve", 9010).tags == ("agent-warehouse", "mine")
         # Carried already, in any case: nothing is sent.
         for again in (default, "Agent-Warehouse"):
-            record.label(client, ALPHA, again)
-        record.label(client, ALPHA, "lab-fleet")
+            record.label(client, fleet.owned(), again)
+        record.label(client, fleet.owned(), "lab-fleet")
         assert client.config("pve", 9010).tags == ("agent-warehouse", "lab-fleet", "mine")
         for refused in ("two words", "", "a,b", "a;b", "-dash"):
             with pytest.raises(ValueError, match="vm_label is one Proxmox tag"):
-                record.label(client, ALPHA, refused)
+                record.label(client, fleet.owned(), refused)
     puts = fleet.puts()
     assert [sorted(sent) for sent in puts] == [["digest", "tags"]] * 2
     assert [sent["tags"] for sent in puts] == ["mine,agent-warehouse", "agent-warehouse,mine,lab-fleet"]
