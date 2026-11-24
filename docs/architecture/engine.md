@@ -141,7 +141,7 @@ help, a rule's refusal, the check's own and the Proxmox client's and the vendors
 the sentence, and never as text. The printer's `said(sentence, filled)` fills each field, a `Line` with the line the
 printer writes for it (below), so that every command a person reads is the program as it was started, spelled as the
 printer spells one; `LINES`, in the table, holds the commands the table's own sentences name (`aw host`,
-`aw help <recipe>`, `aw deploy alpha --tags claude_code`). `pve/` and `vendors/` say theirs through it too, importing
+`aw help <command>`, `aw deploy alpha --tags claude_code`). `pve/` and `vendors/` say theirs through it too, importing
 the printer as every module does. `placeholder` gives the name help gives a value or a verb's words, as help's rows, the
 command reference and a line that shows a command's form write it: lower case, in angle brackets, never quoted
 (`--cores <cores>`, `--set <name>=<value>`, `aw code <name>`, `<name>...` for several).
@@ -236,16 +236,22 @@ it unquoted, for a child's environment, never for a line.
 A line that gives a value or a verb's words as `PLACEHOLDER` is a form: it shows a command's shape, each placeholder
 written as `placeholder` writes it and never quoted (`aw destroy <name>... --confirm <names>`), and so is a line made
 from values no run has taken, whose free text is masked (below). A form is shown, never offered as the command to run:
-a line a person is told to run, NEXT STEPS' and the session notes' (16.4), holds none. Pasted at a shell, a form stops
-at its first `<`, a redirection, or is no line at all where it ends in `>`; given back to `aw` as a word or as JSON,
-each placeholder is refused by the one check, in `aw`'s own words. The values are the parser's or a handler's:
-`default_vm` is said by naming no VM, and a value that is off (a flag not given, a count of 0, an empty list) is not
-said. Each is held as the one check holds it but for the rules between options (`formed`), and one it refuses, a word
-that starts with `-`, or a value or word that holds a character of Unicode's categories Cc, Cf, Cs, Zl or Zp (a C1
-control, a bidi override, a lone surrogate, a line separator), which a terminal would act on, not show as it is, or
-which no UTF-8 output can write, raises `ValueError` with the check's kind of sentence, which never says the value; a
-rule is the run's to say, so a line may name a run that one refuses, as `deploy`'s question names the stage before its
-answer meets the rules.
+a line a person is told to run, NEXT STEPS' and the session notes' (16.4), holds none. Pasted at a shell, a
+placeholder is two redirections, `<name>` reading a file named `name` and writing one named as the word after it: a
+form that ends in one is no line a shell reads at all, and any other stops at its first `<` where the folder holds no
+file of that name, nothing run, made or emptied. Where the folder does hold a file named as each placeholder, the shell
+reads it, makes or empties a file named as the word after each `>` (`...`, `]`, `=`, `--host`), and runs `aw` with the
+words left, which `aw` refuses for every form the code writes but `host --remove`'s (`aw host <name> --remove`): its
+words left are `aw host`, a read, which lists the hosts into a file named `--remove`. A form that left a whole command
+would run it (`aw deploy <name>...` alone leaves `aw deploy`, the default VM's), so none is written. Given back to `aw`
+as a word or as JSON, each placeholder is refused by the one check, in `aw`'s own words. The values are the parser's or
+a handler's: `default_vm` is said by naming no VM, and a value that is off (a flag not given, a count of 0, an empty
+list) is not said. Each is held as the one check holds it but for the rules between options (`formed`), and one it
+refuses, a word that starts with `-`, or a value or word that holds a character of Unicode's categories Cc, Cf, Cs, Zl
+or Zp (a C1 control, a bidi override, a lone surrogate, a line separator), which a terminal would act on, not show as
+it is, or which no UTF-8 output can write, raises `ValueError` with the check's kind of sentence, which never says the
+value; a rule is the run's to say, so a line may name a run that one refuses, as `deploy`'s question names the stage
+before its answer meets the rules.
 
 `host_flag` is the host a line names. Every caller of a verb whose row has the shared `--host` (`deploy`, `code`,
 `login`, `status`, `destroy`) gives it where the values give no `--host`: a host's name, or `""` where the fleet has
@@ -264,24 +270,32 @@ an option, after `run`, a backtick or a quote, or with no word of prose before i
 that a value, an option or a closing mark follows. Its one exception is `cli/dispatch.py`'s `not_built`, whose
 `just <verb>` is today's program, which the flip takes out. Only the printer names the program, as started or as its
 constant (`program`, `_program`, `PROGRAM`), by any name a module binds to the printer or imports from it; only the
-printer and the check name a sentence's field `program`; and every use of `line` or `argv`, through any name or a
-`functools.partial`, says `refused`. What the scan cannot see is a command joined at run time from pieces that name
-none (`'aw' + ' cancel '`, a list joined), a path to the program other than `./aw` (`../aw deploy`), another case, or
-a call through `getattr`: only the printer's names of the program make the program, and only the printer reads them,
-which is how such a line is made. `tests/unit/test_aw_cli_printer.py` holds the printer: for every verb, its words,
-each option alone and beside them and each pair of options the rules allow come back from the line through the parser
-and the one check, and no verb or option lacks such a case; every example line the test gives, of every verb, comes
-back from its line, before the habits and after; a line's form; an awkward value, each character a POSIX shell reads
-otherwise, a backslash and a trailing one, two values of free text on one line, an empty value and a name that starts
-with a digit survive `/bin/sh` and `bash`, and a value that starts with `=` is quoted; a value a terminal would not show
-as it is is never printed; a value that is off is not said, a placeholder is the one `placeholder` writes, in a form
-line and a masked one alike, and each placeholder given back, as a word and as JSON, is refused; the host's flag; a
-value of free text is never said back from values no run took, and every call says `refused`; a value the check
-refuses is never printed; the program as it was started, quoted, in this process, from a path a shell would split and
-through the launcher, the check's sentences and help's among them; by scans of their syntax, the three guards above,
-which a module planted with all three roads fails; that no sentence of the rules or the table holds a command as text; and that
-each module of `schema/` imports alone and first and nothing outside `schema/`, and `pve/` and `vendors/` import the
-printer when they are imported, none of them inside a function.
+printer and the check name a sentence's field `program`; the check's `command`, the program and a verb, is used only by
+the modules that refuse (the check, the printer, `cli/parse.py` and `cli/dispatch.py`) and by help, for its usage
+lines and the program its closing paragraph names, each named with why, by any name a module binds to the check, its
+package or the function; and every use of `line` or `argv`, through any name or a `functools.partial`, says
+`refused`. What the scans cannot see is a command joined at run time from pieces that name none (`'aw' + ' cancel '`,
+a list joined), a path to the program other than `./aw` (`../aw deploy`), another case, a name reached through
+`getattr`, `vars` or `importlib`, and a string the printer made with words of a module's own joined to it
+(`printer.line(...) + ' ' + job`, a sentence that says words of its own after a line's field): a line to run is the
+printer's line, whole, and a sentence names its command as a `Line`, which is how such a line is made.
+`tests/unit/test_aw_cli_printer.py` holds the printer: for every verb, its words, each option alone and beside them and
+each pair of options the rules allow come back from the line through the parser and the one check, and no verb or
+option lacks such a case; every example line the test gives, of every verb, comes back from its line, before the habits
+and after; a line's form; an awkward value, each character a POSIX shell reads otherwise, a backslash and a trailing
+one, two values of free text on one line, an empty value and a name that starts with a digit survive `/bin/sh` and
+`bash`, and a value that starts with `=` is quoted; a value a terminal would not show as it is is never printed; a
+value that is off is not said, a placeholder is the one `placeholder` writes, in a form line and a masked one alike,
+and each placeholder given back, as a word and as JSON, is refused; each form the rules and the table write, help's
+usage lines and `deploy`'s question's lines, pasted into `/bin/sh` and `bash`, runs nothing in a folder with no file
+of a placeholder's name, and in one with a file of each leaves words `aw` refuses, but `host --remove`'s, written
+there; the host's flag; a value of free text is never said back from values no run took, and every call says
+`refused`; a value the check refuses is never printed; the program as it was started, quoted, in this process, from a
+path a shell would split and through the launcher, the check's sentences and help's among them; by scans of their
+syntax, the four guards above, which a module planted with the roads the reviews found fails, but for the roads the
+scans cannot see; that no sentence of the rules or the table holds a command as text; and that each module of
+`schema/` imports alone and first and nothing outside `schema/`, and `pve/` and `vendors/` import the printer when
+they are imported, none of them inside a function.
 
 ## 16.3 `cli/` — the `aw` program
 
@@ -400,8 +414,10 @@ lacks the packages. It tells the program how a person runs it again, in `AGENT_W
 `command -v aw` is this launcher by its physical path, else what was typed to start it; and its own sentences that say
 what to run (`--install-env`'s refusal, the environment it makes first, a uv that made none) say the program the same
 way, each word as the printer's `quoted` writes it (`word`: bare where every POSIX shell and zsh read it back as it is,
-else quoted as `shlex.quote` quotes it). It does not hold the word to the printer's categories of characters, which
-POSIX `sh` cannot read. It hands the program no job's
+else quoted as `shlex.quote` quotes it, and a word that starts with `=`). It does not hold the word to the printer's
+categories of characters, which POSIX `sh` cannot read. It says every line through `printf '%s\n'`, never `echo`,
+whose backslashes `dash` and macOS's `sh` read as escapes: a checkout in a folder whose name holds `\n`, `\t` or `\c`
+is said as it is, never as another path or cut short. It hands the program no job's
 marker it inherited: past `--install-env`, which reads it, `AGENT_WAREHOUSE_JOB` is unset, so the program's own
 environment, as the system shows it, carries none; and `main.py` takes one out of its environment at its start too,
 for `tools/aw` run directly, so that a child a run starts outside `children.start` (16.8) carries no other job's ID.
@@ -413,7 +429,10 @@ as a shell reads it back), and writes nothing outside the checkout for it.
 none says a value or has a usage block, `--detach`, `default_vm`, `RunWords`, in `run_words` and in the program, the
 dispatch's refusals, what a refusal imports, and the launcher run in checkouts the test makes, with a stand-in `uv`,
 through links, from folders whose version manager picks another Python or that hold a planted module, and with a
-`PYTHON` that is no virtualenv's or cannot be run. `tests/unit/test_aw_cli_rules.py` holds the rules and `deploy`'s
+`PYTHON` that is no virtualenv's or cannot be run; every line it says that names a path or the program said as it is,
+from checkouts in folders whose names a shell would split or hold a backslash before `n`, `t` or `c`, its three
+sentences with the program as the printer quotes it, a path typed that starts with `=` among them, and no `echo` in
+it. `tests/unit/test_aw_cli_rules.py` holds the rules and `deploy`'s
 question: every rule is named by the verbs whose rows run it; each refusal of a rule or a habit, and each of the
 parser's own, is run through the launcher, the words, status and sentence of each written there; each case of a rule is
 refused by the rule its code names, and each of the parser's own is the parser's sentence in the test's process too;
@@ -456,25 +475,31 @@ and only when it dispatches a verb that changes something. No client imports it.
 **A VM's record: `record.py`.** What the engine keeps of a VM is one record in its notes in Proxmox, where the VM cannot
 write: what it is of (`vm`, `build`, `golden` or `template`), the SMBIOS UUID it was written for, the name the run asked
 for, its stage (`cloning`, `unfinished` or `finished`), `provisioned` once its first start went well, its own list of
-repositories, the size it was created with, the digest of its image, the VPNs a login of which was seen on it
-(`joined`), the digest it last converged to, whether an agent's run made it, and the run on it now (`job`). `Record` is
-a frozen dataclass over those fields, each held as it is made: the kind and the stage to the format's words, the UUID
-to the form Proxmox gives a VM's, the name, the size and the repositories to the command line's patterns
-(`schema/patterns.py`), the digests to SHA-256's hex, the VPNs to today's mark of one (`vpn/model.py`), and every text
-to one line of plain text. Every record names the UUID it is written for, but a VM's first form, which its clone carries
-before its UUID can be read; and a VM's names its stage.
+repositories, the size it was created with, a template's build, the digest of its image, a template's image's URL and
+the packages put into that image, the VPNs a login of which was seen on it (`joined`), the digest it last converged to,
+whether an agent's run made it, and the run on it now (`job`). `Record` is a frozen dataclass over those fields, each
+held as it is made: the kind and the stage to the format's words, the UUID to the form Proxmox gives a VM's, the name,
+the size and the repositories to the command line's patterns (`schema/patterns.py`), the digests to SHA-256's hex, a
+template's build to a whole number, its image's URL to an http or https URL and its packages to Debian's names, the VPNs
+to today's mark of one (`vpn/model.py`), and every text to one line of plain text. Every record names the UUID it is
+written for, but a VM's first form, which its clone carries before its UUID can be read; and a VM's names its stage.
 
 - `read(config)` is the record a VM's configuration holds, or none where its notes hold no block of the engine's,
   whatever else they hold: a VM, a template or a golden with none is not this engine's. A block it cannot read, or one
-  whose value is not what its field may be, is `Unreadable`, which names the VM.
+  whose value is not what its field may be, is `Unreadable`, which names the VM. One that names a UUID that is not the
+  VM's own is `Copy`, an `Unreadable` of its own kind: a clone made without a description of its own carries its
+  source's notes, record and all (experiment 6), so a copy is never read as the VM's own, and no reader makes that
+  check itself. A VM's first form alone names no UUID, and cannot be told from a copy of one; a record of any other
+  kind or stage that names none is `Unreadable`, so a template's, a golden's and a build's record names its UUID from
+  its first write.
 - `write(client, vm, change)` is the one writer. It reads the VM's configuration, applies `change` to the record its
   notes hold, renders the notes with that block alone changed (`pve/record.py`), and writes them with the digest of that
   read through the client's `edit_config`: where another writer, a person in Proxmox's page among them, changed the
   configuration in between, the write is refused and read and applied again, three times at most, so `change` is a
   function of the record it is given alone. Notes that, as Proxmox will give them back, are those it read send
   nothing, so a second run of the same change sends no write. It never writes a record that names a UUID other than
-  the VM's own, never rewrites a block it cannot read, and never sends notes past 8192 characters (`TooLong`), each
-  said before anything is sent.
+  the VM's own, never rewrites a block it cannot read or a copy, and never sends notes past 8192 characters
+  (`TooLong`), each said before anything is sent.
 - `label(client, vm, value)` gives a VM the one label it carries in Proxmox's list, the setting `vm_label`'s value,
   `agent-warehouse` by default, beside a person's tags, under the same digest. Nothing decides anything from it: what is
   the fleet's is its pool's members with a record.
@@ -486,9 +511,32 @@ any line break, or anything else that is not plain text on one line, is refused;
 characters; and `tests/unit/test_vm_repos.py`'s cases of a VM's own list are carried. Against the fake Proxmox under
 enforcement: a record written reads back field for field; of two writers the second is refused, reads again and lands
 with the first's change kept, as does a write a person's edit came between; a second write of the same record sends
-nothing; a block the engine cannot read, a record that names another VM's UUID and notes past the bound send nothing;
-and the label is `vm_label`'s value beside a person's tags. A syntax-tree scan holds that no module of the new engine
-names a description to send but this one, the client, its table and its reader of answers, each with why.
+nothing; a block the engine cannot read, a copy's record, a record that names another VM's UUID and notes past the
+bound send nothing; a record of a template, a golden or a build that names no UUID is refused, made or read; and the
+label is `vm_label`'s value beside a person's tags. A syntax-tree scan holds that no module of the new engine names a
+description to send but this one, the client, its table, its reader of answers, and the template's judgement (16.5),
+which holds no client, each with why.
+
+**The base template: `template.py`.** Every VM is a full clone of the base template, so `deploy`, as its first link,
+asks whether the template is what its settings would build. `compare(client, settings, pool=, host_flag=)` reads it
+through the API with the engine's one token, by GETs alone: the cluster's listing; where nothing is listed at the
+template's ID, what the token may read there (GET /access/permissions, which needs no privilege); and, only where the
+listing names a guest there that the judgement reads further, its configuration with the record in its notes, read by
+`read` above, so that a block it cannot read, a copy and a template's record that names no UUID are each refused. It
+judges what it read by `pve/template.py`'s functions (16.5), which say the outcome and its lines; `status`, which may
+not import the engine, judges by the same functions what its own client read, so the two say the same: the judgement
+holds the record to the guest's own UUID whichever reader read it, and each field's form is the reader's. `wanted`,
+`BUILD`, `OPTIONS`, `Compared` and the six outcomes are that module's, given here as the comparison's.
+
+`tests/unit/test_aw_engine_template.py` holds it: `wanted` is today's role's under its defaults, and its options are
+the roles' own; against the fake Proxmox under enforcement, with `VM.Audit` on `/vms` and without it, each outcome, each
+difference, the fake's own template with this engine's record as this version builds it, a difference kept under
+`proxmox_template_rebuild: false` cloned from as it is, each refusal of the role's scenario that a comparison makes,
+and the engine's own beside them, a person's template with a record that names no UUID pasted into its notes and the
+record a build would write before it knew the template's UUID among them, each leaving the template as it was; an ID
+outside the pool is `unseen` under `pool`, never `missing`; the judgement, given what `status`'s reads give and the
+record by the plain `parse`, says what `compare` says, a template's record that names no UUID and a copy of another's
+refused among them, and imports nothing of the engine and not the client; and `compare` sends nothing but GETs.
 
 **The API's certificate: `certificate.py`.** Before `init` sends a Proxmox host anything that carries a credential,
 `work_out(host, given, root_ssh, ask)` settles what its API's certificate is held to, by today's `trust.py`'s probes,
@@ -772,10 +820,13 @@ names their format, `agent-warehouse record (format 1)`, and `end of agent-wareh
 first line, with a format number this program reads, is a record; anything else in the notes is a person's text, kept
 byte for byte and never parsed: a person's own lines, and the lines today's product writes.
 
-- `parse(notes)` gives the block's fields, each value a string and the two lists a tuple each, or none where the notes
-  hold no block. A block of a format this program does not read, a line that is no field of its format, a field twice,
-  two blocks, or a start with no end, is `Unreadable`: refused, and never rewritten, so that what a newer program or a
-  person wrote is never lost to an older one.
+- `parse(notes)` gives the block's fields, each value a string and the three lists a tuple each, or none where the
+  notes hold no block. `copied(fields, identity)` says whether they name a UUID that is not the VM's own: a copy, which
+  `engine/record.py`'s `read` refuses and `status` reads by the same function; a VM's first form alone names none
+  (`first_form`), and any other record that names none is refused with `NO_UUID`'s sentence. A block of a format this
+  program does not read, a line that is no field of its format, a field twice, two blocks, or a start with no end, is
+  `Unreadable`: refused, and never rewritten, so that what a newer program or a person wrote is never lost to an older
+  one.
 - `render(notes, fields)` gives the notes with that block alone written from the fields, or added last after a blank
   line, every other line as it was. It writes only what `parse` reads back as it was given: no value on more than one
   line, or with a control, a format or a separator character, none with white space at an end, no item of a list with
@@ -790,6 +841,48 @@ byte for byte and never parsed: a person's own lines, and the lines today's prod
 
 It imports the standard library and `text.py` alone, so that `status` reads a record with no other part of the engine
 loaded, which `tests/unit/test_aw_record.py` reads from a fresh interpreter.
+
+**The base template judged: `template.py`.** What was read of the base template is judged here, in plain code with no
+client, so that `deploy`, through `engine/template.py`'s `compare` (16.4), and `status`, which may not import the
+engine and reads through a client of its own, judge it by the same functions and say the same lines. It imports nothing
+of `engine/` and not the client.
+
+- `wanted(settings)` is what a build makes, in the fields today's `lib/claude_vm/proxmox.py` compares a template on
+  (`TEMPLATE_FIELDS`): the settings every clone inherits (its CPU type, OS type, bridge and storage, and the SCSI
+  controller, guest agent, serial port and display every build gives it), then what went into its disk, which its
+  configuration cannot show and its record keeps: `BUILD`, the build steps' version, raised whenever a change to them
+  changes what a template is, the image's URL, and the packages put into the image, none without the guest agent. It
+  is the one definition the build makes a template from and the judgement holds one to. Its settings are a run's
+  against one host, every row's value as `fleet/overrides.py` resolves them; the roles' options no row names
+  (`OPTIONS`) are read where the settings give them and are otherwise the roles' own defaults, which a test holds equal
+  to the roles' files, and the template's bridge and storage are the rows `proxmox_bridge` and `proxmox_storage`'s
+  unless their options name others, as today's inventory wires them.
+- `judge(base, entry, config, found, want, readable=)` says what the guest at the base template's ID is, from its entry
+  in the cluster's listing, its configuration, its record and `want`, what a build makes; `base` is the template the
+  settings name, its name and ID, the node, the fleet's pool, whether a difference rebuilds it and the line that does
+  (`Base.of`). `found` is what reading the record gave, by either reader: its fields, as `parse` gives them or the
+  typed record renders them, none, or the `Unreadable` the read raised, a copy among them. Whichever reader made it,
+  `judge` holds the record to the guest's own UUID itself: one that names none, which only a VM's first form may
+  (`first_form`), or another guest's (`copied`) is refused with the sentence `engine/record.py`'s `read` gives it. Each
+  field's form is the reader's: the typed record holds every one, and `parse` a block's shape alone, so a value of the
+  wrong form that it passes is judged as it stands. `listed(base, entry, readable=)` is the part the listing alone
+  decides, and none where the guest's configuration is to be read, so that a reader reads one only where it is judged:
+  a qemu guest at the ID, in the pool, on `proxmox_node`. `custom` judges a template of the person's own.
+- The six outcomes. `missing`: nothing has the ID, said only where the token may read it, which Proxmox says (GET
+  /access/permissions), not the setting, so a token that holds less than its setting says reads `unseen`. `unseen`:
+  under `proxmox_audit_scope: pool` a guest outside the pool is invisible, so missing cannot be told from another's
+  guest, and the build asks the host over root SSH first. `same`, and `different` with a line for each difference,
+  `<field> <has> → <wanted>`, from today's `proxmox_template_drift`, which stays where it is and is handed the record's
+  template fields as the line of notes it reads; the image's digest is kept and never compared. Under
+  `proxmox_template_rebuild: false` a difference is only said, with the `deploy --only template` line, printed by the
+  printer of a command, and the template is kept and cloned from as it is (`usable`), as today. `refused`: a container
+  at the ID, a guest that is no member of the fleet's pool, a template on another node than `proxmox_node`, a VM that
+  is no template, a template of another name, and a template whose notes hold no record of this engine's build, one
+  that cannot be read, a copy, or a record of another kind, each said in one sentence with the way on and left as it
+  is, never rebuilt: so no VM of the new engine stands on a template it may not rebuild, and a person's own template at
+  the ID is never destroyed. `custom`: `proxmox_template_custom` names a template of the person's own, only read and
+  cloned, held by today's `custom_template_problems` to what a clone needs. Whether it is a template, and its name, are
+  read from the guest's own configuration, never from the listing, which lags what a run just did.
 
 `status` moves onto the client in its own workstream. `tests/unit/test_aw_pve_reads.py` runs every read against the fake
 Proxmox, which serves a node's certificate from `tests/unit/pki.py` (`harness.fake_fleet`'s `certificate`), with the
@@ -2106,18 +2199,24 @@ a folder, and that each imports the standard library alone.
 `{"format": 1, "secrets": {"<entry>": "<value>"}}`, encrypted whole with age, armored, to the X25519 recipient of one
 random key, through `pyrage`, which only the functions that need it import. A read decrypts the whole file and returns
 the map, each value a `Secret`, and a write encrypts the whole map again, so no value can be read or swapped inside the
-file without the key; what that gives up, reading one secret without opening the others, a run that holds the key for
-its whole life never needs. The key is handed in, a `Secret` that holds an age identity: `sealed.py` never looks for it.
+file without the key, or its public half; what that gives up, reading one secret without opening the others, a run that
+holds the key for its whole life never needs. The key is handed in, a `Secret` that holds an age identity: `sealed.py`
+never looks for it. age seals to the key's public half and says nothing of who sealed, so one who held that half and
+could write `fleet/` could seal a vault of their own that opens with the key - a Tailscale auth key of theirs, which
+every new VM would join with. The vault is left so, since one who can write `fleet/` can already change the fleet's
+settings and its host's address, and the public half is never kept: `_seal` alone makes it, to hand it to age in the
+one call that seals, and no module writes or prints it.
 The names are a closed list, `secrets.ROWS`, each a `Row(name, scope, kind, description)`: each host's `token`, the
 secret of the engine's one token there; `vm_password`, the VMs' user's, the console's at a create and sudo's where it
 asks; an adopted machine's `become_password`; `anthropic_api_key`; and the optional `github_token`,
-`tailscale_auth_key`, `claude_setup_token`, and the credential that deletes a VM's device at a destroy,
-`tailscale_api_token` or an OAuth client's `tailscale_oauth_client_id` and `tailscale_oauth_client_secret`. No name is a
-setting's. A secret of the fleet's is kept under its name, a host's own as `<name>@<host>` and an adopted machine's as
-`<name>@<machine>` (`entry` makes the key, `parsed` reads one back); a name outside the list is refused, by its name
-only where it has a name's shape, and no refusal says a value. Each value is held to its row's kind (`KINDS`): a token's
-secret a UUID as Proxmox prints one, a password one line with no control character, a vendor's token one word, and
-Tailscale's auth key as today's `init` holds one, never an API token. `fleet.json`'s number for the vault is the one
+`tailscale_auth_key`, and the credential that deletes a VM's device at a destroy, `tailscale_api_token` or an OAuth
+client's `tailscale_oauth_client_id` and `tailscale_oauth_client_secret`. No name is a setting's, and each is a secret
+the program is built to read: a name comes into the list with what reads it. A secret of the fleet's is kept under its
+name, a host's own as `<name>@<host>` and an adopted machine's as `<name>@<machine>` (`entry` makes the key, `parsed`
+reads one back); a name outside the list is refused, by its name only where it has a name's shape, and no refusal says
+a value. Each value is held to its row's kind (`KINDS`): a token's secret a UUID as Proxmox prints one, a password one
+line with no control character, a vendor's token one word, and Tailscale's auth key as today's `init` holds one, never
+an API token. `fleet.json`'s number for the vault is the one
 `record.refuse_newer` reads, before anything is decrypted, and the vault's own `format` must equal it: a vault whose
 number differs is refused by name. `create` writes an empty vault beside the fleet's record, once; `write` replaces the
 map, only while the vault still holds `expect`, the map its caller read, compared under the lock, so a caller that read
@@ -2127,8 +2226,9 @@ writer holds, across reading `fleet.json`, opening the vault with the key and re
 writes it at `fleet.json`'s number, so the two numbers are read and written under one lock; a key that no longer opens
 the vault reads nothing and writes nothing, two writers lose neither change, and a writer killed part way leaves the old
 file. The plaintext is never on disk, and `_plain` and `_identity` alone read a `Secret`'s value there (`REVEALS`).
-`tests/unit/test_aw_fleet_sealed.py` holds it, with every file under a case's own directory read for every fake secret
-and key after the case.
+`tests/unit/test_aw_fleet_sealed.py` holds it, with every file under a case's own directory read for every fake secret,
+key and public half after the case, and a scan of every module of `lib/claude_vm/` and every program of `tools/` that
+holds the public half to that one call.
 
 **The vault's key: `vaultkey.py`.** The key is a random age key, one line in a file that holds it and nothing else, by
 default `paths.key_file`: at the top of a checkout's `.aw/` or of a named home, or in the data folder for the installed
@@ -2137,23 +2237,31 @@ umask, its folder made at 0700 through `files.folder` where it is missing, and o
 never written over, and nothing here removes, moves or rewrites one. A run finds it in one order, from the values its
 caller resolved (`vault_key_file` and `vault_key_command`), so the module reads no file of settings: first
 `AGENT_WAREHOUSE_VAULT_KEY_FILE`, the one override, for a script and the agents' server, the path of a file read and
-never run, whatever its mode, and never waited on (a pipe or a folder there is no file); then `vault_key_command`,
-whose place this is and whose running is not built yet, so a run where it is set refuses rather than read the file
-after it; then the file `vault_key_file` names, `""` the default. `ANSIBLE_VAULT_PASSWORD_FILE` is never read and is no
-refusal. `source` returns the first place that exists; `open` returns the key once the fleet's vault opens with it (with
-no vault yet, once the key file holds an age key: a new fleet's vault is sealed to its own key file's key, so there the
-variable's file and a command are refused, nothing read or run, `NoVaultYet`), or one sentence: nothing here opens the
-vault, with what would, by `vault_key_file` and never the variable - `init` where there is no vault, the key copied from
-the computer that made the fleet, or its file named in `vault_key_file`, where there is one (`NoKey`); the place failed,
-in the system's words made one line (`Failed`); or the place answered with what does not open this vault: no age key, or
-another fleet's key or a vault changed since, which age does not tell apart (`WrongKey`, from `sealed.py`'s
-`NotOpened`). A place that exists and fails is a refusal, and nothing after it is tried. A key file named in the fleet's
-folder, the state folder or the installed program's config folder is refused by name (`Misplaced`), by `paths.inside`,
-and a value that is no path is never said, since a key pasted there would be on the screen. Every refusal is a
-`sealed.Refused`, so a caller catches the vault's and the key's as one, and exits 1, or 3 from `status`; nothing here
-reads the terminal, so a run with nobody there opens the vault as one at a terminal does.
+never run, even where its mode lets it run, and never waited on (a pipe or a folder there is no file); then
+`vault_key_command`, whose place this is and whose running is not built yet, so a run where it is set refuses rather
+than read the file after it; then the file `vault_key_file` names, `""` the default. `ANSIBLE_VAULT_PASSWORD_FILE` is
+never read and is no refusal. Whichever place it is, a key file whose mode gives the group or others any right to it,
+to read, write or run (ssh's own 077), is refused before anything of it is read, as `ssh` refuses such a private key,
+in one sentence that names its mode and says `chmod 600 <file>` (`Failed`): the key opens every secret of the fleet,
+so it is taken only from a file this account alone can read, and one who could write it could put a key of theirs in
+its place. `make_key` makes its file so; a key kept on a volume that shows every file as open to all cannot be used
+from there. `source` returns the first place that exists; `open` returns the key once the fleet's
+vault opens with it (with no vault yet, once the key file holds an age key: a new fleet's vault is sealed to its own key
+file's key, so there the variable's file and a command are refused, nothing read or run, `NoVaultYet`), or one
+sentence: nothing here opens the vault, with what would, by `vault_key_file` and never the variable - `init` where
+there is no vault, the key copied from the computer that made the fleet, or its file named in `vault_key_file`, where
+there is one (`NoKey`); the place failed, in the system's words made one line, or is a file open to others (`Failed`);
+or the place answered with what does not open this vault: no age key, or another fleet's key or a vault changed since,
+which age does not tell apart (`WrongKey`, from `sealed.py`'s `NotOpened`). A place that exists and fails is a
+refusal, and nothing after it is tried. A key file named in the fleet's folder, the state folder or the installed
+program's config folder is refused by name (`Misplaced`), by `paths.inside`, and a value that is no path is never
+said, since a key pasted there would be on the screen. Every refusal is a `sealed.Refused`, so a caller catches the
+vault's and the key's as one, and exits 1, or 3 from `status`; nothing here reads the terminal, so a run with nobody
+there opens the vault as one at a terminal does.
 `tests/unit/test_aw_fleet_vaultkey.py` holds it, with a vault opened in a child with no terminal and standard input from
-`/dev/null`, and the scan that only `vaultkey.py` names the variable and only `paths.py` and `vaultkey.py` the key file.
+`/dev/null`, every mode of a key file's group and others in turn, every public half a case makes looked for in its
+files and its output, and the scan that only `vaultkey.py` names the variable and only `paths.py` and `vaultkey.py` the
+key file.
 
 ## 16.10 `guest/` — the helper, the system layer's inputs, layer 2
 
@@ -2197,8 +2305,9 @@ an inventory of one host for each machine, `inventory-<identity>.yml`. The confi
 no other, one fork, facts kept under `ansible_facts`, pipelining, the `yaml` inventory plugin alone, this checkout's
 `roles/`, Ansible's local temporary files in the run's directory, and `ssh_args` set empty, since Ansible's default
 would put `ControlMaster=auto` ahead of the host's options and make the child a connection's master; no collections path,
-since layer 1 calls `ansible.builtin` alone. Until the product's callback is written, the one named is Ansible's own
-`default`, its output in the child's file. The one host is named by the machine's identity, never the name a person
+since layer 1 calls `ansible.builtin` alone. The one callback named is the product's, `aw_events`, in
+`lib/claude_vm/guest/ansible/callback_plugins/`, which only this configuration names. The one host is named by the
+machine's identity, never the name a person
 chose, which is the variable `aw_name`; its variables are the address and the account, `/usr/bin/python3` and
 `/usr/bin/sudo` by their paths, and the connection as the SSH runner makes it (`runner.ansible_vars`, §16.6): its
 options first, `StrictHostKeyChecking=yes` against the product's own known-hosts file under the identity, the shared
@@ -2244,6 +2353,52 @@ wrapped `{{ 7 * 7 }}` reaches a task as that text, an unwrapped one is templated
 `error` the wrapped one used as a template fails its task, and every kind of value comes back as it went; a walk of
 every file written finds no bare string leaf. They are among the tests that must pass before the ansible-core pin moves
 ([§13](toolchain.md)).
+
+**Layer 1's events.** The product's stdout callback (`guest/ansible/callback_plugins/aw_events.py`) writes each event
+of the play as one line of JSON on the events pipe, whose descriptor `AGENT_WAREHOUSE_EVENTS` names and which it makes
+non-inheritable at once, and nothing on the terminal; a child started without the pipe refuses to start. The events are
+a play's start, a task's, each result (`ok`, `changed`, `failed`, `skipped`, `unreachable`, a loop's item with `item`),
+a retry, a diff and the recap, each with its task's name and its part, the role it is in. A result says its message,
+and where it failed, was unreachable or the run was given `-v`, its output, return code and exception: never more of a
+result than those, and of a result Ansible censored for `no_log` only its kind and its task, since ansible-core 2.21
+keeps a censored result's `exception` and `warnings` and hands a callback them whole. A diff is written only in a run
+given `--diff`, never for a task's own `diff: true` alone and never for a censored task. A fault of one of its hooks is
+an event of its own (`fault`, the hook and the error's type), never Ansible's warning alone, under which a result would
+vanish in a run that exits 0. A result's message, its item and its output are written as the values they are, a
+mapping or a list as one, never as JSON text inside a string, whose escaping would hide a secret holding a quote, a
+backslash, a line break or a character outside ASCII from the strike by its exact text. Every string, a mapping's keys
+among them, passes through one function, `masked`, the identity until ansible-core 2.22's `mask_secrets()` goes there
+(F5a); a string past 256 KiB keeps its end from a line break, never a part of a line. A pipe whose reader has gone ends
+the writing, and the play goes on, without a traceback. `lib/claude_vm/guest/events.py`'s `Heard` reads the pipe in the
+run's process, a line at most 4 MiB, and hands each event, as it comes, to the job's `emit` (§16.8) as a `step` event of
+the machine, keyed by its identity, the one key of a machine in every event of a run, as `job.json`'s `machines` and a
+machine's `end` have it, with the name a person chose beside it (`name`) for what is drawn: its text the task's or the
+play's name, its data a fixed set of fields each held to its type (`status`, `part`, `task`, and where there is one the
+item, the message, the output, the return code, the exception, the warnings, the diff, the attempts, and whether the
+result was censored or its failure ignored). Every string is struck of every secret of the run's redaction list
+(`redacted`, the `Secret`s the run opened, which `layer1.run` is handed), the longest first (`secret.struck_all`), so
+that of two where one holds the other the longer is struck whole; made plain (`text.plain_text`); and struck again, so
+that a secret an escape sequence split is struck once whole; then cut to its field's bound, after the strike. A
+message, an item or an output written as a structure stays one until each of its strings is so made, and is then made
+one text, JSON's form of it, struck once more, then cut. What the strike does not promise: a secret Ansible itself
+writes in another form (through `repr`, as an exception's text quotes a value, base64 or a URL's escapes), one split
+across two strings, or one split by a character `plain_text` keeps (a zero-width space). A line that is no event, or
+too long, is said as one that could not be read; a line the child did not finish at the pipe's end is none.
+`layer1.run` returns, with the exit status, the counts a caller needs (`events.Counts`: the failed, the unreachable, the
+changed), from Ansible's own recap or, where the child ended before it, counted from the results heard; and the end of
+what the child printed, from a line's start, struck and plain the same way, which a person sees line by line, never
+whole. A listener that fails while the child runs ends the child with its tree, and its error is raised. Nothing is
+drawn here, and NEXT STEPS are not derived. `tests/unit/test_aw_layer1_events.py` holds it on the pinned ansible-core,
+with a listener of its own standing for the job's text log: a ping's events, in order, handed to `emit`, written in the
+log and nothing printed on the terminal; a `no_log` task that fails, with a message, an output, an exception and a
+loop's item, absent from the pipe, from `emit` and from the log, where the same failure without `no_log` says both; a
+secret of the redaction list printed by tasks, in a task's name, an output, an item and split by an escape sequence,
+absent from every event, the log and the record; a secret holding a quote, a backslash, a line break and characters
+outside ASCII in a `debug` and a `fail` whose message is a mapping or a list and in a loop over mappings, absent in every
+form, raw and escaped; of two secrets one inside the other, the longer struck whole in either order; one machine's steps
+and its end keyed by the one identity the record names; a control sequence reaching the log as plain text; the diff's
+two rules; the pipe closed by its reader before and in the play; a listener's failure; and the reader's own rules on
+lines of its own.
 
 **How the engine's tests reach a machine.** A test of the new engine reaches no real machine: it reaches a stand-in,
 a directory of the test's own that `tests/unit/aw_machine.py` makes, through the SSH runner (§16.6) as it reaches a

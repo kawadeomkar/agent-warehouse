@@ -1031,8 +1031,9 @@ ADDED: tuple[Row, ...] = (
         "computer's own, at the top of the checkout's .aw/, beside client.yml, or in the data folder for the installed "
         "program. Never in the fleet's folder, which you copy, nor in the state folder, which a cleanup may remove, "
         "nor in the installed program's config folder, which people publish: a file you name in one of them is "
-        "refused by name. Back it up apart from the fleet's folder. ~ at its start is your home; a relative path is "
-        "refused by name.",
+        "refused by name. Only you may read or change it: one that other accounts may read, write or run is "
+        "refused, as ssh refuses such a key. Back it up apart from the fleet's folder. ~ at its start is your home; a "
+        "relative path is refused by name.",
     ),
     _client(
         "vault_key_command",

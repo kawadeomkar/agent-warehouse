@@ -249,14 +249,18 @@ lib/claude_vm/cli/                aw, the program: the command line read against
 lib/claude_vm/engine/             the workflows, one module a verb, in place of the playbooks; record.py, a VM's record,
                                   typed, read from its notes and written there under Proxmox's digest; certificate.py,
                                   the API's certificate worked out with no credential: an anchor where the computer's
-                                  certificates do not verify the host, read over root SSH or vouched for by a person
+                                  certificates do not verify the host, read over root SSH or vouched for by a person;
+                                  template.py, the base template compared with what its settings would build, by GETs
+                                  alone
 lib/claude_vm/pve/                the typed Proxmox VE client, and the one table of each call's privilege; client.py,
                                   Proxmox, the one class that sends the token, and its reads and writes; answers.py,
                                   each answer's frozen record and its parsing function; pin.py, the connection the token
                                   goes on, verified against the host's anchor or the computer's certificate file;
                                   privileges.py, the table init grants from and the fake enforces; agent.py, a started
                                   VM's address from its guest agent, waited for; record.py, a VM's record as the text of
-                                  its notes, parsed and rendered with nothing of the engine's but text.py
+                                  its notes, parsed and rendered with nothing of the engine's but text.py; template.py,
+                                  the base template judged from what was read of it, with no client, which deploy and
+                                  status judge by alike
 lib/claude_vm/ssh/                the runner over OpenSSH: ssh as a child, host keys taken at first use, the control
                                   directory, the children a run holds
 lib/claude_vm/vendors/            one HTTPS transport, Tailscale's calls, downloads held to a signature or a digest;
@@ -286,7 +290,10 @@ lib/claude_vm/fleet/              a fleet's files: where they are, the hosts, th
 lib/claude_vm/guest/              inside a machine: the helper, the system layer's inputs, layer 2; layer1.py,
                                   one ansible-playbook for one machine, its configuration, inventory and
                                   environment made by the engine; variables.py, the play's variables as one
-                                  JSON file, every string marked unsafe
+                                  JSON file, every string marked unsafe; events.py, its events read from the pipe
+                                  and handed to the run's emit, every secret the run opened struck from them;
+                                  ansible/callback_plugins/aw_events.py, its stdout callback, each event of the
+                                  play a line of JSON on that pipe
 lib/claude_vm/control/            the add-on's, with a control VM only: nothing of the base writes here
 lib/claude_vm/secret.py           the new engine's Secret: a value shown as a mark wherever it is shown, never pickled
                                   or turned into JSON, read only by reveal() in the modules a test names (§16.1)

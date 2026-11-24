@@ -300,6 +300,11 @@ def test_a_path_of_this_computer_s_says_how_it_is_read() -> None:
     key_file = registry.row("vault_key_file").description
     assert "Empty: the key file in a folder of this computer's own" in key_file
     assert "a file you name in one of them is refused by name" in key_file
+    # A key file open to another account is refused, as ssh refuses such a key (fleet/vaultkey.py).
+    assert (
+        "Only you may read or change it: one that other accounts may read, write or run is refused, as ssh refuses"
+        " such a key." in key_file
+    )
 
 
 def test_four_rows_are_held_to_more_than_their_type_by_one_rule_each() -> None:

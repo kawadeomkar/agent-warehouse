@@ -37,7 +37,7 @@ from harness import REPO, repo_files
 
 from claude_vm import checks, proc
 from claude_vm.fleet import paths
-from claude_vm.guest import layer1
+from claude_vm.guest import events, layer1
 from claude_vm.runs import children, rundir
 from claude_vm.runs import job as jobs
 from claude_vm.schema import printer
@@ -48,6 +48,7 @@ LAYER1 = REPO / "lib" / "claude_vm" / "guest" / "layer1.py"
 # values are paths of the run's own (CONFIG_FILE, DEFAULT_LOCAL_TMP), which the test reads apart.
 EXPECTED = {
     "ANSIBLE_PIPELINING": True,
+    "DEFAULT_CALLBACK_PLUGIN_PATH": [str(layer1.CALLBACKS)],
     "DEFAULT_FORKS": 1,
     "DEFAULT_ROLES_PATH": [str(layer1.ROLES)],
     "DEFAULT_STDOUT_CALLBACK": layer1.CALLBACK,
@@ -205,9 +206,10 @@ def test_the_configuration_sets_ssh_args_empty_and_names_no_collections_path(mad
     lines = layer1.configuration_text(directory).splitlines()
     # Empty, set: Ansible's own default would put ControlMaster=auto ahead of the host's options.
     assert lines[lines.index("[ssh_connection]") + 1] == "ssh_args ="
-    assert not [
-        line for line in lines if line.startswith(("collections_path", "callback_plugins", "callbacks_enabled"))
-    ]
+    assert not [line for line in lines if line.startswith(("collections_path", "callbacks_enabled"))]
+    # The product's callback, by its folder beside the engine, and no other folder of callbacks.
+    assert [line for line in lines if line.startswith("callback_plugins")] == [f"callback_plugins = {layer1.CALLBACKS}"]
+    assert (layer1.CALLBACKS / f"{layer1.CALLBACK}.py").is_file()
 
 
 # ---------------------------------------------------------------- a play runs ----
@@ -230,16 +232,17 @@ def test_a_play_of_one_ping_runs_through_layer1_on_a_stand_in_its_child_in_the_r
 
     ended = _run(made, target(alpha), _play(tmp_path, PING), started=started, test_connection=layer1_host(alpha))
     assert ended.status == 0, ended.said
-    assert "ok=1" in ended.said and "failed=0" in ended.said, ended.said
+    assert ended.counts == events.Counts(failed=0, unreachable=0, changed=0, recap=True), ended.said
     # In the run's registry with its pid, while it ran; in a session of its own, so its group's leader.
     assert seen["registry"] == [(children.ANSIBLE, seen["pid"])]
     assert seen["session"] == seen["group"] == seen["pid"]
     if "stdin" in seen:
         assert (seen["stdin"], seen["events"]) == ("/dev/null", True)
     assert children.live(made) == []
-    # What it printed went to its own file, never this process's terminal.
+    # What it printed went to its own file, never this process's terminal; and its events to the run, never there.
     out, err = capfd.readouterr()
     assert "PLAY" not in out + err and "ping" not in out + err
+    assert "PLAY" not in ended.said, ended.said
     # The configuration and the one host's inventory, in the run's directory, at 0600.
     directory = rundir.made(made)
     assert directory is not None
@@ -272,6 +275,8 @@ def test_the_child_s_environment_is_the_allow_list_and_the_engine_s_own(made, ro
     }
     agent = str(tmp_path / "agent.sock")
     given = {**os.environ, **CANARIES, "SSH_AUTH_SOCK": agent}
+    heard: list[jobs.Event] = []
+    made.listen(heard.append)
     ended = _run(
         made,
         target(alpha),
@@ -291,8 +296,9 @@ def test_the_child_s_environment_is_the_allow_list_and_the_engine_s_own(made, ro
     assert found[children.MARKER] == made.id
     assert found["SSH_AUTH_SOCK"] == agent
     assert found.get(layer1.VERBOSITY_VARIABLE) == (str(verbosity) if verbosity else None)
-    # The stdout callback exported never reached it: its output is Ansible's own, not JSON.
-    assert "PLAY [all]" in ended.said and not ended.said.lstrip().startswith("{"), ended.said
+    # The stdout callback exported never reached it: the product's wrote the play's events, and nothing printed JSON.
+    assert [event.data["status"] for event in heard] == ["play", "task", "changed", "recap"], heard
+    assert not ended.said.lstrip().startswith("{"), ended.said
 
 
 def test_the_environment_keeps_only_the_allow_list_of_the_caller_s(tmp_path) -> None:
@@ -340,6 +346,8 @@ def _forged(at: runner.Target, identity: str) -> runner.Target:
         ("a test connection that gives more", "a test-only connection gives no ansible_ssh_common_args"),
         ("an option that opens a template", "the inventory's ansible_ssh_common_args would open a template"),
         ("an environment that is no mapping", "the run's environment is a mapping"),
+        ("a redaction list of plain words", "the run's redaction list holds Secrets alone"),
+        ("a redaction list that is one word", "the run's redaction list is a list of Secrets"),
     ],
 )
 def test_what_is_not_one_is_refused_before_anything_is_written_or_started(made, root, tmp_path, case, said) -> None:
@@ -384,6 +392,10 @@ def test_what_is_not_one_is_refused_before_anything_is_written_or_started(made, 
         at = target(alpha, given={"Compression": "{{ lookup('pipe', 'id') }}"})
     elif case == "an environment that is no mapping":
         given["env"] = ["PATH=/bin"]
+    elif case == "a redaction list of plain words":
+        given["redacted"] = ["a secret as a plain word"]
+    elif case == "a redaction list that is one word":
+        given["redacted"] = "a secret as a plain word"
     with pytest.raises(layer1.Refused) as refused:
         asyncio.run(layer1.run(made, at, play, variables, **given))
     assert said in str(refused.value)

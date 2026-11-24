@@ -7,7 +7,6 @@ Each look is a collection of the suite in a pytest of its own, as each CI shard 
 from __future__ import annotations
 
 import ast
-import functools
 import os
 import subprocess
 import sys
@@ -21,31 +20,37 @@ PYTEST = Path(sys.executable).with_name("pytest")
 
 # Made once for the module: its tests read the three shards of 3, each a collection of the whole suite. Every test
 # takes everything, which makes them one xdist group (conftest.py), so they share one worker and this cache.
-@functools.cache
-def _collected(*args: str) -> list[str]:
-    """The node IDs a run of tests/unit with args would run."""
-    # Nothing of this run's own pytest, an xdist worker's included.
-    env = {name: value for name, value in os.environ.items() if not name.startswith("PYTEST")}
-    result = subprocess.run(
-        [str(PYTEST), "-p", "no:cacheprovider", "-o", "addopts=", "--collect-only", "-q", "tests/unit", *args],
-        cwd=REPO,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    return [line for line in result.stdout.splitlines() if "::" in line]
+_COLLECTED: dict[tuple[str, ...], list[str]] = {}
+
+
+def _collected(tmp_path: Path, *args: str) -> list[str]:
+    """The node IDs a run of tests/unit with args would run, collected once, the first time with a temporary folder in
+    tmp_path, the test's own."""
+    if args not in _COLLECTED:
+        # Nothing of this run's own pytest, an xdist worker's included.
+        env = {name: value for name, value in os.environ.items() if not name.startswith("PYTEST")}
+        result = subprocess.run(
+            [str(PYTEST), "-p", "no:cacheprovider", "-o", "addopts=", "--basetemp", str(tmp_path / "basetemp")]
+            + ["--collect-only", "-q", "tests/unit", *args],
+            cwd=REPO,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        _COLLECTED[args] = [line for line in result.stdout.splitlines() if "::" in line]
+    return _COLLECTED[args]
 
 
 @pytest.fixture(scope="module")
-def everything() -> list[str]:
-    return _collected()
+def everything(tmp_path_factory) -> list[str]:
+    return _collected(tmp_path_factory.mktemp("everything"))
 
 
 @pytest.mark.parametrize("count", [2, 3, 6])
-def test_the_shards_run_every_test_exactly_once(everything, count) -> None:
-    shards = [_collected("--shard", f"{index}/{count}") for index in range(1, count + 1)]
+def test_the_shards_run_every_test_exactly_once(everything, count, tmp_path) -> None:
+    shards = [_collected(tmp_path, "--shard", f"{index}/{count}") for index in range(1, count + 1)]
     assert all(shards), [len(shard) for shard in shards]
     ran = [test for shard in shards for test in shard]
     assert sorted(ran) == sorted(everything)
@@ -62,8 +67,8 @@ def _taking(module: str, fixture: str) -> set[str]:
     ("module", "fixture"),
     [("test_github_auth.py", "approved"), ("test_tailscale.py", "configured"), ("test_sign_in_plays.py", "deployed")],
 )
-def test_the_tests_that_share_a_fixture_are_never_split(everything, module, fixture) -> None:
-    shards = [_collected("--shard", f"{index}/3") for index in range(1, 4)]
+def test_the_tests_that_share_a_fixture_are_never_split(everything, module, fixture, tmp_path) -> None:
+    shards = [_collected(tmp_path, "--shard", f"{index}/3") for index in range(1, 4)]
     names = _taking(module, fixture)
     assert names, (module, fixture)
     holding = [

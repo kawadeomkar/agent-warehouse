@@ -218,7 +218,7 @@ def test_an_option_of_a_later_card_is_left_out_of_help_and_the_reference_until_t
 # Each verb's usage line after aw and the verb, written by hand: [<name>...] for several words, [<name>] for one,
 # <name> for one the verb needs (Words.needed), nothing where it takes none or refuses any (Words.refused).
 USAGE_WORDS = {
-    "help": ["[<recipe>]"],
+    "help": ["[<command>]"],
     "init": [],
     "install": [],
     "vault": ["[<name>]"],
@@ -344,7 +344,7 @@ def test_aw_help_ends_in_its_closing_paragraph_with_v_and_set_on_the_verbs_that_
         "--check or --only ssh-config act on every VM this project created."
     )
     assert "ANSIBLE_ARGS" not in ours[1] and "just" not in " ".join(ours)
-    assert ours[1].startswith("Options go after the recipe's name:"), ours[1]
+    assert ours[1].startswith("Options go after the command's name:"), ours[1]
     for option in (VERBOSE, SET):
         having = [name for name, verb in VERBS.items() if option in verb.options]
         named = ", ".join(having[:-1]) + " and " + having[-1]
@@ -392,7 +392,7 @@ def test_a_word_that_is_no_verb_is_refused_unsaid(home, word) -> None:
 
 def test_a_second_word_is_refused_in_help_1_s_sentence(home) -> None:
     result = run_aw("help", "deploy", "login", home=home)
-    sentence = "error: aw help shows one recipe's options at a time (got: [deploy login])"
+    sentence = "error: aw help shows one command's options at a time (got: [deploy login])"
     assert (result.returncode, result.stdout, result.stderr) == (EXITS["refused"], "", sentence + "\n")
 
 

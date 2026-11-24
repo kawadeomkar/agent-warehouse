@@ -13,6 +13,13 @@ name. A key that no longer opens the file reads nothing and writes nothing.
 The invariant with its own test: the plaintext is never on disk. After each case every file under the test's own
 directory, its home among them, is read for every fake secret and every key the case used, and none is in anything the
 case printed, its children's output included. Every refusal is read for them too.
+
+The key's public half is as good as the key for writing a vault: no module writes or prints it. Each key a case makes
+has its public half among what the case's files and output are read for, and a scan of every module of lib/claude_vm/
+and every program of tools/ holds it to the one call that seals, sealed.py's `_seal`, which hands it to age alone.
+
+The list holds no name the program is not built to read: `claude_setup_token`, which nothing of 3.0 reads, is refused as
+no name of it (the owner's answer of 2026-11-23 to review 21, D7.md 8).
 """
 
 from __future__ import annotations
@@ -51,7 +58,6 @@ NAMES = (
     "anthropic_api_key",
     "github_token",
     "tailscale_auth_key",
-    "claude_setup_token",
     "tailscale_api_token",
     "tailscale_oauth_client_id",
     "tailscale_oauth_client_secret",
@@ -100,9 +106,14 @@ def seen(tmp_path: Path, capfd) -> Iterator[list[str]]:
     assert not [value for value in used if value in out or value in err], "a secret was printed"
 
 
+def _public(text: str) -> str:
+    """The public half of the age key text, age1...: what a vault is sealed to, never written or said."""
+    return str(x25519.Identity.from_str(text).to_public())
+
+
 def _key(seen: list[str]) -> Secret:
     made = str(x25519.Identity.generate())
-    seen.append(made)
+    seen.extend((made, _public(made)))
     return Secret(made)
 
 
@@ -165,6 +176,28 @@ def test_the_list_is_closed_and_each_name_has_its_scope_kind_and_description() -
         assert each.name not in settings, each.name
         assert secrets.row(each.name) is each
     assert secrets.row("vault_github_token") is None and secrets.row("github_username") is None
+
+
+def test_claude_setup_token_is_no_name_of_the_list(fleet, key: Secret, seen) -> None:
+    # The owner's answer of 2026-11-23 to review 21 (D7.md 8): nothing of 3.0 reads a token of claude setup-token, so
+    # the vault keeps none; the name comes back with what reads it.
+    name = "claude_setup_token"
+    assert name not in secrets.names() and secrets.row(name) is None
+    sentence = f"error: {name} is no secret the vault keeps: it keeps {', '.join(NAMES)}"
+    with pytest.raises(secrets.Refused) as refused:
+        secrets.entry(name)
+    assert _refused(refused, seen) == sentence
+    sealed.create(fleet, key)
+    before = sealed.path(fleet).read_bytes()
+    with pytest.raises(sealed.Refused) as refused:
+        sealed.put(fleet, key, name, Secret(WORD))
+    assert _refused(refused, seen) == sentence
+    assert sealed.path(fleet).read_bytes() == before
+    # A vault that holds it holds what the vault never keeps.
+    _seal_by_hand(fleet, key, json.dumps({"format": 1, "secrets": {name: WORD}}).encode())
+    with pytest.raises(sealed.Unreadable) as refused:
+        sealed.read(fleet, key)
+    assert _refused(refused, seen) == f"error: {sealed.path(fleet)} holds what the vault never keeps: {sentence[7:]}"
 
 
 @pytest.mark.parametrize(
@@ -589,7 +622,7 @@ def test_a_write_holds_each_name_to_the_list_and_each_value_to_its_kind(fleet, k
         ("token", NOT_A_UUID, {"host": "lab"}, "error: that value of token@lab is not a UUID"),
         ("become_password", PASSWORD + "\n", {"machine": "pi"}, "error: that value of become_password@pi is not"),
         ("tailscale_auth_key", API_TOKEN, {}, "error: that value of tailscale_auth_key is not a key as Tailscale"),
-        ("claude_setup_token", NOT_A_WORD, {}, "error: that value of claude_setup_token is not one word"),
+        ("tailscale_api_token", NOT_A_WORD, {}, "error: that value of tailscale_api_token is not one word"),
     ],
 )
 def test_a_put_holds_its_name_and_its_value_and_writes_nothing_it_refuses(
@@ -844,3 +877,109 @@ def test_sealed_py_writes_through_files_write_alone() -> None:
         and node.func.attr in ("write", "replace", "write_text", "write_bytes", "rename", "mkdir")
     )
     assert calls == ["files.write"]
+
+
+# What makes or names a key's public half: pyrage's to_public() and its Recipient class, and age's own tool, whose -y
+# prints it. A module that held one could write it or say it.
+PUBLIC = ("to_public", "Recipient", "age-keygen")
+# The one place the public half is made: sealed.py's _seal, which hands it to age as the recipients of the one call that
+# seals the vault, and keeps it nowhere.
+SEALS = "lib/claude_vm/fleet/sealed.py"
+
+
+def _docstrings(tree: ast.AST) -> set[int]:
+    """The ids of the docstrings of tree's module, classes and functions, which say what code does and run nothing."""
+    return {
+        id(node.body[0].value)
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.body
+        and isinstance(node.body[0], ast.Expr)
+        and isinstance(node.body[0].value, ast.Constant)
+        and isinstance(node.body[0].value.value, str)
+    }
+
+
+def _sealing(tree: ast.AST) -> set[int]:
+    """The ids of the to_public attributes in _seal that are the one recipient of a call of pyrage.encrypt: the one use
+    of the public half that is allowed, and in sealed.py alone."""
+    allowed = set()
+    for function in ast.walk(tree):
+        if not (isinstance(function, ast.FunctionDef) and function.name == "_seal"):
+            continue
+        for node in ast.walk(function):
+            if not (isinstance(node, ast.Call) and ast.unparse(node.func) == "pyrage.encrypt" and len(node.args) == 2):
+                continue
+            recipients = node.args[1]
+            if isinstance(recipients, ast.List) and len(recipients.elts) == 1:
+                made = recipients.elts[0]
+                if isinstance(made, ast.Call) and isinstance(made.func, ast.Attribute) and not made.args:
+                    allowed.add(id(made.func))
+    return allowed
+
+
+def _public_half(rel: str, text: str) -> list[str]:
+    """Each place text, the file at rel, makes or names a key's public half but the one sealed.py's _seal is allowed:
+    an attribute, a name, an import or a string of the code. A program of tools/ that is no Python is read as text."""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return [f"{rel}: {word}" for word in PUBLIC if word in text]
+    allowed = _sealing(tree) if rel == SEALS else set()
+    docstrings = _docstrings(tree)
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr in PUBLIC and id(node) not in allowed:
+            found.append(f"{rel}:{node.lineno}: {node.attr}")
+        elif isinstance(node, ast.Name) and node.id in PUBLIC:
+            found.append(f"{rel}:{node.lineno}: {node.id}")
+        elif isinstance(node, ast.alias) and node.name.rsplit(".", 1)[-1] in PUBLIC:
+            found.append(f"{rel}:{node.lineno}: import {node.name}")
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings:
+            found.extend(f"{rel}:{node.lineno}: {word!r}" for word in PUBLIC if word in node.value)
+    return found
+
+
+def _programs() -> dict[str, str]:
+    """Every module of lib/claude_vm/ and every program of tools/, by its path in the checkout."""
+    found = {str(path.relative_to(REPO)): path.read_text() for path in sorted((LIB / "claude_vm").rglob("*.py"))}
+    for path in sorted((REPO / "tools").iterdir()):
+        if path.is_file():
+            try:
+                found[str(path.relative_to(REPO))] = path.read_text()
+            except UnicodeDecodeError:
+                continue
+    return found
+
+
+def test_no_module_writes_or_prints_the_key_s_public_half() -> None:
+    # The owner's answer of 2026-11-23 to review 21 (D7.md 4): the vault is left as built, and one who held the key's
+    # public half and could write fleet/ could seal a vault that opens with the key; so nothing but the one call that
+    # seals ever has it. Every case's own scan (seen) looks for each key's public half in its files and its output.
+    programs = _programs()
+    assert len(programs) > 100 and SEALS in programs, len(programs)
+    assert [found for rel, text in programs.items() for found in _public_half(rel, text)] == []
+    sealing = _sealing(ast.parse(programs[SEALS]))
+    assert len(sealing) == 1, "sealed.py's _seal hands age the public half in one call"
+
+
+@pytest.mark.parametrize(
+    ("rel", "planted"),
+    [
+        (SEALS, "def _seal(identity):\n    print(identity.to_public())\n"),
+        (SEALS, "def _seal(identity):\n    half = identity.to_public()\n    pyrage.encrypt(b'', [half])\n"),
+        (SEALS, "def _seal(identity):\n    pyrage.encrypt(b'', [identity.to_public(), identity.to_public()])\n"),
+        (SEALS, "def _kept(identity):\n    pyrage.encrypt(b'', [identity.to_public()])\n"),
+        ("lib/claude_vm/fleet/vaultkey.py", "def _seal(identity):\n    pyrage.encrypt(b'', [identity.to_public()])\n"),
+        ("lib/claude_vm/fleet/vaultkey.py", "from pyrage.x25519 import Recipient\n"),
+        ("lib/claude_vm/fleet/vaultkey.py", "def f(identity):\n    return getattr(identity, 'to_public')()\n"),
+        ("lib/claude_vm/fleet/vaultkey.py", "def f(path):\n    return ['age-keygen', '-y', path]\n"),
+        ("tools/a-program", '#!/bin/sh\nage-keygen -y "$1"\n'),
+    ],
+    ids=["printed", "kept", "twice", "another-function", "another-module", "imported", "by-name", "age-keygen", "tool"],
+)
+def test_the_scan_finds_the_public_half_made_or_named_anywhere_but_the_one_call(rel: str, planted: str) -> None:
+    assert _public_half(rel, planted) != []
+    # The one call that seals, alone, is no finding; a docstring that names the words says what code does.
+    allowed = "def _seal(identity):\n    '''to_public, Recipient'''\n    pyrage.encrypt(b'', [identity.to_public()])\n"
+    assert _public_half(SEALS, allowed) == []
