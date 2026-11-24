@@ -7,7 +7,8 @@ The rules with a test of their own: every privilege the table names is one Proxm
 from the design's notes, N-14); the module imports nothing outside the standard library, so the fake can read it with
 nothing but lib/ on its path; the fake (tests/molecule/fake_pve_api.py) and the harness hold no privilege name of
 their own but today's, so that the table is the one place a call's privilege is said; what init grants is each row's
-first privilege on its first kind of path, never an alternative; and a configuration's write covers each key once. How
+first privilege on its first kind of path, never an alternative, and is pinned whole for every kind, so that a row that
+widens it is a change a reviewer reads; and a configuration's write covers each key once. How
 the fake enforces the table is tests/unit/test_aw_fake_pve.py's; that every row is one the fake decides a request of
 the client's by, and every call the client makes has its rows, is tests/unit/test_aw_pve_writes.py's, which drives the
 client.
@@ -286,15 +287,37 @@ def test_needed_is_what_the_rows_check_on_a_kind_and_on_a_pool_what_its_members_
     for kind in KINDS:
         assert needed(kind) == (on[kind] | on["vm"] if kind == "pool" else on[kind]), kind
     assert set().union(*(needed(kind) for kind in KINDS)) == {call.privileges[0] for call in CALLS if call.privileges}
-    assert {"VM.Audit", "VM.Clone"} <= needed("vm") and {"Pool.Audit", "VM.Allocate"} <= needed("pool")
     # The alternatives grant nothing: a clone's new VM is checked on no path init grants on, and SDN.Audit and
     # VM.Config.Network, each only another way through, are no row's first privilege.
-    assert needed("new") == frozenset() and not {"SDN.Audit", "VM.Config.Network"} & set().union(
-        *(needed(kind) for kind in KINDS)
-    )
-    assert needed("bridge") == {"SDN.Use"} and needed("storage") == {"Datastore.Audit", "Datastore.AllocateSpace"}
+    assert not {"SDN.Audit", "VM.Config.Network"} & set().union(*(needed(kind) for kind in KINDS))
     with pytest.raises(ValueError):
         needed("access")
+
+
+def test_what_init_grants_on_each_kind_of_path_is_pinned_whole() -> None:
+    """What init grants on each kind of path, every kind, as a literal set: a row added to the table that widens the
+    role init grants, one the fake checks and so passes every other test, changes a pin here, which a reviewer reads,
+    rather than the role in silence. Edit the pin with the row, and say why in the row's comment."""
+    vm = {
+        "VM.Allocate",
+        "VM.Audit",
+        "VM.Clone",
+        "VM.Config.CPU",
+        "VM.Config.Cloudinit",
+        "VM.Config.Disk",
+        "VM.Config.Memory",
+        "VM.Config.Options",
+        "VM.GuestAgent.Audit",
+        "VM.PowerMgmt",
+    }
+    assert {kind: set(needed(kind)) for kind in KINDS} == {
+        "vm": vm,
+        "new": set(),
+        "pool": {*vm, "Pool.Audit"},
+        "storage": {"Datastore.Audit", "Datastore.AllocateSpace"},
+        "bridge": {"SDN.Use"},
+        "node": {"Sys.Audit"},
+    }
 
 
 def test_no_call_writes_a_pool_and_the_role_on_the_pool_holds_no_pool_privilege_but_pool_audit() -> None:
