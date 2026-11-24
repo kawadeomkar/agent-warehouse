@@ -728,6 +728,31 @@ def test_no_ssh_g_is_started_once_the_run_has_ended(tmp_path, monkeypatch):
     assert not ran.exists() and not route._LIVE
 
 
+@pytest.mark.parametrize("missing", ["the temporary folder", "the ssh program"])
+def test_under_auto_an_ssh_g_that_cannot_be_run_settles_nothing_for_the_new_engine(tmp_path, monkeypatch, missing):
+    # Its standard error is read from a temporary file: where none can be made, as where the ssh program is not there,
+    # the person's HostName for the host is never read. Today's callers settle from the address as written, as they
+    # did; the new engine settles nothing, and says what could not be made (review 41, B31.md 1).
+    ran = tmp_path / "ran"
+    ssh = _program(tmp_path / "ssh", f"#!/bin/sh\ntouch {ran}\necho 'hostname 100.101.102.103'\n")
+    nowhere = tmp_path / "nowhere"
+    if missing == "the temporary folder":
+        monkeypatch.setattr(tempfile, "tempdir", str(nowhere))
+    else:
+        ssh = str(nowhere)
+    hop = route.hop_settings(ssh=ssh, host="192.0.2.10", control_dir="/tmp/cp")
+    assert route.route_settle("auto", hop) == {"route": "direct", "addresses": ["192.0.2.10"], "dialled": "192.0.2.10"}
+    with pytest.raises(route.HopRefused) as refused:
+        route.route_settle("auto", hop, signalled_settles=False)
+    # What could not be made: the ssh program, or a file of the folder, which tempfile names at random.
+    said = str(refused.value)
+    assert said.startswith(f"ssh -G for the Proxmox host could not be run (No such file or directory: {nowhere}"), said
+    assert said.endswith(
+        "), so the route under vm_ssh_route: auto is not settled: run it again, or set vm_ssh_route: direct or host"
+    )
+    assert not ran.exists() and not route._LIVE
+
+
 def test_under_auto_an_ssh_g_past_its_limit_settles_nothing_for_the_new_engine(tmp_path):
     # Its kill at the limit is a signal too: read as no answer, it would settle from the address as written, direct,
     # where the person's own configuration may send the host to a tailnet. Today's callers settle as they did.
@@ -1747,14 +1772,16 @@ def real_sshd(tmp_path, short_dir):
     daemon, port = _sshd_listening(sshd, here)
     try:
 
-        def hop(key: str, at: int) -> dict:
+        def hop(key: str, at: int, pinned: bool = False) -> dict:
             ssh = _program(
                 here / f"ssh-{key}",
                 f"#!/bin/sh\nexec ssh -F /dev/null -o UserKnownHostsFile={here}/known_hosts"
                 f" -o GlobalKnownHostsFile=/dev/null -o IdentityFile={here}/{key} -o IdentitiesOnly=yes"
                 ' -o IdentityAgent=none "$@"\n',
             )
-            return route.hop_settings(ssh=ssh, user=getpass.getuser(), host="127.0.0.1", port=at, control_dir=short_dir)
+            return route.hop_settings(
+                ssh=ssh, user=getpass.getuser(), host="127.0.0.1", port=at, control_dir=short_dir, pinned=pinned
+            )
 
         yield hop, port
     finally:
@@ -1774,16 +1801,20 @@ def real_sshd(tmp_path, short_dir):
         ("the host stops after its banner", "ok", "banner", "sshd", "stalled", False),
     ],
 )
+@pytest.mark.parametrize("pinned", [False, True], ids=["today's", "pinned"])
 def test_each_verdict_of_the_real_ssh_says_at_verbose_what_it_says_at_info(
-    real_sshd, case, key, hop_is, target, why, banner
+    real_sshd, case, key, hop_is, target, why, banner, pinned
 ):
+    # Pinned, the new engine's line (route.hop_settings' pinned): ClearAllForwardings=yes clears a person's forwards and
+    # leaves the -W the forward is, which a real sshd shows verdict by verdict (review 41, B31.md 3).
     hop, port = real_sshd
     servers: dict = {}
     try:
         for kind in ("closed", "mute", "wordless", "banner"):
             servers[kind] = _listening(kind)
         others = {kind: at for kind, (_, at) in servers.items()}
-        settings = hop(key, port if hop_is == "sshd" else others[hop_is])
+        settings = hop(key, port if hop_is == "sshd" else others[hop_is], pinned)
+        assert ("ClearAllForwardings=yes" in route.hop_argv(settings, "127.0.0.1", "yes")) is pinned
         at = port if target == "sshd" else others[target]
         verdict = route.hop_forward(settings, "127.0.0.1", "yes", port=at, limit=2)
         assert (verdict["why"], verdict["banner"]) == (why, banner), (case, verdict)

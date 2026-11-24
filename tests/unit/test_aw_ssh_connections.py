@@ -1001,27 +1001,29 @@ def test_a_first_use_is_decided_by_the_key_filed_and_takes_its_key_in_the_run_s_
         rundir.remove(made)
 
 
-# ---------------------------------------------------------------- until G7: direct only ----
+# ---------------------------------------------------------------- the forward through the hop ----
 
 
-def test_direct_only_refuses_every_settled_route_but_direct_and_starts_nothing(home, short_dir, stand_in, addresses):
-    assert connections.Connections.direct_only is connections.direct_only
-    connections.direct_only(_settle(short_dir, "direct"))
-    _config(home, f"Host {HOST}\n  HostName {LAN}\n")
-    connections.direct_only(_settle(short_dir, "auto"))
-    for setting, dialled in (("host", LAN), ("auto", TAILNET)):
-        _config(home, f"Host {HOST}\n  HostName {dialled}\n")
-        settled = _settle(short_dir, setting, name="pve")
-        assert settled["route"] == "host"
-        with pytest.raises(connections.NotBuilt) as refused:
-            connections.direct_only(settled)
-        said = str(refused.value)
-        assert f"vm_ssh_route: {setting}" in said and "Set vm_ssh_route: direct" in said
-        assert "through the Proxmox host yet" in said and f"pve (root@{HOST})" in said
-    # Only the ssh -G of each auto's settling: no connection, no master, no control command.
-    assert set(_kinds(stand_in)) == {"-G"}
-    with pytest.raises(runner.Refused, match="a settled route"):
-        connections.direct_only({"route": "tailnet"})
+def test_a_forward_is_route_py_s_of_its_own_in_a_group_of_its_own_and_only_for_a_machine_that_takes_the_hop(
+    tmp_path, short_dir, stand_in, made
+) -> None:
+    # B8's refusal of every route but direct is gone (card G7): host settles a hop, and the one forward through it a run
+    # makes is route.hop_forward's, a connection of its own to the machine's own port, its ssh leading a group of its
+    # own; the stand-in forwards nothing, so ssh fails to use the host, which is what the verdict says.
+    conns = connections.Connections(short_dir, dict(os.environ))
+    direct = _route(conns, "direct", _host(short_dir))
+    settled = _route(conns, "host", _host(short_dir))
+    alone = _target(conns, made, _machine(tmp_path, short_dir), direct)
+    through = _target(conns, made, _machine(tmp_path, short_dir, port=2222), settled)
+    for target, route_ in ((alone, settled), (through, direct), (_host(short_dir), settled)):
+        with pytest.raises(runner.Refused, match="a forward through the hop is made"):
+            asyncio.run(conns.forward(target, route_))
+    assert _kinds(stand_in) == ["-G"]
+    verdict = asyncio.run(conns.forward(through, settled))
+    assert (verdict["why"], verdict["usable"]) == ("failed", False)
+    [*_, call] = _calls(stand_in)
+    assert call["argv"][-3:] == ["-W", f"{ADDRESS}:2222", f"root@{HOST}"] and "ControlPath=none" in call["argv"]
+    assert "LogLevel=VERBOSE" in call["argv"] and call["group"] == call["pid"]
 
 
 # ---------------------------------------------------------------- the rules ----

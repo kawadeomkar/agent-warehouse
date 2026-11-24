@@ -14,7 +14,10 @@ test's own failing stand-ins next, and nothing else of the test's environment, a
 variables it was started with, never their values; a sudo that asks receives the password only after -n was refused
 for want of one, takes each line after a wrong one as a further attempt, up to sudo's three, and keeps it nowhere but
 as a digest; under sudo a command has sudo's HOME and secure_path whatever the caller's, and sudo's options; -O check
-and -O stop answer as a live master would, and a forward is recorded and never opened. A machine's home and system
+and -O stop answer as a live master would, and a forward is recorded and never opened; ssh -G is answered by this
+computer's own ssh with the test's own configuration; a hop answers its control commands from its socket's file, opens
+its master in its login's mode and forwards in its forward's; and a machine behind a ProxyCommand is reached only where
+the proxy reaches its sshd. A machine's home and system
 files are made as today's stand-in VMs make theirs (tests/unit/test_status_vms.py's `_vms`, case by case); planted
 makes the Proxmox fake's VM report the machine's address and identity; and a play of one task over the local
 connection touches only its machine's directory. The rules with a test of their own: no test_aw_*.py file writes an
@@ -31,6 +34,7 @@ import hmac
 import json
 import os
 import pwd
+import shutil
 import socket
 import subprocess
 import sys
@@ -44,6 +48,8 @@ from aw_machine import (
     CONTROL,
     Machine,
     filed,
+    hop,
+    hop_modes,
     known_hosts,
     layer1_host,
     machine,
@@ -177,12 +183,132 @@ def test_an_address_no_machine_has_comes_back_as_the_runner_s_unreachable(two, m
     got = _run(made, stranger, ["touch", "landed"])
     assert isinstance(got, runner.Unreachable) and got.lines == (), got
     assert "203.0.113.250 port 22: No route to host" in got.said
-    # ssh -G, which reads the person's own configuration, is never answered: this computer's own ssh is asked that.
+    # ssh -G is no connection: this computer's own ssh answers it, given the test's own configuration, and nothing is
+    # dialled.
     shown = _stand_in(folder, ["-G", "-F", "/dev/null", alpha.address])
-    assert shown.returncode == 255 and "answers no -G" in shown.stderr
-    assert [call["outcome"] for call in unrouted(folder)] == ["refused: no machine has the address", "refused: -G"]
+    if _real_ssh() is None:
+        assert shown.returncode == 255 and "no ssh to ask -G of" in shown.stderr
+    else:
+        assert shown.returncode == 0 and f"hostname {alpha.address}" in shown.stdout.splitlines(), shown
+    assert [call["outcome"] for call in unrouted(folder)][0] == "refused: no machine has the address"
     assert alpha.calls() == beta.calls() == []
     assert not (alpha.home / "landed").exists() and not (beta.home / "landed").exists()
+
+
+def _real_ssh() -> str | None:
+    return shutil.which("ssh", path=os.defpath)
+
+
+def test_ssh_g_reads_the_test_s_own_configuration_and_never_the_developer_s(two, home) -> None:
+    # OpenSSH finds ~ in the account database, never in HOME: the stand-in gives this computer's ssh -F with the test's
+    # own ~/.ssh/config, or /dev/null where there is none, unless the line gives its own.
+    alpha, _, folder = two
+    if _real_ssh() is None:
+        pytest.skip("this machine has no ssh to ask ssh -G of")
+    plain = _stand_in(folder, ["-G", alpha.address])
+    assert plain.returncode == 0 and "proxyjump jump.invalid" not in plain.stdout.splitlines(), plain
+    (home / ".ssh").mkdir()
+    (home / ".ssh" / "config").write_text(f"Host {alpha.address}\n  ProxyJump jump.invalid\n")
+    configured = _stand_in(folder, ["-G", alpha.address])
+    assert "proxyjump jump.invalid" in configured.stdout.splitlines(), configured
+    alone = _stand_in(folder, ["-G", "-F", "/dev/null", alpha.address])
+    assert "proxyjump jump.invalid" not in alone.stdout.splitlines(), alone
+    assert [call["outcome"] for call in unrouted(folder)] == ["-G"] * 3
+    assert alpha.calls() == []
+
+
+def _hop_words(at: runner.Target, socket: Path, *rest: str, level: str = "INFO") -> list[str]:
+    """The words the hop's own ssh is given, as route.py gives them: its pins, its policy, its shared connection or
+    none, then rest and root@ the host."""
+    shared = ["-o", "ControlMaster=auto", "-o", f"ControlPath={socket}"] if socket else ["-o", "ControlPath=none"]
+    return [
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        "-o",
+        f"LogLevel={level}",
+        *shared,
+        *rest,
+        f"root@{at.address}",
+    ]
+
+
+def test_a_hop_answers_from_its_socket_opens_in_its_login_s_mode_and_forwards_in_its_forward_s(
+    root, home, engine_guard
+) -> None:
+    # The test's own home, made: the hop's key is taken at first use into its ~/.ssh/known_hosts.
+    pve = hop(root)
+    alpha = machine(root, "alpha")
+    folder = ssh_stand_in(root, [pve, alpha])
+    engine_guard.first_on_path(folder)
+    at = runner.proxmox_host(pve.address, "root", CONTROL)
+    socket = root / "awh-socket"
+    check = _hop_words(at, socket, "-O", "check")
+    assert _stand_in(folder, check).stderr.startswith(f"Control socket connect({socket}): No such file or directory")
+    socket.write_text("stale")
+    assert "Connection refused" in _stand_in(folder, check).stderr
+    socket.unlink()
+    hop_modes(pve, login="refused")
+    opened = _stand_in(folder, _hop_words(at, socket, "-N"))
+    assert opened.returncode == 255 and "Permission denied (publickey)" in opened.stderr
+    hop_modes(pve, login="open")
+    assert _stand_in(folder, _hop_words(at, socket, "-N")).returncode == 0
+    assert socket.read_text() == "live" and _stand_in(folder, check).returncode == 0
+    # A forward of its own at VERBOSE: the login said, then the machine's sshd's first words on its output.
+    forward = _stand_in(folder, _hop_words(at, None, "-W", f"{alpha.address}:22", level="VERBOSE"))
+    assert forward.returncode == 0 and forward.stdout.startswith("SSH-2.0-"), forward
+    assert forward.stderr.startswith(f"Authenticated to {pve.address} ")
+    # To an address no machine has: the host's connection there refused.
+    nowhere = _stand_in(folder, _hop_words(at, socket, "-W", "203.0.113.250:22"))
+    assert nowhere.returncode == 255 and "connect failed: No route to host" in nowhere.stderr
+    for mode, said in (
+        ("prohibited", "administratively prohibited"),
+        ("failed", "stdio forwarding request failed"),
+    ):
+        hop_modes(pve, forward=mode)
+        refused = _stand_in(folder, _hop_words(at, socket, "-W", f"{alpha.address}:22"))
+        assert refused.returncode == 255 and said in refused.stderr, (mode, refused)
+    assert _stand_in(folder, _hop_words(at, socket, "-O", "stop")).returncode == 0 and not socket.exists()
+    assert [call["outcome"] for call in pve.calls()] == [
+        "-O check",
+        "-O check",
+        "refused: the login",
+        "a master, opened",
+        "-O check",
+        f"forward {alpha.address}:22 unshared",
+        "forward 203.0.113.250:22",
+        f"forward {alpha.address}:22",
+        f"forward {alpha.address}:22",
+        "-O stop",
+    ]
+    assert alpha.calls() == []
+
+
+def test_a_machine_reached_through_a_proxy_is_reached_only_where_the_proxy_reaches_its_sshd(
+    root, home, engine_guard
+) -> None:
+    pve, alpha = hop(root), machine(root, "alpha")
+    filed(alpha)
+    folder = ssh_stand_in(root, [pve, alpha])
+    engine_guard.first_on_path(folder)
+    socket = root / "awh-socket"
+    proxy = " ".join(["ssh", *_hop_words(runner.proxmox_host(pve.address, "root", CONTROL), socket, "-W", "%h:%p")])
+    words = [*runner.argv(target(alpha), ["touch", "landed"])[1:]]
+    at = words.index("--")
+    through = [*words[:at], "-o", f"ProxyCommand={proxy}", *words[at:]]
+    ran = _stand_in(folder, through)
+    assert ran.returncode == 0, ran
+    assert (alpha.home / "landed").is_file()
+    # The ProxyCommand's ssh, with no master live, became the master on the hop's socket, as ssh's does.
+    assert socket.read_text() == "live"
+    hop_modes(pve, forward="prohibited")
+    refused = _stand_in(folder, through)
+    assert refused.returncode == 255 and "administratively prohibited" in refused.stderr
+    assert "Connection closed by UNKNOWN port 65535" in refused.stderr
+    assert [call["outcome"] for call in alpha.calls()] == ["ran", "refused: its proxy reached no SSH server"]
+    forwards = [f"forward {alpha.address}:22 unshared", f"forward {alpha.address}:22"]
+    assert [call["outcome"] for call in pve.calls()] == forwards
 
 
 def _without(words: list[str], option: str) -> list[str]:
