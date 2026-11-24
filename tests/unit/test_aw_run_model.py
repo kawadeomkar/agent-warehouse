@@ -16,12 +16,19 @@ a report kept whole, in order, each time it is said; the run's end ending the ho
 end ending its open steps; one machine's wait for you never another's mark; a refused step's machine never learned; a
 machine's failed end said though another machine failed before; a replaced NEXT STEPS line kept in its place; and one
 key for a machine, its identity, with the name a person chose kept beside it.
+
+Its second reading's (review/code/C8.md, "The fix, read again"), each with a test: an event that names a machine by the
+name the run keeps for another key, or whose name is another key, refused with nothing kept (A); a machine's failed end
+said where it cut short a part still open, though something of it failed before (B); and a machine's own begin keeping
+its time in a part of every machine's it reads, and a step never beginning again a stage that ended for its machine
+(8), held over every order of one stage's events that keeps each begin before its end.
 """
 
 from __future__ import annotations
 
 import ast
 import copy
+import itertools
 
 import pytest
 from aw_kit import imports_of
@@ -790,6 +797,190 @@ def test_a_machine_is_keyed_by_its_identity_and_keeps_the_name_a_person_chose() 
     assert named.next_steps() == ["aw login alpha --only claude", "aw login beta --only claude"]
 
 
+# ---------------------------------------------------------------- review 29's second reading ----
+
+
+def test_an_event_never_names_a_machine_by_the_name_the_run_keeps_for_another_key() -> None:
+    # A: every emitter passes the identity. An event keyed by the name the run keeps for another key, or whose name is
+    # another key of the run's, would make one machine two rows drawn under one name: refused, with nothing kept.
+    run = model.Run(DEPLOY, 0.0, {ALPHA: "alpha"})
+    run.feed(_event("stage", ALPHA, "configure"), 1.0)
+    run.feed(_event("waiting", ALPHA, SIGN_IN), 1.0)
+    before = _held(run)
+    for event in (
+        _event("stage", "alpha", "configure"),
+        _event("stage", "alpha", "configure", outcome="failed", why="apt failed"),
+        _event("step", "alpha", "claude", stage="sign-in"),
+        _event("step", "alpha", "Gathering Facts", status="ok", part="", name="alpha"),
+        _event("waiting", "alpha", SIGN_IN),
+        _event("report", "alpha", "alpha is up"),
+        _event("next", "alpha", "aw login alpha", matter="claude"),
+        _event("end", "alpha", "apt failed", outcome="failed"),
+    ):
+        with pytest.raises(ValueError, match="'alpha' is the name of a machine the run keys by"):
+            run.feed(event, 2.0)
+        assert _held(run) == before, event
+    with pytest.raises(ValueError, match="is the key of another machine of the run"):
+        run.feed(_event("step", BETA, "Gathering Facts", status="ok", part="", name=ALPHA), 2.0)
+    assert _held(run) == before
+    assert [run.name(machine) for machine in run.machines] == ["alpha"]
+    # A name said by an event is kept the same way.
+    said = model.Run(DEPLOY, 0.0, [ALPHA, BETA])
+    said.feed(_event("step", ALPHA, "Gathering Facts", status="ok", part="", name="alpha"), 1.0)
+    with pytest.raises(ValueError, match="'alpha' is the name of a machine the run keys by"):
+        said.feed(_event("waiting", "alpha", SIGN_IN), 2.0)
+    # The other order: a machine an emitter keyed by its name is taken while nothing says whose name that is; then the
+    # identity's event that would name it so is refused, not drawn as a second row of the same name.
+    first = model.Run(DEPLOY, 0.0, [ALPHA])
+    first.feed(_event("waiting", "alpha", SIGN_IN), 1.0)
+    before = _held(first)
+    with pytest.raises(ValueError, match="'alpha' is the key of another machine of the run"):
+        first.feed(_event("step", ALPHA, "Gathering Facts", status="ok", part="", name="alpha"), 2.0)
+    assert _held(first) == before and [first.name(machine) for machine in first.machines] == [ALPHA, "alpha"]
+    # A machine keyed by its name throughout, that name its own, is one row, as the canned runs key theirs.
+    plain = model.Run(DEPLOY, 0.0, ["alpha"])
+    plain.feed(_event("step", "alpha", "Gathering Facts", status="ok", part="", name="alpha"), 1.0)
+    plain.feed(_event("stage", "alpha", "configure"), 1.0)
+    assert plain.machines == ["alpha"] and plain.names == {"alpha": "alpha"}
+
+
+def test_a_machines_failed_end_is_said_where_it_cut_short_a_part_still_open() -> None:
+    # B: alpha's Claude sign-in failed (said; deploy goes on); then alpha fails and ends while the editor reaches it.
+    # The end cut the editor short, which reads failed: its why is said, as the run's end and a stage's end for every
+    # machine say what they cut short.
+    run = model.Run(DEPLOY, 0.0, ["alpha"])
+    run.feed(_event("stage", "alpha", "sign-in"), 1.0)
+    run.feed(_event("step", "alpha", "claude", stage="sign-in"), 1.0)
+    run.feed(_event("step", "alpha", "claude", stage="sign-in", outcome="failed", why="the code expired"), 2.0)
+    run.feed(_event("stage", "alpha", "sign-in", outcome="done"), 3.0)
+    run.feed(_event("stage", "alpha", "editor"), 4.0)
+    run.feed(_event("step", "alpha", "reach", stage="editor"), 4.0)
+    run.feed(_event("end", "alpha", "the editor could not reach it", outcome="failed"), 9.0)
+    assert run.marks("editor") == {"alpha": "failed"} and run.marks("editor", "reach") == {"alpha": "failed"}
+    assert [(failure.stage, failure.step, failure.machine, failure.why) for failure in run.failures] == [
+        ("sign-in", "claude", "alpha", "the code expired"),
+        ("editor", None, "alpha", "the editor could not reach it"),
+    ]
+    # A part of every machine's that it reads is cut short too, and another machine's goes on.
+    fleet = model.Run(DEPLOY, 0.0, ["alpha", "beta"])
+    fleet.feed(_event("step", "alpha", "claude", stage="sign-in"), 1.0)
+    fleet.feed(_event("step", "alpha", "claude", stage="sign-in", outcome="failed", why="the code expired"), 2.0)
+    fleet.feed(_event("stage", "alpha", "sign-in", outcome="done"), 2.0)
+    fleet.feed(_event("stage", None, "editor"), 3.0)
+    fleet.feed(_event("end", "alpha", "the editor could not reach it", outcome="failed", stage="editor"), 5.0)
+    assert fleet.marks("editor") == {"alpha": "failed", "beta": "running"}
+    assert [(failure.stage, failure.machine, failure.why) for failure in fleet.failures] == [
+        ("sign-in", "alpha", "the code expired"),
+        ("editor", "alpha", "the editor could not reach it"),
+    ]
+    # A step still open is cut short, though its stage had ended for it (a step begins no ended stage again).
+    step = model.Run(DEPLOY, 0.0, ["alpha"])
+    step.feed(_event("stage", "alpha", "sign-in"), 1.0)
+    step.feed(_event("stage", "alpha", "sign-in", outcome="failed", why="Claude refused"), 2.0)
+    step.feed(_event("step", "alpha", "github", stage="sign-in"), 3.0)
+    step.feed(_event("end", "alpha", "gh hung", outcome="failed"), 4.0)
+    assert step.marks("sign-in", "github") == {"alpha": "failed"}
+    assert [(failure.step, failure.why) for failure in step.failures] == [(None, "Claude refused"), (None, "gh hung")]
+    # Where its end cut nothing short, the failure that ended it was said already: nothing is said twice.
+    said = model.Run(DEPLOY, 0.0, ["alpha"])
+    said.feed(_event("stage", "alpha", "configure"), 1.0)
+    said.feed(_event("stage", "alpha", "configure", outcome="failed", why="apt failed"), 2.0)
+    said.feed(_event("end", "alpha", "apt failed", outcome="failed"), 2.0)
+    assert [failure.why for failure in said.failures] == ["apt failed"]
+
+
+def test_a_machines_own_begin_keeps_its_time_and_a_step_never_begins_again_a_stage_ended_for_it() -> None:
+    # 8 (C8.md 8): under the ruling a verb emits a machine's own stage beside every machine's. alpha's own begin, while
+    # every machine's part it reads runs, takes that part's start: its time goes on.
+    run = model.Run(DEPLOY, 0.0, ["alpha", "beta"])
+    run.feed(_event("stage", None, "aliases"), 6.5)
+    assert run.seconds(10.5, "aliases", machine="alpha") == 4.0
+    run.feed(_event("stage", "alpha", "aliases"), 14.0)
+    assert run.seconds(14.0, "aliases", machine="alpha") == 7.5 and run.mark("alpha", "aliases") == "running"
+    run.feed(_event("stage", "alpha", "aliases", outcome="done"), 15.0)
+    assert run.seconds(20.0, "aliases", machine="alpha") == 8.5 and run.seconds(20.0, "aliases", machine="beta") == 13.5
+    # Begun again where it had ended: a new start.
+    run.feed(_event("stage", None, "aliases", outcome="done"), 16.0)
+    run.feed(_event("stage", "beta", "aliases"), 18.0)
+    assert run.seconds(20.0, "aliases", machine="beta") == 2.0
+    # T1c: a stage that ended failed for alpha, then a step of it: the step runs, the stage is not begun again, and it
+    # reads failed, its time its own, its failure said once.
+    ended = model.Run(DEPLOY, 0.0, ["alpha"])
+    ended.feed(_event("stage", "alpha", "sign-in"), 1.0)
+    ended.feed(_event("stage", "alpha", "sign-in", outcome="failed", why="Claude refused"), 3.0)
+    ended.feed(_event("step", "alpha", "github", stage="sign-in"), 4.0)
+    assert ended.mark("alpha", "sign-in") == "failed" and ended.marks("sign-in", "github") == {"alpha": "running"}
+    ended.feed(_event("step", "alpha", "github", stage="sign-in", outcome="done"), 6.0)
+    ended.feed(_event("stage", "alpha", "sign-in", outcome="done"), 6.0)
+    assert ended.state("sign-in") == "failed" and ended.mark("alpha", "sign-in") == "failed"
+    assert ended.seconds(10.0, "sign-in", machine="alpha") == 2.0
+    assert [(failure.stage, failure.why) for failure in ended.failures] == [("sign-in", "Claude refused")]
+    # Ended for every machine, the same: a step of one machine's begins it again for none.
+    every = model.Run(DEPLOY, 0.0, ["alpha", "beta"])
+    every.feed(_event("stage", None, "editor"), 1.0)
+    every.feed(_event("stage", None, "editor", outcome="failed", why="the run stopped the editors"), 2.0)
+    every.feed(_event("step", "alpha", "window", stage="editor"), 3.0)
+    assert every.marks("editor") == {"alpha": "failed", "beta": "failed"} and every.state("editor") == "failed"
+    assert every.marks("editor", "window") == {"alpha": "running", "beta": "to come"}
+
+
+def _orders_of_one_stage() -> list[list[jobs.Event]]:
+    """Every order of one stage's events that keeps each begin before its end: the sign-in begun and ended for every
+    machine, begun and ended for alpha alone, and alpha's Claude step begun and ended, each ending done or failed
+    (90 orders of six events, eight ways of ending each: 720)."""
+    orders = []
+    for endings in itertools.product(("done", "failed"), repeat=3):
+        pairs = []
+        parts = ((None, "stage", "sign-in"), ("alpha", "stage", "sign-in"), ("alpha", "step", "claude"))
+        for (machine, kind, text), ending in zip(parts, endings, strict=True):
+            where = {"stage": "sign-in"} if kind == "step" else {}
+            ends = {"outcome": ending} | ({"why": f"{kind} {ending}"} if ending == "failed" else {})
+            pairs.append((_event(kind, machine, text, **where), _event(kind, machine, text, **where, **ends)))
+        for order in itertools.permutations(range(6)):
+            if all(order.index(2 * pair) < order.index(2 * pair + 1) for pair in range(3)):
+                orders.append([pairs[number // 2][number % 2] for number in order])
+    return orders
+
+
+def test_over_every_order_of_one_stages_events_a_machines_time_goes_on_and_a_step_begins_no_ended_stage() -> None:
+    # 8, over made-up orders as the reviewer's were: after each event, for alpha and for beta (which has no event of its
+    # own and reads every machine's part), in the stage and in its step: while a machine's mark stays under way, the
+    # start its time is read from never moves; and a step's start never changes the mark of a stage that had ended for
+    # its machine (nor its time there).
+    orders = _orders_of_one_stage()
+    assert len(orders) == 720
+    under_way = ("running", "waiting")
+    checked = {"time": 0, "step": 0}
+    for order in orders:
+        run = model.Run(DEPLOY, 0.0, ["alpha", "beta"])
+        for number, event in enumerate(order, 1):
+            now = float(number)
+            # Each machine's mark in the stage and its step, and the start its time there is read from.
+            before = {
+                (machine, step): (
+                    run.mark(machine, "sign-in", step),
+                    now - 1 - run.seconds(now - 1, "sign-in", step, machine),
+                )
+                for machine in ("alpha", "beta")
+                for step in (None, "claude")
+            }
+            ended = run.seconds(now - 1, "sign-in", machine="alpha")
+            run.feed(event, now)
+            where = f"event {number} of {[(each.kind, each.machine, dict(each.data)) for each in order]}"
+            for (machine, step), (mark, start) in before.items():
+                after = run.mark(machine, "sign-in", step)
+                if mark in under_way and after in under_way:
+                    checked["time"] += 1
+                    assert now - run.seconds(now, "sign-in", step, machine) == start, f"{machine} {step}: {where}"
+            if event.kind == "step" and "outcome" not in event.data and before[("alpha", None)][0] not in under_way:
+                if before[("alpha", None)][0] != "to come":
+                    checked["step"] += 1
+                    assert run.mark("alpha", "sign-in") == before[("alpha", None)][0], where
+                    assert run.seconds(now, "sign-in", machine="alpha") == ended, where
+    # Neither rule held vacuously: each was asked of many orders.
+    assert checked["time"] > 1000 and checked["step"] > 100, checked
+
+
 def test_deploys_stages_are_todays_labels() -> None:
     todays = recipes.RECIPES["deploy"]
     assert [stage.label for stage in DEPLOY.stages] == [stage.key for stage in todays.stages]
@@ -816,6 +1007,9 @@ def test_deploys_stages_are_todays_labels() -> None:
         lambda: model.Run(object(), 0.0),
         lambda: model.Run(DEPLOY, 0.0, [None]),
         lambda: model.Run(DEPLOY, 0.0, {ALPHA: 7}),
+        # One machine, one row: no machine given by another's name, and no name another machine's key.
+        lambda: model.Run(DEPLOY, 0.0, {ALPHA: "alpha", "alpha": None}),
+        lambda: model.Run(DEPLOY, 0.0, {"alpha": None, ALPHA: "alpha"}),
     ],
 )
 def test_a_declaration_is_held_to_its_form(make) -> None:
