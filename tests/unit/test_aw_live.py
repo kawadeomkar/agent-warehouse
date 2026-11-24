@@ -7,27 +7,36 @@ runs, a moment between its events: the frames it drew, each redraw one write, re
 wrapped at 80 or 100 columns, and none drawn once the run has ended; the terminal's echo off while it draws and back at
 the end, however the run ended (a return, a Ctrl-C, a SIGTERM, a SIGHUP); a report said above the region and left there;
 a failure said above, and the summary's head where it failed; the stopping line a Ctrl-C makes said above the region,
-never inside it, and the footer saying the run is stopping; and the summary, then NEXT STEPS once, after it, and the
-bell. Piped, and with -v at a terminal, nothing is drawn: a line as each step ends, or each event as a line. In this
-process, with a clock of the test's own: what a run off a terminal prints is exactly what the view gives after each
-event (what is said above, the lines of what ended), then the summary and NEXT STEPS; with -v each event is its line;
-NEXT STEPS is said line for line either way; an event the model refuses is said once on standard error and the run goes
-on, every listener after the view hearing it; a person's stop reaches the model at the next event; a machine, whose
-events name it by its identity, is said by the name given for it; and nothing is said after the run's end. The rule with
-a test of its own: nothing in runs/ writes an escape sequence or reads /dev/tty itself, by a scan. The cases of
-tests/unit/test_live_commands.py about what a run draws each have their twin here (TWINS), before K14 removes that file.
+never inside it, and the footer saying the run is stopping; the summary, then NEXT STEPS once, after it, and the bell; a
+SIGTERM or a SIGHUP at a random moment while events flow, which leaves no frame's remains and loses no line said above;
+and a question asked with the region aside, the view found by the run's job. Piped, and with -v at a terminal, nothing
+is drawn: a line as each step ends, or each event as a line; piped into a reader that leaves after the first line, the
+run ends with its own status. In this process, with a clock of the test's own: what a run off a terminal prints is
+exactly what the view gives after each event (what is said above, the lines of what ended), then the summary and NEXT
+STEPS; with -v each event is its line; NEXT STEPS is said line for line either way; an event the model refuses is said
+once on standard error and the run goes on, every listener after the view hearing it; a person's stop reaches the model
+at the next event; a machine, whose events name it by its identity, is said by the name given for it; nothing is said
+after the run's end; what an event says, and standard error's lines above the region, are said whole, a signal that
+comes meanwhile delivered after; a job has one view, a second refused; and a stream that has gone is written no more, a
+broken pipe pointed at /dev/null. The rule with a test of its own: nothing in runs/ writes an escape sequence or reads
+/dev/tty itself, by a scan. The cases of tests/unit/test_live_commands.py about what a run draws each have their twin
+here (TWINS), before K14 removes that file.
 """
 
 from __future__ import annotations
 
 import ast
 import contextlib
+import errno
 import io
 import json
 import os
+import random
 import re
 import signal
+import subprocess
 import sys
+import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
@@ -36,7 +45,7 @@ import pytest
 import test_aw_run_view as canned
 from aw_kit import environment, stand_ins
 from harness import REPO
-from live_kit import SYNC_ON, Ran, next_steps, piped
+from live_kit import FOOTER, HEADER, SYNC_ON, Ran, next_steps, piped
 from vt import VT
 
 from claude_vm.fleet import paths
@@ -316,7 +325,7 @@ def test_a_live_view_takes_a_declared_run_and_a_count_of_v(home) -> None:
 # emits the canned events (events.json: each a pause and an event), noting after each whether the terminal echoes;
 # then ends its way: returns that status, holds until it is ended from outside, or waits for the Ctrl-C and returns.
 RUN = r"""
-import asyncio, atexit, io, json, os, sys, termios
+import asyncio, atexit, io, json, os, sys, termios, time
 lib, jobs_dir, folder, way, verbosity = sys.argv[1:6]
 sys.path.insert(0, lib)
 from pathlib import Path
@@ -331,7 +340,7 @@ EVENTS = json.loads((folder / "events.json").read_text())
 class Kept(io.TextIOBase):
     def __init__(self, real):
         super().__init__()
-        self.real, self.writes = real, []
+        self.real, self.writes, self.times = real, [], []
 
     @property
     def encoding(self):
@@ -348,6 +357,7 @@ class Kept(io.TextIOBase):
 
     def write(self, text):
         self.writes.append(text)
+        self.times.append(time.monotonic())
         return self.real.write(text)
 
     def flush(self):
@@ -363,14 +373,43 @@ def echoes():
 
 async def body(ctx):
     out = Kept(sys.stdout)
-    echo = []
-    atexit.register(lambda: (folder / "kept.json").write_text(json.dumps({"writes": out.writes, "echo": echo})))
+    echo, asked = [], []
+    atexit.register(
+        lambda: (folder / "kept.json").write_text(
+            json.dumps({"writes": out.writes, "times": out.times, "echo": echo, "asked": asked})
+        )
+    )
     live.Live(ctx.job, DEPLOY, out, verbosity=int(verbosity), cancelled=ctx.cancelled)
     (folder / "pid").write_text(str(os.getpid()))
     for pause, (kind, machine, text, data) in EVENTS:
+        if kind == "await":
+            # Till the test says to go on, by the file named.
+            while not (folder / text).exists():
+                await asyncio.sleep(0.01)
+            continue
         await asyncio.sleep(pause)
         ctx.emit(kind, machine, text, **data)
         echo.append(echoes())
+    if way == "flow":
+        # At work with no pause: a report said above the region and a line of work each turn, till ended from outside.
+        for turn in range(1, 100001):
+            ctx.emit("report", "alpha", f"report {turn:05}")
+            ctx.emit("step", "alpha", f"Task {turn:05}", status="task", part="common")
+            await asyncio.sleep(0)
+        await asyncio.sleep(600)
+    if way == "aside":
+        # A question, as runs/ask.py asks one: the run's view found by its job, the region aside while it is asked.
+        view = live.Live.of(ctx.job)
+        with view.aside():
+            sys.stdout.write("Go on? ")
+            sys.stdout.flush()
+            asked.append(echoes())
+            await asyncio.sleep(0.4)
+            sys.stdout.write("yes\n")
+            sys.stdout.flush()
+        asked.extend([echoes(), time.monotonic()])
+        await asyncio.sleep(1.0)
+        return 0
     if way == "hold":
         await asyncio.sleep(600)
     if way == "stop":
@@ -574,6 +613,225 @@ def test_a_run_ended_from_outside_gives_the_echo_back_and_says_it_stopped(signum
     ran.assert_drawn_and_gone()
     assert re.search(r"^agent-warehouse  deploy alpha · stopped after \d+ s at configure", ran.transcript, re.M)
     assert ran.screen.titles[-1] == "deploy alpha · stopped"
+
+
+# A report the flowing run says above the region, under its machine, and the same in the summary's last ten.
+FLOWED = re.compile(r"^  alpha  report (\d{5})$", re.M)
+SUMMED = re.compile(r"^ report (\d{5})$", re.M)
+# How many runs of each signal at a random moment, and the latest moment after the flow is seen, in seconds.
+TRIES, LATEST = 8, 0.4
+
+
+@pytest.mark.parametrize("attempt", range(TRIES))
+@pytest.mark.parametrize("signum", [signal.SIGTERM, signal.SIGHUP], ids=["SIGTERM", "SIGHUP"])
+def test_a_kill_or_a_hangup_while_events_flow_leaves_no_frame_and_loses_no_line(
+    signum, attempt, home, tmp_path
+) -> None:
+    # The ladder raises from its handler wherever the run's thread is (runs/attached.py's Abandoned): a frame drawn and
+    # not counted was left above the summary, an erase not counted wiped lines said above it, a line the view counted
+    # as said and did not write was lost. The signal comes at a moment of its own while the run says a report and a
+    # line of work each turn with no pause, with the terminal's reader behind, as a person's often is.
+    _events(tmp_path, canned.ONE_TO_CONFIGURE[:6])
+    delay = random.uniform(0.0, LATEST)
+    state: dict[str, float] = {}
+
+    def end_it(output: bytes, screen: VT, master: int, folder: Path) -> None:
+        if "sent" in state:
+            return
+        if "flowing" not in state:
+            if b"report 00001" in output:
+                state["flowing"] = time.monotonic()
+            return
+        if time.monotonic() >= state["flowing"] + delay:
+            state["sent"] = 1.0
+            os.kill(int((folder / "pid").read_text()), signum)
+
+    seen = _at_a_terminal(home, tmp_path, "flow", act=end_it)
+    ran = seen.ran
+    lines = ran.screen.transcript()
+    tail = "\n".join(lines[-60:])
+    assert "sent" in state and seen.watched == {"echo": True, "status": -signum}, tail
+    assert ran.screen.unknown == set() and ran.screen.pending == b"" and ran.screen.frame_wraps == 0, tail
+    # No frame's header or footer anywhere, above the summary or in it.
+    left = [(number, line) for number, line in enumerate(lines) if FOOTER.match(line) or HEADER.match(line)]
+    assert left == [], (left, tail)
+    screen = ran.transcript
+    head = re.search(r"^agent-warehouse  deploy alpha · stopped after .+ at configure", screen, re.M)
+    assert head is not None, tail
+    # Every report said above, once and in order, none wiped; the last of them the last the view took, which the
+    # summary's last ten end with: none counted as said and lost.
+    said = [int(number) for number in FLOWED.findall(screen[: head.start()])]
+    assert said and said == list(range(1, len(said) + 1)), (said, tail)
+    summed = [int(number) for number in SUMMED.findall(screen[head.start() :])]
+    assert summed and summed[-1] == said[-1], (said[-3:], summed, tail)
+
+
+def test_a_question_has_the_region_aside_found_by_the_runs_job(home, tmp_path) -> None:
+    # As runs/ask.py asks one: Live.of(context.job), and the question inside its aside().
+    _events(tmp_path, canned.ONE_TO_CONFIGURE)
+    seen = _at_a_terminal(home, tmp_path, "aside")
+    ran, kept = seen.ran, seen.kept
+    assert seen.watched == {"echo": True, "status": 0}, ran.text
+    ran.assert_drawn_and_gone()
+    assert kept is not None
+    during, after, ended = kept["asked"]
+    # The echo on while it is asked, and off again after it, while the region draws.
+    assert (during, after) == (True, False), kept["asked"]
+    # The region erased before the question, nothing drawn while it is up, and drawn again only half a second on.
+    raw = ran.raw
+    asked, answered = raw.index(b"Go on? "), raw.index(b"yes\r\n")
+    assert raw[:asked].endswith(b"\r\x1b[J"), raw[asked - 40 : asked]
+    assert SYNC_ON not in raw[asked:answered] and SYNC_ON in raw[answered:], raw[asked:answered]
+    again = [then for write, then in zip(kept["writes"], kept["times"], strict=True) if SYNC_ON.decode() in write]
+    later = [then for then in again if then > ended]
+    assert later and later[0] - ended >= live.live_region.SETTLE_SECONDS - 0.05, (later[:1], ended)
+    assert "Go on? yes" in ran.transcript.split("\n")
+
+
+def test_piped_into_a_reader_that_leaves_early_a_run_ends_with_its_own_status(home, tmp_path) -> None:
+    # aw deploy … | head -1: once head has its line and has gone, every write after it fails; the run still ends 0,
+    # and Python says nothing at its exit's flush (BrokenPipeError, and the status 120 it gives).
+    events = [*canned.ONE[:2], (0.7, ("await", None, "go", {})), *canned.ONE[2:]]
+    _events(tmp_path, events)
+    jobs_dir = paths.jobs_dir(paths.home(REPO))
+    argv = [*CHILD, str(LIB), str(jobs_dir), str(tmp_path), "0", "0"]
+    env = environment(home, {"TERM": "xterm-256color", "PYTHONUTF8": "1"})
+    run = subprocess.Popen(
+        argv,
+        cwd=tmp_path,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        process_group=0,
+    )
+    try:
+        assert run.stdout is not None
+        head = subprocess.run(["/usr/bin/head", "-1"], stdin=run.stdout, capture_output=True, timeout=60, check=False)
+        run.stdout.close()
+        (tmp_path / "go").write_text("")
+        _, errors = run.communicate(timeout=60)
+    except BaseException:
+        harness._end(run)
+        raise
+    harness._fail_if_the_desktop_was_reached(stand_ins(home))
+    assert head.stdout.decode().startswith("✓ template"), head.stdout
+    assert (run.returncode, errors.decode()) == (0, "")
+
+
+def test_a_job_has_one_live_view_and_a_second_is_refused_before_it_takes_anything(home, monkeypatch) -> None:
+    # A second view would save the terminal's settings with the first's echo off and put those back after the run, and
+    # leave standard error the first's writer: refused, by the job's folder, whatever Job reads it.
+    errors = io.StringIO()
+    monkeypatch.setattr(sys, "stderr", errors)
+    with _job() as made, _job() as other:
+        # A view that could not be made took nothing, and is no view of the job's, even while its error is kept.
+        with pytest.raises(TypeError, match="a name, a str") as refused:
+            live.Live(made, DEPLOY, io.StringIO(), names={"alpha": 5})  # type: ignore[dict-item]
+        assert live.Live.of(made) is None and made._listeners == [], refused
+        first = live.Live(made, DEPLOY, io.StringIO())
+        listening = list(made._listeners)
+        for again in (made, jobs.Job(made.folder)):
+            with pytest.raises(RuntimeError, match=f"job {made.id} has its live view already"):
+                live.Live(again, DEPLOY, io.StringIO())
+        assert made._listeners == listening and sys.stderr is errors
+        assert live.Live.of(made) is first and live.Live.of(jobs.Job(made.folder)) is first
+        assert live.Live.of(other) is None
+
+
+class Ended(BaseException):
+    """What the ladder's handler of SIGTERM and SIGHUP raises wherever the run's thread is (runs/attached.py's
+    Abandoned), here from a handler of the test's own."""
+
+
+@contextlib.contextmanager
+def _ending_on(signum: int) -> Iterator[None]:
+    """signum's handler raising Ended, as the ladder's does, then the one before put back."""
+
+    def ended(number: int, _frame: object) -> None:
+        raise Ended(number)
+
+    held = signal.signal(signum, ended)
+    try:
+        yield
+    finally:
+        signal.signal(signum, held)
+
+
+class Signalling(io.StringIO):
+    """A stream that sends this process signum as the first text holding `at` is written to it."""
+
+    def __init__(self, at: str, signum: int) -> None:
+        super().__init__()
+        self.at, self.signum, self.sent = at, signum, False
+
+    def write(self, text: str) -> int:
+        written = super().write(text)
+        if self.at in text and not self.sent:
+            self.sent = True
+            signal.raise_signal(self.signum)
+        return written
+
+
+def test_what_an_event_says_is_said_whole_and_a_signal_meanwhile_is_delivered_after(home, monkeypatch) -> None:
+    # A report of two lines, the signal coming as its first is written: both said, then the end at once.
+    monkeypatch.setattr(sys, "stderr", io.StringIO())
+    stream = Signalling("first of two", signal.SIGTERM)
+    with _job() as made, _ending_on(signal.SIGTERM):
+        live.Live(made, DEPLOY, stream)
+        made.emit("stage", "alpha", "provision")
+        with pytest.raises(Ended):
+            made.emit("report", "alpha", "first of two\nsecond of two")
+    assert stream.sent and "second of two" in stream.getvalue(), stream.getvalue()
+
+
+def test_standard_errors_lines_are_said_above_whole_and_a_signal_meanwhile_is_delivered_after() -> None:
+    errors = Signalling("one", signal.SIGHUP)
+    above = live._Above(live.Display(io.StringIO(), errors), errors)
+    with _ending_on(signal.SIGHUP), pytest.raises(Ended):
+        above.write("one\ntwo\n")
+    assert errors.getvalue() == "one\ntwo\n"
+
+
+class Gone(io.StringIO):
+    """A stream whose terminal has gone: each write fails."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.tries = 0
+
+    def write(self, text: str) -> int:
+        self.tries += 1
+        raise OSError(errno.EIO, "Input/output error")
+
+
+def test_once_a_write_to_a_stream_fails_nothing_more_is_written_there() -> None:
+    gone, errors = Gone(), io.StringIO()
+    display = live.Display(gone, errors)
+    for line in ("one", "two", "three"):
+        display.display(line)
+    display.display("on standard error", stderr=True)
+    assert gone.tries == 1 and errors.getvalue() == "on standard error\n"
+
+
+@pytest.mark.parametrize("inheritable", [False, True], ids=["kept-from-children", "inherited"])
+def test_a_stream_whose_pipe_is_broken_is_pointed_at_dev_null_so_its_last_flush_succeeds(inheritable) -> None:
+    # As inheritable as it was: a child that inherits the run's standard output inherits /dev/null, and one that does
+    # not is never handed it.
+    read, write = os.pipe()
+    os.close(read)
+    os.set_inheritable(write, inheritable)
+    stream = os.fdopen(write, "w", encoding="utf-8")
+    try:
+        live.Display(stream, io.StringIO()).display("a line nobody reads")
+        null, found = os.stat(os.devnull), os.fstat(write)
+        assert (found.st_dev, found.st_ino) == (null.st_dev, null.st_ino)
+        assert os.get_inheritable(write) is inheritable
+        # What it still held goes there at the flush Python makes at its exit.
+        stream.write("and the rest")
+        stream.flush()
+    finally:
+        stream.close()
 
 
 def test_piped_a_run_says_a_line_as_each_step_ends_and_draws_nothing(home, tmp_path) -> None:
