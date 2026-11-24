@@ -1627,7 +1627,8 @@ and one rule: of the new engine, only `downloads.py` reaches `openpgp` - by an i
 ## 16.8 `runs/` — a run's record and text log, the locks, a detached run
 
 `lib/claude_vm/runs/` is where a run goes: its one record and its text log, the kernel's file locks the run holds, the
-run's end on a signal, and a run detached as the same program in a session of its own. It imports
+run's end on a signal, a run detached as the same program in a session of its own, and the run as a person reads it,
+from the stages its verb declares and the events it emits, drawn as today's runs are. It imports
 `schema/`, the printer of a command among it for the line that cancels a run, and `fleet/`, and nothing of `cli/`,
 `engine/` or `control/`, and no pydantic.
 
@@ -2047,6 +2048,152 @@ and ended, its run ending with its body's own status: one that reads it (SIGTTIN
 first as `readpassphrase` does (SIGTTOU), and `route.py`'s `ssh`; and a run at a pseudo-terminal, its terminal its
 controlling one, whose child of kind `ssh`, in a group of its own in the run's session, asks nothing for three seconds
 starts no `ps`, counted by a stand-in first on its `PATH`.
+
+**A run as a person reads it: `stages.py` and `model.py`.** A verb declares what its run is made of, and its workstream
+writes the declaration: `Declared(title, stages)`, each `Stage` with a key, which the run's events name, the label a
+person reads, its `Step`s (each a key and a label), whether its work is each machine's (its rows mark each machine; the
+template's and the golden template's are the host's and mark none), and whether it is quiet (counted, and drawn only
+once something in it failed). Keys are lower-case words joined by hyphens; a stage declares every step its events may
+name, or none. Pure data. `stages.DEPLOY` is `deploy`'s, with today's labels (`lib/claude_vm/run/recipes.py`): template,
+provision, configure, SSH aliases, sign in (Claude, GitHub, Tailscale), editor (today's window's ten steps), a quiet
+finish, golden template.
+
+`model.Run(declared, now, machines)` takes each event of the run in its own process, `feed(event, now)`, the time given
+by its caller, so nothing in it reads a clock, a file or the terminal, and nothing is kept between two processes; it
+imports nothing of `tui/`, which draws it. A machine is keyed by its identity (`agent-warehouse-<SMBIOS UUID>`), as
+`job.json`'s `machines`, a machine's `end` and layer 1's step events name it: one key for every event of a machine. The
+name a person chose rides beside it, as an event's `name` (layer 1's steps carry it) or as the run's machines given as a
+mapping of identity to name; the model keeps each identity's name (`names`, `name(machine)`), and a drawer says the name
+wherever it says a machine. Every emitter passes the identity: an event whose machine is the name the run keeps for
+another key, or whose `name` is another key of the run's, is refused, so one machine is never two rows drawn under one
+name. The events it reads, their text plain as `emit` makes it (a tab, a line break and Unicode's format characters
+stay, and a drawer makes them visible):
+
+| Event | What the model makes of it |
+|---|---|
+| `stage`, its text a stage's key | No `outcome`: the stage begins. `outcome` done, skipped or failed (with `why`): it ends, and so does whatever of its steps is still open for it |
+| `step`, its text a step's key, `stage` its stage | Begins or ends that step as a stage does; its start begins its stage where that had not begun for its machine, never one that has ended for it (its failure and its time kept) |
+| `step` that names no stage | A line of a machine's work (each of layer 1's events): kept as that machine's latest line, beginning and ending nothing |
+| `report` | Kept whole, in order, to be printed above the region |
+| `waiting` | Opens the wait of its machine and its `section`, in place of one open; an empty text ends that wait alone |
+| `next` | A line of NEXT STEPS for its machine and `matter`; an empty line removes it |
+| `end` | With a machine: its outcome, the stage it reached (`stage`, else its own last `stage` event, as the job's record keeps it), why, and what of it is open ends (done, failed, stopped). With none: the run's end; everything open ends, done where the run succeeded and stopped where it failed or was cancelled, and no event is taken after it |
+
+A `stage` or a `step` is for one machine, or with no machine for every machine of the run: a machine with no part of its
+own in a stage or a step reads every machine's part where that began before the machine's own end, by the order the
+events came in, so a machine that has ended takes no part in a stage begun after it; its own begin while that part runs
+takes the part's start, so its time in the stage goes on. A stage that ended reads failed for a machine where a step of
+it failed for that machine, and for the run where one did for any: the failure wins, as today's. A wait for the person
+is one with no section (a short section's wait, `locks.section`'s, is for another run); a wait also ends when its
+machine ends, at the cancel (`cancel(now)`, when a person stops the run: nobody is asked any more) and at the run's end.
+So a clear of one machine's wait, or of a wait with no section, never ends another machine's or a section's, where the
+job's record keeps one wait for the whole run. No count of tasks is guessed: a stage or a step is done when its event
+says so, and one still open at the run's end is done where the run succeeded and stopped where it failed or was
+cancelled: cut short, never failed, since what failed said so itself. An event of a stage the declaration lacks, of a
+step its stage does not declare, of a kind the job lacks, an ending other than done, skipped or failed, a NEXT STEPS
+line with no matter, a name that is no str, a machine named by the name the run keeps for another key or a name that is
+another key, and anything after the run's end are refused before anything is kept.
+
+What a drawer reads: `state(stage, step)` (to come, running, waiting, done, skipped, failed, stopped), `mark(machine,
+stage, step)` and `marks(stage, step)` (each machine's, none for a stage that is not each machine's), `running()` and
+`running_stage()`, `seconds(now, stage, step, machine)`, the waits (`waiting()`, `waiting_for_you()`, `waited(now, ...)`
+for the person's time), `reports`, `failures` (each said once: a step that ended failed; a stage that ended failed for a
+machine with no failure of it said for that machine, or for every machine where none of it was said or where it cut
+short a part still open; a machine that ended failed with nothing of it failed before, or where its end cut short a
+step still open or a stage in which no failure was said for it; and the run's own `why`, where it ended failed with
+nothing failed before or where it cut short a part still open; so a machine that ends failed only because of a failure
+already said, a step's of the stage it is in among them, says nothing twice, nor does a run that fails only because its
+machines did, with nothing left open), `outcomes` (each machine's), the run's `outcome`, `exit` and `why`, `latest`,
+`names` and `name(machine)`, and `next_steps()`: NEXT STEPS by machine, by the name a person chose as today's orders by
+VM name, the run's own first, then by matter in today's order, each line once, through
+`lib/claude_vm/run/next_steps.py` as it stands.
+`tests/unit/test_aw_run_model.py` holds it with canned runs (one machine, three, one failing in configure, one waiting for
+a sign-in, one cancelled), each event's effect, every refusal leaving the model as it was, a run fed by a job's own
+`emit`, and each rule above with a test of its own.
+
+**The run drawn: `view.py`.** `View(run, started_at=..., title, log, host, check)` draws the model as today's runs are
+drawn, with `tui/screen.py`'s lines, palette and cut and `tui/run.py`'s module-level functions (its marks, a report's and
+a failure's lines, a report's first sentence) and its two helpers for a summary's lines, as they stand: `tui/run.py`
+draws today's model of Ansible's tasks, whose counts, bars and windows of tasks the new model has not, so no base class
+is shared and today's file is unchanged. It gives `frame(now, cols, rows, glyph, color)`: the header (the run's title,
+its host beside a second, the clock it started, a dry run), every stage drawn but a quiet one where nothing failed, each
+row its mark, its label and its time at the right edge and, where the run has two machines or more and the work is each
+machine's, each machine's mark (`alpha ✓ · beta ⠴ · gamma ○`, or their count where they do not fit; a machine that has
+ended is to come, `○`, in a stage begun after its end); under the running
+stage its steps, and under the stage or step under way each machine's latest line of work (`latest`, where today's
+window of tasks stood) and each wait for another run's section, with the time since; a wait for you on the stage's row,
+with what the run waits for, whose and since when; folded to the height as today's (the steps to come, then the stages to
+come, on a line each); a run of one stage drawn as its steps; and a footer (the run's clock, the stage or step it is at,
+waiting for you, stopping once a person stopped it, the log). `title_text(now)` says where the run is, waiting for you, or
+how it ended (done, failed, stopped), with no percentage, since nothing counts tasks. `ended_lines(now)` gives a line as
+each step and stage ends, and as each wait begins, for output that is no terminal, in today's columns and the order they
+happened: a stage of each machine's work is said once every machine of the run is through it or ended (or the run is
+over), so a fleet whose machines reach a stage one after another says it once; a wait is said once, with its stage and
+step, whose and what it waits for, a wait for you said so (`⏸ sign in / Claude ... waiting for you · alpha: Approve the
+sign-in in your browser`), a short section's in its own words. `above(cols, color)` gives what is said above the region
+since its last call, in the order said: each report whole, under its machine, wrapped and never cut, and each failure
+with where, whose, why and the log, the run's own among them. `summary(now, cols, color, next_steps)` gives how the run
+ended (done; done with the machines that failed; failed, and where, with the run's own why in place of the clock where
+it failed of its own error; stopped, and where), each stage's mark and time with each machine's mark and its steps' times and your time in
+them, what it never reached, each machine's reports a line each (the run's own under THIS MACHINE) but what NEXT STEPS
+says whole, and the totals; NEXT STEPS itself is the caller's to print after it, as today's run prints it. No line of a
+frame or a summary is wider than `cols - 1`. A machine is said by the name a person chose (the model's `name`), never by
+its identity, wherever a machine is said: the title, the marks, a line of work, a wait, a report's head, a failure's
+whose and the summary's headings. What the events said is made visible before it is drawn, as today's engine makes every
+report: a wait's words, a line of work and a name one line (`text.one_line`: no line break, tab, control or format
+character), and each line of a report or a failure visible (`text.visible_text`), its tabs expanded and its blank first
+and last lines dropped. Nothing in it prints, reads a clock, a file or the terminal: the caller, the live view, prints
+what it gets. Provision's row says no VM ID or address: nothing declared carries them, and the
+run's report that the machine is up says its address above and under the machine in the summary.
+`tests/unit/test_aw_run_view.py` holds it with canned runs, each timed as the matching run of today's
+`tests/unit/test_run_view.py` and compared with it row for row where the two have the same stages, at every width and
+with `tests/unit/vt.py`, which counts no line wrapped at 80 or 100 columns, and each rule above with a test of its own.
+
+**The live view: `live.py`.** A run draws itself, in its own process, from the events it emits: no event file, and no
+other process redraws it (following a run from another terminal reads its text log). `Live(job, declared, stream)`, made
+in the run's thread once its job exists, listens to the job's events, feeds each to the model at its own clock
+(`time.monotonic()`, never the event's wall-clock time) and says the run in one of three ways, decided at its start.
+Where the stream is a terminal that can take the region (`live_region.can_draw`), the view's frame is drawn on the
+stream through the one live region every live output shares (`tui/live_region.py`'s `LiveRegion`, given a small
+`Display` of its own, as the status engine gives it one: a lock, `display()` and the two prompt methods, which refuse,
+since a run's questions are asked by a module of their own that steps the region aside): redrawn after each event and
+ten times a second for the spinner, the terminal's title saying where the run is, the echo off while it draws; what is
+said above (`View.above`: each report whole, each failure) printed above the region after each event; and while it
+draws, standard error said above the region too, a whole line at a time, so that the ladder's `stopping` line at a
+Ctrl-C, or a warning, never lands inside the region. Where the stream is no terminal, what is said above and a line as
+each step and stage ends (`View.ended_lines`). With any `-v` (`RunWords.verbosity`), each event as one line, its kind,
+machine, text and data (`streamed`), and nothing drawn, as today any `-v` gives the stream. At the run's own end (the
+`end` event with no machine, which `attached.py` emits last, after the terminal is put back) the region goes and the
+echo comes back, standard error is the run's own again, and the summary is printed with NEXT STEPS after it, whole, in
+the `#` block every run ends with (`text.banner`, in the palette's yellow); with `-v`, NEXT STEPS alone. A wait for you
+that begins rings the bell, and so does the end. A person's stop (the run's `Context.cancelled`, which the first Ctrl-C
+sets and no event carries) reaches the model at the next event or frame (`Run.cancel`), so the footer says the run is
+stopping. An event the model refuses (an undeclared step, a malformed end) is said in one line on standard error and
+left out: the run goes on, and every listener after the view still hears it. Nothing in `runs/` writes an escape
+sequence or reads the terminal itself: the region, the palette, the title and the echo are `tui/`'s. The model's
+machines are the job's own, `job.json`'s `machines`, by identity, the key every event of a machine names, each with the
+name a person chose where the caller gives it (`names`): the record keeps identities alone, and the view says a machine
+by its name. A job has one view: a second is refused (`RuntimeError`), the first keeping it. What the view says in the
+run's thread, each event's lines and standard error's lines above the region, is said whole, a Ctrl-C, a SIGTERM and a
+SIGHUP held off meanwhile and each delivered once it is said (`live_region.uninterrupted`, which also holds each of the
+region's writes and its count of the lines drawn): the ladder raises from its handler wherever the run's thread is, and
+a frame drawn but not counted would be left above the summary, an erase not counted would wipe lines said above it, and
+a line counted as said but not written would be lost. Once a write to the stream fails nothing more is written there,
+and a stream whose pipe is broken (`aw … | head -1`) is pointed at `/dev/null`, so that Python's flush at the exit
+succeeds and the run ends with its own status. A question at the run's terminal finds the run's view by the job its
+`Context` carries, `Live.of(context.job)` (None for a run with no view), and asks inside `with view.aside():`, which
+steps the region aside as it does for a prompt: erased and paused, the echo on; after, the echo off again and the region
+drawn once the run has worked half a second more. `tests/unit/test_aw_live.py` holds it at a pseudo-terminal, a run made
+by `runs.run` in a child process emitting a canned run: each redraw one write, no line wrapped at 80 or 100 columns, the
+echo off while it draws and back after a return, a Ctrl-C, a SIGTERM and a SIGHUP, a report and a failure said above
+and left there, the stopping line above the region and the footer saying so, the summary and then NEXT STEPS once; a
+SIGTERM or a SIGHUP at a random moment while events flow, no frame's remains left and no line said above lost; a
+question asked aside; piped, a line as each step ends, and into a reader that leaves after the first line, the run's
+own status; with `-v`, each event a line; in its own process, with a clock of its own, that what a run says off a
+terminal is exactly what the view gives after each event, a refused event said once with the run going on, a person's
+stop reaching the model, what an event says and standard error's lines said whole with a signal meanwhile delivered
+after, a second view refused, a stream gone written no more, and nothing said after the end; and by a scan, that no
+module of `runs/` names an escape sequence or `/dev/tty`.
 
 ## 16.9 `fleet/` — the fleet's files, the settings, the secrets and the fleet's mark
 

@@ -801,11 +801,15 @@ good, and runs at exit, Ctrl-C included.
   exactly the lines drawn and nothing else, so no line may wrap: a frame taller than the screen keeps its
   top and its last line, with `more` saying how many it leaves out. A screen under 4 rows or 20 columns
   gets no region, since one as tall as the screen would scroll each redraw. The cursor is never hidden.
-  Each write and its count of the lines it drew hold a Ctrl-C off between them, by a SIGINT handler of their
-  own that hands the signal to the one in place right after: a `KeyboardInterrupt` in that gap left the count
-  stale, so the erase that followed missed the region, which stayed on the screen above the run's last words.
-  A signal mask would not do: it holds the signal in one thread, the kernel hands it to another, and Python
-  raises it in the main thread all the same.
+  Each write and its count of the lines it drew hold a Ctrl-C, a SIGTERM and a SIGHUP off between them
+  (`uninterrupted`), by handlers of their own that take note of each and, once the count is right and the
+  handlers in place before are back, raise each again in the order it came, so a default still ends the process
+  there: a `KeyboardInterrupt` in that gap left the count stale, so the erase that followed missed the region,
+  which stayed on the screen above the run's last words, and a program that raises from its own SIGTERM or SIGHUP
+  handler (the new engine's run, [§16.8](engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run))
+  left a frame's remains there, or wiped lines said above it. A signal ignored, as `nohup` leaves SIGHUP, stays
+  ignored. A signal mask would not do: it holds the signal in one thread, the kernel hands it to another, and
+  Python raises it in the main thread all the same.
 - **Everything else above it.** It wraps `Display.display`: each call erases the region, prints, and draws
   it again, under `Display`'s lock, so every write to the log takes the locks in one order. A route, given
   the call's keyword arguments, may send it to the log alone (`log_only`), which a live run does with the
@@ -815,7 +819,8 @@ good, and runs at exit, Ctrl-C included.
   `Display`'s lock to read the keys (ansible-core 2.21), and a `vars_prompt` reads with `input()`
   (`Display.do_var_prompt`). Both are wrapped: the region erases and pauses itself before the prompt and draws
   again once it returns and the run has worked half a second more (`SETTLE_SECONDS`), so questions one after
-  another - `just init`'s - show no frame between them; the spinner draws nothing meanwhile.
+  another - `just init`'s - show no frame between them; the spinner draws nothing meanwhile. A program's own
+  question steps it aside the same way, inside `aside()`, which the wrappers use too.
 - **The terminal.** Its echo is off while the region is up, and on for a prompt and at the end: an Enter
   typed during a run would move the cursor under the region, and the next redraw would leave a copy of it
   behind. A resize (`SIGWINCH`) pushes the screen into the scrollback and draws afresh, since no count of

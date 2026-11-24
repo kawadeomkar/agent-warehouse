@@ -844,6 +844,19 @@ def _closes_no_fds(text: str) -> list[str]:
     return found
 
 
+def _as_it_was(flag: ast.expr, call: ast.Call) -> bool:
+    """Whether a dup2's inheritable flag is the one its target has already, get_inheritable of the same descriptor, as
+    runs/live.py points a broken pipe's standard output at /dev/null: the copy no more inheritable than the descriptor
+    it replaces, so nothing is handed to a child that it was not handed before."""
+    return (
+        isinstance(flag, ast.Call)
+        and getattr(flag.func, "attr", getattr(flag.func, "id", "")) == "get_inheritable"
+        and len(flag.args) == 1
+        and len(call.args) >= 2
+        and ast.dump(flag.args[0]) == ast.dump(call.args[1])
+    )
+
+
 def _hands_over(text: str) -> list[tuple[int, str]]:
     """Each place source names pass_fds, or makes a descriptor inheritable, by its line."""
     found = []
@@ -871,12 +884,14 @@ def _hands_over(text: str) -> list[tuple[int, str]]:
             and getattr(node.func, "attr", getattr(node.func, "id", "")) == "dup2"
             and not any(
                 keyword.arg == "inheritable"
-                and isinstance(keyword.value, ast.Constant)
-                and keyword.value.value is False
+                and (
+                    (isinstance(keyword.value, ast.Constant) and keyword.value.value is False)
+                    or _as_it_was(keyword.value, node)
+                )
                 for keyword in node.keywords
             )
         ):
-            # os.dup2 makes the copy inheritable unless told not to.
+            # os.dup2 makes the copy inheritable unless told not to, or told to keep the flag its target has.
             found.append((node.lineno, "dup2"))
         elif isinstance(node, (ast.Attribute, ast.Name)) and (
             node.attr if isinstance(node, ast.Attribute) else node.id
@@ -1076,10 +1091,12 @@ def test_the_scan_sees_close_fds_turned_off(source, found) -> None:
         ("subprocess.Popen(['x'], **{'pass_fds': (3,)})", [(1, "pass_fds in a mapping")]),
         ("os.dup2(lock, 9)", [(1, "dup2")]),
         ("os.dup2(lock, 9, inheritable=True)", [(1, "dup2")]),
+        ("os.dup2(null, fd, inheritable=os.get_inheritable(lock))", [(1, "dup2")]),
         ("fcntl.fcntl(fd, fcntl.F_SETFD, 0)", [(1, "F_SETFD")]),
         ("fcntl.fcntl(fd, fcntl.F_DUPFD, 10)", [(1, "F_DUPFD")]),
         ("os.pipe2(0)", [(1, "pipe2")]),
         ("os.dup2(lock, 9, inheritable=False)", []),
+        ("os.dup2(null, fd, inheritable=os.get_inheritable(fd))", []),
         ("fcntl.fcntl(fd, fcntl.F_DUPFD_CLOEXEC, 10)", []),
         ("os.set_inheritable(fd, False)", []),
     ],
