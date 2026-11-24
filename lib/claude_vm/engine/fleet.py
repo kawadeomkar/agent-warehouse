@@ -165,7 +165,10 @@ class Host:
     are on (claude_ssh_config), fleet.json's record, the fleet's hosts (layout), the environment its settings were read
     from, the names a VM may not take (localhost and the fleet's hosts) and those this computer reaches a host by (with
     each host's address), and every host's token's secret the vault holds, by the host's name, which asking another host
-    needs. A context manager that closes the client."""
+    needs. Beside them, what the route to its machines is settled from (engine/routes.py): the fleet's home, its
+    host.yml as it was read (fields: its address, ssh_user, ssh_port and jump), and every setting's value for the run
+    against it (values, overrides.resolve's, read-only), vm_ssh_route, ssh_identity_file, ssh_executable and
+    vm_ssh_options among them. A context manager that closes the client."""
 
     name: str
     client: Proxmox
@@ -179,6 +182,9 @@ class Host:
     environ: Mapping[str, str]
     hosts_named: tuple[str, ...]
     reached_by: tuple[str, ...]
+    home: paths.Home
+    fields: hosts.HostFile
+    values: Mapping[str, overrides.Value]
     tokens: Mapping[str, Secret] = dataclasses.field(repr=False)
 
     def __enter__(self) -> Host:
@@ -321,6 +327,9 @@ def connect(
         environ=env,
         hosts_named=named,
         reached_by=reached_by,
+        home=home,
+        fields=reached.fields,
+        values=MappingProxyType(dict(values)),
         tokens=MappingProxyType(tokens),
     )
 

@@ -740,9 +740,10 @@ def route_settle(setting, hop: dict, limit=None, *, process_group=None, signalle
     then that name's addresses here, now. The ``ssh -G`` is started as _run starts its ssh, so that end_all ends it
     (_asked). ``process_group`` is _run's, for the ``ssh -G``. With ``signalled_settles`` false, the new engine's, an
     ``ssh -G`` that gave no answer settles nothing - one a signal ended, one past its limit (whose kill is a signal
-    too), and one not started since the run is ending: HopRefused, naming vm_ssh_route, where today's callers settle
-    from the address as written, which may be ``direct`` where the person's configuration sends the host to a
-    tailnet."""
+    too), one not started since the run is ending, and one that could not be run at all, the ssh program or the
+    temporary file its standard error is read from not made, said with what could not be: HopRefused, naming
+    vm_ssh_route, where today's callers settle from the address as written, which may be ``direct`` where the person's
+    configuration sends the host to a tailnet."""
     import subprocess
 
     setting = str(setting or "auto")
@@ -763,8 +764,11 @@ def route_settle(setting, hop: dict, limit=None, *, process_group=None, signalle
         text, unanswered = "", f"said nothing of where ssh dials for it within {limit} s"
     except NotStarted:
         text, unanswered = "", "was not started, since the run is ending"
-    except OSError:
-        text = ""
+    except OSError as error:
+        # The ssh program, or the temporary file _asked reads its standard error from (no temporary folder usable): to
+        # today's callers an ssh that cannot be run, where nothing can be dialled anyway; to the new engine no answer.
+        what = f"{error.strerror}: {error.filename}" if error.strerror and error.filename else error.strerror or error
+        text, unanswered = "", f"could not be run ({what})"
     if unanswered and not signalled_settles:
         raise HopRefused(
             f"ssh -G for the Proxmox host {unanswered}, so the route under vm_ssh_route: auto is not settled",

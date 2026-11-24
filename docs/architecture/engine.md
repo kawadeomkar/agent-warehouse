@@ -640,6 +640,53 @@ record cannot be read, one the token holds `NoAccess` on among them; two members
 `tests/unit/test_vm_names.py`'s cases and the guest addresses' of `tests/unit/test_filters.py`, with scans that nothing
 here reads a label or the listing's status and that `requested` returns a target for a change through `owned`.
 
+**The route to the machines: `routes.py`.** A run settles how it reaches its host's machines once, and every
+connection it makes holds to that: `settle(run, host)` is today's rule, `route.py` as it stands, called through
+`ssh/connections.py` (16.6). The setting `vm_ssh_route` is this computer's own for the run's host, read from
+`client.yml`'s map `hosts` under the host's name and never another host's; `direct` and `host` say what they say, and
+`auto` is `host` where every address `ssh` dials for the host is a tailnet one - the host as its own `ssh -G` resolves
+it, a `HostName` of the person's among it, then that name's addresses here - worked out at each run and never kept. The
+hop is the Proxmox host as `ssh` reaches it, its own `Target` made by `host_target`, which root SSH's read of the host's
+certificates takes too: `host.yml`'s address, `ssh_user` (or `jump`, another account there) and `ssh_port`, this
+computer's `ssh_identity_file` and `ssh_executable` for it. Where the route goes through the host and `vm_ssh_options`
+for every machine names no jump, the hop's login is made there, before anything else of the run; otherwise the first
+machine that takes the hop makes it, and a run where none does makes none. A route that cannot be settled - an `ssh -G`
+under `auto` that gave no answer, the route through the host from a home too long for its socket - and a hop whose
+login fails stop the run (`Unusable`, a `Refused`) with the sentence that names `vm_ssh_route`, and nothing dials a
+machine: there is no fallback either way.
+
+`Route.targets(machines)` is the one function that makes a machine's SSH arguments: a `runner.Target` of its identity,
+its one address, the account a run logs in as, `ssh_executable`, and the person's `vm_ssh_options` for it (the run's,
+else `client.yml`'s for that machine, else for every machine); where the route goes through the host and the machine
+brings no jump of its own - a `ProxyJump`, a `-J` or a `ProxyCommand` other than `none` among those options, or in what
+`ssh -G` resolves for its address from the person's own `~/.ssh/config` - the hop's `ProxyCommand` to its own address,
+after the product's options, which `ssh` keeps since they come first (`target_for`). Only a Proxmox VM takes the hop.
+Before anything connects, each machine's own `ssh` is asked with its whole line and no configuration file which proxy
+it takes, and any other than the route's is refused (`held`). Where any takes the hop, its login is made, once a run,
+then one forward of its own to the first of them by name (`Connections.forward`): a host that refuses to forward
+there, or an `ssh` that cannot use it as a hop, stops the run, its sentence naming the account `host.yml`'s `jump`
+gives; a machine that says nothing to the forward, or a login for it that does not finish, is said once and stops
+nothing, the machine failing alone when it is first reached. `Route.ready()` makes sure of the shared connection again
+wherever its login was made, before a step that reaches many machines at once and after a wait on a person, and fails
+no machine: a hop that is gone shows as each machine not answering. The run says once, as its report, how the machines
+are reached through the host (with `aw status`, the printer's), each machine reached by a jump of its own, and each of
+the connections' notes. `Route.proxy_jump` is the hop as an alias's `ProxyJump` names it, only once its login was made,
+so an alias gains it only through a hop that was checked. Every `ssh` for the hop itself is `route.py`'s, under its hard
+limits; never `-O exit`.
+
+`tests/unit/test_aw_routes.py` holds it on a whole fleet folder, the host's VMs and the host itself stand-ins
+(`tests/unit/aw_machine.py`, 16.10), the host the hop at the fake's own address, carrying
+`tests/unit/test_vm_route.py`'s cases: each VM through the host after the product's options, its socket named with the
+hop, the login once at the run's start and one forward to the first VM by name; `auto` both ways, worked out at each run;
+a login refused, forwarding prohibited and `ssh` failing to use the host each stopping the run before any VM is
+reached; a VM that says nothing said and stopping nothing; a jump of a VM's own, from its options or the person's
+configuration, and one every VM is given, which puts the login off for good; a line that would lose the product's
+options refused before anything connects; a stale shared connection made again. And a configure through the stand-in
+hop, layer 1's own `ssh` riding it, which with the hop refused stops before any connection to the VM; the route this
+computer's own for each host; only a VM taking the hop; the notes said once; and two rules, every fleet a test makes
+pinning `vm_ssh_route: direct` (`tests/unit/fleet_fixture.py`), and no module of `engine/` but `routes.py` making a
+`Target`, by a scan.
+
 ## 16.5 `pve/` — the typed Proxmox client and the one table of privileges
 
 `lib/claude_vm/pve/` is where the typed client of the Proxmox VE API goes, with the one table that names each call's
@@ -1193,7 +1240,8 @@ settles it for the Proxmox host's own `Target` - its account, or `vm_ssh_jump`'s
 `route.hop_settings` and `route.route_settle`, as `{route, setting, hop, policy, addresses}`, and raises
 `route.HopRefused` as it is, which names `vm_ssh_route: direct`; under `auto` only where the rule would go through the
 host, and where the `ssh -G` that says where `ssh` dials for the host gave no answer - ended by a signal, out of its
-time, whose kill is a signal too, or not started, since the run is ending - which settles nothing
+time, whose kill is a signal too, not started, since the run is ending, or not run at all, the `ssh` program or the
+temporary file its errors are read from not made, said with what could not be - which settles nothing
 (`signalled_settles=False`, where today's callers settle from the address as written). Where the route goes through the host and the hop's socket would pass `route.SOCKET_MOST` (a
 long home), `route` refuses it in this engine's words (`LONG_HOP`), naming `vm_ssh_route: direct` or a shorter home: the
 hop is one shared connection, and none can be bound there. `target_for(job, machine,
@@ -1216,10 +1264,12 @@ made sure of: a machine that takes no shared connection, and the hop where the r
 a master opened before the key is filed would carry later runs with no key checked. `first_use(job, target)`
 makes a machine's `Target` one where the product's file holds no key under its identity (`hostkeys.kept`), its scratch
 file fresh in the run's own directory (`rundir.made`): a changing verb's first connection to a machine calls it, files
-the key it took, and only then asks `ensure`; `status`, which takes no key, never calls it. Nothing in `ssh/` tries a
-connection again. Until the engine settles its route once a run and holds every connection to it, `direct_only(settled)`
-refuses every settled route but `direct`, by name, with the sentence that names `vm_ssh_route: direct`: the workflows
-call it before their first connection to a machine, and it never dials one the rule would take through the host.
+the key it took, and only then asks `ensure`; `status`, which takes no key, never calls it. `forward(target, settled)`
+is the one forward of its own through the hop to a machine that takes it (`route.hop_forward`: a connection of its own,
+`ControlPath=none`, at `LogLevel=VERBOSE`, under its hard limit), its `ssh` in a process group of its own and off the
+loop, and answers `route.forward_verdict`'s verdict; it refuses a machine with no hop and a route that is direct. Nothing
+in `ssh/` tries a connection again. The engine settles its route once a run, and gives every machine its `Target`,
+through `engine/routes.py` alone (16.4).
 
 `tests/unit/test_aw_ssh_runner.py` holds it against a stand-in `ssh` that records its words, its environment and its
 standard input: the options and their order, word for word, for every form; the values they hold as this machine's own
@@ -1248,7 +1298,8 @@ run's group while `ssh -G` settles the route killing no `ssh` (its stand-in wait
 the Ctrl-C, never for a time), `route`, `ensure_hop` and `held` each waiting on an `ssh` held until a task on the same
 loop lets it go, an `ssh -G` ended by a signal or out of its time settling nothing, the hop's lines holding the three
 pins first, the route through the host refused from a long home while `direct` settles there, a master's open, a
-machine's and the hop's, left out of what a run remembers, and `direct_only`; and three rules by scans: no control
+machine's and the hop's, left out of what a run remembers, and the forward, `route.hop_forward`'s, in a group of its
+own and only for a machine that takes the hop; and three rules by scans: no control
 command but `-O check` in the new subpackages, never `-O exit`; nothing in `ssh/` tries a connection again; and only
 `ensure` opens a master, with the kind that carries no marker, an f-string's `ControlMaster` and ssh's flags run
 together (`-NM`) read too.
@@ -2603,7 +2654,16 @@ checks unless given another. The stand-in records every call in that machine's `
 its variables, never their values), and runs the command with `/bin/sh -c` in the machine's home, with no terminal (so
 `/dev/tty` fails at once, as under `sshd`), with that home, its `bin/` first on `PATH` and the test's own failing
 stand-ins next, and nothing else of the test's environment, its standard input passed through untouched; `-O check`
-and `-O stop` answer as a live master would, and a forward is recorded and never opened. `planted()` makes a VM of the
+and `-O stop` answer as a live master would, and a forward is recorded and never opened. A `ProxyCommand` other than
+`none`, the first given, is run as `ssh` runs one before the key is checked, its tokens expanded, and the connection goes
+on only where it answers as an SSH server first does; `ssh -G`, which dials nothing, is answered by this computer's own
+`ssh` by its path, given the test's own configuration (`-F` with `HOME`'s `.ssh/config`, or `/dev/null`, where the line
+gives none), since OpenSSH finds `~` in the account database and would read the developer's. `hop()` makes a stand-in
+Proxmox host the hop to the machines (16.4's routes), at one of RFC 5737's addresses or the fake Proxmox's own: its
+`-O check` and `-O stop` answered from a file at the socket's path (live, or stale for a socket nothing listens at), its
+master's open writing that file or refused as a login is, and a forward through it (`-W`) meeting, in the mode
+`hop_modes()` sets, the host refusing to forward, `ssh` failing to use it, a machine that says nothing, a login that
+never ends, or the machine's `sshd`'s first words. `planted()` makes a VM of the
 Proxmox fake that machine: its guest agent reports the machine's address on the VM's own card, and its SMBIOS UUID is
 the identity's. An adopted machine is a stand-in made without it. Layer 1 meets a stand-in only in a play of one task
 over its test-only `local` connection (`layer1_host()`), which touches only the machine's directory, since the real

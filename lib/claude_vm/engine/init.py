@@ -61,7 +61,7 @@ from ..schema.words import EXITS, PLACEHOLDER, Line
 from ..secret import Secret
 from ..ssh import runner
 from ..text import one_line, plain_text
-from . import certificate
+from . import certificate, routes
 
 if TYPE_CHECKING:
     from ..runs.attached import Context
@@ -421,23 +421,19 @@ def _differs(typed: Given, found: _Set) -> list[str]:
 
 
 def _root_ssh(job: Job, address: str, fields: hosts.HostFile | None, values: Mapping[str, overrides.Value], environ):
-    """The read of the host's certificate files over root SSH, as a child of job's run: the host's account and port
-    (host.yml's ssh_user and ssh_port), this computer's key for it and its ssh (client.yml's ssh_identity_file and
-    ssh_executable). A target the runner refuses is root SSH that did not answer."""
-
-    # The ssh program where client.yml names one; the runner's own default where it names none.
-    named = values["ssh_executable"].value
-    program = dict(ssh=named) if named else {}
+    """The read of the host's certificate files over root SSH, as a child of job's run: the host's own Target as
+    routes.host_target makes it, the one function that does - its account and port (host.yml's ssh_user and
+    ssh_port), this computer's key for it and its ssh (client.yml's ssh_identity_file and ssh_executable). A target the
+    runner refuses is root SSH that did not answer."""
 
     async def read() -> certificate.Read:
         try:
-            target = runner.proxmox_host(
+            target = routes.host_target(
                 address,
                 fields.ssh_user if fields is not None else "root",
-                paths.control_dir(environ),
-                port=fields.ssh_port if fields is not None else 22,
-                identity_file=values["ssh_identity_file"].value or None,
-                **program,
+                fields.ssh_port if fields is not None else 22,
+                values,
+                environ,
             )
             return await certificate.read_over_root_ssh(job, target, environ)
         except (runner.Refused, paths.Refused) as error:
