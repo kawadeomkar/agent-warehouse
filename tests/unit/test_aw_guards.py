@@ -54,7 +54,8 @@ REVEALS: dict[str, str] = {
     "lib/claude_vm/fleet/sealed.py": "the vault's plaintext and its key, each value read in _plain and the key in"
     " _identity alone, and encrypted in memory before anything is written",
     "lib/claude_vm/engine/init.py": "the token's secret given, compared in _same alone with the one the vault holds for"
-    " its host, so that init never writes over it: never sent on, written or said",
+    " its host, so that init never writes over it; and a hidden answer typed at init's question, held to its kind in"
+    " _kind_of alone and wrapped again at once (card E5): never sent on, written or said",
 }
 
 # The fixtures of the engine's test files whose scope is wider than one test, each with why it may be: pytest makes
