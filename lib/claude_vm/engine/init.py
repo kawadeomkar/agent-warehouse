@@ -41,20 +41,21 @@ refused by name until they land: `--check` (E6), `--print-commands` (E7) and `--
 plain Python, each question whose value is still unset, every one through runs/ask.py's `ask` and nothing else of its
 own: nothing here reads the terminal, by its path or any other way. The run is drawn live (INIT, one stage whose steps
 are the questions), and each question is today's in its words, in the report's first-run order, the host first: the
-host's address; the API token's ID, where no host.yml names one yet (Enter keeps the engine's own); whether to trust a
-certificate nothing on the host vouches for (E3's question, a yes or no whose safe answer is no); the token's secret,
-hidden, where the vault holds none and none is given; the node, the storage and the bridge, each a menu of what the
-host lists, read with the token, every row of it with what the token lacks there (today's `init_candidates`), where the
-host's own settings.yml sets none; the SSH key the machines get, asked only where `vm_ssh_public_keys` is unset and
-`~/.ssh/id_ed25519.pub`, which its default reads, gives none, as a menu of the other public keys in `~/.ssh`; whose
-repositories are cloned; which VPN the machines join, a choice, `none` first, then `tailscale`, written as
-`vpn: tailscale` or `vpn: none`; and Tailscale's auth key, hidden, only once `tailscale` is chosen (or given, or set),
-where the vault holds none and `tailscale_auth_method` is not `web`, put straight into the vault and never taken from
-the command line. Each typed answer is held to its kind (`claude_vm.init.init_answer`), asked once more saying the rule
-where it does not fit, and left where the person presses Enter (Esc at a menu); a second that does not fit is left too,
-said. An answer is then a value given: the run goes on as with nobody there, and writes only what is still unset. A
-question whose value is set is never asked. What was left is said, with the line that asks again, in NEXT STEPS. With
-the host's address left, the host's questions are left with it, and only the fleet's own answers are written.
+host's address; the API token's ID, where no host.yml names one yet (Enter keeps the engine's own, and so does a second
+answer that is not a token ID, said); whether to trust a certificate nothing on the host vouches for (E3's question, a
+yes or no whose safe answer is no); the token's secret, hidden, where the vault holds none and none is given; the node,
+the storage and the bridge, each a menu of what the host lists, read with the token, every row of it with what the token
+lacks there (today's `init_candidates`), where the host's own settings.yml sets none; the SSH key the machines get,
+asked only where `vm_ssh_public_keys` is unset and `~/.ssh/id_ed25519.pub`, which its default reads, gives none, as a
+menu of the other public keys in `~/.ssh`; whose repositories are cloned; which VPN the machines join, a choice, `none`
+first, then `tailscale`, written as `vpn: tailscale` or `vpn: none`; and Tailscale's auth key, hidden, only once
+`tailscale` is chosen (or given, or set), where the vault holds none and `tailscale_auth_method` is not `web`, put
+straight into the vault and never taken from the command line. Each typed answer is held to its kind
+(`claude_vm.init.init_answer`), asked once more saying the rule where it does not fit, and left where the person presses
+Enter (Esc at a menu); a second that does not fit is left too, said. An answer is then a value given: the run goes on as
+with nobody there, and writes only what is still unset. A question whose value is set is never asked. What was left is
+said, with the line that asks again, in NEXT STEPS. With the host's address left, the host's questions are left with it,
+and only the fleet's own answers are written.
 
 Every sentence that names a command names it through the printer. Standard library, fleet/, pve/, ssh/, vendors/,
 schema/, runs/stages.py and today's init.py, checks.py and text.py at import; asyncio, the rest of runs/ and the
@@ -146,6 +147,8 @@ INIT = Declared(
 # The block every question is asked under, as today's.
 ASKED = "USER INPUT REQUIRED"
 LATER = "Enter to decide later."
+# The token the engine's own names make, which Enter keeps at the token's ID's question.
+OWN_TOKEN = f"{TOKEN_USER}!{TOKEN_ID}"
 # A yes or no, as a menu: yes first, as today's.
 YES, NO = "y", "n"
 
@@ -172,7 +175,7 @@ TOKEN = _Words(
     "API token ID",
     (
         "The API token to use, as user@realm!name: the one made for this fleet on the host. Its ID",
-        f"only: the secret is asked for after it. Enter keeps {TOKEN_USER}!{TOKEN_ID}.",
+        f"only: the secret is asked for after it. Enter keeps {OWN_TOKEN}.",
     ),
     "token_id",
 )
@@ -811,13 +814,16 @@ class _Asking:
             self.left.append(words.label)
         self.step(key, "done" if answered else "skipped")
 
-    async def line(self, key: str, words: _Words, *, keeps: bool = False) -> str:
+    async def line(self, key: str, words: _Words, *, keeps: str = "") -> str:
         """A typed answer held to its kind, "" where it was left: asked, and once more saying the rule where it does not
-        fit, a second that does not fit said and left. keeps: Enter keeps a default, so nothing is left."""
+        fit, a second that does not fit said and left. keeps: the value Enter keeps, its words, "" for none: then
+        nothing is left, the second asking says what Enter keeps, and a second answer that does not fit keeps it too,
+        said so, as its caller then takes it ("" given back)."""
         self.step(key)
         answer = ""
+        enter = f"Enter keeps {keeps}." if keeps else LATER
         for again in (False, True):
-            lines = words.text if not again else (f"That is not {_rule(words.kind)}.", LATER)
+            lines = words.text if not again else (f"That is not {_rule(words.kind)}.", enter)
             typed = str(await self.ask(_question(lines, words.label), ""))
             if not typed.strip():
                 break
@@ -825,8 +831,8 @@ class _Asking:
             if answer:
                 break
             if again:
-                self._said_left(words)
-        self._left(key, words, bool(answer) or keeps)
+                self._said_left(words, keeps)
+        self._left(key, words, bool(answer or keeps))
         return answer
 
     async def hidden(self, key: str, words: _Words) -> Secret | None:
@@ -847,7 +853,11 @@ class _Asking:
         self._left(key, words, answer is not None)
         return answer
 
-    def _said_left(self, words: _Words) -> None:
+    def _said_left(self, words: _Words, keeps: str = "") -> None:
+        """What a second answer that does not fit leaves: the question, for the next run, or the value Enter keeps."""
+        if keeps:
+            self.say(f"That is not {_rule(words.kind)} either, so {words.label} keeps {keeps}.")
+            return
         self.say(
             said(
                 "That is not {rule} either, so {label} is left as it was: the next {init} asks again.",
@@ -1090,7 +1100,8 @@ async def _the_host(
     token_id = typed.token_id or (fields.token_id if fields is not None else TOKEN_ID)
     if asking is not None:
         if fields is None and held is None and typed.secret is None and not (typed.token_user or typed.token_id):
-            answer = await asking.line("token", TOKEN, keeps=True)
+            # Enter keeps the engine's own, as a second answer that is not a token ID does: said, and written.
+            answer = await asking.line("token", TOKEN, keeps=OWN_TOKEN)
             if answer:
                 token_user, _, token_id = answer.partition("!")
                 typed = dataclasses.replace(typed, token_user=token_user, token_id=token_id)
