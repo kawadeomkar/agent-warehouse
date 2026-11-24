@@ -43,13 +43,18 @@ from __future__ import annotations
 import ast
 import asyncio
 import base64
+import contextlib
 import dataclasses
+import errno
 import os
 import re
+import select
 import shutil
+import socket
 import stat
 import sys
 import tempfile
+import threading
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -1134,6 +1139,94 @@ def test_the_host_s_address_and_its_token_are_asked_first_and_a_host_nothing_ans
     assert said.index("Enter keeps agent-warehouse@pve!aw.") < said.index("API token ID: ")
     assert "https://127.0.0.1:8006 presented no certificate" in _read(raw) and SECRET_ASKED not in raw, said
     assert _files() == files
+
+
+# Where an address is reached with no host.yml to give its port: the API's own, 8006, here at a loopback address of its
+# own, never 127.0.0.1's, at which the test above holds that nothing answers.
+AT_8006 = ("127.0.0.2", 8006)
+
+
+@contextlib.contextmanager
+def _api_at_8006(fake: Fake) -> Iterator[str]:
+    """The fake's API reached at 127.0.0.2:8006, the port an address is reached at where no host.yml gives one, through
+    a forwarder of the test's own to the fake's port on 127.0.0.1: the address, the forwarder ended once the test is
+    done with it. Skipped where this system has no 127.0.0.2 to listen at (macOS answers 127.0.0.1 alone of its
+    loopback unless told)."""
+    try:
+        server = socket.create_server(AT_8006)
+    except OSError as error:
+        if error.errno == errno.EADDRNOTAVAIL:
+            pytest.skip(f"this system has no {AT_8006[0]} to listen at for the API's port, {AT_8006[1]}")
+        raise
+    done = threading.Event()
+    pumps: list[threading.Thread] = []
+
+    def pump(near: socket.socket) -> None:
+        # Both ways, until either end closes or the test is done.
+        try:
+            with near, socket.create_connection(("127.0.0.1", fake.port), timeout=10) as far:
+                while not done.is_set():
+                    ready, _, _ = select.select([near, far], [], [], 0.2)
+                    for each in ready:
+                        data = each.recv(65536)
+                        if not data:
+                            return
+                        (far if each is near else near).sendall(data)
+        except OSError:
+            return
+
+    def accept() -> None:
+        while not done.is_set():
+            ready, _, _ = select.select([server], [], [], 0.2)
+            if ready:
+                near, _ = server.accept()
+                pumps.append(threading.Thread(target=pump, args=(near,), daemon=True))
+                pumps[-1].start()
+
+    acceptor = threading.Thread(target=accept, daemon=True)
+    acceptor.start()
+    try:
+        yield AT_8006[0]
+    finally:
+        done.set()
+        acceptor.join(5)
+        for each in pumps:
+            each.join(5)
+        server.close()
+
+
+def test_a_token_id_typed_wrong_twice_keeps_the_engine_s_own_says_so_and_host_yml_has_it(fake) -> None:
+    # Review 54, E5.md 1. No host.yml, so the token's ID is asked, and Enter keeps the engine's own. Typed wrong twice,
+    # the engine's own is kept too, and every word says so: the second asking says what Enter keeps, never that it
+    # decides later; the run says the ID kept, never left for the next run, which NEXT STEPS does not name; and host.yml
+    # has that ID, which the next run never asks. The address and the certificate given, the API reached at its own
+    # port through the test's forwarder; the secret left, so nothing is read with the token.
+    _public_key("id_ed25519.pub", PUBLIC_KEY)
+    asked = b"API token ID: "
+    plan: Plan = [
+        (asked, [b"not a token\n"], False),
+        (asked, [b"still-wrong\n"], False),
+        (SECRET_ASKED, [b"\n"], False),
+        (GITHUB_ASKED, [b"\n"], False),
+        (VPN_ASKED, [ESC], True),
+    ]
+    fingerprint = trust.pem_fingerprint(fake.pki["node"])
+    with _api_at_8006(fake) as address:
+        rc, raw = _asked(fake, plan, "--address", address, "--certificate", fingerprint)
+    said = _read(raw)
+    assert rc == 0, said
+    kept = engine_init.OWN_TOKEN
+    first = raw.index(asked) + len(asked)
+    again = raw[first : raw.index(asked, first)].decode(errors="replace")
+    assert "That is not a token ID" in again and f"Enter keeps {kept}." in again, again
+    assert engine_init.LATER not in again, again
+    assert f"either, so API token ID keeps {kept}." in said and "API token ID is left" not in said, said
+    left = re.search(r"left for later: ([^;]*);", said)
+    assert left is not None and "API token secret" in left.group(1) and "API token ID" not in left.group(1), said
+    assert "aw init asks again for API token secret" in said and "asks again for API token ID" not in said, said
+    fields = hosts.Layout(_home()).state("pve").fields
+    assert fields is not None, _files()
+    assert (fields.address, f"{fields.token_user}!{fields.token_id}") == (address, kept)
 
 
 # ---------------------------------------------------------------- the rules held by scans ----
