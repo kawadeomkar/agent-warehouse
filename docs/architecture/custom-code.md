@@ -858,8 +858,9 @@ line (`collapsed`), to the screen and the log.
 - **The same menu, for the new engine** (`asked`): its keys read by a coroutine of the caller's, as a read on the
   run's event loop gives them, several at once or a sequence in parts, and cut as `ask` reads them one at a time
   (`split`); the drawing (`Shown`), the terminal's settings (`raw`) and the keys' meaning are `ask`'s own, and its
-  changes of the settings are `set_terminal`'s. The new engine's questions ask it, reading on the loop, never in a
-  thread
+  changes of the settings are `set_terminal`'s, each `TCSAFLUSH`'s, as `getpass` makes them, so that a key typed
+  before the menu is never taken and one typed after its answer is never left for the shell. The new engine's
+  questions ask it, reading on the loop, never in a thread
   ([§16.8](engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run)); `ask` is unchanged for today's.
 
 **`Output`**, beside it, is what every live output does around its region, whatever it draws: whether to draw

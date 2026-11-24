@@ -787,7 +787,9 @@ def test_what_an_event_says_is_said_whole_and_a_signal_meanwhile_is_delivered_af
 
 def test_standard_errors_lines_are_said_above_whole_and_a_signal_meanwhile_is_delivered_after() -> None:
     errors = Signalling("one", signal.SIGHUP)
-    above = live._Above(live.Display(io.StringIO(), errors), errors)
+    display = live.Display(io.StringIO(), errors)
+    # Each whole line handed to the display, as the view hands them while no question is up (Live._complained).
+    above = live._Above(display, errors, lambda lines: [display.display(line, stderr=True) for line, _ in lines])
     with _ending_on(signal.SIGHUP), pytest.raises(Ended):
         above.write("one\ntwo\n")
     assert errors.getvalue() == "one\ntwo\n"

@@ -6,23 +6,28 @@ runs.run as a verb makes one, whose body draws deploy's live view at a sign-in a
 runs.ask, every event it emits written down as the run's text log will hear it: a yes or no picked with the arrow
 keys, the line it leaves saying the answer; a line typed, its echo on; a hidden answer whose characters reach neither
 the screen, the run's record nor its events (aw_kit.searched_for), given back as a Secret; Enter taking the default;
-keys typed before a question was there never its answer; two questions asked at once, from two tasks, the second
-drawn only once the first is answered; a report said while a question is up shown after it, never on its line; a
-choice typed, and asked once more, where the terminal cannot draw the menu; one Ctrl-C at a line, a hidden answer and
-the menu ending the run, cancelled, with the echo back; the region gone from the screen while a question is up, the
-title saying the run waits for you, and a frame drawn again only half a second after the answer, none between two
-questions; each question a `waiting` event, an empty one once it is answered, and a `step` event that says what was
-answered. With standard input on /dev/null, the default at once and a line that says the question was not asked.
+keys typed before a question was there never its answer; two lines pasted at a line or a hidden answer, the second
+never left in the terminal's input once the run has ended; two questions asked at once, from two tasks, the second
+drawn only once the first is answered; a report, a line on standard error and an event the view refuses, said while a
+question is up, shown after it, never on its line; a choice whose words and note hold escapes and newlines drawn as
+plain text, nothing of the menu left behind; a choice typed, and asked once more, where the terminal cannot draw the
+menu; one Ctrl-C at a line, a hidden answer and the menu ending the run, cancelled, with the echo back; the region gone
+from the screen while a question is up, the title saying the run waits for you, and a frame drawn again only half a
+second after the answer, none between two questions; each question a `waiting` event, an empty one once it is
+answered, and a `step` event that says what was answered. With standard input on /dev/null, the default at once and a
+line that says the question was not asked.
 
 In this process: a question without a default cannot be built (the rule with a test of its own), with every other
-refusal of a Question; nobody to ask - a pipe, /dev/null, a terminal whose foreground the run is not - gives the default
-and never reads; two questions asked at once taking turns at the terminal; the menu's keys cut from a read as
-choose.ask reads them one at a time, and the menu asked through a
-read of the test's own, a sequence in parts, Esc, Ctrl-C and the terminal's size looked at again; a question and the
-menu putting the terminal's settings back through a signal that interrupts the change (EINTR, made again by
-tui/live_region.py's set_terminal); what the view says while a question is up kept until it is answered, or said
-before the summary where the run's end cuts the question short, and the bell of a question's wait rung only after a
-quiet while; and by a scan, that ask.py reads the terminal only through the run's Context.typed.
+refusal of a Question; a choice's words and note made one line of plain text, its value given back as given; nobody to
+ask - a pipe, /dev/null, a terminal whose foreground the run is not - gives the default and never reads; two questions
+asked at once taking turns at the terminal; the menu's keys cut from a read as choose.ask reads them one at a time, and
+the menu asked through a read of the test's own, a sequence in parts, Esc, Ctrl-C and the terminal's size looked at
+again, what is typed after its answer never left in the terminal's input; a question and the menu putting the
+terminal's settings back through a signal that interrupts the change (EINTR, made again by tui/live_region.py's
+set_terminal), each change TCSAFLUSH's; what the view says while a question is up, the line of an event it refuses
+among it, kept until it is answered, or said before the summary where the run's end cuts the question short, and the
+bell of a question's wait rung only after a quiet while; and by a scan, that ask.py reads the terminal only through the
+run's Context.typed.
 """
 
 from __future__ import annotations
@@ -37,6 +42,7 @@ import json
 import os
 import pty
 import re
+import select
 import subprocess
 import sys
 import termios
@@ -48,6 +54,7 @@ import harness
 import pytest
 from aw_kit import environment, searched_for, stand_ins
 from harness import REPO
+from vt import VT
 
 from claude_vm.fleet import paths
 from claude_vm.runs import ask as asking
@@ -91,6 +98,9 @@ TAILSCALE = ("Use Tailscale on the VMs?", "n", YES_NO, False)
 KEY = ("Tailscale auth key:", Secret(""), (), True)
 WHICH = ("Which VPN do the VMs join?", "none", VPN, False)
 USER = ("GitHub user:", "", (), False)
+# A choice whose words and note came from a machine: an OSC (the title), an erase of the screen, a colour, a newline.
+NODES = [Choice("pve", "pve\x1b]0;owned\x07 node\x1b[2J\nsecond", "lacks\x1b[45m Sys.Audit\nthere"), Choice("nuc")]
+NODE = ("Which node?", "", NODES, False)
 QUESTIONS = {
     "yes-no": [TAILSCALE],
     "menu-ctrl-c": [TAILSCALE],
@@ -103,6 +113,10 @@ QUESTIONS = {
     "typed": [WHICH, WHICH],
     "null": [TAILSCALE, ADDRESS, KEY],
     "report": [ADDRESS],
+    "stderr": [ADDRESS],
+    "line-paste": [ADDRESS],
+    "hidden-paste": [KEY],
+    "node": [NODE],
 }
 # Ways whose questions are asked at once, each from a task of its own, as two machines' work would ask them.
 AT_ONCE = {
@@ -173,19 +187,24 @@ async def body(ctx):
     if way in AT_ONCE:
         await asyncio.gather(*(asked(*question) for question in AT_ONCE[way]))
     for question in QUESTIONS.get(way, ()):
-        if way == "report":
-            # Once the question is up, the run says a report, as another machine's work would.
+        if way in ("report", "stderr"):
+            # Once the question is up, the run says a report, as another machine's work would; or a line on standard
+            # error, as the ladder or a warning would, and an event the live view refuses (a stage deploy has not).
             up = asyncio.Event()
             ctx.job.listen(lambda event: event.kind == "waiting" and event.text and up.set())
 
             async def report():
                 await up.wait()
-                ctx.emit("report", "alpha", "alpha is up at 192.0.2.61")
+                if way == "report":
+                    ctx.emit("report", "alpha", "alpha is up at 192.0.2.61")
+                else:
+                    print("aw: a line on standard error while a question is up", file=sys.stderr, flush=True)
+                    ctx.emit("step", "alpha", "nope", stage="no-such-stage")
                 (folder / "reported").write_text("")
 
             reporting = asyncio.ensure_future(report())
         await asked(*question)
-        if way == "report":
+        if way in ("report", "stderr"):
             await reporting
     ctx.emit("step", "alpha", "claude", stage="sign-in", outcome="done")
     await asyncio.sleep(1.0)
@@ -207,26 +226,30 @@ sys.exit(runs.run(draft, body))
 """
 
 # At a pseudo-terminal: the run as a child in the terminal's foreground group, and once it has ended, whether the
-# terminal echoes and how the run ended, as one line of JSON. A Ctrl-C typed reaches both: this one takes it with a
-# handler that does nothing, never SIG_IGN, which the run would inherit (as tests/unit/test_aw_attached.py's).
+# terminal echoes, how the run ended, and how many bytes the run left in the terminal's input for whatever reads it
+# next (the shell, after a run), as one line of JSON. A Ctrl-C typed reaches both: this one takes it with a handler that
+# does nothing, never SIG_IGN, which the run would inherit (as tests/unit/test_aw_attached.py's).
 WATCHES = r"""
-import json, signal, subprocess, sys, termios
+import fcntl, json, signal, struct, subprocess, sys, termios
 signal.signal(signal.SIGINT, lambda *_: None)
 run = subprocess.Popen(sys.argv[1:])
 status = run.wait()
-print(json.dumps({"echo": bool(termios.tcgetattr(0)[3] & termios.ECHO), "status": status}), flush=True)
+left = struct.unpack("i", fcntl.ioctl(0, termios.FIONREAD, struct.pack("i", 0)))[0]
+echo = bool(termios.tcgetattr(0)[3] & termios.ECHO)
+print(json.dumps({"echo": echo, "status": status, "left": left}), flush=True)
 """
-WATCHED = re.compile(rb'\{"echo": (true|false), "status": (-?\d+)\}')
+WATCHED = re.compile(rb'\{"echo": (true|false), "status": (-?\d+), "left": (\d+)\}')
 CHILD = [sys.executable, "-I", "-X", "utf8", "-c", RUN]
 HINT = choose.HINT.encode()
 
 
 class Ran:
-    """A run at a pseudo-terminal: its output, how it ended and the terminal's echo once it had, its job's record, the
-    events it emitted, its answers, and what its live view wrote, each with when."""
+    """A run at a pseudo-terminal: its output, how it ended and the terminal's echo once it had, the bytes it left in
+    the terminal's input, its job's record, the events it emitted, its answers, and what its live view wrote, each with
+    when."""
 
-    def __init__(self, folder: Path, raw: bytes, watched: dict) -> None:
-        self.raw, self.watched = raw, watched
+    def __init__(self, folder: Path, raw: bytes, watched: dict, left: int) -> None:
+        self.raw, self.watched, self.left = raw, watched, left
         self.text = raw.decode(errors="replace")
         made = jobs.listed(paths.jobs_dir(paths.home(REPO)))
         assert len(made) == 1, made
@@ -280,8 +303,8 @@ def _at_a_terminal(home: Path, folder: Path, way: str, plan: Plan, *, term: str 
         found = output.find(wanted, state["at"])
         if found < 0 or (raw and not harness._in_raw_mode(master)):
             return
-        if way == "report" and not (folder / "reported").is_file():
-            # The answer typed only once the run has said its report, while the question is up.
+        if way in ("report", "stderr") and not (folder / "reported").is_file():
+            # The answer typed only once the run has said its report, or its lines, while the question is up.
             return
         left.pop(0)
         state["at"] = found + len(wanted)
@@ -294,7 +317,7 @@ def _at_a_terminal(home: Path, folder: Path, way: str, plan: Plan, *, term: str 
     found = WATCHED.search(raw)
     assert rc == 0 and found is not None, raw.decode(errors="replace")
     assert not left, f"no {left[0][0]!r} appeared:\n" + raw.decode(errors="replace")
-    return Ran(folder, raw, {"echo": found.group(1) == b"true", "status": int(found.group(2))})
+    return Ran(folder, raw, {"echo": found.group(1) == b"true", "status": int(found.group(2))}, int(found.group(3)))
 
 
 def _done(ran: Ran) -> None:
@@ -375,6 +398,22 @@ def test_a_report_said_while_a_question_is_up_is_shown_after_it_and_not_on_its_l
     assert raw.find(b"alpha is up at 192.0.2.61") > answered.end(), ran.text
 
 
+def test_standard_errors_lines_while_a_question_is_up_are_shown_after_it_and_not_on_its_line(home, tmp_path) -> None:
+    # A line on standard error (the ladder's, a warning) and the line of an event the view refuses, both said while the
+    # question is up: kept with the view's lines, and said after the question's line, in the order they came.
+    ran = _at_a_terminal(home, tmp_path, "stderr", [(b"Proxmox host address: ", [b"192.0.2.10\n"], False)])
+    _done(ran)
+    [(begun, ended)] = ran.asked()
+    [refused] = [event for event in ran.events if event["kind"] == "step" and event["text"] == "nope"]
+    assert begun < refused["at"] < ended, (begun, refused["at"], ended)
+    raw = ran.raw
+    answered = re.search(rb"Proxmox host address: 192\.0\.2\.10\r\n", raw)
+    assert answered is not None, ran.text
+    line = raw.find(b"aw: a line on standard error while a question is up\r\n")
+    left_out = raw.find(b"aw: the live view left out an event it could not take (step alpha: nope)")
+    assert answered.end() < line < left_out, ran.text
+
+
 def test_enter_takes_each_questions_default_and_two_questions_show_no_frame_between_them(home, tmp_path) -> None:
     plan = [(b"Proxmox host address: ", [b"\n"], False), (HINT, [b"\r"], True)]
     ran = _at_a_terminal(home, tmp_path, "enter", plan)
@@ -411,6 +450,25 @@ def test_a_hidden_answer_reaches_neither_the_screen_the_record_nor_the_events_an
 
 
 @pytest.mark.parametrize(
+    ("way", "prompt", "kept"),
+    [
+        ("hidden-paste", b"Tailscale auth key: ", {"secret": hashlib.sha256(b"first-line").hexdigest()}),
+        ("line-paste", b"Proxmox host address: ", {"value": "first-line"}),
+    ],
+    ids=["a hidden answer", "a line"],
+)
+def test_what_is_pasted_after_the_answers_line_is_never_left_for_the_shell(way, prompt, kept, home, tmp_path) -> None:
+    # Two lines pasted at once: the first is the answer, and the second is discarded with the question, never left in
+    # the terminal's input for whatever reads it once the run has ended - the shell, which would run it.
+    ran = _at_a_terminal(home, tmp_path, way, [(prompt, [b"first-line\nsecond-line\n"], False)])
+    _done(ran)
+    assert ran.answers is not None and [{key: answer[key] for key in kept} for answer in ran.answers] == [kept]
+    assert ran.left == 0, ran.left
+    if way == "hidden-paste":
+        assert "first-line" not in ran.text and "second-line" not in ran.text, ran.text
+
+
+@pytest.mark.parametrize(
     ("way", "plan"),
     [
         ("line-ctrl-c", [(b"Proxmox host address: ", [b"192.0", b"\x03"], False)]),
@@ -440,6 +498,23 @@ def test_where_the_menu_cannot_be_drawn_a_choice_is_typed_and_asked_once_more(ho
     assert "That is not one of them: none, Tailscale." in text, text
     assert "That is not one of them either, so it takes none." in text, text
     assert choose.HINT not in text and SYNC_ON not in text
+
+
+def test_a_choices_words_and_note_from_a_machine_reach_the_screen_as_plain_text(home, tmp_path) -> None:
+    # Its words hold an OSC (the title), an erase of the screen and a newline, its note a colour and a newline: the
+    # menu draws them plain, on one line each, moves over them and leaves its one line with nothing of itself behind.
+    ran = _at_a_terminal(home, tmp_path, "node", [(HINT, [b"\x1b[B", b"\x1b[A", b"\r"], True)])
+    _done(ran)
+    assert ran.answers is not None and [answer["value"] for answer in ran.answers] == ["pve"], ran.answers
+    screen = VT(100, 30)
+    screen.feed(ran.raw)
+    assert screen.unknown == set() and not [title for title in screen.titles if "owned" in title], screen.titles
+    assert b"\x1b[45m" not in ran.raw and "lacks Sys.Audit there" in ran.text, ran.text
+    lines = screen.transcript()
+    asked = lines.index("Which node?")
+    assert lines[asked + 1] == "Which node? pve node second", lines
+    assert not [line for line in lines if choose.HINT in line or line.strip() in ("second", "there")], lines
+    assert "Which node?: pve node second" in [event["text"] for event in ran.of("step")]
 
 
 def test_with_standard_input_on_dev_null_each_question_takes_its_default_at_once_and_says_so(home, tmp_path) -> None:
@@ -511,6 +586,28 @@ def test_a_choice_has_a_value_and_its_words_are_the_value_where_none_are_given()
         Choice("")
     with pytest.raises(TypeError, match="note is a str"):
         Choice("none", "none", None)  # type: ignore[arg-type]
+
+
+def test_a_choices_words_and_note_are_one_line_of_plain_text_and_its_value_is_given_back_as_given() -> None:
+    # Words and a note from a machine, an OSC, an erase of the screen, a colour and a newline among them: what the
+    # menu, the line it leaves, the typed choice and the step event say is plain, on one line.
+    node = Choice("pve", "pve\x1b]0;owned\x07 node\x1b[2J\nsecond", "lacks\x1b[45m Sys.Audit\nthere")
+    assert (node.value, node.text, node.note) == ("pve", "pve node second", "lacks Sys.Audit there")
+    # Words that are nothing but escapes are the value's, made plain; the value itself is given back as it came.
+    named = Choice("nuc\n", "\x1b[2J")
+    assert (named.value, named.text, named.note) == ("nuc\n", "nuc", "")
+    question = Question("Which node?", "", (node, named))
+    menu = question.menu()
+    assert [(each["text"], each["note"]) for each in menu["options"]] == [
+        ("pve node second", "lacks Sys.Audit there"),
+        ("nuc", ""),
+    ]
+    assert choose.collapsed(menu, "pve") == "Which node? pve node second"
+    assert (question.said("pve"), question.picked("pve node second"), question.picked("nuc")) == (
+        "pve node second",
+        "pve",
+        "nuc\n",
+    )
 
 
 def test_what_a_question_asks_and_says_of_its_answers() -> None:
@@ -625,7 +722,7 @@ def test_no_question_is_begun_once_the_run_is_stopping(home, monkeypatch) -> Non
 
 def _interrupted(monkeypatch: pytest.MonkeyPatch) -> list[int]:
     """termios.tcsetattr meeting one EINTR before each change it makes, as a signal whose handler raises nothing - the
-    run's first Ctrl-C, a resize - gives it while TCSADRAIN waits for the output to drain: each change's `when`, as
+    run's first Ctrl-C, a resize - gives it while TCSAFLUSH waits for the output to drain: each change's `when`, as
     tried."""
     made = termios.tcsetattr
     tried: list[int] = []
@@ -707,7 +804,7 @@ def test_a_question_puts_the_terminal_back_through_a_signal_that_interrupts_the_
             key = asyncio.run(asking.ask(context, "Tailscale auth key:", Secret(""), hidden=True))
         assert isinstance(key, Secret) and key.reveal() == HIDDEN
         assert termios.tcgetattr(slave) == found
-        assert tried == [termios.TCSANOW, termios.TCSANOW, termios.TCSADRAIN, termios.TCSADRAIN], tried
+        assert tried == [termios.TCSAFLUSH] * 4, tried
         assert out.getvalue() == "Tailscale auth key: \n"
     finally:
         given.close()
@@ -793,8 +890,39 @@ def test_the_menu_puts_the_terminal_back_through_a_signal_that_interrupts_the_ch
     tried = _interrupted(monkeypatch)
     got, _, kept = _menu_with([b"\x1b[A", b"\r"])
     assert (got, kept) == ("y", True)
-    # Raw, then put back: each change tried again after its EINTR.
-    assert tried == [termios.TCSANOW, termios.TCSANOW, termios.TCSADRAIN, termios.TCSADRAIN], tried
+    # Raw, then put back, each change TCSAFLUSH's (the keys typed before and after flushed with it): each tried again
+    # after its EINTR.
+    assert tried == [termios.TCSAFLUSH] * 4, tried
+
+
+def test_what_is_typed_at_the_menu_after_its_answer_is_never_left_for_the_shell() -> None:
+    # A paste, a second Enter: what came after the answer is discarded with the menu, never left in the terminal's
+    # input once its settings are put back.
+    master, slave = pty.openpty()
+    given = [b"\x1b[A", b"\r"]
+
+    async def read(seconds: float) -> bytes | None:
+        got = given.pop(0)
+        if not given:
+            # Typed with the Enter, and in the terminal's input before the menu ends: the kernel hands a write to the
+            # line discipline a moment later, and a change of the settings discards only what has reached it.
+            os.write(master, b"second-line\n")
+            assert select.select([slave], [], [], 5)[0]
+        return got
+
+    class In:
+        def fileno(self) -> int:
+            return slave
+
+    try:
+        menu = Question("Use Tailscale on the VMs?", "n", YES_NO).menu()
+        got = asyncio.run(choose.asked(menu, read, In(), io.StringIO(), color=False))
+        # Back in its line mode, the terminal would give that line to whatever reads it next.
+        left = os.read(slave, 64) if select.select([slave], [], [], 0.5)[0] else b""
+    finally:
+        os.close(master)
+        os.close(slave)
+    assert (got, left) == ("y", b"")
 
 
 class Clock:
@@ -845,6 +973,42 @@ def test_a_question_keeps_what_the_view_says_until_it_is_answered_and_rings_only
         assert bells == [30.0, 31.0]
         made.emit("end", None, "", outcome="succeeded", exit=0)
         assert live.Live.of(made) is view and view.ended
+
+
+class _Said(io.StringIO):
+    """A stream that writes down each write, with its name, in one list shared with another: the order of what two
+    streams said."""
+
+    def __init__(self, name: str, writes: list[tuple[str, str]]) -> None:
+        super().__init__()
+        self.called, self.writes = name, writes
+
+    def write(self, text: str) -> int:
+        self.writes.append((self.called, text))
+        return len(text)
+
+
+def test_a_question_keeps_the_line_of_an_event_the_view_refuses_with_its_own_and_says_each_where_it_goes(
+    home, monkeypatch
+) -> None:
+    # The refused event's line, said on standard error, is kept while the question is up like the view's report after
+    # it, and both are said once it ends: in that order, each on its own stream.
+    writes: list[tuple[str, str]] = []
+    monkeypatch.setattr(sys, "stderr", _Said("stderr", writes))
+    with _job() as made:
+        view = live.Live(made, DEPLOY, _Said("stdout", writes), clock=Clock())
+        made.emit("stage", "alpha", "sign-in")
+        with view.aside():
+            before = len(writes)
+            made.emit("step", "alpha", "nope", stage="no-such-stage")
+            made.emit("report", "alpha", "alpha is up at 192.0.2.61")
+            assert len(writes) == before, writes[before:]
+        after = writes[before:]
+        refused = [at for at, (_, text) in enumerate(after) if text.startswith(live.REFUSED.split("(")[0])]
+        reported = [at for at, (_, text) in enumerate(after) if "alpha is up at 192.0.2.61" in text]
+        assert refused and reported and refused[0] < reported[0], after
+        assert (after[refused[0]][0], after[reported[0]][0]) == ("stderr", "stdout"), after
+        made.emit("end", None, "", outcome="succeeded", exit=0)
 
 
 def test_what_a_question_kept_is_said_before_the_summary_where_the_runs_end_cuts_it_short(home, monkeypatch) -> None:
