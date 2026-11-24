@@ -32,13 +32,22 @@ given, and `render` refuses what it could not: a value on more than one line or 
 (a control, a format or a line separator), white space at either end of one, a list's item with a comma, a repository's
 that is no name, a kind or a stage that is no word of the format's, a flag that is not `yes`.
 
+Every field's value is held to its form here, by both: the UUID to the form Proxmox gives a VM's (lower case,
+8-4-4-4-12), the name, the size and the job to the command line's patterns (schema/patterns.py), a template's build to a
+whole number from 1, the digests to SHA-256's hex, its image's URL to an http or https URL, its packages to Debian's
+names and the VPNs to today's mark of one (vpn/model.py's, which a test holds VPN equal to), each list naming each of
+its items once. So `parse` refuses, Unreadable, every value engine/record.py's typed Record refuses, and status, which
+reads a record by `parse` alone, judges what the engine judges (card G28). The rules across fields - a VM's record names
+its stage, and every record but a VM's first form names its UUID (`first_form`, `NO_UUID`) - are each reader's judge's:
+pve/ownership.py's one check and pve/template.py's judge hold them, and the typed Record holds them for the engine.
+
 A VM's notes hold at most MOST characters, Proxmox's bound on a configuration's description, counted in characters and
 not bytes, shared with whatever a person typed there (experiment 6, on Proxmox VE 9.2.21): `render` refuses notes past
 it, TooLong, so nothing is sent that Proxmox would refuse, and nothing a clone could carry that no later write could.
 
-What a value means - a UUID, a size, a digest held to its form, a stage beside its kind - is engine/record.py's typed
-record, which reads and writes through these two functions. Standard library only, and of the package text.py alone,
-so that status reads a record with no other part of the engine loaded.
+What a value means - a size as a number, a stage beside its kind - is engine/record.py's typed record, which reads and
+writes through these two functions. Standard library only, and of the package text.py and schema/patterns.py alone
+(itself the standard library's alone), so that status reads a record with no other part of the engine loaded.
 """
 
 from __future__ import annotations
@@ -47,6 +56,7 @@ import re
 import unicodedata
 from collections.abc import Mapping, Sequence
 
+from ..schema.patterns import full
 from ..text import one_line
 
 # The format this engine writes, and every format it reads. Until the engine's first release a field added to FIELDS
@@ -100,6 +110,20 @@ WORDS = {"kind": KINDS, "stage": STAGES}
 # A repository's name on a VM's own list: today's rule, as lib/claude_vm/proxmox.py's _REPO_NAME_RE holds one, and
 # each name of the command line's repos pattern (schema/patterns.py), which a test holds both equal to.
 REPOSITORY = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,99}")
+# A VM's identity as Proxmox gives it in smbios1 (proxmox.smbios_uuid): lower case, 8-4-4-4-12.
+UUID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
+# A SHA-256 digest in lower-case hex: an image's, and what a VM last converged to.
+DIGEST = re.compile(r"[0-9a-f]{64}")
+# A template's build, the version of the build steps it was built by (pve/template.py's BUILD), as its line writes it:
+# a whole number from 1, with no leading 0.
+BUILD_FORM = re.compile(r"[1-9][0-9]{0,8}")
+# The URL a template's image was fetched from: http or https, with no white space, as a setting gives one.
+URL = re.compile(r"https?://\S{1,2040}")
+# A package put into a template's image: a Debian package's name (Debian Policy, 5.6.1), lower case.
+PACKAGE = re.compile(r"[a-z0-9][a-z0-9+.-]{1,99}")
+# A VPN a login of which was seen on a VM: today's mark of one, vpn/model.py's MARK, which a test holds this equal to
+# (that module is not this one's to import: status reads a record with the standard library alone).
+VPN = re.compile(r"tailscale")
 # The most characters a VM's notes hold, the record with whatever a person typed there: Proxmox VE's bound on a
 # configuration write's description (qemu-server's schema, maxLength 8192, counted in characters), which a clone's does
 # not have.
@@ -203,8 +227,42 @@ def _plain(field: str, value: str) -> str:
     return value
 
 
+def _form(field: str, text: str) -> str:
+    """Why text, one line of plain text, is not what field's value may be, "" where it is: see the module's docstring.
+    An empty value is no size's cores and no build, and any other field's empty value is left to the rules across
+    fields."""
+    if field == "uuid" and text and not UUID.fullmatch(text):
+        return "the record's uuid is a VM's SMBIOS UUID, in lower case"
+    if field == "name" and text and not (full("vm_name", text) and "," not in text):
+        return "the record's name is one VM's name"
+    if field == "cores" and not (text and full("cores", text)):
+        return "the record's cores are a whole number from 1 to 999"
+    if field == "memory" and text and not full("memory", text):
+        return "the record's memory is a whole number of MiB, or one with M or G after it"
+    if field == "disk" and text and not full("disk", text):
+        return "the record's disk is a whole number with G or T after it"
+    if field == "build" and not BUILD_FORM.fullmatch(text):
+        return "the record's build is a whole number from 1"
+    if field in ("image", "converged") and text and not DIGEST.fullmatch(text):
+        return f"the record's {field} is a SHA-256 digest in lower-case hex"
+    if field == "image_url" and text and not URL.fullmatch(text):
+        return "the record's image_url is an http or https URL"
+    if field == "job" and text and not full("text", text):
+        return "the record's job is one line of text"
+    return ""
+
+
+# Each list's items' form, where the format holds one beyond a word with no comma, and what the list may be: each item
+# of the form, and none twice.
+ITEMS = {
+    "packages": (PACKAGE, "the record's packages name each Debian package once"),
+    "joined": (VPN, "the record's joined names each VPN once"),
+}
+
+
 def _held(field: str, value: str | Sequence[str]) -> str:
-    """field's value as its line writes it, held to what the format takes of it; ValueError otherwise."""
+    """field's value as its line writes it, held to what the format takes of it, its form among it (_form, ITEMS);
+    ValueError otherwise."""
     if field in LISTS:
         if isinstance(value, str) or not isinstance(value, Sequence):
             raise TypeError(f"the record's {field} is a list")
@@ -213,12 +271,19 @@ def _held(field: str, value: str | Sequence[str]) -> str:
                 raise ValueError(f"each of the record's {field} is a word with no comma")
             if field == "repositories" and not REPOSITORY.fullmatch(item):
                 raise ValueError("each of the record's repositories is a repository's name")
+        if field in ITEMS:
+            form, said = ITEMS[field]
+            if any(not form.fullmatch(item) for item in value) or len(set(value)) != len(value):
+                raise ValueError(said)
         return ",".join(value)
     text = _plain(field, value)
     if field in FLAGS and text != YES:
         raise ValueError(f"the record's {field} is {YES}, or left out")
     if field in WORDS and text not in WORDS[field]:
         raise ValueError(f"the record's {field} is one of {', '.join(WORDS[field])}")
+    why = _form(field, text)
+    if why:
+        raise ValueError(why)
     return text
 
 

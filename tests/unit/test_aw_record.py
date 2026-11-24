@@ -20,8 +20,9 @@ read refuses it (Copy, an Unreadable of its own kind), so no reader takes it for
 it; a VM's first form, which names no UUID, is no copy by this (review 19, G1.md 2).
 
 The rules with a test of their own: no module of the new engine but engine/record.py names a VM's description to send
-it, the client, its table and its reader of answers aside; and importing claude_vm.pve.record loads nothing but the
-standard library and claude_vm.text.
+it, the client, its table and its reader of answers aside; importing claude_vm.pve.record loads nothing but the
+standard library, claude_vm.text and the command line's patterns; and its plain parse refuses every value the typed
+record refuses (card G28), its copy of the VPN's mark held to vpn/model.py's.
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from aw_kit import imports_of
+from aw_kit import imports_of, owned_as_recorded
 from harness import ENGINE_POOL, _pve, _pve_requests, engine_token, fake_fleet
 from pki import proxmox_pki
 from test_aw_transport import _new_engine, _rel
@@ -41,12 +42,13 @@ from claude_vm import proxmox
 from claude_vm.engine import record
 from claude_vm.engine.record import Copy, Record, TooLong, Unreadable
 from claude_vm.fleet import registry
-from claude_vm.pve import ownership, pin
+from claude_vm.pve import answers, pin
 from claude_vm.pve import record as block
 from claude_vm.pve.client import EDITS, DigestMismatch, Proxmox, Token
 from claude_vm.pve.ownership import Owned
 from claude_vm.schema.patterns import PATTERNS
 from claude_vm.secret import Secret
+from claude_vm.vpn.model import MARK as VPN_MARK
 
 # The module's certificate authority, which signs the fake's certificate: cheap enough to make again on each worker
 # (tests/unit/conftest.py).
@@ -403,6 +405,57 @@ def test_a_block_whose_values_are_not_what_their_fields_may_be_is_unreadable_and
     assert "VM 9010's notes" in str(refused.value) and "never rewritten" in str(refused.value)
 
 
+# Each value of a field that engine/record.py's typed Record refuses, as a line of a block: review 51's P3 (an
+# upper-case UUID, cores: 0) and every other field's form (G1.md 1, E11.md 9).
+REFUSED_LINES = [
+    f"uuid: {UUID.upper()}",
+    f"uuid: {UUID[:-1]}",
+    "name: -alpha",
+    "name: alpha,beta",
+    "cores: 0",
+    "cores: 08",
+    "cores: 1000",
+    "cores:",
+    "memory: 16GB",
+    "memory: 0G",
+    "disk: 64",
+    "build: 0",
+    "build:",
+    "image: abc",
+    f"image: {DIGEST.upper()}",
+    "converged: abc",
+    "image_url: ftp://example.invalid/x.img",
+    "packages: Qemu",
+    "packages: vim,vim",
+    "joined: wireguard",
+    "joined: tailscale,tailscale",
+]
+
+
+@pytest.mark.parametrize("line", REFUSED_LINES)
+def test_the_plain_parse_refuses_every_value_the_typed_record_refuses(line: str) -> None:
+    """So that status, which reads a record by parse alone (card G16), never takes one the engine refuses (card G28,
+    review 51's 5): each field's form is pve/record.py's, which Record and parse both hold."""
+    lines = {"kind": "kind: vm", "uuid": f"uuid: {UUID}", "stage": "stage: finished"}
+    lines[line.partition(":")[0]] = line
+    notes = _block(*lines.values())
+    with pytest.raises(Unreadable) as plain:
+        block.parse(notes)
+    assert "never rewritten" in str(plain.value)
+    with pytest.raises(Unreadable):
+        record.read(_Config(notes, 9010))
+    # And render writes none of them.
+    fields: dict = {key: value.partition(":")[2].strip() for key, value in lines.items()}
+    fields.update({key: tuple(fields[key].split(",")) for key in block.LISTS & set(fields)})
+    with pytest.raises(ValueError):
+        block.render("", fields)
+
+
+def test_the_vpn_s_form_is_today_s_mark_of_one() -> None:
+    # pve/record.py may not import vpn/model.py (status reads a record with the standard library alone): a copy, held.
+    assert block.VPN.pattern == VPN_MARK.pattern
+
+
 def test_read_gives_none_for_notes_with_no_record_of_the_engine_s() -> None:
     assert record.read(_Config(TODAY, 9010)) is None
     assert record.read(_Config(block.render(TODAY, WHOLE.fields()), 9010)) == WHOLE
@@ -479,14 +532,10 @@ class Fleet:
 
     def owned(self) -> Owned:
         """alpha as the writer takes it: an Owned, which ownership.owned alone makes, of its configuration now as
-        today's token reads it, its record given as one of the fleet's own. Whether a member is the fleet's is the one
-        check's (test_aw_ownership.py, test_aw_fleet.py): here, what the writer sends."""
-        config = self.config()
-        uuid = proxmox.smbios_uuid(config)
-        member = ownership.Member(
-            "alpha", "pve", 9010, uuid=uuid, digest=config["digest"], recorded="vm", record_uuid=uuid
-        )
-        return ownership.owned(member)
+        today's token reads it, its record taken as one of the fleet's own (aw_kit's owned_as_recorded). Whether a
+        member is the fleet's is the one check's (test_aw_ownership.py, test_aw_fleet.py): here, what the writer
+        sends."""
+        return owned_as_recorded(answers.config(self.config(), "pve", 9010, "net0"))
 
     def puts(self) -> list[dict]:
         """The parameters of every PUT the client sent to alpha's configuration."""
@@ -716,9 +765,16 @@ def test_the_scan_finds_a_description_named_to_send(source: str) -> None:
     assert _names_a_description(ast.parse(source)) == [1]
 
 
-def test_the_record_s_text_imports_nothing_but_the_standard_library_and_text(home) -> None:
+def test_the_record_s_text_imports_nothing_but_the_standard_library_text_and_the_patterns(home) -> None:
+    # The fields' forms are the command line's patterns (card G28), a module of the standard library's alone.
     module = "claude_vm.pve.record"
     added = imports_of(module=module, home=home) - imports_of(module="claude_vm", home=home)
     assert module in added, sorted(added)
-    assert {name for name in added if name.split(".")[0] == "claude_vm"} == {"claude_vm.pve", module, "claude_vm.text"}
+    assert {name for name in added if name.split(".")[0] == "claude_vm"} == {
+        "claude_vm.pve",
+        module,
+        "claude_vm.text",
+        "claude_vm.schema",
+        "claude_vm.schema.patterns",
+    }
     assert sorted({name.split(".")[0] for name in added} - set(sys.stdlib_module_names) - {"claude_vm"}) == []

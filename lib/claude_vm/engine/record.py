@@ -2,16 +2,19 @@
 back there under Proxmox's digest (docs/architecture/engine.md §16.4).
 
 `Record` is a frozen dataclass over the fields of pve/record.py's block, each held as it is made to what it may be:
-the kind and the stage to the format's words, the UUID to the form Proxmox gives a VM's (lower case, 8-4-4-4-12), a
-name, the size and the repositories to the command line's patterns (schema/patterns.py), the digests to SHA-256's hex,
-a template's build to a whole number, its image's URL to an http or https URL and its packages to Debian's names, the
-VPNs to today's mark of one (vpn/model.py), and every text to one line of plain text. A VM's record names its stage,
-and every record but a VM's first form, which its clone carries before its UUID can be read, names the UUID it is
-written for. A record that is not this engine's is no record here: `read(config)` gives None for notes with no block of
-the engine's, whatever else they hold, and `Unreadable` for a block it cannot read, a value that is not what its field
-may be included; and `Copy`, an Unreadable of its own kind, for a record that names another VM's UUID, which a clone
-made without a description of its own carries from its source: a copy is never read as the VM's own, so no reader has
-to make that check itself (pve/record.py's `copied`, which status reads by too).
+of its own types here (a flag a bool, a list a tuple, the cores and a build whole numbers), and to its form by
+pve/record.py's, the one definition, which its parse holds too, so that status's reader refuses what this one refuses
+(card G28): the kind and the stage to the format's words, the UUID to the form Proxmox gives a VM's (lower case,
+8-4-4-4-12), a name, the size and the repositories to the command line's patterns (schema/patterns.py), the digests to
+SHA-256's hex, a template's build to a whole number, its image's URL to an http or https URL and its packages to
+Debian's names, the VPNs to today's mark of one (vpn/model.py), and every text to one line of plain text. A VM's record
+names its stage, and every record but a VM's first form, which its clone carries before its UUID can be read, names
+the UUID it is written for: the rules across fields, held here. A record that is not this engine's is no record here:
+`read(config)` gives None for notes with no block of the engine's, whatever else they hold, and `Unreadable` for a
+block it cannot read, a value that is not what its field may be included; and `Copy`, an Unreadable of its own kind,
+for a record that names another VM's UUID, which a clone made without a description of its own carries from its
+source: a copy is never read as the VM's own, so no reader has to make that check itself (pve/record.py's `copied`,
+which status reads by too).
 
 `write(client, vm, change)` is the one writer of a VM's record, and the only module of the new engine that sends a
 description to Proxmox: it reads the VM's configuration, applies `change` to the record its notes hold (None where they
@@ -35,30 +38,16 @@ Owned's SMBIOS UUID.
 from __future__ import annotations
 
 import dataclasses
-import re
 from collections.abc import Callable, Mapping
 
 from ..pve import record as block
 from ..pve.answers import VmConfig
 from ..pve.client import TAG, Proxmox
 from ..pve.ownership import Owned
-from ..pve.record import Copy, TooLong, Unreadable
+from ..pve.record import BUILD_FORM, Copy, TooLong, Unreadable
 from ..schema.patterns import full
-from ..vpn.model import MARK
 
 __all__ = ["Copy", "Record", "TooLong", "Unreadable", "label", "read", "write"]
-
-# A VM's identity as answers.config reads it from smbios1 (proxmox.smbios_uuid): lower case, 8-4-4-4-12.
-UUID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
-# A SHA-256 digest in lower-case hex: an image's, and what a VM last converged to.
-DIGEST = re.compile(r"[0-9a-f]{64}")
-# A template's build, the version of the build steps it was built by (pve/template.py's BUILD), as its line writes
-# it: a whole number from 1, with no leading 0.
-BUILD_FORM = re.compile(r"[1-9][0-9]{0,8}")
-# The URL a template's image was fetched from: http or https, with no white space, as a setting gives one.
-URL = re.compile(r"https?://\S{1,2040}")
-# A package put into a template's image: a Debian package's name (Debian Policy, 5.6.1), lower case.
-PACKAGE = re.compile(r"[a-z0-9][a-z0-9+.-]{1,99}")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -104,35 +93,13 @@ class Record:
             isinstance(self.build, bool) or not isinstance(self.build, int) or not BUILD_FORM.fullmatch(str(self.build))
         ):
             raise ValueError("the record's build is a whole number from 1")
-        # Each value as one line of the block holds it, the kind and the stage among the format's words.
+        # Each value as one line of the block holds it, held to its form: the kind and the stage among the format's
+        # words, and every other field's by pve/record.py's, which parse holds a block read to as well.
         block.lines(self.fields())
         if self.kind == "vm" and not self.stage:
             raise ValueError("a VM's record names its stage")
-        if self.uuid and not UUID.fullmatch(self.uuid):
-            raise ValueError("the record's uuid is a VM's SMBIOS UUID, in lower case")
         if not self.uuid and not block.first_form({"kind": self.kind, "stage": self.stage}):
             raise ValueError(block.NO_UUID)
-        if self.name and not (full("vm_name", self.name) and "," not in self.name):
-            raise ValueError("the record's name is one VM's name")
-        if self.repositories is not None and not full("repos", ",".join(self.repositories)):
-            raise ValueError("the record's repositories are repositories' names")
-        if self.memory and not full("memory", self.memory):
-            raise ValueError("the record's memory is a whole number of MiB, or one with M or G after it")
-        if self.disk and not full("disk", self.disk):
-            raise ValueError("the record's disk is a whole number with G or T after it")
-        for field in ("image", "converged"):
-            if getattr(self, field) and not DIGEST.fullmatch(getattr(self, field)):
-                raise ValueError(f"the record's {field} is a SHA-256 digest in lower-case hex")
-        if self.image_url and not URL.fullmatch(self.image_url):
-            raise ValueError("the record's image_url is an http or https URL")
-        if any(not PACKAGE.fullmatch(package) for package in self.packages) or len(set(self.packages)) != len(
-            self.packages
-        ):
-            raise ValueError("the record's packages name each Debian package once")
-        if any(not MARK.fullmatch(vpn) for vpn in self.joined) or len(set(self.joined)) != len(self.joined):
-            raise ValueError("the record's joined names each VPN once")
-        if self.job and not full("text", self.job):
-            raise ValueError("the record's job is one line of text")
 
     @property
     def sized(self) -> bool:

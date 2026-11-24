@@ -502,8 +502,11 @@ whether an agent's run made it, and the run on it now (`job`). `Record` is a fro
 held as it is made: the kind and the stage to the format's words, the UUID to the form Proxmox gives a VM's, the name,
 the size and the repositories to the command line's patterns (`schema/patterns.py`), the digests to SHA-256's hex, a
 template's build to a whole number, its image's URL to an http or https URL and its packages to Debian's names, the VPNs
-to today's mark of one (`vpn/model.py`), and every text to one line of plain text. Every record names the UUID it is
-written for, but a VM's first form, which its clone carries before its UUID can be read; and a VM's names its stage.
+to today's mark of one (`vpn/model.py`), and every text to one line of plain text: each field's form is
+`pve/record.py`'s (16.5), the one definition, which its plain `parse` holds a block to as well, so that `status`'s
+reader refuses every value this one refuses, and `Record` adds its types. Every record names the UUID it is written
+for, but a VM's first form, which its clone carries before its UUID can be read; and a VM's names its stage: the rules
+across fields, which `Record` holds here and each plain reader's judge holds for itself.
 
 - `read(config)` is the record a VM's configuration holds, or none where its notes hold no block of the engine's,
   whatever else they hold: a VM, a template or a golden with none is not this engine's. A block it cannot read, or one
@@ -676,18 +679,23 @@ whole fleet folder in one call, made by this run.
 machine a run reads: its kind (`vm`), name, identity (`agent-warehouse-<its SMBIOS UUID>`), host, node, VMID, the
 account a run logs in as, its address, its record, whether it runs, and the digest of the configuration it was read
 from. What is the fleet's is its pool's members with a valid record, never a label, by `pve/ownership.py`'s one rule
-(16.5), which `status` judges by too: `refusal(target)` asks it of what was read, and `owned(target, job=)` raises it or
-returns the `Owned` only that module makes, the identity and the digest the decision was made on. A changing read gives
-each target its `Owned` (`Target.owned`); `members` and a read that changes nothing give targets for reading alone. No
-write takes a `Target`: the client's writes of a VM and `record.py`'s take an `Owned`, so every target a change is made
-on passes `owned`, and the client holds the VM to that read again where it reads it, and before a deletion, which
-Proxmox takes with no digest, to the read's digest too, so that a VMID another VM holds now, or a VM changed since, is
-never deleted as it was read (`failure-modes.md`'s racy VMIDs); `destroy` owns a VM again from a read made after its
-stop, which may apply pending changes. It refuses a member with no record of this engine's, whatever tags it carries;
-a record that names another VM's UUID, or is a template's, a golden's or a build's on a VM that is no template (a copy:
-a clone sent without a description carries its source's notes); a record still in its clone's first form, but to the
-run whose job it names, which writes the rest; a member whose configuration or record cannot be read, one the token
-holds `NoAccess` on among them; two members with one UUID, both; and a template.
+(16.5), which `status` judges by too. Each target a read makes carries the `Member` that module's `Member.read` made of
+its configuration as the client read it (`Target.member`), which no constructor takes and `dataclasses.replace` leaves
+none of; `refusal(target)` asks the rule of it, and `owned(target, job=, clone=)` raises it or returns the `Owned` only
+that module makes, the identity and the digest the decision was made on. A target made by hand, or changed after its
+read, a record given to it above all, is a `TypeError` to both: what is judged is what was read, never a target's
+fields. A changing read gives each target its `Owned` (`Target.owned`); `members` and a read that changes nothing give
+targets for reading alone. No write takes a `Target`: the client's writes of a VM and `record.py`'s take an `Owned`, so
+every target a change is made on passes `owned`, and the client holds the VM at that VMID to the read again (16.5), so
+that no write reaches a VM that took the VMID since (`failure-modes.md`'s racy VMIDs), and before a deletion, which
+Proxmox takes with no digest, to the read's digest too; `destroy` owns a VM again from a read made after its stop,
+which may apply pending changes. It refuses a member with no record of this engine's, whatever tags it carries; a record
+that names another VM's UUID, or is a template's, a golden's or a build's on a VM that is no template (a copy: a clone
+sent without a description carries its source's notes); a VM's record that names no stage; a record still in its
+clone's first form, but to the run that cloned it, by its own job, which the record names, and its own clone's task,
+whose VMID is the member's (`job`, `clone`: never read from the record judged, whose job anyone may read), which writes
+the rest; a member whose configuration or record cannot be read, one the token holds `NoAccess` on among them; two
+members with one UUID, both; and a template.
 
 - `requested(host, names, create=..., change=...)` holds each name before Proxmox is asked anything: the pattern of a
   VM's name, no host's name of the fleet's nor `localhost`, with the aliases on no name `ssh` would take for another
@@ -719,9 +727,10 @@ holds `NoAccess` on among them; two members with one UUID, both; and a template.
 `tests/unit/test_vm_names.py`'s cases and the guest addresses' of `tests/unit/test_filters.py`, with scans that nothing
 here reads a label or a listing's status (the fake lags a pool's listing as it lags the cluster's), that `requested`
 returns a target for a change through `owned`, that nothing here holds a record to its VM and nothing but
-`ownership.py`'s `refusal` reads the UUID a record names; and that every writer refuses a target, a deletion of a VM
-changed since its read is refused and the VM stays, and a VM asked alone or just started that reports a sibling's
-address is not given it.
+`ownership.py`'s `refusal` (and `build_refusal`) reads the UUID a record names; and that every writer refuses a target,
+a deletion of a VM changed since its read is refused and the VM stays, a VM asked alone or just started that reports a
+sibling's address is not given it, a target given a record after its read and a `Member` made by hand are never
+owned, and a first form is owned by the run that cloned it alone, never by the job its record names.
 
 **The route to the machines: `routes.py`.** A run settles how it reaches its host's machines once, and every
 connection it makes holds to that: `settle(run, host)` is today's rule, `route.py` as it stands, called through
@@ -898,27 +907,34 @@ so that a host, or a proxy the computer's certificates trust, that echoes what i
   its `Unknown`, passed as it is: a workflow settles it by reading the VM again, never by sending the write again.
   `clone(node, source, newid, name, pool, full, storage, description)` clones into the pool, a full clone by default,
   with the notes given; `resize(vm, disk, size)` grows a disk, never shrinking one; `start`, `shutdown` (with its
-  `timeout` and `force_stop`), `stop`, `to_template(node, vmid)` and `delete(vm, purge=False)`, which sends
+  `timeout` and `force_stop`), `stop`, `to_template(vm)` and `delete(vm, purge=False)`, which sends
   `destroy-unreferenced-disks` alone: it takes the disks its configuration no longer lists but that carry its VMID
   too, as today's role does, and nothing outside the VM, so Proxmox leaves the host's backup jobs, replication and HA as
   they are and refuses to delete a VM a person put under HA or replication, as it refuses today's deletion. `purge`,
   which would take the VMID out of each of them, is sent only where a caller asks for it. Each write of a VM the fleet
   has - its configuration's, a resize, a start, a shutdown, a stop, a deletion - takes the VM as an `Owned`, which the
   one check alone makes (`ownership.py`, below), and refuses anything else, a target a read gave above all, before
-  anything is sent; a clone, which makes a VM from a template at a VMID none holds, and a conversion to a template do
-  not. Proxmox's `DELETE` takes no digest, so `delete` first reads the configuration again and holds its SMBIOS UUID and
-  its digest to the `Owned`'s: another VM at the VMID now, or a configuration changed since the read the VM was owned
-  on, a stop that applied pending changes among them, is `Changed`, with nothing sent, and the workflow owns it again
-  from a read made after. Each write answers a `Task`
+  anything is sent; a clone, which makes a VM from a template at a VMID none holds, does not. Each holds the VM at the
+  `Owned`'s VMID to the `Owned`, since between the read ownership was decided on and the write that VMID can be another
+  VM's (a VM deleted and another cloned there): `write_config` sends the `Owned`'s own digest (below); `edit_config`,
+  `resize` (which sends that read's digest too), `start`, `shutdown` and `stop` first read the configuration and hold
+  its SMBIOS UUID to the `Owned`'s; and `delete`, since Proxmox's `DELETE` takes no digest and cannot be undone, holds
+  its SMBIOS UUID and its digest: another VM at the VMID now, or before a deletion a configuration changed since the
+  read the VM was owned on, a stop that applied pending changes among them, is `Changed`, with nothing sent, and the
+  workflow owns it again from a read made after. A conversion to a template is made on a `Building` alone, a build VM
+  of the asking run's own (`ownership.py`'s `building`, below), and holds its SMBIOS UUID and digest as a deletion does,
+  for the same reasons; nothing else is ever made a template. Each write answers a `Task`
   (its node, UPID, kind and VM; a clone's, the new VM's, with its `source`). A clone whose answer was lost is `Unknown`
   with the clone perhaps running at `newid`, its configuration locked `clone` until its worker ends: `clone`'s docstring
   says it is settled by reading `newid` again until that lock is gone, never by a clone under another VMID before then.
   No write changes a pool: a new VM joins the fleet's pool through its clone's `pool`. The VMID to clone onto, the record's text and any sequence of calls are the
   workflows' (16.4), not the client's.
-- **Every write of a VM's configuration sends `digest`.** `write_config(vm, changes, digest)` is one `PUT`,
-  synchronous: Proxmox writes the changes only while the configuration is still the one whose digest the write sends,
-  in the call itself and under the VM's lock, so a `POST`'s window, a check at the call and the write in a task that a
-  write made between them fails, never opens. A stale digest is `DigestMismatch`, nothing written; `edit_config(vm,
+- **Every write of a VM's configuration sends `digest`.** `write_config(vm, changes)` is one `PUT`, synchronous,
+  that sends the digest of the read `vm` was owned on and takes none of its caller's: Proxmox writes the changes only
+  while the configuration is still the one whose digest the write sends, in the call itself and under the VM's lock, so
+  a `POST`'s window, a check at the call and the write in a task that a write made between them fails, never opens, and
+  nothing is written to a VM that took the VMID since. A stale digest is `DigestMismatch`, nothing written, a second
+  `write_config` of one `Owned` among them; `edit_config(vm,
   edit)` reads, holds what it read to the `Owned`'s SMBIOS UUID (`Changed` where another VM holds the VMID now), applies
   `edit` to it, writes with that read's digest, and on a mismatch reads and applies again, `EDITS` (three) times at
   most, then raises. `changes` holds only the keys the table's rows for the
@@ -1070,27 +1086,50 @@ byte for byte and never parsed: a person's own lines, and the lines today's prod
   there: Proxmox VE 9.2's bound on a configuration write's description (experiment 6), which a clone's does not have.
   `render` refuses notes past it (`TooLong`), so nothing is sent that Proxmox would refuse.
 
-It imports the standard library and `text.py` alone, so that `status` reads a record with no other part of the engine
-loaded, which `tests/unit/test_aw_record.py` reads from a fresh interpreter.
+It imports the standard library, `text.py` and the command line's patterns (`schema/patterns.py`, the standard
+library's alone) and nothing else, so that `status` reads a record with no other part of the engine loaded, which
+`tests/unit/test_aw_record.py` reads from a fresh interpreter. Every field's value is held to its form here, by `parse`
+and `render` both, the one definition `engine/record.py`'s `Record` holds its values to (16.4): the UUID to the form
+Proxmox gives a VM's, the name, the size and the job to the command line's patterns, a build to a whole number from 1,
+the digests to SHA-256's hex, an image's URL to an http or https URL, its packages to Debian's names, and the VPNs to
+today's mark of one (`VPN`, a copy of `vpn/model.py`'s, which a test holds equal). So `parse` refuses every value
+`Record` refuses, and `status` judges what the engine judges. The rules across fields - a VM's record names its stage,
+and every record but a VM's first form names its UUID - are each plain reader's judge's: `ownership.py` and
+`template.py` below hold them.
 
 **What is the fleet's: `ownership.py`.** Ownership is pool membership and a valid record of this engine's, never a
 label, and its one rule is here, in plain code with no client, so that every workflow, through `engine/fleet.py` (16.4),
 and `status`, which may not import the engine, judge a member of the pool by the same function. A `Member` is what a
 reader read of one: its name, node and VMID, its SMBIOS UUID and its configuration's digest, whether it is a VM and a
-template, why it could not be read, what its record names (its kind, UUID, stage and job, from the fields `parse` gives
-or the typed record renders, `Member.of`) and the other members that carry its UUID. `refusal(member, job="")` says why
-it is not the fleet's to change, "" where it is: a guest that is no VM; a template; one that could not be read; one
-with no record of this engine's, whatever tags it carries; a record of a template, a golden or a build on a VM that is
-no template, or one that names another VM's UUID (`copied`), each a copy; a record that names no UUID, but the first
-form of a clone (`first_form`), which the run whose job it names owns by naming that job, before it writes the rest; a
-VM with no SMBIOS UUID; and two members of one UUID, both. `owned(member, job=)` returns an `Owned` where it passes,
-`NotOwned` with that sentence where it does not, and is the one maker of one: its name, node, VMID, SMBIOS UUID and the
-digest of the configuration it was owned on. Made by hand, or by `dataclasses.replace` or `copy.replace` of one, it is
-a `TypeError`. The client's writes of a VM above and `engine/record.py`'s writer take an `Owned` and nothing else.
-`tests/unit/test_aw_ownership.py` holds each refusal, a record's fields judged alike whichever reader read them, the
-first form owned only with its job, an `Owned` made by `owned` alone, and that the module imports `record.py` and
-nothing of the engine or the client, and opening a host (`fleet/opened.py`, 16.9) nothing of the engine, pydantic,
-Ansible, Jinja2 or the MCP SDK, so that `status` may import both.
+template, why it could not be read, what its record names (its kind, UUID, stage and job) and the other members that
+carry its UUID. `Member.read(config, unread=, twins=)` makes one from a VM's configuration as the client read it
+(`answers.VmConfig`), its record from its notes as `parse` reads them, and marks it read, a field no constructor takes
+and `dataclasses.replace` and `copy.replace` leave unset: what `owned` and `building` judge is a member a reader made,
+never one made by hand or changed after its read, which is a `TypeError` to both (a record written into a member's
+fields would be its verdict). `refusal(member, job="", clone=None)` says why it is not the fleet's to change, "" where
+it is: a guest that is no VM; a template; one that could not be read; one with no record of this engine's, whatever
+tags it carries; a record of a template, a golden or a build on a VM that is no template, or one that names another VM's
+UUID (`copied`), each a copy; a VM's record that names no stage; a record that names no UUID, but the first form of a
+clone (`first_form`), which the run that cloned it alone owns, by its own job, which the record names, and its own
+clone's task, whose VMID is the member's (`clone`, the clone call's answer or its own job record's; never read from the
+record judged, whose job anyone may read), before it writes the rest; a VM with no SMBIOS UUID; and two members of one
+UUID, both. `owned(member, job=, clone=)` returns an `Owned` where it passes, `NotOwned` with that sentence where it
+does not, and is the one maker of one: its name, node, VMID, SMBIOS UUID and the digest of the configuration it was
+owned on. Made by hand, or by `dataclasses.replace` or `copy.replace` of one, it is a `TypeError`. The client's writes
+of a VM above and `engine/record.py`'s writer take an `Owned` and nothing else. `building(member, job=, clone=)`
+returns a `Building`, which nothing else makes either: the VM a golden image is built in (card E18), the one thing
+`to_template` takes, made from a fresh read of a VM that is no template, whose record is of kind `build` and names its
+own UUID and the asking run's job, at the VMID the asking run's own clone made; `build_refusal` says why not, as
+`refusal` does for `owned`: a template, a VM of the fleet (a record of kind `vm`), another run's build VM, one at
+another clone's VMID, a copy are each refused. An `Owned` is never a `Building`, nor the other way.
+`tests/unit/test_aw_ownership.py` holds each refusal, a record judged alike whichever reader read it, the records the
+typed reader refuses among them, the first form owned by its run's job and clone's task alone, an `Owned` made by
+`owned` alone and a `Building` by `building` alone of the asking run's own build VM, a member no reader made never
+judged for a change, and, by scans, that a member is marked read in its readers alone (`tests/unit/aw_kit.py`'s one
+helper for the tests of what a write sends, allowed by name), that the module imports `record.py` and `answers.py` and
+nothing else of `pve/`, the client above all, and nothing of the engine, and opening a host (`fleet/opened.py`, 16.9)
+nothing of the engine, pydantic, Ansible, Jinja2 or the MCP SDK, so that `status` may import both.
+
 
 **The base template judged: `template.py`.** What was read of the base template is judged here, in plain code with no
 client, so that `deploy`, through `engine/template.py`'s `compare` (16.4), and `status`, which may not import the
@@ -1167,8 +1206,12 @@ words - a marked failure in other words is `Stopped` too, and one in `CUT`'s wor
 log whose read could not be made, whose lines are `()` as a log with none's are; a deletion's parameters,
 `destroy-unreferenced-disks` alone and `purge` only where asked for, read from the fake's log; a deletion of a VM whose
 configuration changed since it was owned, and of one whose VMID another VM holds now, `Changed` with no `DELETE` sent,
-as is an `edit_config` of the latter; a write given anything but an `Owned` refused with nothing sent; and a UPID with
-a `/` in a part of its own `Malformed`. Its
+as is an `edit_config` of the latter; no write of an `Owned` reaching another VM at its VMID, each of the seven
+refused (`write_config` by Proxmox's digest, the rest `Changed` with nothing sent but the read) and the VM there as it
+was; a resize sending its read's digest; a write given anything but an `Owned` refused with nothing sent, and a
+conversion anything but a `Building`; a VM of the fleet, a template, another run's build VM and one at another clone's
+VMID never made a template, and the run's own build VM made one; and a UPID with a `/` in a part of its own
+`Malformed`. Its
 rules: a `PUT` or a `POST` to a configuration's path with no `digest`, or an empty one, is refused before it is sent,
 `%`-escaped spellings of the path among them, while a path with a `%` is sent as it was given, `harness.fake_fleet`'s
 end fails a test where the fake was sent one, the path read decoded there too, and every method that sends one sends

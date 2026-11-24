@@ -29,7 +29,10 @@ syntax tree for one):
   PATH is that launcher and every line it prints says aw, as a person who linked it there reads them;
 - `imports_of(*words, home=...)`: the modules a run loaded, from python's `-X importtime`; and with `module=`, what
   importing that one module of this checkout's lib/ loaded;
-- `searched_for(secrets, *paths)`: which files hold one of the secrets, failing a search that read nothing.
+- `searched_for(secrets, *paths)`: which files hold one of the secrets, failing a search that read nothing;
+- `owned_as_recorded(config)`: the Owned of a VM whose configuration a test read, as though its notes held its own
+  record, for the tests of what a write sends: the one place outside pve/ownership.py's Member.read that marks a
+  Member read (tests/unit/test_aw_ownership.py's scan names it); every other test owns through a read.
 
 `STOP_UNSEEN` (strict) and `STOP_GONE` mark, on macOS with Python 3.14 alone, the tests of a stop at the terminal that
 fail there for a cause card C28 finds.
@@ -602,3 +605,28 @@ def searched_for(secrets: Iterable[str | bytes | Secret], *paths: Path) -> list[
         if not read:
             pytest.fail(f"searched nothing: no byte to read at {path}")
     return found
+
+
+def owned_as_recorded(config):
+    """The Owned of the VM whose configuration a test read (an answers.VmConfig, as the client's read or answers.config
+    of the root token's gives it), as though its notes held its own record of this engine's - kind vm, its own UUID,
+    finished - whatever they hold: for the tests of what the client's writes and the record's writer send, whose VMs
+    hold no record. Whether a member is the fleet's is the one check's (tests/unit/test_aw_ownership.py,
+    test_aw_fleet.py), which reads the record a reader read. The one place outside pve/ownership.py's Member.read that
+    marks a Member read, which test_aw_ownership.py's scan allows by its name: every other test owns through a read."""
+    from claude_vm.pve import answers, ownership
+
+    if not isinstance(config, answers.VmConfig):
+        raise TypeError("owned_as_recorded takes a VM's configuration as read, an answers.VmConfig")
+    member = ownership.Member(
+        config.name,
+        config.node,
+        config.vmid,
+        uuid=config.identity,
+        digest=config.digest,
+        recorded="vm",
+        record_uuid=config.identity,
+        stage="finished",
+    )
+    object.__setattr__(member, "_read", True)
+    return ownership.owned(member)
