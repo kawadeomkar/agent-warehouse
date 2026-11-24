@@ -1,6 +1,8 @@
 """The live region every live output draws with: lib/claude_vm/tui/live_region.py, against a stand-in Display.
 
-What is printed goes above the region and the region is drawn again below it; a frame taller than the screen is cut
+What is printed goes above the region and the region is drawn again below it; a Ctrl-C, a kill or a hangup between a
+write and its count is held off till the count is right, each delivered after in the order it came, one ignored left
+ignored and one at its default still ending the process; a frame taller than the screen is cut
 and says how much; a prompt - pause's prompt_until or a vars_prompt's do_var_prompt - has the screen to itself; the
 route sends what it is given to the log alone; a screen too small gets no region; the echo is off while it draws,
 on a pseudo-terminal of the test's own; and the Display it wraps is held to ansible-core's. Each live output's own
@@ -14,9 +16,12 @@ import inspect
 import io
 import os
 import signal
+import subprocess
+import sys
 import termios
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
@@ -137,6 +142,159 @@ def test_a_ctrl_c_between_a_write_and_its_count_leaves_the_count_right(step):
         signal.signal(signal.SIGINT, held)
     assert region._drawn == (3 if step == "redraw" else 0)
     region.finish()
+
+
+class Ended(BaseException):
+    """What a program's own handler of a kill or a hangup raises to end at once, as the new engine's run does
+    (lib/claude_vm/runs/attached.py's Abandoned)."""
+
+
+@pytest.mark.parametrize("signum", [signal.SIGTERM, signal.SIGHUP], ids=["SIGTERM", "SIGHUP"])
+@pytest.mark.parametrize("step", ["redraw", "finish"])
+def test_a_kill_or_a_hangup_between_a_write_and_its_count_leaves_the_count_right_too(step, signum):
+    # A program that ends at once on SIGTERM or SIGHUP by raising from a handler of its own met the same gap as a
+    # Ctrl-C: a frame left on the screen above the run's end, or lines said above it wiped by the next erase.
+    region, display, stream = _region(frame=lambda cols, rows, glyph: ["one", "two", "three"])
+    region.start()
+    if step == "finish":
+        region.redraw()
+    written = region._write
+
+    def write_then_signal(text):
+        written(text)
+        os.kill(os.getpid(), signum)
+
+    def ended(number, _frame):
+        raise Ended(number)
+
+    held = signal.signal(signum, ended)
+    idle = threading.Event()
+    other = threading.Thread(target=idle.wait, daemon=True)
+    other.start()
+    region._write = write_then_signal
+    try:
+        with pytest.raises(Ended):
+            getattr(region, step)()
+    finally:
+        region._write = written
+        idle.set()
+        other.join()
+        signal.signal(signum, held)
+    assert region._drawn == (3 if step == "redraw" else 0)
+    region.finish()
+
+
+def test_the_signals_a_write_held_off_are_each_delivered_after_it_in_the_order_they_came():
+    region, display, stream = _region(frame=lambda cols, rows, glyph: ["one", "two", "three"])
+    region.start()
+    written = region._write
+    came = (signal.SIGHUP, signal.SIGTERM, signal.SIGINT)
+    heard = []
+
+    def write_then_signal(text):
+        written(text)
+        for signum in came:
+            signal.raise_signal(signum)
+
+    def handler(signum, _frame):
+        heard.append((signum, region._drawn))
+        if signum == signal.SIGTERM:
+            raise Ended(signum)
+
+    held = {signum: signal.signal(signum, handler) for signum in came}
+    region._write = write_then_signal
+    try:
+        with pytest.raises(Ended):
+            region.redraw()
+    finally:
+        region._write = written
+        for signum, previous in held.items():
+            signal.signal(signum, previous)
+    # Each once the count was right, in the order it came, the one after the SIGTERM's end too; that end raised last.
+    assert heard == [(signal.SIGHUP, 3), (signal.SIGTERM, 3), (signal.SIGINT, 3)]
+    region.finish()
+
+
+def test_a_signal_ignored_stays_ignored_through_a_write():
+    # As nohup leaves SIGHUP: nothing of the region's takes it in the meantime, and it ends nothing after.
+    region, display, stream = _region(frame=lambda cols, rows, glyph: ["one"])
+    region.start()
+    written = region._write
+    during = []
+
+    def write_then_hang_up(text):
+        written(text)
+        during.append(signal.getsignal(signal.SIGHUP))
+        signal.raise_signal(signal.SIGHUP)
+
+    held = signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    region._write = write_then_hang_up
+    try:
+        region.redraw()
+    finally:
+        region._write = written
+        signal.signal(signal.SIGHUP, held)
+    assert during == [signal.SIG_IGN] and region._drawn == 1
+    region.finish()
+
+
+# A region in a process of its own whose SIGTERM is at its default, as today's runs leave it: the kill comes during a
+# write, and the process lives to finish that write and count it, then dies of the kill before anything more.
+AT_ITS_DEFAULT = r"""
+import io, os, signal, sys, threading
+sys.path.insert(0, sys.argv[1])
+from claude_vm.tui import live_region as live
+
+signal.signal(signal.SIGTERM, signal.SIG_DFL)
+
+
+class Screen(io.StringIO):
+    def isatty(self):
+        return True
+
+
+class Display:
+    def __init__(self):
+        self._lock = threading.RLock()
+
+    def display(self, msg, **kwargs):
+        pass
+
+    def prompt_until(self, *args, **kwargs):
+        pass
+
+    def do_var_prompt(self, *args, **kwargs):
+        pass
+
+
+region = live.LiveRegion(Display(), frame=lambda cols, rows, glyph: ["one"], stream=Screen())
+region._terminal_size = lambda: (40, 10)
+region.start()
+written = region._write
+
+
+def write_then_kill(text):
+    written(text)
+    os.kill(os.getpid(), signal.SIGTERM)
+    os.write(2, b"the write ended\n")
+
+
+region._write = write_then_kill
+region.redraw()
+os.write(2, b"the redraw returned\n")
+"""
+
+
+def test_a_kill_at_its_default_still_ends_the_process_once_the_write_is_counted():
+    lib = str(Path(live.__file__).parents[2])
+    ran = subprocess.run(
+        [sys.executable, "-I", "-c", AT_ITS_DEFAULT, lib],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+    assert (ran.returncode, ran.stderr) == (-signal.SIGTERM, b"the write ended\n"), ran
 
 
 def test_a_frame_taller_than_the_screen_is_cut_and_says_how_much():

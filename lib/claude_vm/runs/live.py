@@ -26,7 +26,20 @@ the terminal's echo the region's (tests/unit/test_aw_live.py holds every module 
 machines are the job's own (`job.json`'s `machines`), by identity, the key every event of a machine names, each with the
 name a person chose where the caller gives it (`names`): `job.json` keeps identities alone, and the view says a machine
 by its name, which an event's `name` also tells the model. A Live is made in the run's thread, which alone may take
-SIGWINCH for the region, and once a run: the job hands it every event from then on.
+SIGWINCH for the region, and once a job: a second view of it is refused (RuntimeError), the first keeping it, and the
+job hands the one view every event from then on.
+
+What the view says in the run's thread - each event's lines, standard error's lines above the region - is said whole,
+with a Ctrl-C, a SIGTERM and a SIGHUP held off meanwhile and delivered once it is said (tui/live_region.py's
+uninterrupted, which holds each of the region's writes and its count too): the ladder (runs/attached.py) raises from
+its handler wherever the run's thread is, and a frame drawn but not counted, or a line counted as said but not written,
+would leave a frame's remains above the summary, wipe lines said above it, or lose one. A stream whose reader has gone
+(`aw … | head -1`) is written no more; one whose pipe is broken is pointed at /dev/null, so that Python's flush at
+the process's exit writes what it still holds there and the run ends with its own status, never Python's 120.
+
+A question at the run's terminal finds the run's view by the job its Context carries, `Live.of(context.job)` (None for
+a run with no view), and asks inside `with view.aside():`, which steps the region aside as it does for a prompt (erased
+and paused, the echo on; after, the echo off and the region back half a second later).
 """
 
 from __future__ import annotations
@@ -38,6 +51,7 @@ import os
 import sys
 import threading
 import time
+import weakref
 from collections.abc import Callable, Mapping
 from typing import IO, Protocol
 
@@ -58,6 +72,16 @@ NEXT_STEPS = "NEXT STEPS"
 NEXT_STEPS_STYLE = "y"
 # What is said of an event the model refused, on standard error.
 REFUSED = "aw: the live view left out an event it could not take ({event}): {error}"
+# What a second view of a job is refused with.
+TWICE = "job {job} has its live view already: a run is drawn by one view, made once"
+
+# The view of each job of this process's that has one, by the job's folder (as runs/job.py keys the jobs it holds), for
+# as long as the job hands it its events.
+_VIEWS: weakref.WeakValueDictionary[str, Live] = weakref.WeakValueDictionary()
+
+
+def _key(job: jobs.Job) -> str:
+    return os.path.realpath(job.folder)
 
 
 class Cancelled(Protocol):
@@ -66,25 +90,48 @@ class Cancelled(Protocol):
     def is_set(self) -> bool: ...
 
 
+def _to_null(stream: IO[str]) -> None:
+    """stream's descriptor pointed at /dev/null, once its reader has gone (a broken pipe): what the stream still holds
+    goes there at Python's flush at exit, which then succeeds, as Python's documentation has it (the signal module's
+    note on SIGPIPE). The descriptor keeps the flag it had: a child that inherits the run's standard output inherits
+    /dev/null, and one that does not is never handed it (tests/unit/test_aw_children.py's scan holds that). A stream
+    with no descriptor of its own is left as it is."""
+    with contextlib.suppress(OSError, ValueError, AttributeError, io.UnsupportedOperation):
+        fd = stream.fileno()
+        null = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(null, fd, inheritable=os.get_inheritable(fd))
+        finally:
+            os.close(null)
+
+
 class Display:
     """What the live region asks of a display (tui/live_region.py), as status/engine.py's Display gives it: a lock, a
     display() that writes a line to the run's stream, or to standard error as the run found it, and the two prompt
     methods, which the region wraps to step aside. No question is asked here: a run's questions are runs/ask.py's
-    (C11). Nothing goes to a log: the run's text log is a listener of its own (C12). A stream that has gone (a pipe
-    closed) never fails the run."""
+    (C11). Nothing goes to a log: the run's text log is a listener of its own (C12). A stream that has gone never fails
+    the run: once a write or a flush there fails, nothing more is written there, and where its pipe is broken (a reader
+    that left early, `| head -1`) its descriptor is pointed at /dev/null (_to_null)."""
 
     def __init__(self, stream: IO[str], errors: IO[str]) -> None:
         self._lock = threading.RLock()
         self._stream = stream
         self._errors = errors
+        self._gone: list[IO[str]] = []
 
     def display(self, msg, color=None, stderr=False, screen_only=False, log_only=False, newline=True, caplevel=None):
         if log_only:
             return
         out = self._errors if stderr else self._stream
-        with contextlib.suppress(OSError, ValueError):
+        if any(out is gone for gone in self._gone):
+            return
+        try:
             out.write(msg + ("\n" if newline else ""))
             out.flush()
+        except (OSError, ValueError) as error:
+            self._gone.append(out)
+            if isinstance(error, BrokenPipeError):
+                _to_null(out)
 
     def prompt_until(self, *args, **kwargs):
         raise RuntimeError("a run asks its questions through runs/ask.py, which steps the region aside")
@@ -95,7 +142,8 @@ class Display:
 class _Above(io.TextIOBase):
     """Standard error while the region is drawn: each whole line written is said above the region, through the display
     the region wraps, which erases the region, writes the line to standard error as the run found it, and draws the
-    region again; a part of a line waits for its end, or for the region's (rest)."""
+    region again, the interrupts held off till it is said (live_region.uninterrupted); a part of a line waits for its
+    end, or for the region's (rest)."""
 
     def __init__(self, display: Display, real: IO[str]) -> None:
         super().__init__()
@@ -117,7 +165,7 @@ class _Above(io.TextIOBase):
         return self._real.fileno()
 
     def write(self, text: str) -> int:
-        with self._display._lock:
+        with live_region.uninterrupted(), self._display._lock:
             lines = (self._partial + text).split("\n")
             self._partial = lines.pop()
             for line in lines:
@@ -151,11 +199,17 @@ def streamed(event: jobs.Event) -> str:
 
 
 class Live:
-    """The live view of one run: made in the run's thread once its job exists, it hears every event the job emits from
-    then on and ends with the run's own end. stream is where the run is said (standard output by default); verbosity
-    the run's -v count; cancelled the run's Context.cancelled; names the name a person chose for each of the job's
-    machines, by identity; title, host and check what the view's header says (runs/view.py); clock the view's own,
-    time.monotonic by default, never the events' wall-clock time."""
+    """The live view of one run: made in the run's thread once its job exists, once for the job (a second is
+    RuntimeError), it hears every event the job emits from then on and ends with the run's own end. stream is where the
+    run is said (standard output by default); verbosity the run's -v count; cancelled the run's Context.cancelled; names
+    the name a person chose for each of the job's machines, by identity; title, host and check what the view's header
+    says (runs/view.py); clock the view's own, time.monotonic by default, never the events' wall-clock time."""
+
+    @staticmethod
+    def of(job: jobs.Job) -> Live | None:
+        """The view drawing job's run, the one a question at the run's terminal steps aside (aside()); None where the
+        run has none."""
+        return _VIEWS.get(_key(job))
 
     def __init__(
         self,
@@ -175,6 +229,11 @@ class Live:
             raise TypeError("a live view draws a run of a Declared")
         if isinstance(verbosity, bool) or not isinstance(verbosity, int) or verbosity < 0:
             raise ValueError("a run's verbosity is a count of -v, 0 or more")
+        # Before anything is taken: a second view would save the terminal's settings with the first's echo off and put
+        # those back last, and leave its standard error the first's writer.
+        key = _key(job)
+        if key in _VIEWS:
+            raise RuntimeError(TWICE.format(job=job.id))
         record = job.read()
         machines = record.get("machines") or []
         started = record.get("started")
@@ -203,6 +262,8 @@ class Live:
         self.ended = False
         self._above: _Above | None = None
         job.listen(self._heard)
+        # The job's view from the moment it listens: one that fails before has taken nothing, and may be made again.
+        _VIEWS[key] = self
         self.region.start()
         if drawn:
             self._above = _Above(self.display, self._errors)
@@ -240,10 +301,12 @@ class Live:
 
     # --- each event ---------------------------------------------------------------------------------------------
     def _heard(self, event: jobs.Event) -> None:
-        """One event of the run, as the job hands it: fed to the model, and said as this view says a run."""
+        """One event of the run, as the job hands it: fed to the model, and said as this view says a run, whole: a
+        signal that comes meanwhile is delivered once it is said (live_region.uninterrupted), so that no line the view
+        has counted as said is lost to the ladder's end at once."""
         if self.ended:
             return
-        with self.display._lock:
+        with live_region.uninterrupted(), self.display._lock:
             now = self._clock()
             self._look(now)
             if self.mode == STREAM:
@@ -266,6 +329,14 @@ class Live:
                 self.region.bell()
             if ending:
                 self._end(now)
+
+    # --- a question -------------------------------------------------------------------------------------------
+    def aside(self) -> contextlib.AbstractContextManager[None]:
+        """The region out of the way of a question asked inside, as the region steps aside for a prompt
+        (tui/live_region.py's LiveRegion.aside): erased and paused, the echo on; after, the echo off again and the
+        region drawn once the run has worked half a second more. Where the run is not drawn, nothing moves. A question
+        finds the view by its Context's job: Live.of(context.job)."""
+        return self.region.aside()
 
     # --- the end ------------------------------------------------------------------------------------------------
     def close(self) -> None:

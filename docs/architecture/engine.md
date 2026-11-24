@@ -2173,13 +2173,27 @@ left out: the run goes on, and every listener after the view still hears it. Not
 sequence or reads the terminal itself: the region, the palette, the title and the echo are `tui/`'s. The model's
 machines are the job's own, `job.json`'s `machines`, by identity, the key every event of a machine names, each with the
 name a person chose where the caller gives it (`names`): the record keeps identities alone, and the view says a machine
-by its name. `tests/unit/test_aw_live.py` holds it at a pseudo-terminal, a run made by `runs.run` in a child process
-emitting a canned run: each redraw one write, no line wrapped at 80 or 100 columns, the echo off while it draws and back
-after a return, a Ctrl-C, a SIGTERM and a SIGHUP, a report and a failure said above and left there, the stopping line
-above the region and the footer saying so, the summary and then NEXT STEPS once; piped, a line as each step ends; with
-`-v`, each event a line; in its own process, with a clock of its own, that what a run says off a terminal is exactly
-what the view gives after each event, a refused event said once with the run going on, a person's stop reaching the
-model, and nothing said after the end; and by a scan, that no module of `runs/` names an escape sequence or `/dev/tty`.
+by its name. A job has one view: a second is refused (`RuntimeError`), the first keeping it. What the view says in the
+run's thread, each event's lines and standard error's lines above the region, is said whole, a Ctrl-C, a SIGTERM and a
+SIGHUP held off meanwhile and each delivered once it is said (`live_region.uninterrupted`, which also holds each of the
+region's writes and its count of the lines drawn): the ladder raises from its handler wherever the run's thread is, and
+a frame drawn but not counted would be left above the summary, an erase not counted would wipe lines said above it, and
+a line counted as said but not written would be lost. Once a write to the stream fails nothing more is written there,
+and a stream whose pipe is broken (`aw … | head -1`) is pointed at `/dev/null`, so that Python's flush at the exit
+succeeds and the run ends with its own status. A question at the run's terminal finds the run's view by the job its
+`Context` carries, `Live.of(context.job)` (None for a run with no view), and asks inside `with view.aside():`, which
+steps the region aside as it does for a prompt: erased and paused, the echo on; after, the echo off again and the region
+drawn once the run has worked half a second more. `tests/unit/test_aw_live.py` holds it at a pseudo-terminal, a run made
+by `runs.run` in a child process emitting a canned run: each redraw one write, no line wrapped at 80 or 100 columns, the
+echo off while it draws and back after a return, a Ctrl-C, a SIGTERM and a SIGHUP, a report and a failure said above
+and left there, the stopping line above the region and the footer saying so, the summary and then NEXT STEPS once; a
+SIGTERM or a SIGHUP at a random moment while events flow, no frame's remains left and no line said above lost; a
+question asked aside; piped, a line as each step ends, and into a reader that leaves after the first line, the run's
+own status; with `-v`, each event a line; in its own process, with a clock of its own, that what a run says off a
+terminal is exactly what the view gives after each event, a refused event said once with the run going on, a person's
+stop reaching the model, what an event says and standard error's lines said whole with a signal meanwhile delivered
+after, a second view refused, a stream gone written no more, and nothing said after the end; and by a scan, that no
+module of `runs/` names an escape sequence or `/dev/tty`.
 
 ## 16.9 `fleet/` — the fleet's files, the settings, the secrets and the fleet's mark
 

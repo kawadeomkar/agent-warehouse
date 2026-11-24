@@ -16,14 +16,18 @@ What it does, once started:
 - Wraps Display.prompt_until and Display.do_var_prompt: a pause prints with display() and only then takes Display's
   lock to read the keys (ansible-core 2.21), and a vars_prompt reads with input(), so the region is erased before
   either and drawn again only once it returns, and the run has worked half a second more: questions one after
-  another show no frame between them. The spinner takes the same lock, and draws nothing while a prompt is up.
+  another show no frame between them. The spinner takes the same lock, and draws nothing while a prompt is up. A
+  program's own question steps the region aside the same way, inside aside().
 - On a resize (SIGWINCH), which can wrap a frame worked out for the old size, pushes the screen into the
   scrollback and draws again from the top. The cursor is never hidden.
 - Sets the terminal's title (OSC 0) when it changes, and rings the bell when asked.
 - Turns the terminal's echo off while it draws, and back on for a prompt and at the end: an Enter typed during the
   run would move the cursor under the region, and the next redraw would leave a copy of it behind.
-- Erases the region at exit, Ctrl-C included, and holds a Ctrl-C off between a write and its count of the lines it
-  drew: a KeyboardInterrupt between the two left the count stale, and the erase that followed missed the region.
+- Erases the region at exit, Ctrl-C included, and holds a Ctrl-C, a SIGTERM and a SIGHUP off between a write and its
+  count of the lines it drew (uninterrupted), each delivered once the count is right, in the order it came: a
+  KeyboardInterrupt between the two left the count stale, and the erase that followed missed the region; a program
+  that raises from its own SIGTERM or SIGHUP handler (the new engine's run, runs/attached.py) met the same gap, a
+  frame's remains left above the run's last words or lines said above it wiped.
 
 Forked workers inherit the wrapped methods: only the process that started the region draws. Without a frame
 function it draws nothing and only routes, for a run whose output is not a terminal.
@@ -48,6 +52,54 @@ FRAME_SECONDS = 0.1
 # init's, show no frame between them.
 SETTLE_SECONDS = 0.5
 MIN_ROWS, MIN_COLS = 4, 20
+# What a program ends or stops on, held off for a write to the terminal and its count (uninterrupted): a Ctrl-C, and a
+# kill or a hangup, which a program may end on by raising from a handler of its own.
+HELD = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+
+
+@contextmanager
+def uninterrupted():
+    """HELD held off for what is inside, then each one that came delivered, in the order it came, by the handler that
+    was in place before; the first error a handler raises (a KeyboardInterrupt) raised once every one is delivered.
+
+    Held at Python's level, where a handler runs and raises: a handler of the hold's own takes note of each, and is
+    swapped back before they are raised again (signal.raise_signal), so a default ends the process there and then. A
+    signal mask would hold the signal in one thread only: the kernel hands it to another (Ansible's results thread, the
+    spinner), and Python runs its handler in the main thread all the same. Only the main thread may set a handler, and
+    only it is ever interrupted, so anywhere else nothing is held. A signal ignored (nohup's SIGHUP) stays ignored, and
+    one whose handler no Python set is left as it is. Holds nest: one inside another hands what it held to the one
+    around it."""
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    held = []
+    swapped = {}
+
+    def note(signum, _frame):
+        held.append(signum)
+
+    try:
+        for signum in HELD:
+            if signal.getsignal(signum) not in (None, signal.SIG_IGN):
+                swapped[signum] = signal.signal(signum, note)
+        yield
+    finally:
+        raised = None
+        for signum, handler in swapped.items():
+            # Each handler put back whatever another one raises meanwhile (one put back before it, at a signal now).
+            while True:
+                try:
+                    signal.signal(signum, handler)
+                    break
+                except BaseException as error:
+                    raised = raised or error
+        for signum in held:
+            try:
+                signal.raise_signal(signum)
+            except BaseException as error:
+                raised = raised or error
+        if raised is not None:
+            raise raised
 
 
 def can_draw(stream=None, environ=None) -> bool:
@@ -92,29 +144,8 @@ class LiveRegion:
         self._stream.write(text)
         self._stream.flush()
 
-    @staticmethod
-    @contextmanager
-    def _uninterrupted():
-        """Ctrl-C held off for one write to the terminal and the count of the lines it drew, then delivered.
-
-        Held at Python's level, where it is raised: a signal mask holds the signal in one thread only, the kernel
-        hands it to another (Ansible's results thread, the spinner), and Python raises it in the main thread all the
-        same. Only the main thread may set a handler, and only it is ever interrupted.
-        """
-        if threading.current_thread() is not threading.main_thread() or signal.getsignal(signal.SIGINT) is None:
-            yield
-            return
-        held = []
-        previous = signal.signal(signal.SIGINT, lambda signum, frame: held.append(frame))
-        try:
-            yield
-        finally:
-            signal.signal(signal.SIGINT, previous)
-            if held:
-                if callable(previous):
-                    previous(signal.SIGINT, held[0])
-                elif previous == signal.SIG_DFL:
-                    signal.raise_signal(signal.SIGINT)
+    # A Ctrl-C, a SIGTERM and a SIGHUP held off for one write to the terminal and the count of the lines it drew.
+    _uninterrupted = staticmethod(uninterrupted)
 
     def _erase(self):
         if self._drawn:
@@ -185,6 +216,36 @@ class LiveRegion:
         except (OSError, ValueError, AttributeError, termios.error):
             self._echo = None
 
+    @contextmanager
+    def aside(self):
+        """The region out of a question's way while what is inside asks it: erased and paused, the echo on and on_prompt
+        told True; after, on_prompt told False, the echo off again while the region still draws, and nothing drawn until
+        the run has worked SETTLE_SECONDS more, so questions one after another show no frame between them. What the
+        wrapped prompt methods do, and a program's own question (runs/live.py's Live.aside). In a forked worker,
+        nothing: only the process that started the region draws."""
+        if os.getpid() != self._pid:
+            yield
+            return
+        # The question prints through display() or its own writes, and goes to the screen whatever the route says.
+        with self._display._lock:
+            self._erase()
+            self._paused = True
+            self.prompting = True
+            self._quiet(False)
+        if self._on_prompt is not None:
+            self._on_prompt(True)
+        try:
+            yield
+        finally:
+            if self._on_prompt is not None:
+                self._on_prompt(False)
+            with self._display._lock:
+                self._paused = False
+                self.prompting = False
+                if self._frame and not self._stop.is_set():
+                    self._quiet(True)
+                self._settle = time.monotonic() + SETTLE_SECONDS
+
     # --- the wrappers -----------------------------------------------------------------------------------------
     def _wrap(self):
         display = self._display
@@ -212,27 +273,9 @@ class LiveRegion:
 
         def stepping_aside(original):
             def wrapped_prompt(*args, **kwargs):
-                if os.getpid() != self._pid:
+                # The prompt prints through display() or input(), with the region aside.
+                with self.aside():
                     return original(*args, **kwargs)
-                # The prompt prints through display() or input(), and goes to the screen whatever the route says.
-                with display._lock:
-                    self._erase()
-                    self._paused = True
-                    self.prompting = True
-                    self._quiet(False)
-                if self._on_prompt is not None:
-                    self._on_prompt(True)
-                try:
-                    return original(*args, **kwargs)
-                finally:
-                    if self._on_prompt is not None:
-                        self._on_prompt(False)
-                    with display._lock:
-                        self._paused = False
-                        self.prompting = False
-                        if self._frame and not self._stop.is_set():
-                            self._quiet(True)
-                        self._settle = time.monotonic() + SETTLE_SECONDS
 
             return wrapped_prompt
 
