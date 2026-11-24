@@ -256,7 +256,8 @@ lib/claude_vm/engine/             the workflows, one module a verb, in place of 
                                   template.py, the base template compared with what its settings would build, by GETs
                                   alone; init.py, init with nobody there: a whole fleet folder written, the vault sealed;
                                   fleet.py, the fleet as the engine reads it: a host's pool members as targets, and
-                                  what is refused
+                                  what is refused; access.py, the one list of what init makes on a host, and the check
+                                  of each against what is there
 lib/claude_vm/pve/                the typed Proxmox VE client, and the one table of each call's privilege; client.py,
                                   Proxmox, the one class that sends the token, and its reads and writes; answers.py,
                                   each answer's frozen record and its parsing function; pin.py, the connection the token

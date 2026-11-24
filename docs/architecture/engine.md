@@ -555,9 +555,49 @@ difference, the fake's own template with this engine's record as this version bu
 `proxmox_template_rebuild: false` cloned from as it is, each refusal of the role's scenario that a comparison makes,
 and the engine's own beside them, a person's template with a record that names no UUID pasted into its notes and the
 record a build would write before it knew the template's UUID among them, each leaving the template as it was; an ID
-outside the pool is `unseen` under `pool`, never `missing`; the judgement, given what `status`'s reads give and the
-record by the plain `parse`, says what `compare` says, a template's record that names no UUID and a copy of another's
-refused among them, and imports nothing of the engine and not the client; and `compare` sends nothing but GETs.
+outside the pool is `unseen` under `pool`, never `missing`, and a person's own template outside it is `unseen` too,
+said with the `aw init` line that grants the token `VM.Audit` and `VM.Clone` on that template alone, once granted read
+and cloned from while it stays out of the pool; the judgement, given what `status`'s reads give and the record by the
+plain `parse`, says what `compare` says, a template's record that names no UUID and a copy of another's refused among
+them, and imports nothing of the engine and not the client; and `compare` sends nothing but GETs.
+
+**What `init` makes on a host: `access.py`.** One list names every object a first `init` makes on a Proxmox host with
+its administrator's authority, and one check tells what is there of each; the script that makes them (card E2) is
+their one rendering, run over root SSH on a `y` or printed for a person to run, and this module runs and renders
+nothing. `objects(host)` is the list, in the order it is made: the pool, its comment the fleet's mark
+(`fleet/mark.py`'s `render`, `controller=none`); the engine's role, `AgentWarehouse`, whose privileges are what the one
+table of privileges needs on every kind of path (16.5), so that one table says both what the client calls and what
+`init` grants, and a call added to it is granted with no list of this module's to change; under
+`proxmox_audit_scope: node`, its default, the audit role, `AgentWarehouseAudit`, `VM.Audit` alone; where
+`proxmox_template_custom` names a template of the person's own outside the pool, the clone role,
+`AgentWarehouseClone`, `VM.Audit` and `VM.Clone`; the user, `agent-warehouse@pve`; the user's grants; the token, `aw`,
+with privilege separation; and the token's grants, the user's again, since such a token holds what both hold. The
+engine's role is granted on the pool (`aw-fleet` where none is named), the storage for VM disks, each bridge a clone's
+source has a network card on, which a clone asks `SDN.Use` on, and the node; the audit role on `/vms`, read only, so
+that `status` shows the node's other VMs and a capacity made from all of them; the clone role on the person's template
+alone. A role is one set of privileges granted on a path, so the engine's role, which writes, is granted on no guest
+outside the pool; under `pool`, the stricter opt-in, the token holds nothing on a guest outside it but that template.
+The user's grants come before the token and the token's after it, since an ACL entry can name only a token that
+exists. `Host` holds each value of a host to the form Proxmox gives it before any object is made of it, a pool's name
+from a letter and with no `/`, which on Proxmox VE 9.2 makes a nested pool, and `Host.of` reads them from a host's
+settings. `check(object, found)`, given what one read of the host holds (`Found`), answers missing or the engine's own
+and nothing else: a pool whose comment does not carry this fleet's mark is refused with `fleet/mark.py`'s sentence,
+never taken; a role is told with what it lacks; and the audit and clone roles, granted on guests outside the pool, are
+held to their privileges exactly. `plan(objects, found)` makes each object that is missing and appends to a role of the
+engine's own what it lacks, never taking one away; a role held exactly that holds more is neither changed nor granted,
+and said with the line that fixes it (`pveum role modify AgentWarehouseAudit --privs VM.Audit`, as root on the host),
+since on `/vms` it would hand each privilege it holds over every VM of the node.
+
+`tests/unit/test_aw_access_objects.py` holds it: the list, its order and its count, fifteen objects with the defaults
+and twelve under `pool`; no object but the pool with the mark, the roles, the user, the token and their grants,
+each of a kind and an ID `host.yml`'s `made` records; the engine's role as the table's needs, each need granted where
+Proxmox checks it, and a call added to the table granted, or found where no grant could reach it; the token's
+`VM.Audit` on `/vms` through the audit role alone under `node`, nothing on a guest outside the pool under `pool`, and a
+person's template through the clone role on its own path under both; every value Proxmox makes no object by refused,
+never said back; and the invariant, over a host holding nothing, everything, everything but one object, a role lacking
+or holding more and a grant that does not propagate: `check` answers missing or the engine's own and nothing else, a
+pool of another fleet's, of no mark or of a control VM refused with nothing planned, a role of the engine's own given
+what it lacks and losing none, and a role held exactly that holds more said and left ungranted.
 
 **The API's certificate: `certificate.py`.** Before `init` sends a Proxmox host anything that carries a credential,
 `work_out(host, given, root_ssh, ask)` settles what its API's certificate is held to, by today's `trust.py`'s probes,
@@ -1019,8 +1059,10 @@ of `engine/` and not the client.
   that cannot be read, a copy, or a record of another kind, each said in one sentence with the way on and left as it
   is, never rebuilt: so no VM of the new engine stands on a template it may not rebuild, and a person's own template at
   the ID is never destroyed. `custom`: `proxmox_template_custom` names a template of the person's own, only read and
-  cloned, held by today's `custom_template_problems` to what a clone needs. Whether it is a template, and its name, are
-  read from the guest's own configuration, never from the listing, which lags what a run just did.
+  cloned, held by today's `custom_template_problems` to what a clone needs; one the token may not read is `unseen`,
+  said with the `aw init` line, since `init` grants the token `VM.Audit` and `VM.Clone` on that template's own path
+  (16.4), never on the pool, whose role would reach it. Whether it is a template, and its name, are read from the
+  guest's own configuration, never from the listing, which lags what a run just did.
 
 `status` moves onto the client in its own workstream. `tests/unit/test_aw_pve_reads.py` runs every read against the fake
 Proxmox, which serves a node's certificate from `tests/unit/pki.py` (`harness.fake_fleet`'s `certificate`), with the
