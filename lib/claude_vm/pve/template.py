@@ -57,7 +57,8 @@ read, so that a reader reads a configuration only where it is judged: a qemu gue
 - `custom`: `proxmox_template_custom` names a template of the person's own, which is only read and cloned, never
   compared or rebuilt, and held by today's `custom_template_problems` to what a clone needs: `why` holds each thing it
   lacks, with what fixes it, and then nothing is made from it. Where the token may not read the guests outside its
-  pool and none of that name is listed, it is `unseen` too.
+  pool and none of that name is listed, it is `unseen` too, said with the `init` line: init grants the token `VM.Audit`
+  and `VM.Clone` on that template's own path (card E1), never on the pool, whose role would reach it.
 
 A template is this engine's only where its notes hold engine/record.py's record of kind `template`, written for that
 template (its own UUID, which a template's record names from its first write: only a VM's first form names none), and
@@ -189,8 +190,9 @@ class Compared:
     """What the judgement found: its outcome (one of OUTCOMES); the template's name and its ID (a custom template's
     where one was found, else None); the node VMs are cloned on and the fleet's pool; for different, a line for each
     difference and whether rebuilding is on; for refused, and custom where it lacks something, why, each a sentence;
-    the line deploy --only template is said with where a difference is kept; and whether the template is one of the
-    person's own, which proxmox_template_custom names."""
+    the line deploy --only template is said with where a difference is kept, or for a template of the person's own
+    that the token may not read, the init line that grants it; and whether the template is one of the person's own,
+    which proxmox_template_custom names."""
 
     outcome: str
     name: str
@@ -206,6 +208,8 @@ class Compared:
     def __post_init__(self) -> None:
         if self.outcome not in OUTCOMES:
             raise ValueError(f"a comparison's outcome is one of {', '.join(OUTCOMES)}")
+        if self.outcome == UNSEEN and self.custom and (self.line is None or self.line.verb != "init"):
+            raise ValueError("a template of the person's own that the token may not read is said with the init line")
 
     @property
     def usable(self) -> bool:
@@ -240,10 +244,12 @@ class Compared:
             kept = "It is kept as it is, since proxmox_template_rebuild is false: with it true,"
             return f"{differs} {kept} {line} rebuilds it."
         if self.outcome == UNSEEN and self.custom:
+            # The line said apart, as above; init grants the template's own path, since the pool's role would reach it.
+            line = said("{line}", {"line": self.line})
             return (
                 f'The template "{self.name}" (proxmox_template_custom) is not among the guests the engine\'s token may '
-                f"read, which are its pool {self.pool}'s alone (proxmox_audit_scope: pool): place it in the pool, "
-                "where the token may read it."
+                f"read, which are its pool {self.pool}'s alone (proxmox_audit_scope: pool): {line} grants the token "
+                "VM.Audit and VM.Clone on that template alone, which stays out of the pool."
             )
         if self.outcome == UNSEEN:
             return (
@@ -441,13 +447,15 @@ def custom(
     disk: str,
     nic: str,
     readable: bool,
+    host_flag: str,
 ) -> Compared:
     """A template of the person's own, named name, which proxmox_template_custom names: held by today's
     custom_template_problems to what a clone needs, from the listing and the configuration of the template custom_id
     names (config, needed only where it names one); disk and nic are the boot disk and network card a VM is resized and
-    addressed by. Unseen where none of that name is listed and the token may not read every guest (readable)."""
+    addressed by. Unseen where none of that name is listed and the token may not read every guest (readable), said
+    with the init line that grants it, for the host a line names (host_flag, as the printer of a command takes it)."""
     if not named(listing, name) and not readable:
-        return Compared(UNSEEN, name, None, node, pool, custom=True)
+        return Compared(UNSEEN, name, None, node, pool, line=Line("init", {}, host_flag=host_flag), custom=True)
     template_id = custom_id(listing, name, node)
     if template_id is not None and config is None:
         raise ValueError("a template of the person's own is held by its configuration")
