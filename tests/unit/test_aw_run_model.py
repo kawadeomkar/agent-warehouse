@@ -22,6 +22,9 @@ name the run keeps for another key, or whose name is another key, refused with n
 said where it cut short a part still open, though something of it failed before (B); and a machine's own begin keeping
 its time in a part of every machine's it reads, and a step never beginning again a stage that ended for its machine
 (8), held over every order of one stage's events that keeps each begin before its end.
+
+Its third reading's (review/code/C8.md, "The second fix, read again"), with a test: a machine's failed end right after a
+failed step of the stage it is in, still open, says nothing twice, where a step it cuts short is still said (B2).
 """
 
 from __future__ import annotations
@@ -979,6 +982,54 @@ def test_over_every_order_of_one_stages_events_a_machines_time_goes_on_and_a_ste
                     assert run.seconds(now, "sign-in", machine="alpha") == ended, where
     # Neither rule held vacuously: each was asked of many orders.
     assert checked["time"] > 1000 and checked["step"] > 100, checked
+
+
+# ---------------------------------------------------------------- review 29's third reading ----
+
+# configure with a step for each role, as layer 1's runner will declare it (G4's).
+CONFIGURE = Declared(
+    "deploy", (Stage("configure", "configure", steps=(Step("common", "common"), Step("dev-tools", "dev tools"))),)
+)
+
+
+@pytest.mark.parametrize(
+    ("declared", "stage", "step"), [(CONFIGURE, "configure", "common"), (DEPLOY, "sign-in", "claude")]
+)
+@pytest.mark.parametrize("begun", ["by its stage", "by the step"])
+def test_a_machines_failed_end_right_after_a_failed_step_of_its_open_stage_says_nothing_twice(
+    declared, stage, step, begun
+) -> None:
+    # B2: G4's ordinary order. A step ends failed, said; then its machine ends failed, the step's stage still open for
+    # it, with the same words. The end cuts the stage short, which reads failed, and says nothing again.
+    why = "Install baseline packages: E: Unable to locate package nope"
+    run = model.Run(declared, 0.0, ["alpha"])
+    if begun == "by its stage":
+        run.feed(_event("stage", "alpha", stage), 1.0)
+    run.feed(_event("step", "alpha", step, stage=stage), 1.0)
+    run.feed(_event("step", "alpha", step, stage=stage, outcome="failed", why=why), 5.0)
+    assert run.progress(stage).open_for("alpha")
+    run.feed(_event("end", "alpha", why, outcome="failed", stage=stage), 5.0)
+    assert run.failures == [model.Failure(stage, step, "alpha", why, 4.0, 5.0)]
+    assert run.mark("alpha", stage) == "failed" and not run.progress(stage).open_for("alpha")
+    assert run.outcomes["alpha"] == model.MachineEnd("failed", stage, why, 5.0)
+    # In a stage begun for every machine, the same, and the other machine goes on.
+    fleet = model.Run(declared, 0.0, ["alpha", "beta"])
+    fleet.feed(_event("stage", None, stage), 1.0)
+    for machine in ("alpha", "beta"):
+        fleet.feed(_event("step", machine, step, stage=stage), 1.0)
+    fleet.feed(_event("step", "alpha", step, stage=stage, outcome="failed", why=why), 5.0)
+    fleet.feed(_event("end", "alpha", why, outcome="failed", stage=stage), 5.0)
+    assert [(each.stage, each.step, each.machine, each.why) for each in fleet.failures] == [(stage, step, "alpha", why)]
+    assert fleet.marks(stage) == {"alpha": "failed", "beta": "running"}
+    # A step it cuts short is said though a step of its stage failed before: that step had said nothing.
+    other = next(each.key for each in declared.stage(stage).steps if each.key != step)
+    more = model.Run(declared, 0.0, ["alpha"])
+    more.feed(_event("step", "alpha", step, stage=stage), 1.0)
+    more.feed(_event("step", "alpha", step, stage=stage, outcome="failed", why=why), 5.0)
+    more.feed(_event("step", "alpha", other, stage=stage), 5.0)
+    more.feed(_event("end", "alpha", "the connection was lost", outcome="failed"), 7.0)
+    assert [(each.step, each.why) for each in more.failures] == [(step, why), (None, "the connection was lost")]
+    assert more.marks(stage, other) == {"alpha": "failed"}
 
 
 def test_deploys_stages_are_todays_labels() -> None:
