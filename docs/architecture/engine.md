@@ -2100,11 +2100,13 @@ stage, step)` and `marks(stage, step)` (each machine's, none for a stage that is
 for the person's time), `reports`, `failures` (each said once: a step that ended failed; a stage that ended failed for a
 machine with no failure of it said for that machine, or for every machine where none of it was said or where it cut
 short a part still open; a machine that ended failed with nothing of it failed before, or where its end cut short a
-part still open; and the run's own `why`, where it ended failed with nothing failed before or where it cut short a part
-still open, so a run that fails only because its machines did says nothing twice), `outcomes` (each machine's), the
-run's `outcome`, `exit` and `why`, `latest`, `names` and `name(machine)`, and `next_steps()`: NEXT STEPS by machine,
-by the name a person chose as today's orders by VM name, the run's own first, then by matter in today's order, each
-line once, through `lib/claude_vm/run/next_steps.py` as it stands.
+step still open or a stage in which no failure was said for it; and the run's own `why`, where it ended failed with
+nothing failed before or where it cut short a part still open; so a machine that ends failed only because of a failure
+already said, a step's of the stage it is in among them, says nothing twice, nor does a run that fails only because its
+machines did, with nothing left open), `outcomes` (each machine's), the run's `outcome`, `exit` and `why`, `latest`,
+`names` and `name(machine)`, and `next_steps()`: NEXT STEPS by machine, by the name a person chose as today's orders by
+VM name, the run's own first, then by matter in today's order, each line once, through
+`lib/claude_vm/run/next_steps.py` as it stands.
 `tests/unit/test_aw_run_model.py` holds it with canned runs (one machine, three, one failing in configure, one waiting for
 a sign-in, one cancelled), each event's effect, every refusal leaving the model as it was, a run fed by a job's own
 `emit`, and each rule above with a test of its own.

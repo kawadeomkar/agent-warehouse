@@ -49,9 +49,10 @@ names a machine by the name the run keeps for another key or whose name is anoth
 end are refused before anything is kept. A failure is said once: each step that ended failed; a stage that ended
 failed for a machine where no failure of it was said for that machine, and one that ended failed for every machine
 where none of it was said at all or where it cut short a part still open; a machine that ended failed where nothing of
-it had failed or where its end cut short a part still open; and the run that ended failed, its own `why`, where nothing
-had failed or where it cut short a part still open (so a run or a machine that ends failed only because of a failure
-already said says nothing twice).
+it had failed, or where its end cut short a step still open or a stage in which no failure was said for it; and the
+run that ended failed, its own `why`, where nothing had failed or where it cut short a part still open. So a machine
+that ends failed only because of a failure already said, such as a step's of the stage it is in, says nothing twice,
+nor does a run that fails only because its machines did, with nothing left open.
 
 Reused as it stands: run/next_steps.py's ordering. Not reused: run/model.py, whose input is Ansible's plays and which
 stays today's product's. It imports nothing of tui/ (tests/unit/test_aw_run_model.py).
@@ -449,20 +450,23 @@ class Run:
             self._learn(machine)
             # From here the machine reads no part of every machine's that begins later (Progress.of).
             self._book.ends.setdefault(machine, self._book.order)
-            # The host's own stages (the template's) are no machine's to end.
+            # The host's own stages (the template's) are no machine's to end. A step it cuts short counts always; a
+            # stage only where nothing of that stage was said for the machine: a step of it that failed said why.
             cut = False
             for progress in (each for each in self.stages.values() if each.spec.each_machine):
                 for step in progress.steps.values():
                     if step.open_for(machine):
                         cut = step.end(machine, closed, text, now) or cut
                 if progress.open_for(machine):
-                    cut = progress.end(machine, closed, text, now) or cut
+                    ended = progress.end(machine, closed, text, now)
+                    cut = cut or (ended and not self._failed(progress.spec.key, machine))
             for wait in self.waiting():
                 if wait.machine == machine:
                     wait.until = now
             self.outcomes[machine] = MachineEnd(outcome, stage, text, now)
             # Its why, said where nothing of it had failed, or where its end cut short a part still open (which then
-            # reads failed), as the run's end and a stage's end for every machine say theirs.
+            # reads failed) of which nothing was said yet, as the run's end and a stage's end for every machine say
+            # theirs.
             if outcome == "failed" and (cut or not any(failure.machine == machine for failure in self.failures)):
                 self.failures.append(Failure(stage, None, machine, text, now - self.began, now))
             return
