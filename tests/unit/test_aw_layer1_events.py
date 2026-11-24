@@ -45,6 +45,10 @@ from claude_vm.runs import children, rundir
 from claude_vm.runs import job as jobs
 from claude_vm.secret import MARK, Secret, struck_all
 
+# Until F6a, every run here finds the checkout's folder of Galaxy collections planted at requirements.yml's pins in the
+# test's home, which layer 1 holds it to before its child starts.
+pytestmark = pytest.mark.usefixtures("installed")
+
 CALLBACK_FILE = layer1.CALLBACKS / f"{layer1.CALLBACK}.py"
 # The canned values of these tests: one of the run's redaction list, one a no_log task fails with, and one a task
 # without no_log says, which must be there for the others' absence to mean anything.
