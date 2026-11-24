@@ -817,12 +817,15 @@ and a pool or a token Proxmox refuses, are refusals with nothing written; with n
 or a new one gets one. Then each file through its one writer, none of whose locks is held around another's, each only
 where nothing is set: the key (`vaultkey.make_key` at `vault_key_file`'s place), `fleet.json`, the vault
 (`sealed.create`, then the secret as the host's `token`), `host.yml` and its anchor (`hosts.write`), with `made`
-recording by ID the pool, the user and the token the administrator made by hand where the secret was given, the host's
-storage, bridge and pool (`aw-fleet` where none is given or set), the fleet's `github_username` and `vpn`, and
-`client.yml`'s current host. The names written where none is given are the engine's own: the user `agent-warehouse@pve`,
-the token `aw`, the pool `aw-fleet`, and the first host `pve`. A run stopped after any write goes on from what it wrote,
-and the same run again writes nothing. The modes other cards build (`--check`, `--print-commands`, `--machines`) are
-refused by name until each lands.
+recording by ID what the administrator made by hand where the secret was given, the host's storage, bridge and pool
+(`aw-fleet` where none is given or set), the fleet's `github_username` and `vpn`, and `client.yml`'s current host. The
+names written where none is given are the engine's own: the user `agent-warehouse@pve`, the token `aw`, the pool
+`aw-fleet`, and the first host `pve`. `made` records the pool, the user and the token only where each is that default
+(`OWN_NAMES`), never a name the person gave or `host.yml` sets, which may be an object of the person's own that a
+cleanup by `made` would then remove; the run's report names the fleet the pool's mark gives wherever the secret was
+given, though `made` may then record nothing. A run stopped after any write goes on from what it wrote, and the same
+run again writes nothing. The modes other cards build (`--check`, `--print-commands`, `--machines`) are refused by name
+until each lands.
 
 **`init` at a terminal: `attended`.** With standard input a terminal whose foreground the run is, as `runs/ask.py`'s
 `terminal()` decides for each question (16.8), and no `--no-prompt`, the same steps run drawn live (`INIT`, one stage

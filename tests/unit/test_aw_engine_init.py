@@ -17,8 +17,10 @@ The host's own certificates read over root SSH with nobody there are kept (the o
 20) by the same step run in this process, its root SSH a reader of the test's own, as
 tests/unit/test_aw_engine_certificate.py has one: a run through tools/aw reaches the host's own target only once the
 stand-in machine answers a host's first use (card F31). The invariant with a test of its own: after any run, no file
-under the test's home holds the fake secret in clear, and the vault on disk is sealed. And tests/unit/fleet_fixture.py,
-which gives other tests a whole fleet folder in one call.
+under the test's home holds the fake secret in clear, and the vault on disk is sealed. And after every run, host.yml's
+made names only the engine's three default names (card E19, the owner's answer of 2026-11-23), a pool, user or token of
+the person's own never among them. And tests/unit/fleet_fixture.py, which gives other tests a whole fleet folder in one
+call.
 
 At a terminal (card E5), `aw init` run at a pseudo-terminal of its own (aw_kit.aw_at_a_terminal, through
 harness._at_a_pseudo_terminal), its answers typed as each question appears: every answer typed writes the files - the
@@ -66,6 +68,7 @@ from aw_machine import unrouted
 from fleet_fixture import mark_pool, refusing_ssh, whole_fleet, with_port
 from harness import (
     ENGINE_POOL,
+    ENGINE_ROLE,
     ENGINE_TOKEN,
     ENGINE_USER,
     REPO,
@@ -101,6 +104,11 @@ HOST_SETTINGS = "fleet/hosts/pve/settings.yml"
 EVERY = ("--storage", "local-lvm", "--bridge", "vmbr0", "--github-user", "octocat", "--tailscale", "off")
 # A secret the fake did not make: low in entropy, so that gitleaks takes it for no key.
 OTHER = "00000000-0000-4000-8000-000000000000"
+# What init may record as made where the secret was given: the engine's own default names, by what each is, and
+# nothing for a name the person gave (card E19, the owner's answer of 2026-11-23 on review 28's E4.md 4).
+DEFAULTS = {"pool": ENGINE_POOL, "user": ENGINE_USER, "token": f"{ENGINE_USER}!{ENGINE_TOKEN}"}
+# A pool, a user and a token of the person's own, whose names are not the engine's.
+OWN_POOL, OWN_USER, OWN_TOKEN = "dev-vms", "ops@pve", "tools"
 # A recording ssh, for a run's PATH: each call's words and whole environment, a JSON line of calls.jsonl beside it; then
 # refused as the refusing ssh refuses an address no machine has.
 RECORDER = r"""
@@ -183,7 +191,18 @@ def _init(fake: Fake, *words: str, env: dict | None = None, ssh: Path | None = N
     home."""
     ran = run_aw("init", *words, home=_home().root, env=env, first_on_path=(ssh or fake.ssh,))
     ran.stderr = "".join(line for line in ran.stderr.splitlines(keepends=True) if not line.startswith(DRIVES))
+    _only_the_engine_s_names()
     return ran
+
+
+def _only_the_engine_s_names() -> None:
+    """After every run of this file (_init, _unattended, _asked and the three runs of their own): each entry of every
+    host's made is one of the engine's three default names, by what it is, where the host has a host.yml."""
+    layout = hosts.Layout(_home())
+    for name in layout.folders():
+        if (layout.hosts_dir / name / hosts.HOST_FILE).exists():
+            made = layout.fields(name).made
+            assert all(DEFAULTS.get(each.what) == each.id for each in made), made
 
 
 def _sealed(secret: str) -> None:
@@ -261,7 +280,8 @@ def test_every_value_given_writes_the_folder_and_the_same_again_changes_nothing(
     assert stat.S_IMODE(key.stat().st_mode) == 0o600
     assert record.read(where) == record.first(fleet)
     assert {entry: _revealed(value) for entry, value in _opened().items()} == {"token@pve": fake.secret}
-    # host.yml, with the node's certificate as its anchor held to its fingerprint, and what the administrator made.
+    # host.yml, with the node's certificate as its anchor held to its fingerprint, and what the administrator made by
+    # hand: given no name of the person's own, the engine's three default names (card E19).
     fingerprint = trust.pem_fingerprint(fake.pki["node"])
     reached = _reached()
     assert (reached.host.name, reached.fields.address, reached.fields.api_port) == ("pve", "127.0.0.1", fake.port)
@@ -567,6 +587,70 @@ def test_a_token_proxmox_does_not_take_for_the_pool_writes_nothing(fake, secret_
     _sealed(fake.secret)
 
 
+# ---------------------------------------------------------------- what made records ----
+
+
+@pytest.mark.parametrize(
+    ("pool", "user", "token_id", "recorded"),
+    [
+        (OWN_POOL, ENGINE_USER, ENGINE_TOKEN, ("user", "token")),
+        (ENGINE_POOL, OWN_USER, OWN_TOKEN, ("pool",)),
+        (ENGINE_POOL, ENGINE_USER, OWN_TOKEN, ("pool", "user")),
+        (OWN_POOL, OWN_USER, OWN_TOKEN, ()),
+    ],
+    ids=["own-pool", "own-user-and-token", "own-token-id", "all-own"],
+)
+@pytest.mark.parametrize("source", ["given", "set"])
+def test_made_records_only_the_engine_s_default_names_and_the_report_still_names_the_fleet(
+    fake, tmp_path, pool, user, token_id, recorded, source
+) -> None:
+    # Card E19, the owner's answer of 2026-11-23 (review 28, E4.md 4): where the secret given reads the pool's mark,
+    # made records the pool, the user and the token each only where its name is the engine's own default. A name the
+    # person gave, or set in host.yml or the host's settings.yml, may be an object of theirs (a token made for other
+    # tools, a pool they already had), which a cleanup by made would remove. Each object of the person's is made in
+    # the fake as an administrator makes it, the engine's role granted the token and its user on the pool, and the
+    # pool marked. source: the names given on init's command line too, or set in the host's files alone.
+    full_id = f"{user}!{token_id}"
+    if pool != ENGINE_POOL:
+        _pve(fake.base, "POST", "pools", poolid=pool)
+    if user != ENGINE_USER:
+        _pve(fake.base, "POST", "access/users", userid=user)
+    secret = fake.secret
+    if full_id != fake.token:
+        secret = _pve(fake.base, "POST", f"access/users/{user}/token/{token_id}", privsep=1)["data"]["value"]
+    _pve(fake.base, "PUT", "access/acl", path=f"/pool/{pool}", roles=ENGINE_ROLE, users=user, tokens=full_id)
+    fleet = record.new_id()
+    mark_pool(fake.base, fleet, pool)
+    # host.yml as a person writes it before init, with the API's port and the token's user and ID; the pool given on
+    # the command line with them, or set in the host's settings.yml with no name given.
+    layout = hosts.Layout(_home())
+    fields = {"address": "127.0.0.1", "api_port": fake.port, "token_user": user, "token_id": token_id}
+    hosts.write(layout, "pve", layout.state("pve").digest, change=lambda raw: raw.update(fields))
+    secret_file = tmp_path / "own-secret"
+    secret_file.write_text(secret + "\n")
+    os.chmod(secret_file, 0o600)
+    words = _given(fake, "--pool", pool, "--token-user", user, "--token-id", token_id, secret=secret_file)
+    if source == "set":
+        overrides.set(_home(), "proxmox_pool", pool, "pve", overrides.read(_home(), "pve").host.digest)
+        words = _given(fake, secret=secret_file)
+    named = f"the fleet {fleet}, as the pool's mark names it, which the token given reads"
+    ran = _init(fake, *words)
+    assert ran.returncode == 0, ran
+    assert named in ran.stdout.splitlines(), ran.stdout
+    assert record.read(_home()).fleet == fleet
+    reached = _reached()
+    assert reached.fields.made == tuple(hosts.Made(what, DEFAULTS[what], "administrator") for what in recorded)
+    assert (reached.fields.token_user, reached.fields.token_id) == (user, token_id)
+    assert overrides.read(_home(), "pve").host.settings["proxmox_pool"] == pool
+    # The same again changes nothing, and names the fleet as before.
+    files = _files()
+    again = _init(fake, *words)
+    assert again.returncode == 0, again
+    assert named in again.stdout.splitlines() and "nothing to write" in again.stdout, again.stdout
+    assert _files() == files
+    _sealed(secret)
+
+
 # ---------------------------------------------------------------- the certificate, settled first ----
 
 
@@ -600,13 +684,17 @@ def test_a_host_the_computer_s_certificates_verify_keeps_no_anchor_and_reaches_n
     with_port(fake.port)
     ran = run_aw("init", "--no-prompt", "--token-secret-file", str(secret_file), home=where.root)
     assert ran.returncode == 0, ran
+    _only_the_engine_s_names()
     reached = _reached()
     assert reached.anchor is None and reached.fields.trust_kind is None
 
 
 def _unattended(given: engine_init.Given, root_ssh=None) -> list[str]:
     """init with nobody there, run in this process, its root SSH root_ssh."""
-    return asyncio.run(engine_init.unattended(_home(), given, environ=dict(os.environ), root_ssh=root_ssh))
+    try:
+        return asyncio.run(engine_init.unattended(_home(), given, environ=dict(os.environ), root_ssh=root_ssh))
+    finally:
+        _only_the_engine_s_names()
 
 
 def _reader(ca: str = "", node: str = ""):
@@ -802,6 +890,7 @@ def test_a_run_stopped_after_any_write_goes_on_from_what_it_wrote(fake, secret_f
 
 def test_the_fleet_fixture_gives_a_whole_fleet_folder_in_one_call(fake) -> None:
     made = whole_fleet(_home().root, fake.base, fake.directory, fake.pki)
+    _only_the_engine_s_names()
     reached = _reached()
     assert (reached.host.name, reached.host.problem) == (made.host, "")
     assert record.read(_home()).fleet == made.fleet
@@ -859,17 +948,20 @@ def _asked(fake: Fake, plan: Plan, *words: str, term: str = "xterm-256color") ->
             os.write(master, key)
             time.sleep(0.15)
 
-    rc, raw = aw_at_a_terminal(
-        "init",
-        *words,
-        home=_home().root,
-        env={"TERM": term},
-        first_on_path=(fake.ssh,),
-        size=(100, 30),
-        act=act,
-        timeout=60,
-        poll=0.05,
-    )
+    try:
+        rc, raw = aw_at_a_terminal(
+            "init",
+            *words,
+            home=_home().root,
+            env={"TERM": term},
+            first_on_path=(fake.ssh,),
+            size=(100, 30),
+            act=act,
+            timeout=60,
+            poll=0.05,
+        )
+    finally:
+        _only_the_engine_s_names()
     assert not left, f"no {left[0][0]!r} appeared:\n" + raw.decode(errors="replace")
     return rc, raw
 
@@ -1299,9 +1391,12 @@ def test_init_in_the_background_of_its_terminal_is_a_run_with_nobody_there_and_e
     # nothing asked and nothing drawn, and the run ends, never stopped by the terminal (SIGTTOU) for its live view's
     # change of the terminal's settings.
     files = _files()
-    rc, raw = aw_at_a_terminal(
-        "init", home=_home().root, first_on_path=(fake.ssh,), size=(100, 30), timeout=60, background=True
-    )
+    try:
+        rc, raw = aw_at_a_terminal(
+            "init", home=_home().root, first_on_path=(fake.ssh,), size=(100, 30), timeout=60, background=True
+        )
+    finally:
+        _only_the_engine_s_names()
     said = " ".join(raw.decode(errors="replace").split())
     assert rc == 1, said
     refused = "error: the host pve has no address yet: give it, as aw init --no-prompt --address <address>; nothing"
