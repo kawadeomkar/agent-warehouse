@@ -73,6 +73,11 @@ SHA-256), which Dependabot does not read. It moves with the `uv` pin in `pyproje
 which `tests/unit/test_pins.py` holds, so a Dependabot bump of the controller's uv fails that test until the
 VM's follows, its digests taken from the release's `.sha256` files.
 
+**Before the ansible-core pin moves**, these tests pass on the new version, each holding something of Ansible's that
+no documentation promises: `tests/unit/test_aw_variables.py`, the new engine's play's variables file, every string
+marked unsafe, read by Ansible's own loader - whose decoder is `ansible._internal`'s - and by a real `ansible-playbook`
+([§16.10](engine.md#1610-guest--the-helper-the-system-layers-inputs-layer-2)).
+
 Collections: `community.proxmox`, `community.general`, `community.docker` and `ansible.posix`, pinned
 to exact versions in `requirements.yml`, with `community.library_inventory_filtering_v1`, which
 `community.docker` depends on with a range: unlisted, it would install whatever Galaxy published last.

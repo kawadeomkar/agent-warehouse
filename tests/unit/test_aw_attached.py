@@ -140,6 +140,35 @@ MASK = (
     "os.rename(sys.argv[1] + '.part', sys.argv[1])\n"
 )
 
+
+def mark(path, text):
+    # A mark the test reads as soon as it is there, or once the run has ended: written beside and renamed into place,
+    # so that it is read whole or not at all.
+    part = path.with_name(path.name + ".part")
+    part.write_text(text)
+    os.rename(part, path)
+
+
+# Set once the mark of a call handed the run's stop is whole, which the run's end waits for (the stopping ways).
+MARKED = threading.Event()
+
+if way.startswith("stopping"):
+    # The ladder never joins a call still in a thread: once the record is written the process ends at once (os._exit),
+    # or of the signal it dies of. A call the run's stop has just woken may be cut there writing its mark, which then
+    # reads empty (CI's unit shard 6, 2026-11-23), and nothing writes it once the process has gone, so no wait of the
+    # test's can. For these ways alone the end waits for the mark first, SETTLE seconds at most: a stop the ladder never
+    # set leaves the wait to run out, and no mark.
+    end_now, die_of = attached._end_now, attached._die_of
+
+    def marked_then_end_now(status, error):
+        MARKED.wait(attached.SETTLE)
+        end_now(status, error)
+
+    def marked_then_die_of(signum):
+        MARKED.wait(attached.SETTLE)
+        die_of(signum)
+
+    attached._end_now, attached._die_of = marked_then_end_now, marked_then_die_of
 if way == "slow-table":
     # The process table read slowly once, when the test asks, with a mark where a read begins inside another; slept in
     # short steps, so that the handler of a signal the kernel hands the call's thread runs at once, between two. Each
@@ -347,7 +376,8 @@ KEPT = []
 def waits_for_the_stop(ctx):
     (folder / "waiting").write_text("waiting")
     ctx.stopping.wait(600)
-    (folder / "stopping").write_text(repr(time.time()))
+    mark(folder / "stopping", repr(time.time()))
+    MARKED.set()
 
 
 async def stopping(ctx, said):
@@ -394,7 +424,8 @@ async def suspended(ctx):
         yield
     finally:
         subprocess.run([sys.executable, "-I", "-c", MASK, str(folder / "closed-mask")], check=True, timeout=30)
-        (folder / "closing-generator").write_text(repr(time.time()))
+        # Read by the test as soon as it is there, while the run still closes.
+        mark(folder / "closing-generator", repr(time.time()))
         await asyncio.sleep(600)
 
 
@@ -1144,7 +1175,9 @@ STOPS = {
 def test_a_call_in_a_thread_handed_the_run_s_stop_is_stopped_by_the_ladder(way, home, jobs_dir, tmp_path) -> None:
     # Context.stopping, which G3 and G5 hand to the Proxmox client's follow in a thread: set by a first Ctrl-C and a
     # SIGTERM within a moment, never left to the body's end three seconds on or the grace's, and at the close of a body
-    # that returned with the call still waiting (review/code/C22.md 2).
+    # that returned with the call still waiting (review/code/C22.md 2). The call's mark is read once the run has ended,
+    # which the ladder rightly does with the call still in its thread: so the mark is written whole or not at all, and
+    # the run's end waits SETTLE seconds at most for it (RUN's stopping ways), where nothing here could wait for it.
     body, sent, status = STOPS[way]
     with _run(home, tmp_path, jobs_dir, body, 20) as (process, said):
         at = time.time()

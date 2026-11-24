@@ -45,7 +45,7 @@ from claude_vm.schema import check as checks
 from claude_vm.schema import rules
 from claude_vm.schema.patterns import PATTERNS, full
 from claude_vm.schema.printer import said
-from claude_vm.schema.words import EXITS, REFUSED_WORDS, VERBS, Verb
+from claude_vm.schema.words import EXITS, VERBS, Verb
 
 # Today's justfile's recipes a person runs, whose verb names just <verb> while no card has built it, until the flip.
 TODAYS = {
@@ -206,7 +206,7 @@ def test_a_word_outside_its_pattern_is_refused_unsaid(verb: Verb) -> None:
         sentence = _refused([verb.name, word])
         _said_nothing_typed(sentence)
         assert said(verb.words.help) in sentence, sentence
-        if verb.words.name == REFUSED_WORDS:
+        if verb.words.refused:
             # mcp refuses any word: its refusal tells no form a word could take (review/code/H29.md 3).
             assert sentence.endswith(f": {said(verb.words.help)}") and "[" not in sentence, sentence
         else:

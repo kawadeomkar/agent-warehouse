@@ -19,14 +19,12 @@ from __future__ import annotations
 
 import ast
 import asyncio
-import base64
 import json
 import os
 import shlex
 import shutil
 import signal
 import stat
-import struct
 import subprocess
 import sys
 import time
@@ -82,12 +80,6 @@ LOOSENING = """Host *
 """
 
 
-def _key(fill: bytes = b"\x01" * 32) -> hostkeys.Key:
-    """An ed25519 host key's line, made of fill: its type's name, then 32 bytes, as OpenSSH writes a public key."""
-    blob = struct.pack(">I", 11) + b"ssh-ed25519" + struct.pack(">I", len(fill)) + fill
-    return hostkeys.Key("ssh-ed25519", base64.b64encode(blob).decode())
-
-
 @pytest.fixture
 def made(home: Path) -> Iterator[jobs.Job]:
     """A job of this process's own with its run's directory, as the run that starts layer 1 has; both gone after."""
@@ -106,8 +98,9 @@ def root(tmp_path: Path) -> Path:
 
 
 def _filed(made_machine: Machine) -> Machine:
-    """made_machine's key filed under its identity in the known-hosts file its target checks: as G3 files a VM's."""
-    hostkeys.file(target(made_machine).known_hosts, made_machine.identity, _key())
+    """made_machine's own key filed under its identity in the known-hosts file its target checks, as G3 files a VM's:
+    the stand-in ssh checks it there, as ssh does."""
+    hostkeys.file(target(made_machine).known_hosts, made_machine.identity, hostkeys.parse(made_machine.key))
     return made_machine
 
 

@@ -5,18 +5,19 @@ agents' server through aw, and the add-on's broker on JSON (docs/architecture/en
 placeholder a line that shows a command's form writes for it (words.py's `placeholder`: <value>, <name>), and to its
 pattern, with patterns.py's `full`; then runs the rules between options its row names (rules.py), in that order; then
 holds the verb's words to their number. It returns None, or the one sentence of the first refusal. A placeholder's
-sentence says that it stands for a value, which says no value back: the placeholder is aw's own text. A pattern's
-sentence never says the value, since a word typed may be a secret, and says what the value may be, in words
-(`form_of`: patterns.py's `form`, with the option's or the words' own words and example where the table gives them),
-after the option's help, but for the words of a verb that refuses any (words.py's `REFUSED_WORDS`), which have no form
-to take; a rule's says back no value that may be a secret, and only one that has met its pattern. Values come as the
-parser gives them and as JSON with exact types, and nothing is coerced: a value option's is a string, a flag's a
-boolean, a repeatable option's a list of strings, a counted option's a whole number; a verb's words are a list of
-strings where it takes several and a string where it takes one, or a list where the parser was given more than one,
-which the rules see as given before the verb's one word is held to its number; and `detach` is a flag of every verb
-whose run is a job. A key the verb has no option for is refused, and one whose value is None is taken as not given.
-`formed(verb, values)` is the check but for the rules between options: what the printer of a command holds a line to
-(printer.py).
+sentence says that it stands for a value, which says no value back: the placeholder is aw's own text. The words of a
+verb that refuses any (words.py's `Words.refused`: init's and mcp's) have no placeholder refusal, since no word could
+be put in its place: the verb's own rule refuses it, as it refuses any word. A pattern's sentence never says the value,
+since a word typed may be a secret, and says what the value may be, in words (`form_of`: patterns.py's `form`, with the
+option's or the words' own words and example where the table gives them), after the option's help, but for the words
+of a verb that refuses any, which have no form to take; a rule's says back no value that may be a secret, and only one
+that has met its pattern. Values come as the parser gives them and as JSON with exact types, and nothing is coerced: a
+value option's is a string, a flag's a boolean, a repeatable option's a list of strings, a counted option's a whole
+number; a verb's words are a list of strings where it takes several and a string where it takes one, or a list where
+the parser was given more than one, which the rules see as given before the verb's one word is held to its number; and
+`detach` is a flag of every verb whose run is a job. A key the verb has no option for is refused, and one whose value is
+None is taken as not given. `formed(verb, values)` is the check but for the rules between options: what the printer of
+a command holds a line to (printer.py).
 
 Every command a sentence here names, the verb refused and where its options are listed among them, is the printer's,
 through printer.py's `said`, so it is the program as it was started, quoted. `command` names the verb a refusal is
@@ -38,7 +39,6 @@ from claude_vm.schema.words import (
     BEFORE,
     DETACH,
     DETACH_AGENT,
-    REFUSED_WORDS,
     VERBS,
     Line,
     Option,
@@ -143,11 +143,12 @@ def _wrong_type(verb: str, option: Option) -> str:
     return f"error: {command(verb)} {spelled(option)} takes {_TYPES[option.kind]}"
 
 
-def _word_not_held(verb: str, words: Words) -> str:
+def word_not_held(verb: str, words: Words) -> str:
     """The sentence of a word outside its pattern: the words' help and the form a word may take, never the word; the
-    help alone for the words of a verb that refuses any, which have no form to take."""
+    help alone for the words of a verb that refuses any, which have no form to take. The names habit says it too, of a
+    name it splits off a word that its pattern takes whole (cli/habits.py: alpha,-b)."""
     sentence = f"error: {command(verb)} takes no such {words.name}: {printer.said(words.help)}"
-    return sentence if words.name == REFUSED_WORDS else f"{sentence} {form_of(words)}"
+    return sentence if words.refused else f"{sentence} {form_of(words)}"
 
 
 def _words_type(verb: str, words: Words) -> str:
@@ -195,11 +196,12 @@ def _words(verb: str, words: Words, value: object) -> str | None:
         items = [value]
     else:
         return _words_type(verb, words)
-    given = next((item for item in items if item in _placeholders(words)), None)
+    # The words of a verb that refuses any are no word to put in a placeholder's place: its rule refuses <extra>.
+    given = None if words.refused else next((item for item in items if item in _placeholders(words)), None)
     if given is not None:
         return _word_stands_for(verb, words, given)
     if words.pattern is not None and not all(full(words.pattern, item) for item in items):
-        return _word_not_held(verb, words)
+        return word_not_held(verb, words)
     return None
 
 

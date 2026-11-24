@@ -26,7 +26,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from aw_machine import Machine, machine, ssh_stand_in, target
+from aw_machine import Machine, filed, machine, ssh_stand_in, target
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -641,11 +641,12 @@ def test_a_certificate_that_changed_is_put_in_place_on_a_yes_that_showed_both_fi
 def pve_host(engine_guard, home, tmp_path) -> Machine:
     """The Proxmox host as a stand-in machine of tests/unit/aw_machine.py's, reached as root, the stand-in ssh first on
     this test's own PATH: no engine test writes an ssh of its own (tests/unit/test_aw_machine.py). Its target is
-    aw_machine's, its key checked strictly, where init's is runner.proxmox_host's, which takes the host's key at first
-    use and which the stand-in refuses: the read is the one command whatever target the runner takes it to, and the
+    aw_machine's, its key filed under its identity and checked strictly, where init's is runner.proxmox_host's, which
+    takes the host's key at first use: the read is the one command whatever target the runner takes it to, and the
     words of each target are B3's tests' (tests/unit/test_aw_ssh_runner.py)."""
     machines = tmp_path / "machines"
     host = machine(machines, "pve", account="root")
+    filed(host)
     engine_guard.first_on_path(ssh_stand_in(machines, [host]))
     return host
 

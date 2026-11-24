@@ -40,7 +40,7 @@ just test                            # lint, then every test: unit and every Mol
 just test unit                       # pytest over tests/unit/, a worker per CPU (pytest-xdist loadgroup)
 just test unit --shard 2/6           # one of the six shards CI runs (tests/unit/durations.json balances them)
 just test engine                     # only the new engine's tests (tests/unit/test_aw_*.py, marked engine): seconds
-just test --short                    # lint, the engine's tests and today's that read the tree: for a change to no file of main's but CLAUDE.md and docs/
+just test --short                    # lint, the engine's tests and today's that read the tree: for a change to no file of main's but CLAUDE.md, docs/ and zensical.toml
 just test --role proxmox_vm          # one role scenario (role: every role; molecule: every scenario)
 just test molecule --jobs 4          # the scenarios four at a time, the longest first, each in .logs/<stamp>-test-<scenario>.log
 just test provision                  # one playbook scenario (integration is the configure scenario)
@@ -537,7 +537,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       the route sets its own, its sockets in a directory of the test's.
     - The new engine calls `route.py` as it stands (`lib/claude_vm/ssh/connections.py`), its `ssh` children in a
       process group of their own (`process_group=0`, which today's callers do not pass) and `route`, `ensure_hop` and
-      `held` off the event loop, so that a terminal's first Ctrl-C kills none and has its silence read as an answer;
+      `held` off the event loop, so that a terminal's first Ctrl-C kills none and has its silence read as an answer,
+      and the run's other tasks go on while one of them waits on its `ssh` (a test holds each with an `ssh` held until
+      a task on the same loop lets it go);
       each end of one there (`end_all`, a limit, a caller ended) ends its group with it, a `Match exec`'s program
       among it, where today's callers' `ssh` is ended by its pid alone, since it shares their own group;
       `route` settles nothing where its `ssh -G` gave no answer, ended by a signal or out of its time
@@ -548,17 +550,20 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `control_dir()`, `~/.ansible/cp`: short, the account's alone, and the one layer 1's Ansible and the status probe
       use), which `Connections` refuses where it is a link, another account's, or writable by its group or others
       (`Unsafe`, with the `chmod 700` to run); a machine whose socket's path there would pass `route.SOCKET_MOST`
-      connects alone (`runner.Target.shared`), said once a run (`notes`), and the Proxmox host's `Target` is made but a
-      connection to it refused (`runner.HOST_TOO_LONG`), since every one rides the hop's. A machine's master is opened only by
-      `ensure`, as `children.MASTER` in a session of its own, which carries no job's marker, never for a first use
-      (`first_use`: no key filed under the identity), which is a connection of its own (`ControlPath=none`) until its
-      key is filed, and while its open runs a run remembers nothing of its tree (`children.opening`). The hop's master
-      is `route.py`'s: `ensure_hop` opens it with the engine's own environment, and so may any connection through the
-      hop whose `ProxyCommand` finds none live (its `ControlMaster=auto`), which then carries that child's job's
-      marker. No run ends a master; never `-O exit`; `-O stop` only through `route.hop_stop`, for the hop; and nothing
-      in `ssh/` tries a connection again. Until the engine settles its route once a run, `direct_only` refuses every
-      settled route but `direct`, naming `vm_ssh_route: direct`. `tests/unit/test_aw_ssh_connections.py` holds it, the
-      rules by scans.
+      connects alone (`runner.Target.shared`), and so does root SSH to the Proxmox host, whose socket is the hop's,
+      said once a run (`notes`), the route through the host refused there (`LONG_HOP`). A machine's master is opened
+      only by `ensure`, as `children.MASTER` in a session of its own, which carries no job's marker, never for a first
+      use (`first_use`: no key filed under the identity), which is a connection of its own (`ControlPath=none`) until
+      its key is filed, and while its open runs a run remembers nothing of its tree (`children.opening`). The hop's
+      master is `route.py`'s: `ensure_hop` opens it with the engine's own environment, only where the settled route
+      goes through the host, and so may any connection through the hop whose `ProxyCommand` finds none live (its
+      `ControlMaster=auto`), which then carries that child's job's marker; while `ensure_hop`'s open runs a run
+      remembers nothing of its tree either, and `ensure` refuses the host. A `Master` is made sure of only where one
+      is used: `ensure` and `ensure_hop` answer `None` for a machine that connects alone and the hop under `direct`,
+      so `Master.ok` always says whether a master answers. No run ends a master; never `-O exit`; `-O stop` only
+      through `route.hop_stop`, for the hop; and nothing in `ssh/` tries a connection again. Until the engine settles
+      its route once a run, `direct_only` refuses every settled route but `direct`, naming `vm_ssh_route: direct`.
+      `tests/unit/test_aw_ssh_connections.py` holds it, the rules by scans.
 - **`just code` writes in one directory of its own on the VM, the session copies, the rest of Claude Code it
   carries and one fast-forward aside, and never answers VS Code's, Zed's or Claude Code's security questions.** Read
   [§4.9](docs/architecture/lifecycle.md#49-playbookscodeyml),
@@ -1216,10 +1221,13 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       master), `BatchMode=yes`, `ForwardX11=no`, `PermitLocalCommand=no`, `StrictHostKeyChecking=yes` against the
       product's own known-hosts file under `HostKeyAlias`, the limits on a connection, public keys alone (the Proxmox
       host's too, until someone asks for more), `LogLevel=ERROR`; then the hop's; then the person's `vm_ssh_options`,
-      which may not name a key the product writes (`REFUSED_OPTIONS`) or one that undoes what every connection holds
-      (`UNDOING_OPTIONS`: `StdinNull`, `ForkAfterAuthentication`, `SessionType`, `RemoteCommand`, `ForwardX11*`,
-      `PermitLocalCommand`, `LocalCommand`), each refused by name, and give `StrictHostKeyChecking` only as `yes`; then
-      `--`, the address and the command. No `-F`: the person's own `~/.ssh/config` is read, as today.
+      which may not name a key the product writes or one that would hand the host key's strict check a key of its own
+      (`REFUSED_OPTIONS`: `IdentityFile2`, `ssh`'s other name for `IdentityFile`, `GlobalKnownHostsFile` and
+      `KnownHostsCommand` among them) or one that undoes what every connection holds (`UNDOING_OPTIONS`: `StdinNull`,
+      `ForkAfterAuthentication`, `SessionType`, `RemoteCommand`, `ForwardX11*`, `PermitLocalCommand`, `LocalCommand`,
+      and the libraries loaded here, `PKCS11Provider` with its other name `SmartcardDevice`, and
+      `SecurityKeyProvider`), each refused by the name it was given, and give `StrictHostKeyChecking` only as `yes`;
+      then `--`, the address and the command. No `-F`: the person's own `~/.ssh/config` is read, as today.
     - `accept-new` is written in `ssh/` only for a first use, into a fresh scratch file under the identity and never the
       product's file or the person's, and for the Proxmox host, into the person's own `known_hosts` as today.
     - A machine's key is filed only by `lib/claude_vm/ssh/hostkeys.py`, whose functions take no address: `taken` reads
@@ -1231,10 +1239,13 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - A secret reaches a child only on its standard input, revealed in `_bytes` alone (`REVEALS`). Every child is
       started through `children.start` in a group of its own, its output read under bounds for a line, the whole, a
       deadline and a silence, its group killed on a breach, and every string it gave made plain. Ending the local
-      `ssh` never ends the command on the machine. A 255 is `ssh`'s or the command's own: `Unreachable` keeps the
-      command's lines and whether the machine was heard. A held child (a sign-in's) and a forward (`ControlPath=none`)
-      are ended by their deadline, their caller or the run; a forward's deadline is required, and its far end is
-      `sleep <deadline>`, so it ends by itself after a run killed outright, nothing recorded on the machine.
+      `ssh` never ends the command on the machine. A 255 is `ssh`'s or the command's own, and nothing tells which:
+      `Unreachable` keeps the command's lines and never says a command did not run, so a caller whose command changes
+      something - one that must run once above all, as Tailscale's key - reads the machine's state again before it
+      tries it again, never deciding a retry from `Unreachable` alone. A held child (a sign-in's) and a forward
+      (`ControlPath=none`) are ended by their deadline, their caller or the run; a forward's deadline is required, and
+      its far end is `sleep <deadline>`, so after a run killed outright it ends by itself once its deadline has passed
+      and the connections through it have closed, nothing recorded on the machine.
       `ansible_vars` gives layer 1's Ansible child the same options in the same order.
     - `tests/unit/test_aw_ssh_runner.py` holds it against a stand-in `ssh` that records its words, environment and
       standard input, with this machine's `ssh -G -F /dev/null` for the values the options hold, and scans: a child

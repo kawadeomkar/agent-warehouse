@@ -11,7 +11,8 @@ run). A machine's socket is named by `checks.vm_control_name` from its identity,
 machine that reports a sibling's address never rides the sibling's master, on which no host key is checked again, and
 two hosts with one VM range never share one. Where its path would pass `route.SOCKET_MOST` bytes (a long home), the
 machine takes no shared connection (`runner.Target.shared`): each connection logs in alone, `ensure` opens nothing, and
-the run says so once (`notes`).
+the run says so once (`notes`). So does a connection to the Proxmox host from such a home, whose socket is the hop's,
+too long as well; and the route through the host, one shared connection, is refused there (`LONG_HOP`).
 
 Three rules hold every master here. A machine's master is opened only by `ensure`, which starts it with
 `children.MASTER`, the one kind of child that carries no job's marker, in a session of its own: other runs may ride it
@@ -30,10 +31,11 @@ directory: what a changing verb's first connection to a machine calls, and `stat
 The route is `route.py`'s, called as it stands: `route` settles it by today's rule, `target_for` gives a machine the
 hop's `ProxyCommand` to its own address (`-W <address>:%p`) unless it brings a jump of its own, `held` asks the
 machine's own `ssh` which proxy it would take and refuses any other before anything connects, and `ensure_hop` makes
-sure of the hop's shared connection. Those three run `route.py`'s `ssh` children in a process group of their own
-(`process_group=0`), so that a terminal's first Ctrl-C, which the run takes as "finish the step", never kills one and
-has its silence read as an answer, and off the event loop (`asyncio.to_thread`), so that the run takes the Ctrl-C at
-once; `route` settles nothing where its `ssh -G` gave no answer (ended by a signal, or out of its time), and refuses the
+sure of the hop's shared connection, the one place the hop's master is opened. Those three run `route.py`'s `ssh`
+children in a process group of their own (`process_group=0`), so that a terminal's first Ctrl-C, which the run takes as
+"finish the step", never kills one and has its silence read as an answer, and off the event loop (`asyncio.to_thread`),
+so that the run takes the Ctrl-C at once and its other tasks go on while one waits; `route` settles nothing where its
+`ssh -G` gave no answer (ended by a signal, or out of its time), and refuses the
 route through the host from a home so long that the hop's socket could not be bound; and every line the hop's own `ssh`
 is run with pins `ForwardX11=no` and `PermitLocalCommand=no` first (`route.hop_settings`' `pinned`), as the runner pins
 them for a machine. Nothing here ever dials a machine where the rule goes through the host. Until the engine settles its
@@ -96,10 +98,11 @@ class Unsafe(runner.Refused):
     """The control directory is a link, another account's, or writable by its group or others: nothing was started."""
 
 
-# What the run says once where a machine takes no shared connection, its socket's path too long.
+# What the run says once where a machine, or the Proxmox host, takes no shared connection, its socket's path too long.
 UNSHARED = (
-    "the control directory {directory} is too long for a shared connection's socket there ({most} bytes at most, the"
-    " most macOS binds a socket's path to): each connection to a machine logs in alone, which is slower"
+    "the control directory {directory} is too long for a shared connection's socket there ({most} bytes at most: 103,"
+    " the most macOS binds a socket's path to, less the 17 ssh adds while it binds one): each connection to a machine,"
+    " and to the Proxmox host, logs in alone, which is slower"
 )
 # Why the route through the Proxmox host is refused from a long home, in the new engine's words: route.hop_settings'
 # own names a setting of 2.x's inventory.
@@ -163,7 +166,9 @@ def _login_said(settled: Mapping[str, object], said: str) -> str:
 @dataclasses.dataclass(frozen=True)
 class Master:
     """A master made sure of: `ok` where one answers at its socket, `opened` where this call opened it, and `said`,
-    why not, plain, where none answers."""
+    why not, plain, where none answers. Where no master is used - a machine that takes no shared connection
+    (runner.Target.shared false: each of its connections logs in alone, as `notes` says), or the hop where the route is
+    direct - there is none to make sure of, and no Master: ensure and ensure_hop answer None."""
 
     ok: bool
     opened: bool
@@ -262,7 +267,7 @@ class Connections:
                 f"every shared connection lives in the run's one control directory, {self.control_dir}, and this"
                 f" target names {target.control_dir}"
             )
-        if not target.shared and not target.is_host:
+        if not target.shared:
             note = UNSHARED.format(directory=self.control_dir, most=route.SOCKET_MOST)
             if note not in self.notes:
                 self.notes.append(note)
@@ -326,18 +331,20 @@ class Connections:
             )
         return {**none, "route": "host", "hop": hop, "addresses": settled["addresses"]}
 
-    async def ensure_hop(self, settled: Mapping[str, object]) -> Master:
+    async def ensure_hop(self, settled: Mapping[str, object]) -> Master | None:
         """The hop's shared connection made sure of, route.hop_held as it stands, its ssh in a process group of its own
         and off the loop: `-O check` first, a dead socket file removed, the open of its master or nothing. Unusable,
         with route.login_said's sentence in the new engine's names, where it cannot be made: the run stops, and nothing
-        dials a machine. Nothing to make sure of where the route is direct. route.py starts the hop's ssh with this
-        process's own environment, which carries no job's marker: a run marks only its children (children.start)."""
+        dials a machine. None where the route is direct: no master is used, and none is made sure of. The one place
+        the hop's master is opened, so only where the route goes through the host. route.py
+        starts the hop's ssh with this process's own environment, which carries no job's marker: a run marks only its
+        children (children.start); while its open runs a run remembers nothing of its tree (children.opening)."""
         import asyncio
 
         if not isinstance(settled, Mapping) or settled.get("route") not in route.ROUTES:
             raise runner.Refused("a settled route is what Connections.route returns")
         if settled["route"] != "host":
-            return Master(ok=True, opened=False, said="")
+            return None
         hop = settled["hop"]
         if not isinstance(hop, Mapping) or os.path.dirname(str(hop.get("socket"))) != str(self.control_dir):
             raise runner.Refused(f"the hop's socket lives in the run's one control directory, {self.control_dir}")
@@ -430,15 +437,16 @@ class Connections:
 
     # ------------------------------------------------------------ a machine's master ----
 
-    async def ensure(self, job: Job, target: runner.Target) -> Master:
+    async def ensure(self, job: Job, target: runner.Target) -> Master | None:
         """target's master made sure of before anything rides it: `-O check` on its socket; where nothing answers, a
         socket file that nothing listens at removed, and the master opened - `ControlMaster=yes`, `ControlPersist`,
         `-N` and the rest of the runner's options - in a session of its own and without the job's marker
         (`children.MASTER`), once, and checked once more. Never for a first use, whose key is not filed yet: a master
         opened then would carry later runs with no key checked. A machine through the hop rides the hop's master, made
         sure of first (ensure_hop). Nothing here ends a master. A machine that takes no shared connection
-        (runner.Target.shared, its socket's path too long) has none to make sure of: Master(True, False, ""), nothing
-        started, its connections each its own, as notes says once."""
+        (runner.Target.shared, its socket's path too long) has none to make sure of: None, nothing started, its
+        connections each its own, as notes says once. The Proxmox host is
+        refused: its master is the hop's, opened by ensure_hop alone, where the route goes through it."""
         self._own(target)
         if target.is_host:
             raise runner.Refused("the Proxmox host's master is the hop's: ensure_hop")
@@ -447,7 +455,7 @@ class Connections:
                 "a first use is a connection of its own: no master is opened for a machine until its key is filed"
             )
         if not target.shared:
-            return Master(True, False, "")
+            return None
         socket = socket_path(target)
         place = ["-l", target.account, "-p", str(target.port), "--", target.address]
         check = [target.ssh, *runner.options(target), "-O", "check", *place]

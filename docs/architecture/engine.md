@@ -72,17 +72,18 @@ top of a file.
 literal mapping from a name (`vm_name`, `host_name`, `cores`, `repos`, `session`, `job_id` and the rest) to a `Pattern`,
 written by hand: the pattern's inner text, with no anchor, which holds a value; its form in words, what a value may be
 as a person reads it; and values it takes, as examples, with whether the form shows the first. The table of verbs and
-options names a pattern for each option and for a verb's words, and nothing else in the new engine writes one.
-One pattern no option takes: `fleet_id`, the ID the pool's mark and an adopted machine's marker carry, a UUID in its
-lowercase canonical form (16.9). `full(name, value)` is the one way to hold a value to a pattern: it holds the value whole, with `re.fullmatch` of the
-named pattern's text compiled once on its first use, so a value with a newline after it is refused, and a name
-`PATTERNS` does not have raises `KeyError`. An option's pattern takes the empty value where today's does, since an
-empty value is no value given. A rule that is more than one pattern is the check's, never this module's: two values
-together, a word that starts with `-`, the cap of 2000 characters on `--repos`, the `.` and `..` that `--project`'s
-pattern takes and a rule refuses. A `Pattern` is a pattern's text with its words and examples and nothing more: there
-are no request records, no registry of operations and no coded refusals. A size's unit is taken capital or small
-(`--memory 16g` as `16G`, `--disk 1t` as `1T`), the examples capital, where today's `justfile` takes a capital one
-alone: the card that reads a size makes the two spellings one value.
+options names a pattern for each option and for a verb's words, and nothing else in the new engine writes one: a rule or
+a habit that holds a part of a value to a pattern, `host --for`'s names and each name a verb's words are split into,
+holds it with `full`. One pattern no option takes: `fleet_id`, the ID the pool's mark and an adopted machine's marker
+carry, a UUID in its lowercase canonical form (16.9). `full(name, value)` is the one way to hold a value to a pattern:
+it holds the value whole, with `re.fullmatch` of the named pattern's text compiled once on its first use, so a value
+with a newline after it is refused, and a name `PATTERNS` does not have raises `KeyError`. An option's pattern takes the
+empty value where today's does, since an empty value is no value given. A rule that is more than one pattern is the
+check's, never this module's: two values together, a word that starts with `-`, the cap of 2000 characters on `--repos`,
+the `.` and `..` that `--project`'s pattern takes and a rule refuses. A `Pattern` is a pattern's text with its words and
+examples and nothing more: there are no request records, no registry of operations and no coded refusals. A size's unit
+is taken capital or small (`--memory 16g` as `16G`, `--disk 1t` as `1T`), the examples capital, where today's `justfile`
+takes a capital one alone: the card that reads a size makes the two spellings one value.
 
 `form(name)` is what help and a refusal say a value may be, after the option's or the words' help: the words and the
 first example, `[a whole number from 1 to 999 with no leading 0, e.g. 8]`, or the words alone where they list the
@@ -113,7 +114,9 @@ module loads nothing outside the standard library.
 **The table: `words.py`.** `VERBS` is the one table of the command line: every verb a person types after `aw`, in the
 order help lists them, today's thirteen and `release` and `cancel`: the base's alone, since `control` is the add-on's,
 which adds its row when it is built. Each row is a `Verb`: its group and its sentence; its `Words`, what the usage calls
-one, whether it takes several, the name the handler receives them by, their pattern and help; its `Option`s; the codes
+one, whether it takes several, the name the handler receives them by, their pattern and help, and side by side whether
+the verb needs its one word (`needed`: `code`'s VM and `release`'s machine, which a usage line shows without brackets)
+and whether the words are no word to give (`refused`: `init`'s and `mcp`'s, which refuse any); its `Option`s; the codes
 of the rules between its options (`deploy.4`, `check.names.1`), which the one check runs in that order; its handler, as
 `module:function`, or none while no change has built the verb, and then the card that builds it; the locks a run of it
 takes, one of `machines`, `fleet`, `none` or `words`, where the kind depends on the words given (16.8, `lock_sets.py`);
@@ -123,13 +126,14 @@ the name of its pattern, the name the handler receives it by (the long option in
 for `host --for`), its help, the name of what its value is, in lower case (`host`, and `name=value` for `--set`), which
 `placeholder` writes as `<host>` and `<name>=<value>`, what its value may be in words and an example of one, its own,
 where its pattern's are of another kind (`value_words` and `example`, none for the pattern's), its fate for an agent's
-tool: a property of the tool's schema, a value the server always gives, or refused with the reason; where two tools
-run one verb (`settings` and `settings_set`), a fate for each; and `until`, the card that builds what it does, which
-help and the command reference leave it out until (`install`'s options of the installed program, H14's and H15's).
-`BEFORE` holds the words given before any verb: `--attended`, and `--detached-run`, which no person types. `--detach`
-is no row's option: the parser gives it, with the one sentence `DETACH`, to every verb whose run is a job, and the
-agents' server starts every such run detached. `REFUSED_WORDS` names the words of a verb that refuses any, `init`'s
-and `mcp`'s: help and a refusal say no form for them.
+tool: a property of the tool's schema, a value the server always gives, or refused with the reason; where two tools run
+one verb (`settings` and `settings_set`), a fate for each; and `until`, the card that builds what it does, which help
+and the command reference leave it out until (`install`'s options of the installed program, H14's and H15's). `BEFORE`
+holds the words given before any verb: `--attended`, and `--detached-run`, which no person types. `--detach` is no row's
+option: the parser gives it, with the one sentence `DETACH`, to every verb whose run is a job, and the agents' server
+starts every such run detached. The words a verb refuses whole (`Words.refused`) have no form in help or in a refusal,
+no row in the command reference, no place in a usage line and no placeholder refusal: the verb's own rule refuses any
+word, `<extra>` among them.
 
 **A command a sentence names: `Line` and `said`.** Every sentence of the new engine that names a command, the table's
 help, a rule's refusal, the check's own and the Proxmox client's and the vendors' errors among them, names it as a
@@ -147,19 +151,24 @@ Today's verbs keep today's words and help, with `aw` where a sentence said `just
 pattern of a host's name, and `settings`' word may be `edit`, which opens the settings in your editor. Beside the
 table, `EXITS` names the exit status of every verb but `status` (0 done, 1 refused before anything ran, 130 cancelled)
 and `STATUS_EXITS` those of `status` (today's 0, 1, 2 and 3, and 3 for a read a person cancelled, as today's `status`
-gives it); within each, no meaning has two numbers and no number two meanings, but `status`'s 3, which today means a
-read that failed and one a person cancelled, and a script may read. The table holds no option whose value is a secret: a
-secret reaches a verb from a file it names or from the terminal. Two options take free text a person may type one into:
-`--set`, whose values `fleet/overrides.py`'s `run_values` types and refuses a secret's name or value in, never saying it
-back (§16.9), and `settings --value`, whose write is to hold its value the same way. Nothing is generated from the table
-or into it. `tests/unit/test_aw_cli_words.py` holds the table's rows, the pattern each option's value and each verb's
-words are held to, against a map of the test's own written by hand, both ways; the example the form of each shows, or
-none, and the words of an option's own, against two maps written beside it, so that an option a later card adds names
-its example by hand; an option's own example held by its pattern, shown, and not its pattern's; `--set`'s sentence
-naming the placeholder its row prints; the words the trims took out of the base, each absent, the tools that run each
-verb, each reason why no tool runs one said with its commands the printer's, every option and word of a verb a tool runs
-a property of the tool's schema but where a ruling the test names says otherwise, each value's name as its placeholder
-writes it, the two values of free text, the exit statuses and the module's imports.
+gives it, in its run of one host and of several); within each, no meaning has two numbers and no number two meanings,
+but `status`'s 3, which today means a read that failed and one a person cancelled, and a script may read. A `status`
+cancelled before its read starts ends as any verb's run does, with `EXITS`' 130, as today's recipe does in its checks
+before `tools/status` reads anything: a cancelled `status` exits 130 before its read and 3 during it. The table holds no
+option whose value is a secret: a secret reaches a verb from a file it names or from the terminal. Two options take free
+text a person may type one into: `--set`, whose values `fleet/overrides.py`'s `run_values` types and refuses a secret's
+name or value in, never saying it back (§16.9), and `settings --value`, whose write is to hold its value the same way.
+Nothing is generated from the table or into it. `tests/unit/test_aw_cli_words.py` holds the table's rows, the pattern
+each option's value and each verb's words are held to, against a map of the test's own written by hand, both ways; the
+example the form of each shows, or none, and the words of an option's own, against two maps written beside it, so that
+an option a later card adds names its example by hand; an option's own example held by its pattern, shown, and not its
+pattern's; `--set`'s sentence naming the placeholder its row prints; the words the trims took out of the base, each
+absent, the tools that run each verb, each reason why no tool runs one said with its commands the printer's, every
+option and word of a verb a tool runs a property of the tool's schema but where a ruling the test names says otherwise,
+each value's name as its placeholder writes it, the two values of free text, the verbs that need their word and those
+that refuse any, the exit statuses, the one pair that shares a number held with its reason, and `status`'s 3 for a read
+a person cancelled read from today's `lib/claude_vm/status/engine.py` and `lib/claude_vm/status/hosts.py`, and the
+module's imports.
 
 **The one check: `check.py`.** `check(verb, values)` is the check every entry runs on a verb's values: the parser of the
 command line, the agents' server through `aw`, and the add-on's broker on JSON. It holds each value to its kind and to
@@ -172,14 +181,17 @@ words and example), but for the words of a verb that refuses any, told no form; 
 word where the verb takes one, or any word where it takes none. A placeholder given back to `aw`, pasted from a form or sent
 by an agent, is refused before its pattern is read, since a value of free text takes one (`error: aw settings --value:
 <value> stands for the value: put yours in its place`, or `... <name> stands for the name ...` for a verb's words): its
-sentence says `aw`'s own text, so no value is said back. Each command a sentence names, the verb refused (`command`, the
-program alone for the words before any verb, which is the one name outside the printer that fills a sentence's program
-field), where its options are listed (`help_of`) and those of the rules, is the printer's, through `said`. It takes values as the parser gives them and as JSON with exact types, and coerces nothing: a
-value option's is a string, a flag's a boolean, `--set`'s a list of strings, `-v`'s a whole number, the words a list
-where the verb takes several and a string where it takes one, or a list where the parser was given more than one, which
-the rules see before the number is held; `detach` is a flag of every verb whose run is a job. `check_before` holds the
-words given before any verb the same way, and `formed` is the check but for the rules between options, which the printer
-of a command (16.3) holds a line to.
+sentence says `aw`'s own text, so no value is said back. The words of a verb that refuses any have none: no word could
+be put in their place, and the verb's own rule refuses `<extra>` as any word. `word_not_held` is the sentence of a word
+outside its pattern, which the names habit says too (16.3). Each command a sentence names, the verb refused (`command`,
+the program alone for the words before any verb, which is the one name outside the printer that fills a sentence's
+program field), where its options are listed (`help_of`) and those of the rules, is the printer's, through `said`. It
+takes values as the parser gives them and as JSON with exact types, and coerces nothing: a value option's is a string, a
+flag's a boolean, `--set`'s a list of strings, `-v`'s a whole number, the words a list where the verb takes several and
+a string where it takes one, or a list where the parser was given more than one, which the rules see before the number
+is held; `detach` is a flag of every verb whose run is a job. `check_before` holds the words given before any verb the
+same way, and `formed` is the check but for the rules between options, which the printer of a command (16.3) holds a
+line to.
 
 **The rules between options: `rules.py`.** Each rule between options of today's command line is one plain function with
 its code (`deploy.4`, `check.names.1`) and today's sentence: `Rule(code, verbs, sentence, breaks, lines)`, where
@@ -188,15 +200,16 @@ they break it, a value or a `Line`, and `lines` are the commands the sentence na
 gives nothing or the sentence, said, so each command in it is the printer's line (`aw code <name>`,
 `aw deploy --only configure --tags claude_code`). They are today's rules of `deploy`, `code`, `settings`, `destroy`,
 `host`, `help`, `init` and `mcp`, said before any check or tool, and the three argument checks of `tools/check` that are
-more than one pattern: `host --for`'s VM names, split at its commas, the 2000 characters of `--repos`, and the `.` and
-`..` of `--project`; `RULES` holds them by code, and `run` runs the codes a row names in order and stops at the first
-sentence. No rule repeats a value's own pattern: `tools/check`'s other checks of one value (the size, the repositories'
-spelling, the project's characters and length, the session, status's sections, every other VM name) held the JSON the
-`justfile`'s scripts join, behind `just`'s pattern, and are the pattern's alone here, and so is a token file's name,
-named relative to the working folder whatever its path. A sentence says back no value that may be a secret, and only a
-value that has met its pattern first, as `just` holds a value to its pattern before a recipe's script runs. What reads
-more than the values is no rule here but its verb's own: the fleet's files (`vault`'s, and `deploy`'s VM name another
-host's alias records), the file system, `claude` and the branch (`mcp`'s), and a terminal (`host --remove`'s question).
+more than one pattern: `host --for`'s VM names, split at its commas and each held with `full` to the one pattern of a
+VM's name, the 2000 characters of `--repos`, and the `.` and `..` of `--project`; `RULES` holds them by code, and `run`
+runs the codes a row names in order and stops at the first sentence. No rule repeats a value's own pattern:
+`tools/check`'s other checks of one value (the size, the repositories' spelling, the project's characters and length,
+the session, status's sections, every other VM name) held the JSON the `justfile`'s scripts join, behind `just`'s
+pattern, and are the pattern's alone here, and so is a token file's name, named relative to the working folder whatever
+its path. A sentence says back no value that may be a secret, and only a value that has met its pattern first, as `just`
+holds a value to its pattern before a recipe's script runs. What reads more than the values is no rule here but its
+verb's own: the fleet's files (`vault`'s, and `deploy`'s VM name another host's alias records), the file system,
+`claude` and the branch (`mcp`'s), and a terminal (`host --remove`'s question).
 
 **The printer of a command: `printer.py`.** The one way the new engine writes a command line a person types, for NEXT
 STEPS, `status`'s repair lines, a refusal's way out, the lines a detached run's start prints and the session notes on a
@@ -299,17 +312,20 @@ check (16.2). Anything refused raises `Refused` with one sentence of the project
 one was wrong and never a value or a verb typed: no text of `argparse`'s, no usage block, no exit status of its own.
 
 **Today's habits: `habits.py`.** After the check, as ordinary code, a VM's name with `_` is taken with `-` and said in
-today's words, `alpha,beta` is two names as two words are, and a verb that takes one name refuses two. Where a verb
-that takes several names is given none, the two meanings of no names are one field, `default_vm`: true for a whole
-`deploy`, `deploy --only provision` and `destroy`, which act on the default VM; false for the rest, which act on every
-VM the fleet made. The default VM's name is the handler's to read from the settings; the parser reads no file of the
-fleet. A stage of `deploy` given where the names go, and neither `--only` nor `--check`, is asked about at a terminal,
-read from the standard input the command was given: a menu of `lib/claude_vm/tui/choose.py` where the terminal can draw
-one (the stage, the VMs so named, or nothing, which is marked as it is drawn), and today's typed question where it
-cannot. Each answer names the command line it runs as the printer writes it, a value of `--set` never said back, since
-nothing has taken it yet. The answer meets the rules as if typed, the one check run again on what it comes to; with no
-terminal, and for any answer but the stage or the VMs, it is refused in today's sentences, and a Ctrl-C there exits
-130.
+today's words, `alpha,beta` is two names as two words are, an empty one dropped, and a verb that takes one name refuses
+two. Each name a word is split into is held with `full` to the pattern the word was: the pattern takes `alpha,-b` whole,
+and `-b`, `_b` or `.b` is no name, so it is refused there, in the check's sentence of a word outside its pattern
+(`word_not_held`), before anything is said or asked and before any handler: the one place every verb's names pass, where
+today the playbook's `vm_names.yml` refused such a name later. Where a verb that takes several names is given none, the
+two meanings of no names are one field, `default_vm`: true for a whole `deploy`, `deploy --only provision` and
+`destroy`, which act on the default VM; false for the rest, which act on every VM the fleet made. The default VM's name
+is the handler's to read from the settings; the parser reads no file of the fleet. A stage of `deploy` given where the
+names go, and neither `--only` nor `--check`, is asked about at a terminal, read from the standard input the command was
+given: a menu of `lib/claude_vm/tui/choose.py` where the terminal can draw one (the stage, the VMs so named, or nothing,
+which is marked as it is drawn), and today's typed question where it cannot. Each answer names the command line it runs
+as the printer writes it, a value of `--set` never said back, since nothing has taken it yet. The answer meets the rules
+as if typed, the one check run again on what it comes to; with no terminal, and for any answer but the stage or the VMs,
+it is refused in today's sentences, and a Ctrl-C there exits 130.
 
 **The run's own words: `before.py`.** `RunWords` is one frozen record every handler receives first: `-v`'s count and
 the `--set` words as typed, from after the verb; `--detach`; `--attended=1`, the agents' server's word that someone is
@@ -349,8 +365,8 @@ which never says it. The usage lines are help's own, after the check's `command`
 verb as the printer writes them; the closing paragraph names the program the same way, never cut where it is wrapped;
 a whole command line it prints, for a person to paste (the closing paragraph's example, `aw host`, the table's
 sentences' commands), comes from the printer. Help names no part of the program itself. A usage line shows a verb's
-word without brackets only where the verb needs one, `code` and `release`, which help names, since the table says how
-many words a verb takes and not whether it needs one. `reference.py`'s `commands()` writes the tables of the command
+word without brackets only where the table says the verb needs it (`Words.needed`: `code` and `release`), and none for
+the words of a verb that refuses any (`Words.refused`). `reference.py`'s `commands()` writes the tables of the command
 reference from the same functions, in the form `tools/docs.py` writes them from the `justfile` today: a table for each
 group of verbs, `help` aside, with a row for each verb, each of its options and its words, and one of the options given
 before any verb, each cell escaped as `tools/docs.py` escapes one. The cell of a value the table holds to a pattern ends
@@ -358,8 +374,8 @@ as help's row does, with what the value may be in words, and then gives the patt
 a code span, or an HTML code element with `&#124;` for each `|` where the pattern has one, as `tools/docs.py` writes a
 setting's value with one, since a `|` splits a GitHub table's cell and an escaped one inside a code span shows its
 backslash on the site. Nothing calls it before the cutover, which points `tools/docs.py` at it. `help.py` imports the
-standard library and `schema/`, the printer among it; `reference.py` those and `help.py`; and `aw help` loads nothing
-of the engine.
+standard library and `schema/`, the printer among it; `reference.py` those and `help.py`; and `aw help` loads nothing of
+the engine.
 
 **The launcher: `aw`.** At the checkout's top, in POSIX `sh`, the launcher finds its checkout from its own path, every
 link to it followed and the folder made by its physical path (`cd -P`), so that a relative link in a folder that is
@@ -400,23 +416,34 @@ through links, from folders whose version manager picks another Python or that h
 `PYTHON` that is no virtualenv's or cannot be run. `tests/unit/test_aw_cli_rules.py` holds the rules and `deploy`'s
 question: every rule is named by the verbs whose rows run it; each refusal of a rule or a habit, and each of the
 parser's own, is run through the launcher, the words, status and sentence of each written there; each case of a rule is
-refused by the rule its code names, and each of the parser's own is the parser's sentence in the test's process too; no
-rule says back a value that may be a secret, and one it says back has met its pattern first; the check answers alike as
-words and as JSON; the question is asked at a pseudo-terminal, typed and with none; and no file of the tree names the
-recorded command line of v2.7.0, which no test holds `aw` or the `justfile` to.
+refused by the rule its code names, and each of the parser's own is the parser's sentence in the test's process too;
+`--repos`' 2000 characters taken and 2001 refused; each name the names habit splits a verb's words into held to the
+pattern, through the launcher and with the pattern narrowed, as `host --for`'s are; no rule says back a value that may
+be a secret, and one it says back has met its pattern first; the check answers alike as words and as JSON; the question
+is asked at a pseudo-terminal, typed and with none; and no file of the tree names the recorded command line of v2.7.0,
+which no test holds `aw` or the `justfile` to.
 The printer's own test is 16.2's.
 `tests/unit/test_aw_cli_help.py` holds help and the reference: every verb's help shows its options and words in the
 table's order; `aw help` lists every verb and no recipe of the repository's own, the options before a verb, and its
-closing paragraph with `-v` and `--set`; each option with its value's placeholder; the form of every value the table
-holds to a pattern, in words, for every option and words of the table and of the maps
-`tests/unit/test_aw_cli_words.py` writes by hand, with the example and the words they name, in help's row and in the
-refusal of a value outside it alike, `--attended` before any verb among them, and none for the words of a verb that
-refuses any, never the pattern itself, and no empty default; `--set`'s row naming its placeholder, never `name=value`;
-`release`'s rows saying one adopted machine; an option of a later card's left out; `[options]` in the listing; through
-`tools/aw` and the launcher, `control` refused as no verb; what each imports; and that the reference gives a row for
-every verb but `help`, every option but a later card's and the words, each value held to a pattern with its words and
-then its pattern as code, and no row split by a `|` or a code span holding one; and escapes a cell as `tools/docs.py`
-does.
+closing paragraph with `-v` and `--set`; each option with its value's placeholder; each verb's usage line, written
+there, a verb that needs its word refusing none once built, and the placeholder of words a verb refuses whole refused by
+its own rule; the form of every value the table holds to a pattern, in words, for every option and words of the table
+and of the maps `tests/unit/test_aw_cli_words.py` writes by hand, with the example and the words they name, in help's
+row and in the refusal of a value outside it alike, `--attended` before any verb among them, and none for the words of a
+verb that refuses any, never the pattern itself, and no empty default; `--set`'s row naming its placeholder, never
+`name=value`; `release`'s rows saying one adopted machine; an option of a later card's left out; `[options]` in the
+listing; through `tools/aw` and the launcher, `control` refused as no verb; what each imports; and that the reference
+gives a row for every verb but `help`, every option but a later card's and the words, each value held to a pattern with
+its words and then its pattern as code, and no row split by a `|` or a code span holding one; and escapes a cell as
+`tools/docs.py` does.
+`tests/unit/test_aw_cli_imports.py` holds the quick commands to what this section says they import: `aw` alone, help,
+`--version`, a refusal of each kind, and the reads `logs`, `cancel`, `host`, `settings` and `status`, each read once its
+verb has a handler and skipped by name until then, run through the launcher of a checkout the test makes with a fleet of
+the test's own, load none of pydantic, Ansible, Jinja2, the MCP SDK or `engine/`, and nothing beyond the standard
+library and `claude_vm` but a YAML reader, for the reads of the fleet's files, and `pyrage`, for the two that open the
+vault, `settings --all` and `status`. What a run loaded is `sys.modules` at its exit, written by a hook of the test's
+own in the virtualenv it gives the launcher as `PYTHON`, since `-X importtime` lists no module the dispatch loads by
+`importlib`.
 
 ## 16.4 `engine/` — the workflows, one module a verb
 
@@ -832,16 +859,19 @@ address it is reached at, the one value a machine supplies, held with `ipaddress
 loopback, multicast, the reserved range or broadcast; the account and the port; the known-hosts file its key is checked
 against, the product's own `~/.ssh/agent-warehouse.known_hosts` (`KNOWN_HOSTS`), one file for every fleet beside the
 person's own, which the editor's alias names too, or a scratch file; the one shared control directory, of plain
-characters, where a machine whose socket's path would pass 86 bytes, the most macOS binds (a long home), takes no shared
-connection (`shared`: each of its connections logs in alone, `ControlPath=none`); an identity file or
+characters, where a machine whose socket's path would pass 86 bytes (a long home: 103, the most macOS binds a socket's
+path to, less the 17 `ssh` adds while it binds one) takes no shared connection (`shared`: each of its connections logs
+in alone, `ControlPath=none`); an identity file or
 none (this computer's `claude_ssh_identity_file`); the hop through the Proxmox host or none (`Hop`, the route settles
 it: route.py's `ProxyCommand` to the machine's own address, and its connection's name); the person's own options for the
 machine (the setting `vm_ssh_options`); whether this is a first use; and the `ssh` program. `machine()` makes one. The
 Proxmox host is its second form, `proxmox_host()`, for root SSH and as the hop: no identity, its account, port and
 address from the host's file, its key from this computer's, and its settings held by `route.hop_settings`, the rules the
-hop is made by, whose socket's name it shares. From a home so long that the hop's socket would pass `route.SOCKET_MOST`
-it is still made, so that a route of `direct` can be settled for it, and a connection to it is refused before anything
-starts (`HOST_TOO_LONG`, naming a shorter home), since every one rides the hop's shared connection.
+hop is made by, whose socket's name it shares: a connection to it rides the hop's master where one lives. From a
+home so long that the hop's socket would pass `route.SOCKET_MOST` it is still made, and each connection to it logs in
+alone (`shared` false, `ControlPath=none`), as a machine's does: the hop's master is opened only by `ensure_hop`, only
+where the settled route goes through the host, and from such a home that route is refused (`LONG_HOP`), so no master
+could have been there to ride. Every line of the runner's carries `ControlMaster=no`, the host's among them.
 
 - **A person's own options.** `vm_ssh_options` is a mapping of `ssh`'s option names to values, given as `-o Name=value`
   after the product's options: `ssh` keeps the first value it is given, so a person's option changes whatever the
@@ -849,11 +879,16 @@ starts (`HOST_TOO_LONG`, naming a shorter home), since every one rides the hop's
   itself is refused by name - `HostKeyAlias`, `UserKnownHostsFile`, `CheckHostIP`, `UpdateHostKeys`, `BatchMode`,
   `ControlPath`, `ControlMaster`, `ForwardAgent` (`claude_ssh_forward_agent`'s), `IdentityFile`
   (`claude_ssh_identity_file`'s), and `HostName`, `User` and `Port`, where and as whom it connects - and
-  `StrictHostKeyChecking` may be given only as `yes`. So is what would undo what every connection holds
-  (`UNDOING_OPTIONS`): `StdinNull`, which would leave a secret never arrived while the call reads `Done`;
-  `ForkAfterAuthentication`, which takes `ssh` out of its group and the run's reach; `SessionType` and `RemoteCommand`,
-  another command or none; `ForwardX11`, `ForwardX11Trusted` and `ForwardX11Timeout`; and `PermitLocalCommand` and
-  `LocalCommand`, a program run here for each connection. A machine given a jump of its own takes no hop.
+  `StrictHostKeyChecking` may be given only as `yes`; with them `IdentityFile2`, `ssh`'s old name for
+  `IdentityFile`, and what would hand the strict check a key the product's file does not hold, `GlobalKnownHostsFile`
+  and `KnownHostsCommand` (a program run here for each connection, whose keys the check takes). So is what would undo
+  what every connection holds (`UNDOING_OPTIONS`): `StdinNull`, which would leave a secret never arrived while the call
+  reads `Done`; `ForkAfterAuthentication`, which takes `ssh` out of its group and the run's reach; `SessionType` and
+  `RemoteCommand`, another command or none; `ForwardX11`, `ForwardX11Trusted` and `ForwardX11Timeout`;
+  `PermitLocalCommand` and `LocalCommand`, a program run here for each connection; and `PKCS11Provider`, with
+  `SmartcardDevice`, its other name, and `SecurityKeyProvider`, a library loaded here. Each is refused by the name it
+  was given. They are the person's own setting, which a `Host *` of their own `~/.ssh/config` could still set; what is
+  refused is the setting the product reads. A machine given a jump of its own takes no hop.
 - **A first use.** A machine's first connection - one the run created, one being adopted, or the first a changing verb
   makes from a computer that has filed no key for it - takes the key with `StrictHostKeyChecking=accept-new` into a
   fresh scratch file of its own, under the machine's identity as `HostKeyAlias` and never by its address, and never into
@@ -912,16 +947,22 @@ so a password or a code is never in a word, a variable or a file. Its standard o
 `Limits`: a bound for one line, one for the whole, a deadline, and a time to say anything at all; its standard error is
 kept to a fixed size, and read to its end so the child never blocks on it. On a breach the child's group is killed, its
 `ProxyCommand` with it. The result is `Done(status, lines, said)`, or `Cut` (a line past its bound, more than the whole,
-a line with no end), `Silent`, `TimedOut` or `Unreachable(said, lines, heard)` (status 255), each line and `said` made
+a line with no end), `Silent`, `TimedOut` or `Unreachable(said, lines)` (status 255), each line and `said` made
 plain (`text.plain_text`). The default limits are today's, `status/reach.py`'s, held equal by the test: a line of 16
 MiB, 45 s, 20 s to say anything, 64 KiB of standard error, and four of the longest lines in all. A call cancelled by its
 run ends its child's group too.
 
-- **255 is `ssh`'s or the command's own.** `ssh` exits 255 where it could not reach the machine or lost it, and also
-  where the command on the machine exited 255 or was ended by a signal, which `ssh` has no status to pass on for.
-  `Unreachable` keeps the lines the command printed and whether the machine was heard at all (`heard`: any byte on
-  standard output), so a 255 after output reads as a command that ended without a status, and a caller that tries an
-  unreachable machine again never takes a command that ran for one never reached.
+- **255 is `ssh`'s or the command's own, and cannot tell which.** `ssh` exits 255 where it could not reach the machine
+  or lost it, and also where the command on the machine exited 255 or was ended by a signal, which `ssh` has no status
+  to pass on for. `Unreachable` keeps the lines the command printed, and no more: a command that ran and printed nothing
+  reads as a machine never reached, and one that printed may go on on the machine after a connection lost (a cut
+  network, keepalives unanswered). So `Unreachable` never says that a command did not run, and a caller whose command
+  changes something - above all one that must run once, as Tailscale's key goes once - never tries a machine again on
+  `Unreachable` alone: it reads the machine's state again first (`tailscale status --json`, for the key), and decides
+  from that. A line of the runner's own printed before every command would tell a command that started from a login
+  that failed, but not the other way: a connection lost after the line was printed and before it arrived reads as one
+  never made, so a second try would be no safer, while every command line would grow a word of the login shell's and
+  `Silent` would bound the login alone; so there is none.
 - **The local `ssh` is ended, never the command on the machine.** A breach, a cancel and a held child's `end()` end the
   `ssh` here: with no terminal on the session, `sshd` sends the command no signal, so one that neither reads its input
   nor writes goes on after `TimedOut`, `Cut`, `Silent` and `end()`, as under today's Ansible. A caller whose command
@@ -939,7 +980,9 @@ family bound, as today's forward does whatever a person's settings say), made as
 `/dev/null`. Its deadline is required, and its far end is the command `sleep <deadline>`, rounded up, in place of `-N`:
 the local end ends it first, at its deadline, by its caller or at the run's end, and where the run was killed outright
 (SIGKILL, an OOM kill), which ends nothing it holds, the far end's `sleep` ends the forward by itself and lets this
-computer's port go. Nothing is recorded on the machine.
+computer's port go, once its deadline has passed and the connections through it have closed: `ssh` ends once its command
+has and no forwarded connection is open, so a browser's kept connection to the callback holds it until it closes.
+Nothing is recorded on the machine.
 
 **The one control directory and the route: `connections.py`.** Every shared connection, a machine's master and the
 hop's, lives in one control directory that every run on the computer shares, `~/.ansible/cp`, which `fleet/paths.py`'s
@@ -950,9 +993,10 @@ of another account's, and one its group or others may write in are refused (`Uns
 since anyone who may write there could put a socket at a machine's path before its master and be handed what every child
 sends it, secrets included; one not made yet is made 0700 by the first master's open. A machine's socket is
 `checks.vm_control_name` of its identity, its address and its hop; where its path would pass `route.SOCKET_MOST`, the
-machine takes no shared connection, `ensure` opens nothing for it, and the run says so once (`notes`). Three rules hold
-every master. A machine's master is opened only by `ensure`, which starts it with `children.MASTER`, the one kind of
-child that carries no job's marker and is entered in no registry, in a session of its own. The hop's master is
+machine takes no shared connection, `ensure` opens nothing for it, and the run says so once (`notes`), as it does for
+the Proxmox host's own `Target` from such a home, whose connections log in alone too (`UNSHARED` names both). Three
+rules hold every master. A machine's master is opened only by `ensure`, which starts it with `children.MASTER`, the one
+kind of child that carries no job's marker and is entered in no registry, in a session of its own. The hop's master is
 `route.py`'s: `ensure_hop` opens it with the engine's own environment, and so may any connection through the hop whose
 `ProxyCommand` finds none live - a bounded child, a first use, a forward - since that `ProxyCommand` carries
 `ControlMaster=auto`, and such a master carries that child's job's marker, so nothing may tell a master from a run's
@@ -962,7 +1006,8 @@ holds that machine's lock. And `-O exit` is never sent, which would cut another 
 `route.hop_stop`, for the hop. The route is `route.py`'s, called as it stands, its `ssh` children started in a process
 group of their own (`process_group=0`, which today's callers do not pass), so that a terminal's first Ctrl-C, which the
 run takes as "finish the step", never kills one and has its silence read as an answer, and `route`, `ensure_hop` and
-`held` are coroutines that run it off the event loop, so that the run takes the Ctrl-C at once. Each `ssh` route.py
+`held` are coroutines that run it off the event loop, so that the run takes the Ctrl-C at once and its other tasks go on
+while one of them waits on its `ssh`. Each `ssh` route.py
 starts, the `ssh -G` of `route_settle` and `ssh_shown` too, is started and recorded in one step under the lock
 `route.end_all` takes, and ended by the thread that waits for it, at its limit or when its caller ends; a run that is
 stopped ends them with the rest of its tree, and `end_all`, which ends every one still running and starts none after, so that no
@@ -987,13 +1032,17 @@ the hop's `ProxyCommand` to its own address (`route.vm_hop`, `-W <address>:%p`),
 address from the person's own `~/.ssh/config`, read once a run for each machine. `held(target, settled)` asks the
 machine's own `ssh` which proxy its whole line takes (`route.ssh_shown`, `-G -F /dev/null`) and refuses any other
 (`route.vm_route_refusal`) before anything connects; a jump only the person's configuration gives is the one the line
-cannot outrank. `ensure_hop(settled)` is `route.hop_held`, and a hop that cannot be used raises `Unusable` with
-`route.login_said`'s sentence in the new engine's names (the key this computer's `ssh_identity_file`), so the run stops
-and nothing dials a machine. `ensure(job, target)` makes sure of a machine's master before anything rides it: `-O
+cannot outrank. `ensure_hop(settled)` is `route.hop_held`, the one place the hop's master is opened, only where the
+settled route goes through the host, and while that open runs a run remembers nothing of its tree (`children.opening`),
+as for a machine's; a hop that cannot be used raises `Unusable` with `route.login_said`'s sentence in the new engine's
+names (the key this computer's `ssh_identity_file`), so the run stops and nothing dials a machine. `ensure(job,
+target)` makes sure of a machine's master before anything rides it, and refuses the Proxmox host's own `Target`: `-O
 check`; where nothing answers, a socket file nothing listens at removed (never one whose check ran out its time), and
 the master opened once, the runner's options with `ControlMaster=yes` and `ControlPersist` in place of
-`ControlMaster=no`, and `-N`, ended where `ssh` says the socket exists already; then checked once more. Never for a
-first use: a master opened before the key is filed would carry later runs with no key checked. `first_use(job, target)`
+`ControlMaster=no`, and `-N`, ended where `ssh` says the socket exists already; then checked once more. Each answers a
+`Master(ok, opened, said)`, `ok` where a master answers at the socket, or `None` where no master is used, and none is
+made sure of: a machine that takes no shared connection, and the hop where the route is direct. Never for a first use:
+a master opened before the key is filed would carry later runs with no key checked. `first_use(job, target)`
 makes a machine's `Target` one where the product's file holds no key under its identity (`hostkeys.kept`), its scratch
 file fresh in the run's own directory (`rundir.made`): a changing verb's first connection to a machine calls it, files
 the key it took, and only then asks `ensure`; `status`, which takes no key, never calls it. Nothing in `ssh/` tries a
@@ -1003,13 +1052,15 @@ call it before their first connection to a machine, and it never dials one the r
 
 `tests/unit/test_aw_ssh_runner.py` holds it against a stand-in `ssh` that records its words, its environment and its
 standard input: the options and their order, word for word, for every form; the values they hold as this machine's own
-`ssh -G` shows them, a person's options among them and a person's configuration outranked; no secret in a word or a
-variable; each bound's result, a 255 after output with its lines, and nothing left in the process table; a held child's
-lines while it runs and a line sent later; a forward's far end ending it within its deadline after its run was killed
-with SIGKILL; and four rules by
-scans: a child named `ssh` is started in the new subpackages only from `ssh/`; no option is made of a value a machine
-supplied but its address; `accept-new` is written in `ssh/` only for a first use and the Proxmox host; and the runner
-carries no `ControlMaster` but `no`. `tests/unit/test_aw_hostkeys.py` holds `hostkeys.py`, with blobs of every type it
+`ssh -G` shows them, a person's options among them and a person's configuration outranked; each option refused by its
+name, ssh's other names among them, which this machine's own `ssh -G` reads as the one refused; the Proxmox host from a
+long home, its lines and its forward's carrying `ControlPath=none`, nothing refused; no secret in a word or a
+variable; each bound's result, a 255 after output with its lines and no more, and nothing left in the process table;
+a held child's lines while it runs and a line sent later; a forward's far end ending it within its deadline after its
+run was killed with SIGKILL; and four rules by scans: a child named `ssh` is started in the new subpackages only from
+`ssh/`; no option is made of a value a machine supplied but its address; `accept-new` is written in `ssh/` only for a
+first use and the Proxmox host; and the runner carries no `ControlMaster` but `no`. `tests/unit/test_aw_hostkeys.py`
+holds `hostkeys.py`, with blobs of every type it
 files and real keys of this machine's own `ssh-keygen`, whose `-l` gives each fingerprint, `-F` a name as `ssh` reads
 one and `-H` one hashed: a key filed once and found, a second of its type refused with the file unchanged byte for byte,
 two writers at once, a deleted machine's line kept through every call, a first use's scratch file taken and filed or
@@ -1021,10 +1072,13 @@ command word for word, a jump of a machine's own from its options and from its c
 use decided by the key filed, its scratch file in the run's directory and no master opened for it, a master opened once
 and found again, unmarked and in a session of its own, a dead socket file removed and a busy one kept, a hop that cannot
 be used stopping the run with nothing dialled, a control directory that is a link, another's or writable by others
-refused, a long one connecting alone, a first Ctrl-C sent to the run's group while `ssh -G` settles the route killing
-no `ssh`, an `ssh -G` ended by a signal or out of its time settling nothing, the hop's lines holding the two pins first,
-the route through the host refused from a long home while `direct` settles there, a master's open left out of what a
-run remembers, and `direct_only`; and three rules by scans: no control command but `-O check` in the new subpackages, never `-O exit`;
+refused, a long one connecting alone, said once for the machines and the host together, a first Ctrl-C sent to the
+run's group while `ssh -G` settles the route killing no `ssh` (its stand-in waiting for a file the test writes after
+the Ctrl-C, never for a time), `route`, `ensure_hop` and `held` each waiting on an `ssh` held until a task on the same
+loop lets it go, an `ssh -G` ended by a signal or out of its time settling nothing, the hop's lines holding the two pins
+first, the route through the host refused from a long home while `direct` settles there, a master's open, a machine's
+and the hop's, left out of what a run remembers, and `direct_only`; and three rules by scans: no control command but
+`-O check` in the new subpackages, never `-O exit`;
 nothing in `ssh/` tries a connection again; and only `ensure` opens a master, with the kind that carries no marker,
 an f-string's `ControlMaster` and ssh's flags run together (`-NM`) read too.
 
@@ -1099,9 +1153,10 @@ builds no context and reads no setting.
   a TLS alert onto its connection. The decision is made under the lock a request takes its connection under, so
   a connection is either found in use and shut down, or found idle and closed before any request can take it; a kept
   connection is taken before its far end is looked at, so that the look, a poll of its socket's number, is never made
-  on a socket `close()` closed; its socket is read by the take alone, under that lock, so that a `close()` that found
-  it idle and let it go just before is that request's `Closed`; and a connection still being made is refused as
-  `Closed` once made.
+  on a socket `close()` closed; before the take nothing reads its socket, and the take reads it under that lock, so
+  that a `close()` that found it idle and let it go just before is that request's `Closed`, and once taken it is busy,
+  so that `close()` only shuts it down and every later read of it meets the socket the take found; and a connection
+  still being made is refused as `Closed` once made.
 - **One place closes a socket.** A connection's socket is closed by `_forget` alone, once no request is under way on
   it, and only after it is taken out of what the transport holds, under the same lock: `close()` shuts down only a
   connection it finds there, so its shutdown never meets a close. The socket `http.client` is handed (`_Wire`) closes
@@ -1114,8 +1169,9 @@ builds no context and reads no setting.
   `Unreachable`, "the transport was closed while the request was under way" (`CUT`), words true of every road a cut
   takes - its request still being written, its answer awaited or being read - and any other method's `Unknown`, in
   the same words first. **The mark is an attribute**, `TransportError.closed`: true for `Closed` and for a cut, false
-  for every other failure, the peer's or the network's, a try's own failure with the close just after it among them,
-  so a caller tells the run's own close by it and never by words; a copy or a pickle keeps it. A `GET` whose next try
+  for every other failure, the peer's or the network's, a try's own failure with the close after that try has ended
+  among them (a close that comes before it has ended, while its connection is still taken, cuts it, as any other), so
+  a caller tells the run's own close by it and never by words; a copy or a pickle keeps it. A `GET` whose next try
   a close forestalls - its connection dropped or its answer 502, 503 or 504, the transport closed before the pause or
   during it - is `Closed`: the close is what ended the call.
 - **A secret is never said.** A header's value may be a `Secret`, or a tuple or list of `str` and `Secret` parts, as
@@ -1167,8 +1223,9 @@ with the mark, and an answer that seemed to end whole on a socket shut down is h
 `POST`. A body of 10 bytes under a `Content-Length` of 100, with and with no TLS `close_notify`, is no answer: a `GET`
 is asked three times, or answered whole on its second try, and a `POST` is `Unknown`. A kept connection is taken before
 its far end is looked at, and a `close()` just before the take, stood in for at its entry, makes the request `Closed`.
-A `GET`'s last try dropped and a `POST` dropped, each with the close just after it, are unmarked, in their own words;
-a `GET` whose pause before its next try is held until the transport is closed is `Closed`. A `_Wire` closes nothing,
+A `GET`'s last try dropped and a `POST` dropped, each with the close once that try has ended, are unmarked, in their
+own words; a `GET` whose pause before its next try is held until the transport is closed is `Closed`. A `_Wire`
+closes nothing,
 and on every road a connection's socket is let go by - kept, an answer's `Connection: close`, a connection dropped, a
 kept one the server closed - it is closed only once the transport holds it no more. It holds four rules over the new
 engine's modules.
@@ -1306,21 +1363,28 @@ that do call these two functions, and never `openpgp` themselves.
   version held the same way: it is signed by nobody and needs no signature, since whatever it names must still verify.
   Then the release's `manifest.json` and, once it is in hand, `manifest.json.sig`, each under 1 MiB; `openpgp.verify`
   with the vendored key; and only then is the manifest read, which must name the version it was fetched as.
-- **An image.** `signed_digest(list_url, signature_url, file_name, *, key, fingerprint, tls_ca_file, proxy)` fetches
-  the checksum list and then its detached signature, each from a URL of its own (today's image checksum and signature
-  settings give the two), so a person's own signed image may name its list and its signature as it likes, on two
-  hosts, a pre-signed URL's query kept; each over https only, on a transport of its own URL's host, each under 1 MiB.
-  A URL is held to one `https://` address with no user, password or fragment before anything is fetched, and said
-  without its query, which may carry a signature. The key is Ubuntu's cloud image key by default, a `keys.Key`, or the
-  armored text of a person's own with the `fingerprint` it is found by, as today's image key and fingerprint settings
-  give one. It returns the digest of the one line that names the image, read as today's role reads it, or `NotListed`
-  where no line or more than one does. `listed_digest(list_url, file_name, *, tls_ca_file, proxy)` reads an unsigned
-  list, an image held to its checksum alone (`sha256:<the list's URL>`), with the same line reader.
+- **An image.** `signed_digest(list_url, signature_url, file_name, *, key, fingerprint, tls_ca_file, list_proxy,
+  signature_proxy)` fetches the checksum list and then its detached signature, each from a URL of its own (today's
+  image checksum and signature settings give the two), so a person's own signed image may name its list and its
+  signature as it likes, on two hosts, a pre-signed URL's query kept; each over https only, on a transport of its own
+  URL's host, through the proxy its caller chose for that URL (`proxy.choose`, which decides by the URL's host, so a
+  list on a host `no_proxy` names and its signature elsewhere are each reached as they should be), each under 1 MiB.
+  A URL is held to one `https://` address with no user, password or fragment, and a path that does not begin with
+  `//` (which the transport would send as another), before anything is fetched, and said without its query, which may
+  carry a signature. The key is Ubuntu's cloud image key by default, a `keys.Key`, or the armored text of a person's
+  own with the `fingerprint` of a primary key in it, as today's image key and fingerprint settings give one: a
+  fingerprint that names none of its primary keys (a subkey's) is refused before anything is fetched, never said to be
+  missing from the vendored keys. It returns the digest of the one line that names the image, read as today's role
+  reads it, or `NotListed` where no line or more than one does. `listed_digest(list_url, file_name, *, tls_ca_file,
+  proxy)` reads an unsigned list, an image held to its checksum alone (`sha256:<the list's URL>`), with the same line
+  reader, through the proxy chosen for its URL.
 - **Bounded, and nothing unverified.** Every document is read on a transport whose `most` is 1 MiB, so none is read
   past it, and an answer's status is read before the document's own cap, so that an error page, longer than a
   channel's pointer, is said as the status it came with. A document one byte past its cap is `Oversized`, and nothing
-  after it is fetched. A 3xx is an answer, never followed (`NotServed`, as is any answer but 200), and the transport's
-  own errors pass as they are. Nothing is returned from a document whose signature has not verified (`Unverified`, with
+  after it is fetched. A 3xx is an answer, never followed (`NotServed`, as is any answer but 200), and a document the
+  transport could not fetch is `NotFetched`, which names the document and its URL before the transport's own words and
+  keeps the transport's error (`Untrusted`, `Unreachable`, `TimedOut`) as its `error`, so that with two hosts a person
+  can tell which one failed. Nothing is returned from a document whose signature has not verified (`Unverified`, with
   `openpgp`'s reason), decided by whether `openpgp.verify` returned, never by what a refusal says, so that a refusal
   with no words is one; and of a document only its version and digests are. What a server named is said through
   `plain_text`, cut, as JSON.
@@ -1331,9 +1395,11 @@ standing in for one of `certifi`'s, signed by keys `tests/unit/signing.py` makes
 document changed by one byte, a signature by another key or dated more than a day ahead, a refusal of `openpgp`'s with
 no words, a version below the first signed release, a document one byte past its cap, a list with no line or two for
 the image, a redirect, a certificate that does not verify, a URL that is not one `https://` address, a key that is not
-one. A list and its signature on two servers, with names of their own and a query, verify, and so does a key given as
-its text. It holds the release's pattern, the first signed release, the caps, the files' names and the line of a list
-equal to today's roles', and one rule: of the new engine, only `downloads.py` reaches `openpgp` - by an import, by its
+one, a fingerprint that names no primary key of a key given as text, a path that begins with `//`. A list and its
+signature on two servers, with names of their own and a query, verify, each through the proxy chosen for it, and so
+does a key given as its text; a document that could not be fetched is said by its name and URL. It holds the
+release's pattern, the first signed release, the caps, the files' names and the line of a list equal to today's roles',
+and one rule: of the new engine, only `downloads.py` reaches `openpgp` - by an import, by its
 `openpgp` or `verify` taken from `downloads.py`, or read off a name - and only `keys.py` names a vendored key file.
 
 ## 16.8 `runs/` — a run's record and text log, the locks, a detached run
@@ -1657,7 +1723,8 @@ process dies of. "The tree" is everything under the run's process, ended by `pro
 which signals every process under a process and what was remembered of it, by each one's start, with their groups, and
 never the process, its group or the caller's: today's
 `end` signals the root too, which here is the run. A shared SSH master daemonises out of the tree, so no end reaches it,
-and its open, while it runs, is left out of what is remembered (`children.opening`), since the master it leaves keeps
+and its open, while it runs - a machine's, `ensure`'s, or the hop's, `route.py`'s - is left out of what is remembered
+(`children.opening`), since the master it leaves keeps
 its `ProxyCommand` in the open's group; a second Ctrl-C during an open ends that open, and the master it was making. A
 child meant to outlive the run (`children.outliving`, the editor, a page's opener) is left out of both, of what is
 remembered and of what is ended, with what is under it: no end of the run reaches it. No child subreaper and no systemd
@@ -2156,25 +2223,66 @@ cancelled call each leaving nothing, the words Ansible's own ssh connection gave
 computer's `ssh -G` over a `Host *` that loosens them, and scans that the argument list never holds `key=value` after
 `-e` and that no product code passes the test-only connection.
 
+**A play's variables.** ansible-core loads an extra-variables file as a trusted source, so a string in it that holds
+`{{`, `{%` or `{#` would be rendered as a template: a setting would be code. `lib/claude_vm/guest/variables.py`'s
+`write(path, document, secrets=...)` writes the play's variables as one JSON file, `vars.json` in the run's directory,
+in which every string is `{"__ansible_unsafe": <the string>}` (`wrap`): Ansible's loader reads the file as JSON first,
+and its decoder hands such a string on as text, without the trusted mark. The standard library writes it, at 0600,
+whole, beside the path and then put in its place, never through a link. Nothing is written where a variable names the
+play's connection (any `ansible_` name: an extra variable outranks the inventory, where the SSH runner's options are, so
+no variable of the file names a connection's option), where a key anywhere begins `__ansible`, which the decoder reads
+as its own, or anything else would fail Ansible's JSON decoding (an integer past 64 bits, a float that is not finite, a
+nesting past 32 levels), since its loader then reads the very same text as YAML, where a wrapped string is a plain
+mapping and its string a trusted template; where a string is no text UTF-8 holds, which fails the YAML too; where a
+value is of a type no variable holds, a `Secret` above all; or where the document holds a secret the run opened, in a
+name, a string or the file's text, which the refusal never says back: no secret is ever in this file. `layer1.run` holds
+the file it is given to the same rules (`held`) before anything is written or started. The decoder is under
+`ansible._internal`, so the tests, not Ansible's documentation, hold this across releases:
+`tests/unit/test_aw_variables.py` loads a written file through Ansible's own loader, in a Python of its own, and finds
+no string trusted (the same document unwrapped, every string trusted), and through a real child on a stand-in machine a
+wrapped `{{ 7 * 7 }}` reaches a task as that text, an unwrapped one is templated, with the untrusted-template switch at
+`error` the wrapped one used as a template fails its task, and every kind of value comes back as it went; a walk of
+every file written finds no bare string leaf. They are among the tests that must pass before the ansible-core pin moves
+([§13](toolchain.md)).
+
 **How the engine's tests reach a machine.** A test of the new engine reaches no real machine: it reaches a stand-in,
 a directory of the test's own that `tests/unit/aw_machine.py` makes, through the SSH runner (§16.6) as it reaches a
-VM. `machine()` gives each an identity made for the test (`agent-warehouse-<a UUID>`), an address from RFC 5737's
-documentation ranges, never a real network's, and a directory that holds its home, made for a state as today's
-stand-in VMs make theirs (`tests/unit/test_status_vms.py`), the files the probe reads, and a `bin/` of stand-ins found
-first on its `PATH`: today's `systemctl`, `dpkg-query` and `getent`, the fakes' `gh`, `tailscale` and `claude`, and a
-`sudo` of its own that runs as the same user, records each call's `-n` and `-S`, and, made with a password, refuses
-`-n` for want of one and reads exactly one line on `-S`. `ssh_stand_in()` gives the folder of an `ssh` that a test puts
-first on its own `PATH` (`first_on_path`): it reads the runner's words as `ssh` reads them, refuses with 255 an address
-no machine has and words whose first `StrictHostKeyChecking` or `BatchMode` is not `yes`, records every call in that
-machine's `calls.log` (its words and the names of its variables), and runs the command with `/bin/sh -c` in the
-machine's home, with that home, its `bin/` first on `PATH` and the test's own failing stand-ins next, and nothing else
-of the test's environment, its standard input passed through untouched; `-O check` and `-O stop` answer as a live
-master would, and a forward is recorded and never opened. `planted()` makes a VM of the Proxmox fake that machine: its
-guest agent reports the machine's address on the VM's own card, and its SMBIOS UUID is the identity's. An adopted
-machine is a stand-in made without it. Layer 1 meets a stand-in only in a play of one task over its test-only `local`
-connection (`layer1_host()`), which touches only the machine's directory, since the real roles would run as root on the
-computer running the tests: they converge in a Molecule container. No test of the engine writes an `ssh` stand-in of
-its own but those of the SSH layer itself, which `tests/unit/test_aw_machine.py` names with why.
+VM. `machine()` gives each an identity made for the test (`agent-warehouse-<a UUID>`), a made-up ed25519 host key, an
+address from RFC 5737's documentation ranges, never a real network's, and a directory that holds its home, made for a
+state as today's stand-in VMs make theirs (`tests/unit/test_status_vms.py`), the files the probe reads, `root/`, the
+home a command run under its `sudo` is given, and a `bin/` of stand-ins found first on its `PATH`: today's
+`systemctl`, `dpkg-query` and `getent`, the fakes' `gh`, `tailscale` and `claude`, a `python3` that is the test's own
+Python, on every system (macOS's own is 3.9), and a `sudo` of its own. That `sudo` runs as the same user, with sudo's
+`env_reset` and `secure_path` (`root/` its `HOME`, the machine's `PATH` whatever the caller's), takes `-l`, `-v`, `-k`,
+`-K` and the long options and refuses a shell, records each call's `-n` and `-S`, and, made with a password, refuses
+`-n` for want of one and on `-S` reads a line an attempt, each to its newline or carriage return: a wrong one is
+followed by the next line, up to sudo's three, as experiment M-2 saw sudo do, so a caller that sends anything after the
+password's line before sudo has answered loses it as an attempt. `ssh_stand_in()` gives the folder of an `ssh` that a
+test puts first on its own `PATH` (`first_on_path`): it reads the runner's words as `ssh` reads them, refuses with 255
+an address no machine has and words whose first `StrictHostKeyChecking` is neither `yes` nor `accept-new` or whose
+first `BatchMode` is not `yes`, and checks the key of the machine at the address as `ssh` checks it, under the first
+`HostKeyAlias` (or the address) in the files of the first `UserKnownHostsFile` (or `~/.ssh`'s two, `~` the test's own
+home), never in this computer's own `~/.ssh`: the machine's key filed there passes; none filed is refused under `yes`
+and filed under `accept-new`, as a first use files it; another filed is refused; each refusal in `ssh`'s words. So a
+connection that names one machine's identity at another's address is refused, as the rule that a VM reporting a
+sibling's address is refused rests on. `filed()` files a machine's key under its identity, in the file `target()`
+checks unless given another. The stand-in records every call in that machine's `calls.log` (its words and the names of
+its variables, never their values), and runs the command with `/bin/sh -c` in the machine's home, with no terminal (so
+`/dev/tty` fails at once, as under `sshd`), with that home, its `bin/` first on `PATH` and the test's own failing
+stand-ins next, and nothing else of the test's environment, its standard input passed through untouched; `-O check`
+and `-O stop` answer as a live master would, and a forward is recorded and never opened. `planted()` makes a VM of the
+Proxmox fake that machine: its guest agent reports the machine's address on the VM's own card, and its SMBIOS UUID is
+the identity's. An adopted machine is a stand-in made without it. Layer 1 meets a stand-in only in a play of one task
+over its test-only `local` connection (`layer1_host()`), which touches only the machine's directory, since the real
+roles would run as root on the computer running the tests: they converge in a Molecule container.
+
+What the module's own code writes is under the test's directory, but a machine is a directory, not a confinement: a
+command on one can still write the computer's `/tmp`, reach a file by its absolute path and read its ancestors'
+environment, and finds the system's programs past its `bin/` (on macOS BSD `tar`, and no `timeout`, `sha256sum` or
+`flock`). So each card points the absolute paths and URLs of its steps at the machine's directory or at a fake, and a
+command that needs GNU's tools brings a stand-in for each into the machine's `bin/`, or marks its macOS case with why.
+No test of the engine writes an `ssh` stand-in of its own, or hands the runner one, but the SSH layer's own tests, the
+guard's, and one that tests a child named `ssh`, which `tests/unit/test_aw_machine.py` names with why.
 
 ## 16.11 `control/` — what exists only with a control VM
 

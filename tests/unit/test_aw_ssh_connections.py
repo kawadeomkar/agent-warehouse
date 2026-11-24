@@ -7,11 +7,13 @@ socket's path in a short directory of the test's own, one that holds "stale" a s
 answers from that file, an open writes it, and a file mode-<destination> beside the stand-in makes an open fail as a
 refused login does. For ssh -G it runs this machine's own ssh by its path, given the test's own ~/.ssh/config with -F
 (or /dev/null), so that ssh itself reads a configuration and nothing of the developer's is read: OpenSSH finds ~ in the
-password database, never in HOME. No stand-in dials anything. The rules with a test of their own: no -O but check in the
-new subpackages, never -O exit; nothing in ssh/ retries a connection; only ensure (and route.py, for the hop) opens a
-master, and only with the kind that carries no job's marker; route.py's ssh runs in a process group of its own, so a
-terminal's Ctrl-C settles nothing; the control directory is its owner's alone; and a run remembers nothing of a
-master's open.
+password database, never in HOME. A file hold-<kind> beside it holds the next call of that kind (G, check, open) until
+a file go appears there, which the test writes: no clock decides what the test sees. No stand-in dials anything. The
+rules with a test of their own: no -O but check in the new subpackages, never -O exit; nothing in ssh/ retries a
+connection; only ensure (and route.py, for the hop) opens a master, and only with the kind that carries no job's marker;
+route.py's ssh runs in a process group of its own, so a terminal's Ctrl-C settles nothing, and off the event loop, so
+another task goes on while it waits; the control directory is its owner's alone; and a run remembers nothing of a
+master's open, a machine's or the hop's.
 """
 
 from __future__ import annotations
@@ -58,7 +60,7 @@ LAN = "198.51.100.4"
 CONNECTIONS = REPO / "lib" / "claude_vm" / "ssh" / "connections.py"
 
 STAND_IN = r"""
-import json, os, sys, time
+import json, os, subprocess, sys, time
 
 here = os.path.dirname(os.path.abspath(__file__))
 argv = sys.argv[1:]
@@ -76,7 +78,23 @@ def first(prefix):
     return next((word[len(prefix):] for word in argv if word.startswith(prefix)), "")
 
 
+def hold(kind):
+    # hold-<kind> beside the stand-in: this call of that kind, the first, waits until go appears beside it, which the
+    # test writes, and then says so in released-<kind>; 30 s at most, past every limit of route.py's, which ends it
+    # first, unreleased.
+    marker = os.path.join(here, "hold-" + kind)
+    if not os.path.exists(marker):
+        return
+    os.remove(marker)
+    for _ in range(3000):
+        if os.path.exists(os.path.join(here, "go")):
+            open(os.path.join(here, "released-" + kind), "w").close()
+            return
+        time.sleep(0.01)
+
+
 if "-G" in argv:
+    hold("G")
     # slow-G beside the stand-in: ssh -G takes that many seconds first, as a person's Match exec may; killed-G: it is
     # ended by a signal.
     if os.path.exists(os.path.join(here, "slow-G")):
@@ -100,6 +118,7 @@ def held():
 
 if "-O" in argv:
     if after("-O") == "check":
+        hold("check")
         if held() == "hung":
             time.sleep(60)
         if held() == "stale":
@@ -115,6 +134,12 @@ if "-O" in argv:
         sys.exit(0)
     sys.exit(1)
 if "-N" in argv and first("ControlMaster=") == "yes":
+    if os.path.exists(os.path.join(here, "hold-open")):
+        # The open's ProxyCommand, as ssh starts one, in the open's process group: the master the open leaves keeps it.
+        proxy = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], stdin=subprocess.DEVNULL)
+        with open(os.path.join(here, "proxy.pid"), "w") as kept:
+            kept.write(str(proxy.pid))
+    hold("open")
     if os.path.exists(socket):
         # A master never takes a path over: beside one, live or dead, ssh goes on as a connection of its own.
         sys.stderr.write(f"ControlSocket {socket} already exists, disabling multiplexing\n")
@@ -238,7 +263,7 @@ def _held(conns, target, settled) -> None:
     return asyncio.run(conns.held(target, settled))
 
 
-def _ensure_hop(conns, settled) -> connections.Master:
+def _ensure_hop(conns, settled) -> connections.Master | None:
     return asyncio.run(conns.ensure_hop(settled))
 
 
@@ -342,7 +367,8 @@ def test_a_machine_whose_socket_s_path_would_be_too_long_logs_in_alone_said_once
         for address in (ADDRESS, OTHER_ADDRESS):
             target = _machine(tmp_path, long_dir, address)
             assert not target.shared and "ControlPath=none" in runner.options(target)
-            assert asyncio.run(conns.ensure(made, target)) == connections.Master(True, False, "")
+            # No master is used, so none is made sure of: no Master, whose ok would say one answers.
+            assert asyncio.run(conns.ensure(made, target)) is None
         assert conns.notes == [connections.UNSHARED.format(directory=long_dir, most=route.SOCKET_MOST)]
         assert _calls(stand_in) == []
     finally:
@@ -434,7 +460,7 @@ def test_every_line_of_the_hop_s_own_ssh_pins_the_display_and_local_commands_off
 
 
 def test_a_long_home_settles_direct_and_refuses_the_route_through_the_host_in_this_engine_s_words(
-    home, stand_in, addresses
+    home, stand_in, addresses, made
 ) -> None:
     # Past route.SOCKET_MOST the hop's socket cannot be bound, and the hop is one shared connection: the route through
     # the host is refused, with the one way out it has, and direct settles. route.hop_settings' own sentence, which
@@ -459,8 +485,14 @@ def test_a_long_home_settles_direct_and_refuses_the_route_through_the_host_in_th
                 "set vm_ssh_route: direct where this computer reaches the VMs' network, or run from an account whose"
                 " home is shorter"
             )
-        # Nothing was opened, and the note of machines that log in alone is a machine's to bring.
-        assert _kinds(stand_in) == ["-G", "-G"] and conns.notes == []
+        # Nothing was opened, and the host's own Target, whose connections log in alone from here, made the note that
+        # says so, once, however many times it was met; a machine's that logs in alone adds none.
+        assert _kinds(stand_in) == ["-G", "-G"]
+        note = connections.UNSHARED.format(directory=long_dir, most=route.SOCKET_MOST)
+        assert conns.notes == [note]
+        assert "and to the Proxmox host" in note and "103" in note
+        assert asyncio.run(conns.ensure(made, _machine(home, long_dir))) is None
+        assert conns.notes == [note]
     finally:
         shutil.rmtree(long_dir, ignore_errors=True)
 
@@ -498,8 +530,10 @@ print(json.dumps({**said, "noted": noted}), flush=True)
 
 
 def test_a_first_ctrl_c_while_the_route_is_settled_kills_no_ssh_and_settles_it_as_it_is(home, short_dir, stand_in):
+    # The route's ssh -G waits for a file the test writes once the Ctrl-C is sent, never for a time: the Ctrl-C lands
+    # while it runs, however loaded the machine.
     _config(home, f"Host {HOST}\n  HostName {TAILNET}\n")
-    (stand_in / "slow-G").write_text("2")
+    (stand_in / "hold-G").write_text("")
     argv = [sys.executable, "-I", "-c", CTRL_C_RUN, str(REPO / "lib"), str(short_dir), HOST]
     run = subprocess.Popen(
         argv,
@@ -512,11 +546,59 @@ def test_a_first_ctrl_c_while_the_route_is_settled_kills_no_ssh_and_settles_it_a
     try:
         _until(lambda: "-G" in _kinds(stand_in), "the route's ssh -G started")
         os.killpg(run.pid, signal.SIGINT)
+        (stand_in / "go").write_text("")
         out, _ = run.communicate(timeout=60)
     finally:
         run.kill()
         run.wait(timeout=10)
     assert json.loads(out) == {"route": "host", "addresses": [TAILNET], "noted": ["SIGINT"]}
+
+
+@pytest.mark.parametrize("waiting", ["route", "ensure_hop", "held"])
+def test_route_ensure_hop_and_held_wait_off_the_event_loop_while_another_task_goes_on(
+    home, tmp_path, short_dir, stand_in, made, addresses, waiting
+) -> None:
+    # Each runs route.py's ssh in a thread of its own (asyncio.to_thread): while that ssh waits - here a stand-in held
+    # until a file appears - another task on the same loop goes on, and that task is the one that writes the file. Run
+    # on the loop, the call would hold it until route.py's limit ended the ssh, and the task would not have run
+    # meanwhile.
+    _config(home, f"Host {HOST}\n  HostName {TAILNET}\n")
+    conns = connections.Connections(short_dir, dict(os.environ))
+    host = _host(short_dir)
+    settled = _route(conns, "host", host)
+    target = _target(conns, made, _machine(tmp_path, short_dir), settled)
+    calls = {
+        "route": (lambda: conns.route("auto", host), "G"),
+        "ensure_hop": (lambda: conns.ensure_hop(settled), "check"),
+        "held": (lambda: conns.held(target, settled), "G"),
+    }
+    call, kind = calls[waiting]
+    (stand_in / f"hold-{kind}").write_text("")
+    before = len(_calls(stand_in))
+
+    async def both() -> tuple[bool, asyncio.Future]:
+        waited = asyncio.ensure_future(call())
+        let_go = False
+        while not waited.done():
+            await asyncio.sleep(0.01)
+            if not let_go and not waited.done() and len(_calls(stand_in)) > before:
+                # The held ssh has started, the call has not returned, and this task runs: it lets the ssh go.
+                (stand_in / "go").write_text("")
+                let_go = True
+        return let_go, waited
+
+    let_go, waited = asyncio.run(both())
+    assert let_go, f"{waiting} held the event loop while its ssh waited"
+    # The held ssh went on because this task let it go, not because a limit ended it.
+    assert (stand_in / f"released-{kind}").exists()
+    answer = waited.result()
+    if waiting == "route":
+        assert (answer["route"], answer["addresses"]) == ("host", [TAILNET])
+    elif waiting == "ensure_hop":
+        assert answer == connections.Master(ok=True, opened=True, said="")
+    else:
+        assert answer is None
+    assert not (stand_in / f"hold-{kind}").exists()
 
 
 def test_the_hop_s_account_is_vm_ssh_jump_where_it_names_one(short_dir, stand_in) -> None:
@@ -684,7 +766,8 @@ def test_ensure_hop_opens_the_hop_s_master_once_and_finds_it_the_second_time(sho
     # group of its own.
     assert children.MARKER not in _calls(stand_in)[1]["env"] and children.MARKER not in os.environ
     assert [call["group"] == call["pid"] for call in _calls(stand_in)] == [True] * 4
-    assert _ensure_hop(conns, _route(conns, "direct", _host(short_dir))).ok and len(_calls(stand_in)) == 4
+    # Under direct no hop's master is used: none is made sure of, and no Master says one answers.
+    assert _ensure_hop(conns, _route(conns, "direct", _host(short_dir))) is None and len(_calls(stand_in)) == 4
 
 
 @pytest.mark.parametrize(("setting", "named"), [("auto", "vm_ssh_route: direct"), ("host", "vm_ssh_route: host")])
@@ -835,6 +918,44 @@ def test_a_run_remembers_nothing_of_a_master_s_open(made) -> None:
         assert children.opening() == []
 
     asyncio.run(opening())
+
+
+def test_a_run_remembers_nothing_of_the_hop_s_open_while_it_runs(short_dir, stand_in) -> None:
+    # route.py opens the hop's master in a process group of its own, and the master it leaves keeps its ProxyCommand in
+    # the open's group: a run's end that had remembered the open's tree at a Ctrl-C during it would end the hop's
+    # master, which no run does, as for a machine's (review/code/B23.md 6).
+    conns = connections.Connections(short_dir, dict(os.environ))
+    settled = _route(conns, "host", _host(short_dir))
+    (stand_in / "hold-open").write_text("")
+
+    async def opening() -> connections.Master:
+        waited = asyncio.ensure_future(conns.ensure_hop(settled))
+        # Another child of the run's, which is remembered.
+        other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], stdin=subprocess.DEVNULL)
+        try:
+            await asyncio.to_thread(_until, lambda: (stand_in / "proxy.pid").exists(), "the open's ProxyCommand")
+            [opened] = [call["pid"] for call in _calls(stand_in) if "-N" in call["argv"]]
+            tree = {opened, int((stand_in / "proxy.pid").read_text())}
+            assert set(proc.descendants(opened)) | {opened} == tree
+            # The ladder's remember on a stand-in of its own: what it leaves out, its hold of the interrupts aside.
+            ladder = types.SimpleNamespace(remembered={}, blind=[], _held=contextlib.nullcontext)
+            attached._Ladder.remember(ladder)
+            assert ladder.blind == [] and other.pid in ladder.remembered and not tree & set(ladder.remembered)
+            assert children.opening() == [opened]
+        finally:
+            other.kill()
+            other.wait()
+            (stand_in / "go").write_text("")
+            master = await waited
+        assert children.opening() == []
+        return master
+
+    try:
+        assert asyncio.run(opening()) == connections.Master(ok=True, opened=True, said="")
+    finally:
+        if (stand_in / "proxy.pid").exists():
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(int((stand_in / "proxy.pid").read_text()), signal.SIGKILL)
 
 
 # ---------------------------------------------------------------- a first use ----
