@@ -3,7 +3,9 @@
 Every run here is a real ansible-playbook, started by layer1.run as a child of a job of this process's own, against a
 stand-in machine (tests/unit/aw_machine.py): a play of one task over the test-only local connection, which touches only
 the machine's directory, or a play of one ping over Ansible's own ssh connection to the stand-in ssh, which records the
-words it was given. The generated configuration read back by ansible-config is a fixed expectation; a play of one ping
+words it was given. The generated configuration read back by ansible-config is a fixed expectation, and a run's names
+the checkout's own folder of Galaxy collections until F6a, the one tools/env-run --collections names for the run's
+environment, where its answer is one absolute path given in time and refused otherwise; a play of one ping
 runs, its child in a session of its own and in the run's registry with its pid, with nothing on this process's
 terminal; the caller's ANSIBLE_*, PYTHON* and an exported stdout callback never reach the child, whose environment is
 the allow list and the engine's own; a target that is no machine's, a first use's, one with no key filed, an inventory
@@ -288,6 +290,106 @@ def test_every_folder_ansible_would_search_under_home_is_named(made) -> None:
     assert len(searched) > 15 and searched - named == set(), sorted(searched - named)
 
 
+def _env_run_collections(env: dict[str, str]) -> Path:
+    """The folder of collections tools/env-run itself names for env's home and data folder, asked as every recipe of
+    today's product asks it."""
+    found = subprocess.run(
+        [str(REPO / "tools" / "env-run"), "--collections"],
+        env={name: env[name] for name in ("PATH", "HOME", "XDG_DATA_HOME") if name in env},
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+    return Path(found.stdout.rstrip("\n"))
+
+
+@pytest.mark.parametrize("data_home", ["the test's own", "another", "none, HOME's"])
+def test_the_run_s_configuration_names_the_checkout_s_collections_as_tools_env_run_finds_them(
+    made, root, tmp_path, data_home
+) -> None:
+    # Until F6a, the owner's answer of 2026-11-23: the checkout's own folder, the one today's product's runs read, for
+    # the run's own environment, asked of tools/env-run; a test's own folder of collections in its place, where given.
+    alpha = _alpha(root)
+    env = dict(os.environ)
+    if data_home == "another":
+        env["XDG_DATA_HOME"] = str(tmp_path / "data")
+    elif data_home == "none, HOME's":
+        env.pop("XDG_DATA_HOME", None)
+    ended = _run(made, target(alpha), _play(tmp_path, PING), env=env, test_connection=layer1_host(alpha))
+    assert ended.status == 0, ended.said
+    directory = rundir.made(made)
+    assert directory is not None
+    found = _env_run_collections(env)
+    assert _keys((directory / layer1.CONFIG).read_text())["collections_path"] == [str(found)]
+    # Under the run's own data folder, named for this checkout, never the process's own environment's.
+    data = Path(env.get("XDG_DATA_HOME") or Path(env["HOME"]) / ".local" / "share")
+    assert found.is_relative_to(data) and found.parent.name.startswith(f"{REPO.resolve().name}-"), found
+    # tools/env-run was a child of the run, and is gone.
+    assert children.live(made) == []
+    # A test's own folder, where one is given, names that one alone.
+    given = tmp_path / "collections"
+    given.mkdir()
+    ended = _run(
+        made, target(alpha), _play(tmp_path, PING), env=env, test_connection=layer1_host(alpha), test_collections=given
+    )
+    assert ended.status == 0, ended.said
+    assert _keys((directory / layer1.CONFIG).read_text())["collections_path"] == [str(given)]
+
+
+# What tools/env-run, put in its place, does: fail with a word on its standard error, answer what is no one absolute
+# path, or say nothing in time.
+ENV_RUN_FAULTS = {
+    "fails": ("echo 'error: no HOME' >&2; exit 3", "tools/env-run --collections ended with exit 3: error: no HOME"),
+    "a relative path": ("echo collections", "tools/env-run --collections answered no one absolute path"),
+    "two lines": ("printf '/a\\n/b\\n'", "tools/env-run --collections answered no one absolute path"),
+    "no line's end": ("printf /a", "tools/env-run --collections answered no one absolute path"),
+    "nothing in time": ('echo "$$" > "$0.pid"; exec sleep 600', "tools/env-run --collections said nothing in 1 s"),
+}
+
+
+@pytest.mark.parametrize("fault", sorted(ENV_RUN_FAULTS))
+def test_what_tools_env_run_answers_that_is_no_folder_is_refused_before_anything_is_written(
+    made, root, tmp_path, monkeypatch, fault
+) -> None:
+    script, said = ENV_RUN_FAULTS[fault]
+    stand_in = tmp_path / "env-run"
+    stand_in.write_text(f"#!/bin/sh\n{script}\n")
+    stand_in.chmod(0o755)
+    monkeypatch.setattr(layer1, "ENV_RUN", stand_in)
+    monkeypatch.setattr(layer1, "ENV_RUN_SECONDS", 1)
+    alpha = _alpha(root)
+    with pytest.raises(layer1.Refused) as refused:
+        _run(made, target(alpha), _play(tmp_path, PING), test_connection=layer1_host(alpha))
+    assert str(refused.value).startswith(said), str(refused.value)
+    assert _written(made) == [] and children.live(made) == []
+    pid = tmp_path / "env-run.pid"
+    if pid.exists():
+        # The one that said nothing was ended, and reaped.
+        with pytest.raises(ProcessLookupError):
+            os.kill(int(pid.read_text()), 0)
+
+
+def test_tools_env_run_is_given_only_what_it_reads_of_the_run_s_environment(made, root, tmp_path, monkeypatch) -> None:
+    stand_in = tmp_path / "env-run"
+    stand_in.write_text('#!/bin/sh\nenv > "$0.env"\necho /collections\n')
+    stand_in.chmod(0o755)
+    monkeypatch.setattr(layer1, "ENV_RUN", stand_in)
+    alpha = _alpha(root)
+    canaries = {"AW_CANARY": "1", "PYTHONPATH": "/canary", "ANSIBLE_COLLECTIONS_PATH": "/canary", "LANG": "C.UTF-8"}
+    env = {**os.environ, **canaries, "XDG_DATA_HOME": str(tmp_path / "data")}
+    ended = _run(made, target(alpha), _play(tmp_path, PING), env=env, test_connection=layer1_host(alpha))
+    assert ended.status == 0, ended.said
+    given = dict(line.split("=", 1) for line in (tmp_path / "env-run.env").read_text().splitlines() if "=" in line)
+    assert {name: given.get(name) for name in layer1.ENV_RUN_KEPT} == {name: env[name] for name in layer1.ENV_RUN_KEPT}
+    assert given[children.MARKER] == made.id
+    assert set(canaries).isdisjoint(given), sorted(set(canaries) & set(given))
+    directory = rundir.made(made)
+    assert directory is not None
+    assert _keys((directory / layer1.CONFIG).read_text())["collections_path"] == ["/collections"]
+
+
 def test_a_vars_plugin_under_the_caller_s_home_is_never_run(made, root, tmp_path) -> None:
     # Ansible runs a vars plugin it finds in its default folders without its being enabled: one in the caller's
     # ~/.ansible/plugins/vars would loosen the key's checking (review 22, F3.md 1). The configuration names its folders.
@@ -342,7 +444,8 @@ def test_a_play_of_one_ping_runs_through_layer1_on_a_stand_in_its_child_in_the_r
     # The configuration and the one host's inventory, in the run's directory, at 0600.
     directory = rundir.made(made)
     assert directory is not None
-    assert (directory / layer1.CONFIG).read_text() == layer1.configuration_text(directory)
+    checkout = _env_run_collections(dict(os.environ))
+    assert (directory / layer1.CONFIG).read_text() == layer1.configuration_text(directory, checkout)
     inventory = f"{layer1.INVENTORY_PREFIX}{alpha.identity}{layer1.INVENTORY_SUFFIX}"
     assert [name for name in _written(made) if not name.startswith(layer1.LOCAL_TMP)] == [
         layer1.NONE,
@@ -453,6 +556,7 @@ def _forged(at: runner.Target, identity: str) -> runner.Target:
         ("a redaction list that is one word", "the run's redaction list is a list of Secrets"),
         ("a folder of collections with no test connection", "a folder of collections is a test's, given only beside"),
         ("a folder of collections that is not there", "a test's folder of collections is an absolute path to a folder"),
+        ("an environment with no home", "the run's environment names neither HOME nor XDG_DATA_HOME, under which"),
     ],
 )
 def test_what_is_not_one_is_refused_before_anything_is_written_or_started(made, root, tmp_path, case, said) -> None:
@@ -506,6 +610,8 @@ def test_what_is_not_one_is_refused_before_anything_is_written_or_started(made, 
     elif case == "a folder of collections that is not there":
         given["test_connection"] = layer1_host(alpha)
         given["test_collections"] = tmp_path / "absent"
+    elif case == "an environment with no home":
+        given["env"] = {name: os.environ[name] for name in ("PATH", "LANG") if name in os.environ}
     with pytest.raises(layer1.Refused) as refused:
         asyncio.run(layer1.run(made, at, play, variables, **given))
     assert said in str(refused.value)

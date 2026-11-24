@@ -17,6 +17,8 @@ That one lives in the checkout's folder outside it,
 (`tools/env-run --data`), never a `.venv` in the checkout, so a worktree or a second clone has its own; and
 the Galaxy collections live in the same folder for every checkout (`tools/env-run --collections`, exported
 as `ANSIBLE_COLLECTIONS_PATH` by every recipe, through the justfile's `find_bin`), so one checkout's `just install` never changes another's.
+Until F6a the new engine's layer-1 child reads that folder too, asked of `tools/env-run --collections` for the run's
+environment ([§16.10](engine.md#1610-guest--the-helper-the-system-layers-inputs-layer-2)).
 `just clean env` deletes that folder. Through 1.x it was under `claude-on-proxmox/` rather than
 `agent-warehouse/` (`tools/env-run --legacy-data`): `just install` moves it, once, keeping the collections and
 making an environment in it again, since uv wrote the folder's old path into each of its commands; `just clean

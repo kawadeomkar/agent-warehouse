@@ -11,7 +11,10 @@ sets, by name, before anything after it runs. The play's own vars and its roles'
 instead (test_aw_layer1_ratchet.py). Its list of variables is held to ansible-core's own: every variable of its ssh
 connection and of sudo. The untrusted-template
 switch layer 1 gives its child is at ignore: a module's result holding {{ is read as its text by a message, a fact, a
-condition and an assert, where at error each of them fails. And a setting the engine cannot serve yet is refused by
+condition and an assert, where at error each of them fails. Started as the engine starts it, the product's child loads
+the play only from the checkout's own folder of Galaxy collections, which its configuration names until F6a: with none
+there, ansible-core fails as the play loads, on ansible.posix.authorized_key (F6's finding (a)), and with it the play
+starts. And a setting the engine cannot serve yet is refused by
 name before anything is written: common_user_passwordless_sudo other than true.
 """
 
@@ -29,14 +32,14 @@ from pathlib import Path
 
 import pytest
 import yaml
-from aw_machine import Machine, layer1_host, machine, target
+from aw_machine import Machine, filed, layer1_host, machine, ssh_stand_in, target
 from harness import REPO
 
 from claude_vm.fleet import paths
 from claude_vm.guest import layer1, system
 from claude_vm.guest import variables as play_variables
+from claude_vm.runs import children, rundir
 from claude_vm.runs import job as jobs
-from claude_vm.runs import rundir
 from claude_vm.ssh import hostkeys
 
 CONFIGURE = REPO / "playbooks" / "configure.yml"
@@ -140,6 +143,63 @@ def _collections() -> str:
         if folder and (Path(folder) / "ansible_collections" / "ansible" / "posix").is_dir():
             return folder
     raise AssertionError("no folder of ANSIBLE_COLLECTIONS_PATH holds ansible.posix: run the tests through just")
+
+
+# What ansible-core says, and exits 4 with, where the system play loads with no folder of collections that holds the
+# modules three tasks of the roles call until F6a: the first it resolves (F6's finding (a)).
+UNRESOLVED = "couldn't resolve module/action 'ansible.posix.authorized_key'"
+
+
+class Loaded(Exception):
+    """The play's start heard: the child loaded the play, and is ended there, before any task of it."""
+
+
+def test_the_product_s_child_loads_the_system_play_from_the_checkout_s_collections(
+    made, tmp_path, engine_guard
+) -> None:
+    # Started as the engine starts it: the product's own configuration (no test-only connection or folder), the run's
+    # environment, the play, over Ansible's own ssh to the stand-in machine, whose own key is filed (the stand-in ssh
+    # first on PATH, so that nothing reaches past it). The checkout's folder is the one tools/env-run --collections
+    # names for the run's environment, this test's own home: first not there, then the checkout's real one linked in.
+    root = tmp_path / "machines"
+    alpha = machine(root, "alpha")
+    filed(alpha)
+    engine_guard.first_on_path(ssh_stand_in(root, [alpha]))
+    env = dict(os.environ)
+    found = subprocess.run(
+        [str(REPO / "tools" / "env-run"), "--collections"],
+        env={name: env[name] for name in ("PATH", "HOME", "XDG_DATA_HOME") if name in env},
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+    folder = Path(found.stdout.rstrip("\n"))
+    assert folder.is_relative_to(Path(env["HOME"])) and not folder.exists(), folder
+    heard: list[jobs.Event] = []
+    made.listen(heard.append)
+
+    def loaded(event: jobs.Event) -> None:
+        if event.data.get("status") == "play":
+            raise Loaded(event.text)
+
+    made.listen(loaded)
+
+    def converge() -> layer1.Ended:
+        return asyncio.run(layer1.run(made, target(alpha), system.PLAY, name="alpha", host_flag="", env=env))
+
+    # The folder taken out: the play does not load, and no play starts.
+    ended = converge()
+    assert ended.status == 4 and UNRESOLVED in ended.said, ended.said
+    assert heard == [] and children.live(made) == []
+    # The folder there: the play loads and starts, never that failure.
+    folder.parent.mkdir(parents=True)
+    folder.symlink_to(_collections(), target_is_directory=True)
+    with pytest.raises(Loaded, match="^Converge the machine's system layer$"):
+        converge()
+    assert [event.data.get("status") for event in heard] == ["play"], heard
+    assert children.live(made) == []
 
 
 @pytest.mark.parametrize("part", system.PARTS)
