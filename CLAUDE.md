@@ -127,9 +127,9 @@ checked only, never from a VM name.
 Scenarios are slow and disk-hungry. Run the ones your change touches, one at a time, rather than
 `just test`, until you are ready to finish; `--jobs N` runs them N at a time on a machine with the room.
 
-`common`, `vscode_server`, `dev_tools`, `claude_code`, `github_projects`, `tailscale` and the `configure`
-scenario install packages inside the container and need working Docker DNS. `proxmox_vm`, `proxmox_template` and
-the `provision` scenario talk only to local fakes, so they still run when the network is down —
+`common`, `vscode_server`, `dev_tools`, `claude_code`, `github_projects`, `tailscale` and the `configure` and
+`system` scenarios install packages inside the container and need working Docker DNS. `proxmox_vm`,
+`proxmox_template` and the `provision` scenario talk only to local fakes, so they still run when the network is down —
 if apt fails to resolve a mirror, that is the machine, not the change.
 
 ## Invariants — do not break these
@@ -1027,17 +1027,40 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   `lib/claude_vm/` only the modules `REUSED` names, each with its reason, and what those import in turn, all the way
   down, is in `REUSED` or `REACHED`, with the reason it is brought in; never Ansible. `tests/unit/test_aw_layout.py`
   holds both.
-- **Layer 1 is held to state modules.** Read
-  [§16.10](docs/architecture/engine.md#1610-guest--the-helper-the-system-layers-inputs-layer-2) first. Every task the
-  new engine's system play (`playbooks/system.yml`) reaches, the three roles' it runs with it, is a module of
-  `ansible.builtin` that converges a state, or a `command`, `shell`, `raw`, `script` or `expect` listed with its reason;
-  a module outside `ansible.builtin` fails but the three F6a replaces, and so does any file the play reaches that sets an
-  `ansible_` variable, which would outrank the connection the engine wrote. `tests/unit/test_aw_layer1_ratchet.py`
-  holds all three, by file and task. The play's opening tasks are `playbooks/configure.yml`'s, copied as they stand,
-  and `tests/unit/test_aw_layer1_play.py` holds them equal: a change to one is made to both. Until F6a takes them out,
-  those three load only from a folder of collections, so layer 1's configuration names the checkout's own, asked of
-  `tools/env-run --collections` for the run's environment and never worked out a second way; the same test file holds
-  that the product's child loads the play from it.
+- **Layer 1 is held to state modules, and reaches nothing of this computer.** Read
+  [§16.10](docs/architecture/engine.md#1610-guest--the-helper-the-system-layers-inputs-layer-2) first. What the new
+  engine's system play (`playbooks/system.yml`) reaches, the three roles it runs with it, is held by
+  `tests/unit/test_aw_layer1_ratchet.py`, through a walk of its own that reads what Ansible reads.
+    - The walk follows every road to a task: the play's task lists and handlers; an include or import in any spelling
+      (short, `ansible.builtin.`, `ansible.legacy.`); a role the play names, one included or imported from anywhere, and
+      one a role's `meta/main.yml` names among its dependencies; each role's files in every spelling Ansible takes
+      (`main.yaml`, `main.json`, a `main/` folder of defaults or vars, a file an include's `_from` names); the play's
+      `vars_files`; the roles' templates. A road it does not follow - a playbook imported, an include in a handler, a
+      name only a run can say, a collection's role or a `collections` keyword, a role in the play's own roles folder,
+      a template outside a role or one that includes another - raises `Unfollowed` and fails every test: follow it in
+      the walk, never pass it over.
+    - Every task it reaches is a module of `ansible.builtin` that converges a state, or a `command`, `shell`, `raw`,
+      `script` or `expect` that `REASONS` lists with its reason and with its module and arguments as Ansible's own
+      parser reads them: a changed command changes its entry in the same commit, and two such tasks of one file and
+      name fail as one key. A module outside `ansible.builtin` fails but the three F6a replaces.
+    - Nothing it reaches sets a variable whose name begins `ansible_`, which would outrank the connection the engine
+      wrote: no vars of a play, block, task, role entry or dependency, no `vars_files`, `vars_prompt`, role default or
+      var, fact (a templated name refused), register, loop variable, include's `apply` or `add_host`, and no
+      `include_vars` at all.
+    - Nothing it reaches runs or writes on this computer: no `delegate_to`, `local_action` or `connection` keyword, no
+      `fetch`, no play over any host but `all`, no `with_` loop, and no lookup but the five `LOOKUPS` lists by its file
+      and whole string, read in every file the walk read and in the templates.
+    - The play's opening tasks are `playbooks/configure.yml`'s, copied as they stand, and
+      `tests/unit/test_aw_layer1_play.py` holds them equal: a change to one is made to both. Its first check reads the
+      inventory back by `ansible_inventory_sources`, never by `inventory_file`, a host's variable that a file beside the
+      play could point at a forged copy.
+    - Until F6a takes them out, those three load only from a folder of collections, so layer 1's configuration names the
+      checkout's own, asked of `tools/env-run --collections` for the run's environment and never worked out a second
+      way, and held to `requirements.yml`'s pins before the child starts, each collection's own `MANIFEST.json` at its
+      pin, with today's `tools/check collections`'s verdict (`tests/unit/test_aw_layer1.py` holds the two equal): a
+      folder not there, a collection at another version or not there, and a `tools/env-run` not there to run are each
+      refused in one sentence that names `just install`. The play's test file holds that the product's child loads the
+      play from it, and from no folder that only passes the check.
 - **Every command line the new engine prints, and every command a sentence of it names, is the printer's.** Read
   [§16.2](docs/architecture/engine.md#162-schema--the-command-lines-patterns-and-its-table-of-verbs-and-options) and
   [§16.3](docs/architecture/engine.md#163-cli--the-aw-program) first.

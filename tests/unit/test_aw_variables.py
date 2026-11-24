@@ -44,6 +44,10 @@ from claude_vm.runs import job as jobs
 from claude_vm.secret import MARK, Secret
 from claude_vm.ssh import hostkeys
 
+# Until F6a, every run here finds the checkout's folder of Galaxy collections planted at requirements.yml's pins in the
+# test's home, which layer 1 holds it to before its child starts.
+pytestmark = pytest.mark.usefixtures("installed")
+
 WRAPPER = "__ansible_unsafe"
 # Ansible's own variable for the untrusted-template switch, set here for each run, whatever the product's child is
 # given: these tests hold the wrapping under each value.

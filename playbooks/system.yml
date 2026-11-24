@@ -79,10 +79,13 @@
     # every source of them laid over the inventory - an extra variable, a variables file beside the play, a vars plugin
     # - since one would loosen the host key's checking or replace the program with no word said. The play's own vars
     # and its roles' are not among them: tests/unit/test_aw_layer1_ratchet.py holds every file the play reaches to
-    # setting none. Before anything connects: the check runs here, and reads the inventory back from its own file.
+    # setting none. Before anything connects: the check runs here, and reads the inventory back from its own source,
+    # ansible_inventory_sources (layer 1 gives one), which no source of a host's variables outranks, never by
+    # inventory_file, a host's variable that a file beside the play could point at a forged copy.
     - name: Refuse a connection that is not the one the engine wrote
       vars:
-        system_inventory: "{{ (lookup('ansible.builtin.file', inventory_file) | from_json)['all']['hosts'] }}"
+        system_inventory: >-
+          {{ (lookup('ansible.builtin.file', ansible_inventory_sources | first) | from_json)['all']['hosts'] }}
         system_written: >-
           {{ system_inventory[inventory_hostname] | dict2items | selectattr('key', 'in', system_connection_variables)
              | list }}

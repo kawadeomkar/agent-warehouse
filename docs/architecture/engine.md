@@ -2658,7 +2658,14 @@ play's roles call a collection's module, which ansible-core resolves as the play
 collections named the product's own child cannot load the play at all. `checkout_collections` asks `tools/env-run
 --collections` for it, a `program` child of the run given only the run's `PATH`, `HOME` and `XDG_DATA_HOME`, so that
 it is found as every recipe finds it and never worked out a second way; an answer that is not one absolute path, or
-none within 30 s, is refused before anything is written. For that time this folder is the one place under the caller's
+none within 30 s, is refused before anything is written. The folder it names is then held to `requirements.yml`'s pins
+before the play's child starts (`held_collections`), as today's `tools/check collections` holds it before every
+recipe's run: each collection pinned there, at its pin, by its own `MANIFEST.json`, where `ansible-galaxy` reads an
+installed collection's version, read by the engine itself rather than by a second child (about 2 s of `ansible-galaxy`
+a run). A folder that is not there, a collection at another version or not there, and a `tools/env-run` that is not
+there to run (no file, none executable, or one the system cannot run) are each refused in one sentence that names `just
+install`, which fills the folder, before anything is written, never Ansible's exit 4 at the load or a bare
+`FileNotFoundError`. For that time this folder is the one place under the caller's
 home that Ansible searches: it holds the collections pinned there, and a collection's vars plugin runs only where it
 is enabled, which the configuration enables none of. F6a, once built-in modules replace those three, takes the folder
 out, and the collections' path is the run's empty folder again. Ansible still adds the play's own folders beside it
@@ -2693,7 +2700,9 @@ runs (cancelled) ends the child with its tree (`claude_vm.proc`), its detached t
 (`test_collections`), named in place of the checkout's. `tests/unit/test_aw_layer1.py` holds it: the configuration read
 back by `ansible-config dump --only-changed`, every folder ansible-core's own definitions search under its home named,
 a run's folder of collections the one `tools/env-run --collections` names for the run's environment, which is given
-only what it reads, and an answer of it that is no folder refused, a vars plugin under the caller's home never run, a
+only what it reads, and an answer of it that is no folder refused, the folder held to `requirements.yml`'s pins with
+today's `tools/check collections`'s own verdict over the same folders, each way it is not ready and a `tools/env-run`
+not there to run refused in its sentence, a vars plugin under the caller's home never run, a
 play of one ping on a stand-in with its child in the run's registry, the environment as a task's module sees it, each
 refusal before anything is written, SIGINT to the child's group and a cancelled call each leaving nothing, the words
 Ansible's own ssh connection gave the stand-in `ssh` held by this computer's `ssh -G` over a `Host *` that loosens
@@ -2708,26 +2717,51 @@ the wait, the base's check by `raw`, the facts, cloud-init's wait and root's tem
 Its first task is today's check of the options in effect (`playbooks/tasks/host_keys.yml`'s), made whole: each variable
 of the connection - every variable of Ansible's ssh connection and of `sudo`, the connection's name, the interpreter and
 become's own, held to ansible-core's own documentation - is the inventory's the engine wrote, as written, or set
-nowhere. It is read as the host's own variables are, so that an extra variable, a variables file beside the play or a
+nowhere, the inventory read back by its own source, `ansible_inventory_sources`, which no source of a host's variables
+outranks, never by `inventory_file`, a host's variable that a file beside the play could point at a forged copy. It is
+read as the host's own variables are, so that an extra variable, a variables file beside the play or a
 vars plugin that would loosen the host key's checking or replace the program fails it by name before anything
 connects; the play's own vars and its roles' are none of those, and the ratchet holds every file the play reaches to
 setting no `ansible_` variable. `system.variables(path, document, secrets=...)` writes the play's variables through
 `variables.write` alone, after refusing by its name a setting the engine cannot serve yet: `common_user_passwordless_sudo`
-other than true, which needs a become password that no play is handed before F24. Layer 1 is held to state modules:
-`tests/unit/test_aw_layer1_ratchet.py` walks every task file the play reaches (`golden.reached`'s walker, the roles'
-handlers with them) and fails on a `command`, `shell`, `raw`, `script` or `expect` its list gives no reason, on a module
-outside `ansible.builtin` but the three F6a replaces with built-in ones (`ansible.posix.authorized_key`,
-`ansible.posix.sysctl`, `community.general.npm`), and on any file that sets an `ansible_` variable. Until F6a those three
-need their collections, from the checkout's own folder that layer 1's configuration names for now (above), or a
-test's in its place, the scenario's. The `system` scenario
+other than true, which needs a become password that no play is handed before F24.
+
+Layer 1 is held to state modules, and reaches nothing of this computer: `tests/unit/test_aw_layer1_ratchet.py` holds
+what the play reaches through a walk of its own that reads what Ansible reads. It follows the play's pre-tasks, tasks,
+post-tasks and handlers, a block's three parts among them; an include or import of tasks in any spelling (short,
+`ansible.builtin.`, `ansible.legacy.`), from the including file's folder or a role's `tasks/`; a role the play names,
+one included or imported from anywhere, and one a role's `meta/main.yml` names among its dependencies, found in the
+roles' folder; each role's tasks, handlers, defaults, vars and meta in every spelling Ansible's own `_load_role_yaml`
+takes (`main.yml`, `main.yaml`, `main.json`, `main`, a `main/` folder of defaults or vars, the file an include's
+`_from` names), read through Ansible's own `find_vars_files`; the play's `vars_files`; and each template a role's
+template task renders. What it does not follow it never passes over: a playbook imported, an include in a handler
+(Ansible resolves those otherwise), a file or role named by a template, a collection's role, a `collections` keyword
+(under which a short name can stand for a collection's module), a role in the play's own roles folder (searched before
+`roles_path`), a template outside a role or one that includes another each raise `Unfollowed`, which fails every test.
+Four tests read what it found. A `command`, `shell`, `raw`, `script` or `expect` is listed in `REASONS` with its reason
+and with its module and arguments as Ansible's `ModuleArgsParser` reads them, so that a reason is held to what runs: a
+new one, one no longer reached and one whose words changed under its name each fail, and two such tasks of one file and
+name fail as one key. A module outside `ansible.builtin` fails but the three F6a replaces with built-in ones
+(`ansible.posix.authorized_key`, `ansible.posix.sysctl`, `community.general.npm`). Nothing it reaches sets a variable
+whose name begins `ansible_` - the vars of a play, block, task, role entry or dependency, `vars_files`, `vars_prompt`, a
+role's defaults and vars, a fact (a templated name refused), a register, a loop's variable, an include's `apply`,
+`add_host` - nor includes variables at all, which the play's first check cannot see. And nothing runs or writes on this
+computer: no `delegate_to`, `local_action` or `connection` on a play, role entry, block, task or `apply`, no `fetch`,
+no play over any host but `all`, no `with_` loop, and no lookup but the five `LOOKUPS` lists by its file and whole
+string (the check's read of the inventory, `remote_tmp.yml`'s setting, and the three vendors' keys), found in every
+string of every file the walk read and in the templates. Until F6a those three modules need their collections, from
+the checkout's own folder that layer 1's configuration names for now (above), or a test's in its place, the
+scenario's. The `system` scenario
 (`molecule/system/`, [§11.3](testing.md#113-playbook-scenarios--just-test-integration-and-provision)) converges a
 container through `layer1.run` with the test-only `community.docker.docker` connection, twice, the second changing
 nothing. `tests/unit/test_aw_layer1_play.py` holds the opening tasks equal to the guest play's, a part asked for running
 that role alone, the check passing the inventory the engine wrote and failing a fact or a variables file beside the play
 by the variable's name, a machine's output holding `{{` read as its text by a message, a fact, a condition and an
-assert, the refusal, and the product's own child, started as the engine starts it, loading the play from the checkout's
-folder of collections: with none there it exits 4 at the load, unable to resolve `ansible.posix.authorized_key` (F6's
-finding), and with it the play starts.
+assert, a file beside the play that points `inventory_file` at a forged copy failing the check, the refusal, and the
+product's own child, started as the engine starts it, loading the play from the checkout's folder of collections: with
+none there the run is refused, naming `just install`, before anything starts; held at its pins with no module in it,
+the child exits 4 at the load, unable to resolve `ansible.posix.authorized_key` (F6's finding), so the play needs what
+is in it; and with the checkout's real folder the play starts.
 
 **A play's variables.** ansible-core loads an extra-variables file as a trusted source, so a string in it that holds
 `{{`, `{%` or `{#` would be rendered as a template: a setting would be code. `lib/claude_vm/guest/variables.py`'s

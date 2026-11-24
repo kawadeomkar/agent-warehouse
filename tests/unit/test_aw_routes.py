@@ -484,7 +484,7 @@ def test_the_route_is_this_computer_s_own_for_each_host_and_never_another_s(made
 
 
 def test_a_configure_through_a_stand_in_hop_passes_and_with_the_hop_refused_stops_before_the_vm(
-    made_fleet, short, run, made, stand_ins, tmp_path
+    made_fleet, short, run, made, stand_ins, tmp_path, installed
 ):
     if not Path(layer1.PYTHON).is_file():
         pytest.skip(f"this machine has no {layer1.PYTHON}, the machine's interpreter the inventory names")
