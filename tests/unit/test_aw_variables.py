@@ -10,7 +10,9 @@ template fails its task, and every scalar type comes back as it went. These are 
 ansible-core pin moves (docs/architecture/toolchain.md).
 
 What the writer refuses, before anything is written: a variable that names the play's connection (any `ansible_`
-name: an extra variable outranks the inventory, where the SSH runner's options are), a key Ansible's decoder reads as
+name: an extra variable outranks the inventory, where the SSH runner's options are), a name Ansible gives the play
+itself or the inventory the machine's (`FIXED`, held to the locked ansible-core's magic variables and reserved names), a
+key Ansible's decoder reads as
 its own, anything that would make Ansible's JSON decoding fail and its loader read the text as YAML - where a wrapped
 template is trusted, as a test shows - a type no variable holds, and a document that holds a secret the run opened,
 anywhere, never said back. The file is 0600, whole, never written through a link; layer1.run holds the file it is
@@ -178,11 +180,84 @@ def test_write_refuses_a_variable_that_names_the_play_s_connection(made, name) -
     assert _written(folder) == []
 
 
-@pytest.mark.parametrize("name", ["Ansible", "1st", "a-b", "a b", "", "_private", "__ansible_unsafe", "a.b", "é"])
+@pytest.mark.parametrize(
+    "name", ["Ansible", "1st", "a-b", "a b", "", "_private", "__ansible_unsafe", "a.b", "é", "ansible_x\n", "omit\x1b"]
+)
 def test_write_refuses_a_name_that_is_no_role_variable_s(made, name) -> None:
-    with pytest.raises(variables.Refused, match="named as a role variable is"):
+    with pytest.raises(variables.Refused, match="named as a role variable is") as refused:
         variables.write(_vars(made), {name: "x"}, secrets=())
+    # The name is held before a sentence says it: one with a control character never reaches the message.
+    assert not name or name not in str(refused.value)
     assert _written(_vars(made).parent) == []
+
+
+@pytest.mark.parametrize("name", sorted(variables.FIXED))
+def test_write_and_held_refuse_each_name_ansible_gives_the_play_or_the_inventory_the_machine(
+    made, tmp_path, name
+) -> None:
+    said = f"{name} is a name Ansible gives the play itself, or the inventory the machine's"
+    with pytest.raises(variables.Refused) as refused:
+        variables.write(_vars(made), {"aw_x": "x", name: "kept"}, secrets=())
+    assert str(refused.value).startswith(said), refused.value
+    assert _written(_vars(made).parent) == []
+    with pytest.raises(variables.Refused) as refused:
+        variables.held(_hand_made(tmp_path, json.dumps({name: {WRAPPER: "kept"}})))
+    assert str(refused.value).startswith(said), refused.value
+
+
+def test_the_inventory_s_name_of_the_machine_is_among_the_fixed_names() -> None:
+    assert layer1.NAME_VARIABLE in variables.FIXED
+    assert not [name for name in variables.FIXED if not variables.NAME.fullmatch(name)]
+    assert not [name for name in variables.FIXED if name.startswith(variables.CONNECTION)]
+
+
+# What the locked ansible-core gives a play beside what an inventory and a play say: its reserved names, the magic
+# variables of a host, and those of a play and a role's task, hostvars among them, as its VariableManager gives a task
+# its variables. Printed as one line of JSON, in a Python of its own, as the loader's test runs one.
+MAGIC = r"""
+import json, sys, tempfile
+from pathlib import Path
+from ansible.inventory.manager import InventoryManager
+from ansible.parsing.dataloader import DataLoader
+from ansible.playbook.play import Play
+from ansible.plugins.loader import init_plugin_loader
+from ansible.vars.hostvars import HostVars
+from ansible.vars.manager import VariableManager
+from ansible.vars.reserved import get_reserved_names
+
+init_plugin_loader([])
+work = Path(sys.argv[1])
+(work / "inventory.json").write_text(json.dumps({"all": {"hosts": {"alpha": {}}}}))
+(work / "roles" / "probe" / "tasks").mkdir(parents=True)
+(work / "roles" / "probe" / "tasks" / "main.yml").write_text("- ansible.builtin.ping: {}\n")
+loader = DataLoader()
+loader.set_basedir(str(work))
+inventory = InventoryManager(loader=loader, sources=[str(work / "inventory.json")])
+manager = VariableManager(loader=loader, inventory=inventory)
+HostVars(inventory=inventory, variable_manager=manager, loader=loader)
+host = inventory.get_host("alpha")
+play = Play.load({"hosts": "all", "gather_facts": False, "roles": ["probe"]}, variable_manager=manager, loader=loader)
+task = play.get_roles()[0].compile(play)[0].block[0]
+given = set(manager.get_vars(play=play, host=host, task=task)) | set(host.get_magic_vars())
+print(json.dumps({"reserved": sorted(get_reserved_names()), "magic": sorted(given)}))
+"""
+
+
+def test_the_fixed_names_are_the_locked_ansible_core_s_magic_variables_and_reserved_names(tmp_path) -> None:
+    shown = subprocess.run(
+        [sys.executable, "-I", "-c", MAGIC, str(tmp_path)],
+        cwd=tmp_path,
+        env={**os.environ, "ANSIBLE_INVENTORY_ENABLED": "yaml"},
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert shown.returncode == 0, shown.stderr[-2000:]
+    found = json.loads(shown.stdout.splitlines()[-1])
+    magic = {name for name in found["magic"] if not name.startswith(variables.CONNECTION)}
+    assert "hostvars" in magic and "inventory_hostname" in magic and "omit" in found["reserved"], found
+    assert variables.FIXED == {layer1.NAME_VARIABLE, *magic, *found["reserved"]}
 
 
 def _nested(lists: int, leaf: object) -> object:

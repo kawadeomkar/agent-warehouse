@@ -20,7 +20,9 @@ setting too: an option a row's setting reaches is set through that row alone (vm
 whose spec takes any value has no type to hold a value to. `typed(option, text)` holds typed text to the option's spec
 as overrides.typed holds text to a row: its type, its choices, the elements of a list, no expression and no control
 character; a path is one on the machine the role runs on, kept as typed, never made this computer's. `row(name)` is the
-row overrides.py reads an option passed through by.
+row overrides.py reads an option passed through by. An option `TEXT` names, whose value is text of several lines by
+what it is (an armored key, a whole CLAUDE.md), is read by a row of type text: line breaks and no other control
+character, kept in the fleet's settings.yml as YAML's block holds it, and never typed.
 
 Which setting reaches which role variable is today's wiring (lib/claude_vm/wiring.py: the roles' defaults and the
 project's) until the cutover, when the guest's own table of the role variables takes its place. Standard library, the
@@ -43,6 +45,15 @@ from claude_vm.fleet.registry import Row
 # would be made this computer's home. A list is of strings, the one kind of list the roles take.
 ROW_TYPES = MappingProxyType(
     {"bool": "bool", "int": "int", "str": "str", "path": "str", "list": "list[str]", "dict": "dict"}
+)
+# The options whose value is text of several lines by what it is, each with why: a string of the spec read by a row of
+# type text, which may hold line breaks and no other control character, kept in the fleet's settings.yml as YAML's
+# block holds it and never typed (fleet/overrides.py). Every other string is one line.
+TEXT = MappingProxyType(
+    {
+        "proxmox_template_image_key": "an armored OpenPGP key, the one a cloud image's list of digests is signed by",
+        "claude_code_global_instructions": "a whole CLAUDE.md, the instructions Claude Code applies in every project",
+    }
 )
 # The entry point a role runs by default, which comes first where an option is listed by several.
 MAIN = "main"
@@ -89,18 +100,47 @@ BY_A_RUN = frozenset(
     }
 )
 
+# Why an option of the sign-ins' and the VPN's roles is no setting: each line that names a machine names its host as the
+# printer of a command writes it, and how a machine is reached is the route's, which the SSH runner takes.
+HOST_FLAG = "is set by the run: a line that names a machine names its host as the printer of a command writes it"
+SSH_VIA = "is set by the run: how a machine is reached is the route's, which the SSH runner takes"
 # The options left out by name, each with why, as a refusal says it after the name: the host's connection, which is a
-# field of each host's host.yml, and a switch the engine has not, since it always checks the API's certificate (the
-# four the table's connection rows fed today, which left it); the two the run sets from vpn, the one setting that
-# chooses the VPN; and one a row of another name stands for, with today's behaviour.
+# field of each host's host.yml or the anchor beside it, and a switch the engine has not, since it always checks the
+# API's certificate (the four the table's connection rows fed today, which left it, and the address and the anchor); the
+# client's own bound on a call; what owns a VM, which is the fleet's pool and the VM's record, never a tag; the two the
+# run sets from vpn, the one setting that chooses the VPN, and the one that names vpn in its messages; what a run
+# chooses or a role sets for itself (the template a VM is cloned from, the golden's build VM), and a folder of this
+# computer's; what each machine's record keeps (its own repositories, whether its Tailscale had a login); the lines that
+# name a machine's host and the route to it, the run's; and one a row of another name stands for, with today's
+# behaviour. tests/unit/test_aw_fleet_passthrough.py fails on an option passed through that defaults.yml or a role's own
+# task sets.
 LEFT_OUT = MappingProxyType(
     {
+        "proxmox_vm_api_host": "is the host's connection: the host's address is a field of each host's host.yml",
         "proxmox_vm_api_port": "is the host's connection: the API's port is a field of each host's host.yml",
         "proxmox_vm_api_user": "is the host's connection: the token's user is a field of each host's host.yml",
         "proxmox_vm_api_token_id": "is the host's connection: the token's ID is a field of each host's host.yml",
+        "proxmox_vm_ca_path": "is the host's connection: the API's certificate is checked against the anchor init keeps"
+        " beside each host's host.yml",
         "proxmox_vm_validate_certs": "is no setting: the API's certificate is always checked",
+        "proxmox_vm_api_timeout": "is the client's own: the engine's Proxmox client bounds each call itself",
+        "proxmox_vm_tags": "is no setting: a VM is the fleet's by its pool and its record, never by a tag",
+        "proxmox_vm_tags_1x": "is no setting: a VM is the fleet's by its pool and its record, never by a tag",
         "tailscale_enabled": "is set by the run from vpn, the setting that chooses the VPN",
         "tailscale_wanted": "is set by the run from vpn, the setting that chooses the VPN",
+        "tailscale_off_setting": "is set by the run: the setting its messages name is vpn, which chooses the VPN",
+        "proxmox_vm_template_name": "is chosen by the run: the template a VM is cloned from follows the template's"
+        " settings and a golden template's key",
+        "proxmox_template_build_vm": "is set by the role for itself, as it builds a golden template",
+        "proxmox_template_known_hosts_dir": "is a folder of this computer's: a machine's host key is kept in the"
+        " engine's own file of them",
+        "github_projects_vm_repos": "is each machine's own: its record keeps the repositories deploy's --repos gave it",
+        "tailscale_joined_tag": "is each machine's own: its record keeps whether its Tailscale had a login",
+        "claude_code_host_flag": HOST_FLAG,
+        "github_projects_host_flag": HOST_FLAG,
+        "tailscale_host_flag": HOST_FLAG,
+        "claude_code_ssh_via": SSH_VIA,
+        "github_projects_ssh_via": SSH_VIA,
         "proxmox_vm_allow_untagged_delete": THROUGH.format(row="destroy_allow_unrecorded"),
     }
 )
@@ -153,8 +193,13 @@ def _one_line(description: object) -> str:
 
 def _row_type(name: str, spec: Mapping[str, object]) -> str:
     """The row's type of a spec, or ValueError for a kind no row holds, a list of anything but strings and choices of
-    anything but a string among them: a new kind of option needs its rule here before it is passed through."""
+    anything but a string among them: a new kind of option needs its rule here before it is passed through. One TEXT
+    names is a text, and its spec's type must be a string with no choices."""
     kind = spec.get("type", "str")
+    if name in TEXT:
+        if kind != "str" or spec.get("choices"):
+            raise ValueError(f"{name} is text of several lines, which only a string with no choices holds")
+        return "text"
     if kind == "list" and spec.get("elements") != "str":
         raise ValueError(f"{name} is a list of {spec.get('elements')}, which no row holds a value of")
     if kind not in ROW_TYPES:

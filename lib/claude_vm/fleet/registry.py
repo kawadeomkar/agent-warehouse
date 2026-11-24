@@ -40,8 +40,10 @@ from types import MappingProxyType
 # mapping of strings to the literals YAML reads, and a size with its unit. A path is read on this computer: `~` at its
 # start is the user's home, a path still relative after that is refused by name, and `""` is unset, which each such
 # row's description says the meaning of. A size is a whole number with G or T after it, capital or small, as deploy's
-# --disk takes one, kept with its unit capital, so that 128g and 128G are one size (fleet/overrides.py's typed).
-TYPES = ("bool", "int", "str", "path", "list[str]", "dict", "size")
+# --disk takes one, kept with its unit capital, so that 128g and 128G are one size (fleet/overrides.py's typed). A text
+# is a string that may hold line breaks and no other control character, for a role's option whose value is several
+# lines (fleet/passthrough.py's TEXT): kept in a file, where YAML's block holds it, and never typed on a command line.
+TYPES = ("bool", "int", "str", "path", "list[str]", "dict", "size", "text")
 # One value for the whole fleet, one for each host, or one for each machine.
 SCOPES = ("global", "host", "machine")
 # Where a value is kept: the fleet's settings.yml, a host's settings.yml, this computer's client.yml, or no file: a
