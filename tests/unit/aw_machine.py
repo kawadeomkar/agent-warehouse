@@ -20,8 +20,17 @@
   with /bin/sh -c in the machine's home, with no terminal, that HOME, its bin/ first on PATH, the test's own failing
   stand-ins next and the system's folders last, and nothing else of the test's environment; and passes its standard
   input through untouched. -O check and -O stop answer as a live master would; a forward (-L) is recorded and never
-  opened. It never runs this computer's ssh, never reads or writes this computer's own ~/.ssh, and refuses a command
-  that names a sudo by its path, which on a lane would be this computer's own and run as root on the runner.
+  opened. A ProxyCommand other than none, the first given, is run as ssh runs one before the key is checked, its
+  %-tokens expanded, and the connection goes on only where it answers as an SSH server first does. ssh -G is answered by
+  this computer's own ssh, by its path, given the test's own configuration (-F with HOME's .ssh/config, or /dev/null,
+  where the line gives no -F), which dials nothing and reads nothing of the developer's; it never runs this computer's
+  ssh otherwise, never reads or writes this computer's own ~/.ssh, and refuses a command that names a sudo by its path,
+  which on a lane would be this computer's own and run as root on the runner.
+- `hop(root)` makes a stand-in Proxmox host the hop to the machines (engine/routes.py), in the modes `hop_modes()` sets:
+  its -O check and -O stop are answered from a file at the socket's path (live, or stale for a socket nothing listens
+  at), its master's open writes that file or is refused as a login, and a forward through it (-W) meets the host
+  refusing to forward, ssh failing to use it, a machine that says nothing, a login that never ends, or the machine's
+  sshd's first words.
 - `filed(machine, path)` files the machine's key under its identity in the known-hosts file at path, as B5 files one;
   `target(machine)` is the machine as B3's runner reaches it, its key checked strictly in the file `filed` writes by
   default.
@@ -53,6 +62,7 @@ import ipaddress
 import json
 import os
 import re
+import shutil
 import struct
 import sys
 import uuid
@@ -428,9 +438,17 @@ def no_terminal():
 flags, valued, options, destination, command = words()
 unrouted = os.path.join(HERE, "unrouted.log")
 if "G" in flags:
-    log(unrouted, "refused: -G")
-    said("stand-in ssh: it reads no configuration, so it answers no -G: ask this computer's own ssh by its path, with"
-         " -F /dev/null", 255)
+    # Answered by this computer's own ssh, by its path, given the test's own configuration: HOME's .ssh/config, or
+    # /dev/null, where the line gives no -F. OpenSSH finds ~ in the account database, never in HOME, so without the -F
+    # it would read the developer's. -G dials nothing.
+    if REAL is None:
+        log(unrouted, "refused: -G, no ssh on this computer")
+        said("stand-in ssh: this computer has no ssh to ask -G of", 255)
+    log(unrouted, "-G")
+    if "F" not in valued:
+        config = os.path.join(os.environ.get("HOME", "/nonexistent"), ".ssh", "config")
+        argv = ["-F", config if os.path.isfile(config) else "/dev/null", *argv]
+    os.execv(REAL, [REAL, *argv])
 if destination is None:
     log(unrouted, "refused: no destination")
     said("usage: ssh [options] destination [command]", 255)
@@ -444,6 +462,24 @@ if machine is None:
     log(unrouted, "refused: no machine has the address")
     said(f"ssh: connect to host {address} port {port}: No route to host", 255)
 calls = os.path.join(machine["directory"], "calls.log")
+# A Proxmox host made a hop (hop()): its modes, and its shared connection a file at the socket's path that holds live,
+# or stale for a socket nothing listens at.
+hop = None
+if os.path.exists(os.path.join(machine["directory"], "hop.json")):
+    with open(os.path.join(machine["directory"], "hop.json")) as modes:
+        hop = json.load(modes)
+socket = first(options, "controlpath")
+socket = None if socket is None or socket.lower() == "none" else socket
+
+
+def master():
+    """What the hop's shared connection holds: live, stale, or "" for none."""
+    if socket is None or not os.path.exists(socket):
+        return ""
+    with open(socket) as held:
+        return held.read()
+
+
 policy = (first(options, "stricthostkeychecking") or "").lower()
 if policy not in POLICIES or (first(options, "batchmode") or "").lower() != "yes":
     log(calls, "refused: not StrictHostKeyChecking=yes or accept-new, and BatchMode=yes")
@@ -455,6 +491,18 @@ if control is not None:
     if account != machine["account"]:
         log(calls, "refused: another account")
         said(f"{account}@{address}: Permission denied (publickey).", 255)
+    if hop is not None and control in ("check", "stop"):
+        # The hop's, as ssh answers from its socket: a master running, a socket nothing listens at, or none.
+        log(calls, f"-O {control}")
+        held = master()
+        if held == "live":
+            if control == "stop":
+                os.remove(socket)
+                said("Stop listening request sent.\r", 0)
+            said(f"Master running (pid={os.getpid()})\r", 0)
+        if held == "stale":
+            said(f"Control socket connect({socket}): Connection refused\r", 255)
+        said(f"Control socket connect({socket}): No such file or directory\r", 255)
     if control == "check":
         log(calls, "-O check")
         said(f"Master running (pid={os.getpid()})\r", 0)
@@ -463,6 +511,25 @@ if control is not None:
         said("Stop listening request sent.\r", 0)
     log(calls, f"refused: -O {control}")
     said(f"stand-in ssh: -O {control} is not answered: a stand-in master answers check and stop alone", 255)
+# A ProxyCommand other than none, the first given: run as ssh runs one, its %-tokens expanded (%h the address, %p the
+# port, %r the account, %% a %), by /bin/sh with this ssh's environment, its standard error ssh's own; ssh goes on only
+# where its standard output begins as an SSH server's does, and otherwise says what ssh says of a proxy that closed
+# before the server spoke.
+proxy = first(options, "proxycommand")
+if proxy is not None and proxy.lower() != "none":
+    tokens = {"h": address, "p": port, "r": account, "%": "%"}
+    expanded = re.sub(r"%(.)", lambda found: tokens.get(found.group(1), found.group(0)), proxy)
+    try:
+        through = subprocess.run(["/bin/sh", "-c", expanded], stdin=subprocess.DEVNULL, capture_output=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        log(calls, "refused: its proxy said nothing")
+        said("Connection timed out during banner exchange\r\nConnection to UNKNOWN port 65535 timed out", 255)
+    sys.stderr.write(through.stderr.decode("utf-8", "replace"))
+    sys.stderr.flush()
+    if not through.stdout.startswith(b"SSH-"):
+        log(calls, "refused: its proxy reached no SSH server")
+        said("kex_exchange_identification: Connection closed by remote host\r\n"
+             "Connection closed by UNKNOWN port 65535", 255)
 # The host key, as ssh checks it at every connection before any account is tried: under the first HostKeyAlias, else
 # the address ([address]:port off port 22), in the files of the first UserKnownHostsFile, else ~/.ssh's two, with ~ the
 # test's own HOME (ssh's is the account's, from the account database). The system's own known-hosts files are never
@@ -511,6 +578,55 @@ if found == "new" and files:
 if account != machine["account"]:
     log(calls, "refused: another account")
     said(f"{account}@{address}: Permission denied (publickey).", 255)
+if hop is not None and valued.get("W"):
+    # A forward through the hop (-W): on its shared connection where one is live, else a login of its own, refused in
+    # its mode; a ProxyCommand's (ControlMaster=auto) with none live becomes the master, as ssh's does.
+    forward_to = valued["W"][0]
+    shared = socket is not None and master() == "live"
+    alone = "" if shared else " unshared"
+    if not shared and hop["login"] == "refused":
+        log(calls, f"refused: the login, for a forward to {forward_to}{alone}")
+        said(f"{account}@{address}: Permission denied (publickey).", 255)
+    if not shared and socket is not None and (first(options, "controlmaster") or "").lower() == "auto":
+        with open(socket, "w") as made:
+            made.write("live")
+    log(calls, f"forward {forward_to}{alone}")
+    mode = hop["forward"]
+    if mode == "stalled":
+        # The login never done: no word of it, and nothing until the caller's limit.
+        time.sleep(3600)
+    if (first(options, "loglevel") or "").upper() in ("VERBOSE", "DEBUG", "DEBUG1", "DEBUG2", "DEBUG3"):
+        sys.stderr.write(f'Authenticated to {address} ([{address}]:{port}) using "publickey".\n')
+        sys.stderr.flush()
+    if mode == "prohibited":
+        said("channel 0: open failed: administratively prohibited: open failed\r\nstdio forwarding failed", 255)
+    if mode == "failed":
+        said("stdio forwarding request failed: Session open refused by peer", 255)
+    if mode == "silent":
+        time.sleep(3600)
+    reached = MACHINES.get(forward_to.rpartition(":")[0])
+    if reached is None or reached is machine:
+        said("channel 0: open failed: connect failed: No route to host\r\nstdio forwarding failed", 255)
+    # What the machine's sshd says first, then the end of the forward.
+    sys.stdout.buffer.write(b"SSH-2.0-OpenSSH_9.6 stand-in\r\n")
+    sys.stdout.flush()
+    sys.exit(0)
+if hop is not None and "N" in flags and not valued.get("L"):
+    # The hop's master opened, in its login's mode: never over a socket file there, as a master never takes a path
+    # over: it says so and goes on as a connection of its own.
+    if hop["login"] == "refused":
+        log(calls, "refused: the login")
+        said(f"{account}@{address}: Permission denied (publickey).", 255)
+    if socket is not None and master():
+        log(calls, "a master, beside one there")
+        sys.stderr.write(f"ControlSocket {socket} already exists, disabling multiplexing\n")
+        sys.stderr.flush()
+        time.sleep(3600)
+    if socket is not None:
+        with open(socket, "w") as made:
+            made.write("live")
+    log(calls, "a master, opened")
+    sys.exit(0)
 if valued.get("L") and "f" in flags:
     # Gone to the background with its forwards, which are never opened.
     log(calls, "forward, never opened")
@@ -799,9 +915,58 @@ def ssh_stand_in(root: Path, machines: Iterable[Machine]) -> Path:
             "path": machine_path(made),
         }
     (folder / "machines.json").write_text(json.dumps(table))
-    (folder / "ssh.py").write_text(SSH)
+    # This computer's own ssh, by its path, for -G alone, which reads the test's own configuration and dials nothing.
+    (folder / "ssh.py").write_text(f"REAL = {shutil.which('ssh', path=os.defpath)!r}\n" + SSH)
     harness._executable(folder / "ssh", f'#!/bin/sh\nexec "{sys.executable}" -I "{folder / "ssh.py"}" "$@"\n')
     return folder
+
+
+# The modes a hop is made in: its login (open, or refused as a key the host does not take is), and what a forward
+# through it meets (answer: the machine's sshd speaks; prohibited: the host's sshd refuses to forward; failed: ssh
+# cannot use the host as a hop; silent: the machine says nothing; stalled: the login for a forward of its own never
+# ends).
+HOP_LOGINS = ("open", "refused")
+HOP_FORWARDS = ("answer", "prohibited", "failed", "silent", "stalled")
+# Where the fake Proxmox listens, and so where host.yml points a host made against it (fleet_fixture.with_port): the one
+# address but RFC 5737's a stand-in is reached at, and only a hop, which the stand-in ssh alone answers.
+LOOPBACK = "127.0.0.1"
+
+
+def hop(
+    root: Path, name: str = "pve", *, address: str | None = None, login: str = "open", forward: str = "answer"
+) -> Machine:
+    """A stand-in Proxmox host under root that is the hop to the machines (engine/routes.py): a machine reached as root
+    (machine()), at address - one of RFC 5737's, or LOOPBACK, the fake Proxmox's own, where host.yml points the host -
+    in the modes hop_modes() sets. The stand-in ssh answers its -O check and -O stop from a file at the socket's path
+    (live, or stale for a socket nothing listens at), opens its master in its login's mode by writing that file, and
+    answers a forward (-W) in its forward's mode: to a machine of its table, the machine's sshd's first words."""
+    at = address
+    if address == LOOPBACK:
+        at = None
+    made = machine(root, name, account="root", address=at)
+    if address == LOOPBACK:
+        record = json.loads((made.directory / "machine.json").read_text())
+        record["address"] = LOOPBACK
+        (made.directory / "machine.json").write_text(json.dumps(record))
+        made = dataclasses.replace(made, address=LOOPBACK)
+    hop_modes(made, login=login, forward=forward)
+    return made
+
+
+def hop_modes(made: Machine, *, login: str | None = None, forward: str | None = None) -> None:
+    """made's modes as a hop, each kept where not given: its login, one of HOP_LOGINS, and a forward's, one of
+    HOP_FORWARDS."""
+    path = made.directory / "hop.json"
+    modes = json.loads(path.read_text()) if path.exists() else {"login": "open", "forward": "answer"}
+    if login is not None:
+        if login not in HOP_LOGINS:
+            pytest.fail(f"a hop's login is one of {', '.join(HOP_LOGINS)}: {login!r}")
+        modes["login"] = login
+    if forward is not None:
+        if forward not in HOP_FORWARDS:
+            pytest.fail(f"a forward through a hop is one of {', '.join(HOP_FORWARDS)}: {forward!r}")
+        modes["forward"] = forward
+    path.write_text(json.dumps(modes))
 
 
 def unrouted(folder: Path) -> list[dict]:

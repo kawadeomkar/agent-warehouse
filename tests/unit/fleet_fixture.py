@@ -9,9 +9,11 @@ the node's certificate's fingerprint, the storage and the bridge, and a refusing
 which init tries for the host's certificates where nothing else vouches for them, never answers and never reaches this
 computer's ssh. Two things are written before and after it, each through its one writer: host.yml's `api_port`, the
 fake's port, which no option of init's gives (a person with a port of their own writes it so); and the host's node,
-which init's checks settle on the host (card E6) and which no option gives either. What it returns says where each
-thing is: the fleet's home, the host, the fleet's ID, the fake's address and port, the token's ID and secret (the
-fake's, made for the test), and the fingerprint kept.
+which init's checks settle on the host (card E6) and which no option gives either. And the route to the host's VMs is
+pinned to `vm_ssh_route: direct`, as every harness pins it: under auto a run would ask this computer's ssh where it
+dials the host (engine/routes.py), and a test that reaches VMs through the host sets the route itself. What it returns
+says where each thing is: the fleet's home, the host, the fleet's ID, the fake's address and port, the token's ID and
+secret (the fake's, made for the test), and the fingerprint kept.
 
 The folder is the test's own: AGENT_WAREHOUSE_HOME (tests/unit/conftest.py's aw_home), so a test calls it with the kit's
 `home` fixture made. Nothing here reaches a network but the fake on loopback, nor this computer's ssh, ~/.ssh or
@@ -33,6 +35,8 @@ from claude_vm.fleet import hosts, mark, overrides, paths, record
 
 # The host init sets up, unless a test names another; and its node, storage and bridge, the fake's.
 HOST = "pve"
+# The setting every fleet made here pins to direct, for each host: this computer's own, in client.yml's map hosts.
+ROUTE = "vm_ssh_route"
 NODE = "pve"
 STORAGE = "local-lvm"
 BRIDGE = "vmbr0"
@@ -117,4 +121,7 @@ def whole_fleet(
     assert ran.returncode == 0, ran
     where = paths.home(REPO)
     overrides.set(where, "proxmox_node", node, host, overrides.read(where, host).host.digest)
+    # How this computer reaches the host's VMs, pinned straight to them: auto would ask ssh -G where it dials the
+    # host, and a test that goes through the host sets it itself (engine/routes.py).
+    overrides.set(where, ROUTE, "direct", host, overrides.read(where, host).client.digest)
     return Fleet(where.root, host, fleet, base, port, token, secret, fingerprint)

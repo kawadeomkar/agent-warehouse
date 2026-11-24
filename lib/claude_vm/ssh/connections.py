@@ -31,15 +31,16 @@ directory: what a changing verb's first connection to a machine calls, and `stat
 The route is `route.py`'s, called as it stands: `route` settles it by today's rule, `target_for` gives a machine the
 hop's `ProxyCommand` to its own address (`-W <address>:%p`) unless it brings a jump of its own, `held` asks the
 machine's own `ssh` which proxy it would take and refuses any other before anything connects, and `ensure_hop` makes
-sure of the hop's shared connection, the one place the hop's master is opened. Those three run `route.py`'s `ssh`
-children in a process group of their own (`process_group=0`), so that a terminal's first Ctrl-C, which the run takes as
-"finish the step", never kills one and has its silence read as an answer, and off the event loop (`asyncio.to_thread`),
-so that the run takes the Ctrl-C at once and its other tasks go on while one waits; `route` settles nothing where its
-`ssh -G` gave no answer (ended by a signal, or out of its time), and refuses the
+sure of the hop's shared connection, the one place the hop's master is opened; `forward` makes the one forward of its
+own through the hop to a machine that takes it, which says whether the host forwards there (`route.hop_forward`). Those
+run `route.py`'s `ssh` children in a process group of their own (`process_group=0`), so that a terminal's first Ctrl-C,
+which the run takes as "finish the step", never kills one and has its silence read as an answer, and off the event loop
+(`asyncio.to_thread`), so that the run takes the Ctrl-C at once and its other tasks go on while one waits; `route`
+settles nothing where its `ssh -G` gave no answer (ended by a signal, or out of its time), and refuses the
 route through the host from a home so long that the hop's socket could not be bound; and every line the hop's own `ssh`
 is run with pins `ForwardX11=no` and `PermitLocalCommand=no` first (`route.hop_settings`' `pinned`), as the runner pins
-them for a machine. Nothing here ever dials a machine where the rule goes through the host. Until the engine settles its
-route once a run and holds every connection to it, `direct_only` refuses every settled route but `direct`.
+them for a machine. Nothing here ever dials a machine where the rule goes through the host. The engine settles its route
+once a run, and gives every machine its Target, through engine/routes.py alone.
 
 Standard library only; asyncio is imported inside the coroutines that start a child.
 """
@@ -75,15 +76,6 @@ DEAD = "Connection refused"
 # How often a child that has not ended is looked at, in seconds, and the most of its output that is kept.
 POLL = 0.05
 MOST = 64 * 1024
-# What direct_only says after where the VMs are reached: the route through the Proxmox host is not built yet.
-NOT_BUILT = (
-    "and the new engine does not reach a VM through the Proxmox host yet, nor ever dials one that route would take:"
-    " nothing was dialled. Set vm_ssh_route: direct where this computer reaches the VMs' network."
-)
-
-
-class NotBuilt(runner.Refused):
-    """A settled route that is not direct, before the engine holds its connections to one: nothing was dialled."""
 
 
 class Unheld(runner.Refused):
@@ -208,20 +200,6 @@ def first_use(job: Job, target: runner.Target) -> runner.Target:
     return dataclasses.replace(target, known_hosts=scratch, first_use=True)
 
 
-def direct_only(settled: Mapping[str, object]) -> None:
-    """NotBuilt for every settled route but direct, by name, with the sentence that names vm_ssh_route: direct: what
-    the engine's workflows call before their first connection to a machine until the route is settled once a run and
-    every connection held to it. Starts nothing."""
-    if not isinstance(settled, Mapping) or settled.get("route") not in route.ROUTES:
-        raise runner.Refused("a settled route is what Connections.route returns")
-    if settled["route"] == "direct":
-        return
-    hop = settled.get("hop")
-    label = hop.get("label") if isinstance(hop, Mapping) else None
-    where = f"through {label}" if label else "through the Proxmox host"
-    raise NotBuilt(f"VMs are reached {where} (vm_ssh_route: {settled.get('setting', 'auto')}), {NOT_BUILT}")
-
-
 def _read(stream: IO[bytes]) -> str:
     # pread, which moves no offset: ssh writes through the same open file.
     return os.pread(stream.fileno(), MOST, 0).decode("utf-8", "replace")
@@ -256,8 +234,6 @@ class Connections:
         # What the run says once of its connections, each sentence at most once, for its workflow to say: a machine
         # that takes no shared connection, its socket's path too long (UNSHARED).
         self.notes: list[str] = []
-
-    direct_only = staticmethod(direct_only)
 
     def _own(self, target: runner.Target) -> None:
         if not isinstance(target, runner.Target):
@@ -352,6 +328,32 @@ class Connections:
         if not held["ok"]:
             raise Unusable(_login_said(settled, held["said"]))
         return Master(ok=True, opened=bool(held["opened"]), said="")
+
+    async def forward(self, target: runner.Target, settled: Mapping[str, object]) -> dict:
+        """One forward of its own through the hop to target's address at its port, as route.hop_forward makes it - a
+        connection of its own (ControlPath=none), its standard input closed, at LogLevel=VERBOSE, under its hard limit -
+        its ssh in a process group of its own and off the loop: what it says of the hop (route.forward_verdict's
+        `{usable, why, said, banner}`), and of the far end's words only whether they begin as an SSH server's do. Only
+        for a machine that takes the hop, where the route goes through the host: what a run asks once, of the first
+        such machine by name, before any connection to one."""
+        import asyncio
+
+        self._own(target)
+        if target.is_host or target.hop is None:
+            raise runner.Refused("a forward through the hop is made for a machine that takes it (target_for)")
+        if not isinstance(settled, Mapping) or settled.get("route") != "host":
+            raise runner.Refused("a forward through the hop is made where the settled route goes through the host")
+        hop = settled["hop"]
+        if not isinstance(hop, Mapping) or os.path.dirname(str(hop.get("socket"))) != str(self.control_dir):
+            raise runner.Refused(f"the hop's socket lives in the run's one control directory, {self.control_dir}")
+        return await asyncio.to_thread(
+            route.hop_forward,
+            dict(hop),
+            target.address,
+            str(settled["policy"]),
+            port=target.port,
+            process_group=OWN_GROUP,
+        )
 
     # ------------------------------------------------------------ a machine's target ----
 

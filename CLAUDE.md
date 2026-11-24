@@ -546,8 +546,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       by `returncode` and never by `poll()`, which would reap the leader and leave its group - where today's callers'
       `ssh` is ended by its pid alone, since it shares their own group; an `ssh -G`'s standard error is read from a
       file, so a program its `Match exec` left holding it costs no answer; `route` settles nothing where its `ssh -G`
-      gave no answer, ended by a signal, out of its time or not started since the run is ending
-      (`signalled_settles=False`), and refuses the route through the host where the hop's socket would pass
+      gave no answer, ended by a signal, out of its time, not started since the run is ending, or not run at all, the
+      `ssh` program or the temporary file its errors are read from not made (`signalled_settles=False`), and refuses
+      the route through the host where the hop's socket would pass
       `route.SOCKET_MOST`, naming `vm_ssh_route: direct` or a shorter home; every line of the hop's own `ssh` pins
       `ForwardX11=no`, `PermitLocalCommand=no` and `ClearAllForwardings=yes` first (`route.hop_settings`' `pinned`),
       so none takes a person's forwards or tunnel, which `-W` clears only by default. It keeps every
@@ -566,9 +567,22 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       remembers nothing of its tree either, and `ensure` refuses the host. A `Master` is made sure of only where one
       is used: `ensure` and `ensure_hop` answer `None` for a machine that connects alone and the hop under `direct`,
       so `Master.ok` always says whether a master answers. No run ends a master; never `-O exit`; `-O stop` only
-      through `route.hop_stop`, for the hop; and nothing in `ssh/` tries a connection again. Until the engine settles
-      its route once a run, `direct_only` refuses every settled route but `direct`, naming `vm_ssh_route: direct`.
+      through `route.hop_stop`, for the hop; and nothing in `ssh/` tries a connection again.
       `tests/unit/test_aw_ssh_connections.py` holds it, the rules by scans.
+    - A run of the new engine settles its route once, through `lib/claude_vm/engine/routes.py` alone (`settle`):
+      `vm_ssh_route` as client.yml keeps it for the run's host (its map `hosts`, never another host's), `auto` worked
+      out at each run from where `ssh -G` dials the host, the hop the host's own `Target` (`host_target`, root SSH's
+      too: host.yml's address, `ssh_user`, `ssh_port` and `jump`, this computer's `ssh_identity_file` and
+      `ssh_executable`), its login made at the run's start where `vm_ssh_options` for every machine names no jump, else
+      by the first machine that takes the hop. `Route.targets` is the one function that makes a machine's `Target`:
+      the person's `vm_ssh_options` for it, the hop where it brings no jump of its own and is a Proxmox VM, each held
+      (`held`) before anything connects, then one forward of its own to the first by name through the hop
+      (`Connections.forward`, `route.hop_forward`): a host that refuses to forward or that `ssh` cannot use stops the
+      run (`routes.Unusable`), and nothing dials a machine. `Route.ready()` makes sure of the shared connection again
+      before a step that reaches many machines and after a wait on a person, failing none. No module of `engine/` but
+      `routes.py` makes a `Target`; every fleet a test makes pins `vm_ssh_route: direct`
+      (`tests/unit/fleet_fixture.py`). `tests/unit/test_aw_routes.py` holds it, on stand-in machines and a stand-in
+      hop.
 - **`just code` writes in one directory of its own on the VM, the session copies, the rest of Claude Code it
   carries and one fast-forward aside, and never answers VS Code's, Zed's or Claude Code's security questions.** Read
   [§4.9](docs/architecture/lifecycle.md#49-playbookscodeyml),
