@@ -39,9 +39,13 @@ would leave a frame's remains above the summary, wipe lines said above it, or lo
 (`aw … | head -1`) is written no more; one whose pipe is broken is pointed at /dev/null, so that Python's flush at
 the process's exit writes what it still holds there and the run ends with its own status, never Python's 120.
 
-A question at the run's terminal finds the run's view by the job its Context carries, `Live.of(context.job)` (None for
-a run with no view), and asks inside `with view.aside():`, which steps the region aside as it does for a prompt (erased
-and paused, the echo on; after, the echo off and the region back half a second later).
+A question at the run's terminal (runs/ask.py) finds the run's view by the job its Context carries,
+`Live.of(context.job)` (None for a run with no view), and asks inside `with view.aside():`, which steps the region aside
+as it does for a prompt (erased and paused, the echo on; after, the echo off and the region back half a second later,
+so questions one after another show no frame between them). What the view would say meanwhile is kept and said once the
+question ends, however it ends, so that nothing lands inside the question; while it is up the terminal's title says the
+run waits for you, and the wait it opens rings the bell only where the person has had nothing to answer for
+QUIET_SECONDS, as today's prompt does.
 """
 
 from __future__ import annotations
@@ -54,7 +58,7 @@ import sys
 import threading
 import time
 import weakref
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from typing import IO, Protocol
 
 from claude_vm.runs import job as jobs
@@ -76,6 +80,9 @@ NEXT_STEPS_STYLE = "y"
 REFUSED = "aw: the live view left out an event it could not take ({event}): {error}"
 # What a second view of a job is refused with.
 TWICE = "job {job} has its live view already: a run is drawn by one view, made once"
+# A question's wait rings the bell only where the person has had nothing to answer for this long, since the view began
+# or the last bell or answer: they may have looked away (today's claude_vm.ansible.engine's QUIET_SECONDS).
+QUIET_SECONDS = 10.0
 
 # The view of each job of this process's that has one, by the job's folder (as runs/job.py keys the jobs it holds), for
 # as long as the job hands it its events.
@@ -267,6 +274,11 @@ class Live:
         self.region = live_region.LiveRegion(self.display, frame=self._frame if drawn else None, stream=self._stream)
         self.ended = False
         self._above: _Above | None = None
+        # A question up (aside), what this view would have said meanwhile, and when the person last had something to
+        # answer: the start, a bell, an answer.
+        self._asking = False
+        self._held: list[tuple[str, str]] = []
+        self._attended = clock()
         job.listen(self._heard)
         # The job's view from the moment it listens: one that fails before has taken nothing, and may be made again.
         _VIEWS[key] = self
@@ -301,7 +313,10 @@ class Live:
 
     def _print(self, lines: list[tuple[str, str]]) -> None:
         """Lines of the run's own, (coloured, plain) each, above the region where it is drawn: coloured where the
-        palette is on."""
+        palette is on; kept while a question is up, and said once it ends (aside)."""
+        if self._asking:
+            self._held.extend(lines)
+            return
         for coloured, plain in lines:
             self.display.display(coloured if self.color else plain)
 
@@ -331,18 +346,44 @@ class Live:
                 self._print([(line, line) for line in self.view.ended_lines(now)])
             elif self.mode == LIVE and not ending:
                 self.region.redraw()
-            if not waited and self.run.waiting_for_you():
+                if self._asking:
+                    # No frame while a question is up: the title alone says the run waits for you.
+                    self.region.title(self.view.title_text(now))
+            if not waited and self.run.waiting_for_you() and (not self._asking or self._looked_away(now)):
+                self._attended = now
                 self.region.bell()
             if ending:
                 self._end(now)
 
+    def _looked_away(self, now: float) -> bool:
+        """Whether the person has had nothing to answer for QUIET_SECONDS: since the view began, the last bell or the
+        last answer."""
+        return now - self._attended >= QUIET_SECONDS
+
     # --- a question -------------------------------------------------------------------------------------------
-    def aside(self) -> contextlib.AbstractContextManager[None]:
+    @contextlib.contextmanager
+    def aside(self) -> Iterator[None]:
         """The region out of the way of a question asked inside, as the region steps aside for a prompt
         (tui/live_region.py's LiveRegion.aside): erased and paused, the echo on; after, the echo off again and the
-        region drawn once the run has worked half a second more. Where the run is not drawn, nothing moves. A question
-        finds the view by its Context's job: Live.of(context.job)."""
-        return self.region.aside()
+        region drawn once the run has worked half a second more. What this view would say meanwhile is kept, so that
+        nothing lands inside the question, and said once it ends, however it ends; the answer is the person's time
+        (QUIET_SECONDS). Where the run is not drawn, the region does not move, and lines are kept all the same. Nothing
+        once the run has ended, and nothing more for a question asked inside another. A question finds the view by its
+        Context's job: Live.of(context.job)."""
+        if self.ended or self._asking:
+            yield
+            return
+        with self.display._lock:
+            self._asking = True
+        try:
+            with self.region.aside():
+                yield
+        finally:
+            with live_region.uninterrupted(), self.display._lock:
+                self._asking = False
+                self._attended = self._clock()
+                held, self._held = self._held, []
+                self._print(held)
 
     # --- the end ------------------------------------------------------------------------------------------------
     def close(self) -> None:
@@ -363,6 +404,11 @@ class Live:
         """The run's end: the title, the region gone, the summary and NEXT STEPS after it, and the bell; with -v, NEXT
         STEPS alone."""
         self.ended = True
+        # A question the run's end cut short (a second Ctrl-C ends the run where the question still waits): what it
+        # kept is said now, before the summary, which is never kept.
+        self._asking = False
+        held, self._held = self._held, []
+        self._print(held)
         if self.mode == LIVE:
             self.region.title(self.view.title_text(now))
         self.close()

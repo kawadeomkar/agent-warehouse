@@ -791,6 +791,13 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       cannot import it kills Ansible's results thread on the prompt and hangs the run. The engine's hook
       (`engine.choosing`) asks it under `Display`'s lock, reads stdin, never `/dev/tty`, and hands anything else to
       Ansible's own prompt; a hidden question never carries its answers.
+    - The new engine asks every question through `lib/claude_vm/runs/ask.py`: each has a default, its safe answer,
+      taken with a line said wherever standard input is no terminal whose foreground the run is (`--attended` changes
+      nothing); at one, one question at a time (a second waits till the first has ended, never nests), the run's view,
+      `Live.of(context.job)`, steps aside (`aside()`, back half a second after the answer) and keeps its own lines till
+      the question ends, the keys typed before are flushed, every read is the run's `Context.typed` - never `/dev/tty`,
+      `getpass` or a thread - the menu is `choose.asked`, and a hidden answer is a `Secret`, in no event.
+      `tests/unit/test_aw_ask.py` holds it.
     - What the callbacks, engines and tools share is one package, `claude_vm` in `lib/`, imported, never loaded
       by path ([§7.10](docs/architecture/custom-code.md#710-libclaude_vm--the-controllers-python-as-one-package)),
       and every test that runs something at a terminal opens it through `harness._at_a_pseudo_terminal`.

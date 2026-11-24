@@ -5,13 +5,15 @@ write and its count is held off till the count is right, each delivered after in
 ignored and one at its default still ending the process; a frame taller than the screen is cut
 and says how much; a prompt - pause's prompt_until or a vars_prompt's do_var_prompt - has the screen to itself; the
 route sends what it is given to the log alone; a screen too small gets no region; the echo is off while it draws,
-on a pseudo-terminal of the test's own; and the Display it wraps is held to ansible-core's. Each live output's own
+on a pseudo-terminal of the test's own, a change of it that a signal interrupts (EINTR) made again, never taken for no
+terminal; and the Display it wraps is held to ansible-core's. Each live output's own
 tests run it for real: test_status_live.py and test_deploy_live.py, at a pseudo-terminal
 (docs/architecture/custom-code.md §7.8).
 """
 
 from __future__ import annotations
 
+import errno
 import inspect
 import io
 import os
@@ -393,6 +395,58 @@ def test_the_region_turns_the_echo_off_while_it_draws_and_on_for_a_prompt_and_at
     finally:
         terminal.close()
         os.close(master)
+
+
+def test_a_change_of_the_echo_a_signal_interrupts_is_made_again_never_taken_for_no_terminal(monkeypatch):
+    # TCSADRAIN waits for the output to drain, and a signal whose handler raises nothing - a first Ctrl-C, a hold's
+    # note, a resize - ends the wait with EINTR, as termios.error gives it: the terminal is still there, and the echo
+    # still the region's to put back. Here every change of the settings meets one EINTR first.
+    master, slave = os.openpty()
+    terminal = os.fdopen(slave, "r")
+    monkeypatch.setattr(live.sys, "stdin", terminal)
+    echoes = lambda: bool(termios.tcgetattr(slave)[3] & termios.ECHO)  # noqa: E731
+    made = termios.tcsetattr
+    tried = []
+
+    def interrupted(fd, when, settings):
+        tried.append(when)
+        if len(tried) % 2:
+            raise termios.error(errno.EINTR, "Interrupted system call")
+        made(fd, when, settings)
+
+    monkeypatch.setattr(live.termios, "tcsetattr", interrupted)
+    try:
+        region, display, _ = _region(frame=lambda cols, rows, glyph: ["region"])
+        during = []
+        display.prompt_until = lambda *args, **kwargs: during.append(echoes()) or b"typed"
+        region.start()
+        assert not echoes()
+        # A program's own question, and a prompt through the wrapper: the echo on while each is up, off after.
+        with region.aside():
+            during.append(echoes())
+        display.prompt_until("Code:")
+        assert during == [True, True] and not echoes()
+        region.finish()
+        assert echoes()
+        # Each change tried twice, the EINTR and then the change: none left undone.
+        assert tried == [termios.TCSADRAIN] * 12, tried
+    finally:
+        terminal.close()
+        os.close(master)
+
+
+def test_a_change_of_the_settings_that_fails_otherwise_goes_through():
+    # Only EINTR is tried again: a descriptor that is no terminal is termios.error as it was.
+    master, slave = os.openpty()
+    read, write = os.pipe()
+    try:
+        settings = termios.tcgetattr(slave)
+        with pytest.raises(termios.error) as failed:
+            live.set_terminal(read, termios.TCSANOW, settings)
+        assert failed.value.args[0] == errno.ENOTTY
+    finally:
+        for fd in (master, slave, read, write):
+            os.close(fd)
 
 
 def test_a_title_is_written_when_it_changes_and_a_bell_when_asked():

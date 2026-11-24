@@ -2252,6 +2252,52 @@ stop reaching the model, what an event says and standard error's lines said whol
 after, a second view refused, a stream gone written no more, and nothing said after the end; and by a scan, that no
 module of `runs/` names an escape sequence or `/dev/tty`.
 
+**A question: `ask.py`.** `await ask(context, question, default, choices, hidden, machine=...)` asks the person at the
+run's terminal, from a verb's body on the run's loop. Every question has a default, the safe answer it takes where it is
+not answered, and one without cannot be built (`Question` refuses it, with whatever else is malformed: no words, a
+hidden question with choices, a default that is none of the choices, a hidden answer's default that is no `Secret`). It
+gives back the default itself where nothing was answered (Enter, the end of the input, Esc at the menu, no terminal),
+and otherwise the line typed, the value of the choice picked, or for a hidden answer a `Secret`. It asks only where the
+standard input the command was given is a terminal whose foreground the run is: anything else (`/dev/null`, a pipe, a
+file, a run sent to the background, a detached run, an agent's job) is nobody to ask, and the default is taken, with
+one line on standard error that says the question was not asked and what it took; `--attended` changes nothing here.
+At the terminal, one question at a time (one asked while another is up, by two machines' work at once, waits till that
+one has ended), the live view steps aside (`Live.aside`, below), a `waiting` event says what the run waits for, the
+keys typed before the question was there are flushed, the question is written to standard output and the answer read,
+every read through `Context.typed`, on the loop and never in a thread, so one Ctrl-C there ends the run; never from the
+process's controlling terminal opened by its name, and never through `getpass`. Then an empty `waiting` event ends that
+wait alone, and a `step` event, a line of the machine's work, says what was answered: the line, the choice's words, or
+of a hidden answer only that one was given. A line is read in the terminal's cooked mode with its echo on; a hidden
+answer the same with the echo off; a choice is `tui/choose.py`'s menu where the terminal can draw it
+(`choose.can_choose`), picked with the arrow keys through `choose.asked`, the menu's keys read as a read on the loop
+gives them (`choose.split` cuts them as `choose.ask` reads them one at a time), its keys raw, where Ctrl-C is a byte:
+the terminal's settings, its signal keys among them, are put back first and the run is then sent SIGINT, as for a
+Ctrl-C anywhere else; where the menu cannot be drawn, the choice is typed, a number, a value or its words, asked once
+more where it is none of them, and left at its default after a second. The terminal's settings are put back as found
+once each question ends, however it ends, a change of them that a signal interrupts made again
+(`live_region.set_terminal`, which the region's own switch of the echo uses too): `TCSADRAIN` waits for the output to
+drain, and a signal whose handler raises nothing, the run's first Ctrl-C or a resize, ends that wait with `EINTR`.
+
+The live view steps aside for a question as the view's paragraph above says, `Live.of(context.job)` and `with
+view.aside():` (`LiveRegion.aside`: erased and paused, the echo on; after, the echo off and nothing drawn for half a
+second, `live_region.SETTLE_SECONDS`, so questions one after another show no frame between them). Beside the region,
+`aside` keeps what the view would say meanwhile and says it once the question ends, however it ends (and at the run's
+end, before the summary, where a second Ctrl-C ends the run with the question still up), so that nothing lands inside
+the question; while it is up the terminal's title says the run waits for you, and the wait it opens rings the bell
+only where the person has had nothing to answer for `QUIET_SECONDS` (ten seconds, since the view began, the last bell
+or the last answer), as today's prompt rings it.
+`tests/unit/test_aw_ask.py` holds it at a pseudo-terminal, a run made by `runs.run` in a child process asking through a
+live view: a yes or no picked with the arrow keys, a choice typed and picked at a terminal that cannot draw the menu,
+two questions asked at once from two tasks, the second drawn only once the first is answered, a report said while a
+question is up shown after it and never on its line, a line, a hidden answer whose characters reach neither the screen,
+the record nor the run's events, the region gone while a question is up and back after it, Enter taking the default,
+Ctrl-C at a line, a hidden answer and the menu ending the run, and keys typed before the question not taken as its
+answer; with standard input on `/dev/null`, the default at once and the line that says so; and in its own process, every
+refusal of `Question`, a question with no default among them, two questions asked at once taking turns, how the menu's
+keys are cut, a question and the menu putting the terminal back through an `EINTR`, what the view says kept while a
+question is up or said before the summary where the run's end cuts the question short, and the bell rung only after a
+quiet while. `tests/unit/test_live_region.py` holds the region's own switch of the echo to the same through an `EINTR`.
+
 ## 16.9 `fleet/` — the fleet's files, the settings, the secrets and the fleet's mark
 
 `lib/claude_vm/fleet/` is where a fleet's files and its state go. `paths.py`, below, says where they are; the hosts as
