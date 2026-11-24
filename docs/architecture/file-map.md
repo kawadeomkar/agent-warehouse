@@ -299,7 +299,8 @@ lib/claude_vm/guest/              inside a machine: the helper, the system layer
                                   and handed to the run's emit, every secret the run opened struck from them;
                                   ansible/callback_plugins/aw_events.py, its stdout callback, each event of the
                                   play a line of JSON on that pipe; system.py, the system play (playbooks/system.yml),
-                                  its parts, and its variables' writer, which refuses what the engine cannot serve yet
+                                  its parts, and its variables' writer, which refuses what the engine cannot serve yet;
+                                  wiring.py, the play's variables for one machine, a pure function of the settings
 lib/claude_vm/control/            the add-on's, with a control VM only: nothing of the base writes here
 lib/claude_vm/secret.py           the new engine's Secret: a value shown as a mark wherever it is shown, never pickled
                                   or turned into JSON, read only by reveal() in the modules a test names (§16.1)

@@ -1,15 +1,15 @@
 """The settings table (lib/claude_vm/fleet/registry.py; docs/architecture/engine.md §16.9).
 
-Every row is well formed: a type the reader knows, choices that hold its default, a scope and a home that agree with
-each other, a group and a description of one line that names no command as text, and its marks for a secret and an
-agent; a computed default is one of the module's named functions, reading only rows and what `GIVEN` names; no two
-rows share a name; today's documented settings the engine keeps are 93 rows, and the five older names and the four
-that left have none; `ADDED` holds the settings the engine adds, each where the card placed it, and `CONNECTION` this
-computer's three SSH rows; a row that names a secret is never one an agent may change, and one that would be cannot be
-built; an agent may give claude_code_version a channel or a release alone; a row made from the machine's name is each
-machine's own; the table cannot be changed by a reader; and the module imports the standard library alone. What the
-rows must agree with in today's files is tests/unit/test_aw_fleet_registry_today.py's, which goes with those files at
-the cutover.
+Every row is well formed: a type the reader knows, never a text (a role's option of several lines alone), choices that
+hold its default, a scope and a home that agree with each other, a group and a description of one line that names no
+command as text, and its marks for a secret and an agent; a computed default is one of the module's named functions,
+reading only rows and what `GIVEN` names; no two rows share a name; today's documented settings the engine keeps are 93
+rows, and the five older names and the four that left have none; `ADDED` holds the settings the engine adds, each where
+the card placed it, and `CONNECTION` this computer's three SSH rows; a row that names a secret is never one an agent may
+change, and one that would be cannot be built; an agent may give claude_code_version a channel or a release alone; a row
+made from the machine's name is each machine's own; the table cannot be changed by a reader; and the module imports the
+standard library alone. What the rows must agree with in today's files is tests/unit/test_aw_fleet_registry_today.py's,
+which goes with those files at the cutover.
 """
 
 from __future__ import annotations
@@ -85,6 +85,13 @@ def test_every_row_is_well_formed(each: Row) -> None:
             assert each.default >= each.least, each.name
     if each.choices:
         assert each.type == "str", "choices are a string's"
+
+
+def test_a_text_is_the_type_of_a_role_s_option_of_several_lines_alone_and_of_no_row() -> None:
+    # A text, a string that may hold line breaks, is fleet/passthrough.py's TEXT's: a role's option whose value is
+    # several lines by what it is. No setting of the table is one: each is one line, typed or in a file.
+    assert TYPES == ("bool", "int", "str", "path", "list[str]", "dict", "size", "text")
+    assert [each.name for each in registry.rows() if each.type == "text"] == []
 
 
 @pytest.mark.parametrize("each", registry.rows(), ids=lambda each: each.name)

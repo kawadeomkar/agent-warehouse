@@ -1,10 +1,14 @@
 """The system scenario's driver: the system play converged on a container by layer 1's child, as the new engine
 converges a machine (docs/architecture/testing.md §11.3).
 
-converge.yml runs this here, with Molecule's Python, given the container's name. It makes a job and its run's directory
-in a fleet home of the scenario's own (`MOLECULE_EPHEMERAL_DIRECTORY`), never the developer's; writes the play's
-variables through the system play's own writer (guest/system.py, then guest/variables.py), which refuses what the engine
-cannot serve yet; and starts the child through `layer1.run`, as the engine starts one, but with the child's test-only
+converge.yml runs this here, with Molecule's Python, given the container's name. It makes a job and its run's
+directory in a fleet home of the scenario's own (`MOLECULE_EPHEMERAL_DIRECTORY`), never the developer's; makes the
+play's variables as the engine makes them, from the settings alone: what the scenario sets is in that fleet's
+settings.yml, written by the overrides' writer (`FLEET`), or given for the run as --set gives it (`RUN`), and the
+overrides' resolve of them is made the play's variables by guest/wiring.py's `role_variables`, with nothing else, no
+group_vars or host_vars beside the play or the inventory the child reads (refused before the child starts); writes them
+through the system play's own writer (guest/system.py, then guest/variables.py), which refuses what the engine cannot
+serve yet; and starts the child through `layer1.run`, as the engine starts one, but with the child's test-only
 connection, `community.docker.docker` to the container, and the folder of collections that connection is found in: the
 one this scenario's own Ansible was given (ANSIBLE_COLLECTIONS_PATH), the first of it that holds community.docker. It
 takes no address and starts no ssh. The machine's identity is made from the container's name, and a key is filed under
@@ -31,23 +35,25 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "lib"))
 
-from claude_vm.fleet import paths
-from claude_vm.guest import layer1, system
+from claude_vm.fleet import overrides, paths
+from claude_vm.guest import layer1, system, wiring
 from claude_vm.runs import job as jobs
 from claude_vm.runs import rundir
 from claude_vm.ssh import hostkeys, runner
 
-# The play's variables: what the guest play's scenario gives the same roles, as role variables. A container has no
-# cloud-init to wait for; the person's key, a placeholder; a global npm package, so that every task of the roles that
-# calls a Galaxy collection today runs here; no Docker Engine, whose daemon cannot run in the container.
-DOCUMENT = {
-    "configure_wait_for_cloud_init": False,
-    "common_user_ssh_public_keys": [
+# What the scenario sets, as a person sets it: in the fleet's settings.yml, the person's key, a placeholder; no Docker
+# Engine, whose daemon cannot run in the container; a global npm package, so that every task of the roles that calls a
+# Galaxy collection today runs here. And for the run, as --set gives it: a container has no cloud-init to wait for.
+FLEET = {
+    "vm_ssh_public_keys": [
         "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMoleculeTestKeyDoNotUse0000000000000000000 molecule@test"
     ],
     "dev_tools_install_docker": False,
     "dev_tools_npm_global_packages": ["cowsay"],
 }
+RUN = ("configure_wait_for_cloud_init=false",)
+# What Ansible would read beside the play or the inventory, and the play's variables never come from.
+BESIDE = ("group_vars", "host_vars")
 # The machine's name, as a person would have chosen it, and an address of RFC 5737's documentation range: the test-only
 # connection reaches the container by its name, never an address.
 NAME = "system"
@@ -72,6 +78,25 @@ def _collections() -> Path:
     raise SystemExit("no folder of ANSIBLE_COLLECTIONS_PATH holds community.docker: just test runs this scenario")
 
 
+def _document(home: paths.Home, environ: dict[str, str]) -> dict[str, object]:
+    """The play's variables, from the settings alone: FLEET written into the fleet's settings.yml by the overrides'
+    writer (again at each converge, which changes nothing then), RUN given for the run, and their resolve made the
+    play's variables by role_variables for every part of the play."""
+    digest = overrides.read(home, None, environ=environ).fleet.digest
+    for name, value in FLEET.items():
+        digest = overrides.set(home, name, value, None, digest, environ=environ)
+    settings = overrides.resolve(home, None, overrides.run_values(RUN, secrets=(), environ=environ), environ=environ)
+    return wiring.role_variables(settings, NAME, system.PARTS)
+
+
+def _nothing_beside(*folders: Path) -> None:
+    """Refused where a folder Ansible reads group_vars or host_vars from holds either: the play's variables are
+    role_variables' alone."""
+    found = [str(folder / each) for folder in folders for each in BESIDE if (folder / each).exists()]
+    if found:
+        raise SystemExit(f"the play's variables come from role_variables alone, yet {', '.join(found)} is there")
+
+
 def _said(event: jobs.Event) -> None:
     data = event.data
     print(f"{data.get('status', event.kind)}: {data.get('part') or '-'}: {event.text}", flush=True)
@@ -79,7 +104,8 @@ def _said(event: jobs.Event) -> None:
 
 def main(container: str) -> int:
     scenario = Path(os.environ["MOLECULE_EPHEMERAL_DIRECTORY"])
-    home = paths.home(REPO, {"AGENT_WAREHOUSE_HOME": str(scenario / "aw"), "HOME": os.environ["HOME"]})
+    environ = {"AGENT_WAREHOUSE_HOME": str(scenario / "aw"), "HOME": os.environ["HOME"]}
+    home = paths.home(REPO, environ)
     identity = f"agent-warehouse-{uuid.uuid5(uuid.NAMESPACE_DNS, container)}"
     known_hosts = scenario / "known_hosts"
     target = runner.machine(identity, ADDRESS, ACCOUNT, scenario / "cp", known_hosts=known_hosts)
@@ -89,7 +115,8 @@ def main(container: str) -> int:
     try:
         rundir.make(job)
         job.listen(_said)
-        written = system.variables(rundir.path_for(job, "vars.json"), DOCUMENT, secrets=())
+        written = system.variables(rundir.path_for(job, "vars.json"), _document(home, environ), secrets=())
+        _nothing_beside(system.PLAY.parent, written.parent)
         ended = asyncio.run(
             layer1.run(
                 job,

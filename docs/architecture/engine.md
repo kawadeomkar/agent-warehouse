@@ -2305,7 +2305,8 @@ file and command, `tls_ca_file`, `network_proxy`, `run_lock`, `run_forks`, `run_
 `destroy_allow_unrecorded`, `github_username`, and two for one run alone; and `CONNECTION`, counted apart, this
 computer's own SSH that today's guides document outside the example (`ssh_identity_file`, `ssh_executable`,
 `vm_ssh_options`). A `Row` is the setting's name; its type (`TYPES`: `bool`, `int`, `str`, `path`, `list[str]`, `dict`,
-`size`; a `size`, `vm_disk_size`'s alone, a whole number with G or T after it, in either case, as `deploy --disk` takes
+`size`, `text`; a `text`, no row's but a role's option of several lines alone (`passthrough.py`'s `TEXT`, below), a
+string that may hold line breaks; a `size`, `vm_disk_size`'s alone, a whole number with G or T after it, in either case, as `deploy --disk` takes
 one, and kept with its unit capital; a `path`, of which there are seven, is a path on this computer, and `overrides.py`
 reads one, typed or in a file, with `~` at its start the user's home, refuses one still relative, `~user` among them, by
 the setting's name, and keeps `""` as unset, never the working folder) and choices, the argument spec's of the role
@@ -2343,12 +2344,12 @@ agent may change today's `ALLOWED` with `VALUES`' rule, every name of `ALLOWED` 
 
 **The overrides: `overrides.py`.** What a person sets is kept in plain files of literals, written by hand or by the
 engine, never sealed, each a YAML mapping of setting names to values and nothing else: no expression, no anchor, alias,
-merge or key given twice, no line break inside a value. Each row is read from the file of its home alone: the fleet's
-`fleet/settings.yml` (a row of scope `machine` in its map `machines`, by `<host>/<machine>`, never at its top level,
-which would give every machine one value), each host's `fleet/hosts/<name>/settings.yml`, which no other host reads, and
-this computer's `client.yml` (a row of scope `host` in its map `hosts`, by the host's name, never at its top level;
-`vm_ssh_options` at its top level for every machine and in its map `machines` for one, which outranks it). A setting in
-a file that is not its home is refused by name, with its line and where it belongs; a row of home `run` is in no file.
+merge or key given twice, no line break inside a value but a `text`'s. Each row is read from the file of its home
+alone: the fleet's `fleet/settings.yml` (a row of scope `machine` in its map `machines`, by `<host>/<machine>`, never at
+its top level, which would give every machine one value), each host's `fleet/hosts/<name>/settings.yml`, which no other
+host reads, and this computer's `client.yml` (a row of scope `host` in its map `hosts`, by the host's name, never at its
+top level; `vm_ssh_options` at its top level for every machine and in its map `machines` for one, which outranks it). A
+setting in a file that is not its home is refused by name, with its line and where it belongs; a row of home `run` is in no file.
 `client.yml` also keeps `fleet_home`, read by YAML and held equal to what `paths.pointer_in` reads, so the file and the
 fleet's home never read it apart, and `current_host`, a host's name, which `set_current` alone writes; every other write
 keeps both as they are. `read(home, host)`
@@ -2359,8 +2360,10 @@ the run, else its home's file's, else the table's default, a default worked out 
 typed text to its row's type, choices, form and least value, a path by the path rule and `network_proxy` by
 `vendors/proxy.py`'s one check, which refuses a user and a password, refusing an expression and a control character in
 the text and again in the value YAML's escapes make of it; a value in a file is held the same way, so
-`vm_disk_size: 128g` in a file, `--set vm_disk_size=128g` and `128G` typed are one value.
-`run_values(texts, secrets=...)` types the words of `--set`: a name that is no row's is refused unsaid, a row that may
+`vm_disk_size: 128g` in a file, `--set vm_disk_size=128g` and `128G` typed are one value. A `text` is never typed:
+`typed`, `--set` and a value given for one run refuse it, naming the fleet's `settings.yml`, where a person writes it as
+YAML's block (`name: |`, then its lines indented) and where it holds line breaks, no other control character and no
+expression. `run_values(texts, secrets=...)` types the words of `--set`: a name that is no row's is refused unsaid, a row that may
 hold a secret is never given for one run, and a value that holds one of the vault's secrets (every caller names them,
 each a `Secret`, struck and never revealed) is refused in the text and in the value; the result is what a run records as
 its inputs and `resolve`'s top layer. `set` and `unset` write one value into the file of its home, under `store.locked`,
@@ -2387,11 +2390,18 @@ role, the entry point that first lists it (main first), the spec's type, choices
 description, and `refused`: none for one passed through, else why it is no setting, as today's `tools/settings` refuses
 it, in the words a refusal says after its name. The vault's is one the spec marks `no_log` or that a name the vault
 holds reaches, so no secret is ever passed through; each machine's own is one made from the machine's name; a run's own
-is one a run sets for itself (`BY_A_RUN`); and `LEFT_OUT` names seven with their reasons: the host's connection, a field
-of each host's `host.yml`, and the certificate's switch the client has not (the four options today's connection
-settings fed); the two the run sets from `vpn`; and one a row of another name stands for (`destroy_allow_unrecorded`).
+is one a run sets for itself (`BY_A_RUN`); and `LEFT_OUT` names twenty-three with their reasons, each held elsewhere: the
+host's connection, a field of each host's `host.yml` or the anchor beside it, and the certificate's switch the client
+has not (the four options today's connection settings fed, the address and the anchor's path); the client's own bound
+on a call; the ownership tags, since a VM is the fleet's by its pool and its record; the two the run sets from `vpn` and
+the one that names it in the VPN's messages; the template a run chooses and the golden's build VM a role sets for
+itself; a folder of this computer's; each machine's own repositories and whether its Tailscale had a login, which its
+record keeps; the three lines that name a machine's host and the two routes to it, the run's; and one a row of another
+name stands for (`destroy_allow_unrecorded`).
 `refusal(name)` says why of any other option of the roles a row does not have too: one a row's setting reaches is set
-through that row alone, and one whose spec takes any value has no type. Of today's 203 options, 87 are passed through.
+through that row alone, and one whose spec takes any value has no type. Of today's 203 options, 71 are passed through.
+The two whose value is several lines by what it is (`TEXT`: `proxmox_template_image_key`, an armored key, and
+`claude_code_global_instructions`, a whole `CLAUDE.md`) are each read by a row of type `text`.
 `overrides.py` takes the name of one passed through where it takes a row's, at home `fleet` and scope `global`: at the
 top of the fleet's `settings.yml`, and with `--set`, by `passthrough.row(name)`, its spec's type with no default; a path
 there is one on the machine the role runs on, held as one line of text and kept as typed, never made this computer's.
@@ -2401,7 +2411,10 @@ for one run, never saying the value. `typed(option, text)` holds typed text to t
 to a row. A kind of option no row's type holds (a list of anything but strings, choices of anything but a string) is
 refused as the table is made, before it could be passed through. `tests/unit/test_aw_fleet_passthrough.py` holds it:
 every option a row's, passed through or refused, none left out; each passed through carrying its spec; no secret passed
-through; each refusal's reason; a value held to its spec typed and in a file; and, against today's `tools/settings` run
+through, nor an option that `defaults.yml` or a role's own task file, handler or `vars/main.yml` sets (a scan of them);
+each refusal's reason; a value held to its spec typed and in a file; each `text` read back whole from the fleet's file,
+the vendored key among them, a control character but the line's end and an expression refused by its line, and neither
+typed; and, against today's `tools/settings` run
 as a child over an inventory made from the example files, every name it lets a person set taken here as a row or an
 option, but the nine of today's settings with no row and the options left out by name, which the test names; every
 option it writes through another setting refused here through that setting's row; and every name it refuses no option
@@ -2770,22 +2783,58 @@ is in it; and with the checkout's real folder the play starts.
 `write(path, document, secrets=...)` writes the play's variables as one JSON file, `vars.json` in the run's directory,
 in which every string is `{"__ansible_unsafe": <the string>}` (`wrap`): Ansible's loader reads the file as JSON first,
 and its decoder hands such a string on as text, without the trusted mark. The standard library writes it, at 0600,
-whole, beside the path and then put in its place, never through a link. Nothing is written where a variable names the
-play's connection (any `ansible_` name: an extra variable outranks the inventory, where the SSH runner's options are, so
-no variable of the file names a connection's option), where a key anywhere begins `__ansible`, which the decoder reads
-as its own, or anything else would fail Ansible's JSON decoding (an integer past 64 bits, a float that is not finite, a
+whole, beside the path and then put in its place, never through a link. Nothing is written where a variable's name is
+not one a role variable's is (held first, so that a refusal never says a name with a control character), where a
+variable names the play's connection (any `ansible_` name: an extra variable outranks the inventory, where the SSH
+runner's options are, so no variable of the file names a connection's option), where a variable is named as one of
+`FIXED`, which an extra variable would outrank for every task of the play - the inventory's own name of the machine
+(`aw_name`), Ansible's magic variables (`inventory_hostname`, `group_names`, `inventory_file`, `hostvars`, ...) and
+every name ansible-core reserves (`get_reserved_names()`: `omit`, whose value would make every `default(omit)` of the
+roles pass one, the keywords of a play, a block and a task, and the templates' globals, such as `lookup` and `range`),
+where a key anywhere begins `__ansible`, which the decoder reads as its own, or anything else would fail Ansible's JSON decoding (an integer past 64 bits, a float that is not finite, a
 nesting past 32 levels), since its loader then reads the very same text as YAML, where a wrapped string is a plain
 mapping and its string a trusted template; where a string is no text UTF-8 holds, which fails the YAML too; where a
 value is of a type no variable holds, a `Secret` above all; or where the document holds a secret the run opened, in a
 name, a string or the file's text, which the refusal never says back: no secret is ever in this file. `layer1.run` holds
 the file it is given to the same rules (`held`) before anything is written or started. The decoder is under
 `ansible._internal`, so the tests, not Ansible's documentation, hold this across releases:
-`tests/unit/test_aw_variables.py` loads a written file through Ansible's own loader, in a Python of its own, and finds
-no string trusted (the same document unwrapped, every string trusted), and through a real child on a stand-in machine a
+`tests/unit/test_aw_variables.py` holds `FIXED` equal to what a child of the locked ansible-core gives a host, a play
+and a role's task beside an inventory's and a play's own, and its reserved names; it loads a written file through
+Ansible's own loader, in a Python of its own, and finds no string trusted (the same document unwrapped, every string trusted), and through a real child on a stand-in machine a
 wrapped `{{ 7 * 7 }}` reaches a task as that text, an unwrapped one is templated, with the untrusted-template switch at
 `error` the wrapped one used as a template fails its task, and every kind of value comes back as it went; a walk of
 every file written finds no bare string leaf. They are among the tests that must pass before the ansible-core pin moves
 ([§13](toolchain.md)).
+
+**The play's variables from the settings.** Layer 1 hands the system play one variables file and an inventory of one
+host, and nothing else: no `group_vars` or `host_vars`, and none of today's wiring in
+`inventory/group_vars/all/defaults.yml`, is read. `lib/claude_vm/guest/wiring.py`'s
+`role_variables(settings, target, parts, profile={})` makes that file's document as a pure function of the settings:
+`settings` is `overrides.resolve`'s for the machine's run, `target` the machine's name, one VM name as layer 1 holds it,
+`parts` the play's parts asked for, whose roles' variables it gives after the play's own
+(`configure_wait_for_cloud_init`, its row's value), and `profile` what a kind of machine lays under a person's settings
+(empty for a VM), by a setting's or an option's name, each laid only where the person set nothing: a row at its default,
+an option set nowhere. Its `TABLE`, written by hand as plain data and evaluating no template, gives each variable of the
+three roles' specs, every entry point's, its source: a row of the settings table (`common_user`, `vscode_server_user`
+and `dev_tools_user` are `vm_user`'s value, `common_user_ssh_public_keys` `vm_ssh_public_keys`', `common_extra_packages`
+`vm_extra_packages`', `vscode_server_enabled` `vscode_remote`'s, and the six of `dev_tools` that are rows of their own
+name those rows'); the machine's name (`common_hostname`, whose role default reads `inventory_hostname`, the identity in
+layer 1's inventory); or the role's own option of the same name, passed through (`passthrough.py`), handed only where
+the settings hold it, so that set nowhere the role's own default applies, those worked out from the machine's facts
+among them. `INTERNALS` gives `common_user_password` the empty string, with its reason: it matters only with
+passwordless sudo off, which `system.variables` refuses until F24 hands the password to Ansible's own become-password
+file on a pipe, so no secret is ever in the file. A name of the settings that is a variable made here and no row of its
+own name - `common_user`, `common_hostname`, `common_user_password` - is refused by name, as `--set` and the fleet's
+file refuse `common_user_password` as the vault's; so are a part that is none of the play's, a target that is no VM name
+and a profile's name that is no setting or option of the table. Every value is a copy.
+`tests/unit/test_aw_guest_wiring.py` holds the table to the roles' specs, every variable in it or among the internals
+once; each setting to the row today's wiring reaches the variable from, both ways; each option to `passthrough.py`'s,
+both ways; and the output, for the registry's defaults and three sets of overrides (the rows the play reads, every
+option of its roles, values given for one run), equal variable by variable to what a child of the locked ansible-core
+gives the same roles, with a machine's facts set, from today's example inventory with the same values in `local.yml`,
+against the one host's inventory layer 1 writes and the file the play's own writer made, loaded as extra variables. The
+`system` scenario converges its container from `role_variables` alone, its settings written into a fleet home of its own
+and given with `--set`, with no `group_vars` or `host_vars` beside the play or the inventory.
 
 **Layer 1's events.** The product's stdout callback (`guest/ansible/callback_plugins/aw_events.py`) writes each event
 of the play as one line of JSON on the events pipe, whose descriptor `AGENT_WAREHOUSE_EVENTS` names and which it makes
