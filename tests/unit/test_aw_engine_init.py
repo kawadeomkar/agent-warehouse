@@ -1141,6 +1141,23 @@ def test_the_host_s_address_and_its_token_are_asked_first_and_a_host_nothing_ans
     assert _files() == files
 
 
+def test_init_in_the_background_of_its_terminal_is_a_run_with_nobody_there_and_ends(fake) -> None:
+    # Review 54, E5.md 2: aw init & at a terminal. Standard input is a terminal whose foreground the run is not, which
+    # runs/ask.py's terminal() takes for nobody to ask, and init decides by it too: E4's run, its words unchanged,
+    # nothing asked and nothing drawn, and the run ends, never stopped by the terminal (SIGTTOU) for its live view's
+    # change of the terminal's settings.
+    files = _files()
+    rc, raw = aw_at_a_terminal(
+        "init", home=_home().root, first_on_path=(fake.ssh,), size=(100, 30), timeout=60, background=True
+    )
+    said = " ".join(raw.decode(errors="replace").split())
+    assert rc == 1, said
+    refused = "error: the host pve has no address yet: give it, as aw init --no-prompt --address <address>; nothing"
+    assert refused in said, said
+    assert engine_init.ASKED not in said and "not asked" not in said and DRAWN not in raw, said
+    assert _files() == files
+
+
 # Where an address is reached with no host.yml to give its port: the API's own, 8006, here at a loopback address of its
 # own, never 127.0.0.1's, at which the test above holds that nothing answers.
 AT_8006 = ("127.0.0.2", 8006)
@@ -1281,6 +1298,11 @@ def test_every_question_init_asks_goes_through_runs_ask() -> None:
     modules |= {module.lstrip(".") for module, _, _ in imported}
     # ask is runs/ask.py's, imported by its whole name, and called in one place: _Asking.ask, which every question uses.
     assert [(module, level) for module, name, level in imported if name == "ask"] == [("claude_vm.runs.ask", 0)]
+    # Whether anyone is there to ask is runs/ask.py's terminal(), which ask decides each question by: one function,
+    # never a second copy of it here (review 54, E5.md 2), nor isatty alone.
+    assert [(module, level) for module, name, level in imported if name == "terminal"] == [("claude_vm.runs.ask", 0)]
+    named = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
+    assert not {"isatty", "tcgetpgrp", "getpgrp"} & named, named
     calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)]
     asking = [node for node in calls if isinstance(node.func, ast.Name) and node.func.id == "ask"]
     assert len(asking) == 1, [ast.unparse(node) for node in asking]

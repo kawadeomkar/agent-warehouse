@@ -22,6 +22,8 @@ syntax tree for one):
   `first_on_path`; stdin /dev/null unless a test gives one, a process group of its own, ended whole on a timeout; and a
   test that fails if the run reached a stand-in;
 - `aw_at_a_terminal(*words, home=...)`: the same at a pseudo-terminal of its own (`harness._at_a_pseudo_terminal`);
+  with `background=True`, in a process group of its own that is never the terminal's foreground, as a shell's `aw init
+  &` starts it, under a session leader of the kit's own that ends it, and fails the test, where the terminal stops it;
 - `run_launcher(*words, home=...)`: the launcher at the checkout's top, aw, which runs tools/aw, run by its path as a
   person runs it, in run_aw's environment and with the suite's own Python as PYTHON unless a test names another: this
   checkout's, a link to it, or a copy of it in a checkout a test made, and never this checkout's asked to install;
@@ -507,22 +509,61 @@ def on_path(home: Path, launcher: Path = LAUNCHER) -> Path:
     return folder
 
 
+# A session leader of the kit's own at the pseudo-terminal, for aw_at_a_terminal's background: the program and its words
+# in a process group of their own, never the terminal's foreground, as a shell's `aw init &` starts them; waited for to
+# their end or to a stop (WUNTRACED), which the leader says on one line (STOPPED) and ends, the group killed, since a
+# stopped run would wait there till a person brought it to the foreground. Its status is the run's.
+BACKGROUND = r"""
+import os, signal, sys
+child = os.fork()
+if child == 0:
+    try:
+        os.setpgid(0, 0)
+        os.execv(sys.argv[1], sys.argv[1:])
+    finally:
+        os._exit(127)
+try:
+    os.setpgid(child, child)
+except OSError:
+    pass
+_, status = os.waitpid(child, os.WUNTRACED)
+if os.WIFSTOPPED(status):
+    print(f"aw_kit: the run in the background was stopped by signal {os.WSTOPSIG(status)}", flush=True)
+    os.killpg(child, signal.SIGKILL)
+    os.waitpid(child, 0)
+    sys.exit(125)
+code = os.waitstatus_to_exitcode(status)
+sys.exit(code if code >= 0 else 128 - code)
+"""
+STOPPED = re.compile(rb"aw_kit: the run in the background was stopped by signal (\d+)")
+
+
 def aw_at_a_terminal(
     *words: str,
     home: Path,
     env: Mapping[str, str] | None = None,
     cwd: Path | None = None,
     first_on_path: Iterable[str | Path] = (),
+    background: bool = False,
     **terminal,
 ) -> tuple[int, bytes]:
     """Run tools/aw with words at a pseudo-terminal of its own, from cwd (home unless given), in run_aw's environment
     (env and first_on_path as run_aw takes them); its status and every byte it wrote. terminal goes to
     harness._at_a_pseudo_terminal: the window's size, what to type (act), the timeout, the poll and what to explain of a
-    run that hung. One that reached a stand-in fails the test."""
+    run that hung. With background, the run is in a process group of its own, never the terminal's foreground, under a
+    session leader of the kit's own (BACKGROUND): one the terminal stops (SIGTTOU, SIGTTIN) is ended, and fails the
+    test. One that reached a stand-in fails the test."""
     where = Path(cwd) if cwd is not None else home
     built = environment(home, env, first_on_path)
-    rc, output = harness._at_a_pseudo_terminal(_argv(words, AW, where), where, built, **terminal)
+    argv = _argv(words, AW, where)
+    if background:
+        argv = [sys.executable, "-I", "-c", BACKGROUND, *argv]
+    rc, output = harness._at_a_pseudo_terminal(argv, where, built, **terminal)
     harness._fail_if_the_desktop_was_reached(stand_ins(home))
+    stopped = STOPPED.search(output) if background else None
+    if stopped is not None:
+        said = output.decode(errors="replace")
+        pytest.fail(f"the run in the background was stopped by the terminal, signal {int(stopped.group(1))}:\n{said}")
     return rc, output
 
 

@@ -37,25 +37,26 @@ The names written where none is given are the engine's own (card E1; ruling B1, 
 the token `aw` and the pool `aw-fleet`; and the first host is `pve`, as today's. The modes built by other cards are
 refused by name until they land: `--check` (E6), `--print-commands` (E7) and `--machines` (J14).
 
-**At a terminal** (standard input one, and no `--no-prompt`; card E5), `attended` runs the same steps and asks, in
-plain Python, each question whose value is still unset, every one through runs/ask.py's `ask` and nothing else of its
-own: nothing here reads the terminal, by its path or any other way. The run is drawn live (INIT, one stage whose steps
-are the questions), and each question is today's in its words, in the report's first-run order, the host first: the
-host's address; the API token's ID, where no host.yml names one yet (Enter keeps the engine's own, and so does a second
-answer that is not a token ID, said); whether to trust a certificate nothing on the host vouches for (E3's question, a
-yes or no whose safe answer is no); the token's secret, hidden, where the vault holds none and none is given; the node,
-the storage and the bridge, each a menu of what the host lists, read with the token, every row of it with what the token
-lacks there (today's `init_candidates`), where the host's own settings.yml sets none; the SSH key the machines get,
-asked only where `vm_ssh_public_keys` is unset and `~/.ssh/id_ed25519.pub`, which its default reads, gives none, as a
-menu of the other public keys in `~/.ssh`; whose repositories are cloned; which VPN the machines join, a choice, `none`
-first, then `tailscale`, written as `vpn: tailscale` or `vpn: none`; and Tailscale's auth key, hidden, only once
-`tailscale` is chosen (or given, or set), where the vault holds none and `tailscale_auth_method` is not `web`, put
-straight into the vault and never taken from the command line. Each typed answer is held to its kind
-(`claude_vm.init.init_answer`), asked once more saying the rule where it does not fit, and left where the person presses
-Enter (Esc at a menu); a second that does not fit is left too, said. An answer is then a value given: the run goes on as
-with nobody there, and writes only what is still unset. A question whose value is set is never asked. What was left is
-said, with the line that asks again, in NEXT STEPS. With the host's address left, the host's questions are left with it,
-and only the fleet's own answers are written.
+**At a terminal** (standard input a terminal whose foreground the run is, as runs/ask.py's `terminal()` decides for each
+question, and no `--no-prompt`; card E5), `attended` runs the same steps and asks, in plain Python, each question whose
+value is still unset, every one through runs/ask.py's `ask` and nothing else of its own: nothing here reads the
+terminal, by its path or any other way. The run is drawn live (INIT, one stage whose steps are the questions), and each
+question is today's in its words, in the report's first-run order, the host first: the host's address; the API token's
+ID, where no host.yml names one yet (Enter keeps the engine's own, and so does a second answer that is not a token ID,
+said); whether to trust a certificate nothing on the host vouches for (E3's question, a yes or no whose safe answer is
+no); the token's secret, hidden, where the vault holds none and none is given; the node, the storage and the bridge,
+each a menu of what the host lists, read with the token, every row of it with what the token lacks there (today's
+`init_candidates`), where the host's own settings.yml sets none; the SSH key the machines get, asked only where
+`vm_ssh_public_keys` is unset and `~/.ssh/id_ed25519.pub`, which its default reads, gives none, as a menu of the other
+public keys in `~/.ssh`; whose repositories are cloned; which VPN the machines join, a choice, `none` first, then
+`tailscale`, written as `vpn: tailscale` or `vpn: none`; and Tailscale's auth key, hidden, only once `tailscale` is
+chosen (or given, or set), where the vault holds none and `tailscale_auth_method` is not `web`, put straight into the
+vault and never taken from the command line. Each typed answer is held to its kind (`claude_vm.init.init_answer`), asked
+once more saying the rule where it does not fit, and left where the person presses Enter (Esc at a menu); a second that
+does not fit is left too, said. An answer is then a value given: the run goes on as with nobody there, and writes only
+what is still unset. A question whose value is set is never asked. What was left is said, with the line that asks again,
+in NEXT STEPS. With the host's address left, the host's questions are left with it, and only the fleet's own answers are
+written.
 
 Every sentence that names a command names it through the printer. Standard library, fleet/, pve/, ssh/, vendors/,
 schema/, runs/stages.py and today's init.py, checks.py and text.py at import; asyncio, the rest of runs/ and the
@@ -1414,10 +1415,13 @@ def _refused(sentence: str) -> int:
 
 
 def _at_a_terminal() -> bool:
-    try:
-        return sys.stdin is not None and sys.stdin.isatty()
-    except (AttributeError, ValueError, OSError):
-        return False
+    """Whether a person is there to ask: standard input a terminal whose foreground this process is, as runs/ask.py's
+    terminal() decides for each question, through that one function. Never isatty alone: a run in the background (aw
+    init &) would draw its live view, whose change of the terminal's settings has the terminal stop it (SIGTTOU) before
+    its first question; it is a run with nobody there."""
+    from claude_vm.runs.ask import terminal
+
+    return terminal() is not None
 
 
 async def _asked(
