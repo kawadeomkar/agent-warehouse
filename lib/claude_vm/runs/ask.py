@@ -7,9 +7,10 @@ without cannot be built (Question). What it gives back: the default itself where
 of the input, Esc at the menu, or no terminal - and otherwise the answer: the line typed, the value of the choice
 picked, or, for a hidden answer, a Secret, whose default is a Secret too.
 
-It asks only where the standard input the command was given is a terminal whose foreground this process is. Anything
-else - /dev/null, a pipe, a file, a run sent to the background, a detached run, an agent's job - is nobody to ask: the
-default is the answer, and one line on standard error says the question was not asked and what it took (NOT_ASKED).
+It asks only where the standard input the command was given is a terminal whose foreground this process is
+(`terminal()`, which a verb that asks decides by too, before its run draws anything: engine/init.py). Anything else -
+/dev/null, a pipe, a file, a run sent to the background, a detached run, an agent's job - is nobody to ask: the default
+is the answer, and one line on standard error says the question was not asked and what it took (NOT_ASKED).
 `--attended` changes nothing here: someone at the screen with no terminal is still not asked.
 
 At the terminal, one question at a time (one asked while another is up, by two machines' work at once, waits till that
@@ -200,7 +201,7 @@ async def ask(
     built = Question(question, default, choices, hidden)  # type: ignore[arg-type]
     if context.cancelled.is_set():
         raise asyncio.CancelledError("the run is stopping: no question is asked")
-    fd = _terminal()
+    fd = terminal()
     if fd is None:
         said = built.said(built.default)
         _say(NOT_ASKED.format(question=built.asked, answer=said))
@@ -231,8 +232,11 @@ def _turn(context: Context) -> asyncio.Lock:
     return turn
 
 
-def _terminal() -> int | None:
-    """Standard input's descriptor where it is a terminal whose foreground this process is; None for anything else."""
+def terminal() -> int | None:
+    """Standard input's descriptor where it is a terminal whose foreground this process is; None for anything else.
+    Whether there is anyone to ask: ask decides it for each question, and a verb that asks decides by it before its run
+    draws anything, never by isatty alone, since the live region's change of the terminal's settings from a run in the
+    background (aw init &) has the terminal stop the run (SIGTTOU) before its first question."""
     try:
         fd = sys.stdin.fileno()
         if os.isatty(fd) and os.tcgetpgrp(fd) == os.getpgrp():

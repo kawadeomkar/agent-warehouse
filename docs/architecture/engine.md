@@ -669,25 +669,28 @@ engine's own: the user `agent-warehouse@pve`, the token `aw`, the pool `aw-fleet
 stopped after any write goes on from what it wrote, and the same run again writes nothing. The modes other cards build
 (`--check`, `--print-commands`, `--machines`) are refused by name until each lands.
 
-**`init` at a terminal: `attended`.** With standard input a terminal and no `--no-prompt`, the same steps run drawn live
-(`INIT`, one stage whose steps are the questions), and each question whose value is still unset is asked, in plain
-Python, through `runs/ask.py`'s `ask` alone (16.8): nothing in `engine/` or `fleet/` reads `/dev/tty` or uses `getpass`.
-The questions are today's in their words, in the report's first-run order, the host first: its address; the token's ID,
-where no `host.yml` names one (Enter keeps the engine's own, and so does a second answer that is not a token ID, said,
-as its second asking says); E3's question whether to trust a certificate nothing on the host vouches for, a yes or no
-whose safe answer is no; the token's secret, hidden, where the vault holds none and none is given; the node, the storage
-and the bridge, each a menu of what the host lists to the token, read with it, today's rows above it saying what the
-token lacks on each (`init.init_candidates`, against the privileges `pve/privileges.py`'s `needed` gives each kind), a
-yes or no where only one can be used; the SSH key, asked only where `vm_ssh_public_keys` is unset and
-`~/.ssh/id_ed25519.pub`, which its default reads at every run, gives none, as a menu of the other public keys in
-`~/.ssh`; whose repositories are cloned; the VPN, a menu, `none` first, then `tailscale`, written as `vpn`; and
-Tailscale's auth key, hidden, only once `tailscale` is chosen, given or set, where the vault holds none and
-`tailscale_auth_method` is not `web`, sealed in the vault and never taken from the command line. A typed answer is held
-to its kind, asked once more saying the rule where it does not fit, and left where Enter (Esc at a menu) is pressed, or
-where a second does not fit, said. Each answer is then a value given, and the run goes on as with nobody there, writing
-only what is unset; with the host's address left, only the fleet's own answers are written. What was left is said, and
-NEXT STEPS keeps the line that asks again; one Ctrl-C at a question ends the run with nothing written.
-`tests/unit/test_aw_engine_init.py` holds it at a pseudo-terminal of its own, against the fake.
+**`init` at a terminal: `attended`.** With standard input a terminal whose foreground the run is, as `runs/ask.py`'s
+`terminal()` decides for each question (16.8), and no `--no-prompt`, the same steps run drawn live (`INIT`, one stage
+whose steps are the questions), and each question whose value is still unset is asked, in plain Python, through
+`runs/ask.py`'s `ask` alone (16.8): nothing in `engine/` or `fleet/` reads `/dev/tty` or uses `getpass`. The questions
+are today's in their words, in the report's first-run order, the host first: its address; the token's ID, where no
+`host.yml` names one (Enter keeps the engine's own, and so does a second answer that is not a token ID, said, as its
+second asking says); E3's question whether to trust a certificate nothing on the host vouches for, a yes or no whose
+safe answer is no; the token's secret, hidden, where the vault holds none and none is given; the node, the storage and
+the bridge, each a menu of what the host lists to the token, read with it, today's rows above it saying what the token
+lacks on each (`init.init_candidates`, against the privileges `pve/privileges.py`'s `needed` gives each kind), a yes or
+no where only one can be used; the SSH key, asked only where `vm_ssh_public_keys` is unset and `~/.ssh/id_ed25519.pub`,
+which its default reads at every run, gives none, as a menu of the other public keys in `~/.ssh`; whose repositories are
+cloned; the VPN, a menu, `none` first, then `tailscale`, written as `vpn`; and Tailscale's auth key, hidden, only once
+`tailscale` is chosen, given or set, where the vault holds none and `tailscale_auth_method` is not `web`, sealed in the
+vault and never taken from the command line. A typed answer is held to its kind, asked once more saying the rule where
+it does not fit, and left where Enter (Esc at a menu) is pressed, or where a second does not fit, said. Each answer is
+then a value given, and the run goes on as with nobody there, writing only what is unset; with the host's address left,
+only the fleet's own answers are written. What was left is said, and NEXT STEPS keeps the line that asks again; one
+Ctrl-C at a question ends the run with nothing written. A run in the background of its terminal (`aw init &`) is one
+with nobody there, never drawn: the live region's change of the terminal's settings from there would have the terminal
+stop it (`SIGTTOU`) before its first question. `tests/unit/test_aw_engine_init.py` holds it at a pseudo-terminal of its
+own, against the fake.
 
 `tests/unit/test_aw_engine_init.py` holds `init` against the fake Proxmox, through `tools/aw` with a refusing `ssh`
 first on `PATH` and in this process with root SSH a reader of the test's own; its runs through `tools/aw` from a home
@@ -2477,9 +2480,10 @@ not answered, and one without cannot be built (`Question` refuses it, with whate
 hidden question with choices, a default that is none of the choices, a hidden answer's default that is no `Secret`). It
 gives back the default itself where nothing was answered (Enter, the end of the input, Esc at the menu, no terminal),
 and otherwise the line typed, the value of the choice picked, or for a hidden answer a `Secret`. It asks only where the
-standard input the command was given is a terminal whose foreground the run is: anything else (`/dev/null`, a pipe, a
-file, a run sent to the background, a detached run, an agent's job) is nobody to ask, and the default is taken, with
-one line on standard error that says the question was not asked and what it took; `--attended` changes nothing here.
+standard input the command was given is a terminal whose foreground the run is (`terminal()`, which a verb that asks,
+`init`, decides by too before its run draws anything): anything else (`/dev/null`, a pipe, a file, a run sent to the
+background, a detached run, an agent's job) is nobody to ask, and the default is taken, with one line on standard error
+that says the question was not asked and what it took; `--attended` changes nothing here.
 At the terminal, one question at a time (one asked while another is up, by two machines' work at once, waits till that
 one has ended), the live view steps aside (`Live.aside`, below), a `waiting` event says what the run waits for, the
 keys typed before the question was there are flushed, the question is written to standard output and the answer read,
