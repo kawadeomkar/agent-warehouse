@@ -1668,10 +1668,11 @@ through `children.start` as an `ssh` child of the job's run, in a process group 
 marker, entered in the run's registry; `started` is handed asyncio's process object, never a bare pid. Its standard
 input is written, drained and closed: bytes, text, a `Secret` or a list of them, a `Secret` revealed in `_bytes` alone,
 so a password or a code is never in a word, a variable or a file. Its standard output is read a line at a time under
-`Limits`: a bound for one line, one for the whole, a deadline, and a time to say anything at all; its standard error is
-kept to a fixed size, and read to its end so the child never blocks on it. On a breach the child's group is killed, its
-`ProxyCommand` with it. The result is `Done(status, lines, said)`, or `Cut` (a line past its bound, more than the whole,
-a line with no end), `Silent`, `TimedOut` or `Unreachable(said, lines)` (status 255), each line and `said` made
+`Limits`: a bound for one line, one for the whole, a deadline, and a time to say anything at all, and, where the caller
+sets one (`lines`, none by default), a bound on its lines; its standard error is kept to a fixed size, and read to its
+end so the child never blocks on it. On a breach the child's group is killed, its `ProxyCommand` with it. The result is
+`Done(status, lines, said)`, or `Cut` (a line past its bound, more than the whole, more lines than its bound, a line
+with no end), `Silent`, `TimedOut` or `Unreachable(said, lines)` (status 255), each line and `said` made
 plain (`text.plain_text`). The default limits are today's, `status/reach.py`'s, held equal by the test: a line of 16
 MiB, 45 s, 20 s to say anything, 64 KiB of standard error, and four of the longest lines in all. A call cancelled by its
 run ends its child's group too.
@@ -1692,9 +1693,11 @@ run ends its child's group too.
   nor writes goes on after `TimedOut`, `Cut`, `Silent` and `end()`, as under today's Ansible. A caller whose command
   changes something bounds it on the machine (`timeout`) or reads its state again.
 
-**A held child.** The sign-ins hold their own `ssh` children. `hold(job, target, command, env, started, deadline)`
-starts the same command line the same way and returns a `Held`: `send(line)` writes one line to the child's open
-standard input, a `Secret` revealed only there; `lines()` yields what the child prints while it runs, a line at a time
+**A held child.** The sign-ins hold their own `ssh` children, and so does a helper call where `sudo` is handed a
+password (§16.10). `hold(job, target, command, env, started, deadline, limits)` starts the same command line the same
+way and returns a `Held`: `send(line)` writes one line to the child's open standard input, a `Secret` revealed only
+there; `write(data)` writes bytes as they are, never a `Secret` or text, what follows a line once the child has
+answered it; `lines()` yields what the child prints while it runs, a line at a time
 under the same bounds; `close()` closes its standard input; `end()` ends its group, `SIGTERM` and then `SIGKILL`;
 `result()` reads what is left and says how it ended. Its deadline is the caller's; the run's end ends every held child
 through the registry of `children.py`. `forward(job, target, specs, env, started, deadline=)` is a held `ssh` with
@@ -3230,69 +3233,87 @@ the child's own configuration names it.
 **The helper, sent on standard input.** The helper is one Python program for a machine's own `python3`, held to Python
 3.10 and to the standard library, and never installed: each use sends it whole on the machine's standard input.
 `lib/claude_vm/guest/bundle.py`'s `script(entry, asked)` packs its sources into one text, each defined in memory under
-the module name it is imported by, and ends with a call of the dispatcher, `lib/claude_vm/guest/helper/main.py`
-(`helper <verb> [words]`), handed the verb, its words and what it is asked, as JSON inside the text and never on a
-command line. The text has a marked end (`frame`): a newline, then a line of its own, `MARK` and the script's length in
-bytes, then that many bytes. The command line holds the bootstrap alone (`command()`: `/usr/bin/python3 -I -B -c` and
-`BOOTSTRAP`), which first prints `STARTED`, a line of its own, so that its caller knows the machine's Python ran (and
-that `sudo` let it); then reads standard input a line at a time up to the mark's line, reads exactly the length it says,
-and executes that. What comes before the mark's line, a password's line that `sudo -S` was handed and left there, is
-read and dropped, never executed or said back: the mark's line is the whole of a line, and such a line holds a newline
-only at its end. What comes after the script is the verb's own standard input, which it reads on from where the
-bootstrap stopped (`sys.stdin.buffer`), never compiled with the script; no whole script is one line on standard error
-and exit status 2, nothing executed. Its one verb is `probe`, today's status probe unchanged, with its fixed list of
-reads; a verb it does not know, a word too many or an ask that is not a JSON object is one line on standard error and
-exit status 2, nothing run. The sources are read by `sources()` alone, the one function of `lib/claude_vm/` outside
-`status/` that names `playbooks/module_utils/`: the probe's three files stay there until the cutover, since today's
-Ansible modules import them as `module_utils`, and `sources()` finds them from the package's own place, two folders
-below the checkout's top, never the working directory. A release is a checkout of a signed tag, so it holds the same
-files; the cutover moves them into `guest/helper/` (card K28), and `sources()` then reads the package's own files alone.
-The script defines `ansible` and `ansible.module_utils` as empty modules, each source put in `sys.modules` before the
-one that imports it, so that the probe's own imports resolve on a machine with no Ansible. Today's `just status` bundles
-the same three files with `lib/claude_vm/status/reach.py`'s `probe_script`, which this module neither changes nor
-imports, since today's product never imports the new engine: the two print the same document for the same ask. The floor
-is held by a run, not a parser's flag: `tests/unit/test_aw_guest_helper.py` runs the script on a Python 3.10
-(`python:3.10-slim` under docker where it is pulled, as on a lane, or a `python3.10` of the computer's, the test skipped
-where neither is), which compiles every carried file with its own parser, finds each import in its own standard library,
-runs the probe and hands a verb what follows the script; and ruff's rules that would write past 3.10 (UP017, B905) are
-kept off the helper's folder, which `lib/**`'s `py313` would otherwise reach. The rule `just status` rests on is held
-over the whole bundle at run time: the script started by a test-only bootstrap that first sets an audit hook (PEP 578),
-every program its Python starts one of `ALLOWED`'s reads or `git_checkouts.py`'s, every file opened without a flag that
-writes, no file-system write; beside it, statically, each carried file starts a program only in the functions named with
-what each starts, those the probe never reaches among them (`process_argv`, `running_claude`, `overwrites`). The same
-file holds the script against today's stand-in VMs and through the SSH runner to a stand-in machine, with the sources'
-syntax and imports and the scan of what names the folder.
+the module name it is imported by, and ends with a call of the dispatcher, `lib/claude_vm/guest/helper/main.py` (`helper
+<verb> [words]`), handed the verb, its words and what it is asked, as JSON inside the text and never on a command line.
+The text has a marked end (`frame`): a newline, then a line of its own, `MARK` and the script's length in bytes, then
+that many bytes. The command line holds the bootstrap alone (`command()`: `/usr/bin/python3 -I -B -c` and `BOOTSTRAP`),
+which first prints `STARTED`, a line of its own, so that its caller knows the machine's Python ran (and that `sudo` let
+it); then reads standard input a line at a time up to the mark's line, reads exactly the length it says, and executes
+that. What comes before the mark's line, a password's line that `sudo -S` was handed and left there, is read and
+dropped, never executed or said back: the mark's line is the whole of a line, and such a line holds a newline only at
+its end. What comes after the script is the verb's own standard input, which it reads on from where the bootstrap
+stopped (`sys.stdin.buffer`), never compiled with the script; no whole script is one line on standard error and exit
+status 2, nothing executed. Its one verb is `probe`, today's status probe unchanged, with its fixed list of reads; a
+verb it does not know, a word too many or an ask that is not a JSON object is one line on standard error and exit status
+2, nothing run. The sources are read by `sources()` alone, the one function of `lib/claude_vm/` outside `status/` that
+names `playbooks/module_utils/`: the probe's three files stay there until the cutover, since today's Ansible modules
+import them as `module_utils`, and `sources()` finds them from the package's own place, two folders below the checkout's
+top, never the working directory. A release is a checkout of a signed tag, so it holds the same files; the cutover moves
+them into `guest/helper/` (card K28), and `sources()` then reads the package's own files alone. The script defines
+`ansible` and `ansible.module_utils` as empty modules, each source put in `sys.modules` before the one that imports it,
+so that the probe's own imports resolve on a machine with no Ansible. Today's `just status` bundles the same three files
+with `lib/claude_vm/status/reach.py`'s `probe_script`, which this module neither changes nor imports, since today's
+product never imports the new engine: the two print the same document for the same ask. The floor is held by a run, not
+a parser's flag: `tests/unit/test_aw_guest_helper.py` runs the script on a Python 3.10 (`python:3.10-slim` under docker
+where it is pulled, as on a lane, or a `python3.10` of the computer's, the test skipped where neither is), which
+compiles every carried file with its own parser, finds each import in its own standard library, runs the probe and hands
+a verb what follows the script; and ruff's rules that would write past 3.10 (UP017, B905) are kept off the helper's
+folder, which `lib/**`'s `py313` would otherwise reach. The rule `just status` rests on is held over the whole bundle at
+run time: the script started by a test-only bootstrap that first sets an audit hook (PEP 578), every program its Python
+starts one of `ALLOWED`'s reads or `git_checkouts.py`'s, every file opened without a flag that writes, no file-system
+write, no socket made, connected or looked up through, no signal sent and no library loaded (`ctypes`); beside it,
+statically, each carried file starts a program only in the functions named with what each starts, those the probe never
+reaches among them (`process_argv`, `running_claude`, `overwrites`), and reaches past the machine's files and programs
+(a socket, a signal, `ctypes`, by module or `os.kill`) only in the functions named likewise: `alive`'s `os.kill(pid, 0)`
+alone, called by `running_claude` alone. The audit runs as the test's user, so the probe's root branch - a fork of
+itself, as root, that becomes the machine's user for the user's reads (`setgroups`, `setgid`, `setuid`) - never runs
+under it: that branch is held by the static rule alone, which names `probe` as starting no program but that fork. The
+same file holds the script against today's stand-in VMs and through the SSH runner to a stand-in machine, with the
+sources' syntax and imports and the scan of what names the folder.
 
 **A helper verb run on a machine.** `lib/claude_vm/guest/remote.py`'s `helper(job, target, verb, words, ...)` is the one
 way the engine sends a program to a machine: it sends the script, always, then `stdin`, the verb's own input, after its
-marked end, over the SSH runner (§16.6), under the runner's limits, today's (`limits.seconds` the call's whole time); so
-no word of the verb's, nothing it is asked and nothing of its input is ever on the argument list of the `ssh` child. As
-root (the default) it goes through `/usr/bin/sudo` by its path, under `/usr/bin/env LC_ALL=C` so that sudo's words are
-its own: `sudo -n` first, and only where that is refused for want of a password (sudo's `a password is required`) and
-the caller's `password()` gives one, a `Secret`, the same input once more with `sudo -S -p ''` and the password's line
-in front. One `-S`, never a second: a wrong password costs sudo's three attempts, the lines after it read as the next
-two, and may lock an account where PAM counts them; and where sudo asks nothing, no password is sent. The password is
-read from its `Secret` by the runner alone; nothing else secret follows the helper, so `stdin` is bytes and never a
-`Secret`. What comes back is an `Answer` - the verb ran and ended by itself: its exit status, each line after the
-bootstrap's parsed as JSON, NaN, Infinity, a number past a float and a nesting past 64 levels refused, every string in
-it, keys too, made one plain line (`text.one_line`), and what it said on its standard error as one plain line - a
-`NotRun` - it never started: sudo refused it, or the machine's interpreter could not be run - or a `NotAnswered`: not
-reached (ssh's 255, or nothing said within its time), or out of its time, ended with what the run started for it, the
-lines it sent before kept where every one parses; or more than it may send, a line that is no JSON, or no first line of
-the bootstrap's, refused whole. `lib/claude_vm/guest/states.py`'s `read(job, target, parts, settings=...)` runs `probe`
-for the parts asked (`system`, `claude`, `github`, `work`, `tailscale`) and returns today's
-`lib/claude_vm/status/found.py`'s records of its answer (`ssh_found`), the parts not asked left out, so that a layer-2
-step and status say each state by one definition, today's, which `tests/unit/test_status_vms.py` holds to the roles' own
-tasks; `settings` is one machine's in the shape status keeps, the probe's ask under `asked`. It runs as root only where
-a part root reads is asked (Tailscale's), and where sudo refuses, as the machine's user once more, root's part said not
-read, as today's `just status` does; every other read is the user's, with no `sudo` at all. found.py is reused as it
-stands, one name taken from it, so `states.py` is one of the modules `tests/unit/test_aw_vendor_trust.py`'s `CONTEXTS`
-names (today's `status` makes a TLS context elsewhere), and no module of Ansible is loaded.
+marked end, over the SSH runner (§16.6), under the runner's limits, today's (`limits.seconds` the call's whole time, a
+second session's and the parse of the answer included), and at most `LINES` (4096) lines where the limits set no bound
+on them; so no word of the verb's, nothing it is asked and nothing of its input is ever on the argument list of the
+`ssh` child. As root (the default) it goes through `/usr/bin/sudo` by its path, under `/usr/bin/env LC_ALL=C` so that
+sudo's words are its own: `sudo -n` first, and only where that is refused for want of a password - a line of its
+standard error that is sudo's `sudo: a password is required` or sudo-rs's `interactive authentication is required`,
+Ubuntu's sudo from 25.10, under either name it says itself by - and the run's `Password` gives one, a `Secret`, a second
+session with `sudo -S -p ''`, held (§16.6's `hold`): the password's line alone, then nothing until the bootstrap's line
+says the program runs, within the time to say anything, and only then the script and the verb's input. So a wrong
+password costs one of sudo's attempts, never three, and no line of the script is ever read by sudo as a password; and
+where sudo does not run the program with it, the run's `Password` is marked refused, and the run sends it to no machine
+again: that call's `NotRun` says so, once, and every later one takes `sudo -n`'s refusal as it is, since a password sent
+on every read could lock the account where PAM counts the failures. Calls already under way when sudo refused it may
+each have sent it once. `Password(source)` is made once by a run and handed to each call: its source is asked at the
+first call that needs it, and never again. Where sudo asks nothing, no password is sent. The password is read from its
+`Secret` by the runner alone, and put as its mark (`Secret.struck`) wherever a machine says it back: in what it said on
+its standard error, in every line before it is parsed (a number said back is then no JSON, and the answer refused
+whole), in every string and key after, and in why the call was cut; nothing else secret follows the helper, so `stdin`
+is bytes and never a `Secret`. What comes back is an `Answer` - the verb ran (its line of the bootstrap's came: what a
+shell printed at login before it is dropped, as the bootstrap drops what comes before its mark) and ended by itself: its
+exit status, each line after the bootstrap's parsed as JSON, NaN, Infinity, a number past a float and a nesting past 64
+levels refused, every string in it, keys too, made one plain line (`text.one_line`), and what it said on its standard
+error as one plain line - a `NotRun` - it never started, no line of the bootstrap's: sudo refused it, or the machine's
+interpreter could not be run - or a `NotAnswered`: not reached (ssh's 255, or nothing said within its time), or out of
+its time, its answer's parse too, ended with what the run started for it, the lines it sent before kept where every one
+parses within a second; or more than it may send, in bytes or in lines, or a line that is no JSON, refused whole.
+`lib/claude_vm/guest/states.py`'s `read(job, target, parts, settings=...)` runs `probe` for the parts asked (`system`,
+`claude`, `github`, `work`, `tailscale`) and returns today's `lib/claude_vm/status/found.py`'s records of its answer
+(`ssh_found`), the parts not asked left out, so that a layer-2 step and status say each state by one definition,
+today's, which `tests/unit/test_status_vms.py` holds to the roles' own tasks; `settings` is one machine's in the shape
+status keeps, the probe's ask under `asked`. It runs as root only where a part root reads is asked (Tailscale's), and
+where sudo refuses, as the machine's user once more, within what is left of `limits.seconds`, root's part said not read,
+as today's `just status` does; every other read is the user's, with no `sudo` at all. found.py is reused as it stands,
+one name taken from it, so `states.py` is one of the modules `tests/unit/test_aw_vendor_trust.py`'s `CONTEXTS` names
+(today's `status` makes a TLS context elsewhere), and no module of Ansible is loaded.
 `tests/unit/test_aw_guest_remote.py` holds it on F30's stand-in machines: each bound, each refusal and each answer
 above, the tree of a verb out of its time ended (`claude_vm.proc`'s), the command line held to the bootstrap with every
 canary of a verb's words, its ask, its input and the password in no word of `ssh`'s and no file of the machine's,
-`sudo`'s rule call by call, the states equal to `found.py`'s records of today's probe on the same machine, and a layer-2
-step that asks whether Claude is signed in, in a Python of its own, with no Ansible loaded.
+`sudo`'s rule call by call, a password a stand-in `sudo` says back in no field of an outcome, of the states' record or
+of the job's folder, a `.bashrc` that prints, the states equal to `found.py`'s records of today's probe on the same
+machine, and a layer-2 step that asks whether Claude is signed in, in a Python of its own, with no Ansible loaded.
 
 **Layer 1's child.** `lib/claude_vm/guest/layer1.py`'s `run` converges one machine with one `ansible-playbook`, started
 through `children.start` as an `ansible` child of the run, in a session of its own and in the run's directory (`start`'s

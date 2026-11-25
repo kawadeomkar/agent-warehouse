@@ -35,9 +35,10 @@ through the host is settled, and from such a home that route is refused (`connec
 
 `run` starts the command line as a child of the run through `runs/children.py`'s `start`, in a process group of its
 own, hands it bytes on its standard input, and reads its standard output a line at a time under a bound for one line,
-one for the whole, a deadline, and a time to say anything at all; its standard error is kept to a fixed size; on a
-breach its group is killed. `hold` starts the same command line and keeps it, its standard input open for a line
-written later and its output read while it runs: the sign-ins' children. `forward` holds an `ssh` with the caller's
+one for the whole, a deadline, and a time to say anything at all, and, where the caller sets one, a bound on its lines;
+its standard error is kept to a fixed size; on a breach its group is killed. `hold` starts the same command line and
+keeps it, its standard input open for a line written later and bytes after it, and its output read while it runs: the
+sign-ins' children, and a helper call's where sudo is handed a password. `forward` holds an `ssh` with the caller's
 `-L` specs, a connection of its own whose far end is the command `sleep` for the caller's deadline, so that where the
 run that holds it was killed and could end it no more it ends by itself, once its deadline has passed and the
 connections through it have closed; nothing is recorded on the machine.
@@ -693,20 +694,24 @@ def ansible_vars(target: Target) -> dict[str, object]:
 @dataclasses.dataclass(frozen=True)
 class Limits:
     """What a child may take: `line` bytes in one line of its standard output, `most` in all of it, `seconds` from its
-    start to its end, `silent` seconds to say anything at all (None: no such limit), and `said` bytes of its standard
-    error kept."""
+    start to its end, `silent` seconds to say anything at all (None: no such limit), `said` bytes of its standard
+    error kept, and `lines` lines of its standard output (None: no such limit, bytes alone bound them)."""
 
     line: int = LINE_BYTES
     most: int = 4 * LINE_BYTES
     seconds: float = SECONDS
     silent: float | None = START_SECONDS
     said: int = 64 * 1024
+    lines: int | None = None
 
     def __post_init__(self) -> None:
         for name in ("line", "most", "said"):
             value = getattr(self, name)
             if not isinstance(value, int) or isinstance(value, bool) or value < 1:
                 raise Refused(f"the limit {name} is a number of bytes, 1 or more")
+        lines = self.lines
+        if lines is not None and (not isinstance(lines, int) or isinstance(lines, bool) or lines < 1):
+            raise Refused("the limit lines is a number of lines, 1 or more, or none")
         for name in ("seconds", "silent"):
             value = getattr(self, name)
             if value is None and name == "silent":
@@ -872,9 +877,9 @@ async def _collected(saying) -> str:
 
 
 class _Output:
-    """A child's standard output read a line at a time under its limits: each line plain, kept in `lines`; `cut` says
-    why the reading stopped where the child sent more than it may; `spoke` whether it said anything at all, which ends
-    its time to say anything (Limits.silent)."""
+    """A child's standard output read a line at a time under its limits: each line plain, kept in `lines`, as many as
+    Limits.lines at most; `cut` says why the reading stopped where the child sent more than it may; `spoke` whether it
+    said anything at all, which ends its time to say anything (Limits.silent)."""
 
     def __init__(self, stream: StreamReader | None, limits: Limits) -> None:
         self._stream = stream
@@ -897,6 +902,9 @@ class _Output:
                 del self._buffer[: at + 1]
                 if len(raw) > limits.line:
                     self.cut = f"it sent a line longer than {limits.line} bytes"
+                    break
+                if limits.lines is not None and len(self.lines) >= limits.lines:
+                    self.cut = f"it sent more than {limits.lines} lines"
                     break
                 line = text.plain_text(raw.decode("utf-8", "replace"))
                 self.lines.append(line)
@@ -1005,8 +1013,9 @@ async def run(
 
 
 class Held:
-    """A child the run holds while a sign-in waits on it: a line sent to its standard input when the caller has one, its
-    output read while it runs, its end the caller's, its deadline's or the run's (children.py's registry)."""
+    """A child the run holds while a sign-in waits on it, or a helper call on sudo's taking a password: a line sent to
+    its standard input when the caller has one, bytes written after it, its output read while it runs, its end the
+    caller's, its deadline's or the run's (children.py's registry)."""
 
     def __init__(self, process: Process, limits: Limits, deadline: float | None) -> None:
         import asyncio
@@ -1042,6 +1051,21 @@ class Held:
             raise Ended("the held child has ended: nothing more was sent") from None
         finally:
             del data
+
+    async def write(self, data: bytes) -> None:
+        """data, bytes, written to the child's standard input as they are and drained: what follows a line sent, a
+        program's text or its input, never a Secret (send's, a line alone) or text; Ended where the child has ended or
+        its input is closed or not held."""
+        if isinstance(data, Secret) or not isinstance(data, bytes):
+            raise Refused("what is written to a held child is bytes, never a Secret or text: a Secret is a line sent")
+        stream = self.process.stdin
+        if stream is None or stream.is_closing() or self.process.returncode is not None:
+            raise Ended("the held child has ended, or its standard input is closed: nothing was written")
+        try:
+            stream.write(data)
+            await stream.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            raise Ended("the held child has ended: nothing more was written") from None
 
     async def lines(self) -> AsyncIterator[str]:
         """What the child prints, a line at a time while it runs, plain, under its limits; to its end, its cut or its
