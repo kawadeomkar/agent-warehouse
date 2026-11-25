@@ -3,7 +3,8 @@ three system roles as they stand (docs/architecture/engine.md §16.10).
 
 `PLAY` is the play, `PARTS` its parts, each a role it runs under a tag of the role's own name, in their order (a part
 asked for is a `--tags` of layer1.run's), and `NAMES` the names its variables may hold: guest/wiring.py's one list, the
-play's own, each variable of its roles' table and each internal, which a caller hands layer1.run beside the play.
+play's own, each variable of its roles' table and each internal, which layer1.run holds a variables file beside the play
+to (its `PLAY_NAMES`).
 `variables(path, document, secrets=...)` writes the play's variables, the one road they take: through
 guest/variables.py's `write` alone, held to `NAMES`, after a setting the engine cannot serve yet (`UNSERVED`) is refused
 by its name, before anything is written and so before any child starts. Today that is one:

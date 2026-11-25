@@ -290,9 +290,10 @@ def test_every_name_the_function_makes_is_one_the_play_takes_and_every_one_is_ma
         digest = overrides.set(where, name, value, None, digest)
     made = wiring.role_variables(_settings(where), NAME, ROLES)
     assert set(made) == wiring.NAMES
-    # Written by the play's own writer, and read back by the hold layer 1 asks of the file.
+    # Written by the play's own writer, and read back by the hold layer 1 asks of the file, with layer 1's own list of
+    # the play's names: a name the play takes is one of guest/wiring.py's, never one a caller adds.
     written = system.variables(tmp_path / "vars.json", made, secrets=())
-    assert play_variables.held(written, system.NAMES) == written
+    assert play_variables.held(written, layer1.PLAY_NAMES[system.PLAY]) == written
 
 
 def test_settings_that_are_not_resolve_s_are_refused(where) -> None:

@@ -47,7 +47,7 @@ from harness import REPO, repo_files
 
 from claude_vm import checks, proc
 from claude_vm.fleet import paths
-from claude_vm.guest import events, layer1
+from claude_vm.guest import events, layer1, system
 from claude_vm.runs import children, rundir
 from claude_vm.runs import job as jobs
 from claude_vm.schema import printer
@@ -768,8 +768,7 @@ def _forged(at: runner.Target, identity: str) -> runner.Target:
         ("a play that is not there", "the play, "),
         ("a play by a relative path", "the play is an absolute path"),
         ("a variables file that is not there", "the variables file, "),
-        ("a variables file with no names", "a variables file is held to the names its play takes, given beside it"),
-        ("the names as one string", "the names a play takes are a collection of names"),
+        ("a variables file beside a play with no names", "takes no variables file: layer 1 holds one to the names of"),
         ("a name the play does not take", "aw_x is no variable of the play's"),
         ("a part that is no role's name", "each part asked for is a role's name"),
         ("a part twice", "each part asked for is a role's name, once"),
@@ -808,10 +807,11 @@ def test_what_is_not_one_is_refused_before_anything_is_written_or_started(made, 
         play = Path("play.yml")
     elif case == "a variables file that is not there":
         variables = tmp_path / "absent.json"
-    elif case in ("a variables file with no names", "the names as one string", "a name the play does not take"):
+    elif case in ("a variables file beside a play with no names", "a name the play does not take"):
         variables = tmp_path / "given.json"
         variables.write_text('{"aw_x": {"__ansible_unsafe": "x"}}')
-        given["names"] = {"the names as one string": "aw_x", "a name the play does not take": ["aw_y"]}.get(case)
+        if case == "a name the play does not take":
+            play = system.PLAY
     elif case == "a part that is no role's name":
         given["tags"] = ["common", "a,b"]
     elif case == "a part twice":

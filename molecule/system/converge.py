@@ -8,8 +8,8 @@ settings.yml, written by the overrides' writer (`FLEET`), or given for the run a
 overrides' resolve of them is made the play's variables by guest/wiring.py's `role_variables`, with nothing else, no
 group_vars or host_vars beside the play or the inventory the child reads (refused before the child starts); writes them
 through the system play's own writer (guest/system.py, then guest/variables.py), which refuses what the engine cannot
-serve yet and any name the play does not take; and starts the child through `layer1.run`, given the play's names
-(system.NAMES) beside it, as the engine starts one, but with the child's test-only connection,
+serve yet and any name the play does not take; and starts the child through `layer1.run`, which holds the file to the
+play's names again, from its own list, as the engine starts one, but with the child's test-only connection,
 `community.docker.docker` to the container, and the folder of collections that connection is found in: the one this
 scenario's own Ansible was given (ANSIBLE_COLLECTIONS_PATH), the first of it that holds community.docker. It takes no
 address and starts no ssh. The machine's identity is made from the container's name, and a key is filed under it in a
@@ -130,7 +130,6 @@ def main(container: str) -> int:
                 name=NAME,
                 host_flag="",
                 env=os.environ,
-                names=system.NAMES,
                 test_connection={
                     "ansible_connection": "community.docker.docker",
                     "ansible_host": container,
