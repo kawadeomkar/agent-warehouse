@@ -106,8 +106,18 @@ _program = PROGRAM
 class Unwritten(ValueError):
     """A line the printer will not write, raised with the check's kind of sentence, which never says a value: only the
     code asks the printer for a line, from values the one check held or the engine read, so a line refused is the
-    code's own fault, never the words a person typed. cli/main.py says it in its sentence, never as a traceback. A
-    ValueError, as every caller that catches one expects."""
+    code's own fault, never the words a person typed. Said as own_fault says it, never as a traceback: by cli/main.py
+    where it reaches main, and by a run that ends the process at once with a call still in a thread
+    (runs/attached.py's _end_now), where it never does. A ValueError, as every caller that catches one expects."""
+
+
+# What a line the printer would not write is said with, after the printer's own sentence: the code asked for it.
+OWN_FAULT = "a fault of the program's own, not of the words typed"
+
+
+def own_fault(unwritten: Unwritten) -> str:
+    """The one line an Unwritten is said in to a person: the printer's sentence, then that the fault is the code's."""
+    return f"{unwritten} ({OWN_FAULT})"
 
 
 def _shown(text: str) -> bool:

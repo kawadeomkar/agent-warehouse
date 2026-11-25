@@ -16,7 +16,8 @@ value that is off is not said; a placeholder is <name>, the name help gives it, 
 and each placeholder given back to aw, as a word or as JSON, is refused in a sentence of aw's own. A form writes its
 placeholders last, and over the printer's whole domain, every verb with each placeholder beside the rest, a form pasted
 into /bin/sh and bash runs nothing, or words aw refuses, with no exception; a form the printer refuses is its
-Unwritten, which aw says in one sentence as its own fault and never as a traceback; and no module of the new engine
+Unwritten, which aw says in one sentence as its own fault and never as a traceback, before a handler's run and in one,
+a call in a thread under way or none; and no module of the new engine
 extends a printer's line with words of its own, by +, %, a join, an f-string, print or its replace, through anything
 that hands it on, or says a sentence built at its call, while lines joined by a newline, and a line written with its
 end, are whole. The host's flag is given by every caller of a verb with the shared --host, and only a verb whose --host
@@ -45,7 +46,7 @@ import textwrap
 from pathlib import Path
 
 import pytest
-from aw_kit import LAUNCHER, imports_of, on_path, run_aw, run_launcher
+from aw_kit import LAUNCHER, environment, imports_of, on_path, run_aw, run_launcher
 from harness import REPO
 from test_aw_cli_parse import SAMPLES
 from test_aw_cli_rules import REFUSALS
@@ -54,6 +55,7 @@ from test_aw_layout import NEW
 
 from claude_vm.cli import dispatch, habits, main, parse
 from claude_vm.cli import help as helps
+from claude_vm.fleet import paths
 from claude_vm.schema import check as checks
 from claude_vm.schema import printer, rules
 from claude_vm.schema.patterns import full
@@ -1051,8 +1053,94 @@ def test_a_line_the_printer_will_not_write_is_said_by_main_never_shown_as_a_trac
     assert main.main([str(REPO / "tools" / "aw"), "status"]) == EXITS["refused"] == 1
     out, err = capsys.readouterr()
     assert len(asked) == 1 and out == ""
-    assert err.splitlines() == [f"{refused.value} ({main.OWN_FAULT})"]
+    assert err.splitlines() == [printer.own_fault(refused.value)]
+    assert printer.own_fault(refused.value) == f"{refused.value} (a fault of the program's own, not of the words typed)"
     assert str(refused.value).startswith("error: a form of aw status ") and "Traceback" not in err
+
+
+# A handler's run that meets a line the printer will not write, in a child of the test's: a run with a call still in a
+# thread ends its process at once (runs/attached.py's _end_now). main.main dispatches a handler that runs runs.run
+# with a body that says aw status <name>... the way given: with no thread (plain), with a call still in a thread
+# (thread, an asyncio.to_thread left under way), or in one step of a gather while the other waits in a thread
+# (gather). Its argv: the lib folder, the checkout, the jobs folder and the way.
+IN_A_RUN = r"""
+import asyncio, sys, threading, time
+lib, checkout, jobs_dir, way = sys.argv[1:5]
+sys.path.insert(0, lib)
+from pathlib import Path
+from claude_vm import runs
+from claude_vm.cli import dispatch, main
+from claude_vm.schema.printer import said
+from claude_vm.schema.words import PLACEHOLDER, Line
+
+FORM = Line("status", {"names": PLACEHOLDER}, host_flag="")
+CALLING = threading.Event()
+KEPT = []
+
+
+def waits():
+    CALLING.set()
+    time.sleep(600)
+
+
+async def says():
+    while way != "plain" and not CALLING.is_set():
+        await asyncio.sleep(0.01)
+    print(said("{line}", {"line": FORM}))
+    return 0
+
+
+async def body(ctx):
+    if way == "thread":
+        KEPT.append(asyncio.ensure_future(asyncio.to_thread(waits)))
+    if way == "gather":
+        await asyncio.gather(asyncio.to_thread(waits), says())
+    return await says()
+
+
+def handler(*given):
+    draft = runs.Draft(
+        Path(jobs_dir),
+        "deploy",
+        "aw deploy alpha",
+        "pve",
+        ["alpha"],
+        {"kind": "terminal"},
+        True,
+        values={"names": ["alpha"]},
+        lock_machines=[("pve", "alpha")],
+    )
+    return runs.run(draft, body)
+
+
+dispatch.dispatch = handler
+sys.exit(main.main([str(Path(checkout) / "tools" / "aw"), "status"]))
+"""
+
+
+@pytest.mark.parametrize("way", ["plain", "thread", "gather"])
+def test_a_line_the_printer_will_not_write_in_a_handler_s_run_is_said_in_one_line_never_a_traceback(
+    way, home, monkeypatch
+) -> None:
+    # review/code/H37.md 1: with no thread the error reaches main, which says it; with a call still in a thread the run
+    # ends the process at once and main never sees it, so the run says it as main does: one line, exit 1.
+    monkeypatch.setattr(printer, "_program", printer.PROGRAM)
+    with pytest.raises(printer.Unwritten) as refused:
+        said("{line}", {"line": Line("status", {"names": PLACEHOLDER}, host_flag="")})
+    env = environment(home)
+    env.pop(main.STARTED_AS, None)
+    jobs_dir = paths.jobs_dir(paths.home(REPO))
+    ended = subprocess.run(
+        [sys.executable, "-I", "-c", IN_A_RUN, str(REPO / "lib"), str(REPO), str(jobs_dir), way],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=90,
+        check=False,
+    )
+    assert (ended.returncode, ended.stdout) == (EXITS["refused"], ""), ended.stderr
+    assert ended.stderr.splitlines() == [printer.own_fault(refused.value)], ended.stderr
 
 
 def _program_said(result: subprocess.CompletedProcess[str]) -> str:

@@ -257,7 +257,9 @@ check takes beside it (`aw status --json <name>...`, `aw login --host lab2 <name
 names a real VM in its place, or another placeholder beside it (`aw destroy <name>... --confirm <names>`), or a value
 the rules refuse there, and help's `aw deploy [<name>...]` is help's own. No form the printer writes leaves a whole
 command, with no exception. Only the code asks the printer for a line, so a line it will not write is the code's own
-fault: `cli/main.py` says an `Unwritten` that reaches it in its sentence and exits 1, never as a traceback (16.3).
+fault: `cli/main.py` says an `Unwritten` that reaches it in its sentence and exits 1, never as a traceback (16.3), and
+a run that ends the process at once with a call still in a thread, which `main` then never sees, says it the same way
+(16.8): both through the printer's `own_fault`, the sentence and `OWN_FAULT`, that the fault is the program's own.
 Given back to `aw` as a word or as JSON,
 each placeholder is refused by the one check, in `aw`'s own words. The values are the parser's or a handler's:
 `default_vm` is said by naming no VM, and a value that is off (a flag not given, a count of 0, an empty
@@ -329,7 +331,9 @@ beside each other field given a value or a placeholder, and beside every other f
 each host's flag the verb takes) and help's usage lines, each pasted into `/bin/sh` and `bash`, running nothing in a
 folder with no file of a placeholder's name, and in one with a file of each nothing or words `aw` refuses, with no
 exception, and the printer refusing only a form whose one placeholder is its names beside words the check takes, as
-its `Unwritten`, which `aw` says in one sentence as its own fault and exits 1 with, no traceback; the host's flag; a
+its `Unwritten`, which `aw` says in one sentence as its own fault and exits 1 with, no traceback, raised before a run,
+in a run's body with no thread, with a call still in a thread, and in a step of a `gather` while the other waits in
+one; the host's flag; a
 value of free text is never said back from values no run took, and every call says `refused`; a value the check
 refuses is never printed; the program as it was started, quoted, in this process, from a path a shell would split and
 through the launcher, the check's sentences and help's among them; by scans of their syntax, the five guards above,
@@ -348,7 +352,9 @@ it takes the program as it was started out of its environment at once, as the la
 quoted as one word a shell reads back. A line with a placeholder (`aw code <name>`) is a form, which help, a refusal and
 a question show; a line offered as the command to run holds none. A line the printer will not write, its `Unwritten`,
 which only the code asks it for, is said by `main.py` as a refusal is, in the printer's sentence and with the words
-that it is the program's own fault, and exits 1, wherever it is raised, a handler's run included: never a traceback.
+that it is the program's own fault, and exits 1, wherever it is raised, a handler's run included: where the run ends
+the process at once with a call still in a thread, so that the error never reaches `main`, the run says it in the same
+line (16.8). Never a traceback.
 It imports `schema/` and what it needs to answer at once. It imports `engine/` only inside the function that dispatches
 a verb that changes something, so a refusal, help or a read never loads it. It never imports Ansible, which the engine
 only ever runs as a child, nor `control/` or pydantic. `tools/aw` imports it, and so does the agents' server's own entry
@@ -2268,7 +2274,9 @@ its own, and never joined, nor known to the interpreter's exit, which joins a `T
 hold a cancelled run's process for the rest of a call, up to `follow`'s ten minutes. Where one of them is still in a
 call once the record is written and the terminal put back, or any thread Python would wait for at its exit, the process
 ends at once: its streams flushed, an error the body did not handle said as Python says one it ends on, then `os._exit`
-with the status.
+with the status. A line the printer would not write, its `Unwritten`, which `cli/main.py` then never sees, is said as
+`main.py` says it, in one line, the code's own fault (`printer.own_fault`), never a traceback, and the status is 1
+(16.2, 16.3).
 
 **No thread blocks a signal.** A process forked from a thread starts with that thread's signal mask, which stays through
 `exec`, so a program a call in a thread starts with `subprocess` - `route.py`'s `ssh`, the hop's shared master among

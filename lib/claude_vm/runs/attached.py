@@ -39,7 +39,8 @@ closes and leaves the playbook's detached task workers running; the body's async
 closed, for SETTLE seconds at most; the run's directory is removed; and the exit record is written last. Then nothing
 holds the process: the engine's blocking calls (asyncio.to_thread) run on daemon threads of the ladder's own, the
 loop's default executor, which are never joined, and where one is still in a call the process ends at once (os._exit)
-once its streams are flushed, an error first said as Python says one. A signal ignored on the way in, as `nohup` or a
+once its streams are flushed, an error first said as Python says one, but a line the printer would not write (its
+Unwritten), said in one line as cli/main.py says it, never a traceback. A signal ignored on the way in, as `nohup` or a
 shell's `&` leaves one, stays ignored. No child subreaper and no systemd scope: a shared connection's master daemonises
 out of the tree, so no end here reaches it, where under a subreaper one run's end would cut another run's connection.
 
@@ -77,6 +78,7 @@ from typing import TYPE_CHECKING, Any
 
 from claude_vm.runs import children, rundir
 from claude_vm.runs import job as jobs
+from claude_vm.schema import printer
 from claude_vm.schema.words import EXITS
 from claude_vm.text import plain_text
 
@@ -388,10 +390,15 @@ def _joined_at_exit() -> bool:
 
 def _end_now(status: int, error: BaseException | None) -> None:
     """The process ended at once with status, a thread still in a call left as it is: an error the body did not
-    handle is said first, as Python says one it ends on, and the status is then 1."""
+    handle is said first, as Python says one it ends on, and the status is then 1. A line the printer would not write
+    (its Unwritten), which cli/main.py never sees from here, is said as main says it: one line, the code's own fault
+    (schema/printer.py's own_fault), never a traceback, exit 1."""
     if error is not None:
         with contextlib.suppress(Exception):
-            sys.excepthook(type(error), error, error.__traceback__)
+            if isinstance(error, printer.Unwritten):
+                print(printer.own_fault(error), file=sys.stderr)
+            else:
+                sys.excepthook(type(error), error, error.__traceback__)
         status = 1
     _flush()
     os._exit(status)

@@ -1132,7 +1132,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       default VM's, is its `Unwritten`, as are `deploy --detach`'s, `login`'s, `status`'s and `destroy`'s names alone
       (the printer's docstring lists them); a sentence names a real VM there, or another placeholder beside it. Only
       the code asks for a line, so `cli/main.py` says an `Unwritten` as the program's own fault, in one sentence, exit
-      1, never a traceback. No form leaves a whole command, with no exception.
+      1, never a traceback, and so does a run that ends the process at once with a call still in a thread
+      (`runs/attached.py`'s `_end_now`), where it never reaches `main`: both through the printer's `own_fault`. No
+      form leaves a whole command, with no exception.
     - `host_flag` is given by every caller of a verb whose row has the shared `--host` and whose values give none
       (`None` is `Unwritten` there), and taken only by a verb whose `--host` runs it against a host; `refused` is
       keyword-only with no default, so every caller says whether a value of free text may be said back.
@@ -1143,8 +1145,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `command`, by any name, only by `COMMAND_USERS`; every use of `line` or `argv`, through any name or a
       `functools.partial`, saying `refused`; no printer's line extended, by a scan of its own; every form of the
       printer's whole domain (each verb, each placeholder beside the rest, masked and not) and help's usage lines,
-      pasted into `/bin/sh` and `bash`, a refused one said by `main.py`; each module of `schema/` imported alone,
-      first.
+      pasted into `/bin/sh` and `bash`, a refused one said in one line by `aw`, before a run and in one, with a call in
+      a thread or none; each module of `schema/` imported alone, first.
 - **One transport sends every HTTPS request of the engine, follows no redirect, reads no certificate variable, and
   takes a proxy only as an argument.** Read
   [§16.7](docs/architecture/engine.md#167-vendors--one-https-transport-tailscales-calls-verified-downloads) first.
