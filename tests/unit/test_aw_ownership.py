@@ -258,7 +258,7 @@ def test_a_building_is_made_of_a_build_vm_of_the_asking_run_s_own_alone() -> Non
         (_read(build, template=True), JOB, CLONE, "is a template already"),
         (_read(_notes(job=JOB)), JOB, CLONE, "holds a VM's record, a VM of the fleet, which is never made a template"),
         (_read(_notes(uuid=None, stage="cloning", job=JOB)), JOB, CLONE, "a VM of the fleet"),
-        (_read(_notes(kind="golden", stage=None, job=JOB)), JOB, CLONE, "holds a golden's record and is no template"),
+        (_read(_notes(kind="template", stage=None, job=JOB)), JOB, CLONE, "holds a template's record and is no"),
         (_read("mine"), JOB, CLONE, "no record of this engine's"),
         (_read(_notes(kind="build", stage=None, uuid=OTHER, job=JOB)), JOB, CLONE, "does not name its own UUID"),
         (_read(build, uuid=""), JOB, CLONE, "has no SMBIOS UUID"),
@@ -288,6 +288,35 @@ def test_a_building_is_made_of_a_build_vm_of_the_asking_run_s_own_alone() -> Non
         assert str(refused.value) == ownership.MADE_BY_BUILDING
     with pytest.raises(TypeError, match="judges a Member"):
         building(made, job=JOB, clone=CLONE)
+
+
+def test_a_build_vm_the_run_wrote_a_golden_s_record_on_is_a_building_and_a_copy_of_one_is_not() -> None:
+    """Card E18's order, today's (the coordinator's ruling on review 51b's M-B): the run writes the golden's record on
+    its own build VM, reads it back as a clone would, makes the Building from that read and converts. A record of kind
+    golden is taken where one of kind build is, on the same terms and no others: never on a template, nor on another
+    run's VM, nor on one at another clone's VMID, nor on a clone of a golden, whose record, copied with the golden's
+    notes, names the golden's UUID; and owned() still refuses it, a golden's record on a VM that is no template."""
+    golden = _notes(kind="golden", stage=None, job=JOB, build="1")
+    made = building(_read(golden), job=JOB, clone=CLONE)
+    assert (made.name, made.vmid, made.uuid, made.digest) == ("alpha", 9010, UUID, DIGEST)
+    another = answers.task(UPID, "pve", "clone", 9011, 9000)
+    for member, job, clone, says in (
+        (_read(golden, template=True), JOB, CLONE, "is a template already"),
+        (_read(golden), ANOTHER_JOB, CLONE, "the build VM of another run's job"),
+        (_read(_notes(kind="golden", stage=None, job=ANOTHER_JOB)), JOB, CLONE, "the build VM of another run's job"),
+        (_read(_notes(kind="golden", stage=None)), JOB, CLONE, "the build VM of another run's job, or of none"),
+        (_read(golden), JOB, another, "not the VM the asking run's own clone made"),
+        (_read(golden), JOB, None, "not the VM the asking run's own clone made"),
+        (_read(golden, uuid=OTHER), JOB, CLONE, "golden record does not name its own UUID"),
+        (_read(_notes(kind="golden", stage=None, uuid=None, job=JOB)), JOB, CLONE, "does not name its own UUID"),
+        (_read(golden, uuid=""), JOB, CLONE, "has no SMBIOS UUID"),
+        (Member.read(_config(golden), twins=(9011,)), JOB, CLONE, "carries one UUID with VMID 9011"),
+    ):
+        assert says in build_refusal(member, job, clone), (says, build_refusal(member, job, clone))
+        with pytest.raises(NotOwned):
+            building(member, job=job, clone=clone)
+    with pytest.raises(NotOwned, match="holds a golden's record and is no template"):
+        owned(_read(golden), job=JOB, clone=CLONE)
 
 
 # ------------------------------------------------------------------------------------- the rules by scans ----

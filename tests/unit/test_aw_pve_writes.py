@@ -13,15 +13,16 @@ one is DigestMismatch with nothing written; edit_config reads and applies again,
 Owned reaches another VM at its VMID (card G28): every other write reads the configuration first and holds its SMBIOS
 UUID to the Owned's, Changed with nothing sent, a resize sending that read's digest. A conversion to a template is made
 on a Building alone, a build VM of the asking run's own, and held to its UUID and digest as a deletion is; a VM of the
-fleet, a template, another run's build VM and one at another clone's VMID are refused. A write to a VM a clone or a
-deletion holds is Locked, and
-tried once; so is one that meets its configuration's file lock, and a clone's task that meets its source's lock names
-the source. A write whose answer is cut is the transport's Unknown, sent once. A task that fails raises with the last
-lines of its log, made plain; one that ends with warnings is a success, its warnings' lines kept; one that runs past its
-deadline raises then, and is not waited for longer, each poll held to what is left of it; one whose run stops before its
-end is read is Stopped, between polls or during one, and goes on on Proxmox, unfollowed, and a poll that fails once the
-run has stopped is Stopped only where the run's close made it fail (the transport's mark), its own failure, a refusal
-among them, raised as itself otherwise. The log of a task that has
+fleet, a template, another run's build VM and one at another clone's VMID are refused. Card E18's order makes a golden:
+the golden's record written on the build VM and read back, the Building made from that read and converted; one made
+before the write is Changed, and neither the golden nor a clone of it is made a template again. A write to a VM a clone
+or a deletion holds is Locked, and tried once; so is one that meets its configuration's file lock, and a clone's task
+that meets its source's lock names the source. A write whose answer is cut is the transport's Unknown, sent once. A
+task that fails raises with the last lines of its log, made plain; one that ends with warnings is a success, its
+warnings' lines kept; one that runs past its deadline raises then, and is not waited for longer, each poll held to what
+is left of it; one whose run stops before its end is read is Stopped, between polls or during one, and goes on on
+Proxmox, unfollowed, and a poll that fails once the run has stopped is Stopped only where the run's close made it fail
+(the transport's mark), its own failure, a refusal among them, raised as itself otherwise. The log of a task that has
 ended is read within what is left of the same deadline and never decides the outcome: where it cannot be read, a success
 is a success with no lines and a failure TaskFailed with none, the run's stop among what cuts the read. A deletion sends
 destroy-unreferenced-disks alone, and purge only where it is asked for. The rules with a test of their own: a PUT or a
@@ -1147,6 +1148,52 @@ def test_only_a_build_vm_of_the_run_s_own_is_made_a_template(fleet) -> None:
         assert client.follow(client.to_template(fleet.building(9021, other))).ok
         assert client.config("pve", 9021).template and not client.config("pve", 9010).template
     assert fleet.writes()[2:] == [("POST", "nodes/pve/qemu/9021/template")]
+
+
+def test_a_golden_is_made_in_e18_s_order_and_neither_it_nor_a_clone_of_it_is_made_one_again(fleet) -> None:
+    """Card E18's order, today's (roles/proxmox_template/tasks/golden_template.yml; the coordinator's ruling on review
+    51b's M-B): the run writes the golden's record on its own build VM, reads it back as a clone would, makes the
+    Building from that read and converts, so that the conversion holds the digest of the configuration that holds the
+    golden's record. A Building made before that write is Changed, nothing sent. Then the golden, a template, is never
+    made one again; another run's build VM given a golden's record is not the asking run's; and a clone of the golden,
+    even the asking run's own, carries its record, which names the golden's UUID: a copy, never made a template. The
+    golden's record is written as root writes it here: the write's road on a build VM is E18's to build."""
+    with fleet.client() as client:
+        clone = _cloned(client)
+        other = _cloned(client, 9021, "epsilon")
+        # The run's build VM with its build record, as the run writes one after its clone: a Building of it now.
+        early = fleet.building(9020, clone)
+        # The golden's record written on it, its own UUID, the run's job and the build steps' version.
+        uuid = fleet.read(9020).identity
+        golden = {"kind": "golden", "uuid": uuid, "job": JOB, "build": "1"}
+        _pve(fleet.base, "PUT", "nodes/pve/qemu/9020/config", description=block.render("", golden))
+        with pytest.raises(Changed, match="changed since the read it was judged a build VM on"):
+            client.to_template(early)
+        assert fleet.writes() == [("POST", "nodes/pve/qemu/9000/clone")] * 2
+        # Read back as a clone would read it; the Building made from that read; converted.
+        read = client.config("pve", 9020)
+        assert block.parse(read.description) == golden
+        made = ownership.building(ownership.Member.read(read, twins=()), job=JOB, clone=clone)
+        assert client.follow(client.to_template(made)).ok
+        converted = client.config("pve", 9020)
+        assert converted.template and block.parse(converted.description) == golden and converted.identity == uuid
+        # The golden is a template now: never made one again.
+        with pytest.raises(NotOwned, match="is a template already"):
+            ownership.building(ownership.Member.read(converted, twins=()), job=JOB, clone=clone)
+        # Another run's build VM, given a golden's record of its own UUID and that run's job: not the asking run's.
+        theirs = {"kind": "golden", "uuid": fleet.read(9021).identity, "job": ANOTHER_JOB, "build": "1"}
+        _pve(fleet.base, "PUT", "nodes/pve/qemu/9021/config", description=block.render("", theirs))
+        with pytest.raises(NotOwned, match="the build VM of another run's job"):
+            ownership.building(ownership.Member.read(client.config("pve", 9021), twins=()), job=JOB, clone=other)
+        # A clone of the golden by the asking run's own clone call: its record is the golden's, naming its UUID.
+        task = client.clone("pve", 9020, 9022, "zeta", ENGINE_POOL)
+        client.follow(task)
+        of_golden = client.config("pve", 9022)
+        assert of_golden.identity != uuid and block.parse(of_golden.description) == golden
+        with pytest.raises(NotOwned, match="golden record does not name its own UUID"):
+            ownership.building(ownership.Member.read(of_golden, twins=()), job=JOB, clone=task)
+        assert not client.config("pve", 9021).template and not of_golden.template
+    assert fleet.writes()[2:] == [("POST", "nodes/pve/qemu/9020/template"), ("POST", "nodes/pve/qemu/9020/clone")]
 
 
 @pytest.mark.parametrize(

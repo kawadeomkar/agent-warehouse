@@ -1123,14 +1123,19 @@ does not, and is the one maker of one: its name, node, VMID, SMBIOS UUID and the
 owned on. Made by hand, or by `dataclasses.replace` or `copy.replace` of one, it is a `TypeError`. The client's writes
 of a VM above and `engine/record.py`'s writer take an `Owned` and nothing else. `building(member, job=, clone=)`
 returns a `Building`, which nothing else makes either: the VM a golden image is built in (card E18), the one thing
-`to_template` takes, made from a fresh read of a VM that is no template, whose record is of kind `build` and names its
-own UUID and the asking run's job, at the VMID the asking run's own clone made; `build_refusal` says why not, as
-`refusal` does for `owned`: a template, a VM of the fleet (a record of kind `vm`), another run's build VM, one at
-another clone's VMID, a copy are each refused. An `Owned` is never a `Building`, nor the other way.
+`to_template` takes, made from a fresh read of a VM that is no template, whose record is of kind `build`, or `golden`
+once the run has written the golden's record on it, and names its own UUID and the asking run's job, at the VMID the
+asking run's own clone made; `build_refusal` says why not, as `refusal` does for `owned`: a template, a VM of the fleet
+(a record of kind `vm`), another run's build VM, one at another clone's VMID, a copy are each refused, a clone of a
+golden among the copies, since its record names the golden's UUID. E18's order is today's: the golden's record
+written on the build VM, read back as a clone would read it, the `Building` made from that read, then the conversion,
+which holds the digest of the configuration that holds the golden's record. An `Owned` is never a `Building`, nor the
+other way.
 `tests/unit/test_aw_ownership.py` holds each refusal, a record judged alike whichever reader read it, the records the
 typed reader refuses among them, the first form owned by its run's job and clone's task alone, an `Owned` made by
-`owned` alone and a `Building` by `building` alone of the asking run's own build VM, a member no reader made never
-judged for a change, a member read with no twins said a `TypeError` and one with a twin refused by both judges, and,
+`owned` alone and a `Building` by `building` alone of the asking run's own build VM, its record the build's or the
+golden's the run wrote on it, never a copy of a golden's, a member no reader made never judged for a change, a member
+read with no twins said a `TypeError` and one with a twin refused by both judges, and,
 by scans, that a member is marked read in its readers alone (`tests/unit/aw_kit.py`'s one helper for the tests of what
 a write sends, allowed by name), that `Member.read` is reached in `lib/` by `engine/fleet.py`'s reader of the pool
 alone, under any name a `from` import gives it, that the module imports `record.py` and `answers.py` and
@@ -1217,7 +1222,9 @@ as is an `edit_config` of the latter; no write of an `Owned` reaching another VM
 refused (`write_config` by Proxmox's digest, the rest `Changed` with nothing sent but the read) and the VM there as it
 was; a resize sending its read's digest; a write given anything but an `Owned` refused with nothing sent, and a
 conversion anything but a `Building`; a VM of the fleet, a template, another run's build VM and one at another clone's
-VMID never made a template, and the run's own build VM made one; and a UPID with a `/` in a part of its own
+VMID never made a template, and the run's own build VM made one; a golden made in E18's order, a `Building` made before
+its record was written `Changed`, and neither it nor a clone of it made a template again; and a UPID with a `/` in a
+part of its own
 `Malformed`. Its
 rules: a `PUT` or a `POST` to a configuration's path with no `digest`, or an empty one, is refused before it is sent,
 `%`-escaped spellings of the path among them, while a path with a `%` is sent as it was given, `harness.fake_fleet`'s
