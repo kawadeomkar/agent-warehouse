@@ -16,6 +16,9 @@ and a kill (docs/architecture/engine.md §16.8).
 - SIGHUP or SIGTERM, a closed window or a kill: the tree is ended with that signal, the record says `cancelled` with
   the signal as its reason, and the process puts the signal back to its default and dies of it. After a Ctrl-C, the
   signal is what the record says, and what ignores it is killed SETTLE seconds after it, not at the Ctrl-C's grace.
+  SIGQUIT, a Ctrl-\\, is taken as SIGTERM is, so that a question's change back runs: the tree ended with SIGTERM, never
+  SIGQUIT, whose default writes a core, what was typed and not read thrown away as at a Ctrl-C, and the process dies
+  of SIGQUIT with no core of its own (RLIMIT_CORE).
 - An error the body did not handle: the tree is ended, the record says `failed`, and the error is raised again.
 - A body that returns: what it still holds of its children is ended, and the record says `succeeded` for 0, `failed`
   for any other status, and `cancelled` for 130; but `declined` for one that said, by `Context.decline`, that the
@@ -94,8 +97,9 @@ if TYPE_CHECKING:
 # How long a run stopped by Ctrl-C gives what it started to end by itself before what is left is ended: today's MCP
 # jobs' STOP_GRACE (lib/claude_vm/mcp/jobs.py), which tests/unit/test_aw_attached.py holds equal.
 STOP_GRACE = 30
-# What ends a run from outside: a kill, and the terminal closing. With SIGINT, the signals the ladder takes.
-OUTSIDE = (signal.SIGTERM, signal.SIGHUP)
+# What ends a run from outside: a kill, the terminal closing, and a Ctrl-\ (SIGQUIT, taken as SIGTERM is). With SIGINT,
+# the signals the ladder takes.
+OUTSIDE = (signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT)
 TAKEN = (signal.SIGINT, *OUTSIDE)
 # How long a step's own end is waited for: a body cancelled, a child signalled from outside or held at the run's end.
 SETTLE = 5
@@ -387,8 +391,15 @@ def _flush() -> None:
 
 
 def _die_of(signum: int) -> None:
-    """The process ended by signum, at its default, as a shell expects to see a kill or a hangup end it."""
+    """The process ended by signum, at its default, as a shell expects to see a kill, a hangup or a quit end it: for
+    SIGQUIT with no core, since the run has ended its tree and written its record, and a core of the run's own Python is
+    nobody's to read."""
     _flush()
+    if signum == signal.SIGQUIT:
+        import resource
+
+        with contextlib.suppress(ValueError, OSError):
+            resource.setrlimit(resource.RLIMIT_CORE, (0, resource.getrlimit(resource.RLIMIT_CORE)[1]))
     signal.signal(signum, signal.SIG_DFL)
     signal.pthread_sigmask(signal.SIG_UNBLOCK, {signum})
     os.kill(os.getpid(), signum)
@@ -457,9 +468,9 @@ class _Ladder:
         self.interrupts = 0
         # Why the person's answer ended the run, where the body said so (Context.decline).
         self.declined: str | None = None
-        # The signal that ended the run at once while its body ran: SIGINT for a second Ctrl-C, SIGTERM or SIGHUP.
+        # The signal that ended the run at once while its body ran: SIGINT for a second Ctrl-C, or one of OUTSIDE.
         self.cut: int | None = None
-        # SIGTERM or SIGHUP, whenever it came, and when: what the process dies of once its record is written.
+        # One of OUTSIDE, whenever it came, and when: what the process dies of once its record is written.
         self.dies_of: int | None = None
         self.dies_at: float | None = None
         # Every process found under the run, with its start: a child that ends leaves its own under PID 1.
@@ -488,18 +499,20 @@ class _Ladder:
     # ---------------------------------------------------------------- the handler, and what it starts ----
 
     def signalled(self, signum: int, _frame: object) -> None:
-        """The handler of TAKEN, in the run's thread. A first Ctrl-C is the loop's to handle; a second, SIGHUP and
-        SIGTERM end the tree here and, while the body runs, raise Abandoned, so that nothing stuck holds the end. While
-        the interrupts are held (_held) it only takes note, whatever thread the kernel handed the signal to."""
+        """The handler of TAKEN, in the run's thread. A first Ctrl-C is the loop's to handle; a second, and OUTSIDE's
+        (SIGHUP, SIGTERM, SIGQUIT), end the tree here and, while the body runs, raise Abandoned, so that nothing stuck
+        holds the end. While the interrupts are held (_held) it only takes note, whatever thread the kernel handed the
+        signal to."""
         if self.holding:
             self.noted.append(signum)
             return
         ending = self.closing or (self.task is not None and self.task.done())
-        if signum == signal.SIGINT:
-            # What was typed and not read yet thrown away, as the terminal's own Ctrl-C throws it away: a live region
-            # or a question keeps what the terminal has not written at a Ctrl-C (NOFLSH), and the kernel then keeps
-            # what was typed too.
+        if signum in (signal.SIGINT, signal.SIGQUIT):
+            # What was typed and not read yet thrown away, as the terminal's own Ctrl-C or Ctrl-\ throws it away: a
+            # live region or a question keeps what the terminal has not written at the key (NOFLSH), and the kernel
+            # then keeps what was typed too.
             live_region.discard_typed()
+        if signum == signal.SIGINT:
             self.interrupts += 1
             if self.interrupts == 1:
                 if not ending:
@@ -513,7 +526,8 @@ class _Ladder:
                 return
             self.dies_of = signum
             self.dies_at = self.loop.time()
-            self.end_tree(signum)
+            # A quit ends the tree as a kill does: SIGQUIT's default would have each child write a core.
+            self.end_tree(signal.SIGTERM if signum == signal.SIGQUIT else signum)
         if ending:
             return
         if self.cut is None:

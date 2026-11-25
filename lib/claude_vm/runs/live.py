@@ -37,12 +37,13 @@ thread, which alone may take SIGWINCH for the region, and once a job: a second v
 first keeping it, and the job hands the one view every event from then on.
 
 What the view says in the run's thread - each event's lines, standard error's lines above the region - is said whole,
-with a Ctrl-C, a SIGTERM and a SIGHUP held off meanwhile and delivered once it is said (tui/live_region.py's
-uninterrupted, which holds each of the region's writes and its count too): the ladder (runs/attached.py) raises from
-its handler wherever the run's thread is, and a frame drawn but not counted, or a line counted as said but not written,
-would leave a frame's remains above the summary, wipe lines said above it, or lose one. A stream whose reader has gone
-(`aw … | head -1`) is written no more; one whose pipe is broken is pointed at /dev/null, so that Python's flush at
-the process's exit writes what it still holds there and the run ends with its own status, never Python's 120.
+with a Ctrl-C, a SIGTERM, a SIGHUP, a Ctrl-Z and a Ctrl-\\ held off meanwhile and delivered once it is said
+(tui/live_region.py's uninterrupted, which holds each of the region's writes and its count too): the ladder
+(runs/attached.py) raises from its handler wherever the run's thread is, and a frame drawn but not counted, or a line
+counted as said but not written, would leave a frame's remains above the summary, wipe lines said above it, or lose one.
+A stream whose reader has gone (`aw … | head -1`) is written no more; one whose pipe is broken is pointed at /dev/null,
+so that Python's flush at the process's exit writes what it still holds there and the run ends with its own status,
+never Python's 120.
 
 A question at the run's terminal (runs/ask.py) finds the run's view by the job its Context carries,
 `Live.of(context.job)` (None for a run with no view), and asks inside `with view.aside():`, which steps the region aside

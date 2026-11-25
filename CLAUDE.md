@@ -794,7 +794,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `do_var_prompt`), back only half a second after it; keeps the echo off while it is up, and at a Ctrl-C what
       the terminal has not read (`NOFLSH`), what was typed thrown away at it all the same (`discard_typed`), the
       settings put back exactly as found, each change only in the terminal's foreground and each change back with
-      the signals held off (`put_back`); and never hides the cursor.
+      the signals held off (`put_back`); at a Ctrl-Z (or a `Ctrl-\` at its default) the region erased and the
+      settings put back as found, what was typed thrown away with them, before the stop, its mode again at `fg`; and
+      never hides the cursor.
     - A question with a few answers - `just init`'s yes or no, a storage, a bridge - is a menu picked with the
       arrow keys (`lib/claude_vm/tui/choose.py`), drawn with `screen.py` while the region steps aside, never a second
       way of drawing. Its answers ride in `prompt_until`'s `complete_input` as built-in bytes (Enter's two and
@@ -807,10 +809,12 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       nothing); at one, one question at a time (a second waits till the first has ended, never nests), the run's view,
       `Live.of(context.job)`, steps aside (`aside()`, back half a second after the answer) and keeps its own lines and
       standard error's till the question ends, each change of the terminal's settings is `TCSAFLUSH`'s (the keys typed
-      before flushed, the rest of a paste never left for the shell; a Ctrl-Z or a `Ctrl-\` at a line its edges) and a
-      Ctrl-C keeps what was typed on its line (`NOFLSH`), the line ended before the change back, which is made with the
-      run's signals held off; the run's last words are said with `NOFLSH` still on, the settings put back as found
-      after them, flushed for a run a Ctrl-C stopped; every read is the run's `Context.typed` - never
+      before flushed, the rest of a paste never left for the shell) and a Ctrl-C keeps what was typed on a line
+      (`NOFLSH`, never a hidden answer's), the line ended before the change back, which is made with the run's signals
+      held off; a Ctrl-Z puts the settings back as found, what was typed thrown away, before the stop, and `fg` brings
+      the question back in its mode, its words written again; a `Ctrl-\` is the ladder's, as SIGTERM; the run's last
+      words are said with `NOFLSH` still on, the settings put back as found after them, flushed for a run a Ctrl-C
+      stopped; every read is the run's `Context.typed` - never
       `/dev/tty`, `getpass` or a thread - the menu is `choose.asked`, a choice's words and note are made one line of
       plain text, and a hidden answer is a `Secret`, in no event. `tests/unit/test_aw_ask.py` holds it.
     - What the callbacks, engines and tools share is one package, `claude_vm` in `lib/`, imported, never loaded

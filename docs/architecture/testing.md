@@ -259,7 +259,9 @@ pytest over `tests/unit/`, file by file:
 - **What every live output draws with** (`test_live_region.py`, `test_screen.py`, `test_vt.py`): the
   region against a stand-in `Display` - what is printed above it, a frame cut to the screen, a pause and a
   vars prompt each with the screen to themselves, the route, a screen too small, the echo off on a
-  pseudo-terminal of the test's own - whose `display`, `prompt_until`, `do_var_prompt` and lock it holds to
+  pseudo-terminal of the test's own, and from an interactive shell (`harness._in_a_shell`, a bash at a
+  pseudo-terminal with job control, its history in the test's folder) a Ctrl-Z and a `Ctrl-\` leaving nothing
+  typed on the shell's line or in its history - whose `display`, `prompt_until`, `do_var_prompt` and lock it holds to
   ansible-core's; `Output`, the colour and the words printed to the screen and the log; the lines' cut,
   alignment, palette, bars and durations, none under an hour wider than five characters; and `vt.py`, the small
   terminal the live tests read back through, reading status's and deploy's streams the same cut anywhere. Every

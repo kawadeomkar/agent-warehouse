@@ -2,24 +2,25 @@
 docs/architecture/engine.md §16.8).
 
 At a pseudo-terminal of the test's own (harness._at_a_pseudo_terminal), each run here is a child process made by
-runs.run as a verb makes one, whose body draws deploy's live view at a sign-in and asks its questions through
-runs.ask, every event it emits written down as the run's text log will hear it: a yes or no picked with the arrow
-keys, the line it leaves saying the answer; a line typed, its echo on; a hidden answer whose characters reach neither
-the screen, the run's record nor its events (aw_kit.searched_for), given back as a Secret; Enter taking the default;
-keys typed before a question was there never its answer; two lines pasted at a line or a hidden answer, the second
-never left in the terminal's input once the run has ended; two questions asked at once, from two tasks, the second
-drawn only once the first is answered; a report, a line on standard error and an event the view refuses, said while a
-question is up, shown after it, never on its line, and so where a Ctrl-C or a SIGTERM cuts the question short, its line
-ended where it was cut, what was typed on it kept there (`192^C`, the keys and the Ctrl-C in one write too) and never
-left in the terminal's input; a choice whose words and note hold escapes and newlines drawn as
-plain text, nothing of the menu left behind; a choice typed, and asked once more, where the terminal cannot draw the
-menu; one Ctrl-C at a line, a hidden answer and the menu ending the run, cancelled, with the echo back; the run's
-summary and long NEXT STEPS said with nobody reading, then keys typed unseen and a Ctrl-C, every line on the screen and
-the keys never left for the shell; keys typed while a stopped run winds down never left either; however a run
-ends, the terminal's settings those it had before the run; the region gone
-from the screen while a question is up, the title saying the run waits for you, and a frame drawn again only half a
-second after the answer, none between two questions; each question a `waiting` event, an empty one once it is
-answered, and a `step` event that says what was answered. With standard input on /dev/null, the default at once and a
+runs.run as a verb makes one, whose body draws deploy's live view at a sign-in and asks its questions through runs.ask,
+every event it emits written down as the run's text log will hear it: a yes or no picked with the arrow keys, the line
+it leaves saying the answer; a line typed, its echo on; a hidden answer whose characters reach neither the screen, the
+run's record nor its events (aw_kit.searched_for), given back as a Secret; Enter taking the default; keys typed before a
+question was there never its answer; two lines pasted at a line or a hidden answer, the second never left in the
+terminal's input once the run has ended; two questions asked at once, from two tasks, the second drawn only once the
+first is answered; a report, a line on standard error and an event the view refuses, said while a question is up, shown
+after it, never on its line, and so where a Ctrl-C or a SIGTERM cuts the question short, its line ended where it was
+cut, what was typed on it kept there (`192^C`, the keys and the Ctrl-C in one write too) and never left in the
+terminal's input; a choice whose words and note hold escapes and newlines drawn as plain text, nothing of the menu left
+behind; a choice typed, and asked once more, where the terminal cannot draw the menu; one Ctrl-C at a line, a hidden
+answer and the menu ending the run, cancelled, with the echo back; the run's summary and long NEXT STEPS said with
+nobody reading, then keys typed unseen and a Ctrl-C, every line on the screen and the keys never left for the shell;
+keys typed while a stopped run winds down never left either; from an interactive shell, a hidden answer and a line half
+typed and then a Ctrl-Z (fg bringing the question back in its mode, its words written again), a Ctrl-\\ or a Ctrl-C,
+never on the shell's line or in its history; however a run ends, the terminal's settings those it had before the run;
+the region gone from the screen while a question is up, the title saying the run waits for you, and a frame drawn again
+only half a second after the answer, none between two questions; each question a `waiting` event, an empty one once it
+is answered, and a `step` event that says what was answered. With standard input on /dev/null, the default at once and a
 line that says the question was not asked.
 
 In this process: a question without a default cannot be built (the rule with a test of its own), with every other
@@ -27,16 +28,15 @@ refusal of a Question; a choice's words and note made one line of plain text, it
 ask - a pipe, /dev/null, a terminal whose foreground the run is not - gives the default and never reads; two questions
 asked at once taking turns at the terminal; the menu's keys cut from a read as choose.ask reads them one at a time, and
 the menu asked through a read of the test's own, a sequence in parts, Esc, Ctrl-C and the terminal's size looked at
-again, what is typed after its answer never left in the terminal's input; a question and the menu putting the
-terminal's settings back through a signal that interrupts the change (EINTR, made again by tui/live_region.py's
-set_terminal), each change TCSAFLUSH's; a question's mode keeping at a Ctrl-C what the terminal has not read (NOFLSH)
-and the settings put back exactly as found; a question's own words written while its mode is up (a hidden answer's
-line ended before the change back, the menu's words once the terminal is raw); a signal landing as a question ends
-delivered once its line is ended and the settings are back; a question a shell puts in the background making no
-change of the settings there; what the view says while a question is up, the line of an event it refuses
-among it, kept until it is answered, or said before the summary where the run's end cuts the question short, and the
-bell of a question's wait rung only after a quiet while; and by a scan, that ask.py reads the terminal only through the
-run's Context.typed.
+again, what is typed after its answer never left in the terminal's input; a question and the menu putting the terminal's
+settings back through a signal that interrupts the change (EINTR, made again by tui/live_region.py's set_terminal), each
+change TCSAFLUSH's; a line's mode keeping at a Ctrl-C what the terminal has not read (NOFLSH), a hidden answer's not,
+and the settings put back exactly as found; a question's own words written while its mode is up (a line cut short ended
+before the change back, the menu's words once the terminal is raw); a signal landing as a question ends delivered once
+its line is ended and the settings are back; a question a shell puts in the background making no change of the settings
+there; what the view says while a question is up, the line of an event it refuses among it, kept until it is answered,
+or said before the summary where the run's end cuts the question short, and the bell of a question's wait rung only
+after a quiet while; and by a scan, that ask.py reads the terminal only through the run's Context.typed.
 """
 
 from __future__ import annotations
@@ -656,6 +656,85 @@ def test_keys_typed_while_a_stopped_run_winds_down_are_never_left_for_the_shell(
     _stopped(ran)
 
 
+# What a person types at a question before a Ctrl-Z, a Ctrl-\ and a Ctrl-C, by the run's folder: a word of its own each.
+HALF = {"stop": b"hush42x", "quit": b"quit42x", "interrupt": b"int42x"}
+# The answer typed once fg has brought the question back.
+AFRESH = b"fresh42x"
+# What the shell says of each run: `echo "stopped=$?"` once one stops, `echo "ended=$?"` once one ends.
+STATUSES = re.compile(rb"\b(stopped|ended)=(\d+)")
+
+
+@pytest.mark.parametrize("hidden", [True, False], ids=["a hidden answer", "a line"])
+def test_a_half_typed_answer_reaches_neither_the_shells_line_nor_its_history_at_ctrl_z_ctrl_backslash_or_ctrl_c(
+    hidden, home, tmp_path
+) -> None:
+    # From an interactive shell, three runs each ask the question and the person types part of an answer: then a
+    # Ctrl-Z, the shell's line run (an `echo` that what was left there would begin), and fg, which brings the question
+    # back in its mode with its words written again, where the answer is typed afresh; a Ctrl-\, which ends the run as
+    # a SIGTERM does, dying of SIGQUIT; a Ctrl-C, as C34 has it. What was typed before each key reaches neither the
+    # shell's line, where the shell would run it, nor its history (review 59's H2: a secret in $HISTFILE after Ctrl-Z).
+    asked = b"Tailscale auth key: " if hidden else b"Proxmox host address: "
+    way = "hidden" if hidden else "line"
+    jobs_dir = paths.jobs_dir(paths.home(REPO))
+    (tmp_path / "run.py").write_text(RUN)
+    for folder in HALF:
+        (tmp_path / folder).mkdir()
+    temporary = tmp_path / "tmp"
+    temporary.mkdir()
+    given = {"TERM": "xterm-256color", "PYTHONUTF8": "1", "TMPDIR": str(temporary)}
+    env = environment(home, {**given, "PY": sys.executable, "LIB": str(LIB), "JOBS": str(jobs_dir)})
+    mode: list[int] = []
+
+    def run(folder: str) -> bytes:
+        return f'"$PY" -I -X utf8 run.py "$LIB" "$JOBS" {folder} {way}\n'.encode()
+
+    def back_in_its_mode(master: int, output: bytes) -> None:
+        mode.append(termios.tcgetattr(master)[3])
+        os.write(master, AFRESH + b"\n")
+
+    prompt = harness.SHELL_PROMPT
+    ended = b'echo "ended=$?"\n'
+    steps = [
+        (prompt, b"ulimit -c 0\n"),
+        (prompt, run("stop")),
+        (asked, [HALF["stop"], b"\x1a"]),
+        (b"Stopped", []),
+        (prompt, b'echo "stopped=$?"\n'),
+        (prompt, b"fg\n"),
+        (asked, back_in_its_mode),
+        (prompt, ended),
+        (prompt, run("quit")),
+        (asked, [HALF["quit"], b"\x1c"]),
+        (prompt, ended),
+        (prompt, run("interrupt")),
+        (asked, [HALF["interrupt"], b"\x03"]),
+        (prompt, ended),
+        (prompt, b"exit\n"),
+    ]
+    output, history = harness._in_a_shell(tmp_path, env, steps)
+    harness._fail_if_the_desktop_was_reached(stand_ins(home))
+    said = output.decode(errors="replace")
+    assert b"command not found" not in output, said
+    for word in [*HALF.values(), AFRESH]:
+        assert word not in history, history
+    statuses = [(name.decode(), int(number)) for name, number in STATUSES.findall(output)]
+    stop, quit = 128 + signal.SIGTSTP, 128 + signal.SIGQUIT
+    assert statuses == [("stopped", stop), ("ended", 0), ("ended", quit), ("ended", 130)], said
+    # Back in the question's mode once fg brought it back: its line and its signal keys, the echo and NOFLSH for a
+    # line, neither for a hidden answer.
+    (lflag,) = mode
+    assert lflag & termios.ICANON and lflag & termios.ISIG, lflag
+    assert bool(lflag & termios.ECHO) is not hidden and bool(lflag & termios.NOFLSH) is not hidden, lflag
+    (answer,) = json.loads((tmp_path / "stop" / "answers.json").read_text())
+    if hidden:
+        assert answer["secret"] == hashlib.sha256(AFRESH).hexdigest(), answer
+    else:
+        assert answer["value"] == AFRESH.decode(), answer
+    records = [job.read() for job in jobs.listed(jobs_dir)]
+    ends = sorted((record["outcome"], record["exit"], record["why"]) for record in records)
+    assert ends == [("cancelled", 130, "Ctrl-C"), ("cancelled", quit, "SIGQUIT"), ("succeeded", 0, "done")], ends
+
+
 def test_where_the_menu_cannot_be_drawn_a_choice_is_typed_and_asked_once_more(home, tmp_path) -> None:
     prompt = b"A number or a name, Enter for none: "
     plan = [(prompt, [b"2\n"], False), (prompt, [b"wireguard\n"], False), (prompt, [b"vpn\n"], False)]
@@ -982,12 +1061,13 @@ def test_a_question_puts_the_terminal_back_through_a_signal_that_interrupts_the_
 
 
 @pytest.mark.parametrize("hidden", [False, True], ids=["a line", "a hidden answer"])
-def test_a_questions_mode_keeps_what_the_terminal_has_not_read_at_a_ctrl_c_and_goes_back_as_found(
+def test_a_questions_mode_keeps_what_the_terminal_has_not_read_at_a_ctrl_c_but_a_hidden_answers_and_goes_back(
     hidden, home, monkeypatch
 ) -> None:
-    # The question's mode: its line, its signal keys and NOFLSH, the echo on for a line and off for a hidden answer,
-    # nothing else of the terminal's changed; then the settings exactly as found, NOFLSH as it was, each change
-    # TCSAFLUSH's.
+    # The question's mode: its line and its signal keys, for a line the echo on and NOFLSH, for a hidden answer neither
+    # (its echo off, there is nothing on the screen to keep, and its keys throw away what was typed themselves: review
+    # 59's H2), nothing else of the terminal's changed; then the settings exactly as found, NOFLSH as it was, each
+    # change TCSAFLUSH's.
     master, slave = pty.openpty()
     given = os.fdopen(slave, "r")
     out = io.StringIO()
@@ -1030,8 +1110,9 @@ def test_a_questions_mode_keeps_what_the_terminal_has_not_read_at_a_ctrl_c_and_g
         assert (answer.reveal() if isinstance(answer, Secret) else answer) == "192.0.2.1"
         assert [when for when, _ in changes] == [termios.TCSAFLUSH] * 2, changes
         (_, mode), (_, back) = changes
-        wanted = termios.ICANON | termios.ISIG | termios.NOFLSH
-        assert mode[3] & wanted == wanted and bool(mode[3] & termios.ECHO) is not hidden, mode
+        wanted = termios.ICANON | termios.ISIG
+        assert mode[3] & wanted == wanted, mode
+        assert bool(mode[3] & termios.ECHO) is not hidden and bool(mode[3] & termios.NOFLSH) is not hidden, mode
         assert mode[:3] + mode[4:] == found[:3] + found[4:]
         assert back == found and termios.tcgetattr(slave) == found
     finally:
@@ -1062,11 +1143,11 @@ def _noting(monkeypatch: pytest.MonkeyPatch, noted: list[tuple[str, object]]) ->
     monkeypatch.setattr(termios, "tcsetattr", noting)
 
 
-@pytest.mark.parametrize("asked", ["a hidden answer", "the menu"])
+@pytest.mark.parametrize("asked", ["a line the input's end cuts short", "the menu"])
 def test_a_questions_own_words_are_written_while_its_mode_keeps_them_at_a_ctrl_c(asked, home, monkeypatch) -> None:
-    # What a question writes is written while its own mode is up: the line a hidden answer leaves ended before the
-    # settings go back, where NOFLSH keeps it at a Ctrl-C; the menu's words once the terminal is raw, where a Ctrl-C is
-    # a key. Written before or after, a Ctrl-C the terminal has not read them by would throw them away.
+    # What a question writes is written while its own mode is up: the line a line's read cut short leaves ended before
+    # the settings go back, where NOFLSH keeps it at a Ctrl-C; the menu's words once the terminal is raw, where a
+    # Ctrl-C is a key. Written before or after, a Ctrl-C the terminal has not read them by would throw them away.
     master, slave = pty.openpty()
     given = os.fdopen(slave, "r")
     noted: list[tuple[str, object]] = []
@@ -1087,10 +1168,12 @@ def test_a_questions_own_words_are_written_while_its_mode_keeps_them_at_a_ctrl_c
                 assert changes[0] < words < changes[1], noted
                 assert not noted[changes[0]][1] & termios.ICANON, noted
             else:
-                context = _Typing(made, master, [HIDDEN.encode() + b"\n"])
-                key = asyncio.run(asking.ask(context, "Tailscale auth key:", Secret(""), hidden=True))
-                assert isinstance(key, Secret) and key.reveal() == HIDDEN
+                # The end of the input (Ctrl-D) before any Enter: the read ends with the line unended on the screen.
+                context = _Typing(made, master, [b"\x04"])
+                assert asyncio.run(asking.ask(context, "Proxmox host address:", "")) == ""
                 assert noted[-2:] == [("write", "\n"), ("change", found[3])], noted
+                made_mode, _ = (text for kind, text in noted if kind == "change")
+                assert made_mode & termios.NOFLSH, noted
         assert termios.tcgetattr(slave) == found
     finally:
         given.close()
