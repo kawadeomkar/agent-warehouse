@@ -5,16 +5,16 @@ lib/claude_vm/pve/script.py's fixed text; docs/architecture/engine.md §16.4): r
 
 A fresh host gets every object of E1's list and the token's secret alone on standard output; a second run changes
 nothing and prints no secret; a role an older version made gets what it lacks and loses nothing; and what the script
-decides is what `plan` decides of the same host: its dry run prints one line for each step of
-`plan(objects(host), found)`, quoted as shlex quotes them, and says each of `plan`'s sentences, over every state and
-option set here. It runs only as root, on Proxmox VE 9 or later; refuses root@pam, a value of the wrong form before any
-pveum or pvesh, an option it does not have (today's --move and --template among them), a pool another fleet marked or
-whose mark cannot be read, and a token made without privilege separation, each leaving the host byte for byte as it
-was; takes a pool with no mark only given `--pool <name> --take-unmarked`, its comment kept and the mark added at its
-end. It reads every answer as JSON through Perl, so a pool's comment is read as fleet/mark.py reads it, held by a
-corpus of comments. A person's own template is looked up by its name, its network cards' bridges from its
-configuration, which the stand-in does not read: a pvesh of this file's own, first on PATH, answers that one read and
-hands every other to the stand-in.
+decides is what `plan` decides of the same host: its dry run prints one line for each step of `plan(objects(host),
+found)`, quoted as shlex quotes them, and says each of `plan`'s sentences, over every state and option set here. It runs
+only as root, on Proxmox VE 9 or later; refuses root@pam, a value of the wrong form before any pveum or pvesh, an option
+it does not have (today's --move and --template among them), a pool another fleet marked or whose mark cannot be read,
+and a token made without privilege separation (its sentence naming init's line for the host the script was rendered
+for), each leaving the host byte for byte as it was; takes a pool with no mark only given `--pool <name>
+--take-unmarked`, its comment kept and the mark added at its end. It reads every answer as JSON through Perl, so a
+pool's comment is read as fleet/mark.py reads it, held by a corpus of comments. A person's own template is looked up by
+its name, its network cards' bridges from its configuration, which the stand-in does not read: a pvesh of this file's
+own, first on PATH, answers that one read and hands every other to the stand-in.
 
 The rule with a test of its own (V2-9): no file of the checkout holds a rendering of the list, found by its header.
 """
@@ -34,6 +34,7 @@ from harness import _pve_cli, _pve_cli_calls, _pve_cli_state, _pve_cli_writes, r
 from claude_vm.engine import access
 from claude_vm.fleet import mark, record
 from claude_vm.schema import printer
+from claude_vm.schema.words import PLACEHOLDER
 
 FLEET = "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b"
 OTHER = "0d6c9b1e-2f3a-4b5c-8d7e-6f5a4b3c2d1e"
@@ -89,14 +90,15 @@ def _run(
     host: access.Host | None = None,
     custom: str = "",
     config: dict | None = None,
+    host_flag: str = "",
 ) -> subprocess.CompletedProcess:
-    """The script rendered for host (the default one), run as `sh -s -- args` with itself on stdin, the stand-ins in
-    tmp_path - made with state on the first call - first on PATH."""
+    """The script rendered for host (the default one) and host_flag, run as `sh -s -- args` with itself on stdin, the
+    stand-ins in tmp_path - made with state on the first call - first on PATH."""
     pve = _install(tmp_path, state, config)
     path = [*([str(tmp_path / "front")] if (tmp_path / "front").exists() else []), str(pve), "/usr/bin", "/bin"]
     return subprocess.run(
         ["/bin/sh", "-s", "--", *args],
-        input=access.as_script(host or _host(), custom),
+        input=access.as_script(host or _host(), custom, host_flag=host_flag),
         env={"PATH": os.pathsep.join(path), "LC_ALL": "C"},
         capture_output=True,
         text=True,
@@ -149,8 +151,8 @@ def _argv(step: access.Step) -> list[str]:
     raise AssertionError(obj)
 
 
-def _planned(host: access.Host, state: dict) -> access.Plan:
-    return access.plan(access.objects(host), _found(state))
+def _planned(host: access.Host, state: dict, host_flag: str = "") -> access.Plan:
+    return access.plan(access.objects(host), _found(state), host_flag=host_flag)
 
 
 def _lines(planned: access.Plan) -> list[str]:
@@ -448,12 +450,17 @@ def test_an_option_the_script_does_not_have_is_refused(tmp_path: Path, words) ->
     assert _pve_cli_calls(tmp_path / "pve") == []
 
 
-def test_a_token_made_without_privilege_separation_is_refused_with_plan_s_sentence(tmp_path: Path) -> None:
+@pytest.mark.parametrize("host_flag", ["", "nuc"], ids=["one host", "a further host"])
+def test_a_token_made_without_privilege_separation_is_refused_with_plan_s_sentence(tmp_path, host_flag) -> None:
     state = {"users": {"root@pam": {}, access.USER: {}}, "tokens": {TOKEN_ID: {"privsep": 0, "secret": SECRET}}}
-    result = _refused(tmp_path, state=state)
+    result = _refused(tmp_path, state=state, host_flag=host_flag)
     with pytest.raises(access.NotOwn) as refusal:
-        _planned(_host(), _state(tmp_path))
+        _planned(_host(), _state(tmp_path), host_flag)
     assert str(refusal.value) in result.stderr.splitlines()
+    # Its init line reaches the host the script was rendered for: the further host by name, the one host as it is.
+    beside = printer.line("init", {"token_id": PLACEHOLDER}, refused=True, host_flag=host_flag)
+    assert f"or {beside}, with an ID of the fleet's own" in str(refusal.value)
+    assert ("--host nuc" in str(refusal.value)) == bool(host_flag)
 
 
 # --------------------------------------------------------------- the pool's mark ---
@@ -555,13 +562,14 @@ def test_a_person_s_template_is_the_one_guest_of_its_name_a_template_on_the_node
 
 def test_the_renderer_takes_a_template_by_its_name_and_the_base_bridge_alone() -> None:
     with pytest.raises(ValueError, match="by the name given as custom"):
-        access.as_script(_host(custom_template=TEMPLATE))
+        access.as_script(_host(custom_template=TEMPLATE), host_flag="")
     with pytest.raises(ValueError, match="by the name given as custom"):
-        access.as_script(_host(bridges=("vmbr0", "vmbr1")))
+        access.as_script(_host(bridges=("vmbr0", "vmbr1")), host_flag="")
     for name in ("my template", "-template", "t" * 64, "tmpl\n", "t'"):
         with pytest.raises(access.Refused, match="proxmox_template_custom"):
-            access.as_script(_host(), name)
-    assert access.as_script(_host(), "my-template") == access.as_script(_host(), "my-template")
+            access.as_script(_host(), name, host_flag="")
+    rendered = access.as_script(_host(), "my-template", host_flag="")
+    assert rendered == access.as_script(_host(), "my-template", host_flag="")
 
 
 def test_the_header_names_init_s_lines_as_the_printer_writes_them() -> None:
@@ -572,6 +580,9 @@ def test_the_header_names_init_s_lines_as_the_printer_writes_them() -> None:
         assert f"#   {printed} | ssh root@<host> sh -s" in rendered
         assert HEADER.search(rendered[1])
     assert "--host nuc" in access.as_script(_host(), host_flag="nuc").splitlines()[1]
+    # The host is named by every caller, never left out: a line of a further host's script would reach the current one.
+    with pytest.raises(TypeError, match="host_flag"):
+        access.as_script(_host())  # type: ignore[call-arg]
     with pytest.raises(ValueError, match="host_flag"):
         access.as_script(_host(), host_flag="no such/host")
 
@@ -579,7 +590,7 @@ def test_the_header_names_init_s_lines_as_the_printer_writes_them() -> None:
 # ------------------------------------------------------------------ V2-9 ---
 def test_no_file_of_the_checkout_holds_a_rendering_of_the_list() -> None:
     # The header the scan finds, which every rendering carries, for the node and the fleet it was rendered for.
-    rendered = access.as_script(_host())
+    rendered = access.as_script(_host(), host_flag="")
     assert HEADER.search(rendered)
     assert rendered.splitlines()[1].startswith(f"# Rendered by aw init for node pve of fleet {FLEET}")
     holding = [str(path) for path, text in repo_texts(untracked=True) if HEADER.search(text)]

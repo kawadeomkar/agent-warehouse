@@ -23,29 +23,29 @@ The names are the engine's own (ruling B1, rule 1): the user `agent-warehouse@pv
 `proxmox_pool` nor `--pool` names one. `Host` holds each value of one host to the form Proxmox gives it before any
 object is made of it: a pool's name starts with a letter and holds no `/`, which on Proxmox VE 9.2 makes a nested pool.
 
-`check(object, found)` says what is there of one object: missing, or the engine's own, and nothing else. `found` is
-what one read of the host gives of the kinds the list makes (`Found`). A pool whose comment does not carry this
-fleet's mark, and a token of the list's ID made without privilege separation, which holds every privilege of its user,
-are `NotOwn`, each refused with its sentence, never a third answer; a role is told with what it lacks, which is
-appended and never taken away, and with what it holds beyond its privileges. `plan(objects, found)` is what a run
-makes of the list: each object that is missing made and each role given what it lacks. The engine's role holding more
-is granted all the same, and said with the line that keeps it to its own; the audit role and the clone role, each
-granted on guests outside the pool, are held to their privileges exactly: one that holds more is neither changed nor
-granted, and said with the line that fixes it, or, where its grants are there already, said to give each privilege
-now, since a role is one set of privileges granted on a path, and that role on `/vms` hands each privilege it holds
-over every VM of the node.
+`check(object, found, host_flag=)` says what is there of one object: missing, or the engine's own, and nothing else.
+`found` is what one read of the host gives of the kinds the list makes (`Found`); host_flag is the host a line of its
+sentences names, as the printer of a command takes it, given by every caller (a further host's name, "" with one). A
+pool whose comment does not carry this fleet's mark, and a token of the list's ID made without privilege separation,
+which holds every privilege of its user, are `NotOwn`, each refused with its sentence, never a third answer; a role is
+told with what it lacks, which is appended and never taken away, and with what it holds beyond its privileges.
+`plan(objects, found, host_flag=)` is what a run makes of the list: each object that is missing made and each role given
+what it lacks. The engine's role holding more is granted all the same, and said with the line that keeps it to its own;
+the audit role and the clone role, each granted on guests outside the pool, are held to their privileges exactly: one
+that holds more is neither changed nor granted, and said with the line that fixes it, or, where its grants are there
+already, said to give each privilege now, since a role is one set of privileges granted on a path, and that role on
+`/vms` hands each privilege it holds over every VM of the node.
 
-`as_script(host, custom)` is the one rendering of the list: the script init runs on the host as root, over root SSH
-on a `y` (E7), or prints for the person to run there (`aw init --print-commands`), rendered each time and never written
-into the checkout. Its options change the values the list is made of, and a person's own template, which
+`as_script(host, custom, host_flag=)` is the one rendering of the list: the script init runs on the host as root, over
+root SSH on a `y` (E7), or prints for the person to run there (`aw init --print-commands`), rendered each time and never
+written into the checkout. Its options change the values the list is made of, and a person's own template, which
 `proxmox_template_custom` names (custom), is looked up on the host by its name, with the bridges its network cards are
 on: so each object is rendered as one call of the script's fixed interpreter (pve/script.py), the values its shell
-variables, made from the list of a host of placeholders, and held at every rendering to the list itself for each
-scope, with and without the template, over one bridge and two. The checks of each value and the sentences the script
-says are this module's and fleet/mark.py's, rendered: what the script decides is what `plan` decides of the same
-host. This module runs nothing against a host and writes nothing. Standard library only, with fleet/'s mark and
-settings table, pve/'s table of privileges, template judgement and the script's fixed text, and today's checks.py and
-text.py.
+variables, made from the list of a host of placeholders, and held at every rendering to the list itself for each scope,
+with and without the template, over one bridge and two. The checks of each value and the sentences the script says are
+this module's and fleet/mark.py's, rendered: what the script decides is what `plan` decides of the same host. This
+module runs nothing against a host and writes nothing. Standard library only, with fleet/'s mark and settings table,
+pve/'s table of privileges, template judgement and the script's fixed text, and today's checks.py and text.py.
 """
 
 from __future__ import annotations
@@ -427,12 +427,12 @@ def _role(role: Role, found: Found) -> Answer:
     return Answer(OWN, lacking, beyond)
 
 
-def _token(token: Token, found: Found) -> Answer:
+def _token(token: Token, found: Found, *, host_flag: str) -> Answer:
     privsep = found.tokens.get(token.id)
     if privsep is None:
         return Answer(MISSING)
     if privsep != token.privsep:
-        beside = Line("init", {"token_id": PLACEHOLDER}, host_flag="")
+        beside = Line("init", {"token_id": PLACEHOLDER}, host_flag=host_flag)
         raise NotOwn(
             said(
                 "The token {token} of {user} is there without privilege separation, so it holds every privilege its"
@@ -445,13 +445,14 @@ def _token(token: Token, found: Found) -> Answer:
     return Answer(OWN)
 
 
-def check(obj: Object, found: Found) -> Answer:
+def check(obj: Object, found: Found, *, host_flag: str) -> Answer:
     """What is there of one object of the list: MISSING, or OWN, the engine's own, and nothing else. A pool is OWN only
     where its comment carries this fleet's mark, controller=none; any other pool of its name is NotOwn, with
     fleet/mark.py's sentence. A token is OWN only where its full ID is there with privilege separation; one made
-    without it is NotOwn. A role is told with what it lacks and what it holds beyond its privileges. A grant is OWN
-    only where the entry is there as the list makes it, its propagation included, so that one made otherwise is made
-    again as the list makes it."""
+    without it is NotOwn, its sentence naming init's line for the host host_flag names, as the printer of a command
+    takes it: a further host's name, "" with one host, never left out. A role is told with what it lacks and what it
+    holds beyond its privileges. A grant is OWN only where the entry is there as the list makes it, its propagation
+    included, so that one made otherwise is made again as the list makes it."""
     if not isinstance(found, Found):
         raise TypeError(f"what exists is a Found, not a {type(found).__name__}")
     if isinstance(obj, Pool):
@@ -461,7 +462,7 @@ def check(obj: Object, found: Found) -> Answer:
     if isinstance(obj, User):
         return Answer(OWN if obj.name in found.users else MISSING)
     if isinstance(obj, Token):
-        return _token(obj, found)
+        return _token(obj, found, host_flag=host_flag)
     if isinstance(obj, Grant):
         return Answer(OWN if obj in found.grants else MISSING)
     raise TypeError(f"an object of the list is one of {', '.join(kind.__name__ for kind in KINDS)}")
@@ -513,13 +514,13 @@ def _too_much(role: Role, beyond: tuple[str, ...], paths: Sequence[str], granted
     )
 
 
-def plan(listed: Sequence[Object], found: Found) -> Plan:
+def plan(listed: Sequence[Object], found: Found, *, host_flag: str) -> Plan:
     """What a run makes of listed, objects(host)'s list, against what exists (found): each object that is missing made,
     and each role that lacks a privilege given it, none taken away. The engine's role holding more is granted all the
     same, and said; a role held exactly that holds more is neither changed nor granted, and said, as granted already
-    where its grants are there. A pool or a token that is not this fleet's is NotOwn before any step: nothing is
-    made."""
-    answered = [(obj, check(obj, found)) for obj in listed]
+    where its grants are there. A pool or a token that is not this fleet's is NotOwn before any step, its sentence's
+    line for the host host_flag names (check): nothing is made."""
+    answered = [(obj, check(obj, found, host_flag=host_flag)) for obj in listed]
     beyond = {obj.name: answer.beyond for obj, answer in answered if isinstance(obj, Role) and answer.beyond}
     withheld = {name for name, role in _roles_of(listed).items() if name in beyond and role.exact}
     said = []
@@ -705,9 +706,9 @@ def _printed(text: str, places: Mapping[str, str] | None = None) -> str:
     return f"printf '%s' {_word(text, places or {})}"
 
 
-def _sentence_function(host: Host, entries: Sequence[_Entry]) -> str:
+def _sentence_function(host: Host, entries: Sequence[_Entry], *, host_flag: str) -> str:
     """The script's `sentence <key> [more paths granted]`: each sentence it says that this module or fleet/mark.py
-    words, with the values it names its variables."""
+    words, with the values it names its variables, and init's line in the token's for the host host_flag names."""
     listed = [entry.obj for entry in entries]
     cases = [
         (f"refused-{key}", _printed(_refusal(host, changed)))
@@ -733,7 +734,7 @@ def _sentence_function(host: Host, entries: Sequence[_Entry]) -> str:
     ]
     token = next(each for each in listed if isinstance(each, Token))
     try:
-        check(token, Found(tokens={token.id: not token.privsep}))
+        check(token, Found(tokens={token.id: not token.privsep}), host_flag=host_flag)
     except NotOwn as not_own:
         cases.append(("token-not-own", _printed(str(not_own), {_USER: "user", _TOKEN: "token"})))
     else:
@@ -784,14 +785,15 @@ _HEAD = """#!/bin/sh
 """
 
 
-def as_script(host: Host, custom: str = "", *, host_flag: str = "") -> str:
-    """The script that makes host's list on the host, run there as root as `sh -s`: rendered for host, whose values
-    are its options' defaults, its one bridge the base template's (`--bridge`); custom is the name of a person's own
+def as_script(host: Host, custom: str = "", *, host_flag: str) -> str:
+    """The script that makes host's list on the host, run there as root as `sh -s`: rendered for host, whose values are
+    its options' defaults, its one bridge the base template's (`--bridge`); custom is the name of a person's own
     template, which proxmox_template_custom names, looked up on the host with the bridges of its network cards, or ""
-    for none. Its header says it was rendered by aw init for host's node and fleet, and the lines that print and run
-    it, init's as the printer writes them, with host_flag as the printer takes it: a further host's name, "" with one
-    host. Refused where custom is not a name Proxmox gives a guest; a host given a template's ID, or the bridges of
-    one, is the caller's mistake: the script looks them up. ValueError where the printer refuses host_flag."""
+    for none. Its header says it was rendered by aw init for host's node and fleet, and the lines that print and run it,
+    init's as the printer writes them, with host_flag as the printer takes it: a further host's name, "" with one host,
+    never left out, which the token's sentence names too. Refused where custom is not a name Proxmox gives a guest; a
+    host given a template's ID, or the bridges of one, is the caller's mistake: the script looks them up. ValueError
+    where the printer refuses host_flag."""
     if not isinstance(host, Host):
         raise TypeError(f"the script is rendered for a Host, not a {type(host).__name__}")
     if host.custom_template is not None or len(host.bridges) != 1:
@@ -844,7 +846,7 @@ def as_script(host: Host, custom: str = "", *, host_flag: str = "") -> str:
         ("re_bridge", PROXMOX_NAMES["bridge"].pattern),
         ("re_scope", "|".join(re.escape(scope) for scope in SCOPES)),
     ]
-    functions = _sentence_function(host, entries) + _objects_function(entries, places)
+    functions = _sentence_function(host, entries, host_flag=host_flag) + _objects_function(entries, places)
     text = script.render(head, [(name, shlex.quote(value)) for name, value in values], functions)
     left = [place for place in (*places, *_SAID, *_OTHERS) if place in text and place not in host.fleet]
     if left:
