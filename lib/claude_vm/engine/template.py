@@ -36,15 +36,16 @@ command of pve/commands.py's through the SSH runner, nothing on its standard inp
 into the engine's own image directory (`IMAGE_DIR`, or `proxmox_template_image_dir`) under a name of its own, held by
 the host's sha256sum to the digest verified here, removed and the build stopped, naming both, where it differs, and
 renamed into place; where the guest agent goes in, the image tool installed by apt where
-`proxmox_template_manage_libguestfs` is on and it is missing, the image's system read and one outside the Debian family
-refused by name, a copy customised; the template that differs removed, once the guest at the ID is still the one judged
-(`Compared.identity`), a refusal of Proxmox's - a linked clone's - said; `qm create` with the record as its description,
-its SMBIOS UUID made here so that the record names it from its first write, and the pool; the disk imported; the
-cloud-init drive, the boot order and DHCP, with no `ciupgrade`; `qm template`; and the template read back and judged
-again, which must find it as its settings would build it. The customised copy is removed whatever happens. What the
-build leaves on the host is recorded in host.yml's `made` through fleet/hosts.py's one writer as it is made: each image
-file it downloaded, the template by its ID, and each package of the image tool this run installed (none that was there
-before), so that a cleanup removes exactly that.
+`proxmox_template_manage_libguestfs` is on and dpkg's own state of it is not installed (one held is there, and one
+neither installed nor absent, or whose state could not be read, stops the build), the image's system read and one
+outside the Debian family refused by name, a copy customised; the template that differs removed, once the guest at the
+ID is still the one judged (`Compared.identity`), a refusal of Proxmox's - a linked clone's - said; `qm create` with the
+record as its description, its SMBIOS UUID made here so that the record names it from its first write, and the pool; the
+disk imported; the cloud-init drive, the boot order and DHCP, with no `ciupgrade`; `qm template`; and the template read
+back and judged again, which must find it as its settings would build it. The customised copy is removed whatever
+happens. What the build leaves on the host is recorded in host.yml's `made` through fleet/hosts.py's one writer as it is
+made: each image file it downloaded, the template by its ID, and each package of the image tool this run installed (none
+that was there before), so that a cleanup removes exactly that.
 """
 
 from __future__ import annotations
@@ -184,8 +185,12 @@ IMAGE_DIR = "/var/lib/vz/aw-images"
 # The image tool, as today's role installs it: dhcpcd-base beside libguestfs-tools, which Proxmox VE 9 does not pull
 # in, and without which the tool's appliance has no DHCP and --install cannot resolve a mirror.
 IMAGE_TOOL = ("libguestfs-tools", "dhcpcd-base")
-# What dpkg says of a package installed.
-INSTALLED = "install ok installed"
+# dpkg's state of a package that is there, and those of one that is not, as `dpkg-query --show` says them, and its
+# words for a package it has never had: any other state (half installed, unpacked, half configured, awaiting triggers)
+# is neither, and the image tool is never installed over it.
+PRESENT = "installed"
+ABSENT = ("not-installed", "config-files")
+NONE_FOUND = "no packages found matching"
 # A checksum list of Ubuntu's own, which Ubuntu signs beside it, as today's role tells one: its signature is the list's
 # URL and .gpg, unless proxmox_template_image_signature names another, or "" for none.
 UBUNTU_LIST = re.compile(r"sha256:https?://cloud-images[.]ubuntu[.]com/\S*/SHA256SUMS")
@@ -487,8 +492,28 @@ async def _customised(at: _Host, image: _Image, made: _Made) -> None:
 
 
 async def _installed(at: _Host, package: str) -> bool:
+    """Whether dpkg says package is on the host: True for one installed, held or not, False for one it does not have;
+    Refused for any other state and for an answer that did not come back, so that a package there before is never
+    installed again and recorded in `made` as this run's."""
     result = await at(commands.installed(package))
-    return _ok(result) and "\n".join(result.lines).strip() == INSTALLED  # type: ignore[union-attr]
+    if isinstance(result, runner.Done):
+        state = "\n".join(result.lines).strip()
+        if result.status == 0 and state == PRESENT:
+            return True
+        if result.status == 0 and state in ABSENT:
+            return False
+        if result.status == 1 and not state and NONE_FOUND in result.said:
+            return False
+        if result.status == 0:
+            raise Refused(
+                f'dpkg says {package} is "{one_line(state, SAID_MOST)}" on the Proxmox host, neither installed nor '
+                "absent: the image tool is not installed over it, and the base template was not built. Finish or "
+                "remove that package on the host, then run again."
+            )
+    raise Refused(
+        f"Whether {package} is installed could not be read on the Proxmox host: {_why(result)}. The image tool is not "
+        "installed without knowing, and the base template was not built."
+    )
 
 
 async def _destroyed(at: _Host, base: judging.Base, found: Compared, nic: str) -> None:

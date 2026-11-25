@@ -180,9 +180,10 @@ def customised(image: str, packages: Sequence[str]) -> list[str]:
 
 
 def installed(package: str) -> list[str]:
-    """Whether a package is installed, as dpkg says it: `install ok installed`, on a line of its own, since the runner
-    takes no line with no end."""
-    return ["dpkg-query", "--show", "--showformat=${Status}\\n", _held(package, PACKAGE, "a package's name")]
+    """A package's state as dpkg keeps it, on a line of its own, since the runner takes no line with no end: `installed`
+    for one there, whatever a person wants of it (a package held reads `installed` too), `not-installed` or
+    `config-files` for one that is not, and another for one half installed or configured."""
+    return ["dpkg-query", "--show", "--showformat=${db:Status-Status}\\n", _held(package, PACKAGE, "a package's name")]
 
 
 def update() -> list[str]:
