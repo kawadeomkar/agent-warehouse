@@ -29,13 +29,15 @@ The invariant with a test of its own: compare sends nothing but GETs.
 build builds the base template over root SSH (card E12) on a stand-in Proxmox host of tests/unit/aw_machine.py's,
 reached as root through the stand-in ssh: its qm, virt-customize and virt-cat the role's scenario's fakes, its pvesh
 reading qm's state as the API would give it, its dpkg-query and apt-get the test's, its curl, sha256sum and coreutils
-the system's; the image served by tests/molecule/fake_downloads.py over HTTP for the host's curl, and its checksum list
-and its signature, by a key of the test's, by another over TLS for this computer. The first build runs today's steps in
-their order, as the role's scenario (roles/proxmox_template/molecule/default/verify.yml) holds them, and records the
-image file and the template in host.yml's made; a second run reads and changes nothing; a list that does not verify, or
-names no image, fetches nothing on the host; an image whose digest differs is removed and both digests said; each
-command is pve/commands.py's, nothing on its standard input, under the host's template section, with no ciupgrade; only
-the image tool's packages this run installed are recorded, one held is there, and one half configured or unread stops
+the system's (on macOS, GNU's mv -T and stat --format stand-ins of the test's); the image served by
+tests/molecule/fake_downloads.py over HTTP for the host's curl, and its checksum list and its signature, by a key of the
+test's, by another over TLS for this computer. The first build runs today's steps in their order, as the role's scenario
+(roles/proxmox_template/molecule/default/verify.yml) holds them, and records the image file and the template in
+host.yml's made; a second run reads and changes nothing; a list that does not verify, or names no image, fetches nothing
+on the host; an image whose digest differs is removed and both digests said; each command is pve/commands.py's, nothing
+on its standard input, under the host's template section, with no ciupgrade; only the image tool's packages this run
+installed are recorded, one held is there, and one half configured or unread stops the build; a link at the download's
+name, the copy's or the image's is never written through, and an image directory another account could write in stops
 the build; a difference is rebuilt at the same ID, and kept under proxmox_template_rebuild: false; a template a linked
 clone uses is said with the way on; a template with no record of the build, a guest outside the pool and a template that
 changed after it was judged - out of the pool, its record stripped, renamed, another guest - are never removed; an image
@@ -694,6 +696,8 @@ HOST_PROGRAMS = {
     "pvesh",
     "qm",
     "mkdir",
+    "id",
+    "stat",
     "sha256sum",
     "curl",
     "mv",
@@ -779,6 +783,32 @@ sys.exit(2)
 """
 
 
+# GNU's `mv -fT <from> <to>` and `stat --format=<format> <path>`, as the build runs them, where the system's are BSD's
+# (macOS): the rename over whatever has the name, never into a directory, and what the name itself is, never through a
+# link; anything else they are asked is refused.
+GNU = r"""
+import os, stat, sys
+
+program, words = sys.argv[1], sys.argv[2:]
+if program == "mv" and len(words) == 3 and words[0] == "-fT":
+    try:
+        os.replace(words[1], words[2])
+    except OSError as error:
+        sys.exit(f"mv: {error}")
+elif program == "stat" and len(words) == 2 and words[0].startswith("--format="):
+    try:
+        found = os.lstat(words[1])
+    except OSError as error:
+        sys.exit(f"stat: {error}")
+    kinds = {stat.S_IFDIR: "directory", stat.S_IFLNK: "symbolic link", stat.S_IFREG: "regular file"}
+    kind = kinds.get(stat.S_IFMT(found.st_mode), "weird file")
+    mode = format(stat.S_IMODE(found.st_mode), "o")
+    print(words[0].removeprefix("--format=").replace("%u", str(found.st_uid)).replace("%a", mode).replace("%F", kind))
+else:
+    sys.exit(f"stand-in {program}: words it does not answer: {words}")
+"""
+
+
 def _dpkg_query(root: Path) -> str:
     """The host's dpkg-query for one package, as dpkg answers --show in the format asked, ${Status} as its three words
     and ${db:Status-Status} as the last: a package in root/installed is wanted and installed; one root/dpkg names, a
@@ -845,6 +875,11 @@ def _stand_ins(host: Machine, root: Path) -> None:
     }
     if shutil.which("sha256sum", path=os.pathsep.join(SYSTEM_PATH)) is None:
         tools["sha256sum"] = '#!/bin/sh\nexec shasum -a 256 "$@"\n'
+    if sys.platform == "darwin":
+        # BSD's mv has no -T and its stat no --format: GNU's, as a Proxmox host has them, for the build's own words.
+        (root / "gnu.py").write_text(GNU)
+        for name in ("mv", "stat"):
+            tools[name] = f'#!/bin/sh\nexec "{sys.executable}" -I "{root / "gnu.py"}" {name} "$@"\n'
     # The machine's dpkg-query is a link to the stand-in every machine shares: taken out, never written through.
     (host.bin / "dpkg-query").unlink()
     for name, text in tools.items():
@@ -1122,7 +1157,10 @@ def test_each_command_is_the_commands_module_s_with_nothing_on_its_standard_inpu
     assert programs == [
         "pvesh",
         "mkdir",
+        "id",
+        "stat",
         "sha256sum",
+        "rm",
         "curl",
         "sha256sum",
         "mv",
@@ -1131,6 +1169,7 @@ def test_each_command_is_the_commands_module_s_with_nothing_on_its_standard_inpu
         "apt-get",
         "apt-get",
         "virt-cat",
+        "rm",
         "cp",
         "virt-customize",
         "qm",
@@ -1142,20 +1181,25 @@ def test_each_command_is_the_commands_module_s_with_nothing_on_its_standard_inpu
         "pvesh",
     ]
     assert set(programs) <= HOST_PROGRAMS
-    # The fetch: the host's curl to a name of its own, the host's sha256sum, the rename; each the module's own words.
-    assert commands_run[1:6] == [
+    # The directory made and read as it is; the fetch: the host's curl to a name of its own cleared first, the host's
+    # sha256sum, the rename; each the module's own words.
+    assert commands_run[1:9] == [
         commands.folder(str(lab.images)),
+        commands.account(),
+        commands.kind_of(str(lab.images)),
         commands.digest_of(image),
+        commands.removed(f"{image}.part"),
         commands.fetch(url, f"{image}.part"),
         commands.digest_of(f"{image}.part"),
         commands.put_in_place(f"{image}.part", image),
     ]
-    assert commands_run[10:13] == [
+    assert commands_run[13:17] == [
         commands.os_release(image),
+        commands.removed(copy),
         commands.copied(image, copy),
         commands.customised(copy, ("qemu-guest-agent",)),
     ]
-    assert commands_run[17] == commands.removed(copy)
+    assert commands_run[21] == commands.removed(copy)
     # Nothing on any command's standard input, and every one under the host's template section.
     assert {stdin for _, stdin, _ in seen} == {None}
     assert all(any("template-lab" in held for held in holding) for _, _, holding in seen), seen
@@ -1235,6 +1279,77 @@ def test_a_package_neither_installed_nor_absent_or_unread_is_refused_and_nothing
     assert words in refused and "the base template was not built" in refused, refused
     assert lab.apt() == [] and _packages(lab) == []
     assert lab.qm_calls() == [] and lab.customised() == [] and lab.in_images() == [IMAGE_FILE]
+
+
+VICTIM = b"a file of root's outside the image directory\n"
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param(f"{IMAGE_FILE}.part", id="at the download's name"),
+        pytest.param(f"agent-warehouse-{TEMPLATE}.img", id="at the copy's name"),
+    ],
+)
+def test_a_link_planted_at_a_name_the_build_writes_is_never_written_through(lab, name) -> None:
+    victim = lab.root / "victim"
+    victim.write_bytes(VICTIM)
+    lab.images.mkdir(mode=0o755)
+    (lab.images / name).symlink_to(victim)
+    built = lab.build()
+    assert built.outcome == template.SAME
+    assert victim.read_bytes() == VICTIM
+    image = lab.images / IMAGE_FILE
+    assert not image.is_symlink() and image.read_bytes() == IMAGE_BYTES
+    assert lab.in_images() == [IMAGE_FILE]
+    assert lab.made() == [("file", str(image), "engine"), ("template", str(TEMPLATE), "engine")]
+
+
+def test_a_link_at_the_image_s_name_to_a_directory_is_replaced_never_written_into(lab) -> None:
+    elsewhere = lab.root / "elsewhere"
+    elsewhere.mkdir()
+    lab.images.mkdir(mode=0o755)
+    (lab.images / IMAGE_FILE).symlink_to(elsewhere, target_is_directory=True)
+    built = lab.build()
+    assert built.outcome == template.SAME
+    assert sorted(os.listdir(elsewhere)) == []
+    image = lab.images / IMAGE_FILE
+    assert not image.is_symlink() and image.read_bytes() == IMAGE_BYTES
+
+
+def _a_link(lab: Lab) -> None:
+    elsewhere = lab.root / "elsewhere"
+    elsewhere.mkdir()
+    lab.images.symlink_to(elsewhere, target_is_directory=True)
+
+
+def _writable(lab: Lab) -> None:
+    lab.images.mkdir()
+    lab.images.chmod(0o775)
+
+
+def _another_s(lab: Lab) -> None:
+    # The account that builds is another than the one the directory belongs to: the host's id says another number.
+    _executable(lab.host.bin / "id", f"#!/bin/sh\necho {os.getuid() + 1}\n")
+
+
+@pytest.mark.parametrize(
+    ("planted", "words"),
+    [
+        pytest.param(_a_link, "is a symbolic link, not a directory", id="a link"),
+        pytest.param(_writable, "may be written by accounts other than root (mode 775)", id="writable by its group"),
+        pytest.param(_another_s, f"belongs to the account numbered {os.getuid()}, not to root", id="another's"),
+    ],
+)
+def test_an_image_directory_another_account_could_write_in_stops_the_build_before_anything_is_fetched(
+    lab, planted, words
+) -> None:
+    planted(lab)
+    refused = _stopped(lab)
+    assert f"The image directory {lab.images} " in refused and words in refused, refused
+    assert "The base template was not built." in refused
+    assert lab.fetched() == [] and lab.qm_calls() == [] and lab.made() == []
+    assert not (lab.root / "elsewhere").exists() or sorted(os.listdir(lab.root / "elsewhere")) == []
 
 
 def test_a_difference_is_rebuilt_at_the_same_id_with_a_uuid_of_its_own(lab) -> None:
