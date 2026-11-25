@@ -66,6 +66,7 @@ Proxmox client inside the functions that use them.
 from __future__ import annotations
 
 import dataclasses
+import errno
 import json
 import os
 import stat
@@ -321,10 +322,20 @@ def _rule(kind: str) -> str:
     return answers.init_answer_rule(kind)
 
 
-def _bounded(path: Path, most: int) -> bytes:
-    """The first most + 1 bytes of the file at path: the one file read init opens itself, so that a file longer than
-    most is known to be. OSError where it cannot be read."""
-    with open(path, "rb") as stream:
+def _bounded(path: Path, most: int, *, links: bool = True) -> bytes:
+    """The first most + 1 bytes of the regular file at path: the one file read init opens itself, so that a file longer
+    than most is known to be. Opened without waiting on a pipe, and with links False never through a link, then held to
+    a regular file by what was opened, before anything of it is read, as fleet/vaultkey.py's _read: a FIFO or a link put
+    where a file was is never read and never blocks the run. OSError where it cannot be read or is no regular file."""
+    handle = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC | (0 if links else os.O_NOFOLLOW))
+    try:
+        if not stat.S_ISREG(os.fstat(handle).st_mode):
+            raise OSError(errno.EINVAL, "not a regular file", str(path))
+        stream = open(handle, "rb")
+    except BaseException:
+        os.close(handle)
+        raise
+    with stream:
         return stream.read(most + 1)
 
 
@@ -743,8 +754,9 @@ def _rows(what: str, candidates: Sequence[Mapping[str, Any]]) -> list[str]:
 
 def _public_keys(environ: Mapping[str, str]) -> list[tuple[str, str]]:
     """The public keys in ~/.ssh, each as its file's name and its key's line - a type OpenSSH names, its key in base64
-    and its comment, made plain - in the files' order: the menu the SSH key's question offers. A file that is no regular
-    file, cannot be read, is larger than a key is, or holds no key line is left out."""
+    and its comment, made plain - in the files' order: the menu the SSH key's question offers. A file that is a link or
+    no regular file (a FIFO is never waited on), cannot be read, is larger than a key is, or holds no key line is left
+    out."""
     try:
         folder = paths.user_home(environ) / ".ssh"
         files = sorted(folder.glob("*.pub")) if folder.is_dir() else []
@@ -754,9 +766,7 @@ def _public_keys(environ: Mapping[str, str]) -> list[tuple[str, str]]:
     seen: set[str] = set()
     for path in files:
         try:
-            if not stat.S_ISREG(os.lstat(path).st_mode):
-                continue
-            data = _bounded(path, PUBLIC_KEY_MOST)
+            data = _bounded(path, PUBLIC_KEY_MOST, links=False)
         except OSError:
             continue
         if len(data) > PUBLIC_KEY_MOST:

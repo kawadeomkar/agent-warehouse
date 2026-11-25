@@ -792,10 +792,11 @@ VPN_ASKED = b"\r\nVPN\r\n"
 SSH_KEY_ASKED = b"\r\nSSH key\r\n"
 TYPED_ASKED = b"A number or a name"
 UP, DOWN, ENTER, ESC = b"\x1b[A", b"\x1b[B", b"\r", b"\x1b"
-# Tailscale's auth key, as a person pastes one, and a public key of their own that is not the default one: each low in
-# entropy, so that gitleaks takes neither for a key.
+# Tailscale's auth key, as a person pastes one, and two public keys of their own that are not the default one: each low
+# in entropy, so that gitleaks takes none for a key.
 AUTH_KEY = "tskey-auth-kInit0CNTRL-TestOnly000000000000000"
 PUBLIC_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyDoNotUse+/= dev@laptop"
+OTHER_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOtherKeyDoNotUse+/= dev@elsewhere"
 # A run's header, as its live region draws it (in bold: its words alone).
 DRAWN = b"agent-warehouse"
 
@@ -1189,6 +1190,31 @@ def test_init_in_the_background_of_its_terminal_is_a_run_with_nobody_there_and_e
     assert refused in said, said
     assert engine_init.ASKED not in said and "not asked" not in said and DRAWN not in raw, said
     assert _files() == files
+
+
+def test_a_fifo_or_a_link_in_ssh_is_never_read_and_only_a_key_file_of_its_own_is_offered(fake) -> None:
+    # Review 54, E5.md 6: each ~/.ssh/*.pub is opened without waiting on a pipe and never through a link, then held to a
+    # regular file by what was opened, before anything of it is read. A FIFO, and a link to a key outside ~/.ssh, each
+    # named to sort before the one key file: the run neither waits on the one nor offers the other, and Enter at the
+    # menu takes the only key it offers, which is written.
+    folder = _home().root / ".ssh"
+    folder.mkdir()
+    os.mkfifo(folder / "a-fifo.pub")
+    elsewhere = _home().root / "elsewhere.pub"
+    elsewhere.write_text(OTHER_KEY + "\n")
+    (folder / "a-link.pub").symlink_to(elsewhere)
+    _public_key("laptop.pub", PUBLIC_KEY)
+    plan: Plan = [
+        (HOST_ASKED, [b"\n"], False),
+        (SSH_KEY_ASKED, [ENTER], True),
+        (GITHUB_ASKED, [b"\n"], False),
+        (VPN_ASKED, [ESC], True),
+    ]
+    rc, raw = _asked(fake, plan)
+    said = _read(raw)
+    assert rc == 0, said
+    assert "laptop.pub" in said and "a-fifo.pub" not in said and "a-link.pub" not in said, said
+    assert overrides.read(_home(), None).fleet.settings["vm_ssh_public_keys"] == [PUBLIC_KEY]
 
 
 # Where an address is reached with no host.yml to give its port: the API's own, 8006, here at a loopback address of its

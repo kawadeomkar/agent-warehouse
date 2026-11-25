@@ -680,17 +680,17 @@ safe answer is no; the token's secret, hidden, where the vault holds none and no
 the bridge, each a menu of what the host lists to the token, read with it, today's rows above it saying what the token
 lacks on each (`init.init_candidates`, against the privileges `pve/privileges.py`'s `needed` gives each kind), a yes or
 no where only one can be used; the SSH key, asked only where `vm_ssh_public_keys` is unset and `~/.ssh/id_ed25519.pub`,
-which its default reads at every run, gives none, as a menu of the other public keys in `~/.ssh`; whose repositories are
-cloned; the VPN, a menu, `none` first, then `tailscale`, written as `vpn`; and Tailscale's auth key, hidden, only once
-`tailscale` is chosen, given or set, where the vault holds none and `tailscale_auth_method` is not `web`, sealed in the
-vault and never taken from the command line. A typed answer is held to its kind, asked once more saying the rule where
-it does not fit, and left where Enter (Esc at a menu) is pressed, or where a second does not fit, said. Each answer is
-then a value given, and the run goes on as with nobody there, writing only what is unset; with the host's address left,
-only the fleet's own answers are written. What was left is said, and NEXT STEPS keeps the line that asks again; one
-Ctrl-C at a question ends the run with nothing written. A run in the background of its terminal (`aw init &`) is one
-with nobody there, never drawn: the live region's change of the terminal's settings from there would have the terminal
-stop it (`SIGTTOU`) before its first question. `tests/unit/test_aw_engine_init.py` holds it at a pseudo-terminal of its
-own, against the fake.
+which its default reads at every run, gives none, as a menu of the other public keys in `~/.ssh` (each a regular file of
+its own, never read through a link or waited on as a pipe); whose repositories are cloned; the VPN, a menu, `none`
+first, then `tailscale`, written as `vpn`; and Tailscale's auth key, hidden, only once `tailscale` is chosen, given or
+set, where the vault holds none and `tailscale_auth_method` is not `web`, sealed in the vault and never taken from the
+command line. A typed answer is held to its kind, asked once more saying the rule where it does not fit, and left where
+Enter (Esc at a menu) is pressed, or where a second does not fit, said. Each answer is then a value given, and the run
+goes on as with nobody there, writing only what is unset; with the host's address left, only the fleet's own answers are
+written. What was left is said, and NEXT STEPS keeps the line that asks again; one Ctrl-C at a question ends the run
+with nothing written. A run in the background of its terminal (`aw init &`) is one with nobody there, never drawn: the
+live region's change of the terminal's settings from there would have the terminal stop it (`SIGTTOU`) before its first
+question. `tests/unit/test_aw_engine_init.py` holds it at a pseudo-terminal of its own, against the fake.
 
 `tests/unit/test_aw_engine_init.py` holds `init` against the fake Proxmox, through `tools/aw` with a refusing `ssh`
 first on `PATH` and in this process with root SSH a reader of the test's own; its runs through `tools/aw` from a home
