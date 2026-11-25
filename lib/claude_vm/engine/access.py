@@ -11,10 +11,12 @@ the user; and the token's grants, the same as the user's, since a token with pri
 hold. The grants: the engine's role on the pool, on the storage for VM disks, on each bridge a clone's source has a
 network card on (a clone asks `SDN.Use` on each), and on the node; the audit role on every guest (`/vms`), read only,
 so that `status` shows the node's other VMs and a capacity made from all of them; and the clone role on the person's
-template alone, which the pool's role never reaches. Under `pool`, the stricter opt-in, the token holds nothing on a
-guest outside the pool but that template. The user's grants come before the token and the token's after it: an ACL
-entry can name only a token that exists, and the token's secret, which Proxmox shows once, is held for the least time
-a later step could fail with it unsaid (experiment 6).
+template alone, which the pool's role never reaches. Under `pool`, the stricter opt-in, the token's writes and its
+reads of single VMs stay within the pool and that template; under both, `Sys.Audit` on the node, which `status` needs
+for the node's capacity, also reads the node's report, and that report holds every guest's configuration. The user's
+grants come before the token and the token's after it: an ACL entry can name only a token that exists, and the
+token's secret, which Proxmox shows once, is held for the least time a later step could fail with it unsaid
+(experiment 6).
 
 The names are the engine's own (ruling B1, rule 1): the user `agent-warehouse@pve`, the token `aw`, the roles
 `AgentWarehouse`, `AgentWarehouseAudit` and `AgentWarehouseClone`, and the pool `aw-fleet` where neither
@@ -23,13 +25,15 @@ object is made of it: a pool's name starts with a letter and holds no `/`, which
 
 `check(object, found)` says what is there of one object: missing, or the engine's own, and nothing else. `found` is
 what one read of the host gives of the kinds the list makes (`Found`). A pool whose comment does not carry this
-fleet's mark is `NotOwn`, refused with fleet/mark.py's one rule's sentence, never a third answer; a role of the
-engine's own is told with what it lacks, which is appended and never taken away; and the audit role and the clone
-role, each granted on guests outside the pool, are held to their privileges exactly: what one holds beyond them is
-told too. `plan(objects, found)` is what a run makes of the list: each object that is missing made, each role of the
-engine's own given what it lacks, and a role held exactly that holds more neither changed nor granted, said with the
-line that fixes it, since a role is one set of privileges granted on a path, and that role on `/vms` would hand each
-privilege it holds over every VM of the node.
+fleet's mark, and a token of the list's ID made without privilege separation, which holds every privilege of its user,
+are `NotOwn`, each refused with its sentence, never a third answer; a role is told with what it lacks, which is
+appended and never taken away, and with what it holds beyond its privileges. `plan(objects, found)` is what a run
+makes of the list: each object that is missing made and each role given what it lacks. The engine's role holding more
+is granted all the same, and said with the line that keeps it to its own; the audit role and the clone role, each
+granted on guests outside the pool, are held to their privileges exactly: one that holds more is neither changed nor
+granted, and said with the line that fixes it, or, where its grants are there already, said to give each privilege
+now, since a role is one set of privileges granted on a path, and that role on `/vms` hands each privilege it holds
+over every VM of the node.
 
 This module runs nothing against a host and renders nothing: card E2's script is the one rendering of the list, run
 over root SSH on a `y` (E7) or printed for the person to run. Standard library only, with fleet/'s mark and settings
@@ -93,7 +97,8 @@ POOL = "aw-fleet"
 COMMENT = mark.WORD
 # The privilege a template is cloned with (pve/privileges.py's clone row on its source).
 CLONE = "VM.Clone"
-# What the token may read beyond its pool: every VM of the node, or its pool's alone (the settings table's row).
+# What the token may read of single VMs beyond its pool: every VM of the node, or its pool's alone (the settings
+# table's row).
 SCOPES = registry.row("proxmox_audit_scope").choices
 NODE_SCOPE = "node"
 # A pool's name as Proxmox makes one, and that rule in words: the settings table's (fleet/registry.py's POOL_NAME),
@@ -333,13 +338,14 @@ def objects(host: Host) -> tuple[Object, ...]:
 @dataclass(frozen=True, eq=False)
 class Found:
     """What exists on a host of the kinds the list makes, as one read of it gives them: each pool's comment by its name
-    ("" for one with none), each role's privileges by its ID, the users' IDs, the tokens' full IDs, and the ACL's
-    entries, each a Grant. An empty Found is a host with none of them."""
+    ("" for one with none), each role's privileges by its ID, the users' IDs, each token's privilege separation by its
+    full ID (True for a token made with it), and the ACL's entries, each a Grant. An empty Found is a host with none of
+    them."""
 
     pools: Mapping[str, str] = field(default_factory=dict)
     roles: Mapping[str, Iterable[str]] = field(default_factory=dict)
     users: Iterable[str] = ()
-    tokens: Iterable[str] = ()
+    tokens: Mapping[str, bool] = field(default_factory=dict)
     grants: Iterable[Grant] = ()
 
     def __post_init__(self) -> None:
@@ -349,22 +355,27 @@ class Found:
         roles = {name: frozenset(held) for name, held in dict(self.roles).items()}
         if not all(isinstance(name, str) and all(isinstance(one, str) for one in held) for name, held in roles.items()):
             raise TypeError("a role's privileges are each a str, by the role's ID")
-        users, tokens, grants = frozenset(self.users), frozenset(self.tokens), frozenset(self.grants)
-        if not all(isinstance(each, str) for each in users | tokens):
-            raise TypeError("a user's and a token's IDs are each a str")
+        if not isinstance(self.tokens, Mapping):
+            raise TypeError("a token's privilege separation is a bool, by the token's full ID")
+        tokens = dict(self.tokens)
+        if not all(isinstance(name, str) and isinstance(privsep, bool) for name, privsep in tokens.items()):
+            raise TypeError("a token's privilege separation is a bool, by the token's full ID")
+        users, grants = frozenset(self.users), frozenset(self.grants)
+        if not all(isinstance(each, str) for each in users):
+            raise TypeError("a user's ID is a str")
         if not all(isinstance(each, Grant) for each in grants):
             raise TypeError("an ACL entry is a Grant")
         object.__setattr__(self, "pools", MappingProxyType(pools))
         object.__setattr__(self, "roles", MappingProxyType(roles))
         object.__setattr__(self, "users", users)
-        object.__setattr__(self, "tokens", tokens)
+        object.__setattr__(self, "tokens", MappingProxyType(tokens))
         object.__setattr__(self, "grants", grants)
 
 
 @dataclass(frozen=True)
 class Answer:
-    """What check found of one object: MISSING or OWN; for a role of the engine's own, the privileges it lacks
-    (lacking), which are appended to it, and for a role held exactly, those it holds beyond its own (beyond)."""
+    """What check found of one object: MISSING or OWN; for a role, the privileges it lacks (lacking), which are appended
+    to it, and those it holds beyond its own (beyond)."""
 
     state: str
     lacking: tuple[str, ...] = ()
@@ -397,16 +408,31 @@ def _role(role: Role, found: Found) -> Answer:
         return Answer(MISSING)
     wanted = frozenset(role.privileges)
     lacking = tuple(sorted(wanted - frozenset(held)))
-    beyond = tuple(sorted(frozenset(held) - wanted)) if role.exact else ()
+    beyond = tuple(sorted(frozenset(held) - wanted))
     return Answer(OWN, lacking, beyond)
+
+
+def _token(token: Token, found: Found) -> Answer:
+    privsep = found.tokens.get(token.id)
+    if privsep is None:
+        return Answer(MISSING)
+    if privsep != token.privsep:
+        raise NotOwn(
+            f"The token {token.name} of {token.user} is there without privilege separation, so it holds every privilege"
+            f" its user holds, not only its own grants: it is not one init makes. As root on the Proxmox host, pveum"
+            f" user token delete {token.user} {token.name} deletes it, and init then makes it again; or aw init"
+            " --token-id <an ID of the fleet's own> makes one beside it."
+        )
+    return Answer(OWN)
 
 
 def check(obj: Object, found: Found) -> Answer:
     """What is there of one object of the list: MISSING, or OWN, the engine's own, and nothing else. A pool is OWN only
     where its comment carries this fleet's mark, controller=none; any other pool of its name is NotOwn, with
-    fleet/mark.py's sentence. A role is told with what it lacks, and a role held exactly with what it holds beyond its
-    privileges too. A grant is OWN only where the entry is there as the list makes it, its propagation included, so
-    that one made otherwise is made again as the list makes it."""
+    fleet/mark.py's sentence. A token is OWN only where its full ID is there with privilege separation; one made
+    without it is NotOwn. A role is told with what it lacks and what it holds beyond its privileges. A grant is OWN
+    only where the entry is there as the list makes it, its propagation included, so that one made otherwise is made
+    again as the list makes it."""
     if not isinstance(found, Found):
         raise TypeError(f"what exists is a Found, not a {type(found).__name__}")
     if isinstance(obj, Pool):
@@ -416,7 +442,7 @@ def check(obj: Object, found: Found) -> Answer:
     if isinstance(obj, User):
         return Answer(OWN if obj.name in found.users else MISSING)
     if isinstance(obj, Token):
-        return Answer(OWN if obj.id in found.tokens else MISSING)
+        return _token(obj, found)
     if isinstance(obj, Grant):
         return Answer(OWN if obj in found.grants else MISSING)
     raise TypeError(f"an object of the list is one of {', '.join(kind.__name__ for kind in KINDS)}")
@@ -443,29 +469,47 @@ class Plan:
     said: tuple[str, ...]
 
 
-def _too_much(role: Role, beyond: tuple[str, ...], paths: Sequence[str]) -> str:
-    """The sentence for a role held exactly that holds more than its privileges, with the line that fixes it."""
+def _too_much(role: Role, beyond: tuple[str, ...], paths: Sequence[str], granted: Sequence[str]) -> str:
+    """The sentence for a role that holds more than its privileges, with the line that keeps it to them: the engine's
+    role, granted all the same (paths); a role held exactly, not granted, or granted already on some of its paths
+    (granted)."""
     own = ", ".join(role.privileges)
     more = one_line(", ".join(beyond), SAID_MOST)
+    fix = f"As root on the Proxmox host, pveum role modify {role.name} --privs {','.join(role.privileges)} keeps it to"
+    if not role.exact:
+        return (
+            f"The role {role.name} holds {more} beyond what the engine needs, and is granted on {', '.join(paths)} all"
+            f" the same, since init never takes a privilege away: there the token holds each of them. {fix} what the"
+            " engine needs."
+        )
+    over = "that template" if role.name == CLONE_ROLE else "every guest there"
+    if granted:
+        return (
+            f"The role {role.name} holds {more} beyond {own} and is granted on {', '.join(granted)} already: there it"
+            f" gives each of them over {over} now. {fix} {own}."
+        )
     return (
         f"The role {role.name} holds {more} beyond {own}, so it is not granted: on {', '.join(paths)} it would give the"
-        f" token each of them over every guest there. As root on the Proxmox host, pveum role modify {role.name}"
-        f" --privs {','.join(role.privileges)} keeps it to {own}, and init then grants it."
+        f" token each of them over {over}. {fix} {own}, and init then grants it."
     )
 
 
 def plan(listed: Sequence[Object], found: Found) -> Plan:
     """What a run makes of listed, objects(host)'s list, against what exists (found): each object that is missing made,
-    and each role of the engine's own that lacks a privilege given it, none taken away. A role held exactly that holds
-    more is neither changed nor granted, and said. A pool that is not this fleet's is NotOwn before any step: nothing
-    is made."""
+    and each role that lacks a privilege given it, none taken away. The engine's role holding more is granted all the
+    same, and said; a role held exactly that holds more is neither changed nor granted, and said, as granted already
+    where its grants are there. A pool or a token that is not this fleet's is NotOwn before any step: nothing is
+    made."""
     answered = [(obj, check(obj, found)) for obj in listed]
-    withheld = {obj.name: answer.beyond for obj, answer in answered if isinstance(obj, Role) and answer.beyond}
+    beyond = {obj.name: answer.beyond for obj, answer in answered if isinstance(obj, Role) and answer.beyond}
+    withheld = {name for name, role in _roles_of(listed).items() if name in beyond and role.exact}
     said = []
-    for obj, _ in answered:
-        if isinstance(obj, Role) and obj.name in withheld:
-            paths = dict.fromkeys(each.path for each in listed if isinstance(each, Grant) and each.role == obj.name)
-            said.append(_too_much(obj, withheld[obj.name], list(paths)))
+    for name, role in _roles_of(listed).items():
+        if name in beyond:
+            grants = [each for each in listed if isinstance(each, Grant) and each.role == name]
+            paths = list(dict.fromkeys(each.path for each in grants))
+            granted = list(dict.fromkeys(each.path for each in grants if each in found.grants))
+            said.append(_too_much(role, beyond[name], paths, granted))
     steps = []
     for obj, answer in answered:
         if (isinstance(obj, Role) and obj.name in withheld) or (isinstance(obj, Grant) and obj.role in withheld):
@@ -475,3 +519,7 @@ def plan(listed: Sequence[Object], found: Found) -> Plan:
         elif answer.lacking:
             steps.append(Step(obj, answer.lacking))
     return Plan(tuple(steps), tuple(said))
+
+
+def _roles_of(listed: Sequence[Object]) -> dict[str, Role]:
+    return {each.name: each for each in listed if isinstance(each, Role)}

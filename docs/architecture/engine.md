@@ -611,19 +611,25 @@ engine's role is granted on the pool (`aw-fleet` where none is named), the stora
 source has a network card on, which a clone asks `SDN.Use` on, and the node; the audit role on `/vms`, read only, so
 that `status` shows the node's other VMs and a capacity made from all of them; the clone role on the person's template
 alone. A role is one set of privileges granted on a path, so the engine's role, which writes, is granted on no guest
-outside the pool; under `pool`, the stricter opt-in, the token holds nothing on a guest outside it but that template.
+outside the pool; under `pool`, the stricter opt-in, the token's writes and its reads of single VMs stay within the
+pool and that template. Under both, `Sys.Audit` on the node, which `status` needs for the node's capacity, also reads
+the node's report, and that report holds every guest's configuration.
 The user's grants come before the token and the token's after it, since an ACL entry can name only a token that
 exists. `Host` holds each value of a host to the form Proxmox gives it before any object is made of it, a pool's name
 from a letter and with no `/`, which on Proxmox VE 9.2 makes a nested pool (`POOL_NAME`, and `POOL_RULE` its words: the
 settings table's one rule of a pool's name, `registry.POOL_NAME`, which `proxmox_pool`'s form holds), and `Host.of`
 reads them from a host's settings. `check(object, found)`, given what one read of the host holds (`Found`), answers
 missing or the engine's own and nothing else: a pool whose comment does not carry this fleet's mark is refused with
-`fleet/mark.py`'s sentence, never taken; a role is told with what it lacks; and the audit and clone roles, granted on
+`fleet/mark.py`'s sentence, never taken, and so is a token of the list's ID made without privilege separation, which
+holds every privilege of its user, with the line that deletes it (`Found` holds each token's separation by its full ID);
+a role is told with what it lacks and what it holds beyond its privileges; and the audit and clone roles, granted on
 guests outside the pool, are held to their privileges exactly. `plan(objects, found)` makes each object that is missing
-and appends to a role of the engine's own what it lacks, never taking one away; a role held exactly that holds more is
-neither changed nor granted, and said with the line that fixes it
-(`pveum role modify AgentWarehouseAudit --privs VM.Audit`, as root on the host), since on `/vms` it would hand each
-privilege it holds over every VM of the node.
+and appends to a role what it lacks, never taking one away. The engine's role holding more is granted all the same and
+said, with `pveum role modify AgentWarehouse --privs` and its fifteen as the line that keeps it to them, so that a
+privilege a later table drops is said, never kept in silence. A role held exactly that holds more is neither changed nor
+granted, and said with the line that fixes it (`pveum role modify AgentWarehouseAudit --privs VM.Audit`, as root on the
+host), since on `/vms` it would hand each privilege it holds over every VM of the node; where its grants are there
+already, it is said to give each of them now.
 
 `tests/unit/test_aw_access_objects.py` holds it: the list, its order and its count, fifteen objects with the defaults
 and twelve under `pool`; no object but the pool with the mark, the roles, the user, the token and their grants,
@@ -634,7 +640,9 @@ person's template through the clone role on its own path under both; every value
 never said back; and the invariant, over a host holding nothing, everything, everything but one object, a role lacking
 or holding more and a grant that does not propagate: `check` answers missing or the engine's own and nothing else, a
 pool of another fleet's, of no mark or of a control VM refused with nothing planned, a role of the engine's own given
-what it lacks and losing none, and a role held exactly that holds more said and left ungranted.
+what it lacks and losing none and one holding more granted and said, a role held exactly that holds more, or lacks
+one and holds more, said and left ungranted, or said to give it now where its grants are there, and a token known by
+its full ID and its separation, another user's of the same ID missing and one made without separation refused.
 
 **The API's certificate: `certificate.py`.** Before `init` sends a Proxmox host anything that carries a credential,
 `work_out(host, given, root_ssh, ask)` settles what its API's certificate is held to, by today's `trust.py`'s probes,

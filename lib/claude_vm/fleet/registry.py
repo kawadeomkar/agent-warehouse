@@ -1140,8 +1140,10 @@ ADDED: tuple[Row, ...] = (
         "node",
         "common",
         "What the engine's token may read on the host beyond its pool: node, every VM of the node, read only, so that "
-        "status shows the node's other VMs and a capacity made from all of them; pool, its pool's alone, and status "
-        "then says the others are not read.",
+        "status shows the node's other VMs and a capacity made from all of them; pool, its writes and its reads of "
+        "single VMs stay within its pool, and status then says the others are not read. Under both, Sys.Audit on the "
+        "node, which status needs for the node's capacity, also reads the node's report, which holds every guest's "
+        "configuration.",
         choices=("node", "pool"),
     ),
     _fleet(

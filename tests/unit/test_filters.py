@@ -607,7 +607,15 @@ class TestProxmoxName:
     # storage or bridge name that Proxmox would never give is neither offered nor written.
     @pytest.mark.parametrize(
         ("value", "kind"),
-        [("pve", "node"), ("pve-2", "node"), ("local-lvm", "storage"), ("nfs.data_1", "storage"), ("vmbr0", "bridge")],
+        [
+            ("pve", "node"),
+            ("pve-2", "node"),
+            ("local-lvm", "storage"),
+            ("nfs.data_1", "storage"),
+            ("NFS", "storage"),
+            ("a" * 64, "storage"),
+            ("vmbr0", "bridge"),
+        ],
     )
     def test_a_name_proxmox_gives_is_kept(self, value, kind):
         assert checks.proxmox_name(value, kind) == value
@@ -621,6 +629,10 @@ class TestProxmoxName:
             ("pve.lan", "node"),
             ("1local", "storage"),
             ("local-", "storage"),
+            # Python folds [a-z] under (?i) onto the Kelvin sign and the long s, which no Proxmox name holds.
+            ("\u212aal", "storage"),
+            ("lo\u017fal", "storage"),
+            ("a" * 65, "storage"),
             ("vmbr0\n", "bridge"),
             ("vmbr 0", "bridge"),
             (None, "node"),
