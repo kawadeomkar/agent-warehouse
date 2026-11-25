@@ -2997,7 +2997,11 @@ for one run, never saying the value. `typed(option, text)` holds typed text to t
 to a row. A kind of option no row's type holds (a list of anything but strings, choices of anything but a string) is
 refused as the table is made, before it could be passed through. `tests/unit/test_aw_fleet_passthrough.py` holds it:
 every option a row's, passed through or refused, none left out; each passed through carrying its spec; no secret passed
-through, nor an option that `defaults.yml` or a role's own task file, handler or `vars/main.yml` sets (a scan of them);
+through, nor an option that `defaults.yml` or a role sets for itself, by any road: a scan of the roles' task files and
+handlers, `.yaml` too, and every file of their `vars/` folders, that reads a `set_fact` by any of its names, given its
+names directly, through `action:` or `local_action:`, `args:` or a `module_defaults` of the role's or of a play that
+runs it (on the play, a role entry, a block or a task), a `register` and a `vars:`, and finds no road whose names it
+cannot read - an `include_vars`, a template in their place - and no `module_defaults` group that holds a `set_fact`;
 each refusal's reason; a value held to its spec typed and in a file; each `text` read back whole from the fleet's file,
 the vendored key among them, a control character but the line's end and an expression refused by its line, and neither
 typed; and, against today's `tools/settings` run
@@ -3348,8 +3352,9 @@ read as the host's own variables are, so that an extra variable, a variables fil
 vars plugin that would loosen the host key's checking or replace the program fails it by name before anything
 connects; the play's own vars and its roles' are none of those, and the ratchet holds every file the play reaches to
 setting no `ansible_` variable. `system.variables(path, document, secrets=...)` writes the play's variables through
-`variables.write` alone, after refusing by its name a setting the engine cannot serve yet: `common_user_passwordless_sudo`
-other than true, which needs a become password that no play is handed before F24.
+`variables.write` alone, given `system.NAMES` (guest/wiring.py's `NAMES`) as the names the play takes, after refusing by
+its name a setting the engine cannot serve yet: `common_user_passwordless_sudo` other than true, which needs a become
+password that no play is handed before F24.
 
 Layer 1 is held to state modules, and reaches nothing of this computer: `tests/unit/test_aw_layer1_ratchet.py` holds
 what the play reaches through a walk of its own that reads what Ansible reads. It follows the play's pre-tasks, tasks,
@@ -3405,7 +3410,8 @@ is in it; and with the checkout's real folder the play starts.
 
 **A play's variables.** ansible-core loads an extra-variables file as a trusted source, so a string in it that holds
 `{{`, `{%` or `{#` would be rendered as a template: a setting would be code. `lib/claude_vm/guest/variables.py`'s
-`write(path, document, secrets=...)` writes the play's variables as one JSON file, `vars.json` in the run's directory,
+`write(path, document, secrets=..., names=...)` writes the play's variables as one JSON file, `vars.json` in the run's
+directory,
 in which every string is `{"__ansible_unsafe": <the string>}` (`wrap`): Ansible's loader reads the file as JSON first,
 and its decoder hands such a string on as text, without the trusted mark. The standard library writes it, at 0600,
 whole, beside the path and then put in its place, never through a link. Nothing is written where a variable's name is
@@ -3419,11 +3425,23 @@ roles pass one, the keywords of a play, a block and a task, and the templates' g
 where a key anywhere begins `__ansible`, which the decoder reads as its own, or anything else would fail Ansible's JSON decoding (an integer past 64 bits, a float that is not finite, a
 nesting past 32 levels), since its loader then reads the very same text as YAML, where a wrapped string is a plain
 mapping and its string a trusted template; where a string is no text UTF-8 holds, which fails the YAML too; where a
-value is of a type no variable holds, a `Secret` above all; or where the document holds a secret the run opened, in a
-name, a string or the file's text, which the refusal never says back: no secret is ever in this file. `layer1.run` holds
-the file it is given to the same rules (`held`) before anything is written or started. The decoder is under
+value is of a type no variable holds, a `Secret` above all; where the document holds a secret the run opened, in a
+name, a string or the file's text, which the refusal never says back: no secret is ever in this file; or, those first,
+whatever it lists, where a variable is none of `names`, the names the play takes, which its caller gives and never leaves
+out. An extra variable outranks a play's vars, a task's vars, a `set_fact` and a `register` too, so a name of the play's
+own logic would turn it off for every task: the system play's check that the connection is the engine's
+(`system_not_written`, `system_connection_variables`), a register of its opening tasks (`configure_base`), a role's
+internal or register (`common_names_1x`, a list of files moved as root; `common_sshd_hardening`;
+`common_user_password_salt`), a loop's `item`. For the system play the names are `guest/wiring.py`'s `NAMES`, the one
+list, made from its `PLAY`, `TABLE` and `INTERNALS` and written once, which `guest/system.py` names beside the play
+(`system.NAMES`); a later variable of the play is added there. `layer1.run` holds the file it is given to the same rules
+and to the names its caller gives beside the play (`held(path, names)`, `run(..., names=system.NAMES)`) before anything
+is written or started, and refuses a variables file given without them. The decoder is under
 `ansible._internal`, so the tests, not Ansible's documentation, hold this across releases:
-`tests/unit/test_aw_variables.py` holds `FIXED` equal to what a child of the locked ansible-core gives a host, a play
+`tests/unit/test_aw_variables.py` holds each rule, a name outside `names` among them, by `write`, by `held` and by
+`layer1.run`, and `tests/unit/test_aw_layer1_play.py` each name above refused by `system.variables` and by layer 1's hold
+beside the system play; `test_aw_variables.py` holds `FIXED` equal to what a child of the locked ansible-core gives a
+host, a play
 and a role's task beside an inventory's and a play's own, and its reserved names; it loads a written file through
 Ansible's own loader, in a Python of its own, and finds no string trusted (the same document unwrapped, every string trusted), and through a real child on a stand-in machine a
 wrapped `{{ 7 * 7 }}` reaches a task as that text, an unwrapped one is templated, with the untrusted-template switch at
@@ -3451,13 +3469,17 @@ passwordless sudo off, which `system.variables` refuses until F24 hands the pass
 file on a pipe, so no secret is ever in the file. A name of the settings that is a variable made here and no row of its
 own name - `common_user`, `common_hostname`, `common_user_password` - is refused by name, as `--set` and the fleet's
 file refuse `common_user_password` as the vault's; so are a part that is none of the play's, a target that is no VM name
-and a profile's name that is no setting or option of the table. Every value is a copy.
-`tests/unit/test_aw_guest_wiring.py` holds the table to the roles' specs, every variable in it or among the internals
-once; each setting to the row today's wiring reaches the variable from, both ways; each option to `passthrough.py`'s,
-both ways; and the output, for the registry's defaults and three sets of overrides (the rows the play reads, every
-option of its roles, values given for one run), equal variable by variable to what a child of the locked ansible-core
-gives the same roles, with a machine's facts set, from today's example inventory with the same values in `local.yml`,
-against the one host's inventory layer 1 writes and the file the play's own writer made, loaded as extra variables. The
+and a profile's name that is no setting or option of the table. Every value is a copy. `NAMES` is every name of `PLAY`,
+`TABLE` and `INTERNALS`, the names the play's variables may hold, and with every option set the function makes each of
+them. `tests/unit/test_aw_guest_wiring.py` holds the table to the roles' specs, every variable in it or among the
+internals once; each setting to the row today's wiring reaches the variable from, both ways; each option to
+`passthrough.py`'s, both ways; `NAMES` to the table, every name the function makes among them and taken by the writer
+and by layer 1's hold; and the output, for the registry's defaults and four sets of overrides (the rows the play reads,
+twice, with their switches set apart; every option of its roles; values given for one run), equal variable by variable,
+in type and value (`true` is not `1`), to what a child of the locked ansible-core gives the same roles, with a machine's
+facts set, from today's example inventory with the same values in `local.yml`, against the one host's inventory layer 1
+writes and the file the play's own writer made, loaded as extra variables. No two rows the play reads carry one value
+in every case, which the test holds too, so a row read in another's place is a difference. The
 `system` scenario converges its container from `role_variables` alone, its settings written into a fleet home of its own
 and given with `--set`, with no `group_vars` or `host_vars` beside the play or the inventory.
 

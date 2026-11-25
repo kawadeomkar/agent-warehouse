@@ -7,19 +7,25 @@ and every variable today's wiring reaches from a row is that row's here; each th
 fleet/passthrough.py passes through, and every option of the three roles passed through is one here; the machine's
 name makes the hostname; and the internal password is empty, refused wherever a run could set it.
 
-The function's output, for the registry's defaults and for three sets of overrides (the rows the play reads, every
-option of its roles set, the fact-made defaults among them, and values given for one run with --set), equals, variable
-by variable, what Ansible gives the same roles from today's example inventory with the same values in local.yml: a child
-of the locked ansible-core asks each role's play for each variable of its spec, with a machine's facts set, on today's
-side over the inventory made from the example files with host alpha among the VMs, and on the new side over the one
-host's inventory layer 1 writes, named by an identity, no group_vars beside it, and the variables file the play's own
-writer made from the function's output, loaded as extra variables as layer 1 gives it. The comparison asks Ansible in
-the test alone; the module imports the standard library and the patterns.
+The function's output, for the registry's defaults and for four sets of overrides (the rows the play reads, twice, with
+their switches set apart; every option of its roles set, the fact-made defaults among them; and values given for one run
+with --set), equals, variable by variable, in type and value, what Ansible gives the same roles from today's example
+inventory with the same values in local.yml: a child of the locked ansible-core asks each role's play for each variable
+of its spec, with a machine's facts set, on today's side over the inventory made from the example files with host alpha
+among the VMs, and on the new side over the one host's inventory layer 1 writes, named by an identity, no group_vars
+beside it, and the variables file the play's own writer made from the function's output, loaded as extra variables as
+layer 1 gives it. The comparison tells true from 1, and its cases set every two rows the play reads apart in one case
+at least, so that a row read in another's place is a difference. The comparison asks Ansible in the test alone; the
+module imports the standard library and the patterns.
+
+The names the play's variables may hold are one list, made from the table: the play's own, each role variable and each
+internal, every one of which the function makes when every option is set.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import itertools
 import json
 import os
 import subprocess
@@ -37,6 +43,7 @@ from claude_vm import wiring as todays
 from claude_vm.fleet import overrides, passthrough, paths, registry
 from claude_vm.fleet.overrides import Value
 from claude_vm.guest import layer1, system, wiring
+from claude_vm.guest import variables as play_variables
 from claude_vm.guest.wiring import INTERNALS, MACHINE, OPTION, PLAY, SETTING, TABLE
 from claude_vm.ssh import runner
 
@@ -177,6 +184,19 @@ def test_a_variable_made_here_is_refused_in_the_settings_by_its_name(where, name
         assert wiring.made_here(held) is None, held
 
 
+def test_the_names_the_play_s_variables_may_hold_are_its_own_each_role_variable_and_each_internal_once() -> None:
+    every = [*PLAY, *INTERNALS, *(name for role in ROLES for name in TABLE[role])]
+    assert len(every) == len(set(every))
+    assert type(wiring.NAMES) is frozenset and wiring.NAMES == set(every)
+    # The one list, which the play's writer and layer 1's hold read: guest/system.py names it beside the play.
+    assert system.NAMES is wiring.NAMES
+    # Each of a role variable's shape, none the connection's and none Ansible gives the play itself: the writer's own
+    # rules, which hold whatever the list says, never refuse one of them.
+    for name in wiring.NAMES:
+        assert play_variables.NAME.fullmatch(name) and not name.startswith(play_variables.CONNECTION), name
+    assert not wiring.NAMES & play_variables.FIXED
+
+
 # ---------------------------------------------------------------- the function ----
 
 
@@ -264,6 +284,17 @@ def test_a_profile_is_laid_where_the_person_set_nothing_and_holds_no_other_name(
         wiring.role_variables(_settings(where), NAME, ROLES, [("vm_user", "pi")])
 
 
+def test_every_name_the_function_makes_is_one_the_play_takes_and_every_one_is_made(tmp_path, where) -> None:
+    digest = overrides.MISSING
+    for name, value in _options_set().items():
+        digest = overrides.set(where, name, value, None, digest)
+    made = wiring.role_variables(_settings(where), NAME, ROLES)
+    assert set(made) == wiring.NAMES
+    # Written by the play's own writer, and read back by the hold layer 1 asks of the file.
+    written = system.variables(tmp_path / "vars.json", made, secrets=())
+    assert play_variables.held(written, system.NAMES) == written
+
+
 def test_settings_that_are_not_resolve_s_are_refused(where) -> None:
     for settings in ([("vm_user", "dev")], {"vm_user": "dev"}):
         with pytest.raises(wiring.Refused, match="resolve"):
@@ -328,6 +359,24 @@ def _collections() -> str:
     if not found:
         pytest.fail("ANSIBLE_COLLECTIONS_PATH is not set: run the suite through tools/env-run, as just test does")
     return found
+
+
+def _typed(value: object) -> str:
+    """A value as its JSON text, which says its type at every level: true is not 1, nor 1.0 1."""
+    return json.dumps(value, sort_keys=True)
+
+
+def _differ(today: dict, new: dict, names: list[str]) -> dict[str, tuple[object, object]]:
+    """Each of names whose value differs between the two sides, in its type or its value, with both values."""
+    return {name: (today[name], new[name]) for name in names if _typed(today[name]) != _typed(new[name])}
+
+
+def test_the_comparison_tells_a_boolean_from_an_integer_at_every_level() -> None:
+    today = {"a": True, "b": False, "c": [True], "d": {"e": 1}, "f": 1.0, "g": "x", "h": None, "i": [1, 2]}
+    new = {"a": 1, "b": 0, "c": [1], "d": {"e": True}, "f": 1, "g": "x", "h": None, "i": [1, 2]}
+    # Python's own == takes each pair for equal.
+    assert all(today[name] == new[name] for name in today)
+    assert sorted(_differ(today, new, list(today))) == ["a", "b", "c", "d", "f"]
 
 
 def _asked(work: Path, side: str, sources: list[str], host: str, extra_vars: list[str]) -> dict[str, dict]:
@@ -424,6 +473,9 @@ def _another(option: passthrough.Option) -> object:
     return f"made-{option.name}"
 
 
+# The rows the play reads, set in the fleet's file: some of the switches turned from their default and some left at it,
+# and in the next case the other way about, so that with the defaults and the run's own no two switches carry one value
+# in every case, and a row read in another's place is a difference (test_the_cases_set_every_two_rows_..._apart).
 ROWS_SET = {
     "vm_user": "pat",
     "vm_ssh_public_keys": [
@@ -432,31 +484,63 @@ ROWS_SET = {
     ],
     "vm_extra_packages": ["jq", "htop"],
     "vscode_remote": False,
-    "dev_tools_install_node": False,
     "dev_tools_install_docker": False,
-    "dev_tools_install_gh": False,
     "dev_tools_install_uv": False,
     "dev_tools_install_rust": True,
     "dev_tools_node_major": 20,
 }
-# The values for one run, over the fleet's file: a row of the fleet's and the play's own, an option, and a fact-made
-# one.
-RUN = ("vm_user=sam", "configure_wait_for_cloud_init=false", "common_apt_upgrade=no", "dev_tools_deb_arch=amd64")
+ROWS_APART = {"dev_tools_install_node": False, "dev_tools_install_docker": False, "dev_tools_install_gh": False}
+# The values for one run, over the fleet's file: a row of the fleet's and the play's own, an option, a fact-made one,
+# and two switches.
+RUN = (
+    "vm_user=sam",
+    "configure_wait_for_cloud_init=false",
+    "common_apt_upgrade=no",
+    "dev_tools_deb_arch=amd64",
+    "dev_tools_install_gh=false",
+    "dev_tools_install_uv=false",
+)
+CASES = ("defaults", "rows", "rows apart", "options", "for one run")
 
 
 def _options_set() -> dict[str, object]:
     return {each.name: _another(each) for each in passthrough.options() if each.refused is None and each.role in ROLES}
 
 
-@pytest.mark.parametrize("case", ["defaults", "rows", "options", "for one run"])
-def test_the_variables_are_what_ansible_gives_the_roles_from_today_s_inventory(tmp_path, where, case) -> None:
+def _case(case: str) -> tuple[dict[str, object], tuple[str, ...]]:
+    """A case's values: those in the fleet's settings.yml, and those given for its run."""
     fleet: dict[str, object] = {
         "defaults": {},
         "rows": ROWS_SET,
+        "rows apart": ROWS_APART,
         "options": _options_set(),
         "for one run": {"vm_user": "pat", "common_timezone": "Europe/Paris"},
     }[case]
-    run = RUN if case == "for one run" else ()
+    return fleet, RUN if case == "for one run" else ()
+
+
+def test_the_cases_set_every_two_rows_the_play_reads_apart(where) -> None:
+    sources = [*PLAY.values(), *(source for role in ROLES for source in TABLE[role].values())]
+    rows = sorted({str(source.setting) for source in sources if source.kind == SETTING})
+    seen: dict[str, list[str]] = {row: [] for row in rows}
+    for case in CASES:
+        fleet, run = _case(case)
+        digest = overrides.MISSING
+        for name, value in fleet.items():
+            digest = overrides.set(where, name, value, None, digest)
+        settings = _settings(where, run)
+        for row in rows:
+            seen[row].append(_typed(settings[row].value))
+        (paths.fleet_dir(where) / "settings.yml").unlink(missing_ok=True)
+    # No two rows carry one value in every case, so the comparison sees one read in another's place; and each row is
+    # set from its default in one case at least, so it sees one left at its role's default.
+    assert [(one, other) for one, other in itertools.combinations(rows, 2) if seen[one] == seen[other]] == []
+    assert [row for row in rows if len(set(seen[row])) == 1] == []
+
+
+@pytest.mark.parametrize("case", CASES)
+def test_the_variables_are_what_ansible_gives_the_roles_from_today_s_inventory(tmp_path, where, case) -> None:
+    fleet, run = _case(case)
     local = {**fleet, **overrides.run_values(run, secrets=())}
     (tmp_path / "today").mkdir()
     (tmp_path / "new").mkdir()
@@ -466,14 +550,13 @@ def test_the_variables_are_what_ansible_gives_the_roles_from_today_s_inventory(t
     for role in ROLES:
         names = [*PLAY, *specs[role]]
         assert sorted(today[role]) == sorted(new[role]) == sorted(names), role
-        differ = {name: (today[role][name], new[role][name]) for name in names if today[role][name] != new[role][name]}
-        assert differ == {}, role
+        assert _differ(today[role], new[role], names) == {}, role
     # What was set reached the roles, not their defaults: every value set, and the machine's name.
     given = {name: value for role in ROLES for name, value in new[role].items()}
     assert given["common_hostname"] == NAME
     for name, value in local.items():
         if name in given:
-            assert given[name] == value, name
+            assert _typed(given[name]) == _typed(value), name
     if case == "defaults":
         assert given["common_user_ssh_public_keys"] == [THIS_KEY]
         assert (given["dev_tools_deb_arch"], given["dev_tools_docker_manage_service"]) == ("arm64", True)
@@ -481,6 +564,8 @@ def test_the_variables_are_what_ansible_gives_the_roles_from_today_s_inventory(t
         assert (given["common_user"], given["vscode_server_user"], given["dev_tools_user"]) == ("pat", "pat", "pat")
         assert given["common_user_ssh_public_keys"] == ROWS_SET["vm_ssh_public_keys"]
         assert given["vscode_server_enabled"] is False and given["common_extra_packages"] == ["jq", "htop"]
+    if case == "rows apart":
+        assert given["vscode_server_enabled"] is True and given["dev_tools_install_node"] is False
     if case == "options":
         assert (given["dev_tools_deb_arch"], given["dev_tools_docker_manage_service"]) == ("amd64", False)
         # Every option of the three roles: seventeen of common's, four of the editor's server's, twelve of dev_tools'.
@@ -489,3 +574,4 @@ def test_the_variables_are_what_ansible_gives_the_roles_from_today_s_inventory(t
     if case == "for one run":
         assert (given["common_user"], given["configure_wait_for_cloud_init"]) == ("sam", False)
         assert (given["common_apt_upgrade"], given["dev_tools_deb_arch"]) == (False, "amd64")
+        assert (given["dev_tools_install_gh"], given["dev_tools_install_uv"]) == (False, False)

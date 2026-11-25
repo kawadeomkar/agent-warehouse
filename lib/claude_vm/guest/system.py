@@ -2,13 +2,15 @@
 three system roles as they stand (docs/architecture/engine.md §16.10).
 
 `PLAY` is the play, `PARTS` its parts, each a role it runs under a tag of the role's own name, in their order (a part
-asked for is a `--tags` of layer1.run's). `variables(path, document, secrets=...)` writes the play's variables, the one
-road they take: through guest/variables.py's `write` alone, after a setting the engine cannot serve yet (`UNSERVED`) is
-refused by its name, before anything is written and so before any child starts. Today that is one:
+asked for is a `--tags` of layer1.run's), and `NAMES` the names its variables may hold: guest/wiring.py's one list, the
+play's own, each variable of its roles' table and each internal, which a caller hands layer1.run beside the play.
+`variables(path, document, secrets=...)` writes the play's variables, the one road they take: through
+guest/variables.py's `write` alone, held to `NAMES`, after a setting the engine cannot serve yet (`UNSERVED`) is refused
+by its name, before anything is written and so before any child starts. Today that is one:
 `common_user_passwordless_sudo` other than true, which needs the VM user's password to become root with, and no secret
 reaches a play until the card that hands it over on a pipe (F24) is built.
 
-Standard library only, and nothing at import but what guest/variables.py loads.
+Standard library only, and nothing at import but what guest/variables.py and guest/wiring.py load.
 """
 
 from __future__ import annotations
@@ -18,12 +20,15 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 from claude_vm.guest import variables as play_variables
+from claude_vm.guest import wiring
 from claude_vm.secret import Secret
 
 # The play, in this checkout or release: playbooks/ beside lib/, which holds this module.
 PLAY = Path(__file__).resolve().parents[3] / "playbooks" / "system.yml"
 # The roles the play runs, in its order, each under a tag of its own name.
 PARTS = ("common", "vscode_server", "dev_tools")
+# The names the play's variables may hold, and no other: guest/wiring.py's one list.
+NAMES = wiring.NAMES
 # The settings the engine cannot serve yet, each with the one value it serves and why another is refused.
 UNSERVED: Mapping[str, tuple[object, str]] = {
     "common_user_passwordless_sudo": (
@@ -47,11 +52,11 @@ def unserved(document: Mapping[str, object]) -> list[str]:
 
 
 def variables(path: str | os.PathLike, document: Mapping[str, object], *, secrets: Iterable[Secret]) -> Path:
-    """document written at path as the play's variables, by guest/variables.py's `write` and its rules; refused, before
-    anything is written, where it holds a setting the engine cannot serve yet."""
+    """document written at path as the play's variables, by guest/variables.py's `write` and its rules, its names held
+    to NAMES; refused, before anything is written, where it holds a setting the engine cannot serve yet."""
     if not isinstance(document, Mapping):
         raise Refused("a play's variables are a mapping of names to values")
     found = unserved(document)
     if found:
         raise Refused("; ".join(found))
-    return play_variables.write(path, document, secrets=secrets)
+    return play_variables.write(path, document, secrets=secrets, names=NAMES)
