@@ -16,9 +16,12 @@ of the test's where a machine's root has put another program in its place.
 - sudo, by N-23 section 13, point 5: -n first; a sudo that asks nothing never receives the password and its source is
   never asked; one that asks, in sudo's words or sudo-rs's, is sent it once, with -S, its line alone and the script
   only once the program runs; a wrong one costs one attempt and is sent to no machine again in the run, which says so
-  once; a refusal for another reason sends none; a sudo password is a Secret, given as the run's Password, and a Secret
-  never follows the helper as the verb's input; and a password a machine says back - on its standard error, as a
-  string, escaped, a key or a number - is in no field of the outcome, of the states' record, or of the job's folder.
+  once, however its session ended (by itself, by the call's time, with none to say anything in) and however many calls
+  were under way side by side; a refusal for another reason sends none; a sudo password is a Secret, given as the
+  run's Password, and a Secret never follows the helper as the verb's input; and a password a machine says back - on
+  its standard error as it read it, in JSON's escapes, as a C string and a shell's printf %q, cut by the bound five
+  bytes in; as a string, escaped, a key or a number - is in no field of the outcome, of the states' record, or of the
+  job's folder, a password with a quote, a control character or a space at its end too.
 - The states: states.read gives found.py's records, the ones today's status makes of today's probe's document on the
   same machine, for the parts asked and no others; Tailscale's read as root, and as the user with root's part said not
   read where sudo refuses, within what is left of the call's time; and a layer-2 step asks whether Claude is signed in,
@@ -46,19 +49,23 @@ from aw_machine import Machine, filed, machine, ssh_stand_in, target
 from harness import REPO, _executable
 from test_status_vms import CASES, EDITORS
 
-from claude_vm import proc
+from claude_vm import proc, text
 from claude_vm.fleet import paths
 from claude_vm.guest import bundle, remote, states
 from claude_vm.runs import job as jobs
-from claude_vm.secret import MARK, Secret
+from claude_vm.secret import MARK, Secret, struck_end
 from claude_vm.ssh import runner
 from claude_vm.status import found, reach
 
 # The bootstrap's first line, as a machine prints it.
 STARTED = bundle.STARTED
-# A sudo password of the test's, a canary: digits, which a machine can say back as a JSON number, and words past ASCII,
-# which it can say back escaped.
-CANARIES = ("8675309024", "canary-pässwörd")
+# A sudo password of the test's, a canary: digits, which a machine can say back as a JSON number; words past ASCII,
+# which it can say back escaped; a quote and a backslash, which JSON, a C string and a shell put a backslash before; a
+# control character, which the runner drops from what it reads; and a space at its end, which it strips (review 70's 2).
+CANARIES = ("8675309024", "canary-pässwörd", 'canary"quote\\slash-ü', "canary\x01control", "canary-trailing ")
+# The bound on what a machine says on its standard error for the cut's case: a stand-in says so much before the
+# password that the bound falls five bytes into it.
+CUT = 4096
 # How a sudo of a test's hands a call on to the machine's own stand-in sudo (aw_machine's), given the machine's
 # directory.
 HANDED_ON = (
@@ -73,29 +80,55 @@ if "-n" in sys.argv[2:]:
     sys.exit(1)
 {HANDED_ON}
 """
-# A sudo that says back the line it read for a password, on its standard error and, where it runs (@MODE@ answers),
-# after the bootstrap's line as JSON: a string as it is, a string escaped, a key, and a number where the line is digits;
-# or it refuses (exit 1), or ends as ssh does where it loses a machine (255).
-ECHOING_SUDO = """
-import json, os, sys
+# A sudo that says back the line it read for a password: on its standard error as it read it, in JSON's escapes, as
+# a C string and, where it is printable, as bash's printf %q writes it; and where it runs (@MODE@ answers), after the
+# bootstrap's line as JSON: a string as it is, a string escaped, a key, every character a \u escape, which only the
+# parse reads back, and a number where the line is digits. Or it refuses (exit 1), ends as ssh does where it loses a
+# machine (255), or (cut) refuses after so much on its standard error that the bound CUT falls five bytes into the
+# line it read.
+ECHOING_SUDO = r"""
+import json, os, subprocess, sys
 if "-n" in sys.argv[2:]:
-    sys.stderr.write("sudo: a password is required\\n")
+    sys.stderr.write("sudo: a password is required\n")
     sys.exit(1)
 got = b""
-while not got.endswith(b"\\n") and (byte := os.read(0, 1)):
+while not got.endswith(b"\n") and (byte := os.read(0, 1)):
     got += byte
-word = got.decode().rstrip("\\n")
-sys.stderr.buffer.write(f"sudo: it read {word}\\n".encode())
+word = got.decode().rstrip("\n")
+if "@MODE@" == "cut":
+    sys.stderr.buffer.write(b"x" * (@CUT@ - 5) + got)
+    sys.exit(1)
+c = "".join("\\" + character if character in '"\\' else character for character in word)
+said = [f"sudo: it read {word}", f"sudo: as JSON {json.dumps(word)} and {json.dumps(word, ensure_ascii=False)}",
+        f'sudo: as C "{c}"']
+if word.isprintable():
+    quoted = subprocess.run(["/bin/bash", "-c", 'printf %q "$1"', "bash", word], capture_output=True, text=True,
+                            env={"LC_ALL": "C.UTF-8"}, check=True)
+    said.append(f"sudo: as a shell {quoted.stdout}")
+sys.stderr.buffer.write("".join(line + "\n" for line in said).encode())
 sys.stderr.flush()
 if "@MODE@" != "answers":
     sys.exit(1 if "@MODE@" == "refuses" else 255)
 lines = [@STARTED@, json.dumps({"raw": word}, ensure_ascii=False), json.dumps({"escaped": word}),
-         json.dumps({word: 1}, ensure_ascii=False)]
+         json.dumps({word: 1}, ensure_ascii=False), '{"spelt": "' + "".join("\\u%04x" % ord(c) for c in word) + '"}']
 if word.isdigit():
     lines.append('{"number": ' + word + '}')
-sys.stdout.buffer.write("".join(line + "\\n" for line in lines).encode())
+sys.stdout.buffer.write("".join(line + "\n" for line in lines).encode())
 sys.stdout.flush()
 sys.stdin.buffer.read()
+"""
+# A sudo that, under -S, reads the password's line, notes the send in sent.log beside the machine, and then neither
+# reads nor ends: its session ends by the call's time alone. Under -n, sudo's refusal for want of a password.
+HANGING_SUDO = r"""
+import os, sys, time
+if "-n" in sys.argv[2:]:
+    sys.stderr.write("sudo: a password is required\n")
+    sys.exit(1)
+while os.read(0, 1) not in (b"", b"\n"):
+    pass
+with open(os.path.join(sys.argv[1], "sent.log"), "a") as out:
+    out.write("sent\n")
+time.sleep(60)
 """
 # A sudo that, under -S, reads the password's line, waits, and says whether anything was already there after it; then
 # the bootstrap's line, and it keeps what follows, which a program would read. Every other call the machine's own.
@@ -235,6 +268,43 @@ def _sudo(made: Machine, source: str, **values: str) -> None:
     program.write_text(source)
     (made.bin / "sudo").unlink()
     _executable(made.bin / "sudo", f'#!/bin/sh\nexec "{sys.executable}" -I "{program}" "{made.directory}" "$@"\n')
+
+
+def _strings(value: object) -> Iterator[str]:
+    """Every string value holds - an outcome's fields, a record's keys and values - however deep."""
+    if isinstance(value, str):
+        yield value
+    elif dataclasses.is_dataclass(value):
+        for field in dataclasses.fields(value):
+            yield from _strings(getattr(value, field.name))
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            yield from _strings(key)
+            yield from _strings(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            yield from _strings(item)
+
+
+def _forms_of(canary: str) -> set[str]:
+    """What of canary a machine says back, in each form ECHOING_SUDO says it and the runner reads it, and its first five
+    characters, where a cut falls: none of it may be in what a caller is given."""
+    c = "".join(f"\\{character}" if character in '"\\' else character for character in canary)
+    return {
+        canary,
+        canary.strip(),
+        text.plain_text(canary).strip(),
+        json.dumps(canary)[1:-1],
+        json.dumps(canary, ensure_ascii=False)[1:-1],
+        c,
+        canary[:5],
+    }
+
+
+def _said_back(canary: str) -> str:
+    """What ECHOING_SUDO says on its standard error for canary, each form of it struck, one line."""
+    said = f'sudo: it read {MARK} sudo: as JSON "{MARK}" and "{MARK}" sudo: as C "{MARK}"'
+    return f"{said} sudo: as a shell {MARK}" if canary.isprintable() else said
 
 
 # ---------------------------------------------------------------- a verb's answer ----
@@ -598,26 +668,132 @@ def test_sudo_rs_s_refusal_for_want_of_a_password_is_read_as_sudo_s(tmp_path, en
     assert len(alpha.calls()) == 2
 
 
-@pytest.mark.parametrize("canary", CANARIES)
+@pytest.mark.parametrize("canary", CANARIES, ids=["digits", "past ascii", "quote", "control", "trailing"])
 def test_the_password_a_machine_says_back_is_in_no_field_of_the_outcome(tmp_path, engine_guard, job, canary) -> None:
     alpha = _reached(tmp_path, engine_guard)
     outcomes = []
-    for mode in ("answers", "refuses", "unreachable"):
-        _sudo(alpha, ECHOING_SUDO, MODE=mode)
-        outcomes.append(_helper(job, alpha, asked={}, as_root=True, password=remote.Password(lambda: Secret(canary))))
-    assert [repr(outcome) for outcome in outcomes if canary in repr(outcome)] == []
+    for mode in ("answers", "refuses", "unreachable", "cut"):
+        _sudo(alpha, ECHOING_SUDO, MODE=mode, CUT=str(CUT))
+        limits = runner.Limits(said=CUT) if mode == "cut" else runner.LIMITS
+        password = remote.Password(lambda: Secret(canary))
+        outcomes.append(_helper(job, alpha, asked={}, as_root=True, password=password, limits=limits))
+    forms = _forms_of(canary)
+    assert [said for said in _strings(outcomes) if any(form in said for form in forms)] == []
     assert searched_for([canary], job.folder) == []
-    answers, refuses, unreachable = outcomes
-    # Its mark where it was said back: on the standard error, in a line before it is parsed, in a string after.
+    answers, refuses, unreachable, cut = outcomes
+    # Its mark where it was said back: on the standard error, in each form, as read; in a line before it is parsed; in
+    # a string after; and at the end of what the bound cut five bytes into it.
+    said = _said_back(canary)
     if canary.isdigit():
         # Said back as a number: struck from the line, which is then no JSON, and the answer refused whole.
         assert isinstance(answers, remote.NotAnswered) and answers.reached, answers
         assert answers.why.startswith("it sent a line that is not JSON"), answers
     else:
-        said = f"sudo: it read {MARK}"
-        assert answers == remote.Answer(0, ({"raw": MARK}, {"escaped": MARK}, {MARK: 1}), said), answers
-    assert refuses == remote.NotRun(f"sudo: it read {MARK} - {remote.NOT_TAKEN}", sudo=True), refuses
-    assert unreachable == remote.NotAnswered(f"sudo: it read {MARK}", reached=False), unreachable
+        spelt = ({"raw": MARK}, {"escaped": MARK}, {MARK: 1}, {"spelt": MARK})
+        assert answers == remote.Answer(0, spelt, said), answers
+    assert refuses == remote.NotRun(f"{said} - {remote.NOT_TAKEN}", sudo=True), refuses
+    # Sent, and no line of the bootstrap's came: marked refused, however the session ended (review 70's 1).
+    assert unreachable == remote.NotAnswered(f"{said} - {remote.NOT_TAKEN}", reached=False), unreachable
+    assert cut == remote.NotRun(f"{'x' * (CUT - 5)}{MARK} - {remote.NOT_TAKEN}", sudo=True), cut
+
+
+def test_an_end_a_cut_left_partway_through_the_password_is_struck_and_no_other_end() -> None:
+    secrets = (Secret("canary-pw"), Secret("xab"), Secret("ab"))
+    assert struck_end("x" * 10 + "cana", secrets) == "x" * 10 + MARK
+    # A cut inside a character leaves a replacement character, struck with the part before it; the longest end of any.
+    assert struck_end("said canary-p\ufffd", secrets) == f"said {MARK}"
+    assert struck_end("zxa", secrets) == f"z{MARK}"
+    assert struck_end("said nothing of it", secrets) == "said nothing of it"
+    with pytest.raises(TypeError):
+        struck_end("x", ["canary-pw"])
+    # The helper strikes such an end only where what was said came near its bound, which a cut leaves it at.
+    forms = remote._forms(Secret("canary-pw"))
+    near, far = (runner.Done(1, (), "x" * size + "cana") for size in (4096 - remote.CUT_NEAR, 100))
+    assert remote._struck(near, forms, 4096).said == "x" * (4096 - remote.CUT_NEAR) + MARK
+    assert remote._struck(far, forms, 4096).said == "x" * 100 + "cana"
+
+
+def test_a_wrong_password_is_marked_refused_however_its_session_ends(tmp_path, engine_guard, job) -> None:
+    # Review 70's 1: where the call's time was under the time to say anything, or there was none, the session ran to its
+    # deadline, the password was not marked, and every call of the run sent it again.
+    alpha = _reached(tmp_path, engine_guard, sudo_password=RIGHT)
+    limits = runner.Limits(seconds=6, silent=None)
+    password = remote.Password(lambda: Secret(WRONG))
+    began = time.monotonic()
+    answer = _helper(job, alpha, asked={}, as_root=True, password=password, limits=limits)
+    took = time.monotonic() - began
+    # Its standard input closed REFUSAL_GRACE before the call's end: sudo read its end and said its own refusal in time.
+    assert isinstance(answer, remote.NotRun) and answer.sudo, answer
+    assert answer.said.endswith(f"sudo: 1 incorrect password attempt - {remote.NOT_TAKEN}"), answer
+    assert password.refused and took < 6, took
+    # A sudo that never ends once it has the line: the session ends by the call's time, and is marked all the same.
+    _sudo(alpha, HANGING_SUDO)
+    hanging = remote.Password(lambda: Secret(WRONG))
+    began = time.monotonic()
+    answer = _helper(job, alpha, asked={}, as_root=True, password=hanging, limits=limits)
+    took = time.monotonic() - began
+    assert answer == remote.NotAnswered(f"it took longer than 6 s - {remote.NOT_TAKEN}", reached=True), answer
+    assert hanging.refused and took < 6 + 2.5, took
+    # Each sent once in the run: the next calls take sudo -n's refusal and send nothing.
+    for given in (password, password, hanging, hanging):
+        again = _helper(job, alpha, asked={}, as_root=True, password=given, limits=limits)
+        assert again == remote.NotRun("sudo: a password is required", sudo=True), again
+    assert [entry["S"] for entry in alpha.sudo_calls()] == [False, True]
+    assert (alpha.directory / "sent.log").read_text() == "sent\n"
+
+
+def _side_by_side(job: jobs.Job, machines: list[Machine], password: remote.Password, limits: runner.Limits) -> list:
+    """One helper call as root on each of machines, all started at once, their outcomes in the same order."""
+
+    async def calls() -> list:
+        return await asyncio.gather(
+            *(
+                remote.helper(
+                    job,
+                    target(made),
+                    "probe",
+                    asked={},
+                    as_root=True,
+                    password=password,
+                    limits=limits,
+                    python="python3",
+                    become_exe="sudo",
+                    env=dict(os.environ),
+                )
+                for made in machines
+            )
+        )
+
+    return asyncio.run(calls())
+
+
+def test_calls_side_by_side_send_a_wrong_password_once_in_all(tmp_path, engine_guard, job) -> None:
+    # Review 70's 4: each call under way sent it, four attempts on one machine in one run, each saying "sent to no
+    # machine again". The run's first send settles it; the others wait for it, then read it refused.
+    root = tmp_path / "machines"
+    alpha, beta = (machine(root, name, **CASES["ready"], sudo_password=RIGHT) for name in ("alpha", "beta"))
+    for made in (alpha, beta):
+        filed(made)
+    engine_guard.first_on_path(ssh_stand_in(root, [alpha, beta]))
+    asked: list[int] = []
+    password = remote.Password(lambda: asked.append(1) or Secret(WRONG))
+    outcomes = _side_by_side(job, [alpha, alpha, alpha, alpha, beta, beta], password, runner.Limits(silent=3))
+    assert asked == [1] and password.refused
+    sent = [entry for made in (alpha, beta) for entry in made.sudo_calls() if entry["S"]]
+    assert sent == [{"n": False, "S": True, "read": 1, "outcome": "refused: no password"}], sent
+    said = [outcome for outcome in outcomes if remote.NOT_TAKEN in repr(outcome)]
+    assert len(said) == 1 and said[0].said.endswith(f"1 incorrect password attempt - {remote.NOT_TAKEN}"), outcomes
+    assert [outcome for outcome in outcomes if outcome not in said] == [
+        remote.NotRun("sudo: a password is required", sudo=True)
+    ] * 5
+    # A right one, side by side: settled by the first, then sent by each, its source asked once.
+    asked.clear()
+    password = remote.Password(lambda: asked.append(1) or Secret(RIGHT))
+    outcomes = _side_by_side(job, [alpha, alpha, beta, beta], password, runner.Limits(silent=3))
+    assert all(isinstance(outcome, remote.Answer) and outcome.status == 0 for outcome in outcomes), outcomes
+    assert asked == [1] and not password.refused
+    ran = [entry for made in (alpha, beta) for entry in made.sudo_calls() if entry["S"] and entry["outcome"] == "ran"]
+    assert len(ran) == 4, ran
 
 
 # ---------------------------------------------------------------- the states ----
@@ -771,10 +947,10 @@ def test_the_read_after_sudo_s_refusal_is_given_what_is_left_of_the_call_s_time(
     assert len(alpha.calls()) == 2
 
 
-def test_the_password_a_machine_says_back_is_in_no_field_of_the_states_record(tmp_path, engine_guard, job) -> None:
+@pytest.mark.parametrize("canary", CANARIES[1:3], ids=["past ascii", "quote"])
+def test_the_password_a_machine_says_back_is_in_no_field_of_the_states_record(tmp_path, engine_guard, job, canary):
     alpha = _reached(tmp_path, engine_guard)
-    canary = CANARIES[1]
-    _sudo(alpha, ECHOING_SUDO, MODE="refuses")
+    _sudo(alpha, ECHOING_SUDO, MODE="refuses", CUT=str(CUT))
     records = asyncio.run(
         states.read(
             job,
@@ -788,9 +964,12 @@ def test_the_password_a_machine_says_back_is_in_no_field_of_the_states_record(tm
             password=remote.Password(lambda: Secret(canary)),
         )
     )
-    assert canary not in repr(records) and searched_for([canary], job.folder) == []
+    forms = _forms_of(canary)
+    assert [said for said in _strings(records) if any(form in said for form in forms)] == []
+    assert searched_for([canary], job.folder) == []
     assert records["claude"]["login_stored"] is True and records["tailscale"] is None, records
-    assert records["unread"]["tailscale"] == f"sudo refused: sudo: it read {MARK} - {remote.NOT_TAKEN}", records
+    # JSON's form of it among what it said, struck as the others are (review 70's 2).
+    assert records["unread"]["tailscale"] == f"sudo refused: {_said_back(canary)} - {remote.NOT_TAKEN}", records
 
 
 def test_a_machine_not_reached_is_said_so(tmp_path, engine_guard, job) -> None:
