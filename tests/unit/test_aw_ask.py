@@ -51,6 +51,7 @@ import signal
 import subprocess
 import sys
 import termios
+import threading
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -921,7 +922,25 @@ def test_a_questions_mode_keeps_what_the_terminal_has_not_read_at_a_ctrl_c_and_g
         with _job() as made:
             context = _Typing(made, master, [b"192.0.2.1\n"])
             default = Secret("") if hidden else ""
-            answer = asyncio.run(asking.ask(context, "Proxmox host address:", default, hidden=hidden))
+            # The change back is a draining one with the echo still unread here: macOS waits for that read
+            # (ttywait), so the master is read on a thread of its own while the question runs.
+            reading = threading.Event()
+
+            def echoes() -> None:
+                while not reading.is_set():
+                    if select.select([master], [], [], 0.05)[0]:
+                        try:
+                            os.read(master, 4096)
+                        except OSError:
+                            return
+
+            reader = threading.Thread(target=echoes, daemon=True)
+            reader.start()
+            try:
+                answer = asyncio.run(asking.ask(context, "Proxmox host address:", default, hidden=hidden))
+            finally:
+                reading.set()
+                reader.join()
         assert (answer.reveal() if isinstance(answer, Secret) else answer) == "192.0.2.1"
         assert [when for when, _ in changes] == [termios.TCSAFLUSH] * 2, changes
         (_, mode), (_, back) = changes
