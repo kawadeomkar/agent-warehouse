@@ -144,8 +144,8 @@ def _reached(tmp_path: Path, engine_guard, **state) -> Machine:
 
 def _direct(at: runner.Target) -> runner.Target:
     """at marked as a route settled straight at it marks one (connections.target_for): a Target made for an address no
-    target() gives, which the runner connects to only marked."""
-    return dataclasses.replace(at, routed_as="direct")
+    target() gives, which the runner connects to only marked, with what the mark was decided from."""
+    return dataclasses.replace(at, routed_as="direct", routed_from=runner.decided_from(at))
 
 
 def _helper(job: jobs.Job, made: Machine, verb: str = "probe", **given) -> remote.Outcome:
@@ -587,7 +587,7 @@ async def signed_in():
         at = runner.machine(given["identity"], given["address"], given["account"], given["control"],
                             known_hosts=given["known_hosts"])
         # Marked as a route settled straight at it marks one (connections.target_for).
-        at = dataclasses.replace(at, routed_as="direct")
+        at = dataclasses.replace(at, routed_as="direct", routed_from=runner.decided_from(at))
         records = await states.read(job, at, ["claude"], settings=given["settings"], name="alpha", python="python3",
                                     env=dict(os.environ))
     finally:

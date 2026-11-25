@@ -22,10 +22,12 @@ a route that cannot be settled - from a home too long for the hop's socket, or a
 ended by a signal or exiting with an error - stops the run with nothing reached; every machine is held before the hop's
 login and the forward; a forward's verdict that stopped the run stops every later targets, and one cut before its
 verdict is made again; and the runner connects to no machine's Target the route did not mark, nor to one that lost its
-hop. And review 56's (G29.md): a forward's verdict that stopped the run stops a targets that waited on it too. The rules
-with a test of their own: every fleet a test makes pins vm_ssh_route: direct before anything reads it, each maker read
-back; and no module of the new engine but routes.py and ssh/'s own makes a Target, or changes one's route after it was
-made, by any name a scan can see, so every runner call takes the arguments routes.py made.
+hop. And review 56's (G29.md): a forward's verdict that stopped the run stops a targets that waited on it too; and the
+runner connects to no machine's Target whose address, account, port, ssh program or options changed since the route
+marked it, straight, by a jump of its own or through the hop. The rules with a test of their own: every fleet a test
+makes pins vm_ssh_route: direct before anything reads it, each maker read back; and no module of the new engine but
+routes.py and ssh/'s own makes a Target, or changes one's route after it was made, by any name a scan can see, so every
+runner call takes the arguments routes.py made.
 """
 
 from __future__ import annotations
@@ -550,9 +552,11 @@ def test_a_line_that_would_lose_the_product_s_options_is_refused_before_anything
         _set("vm_ssh_options", {"ProxyCommand": "none"}, machine_name="beta")
         [beta] = await found.targets([_vm(stand_ins.beta)])
         assert beta.hop is not None and _proxy(beta).startswith("ssh ")
-        # A Target the route did not make, its hop taken off and its mark forged as direct (which the scan below
-        # refuses in the engine's code): its own ssh would dial it from here, which held refuses.
-        forged = dataclasses.replace(beta, hop=None, routed_as="direct")
+        # A Target the route did not make, its hop taken off and its mark forged as direct, with what it would have
+        # been decided from (which the scan below refuses in the engine's code): its own ssh would dial it from here,
+        # which held refuses.
+        bare = dataclasses.replace(beta, hop=None, routed_as="", routed_from=())
+        forged = dataclasses.replace(bare, routed_as="direct", routed_from=runner.decided_from(bare))
         with pytest.raises(connections.Unheld, match="dialling it from here"):
             await found.connections.held(forged, found.settled)
 
@@ -724,6 +728,72 @@ def test_the_runner_connects_to_no_target_the_route_did_not_mark_nor_one_that_lo
     assert alpha.calls() == []
 
 
+# Each field the route decided a machine's mark from, changed as a later step could change it, with the words the
+# runner names it by: alpha's address moved to beta's, which the route reaches through the hop where it goes through
+# the host; another account, port and ssh program; and its options with a jump's ProxyJump none, which takes a jump the
+# person's own configuration gives out of its line.
+MOVES = {
+    "address": "address",
+    "account": "account",
+    "port": "port",
+    "ssh": "ssh program",
+    "given": "vm_ssh_options",
+}
+
+
+@pytest.mark.parametrize("mark", ["direct", "own", "hop"])
+def test_the_runner_connects_to_no_target_changed_since_the_route_marked_it(
+    made_fleet, short, run, made, stand_ins, mark
+):
+    # The mark is bound to what the route decided it from (review 56, G29.md 2 and 7): alpha's Target, marked straight
+    # at it (direct), by the jump the person's own configuration gives its address (own) or through the hop (hop), with
+    # a field changed - by a replace, refused as it is made, or by other means, refused by each of the runner's lines -
+    # reaches nothing. Under host, its address moved to beta's dialled beta from here, where the route gives beta the
+    # hop, before the mark was bound.
+    alpha, beta = stand_ins.alpha, stand_ins.beta
+    if mark != "direct":
+        _set(ROUTE, "host")
+    if mark == "own":
+        _config(f"Host {alpha.address}\n  ProxyJump jump.invalid\n", short)
+
+    async def body() -> tuple[runner.Target, ...]:
+        found = await _settled(run, short)
+        return await found.targets([_vm(alpha), _vm(beta)])
+
+    at, beta_at = asyncio.run(body())
+    assert (at.routed_as, at.routed_from) == (mark, runner.decided_from(at))
+    assert (beta_at.hop is None) is (mark == "direct")
+    values = {
+        "address": beta.address,
+        "account": "other",
+        "port": 2222,
+        "ssh": "ssh-other",
+        "given": (("ProxyJump", "none"),),
+    }
+    lines = (
+        lambda target: runner.argv(target, ["true"]),
+        lambda target: runner.forward_argv(target, ["8080:127.0.0.1:8080"], 5),
+        runner.ansible_vars,
+        lambda target: asyncio.run(runner.run(made, target, ["true"], None, runner.LIMITS, dict(os.environ))),
+    )
+    for name, said in MOVES.items():
+        moved = f"its {said} changed since, so the mark is no longer the route's: nothing was started"
+        # Through the hop, another address is refused first by the hop's own -W, which names the machine's address.
+        first = "another address than the machine's own" if (mark, name) == ("hop", "address") else moved
+        with pytest.raises(runner.Refused, match=first):
+            dataclasses.replace(at, **{name: values[name]})
+        changed = dataclasses.replace(at)
+        object.__setattr__(changed, name, values[name])
+        for line in lines:
+            with pytest.raises(runner.Refused, match=moved):
+                line(changed)
+    # A first use's known-hosts file decides no road, and goes with the mark (connections.first_use).
+    first_use = dataclasses.replace(at, known_hosts=short / "scratch", first_use=True)
+    assert (first_use.routed_as, first_use.routed_from) == (at.routed_as, at.routed_from)
+    assert runner.argv(first_use, ["true"])[-1] == "true"
+    assert alpha.calls() == beta.calls() == []
+
+
 # ---------------------------------------------------------------- the rules ----
 
 
@@ -790,12 +860,13 @@ MAKERS = frozenset({"machine", "proxmox_host", "Target", "Hop"})
 # What gives a machine's Target its route, called on any object: the run's connections, and target_for, which marks it.
 GIVERS = frozenset({"target_for", "Connections"})
 # A Target's fields a replace may change only in ssh/connections.py: the route's - its hop, the person's options, the
-# mark - and a first use's. A replace that names none of them changes no route: address is left out, since other
-# records of the engine's have one (a fleet's Target, a host's fields), and a Target marked through the hop refuses
-# another address (its hop forwards to its own).
-CHANGES = frozenset({"hop", "given", "routed_as", "first_use", "known_hosts"})
-# The route's mark, which only connections.target_for sets.
-MARK = "routed_as"
+# mark and what it was decided from - and a first use's. A replace that names none of them changes no route: address is
+# left out, since other records of the engine's have one (a fleet's Target, a host's fields), and the runner refuses a
+# Target whose address, account, port or ssh program changed since the route marked it (runner.Target.routed_from), by
+# whatever spelling (test_the_runner_connects_to_no_target_changed_since_the_route_marked_it).
+CHANGES = frozenset({"hop", "given", "routed_as", "routed_from", "first_use", "known_hosts"})
+# The route's mark and what it was decided from, which only connections.target_for sets.
+MARKS = frozenset({"routed_as", "routed_from"})
 # Each road a module of the new engine's takes as its own, by its file under lib/claude_vm/, the road and the function
 # it is in ("*": anywhere in it), with why. ssh/runner.py, which defines the Target, is not read.
 OWN_ROADS = {
@@ -906,7 +977,8 @@ def _roads(source: str, package: tuple[str, ...] = ("claude_vm", "engine")) -> l
     - import: importlib, or __import__, which import a module by a name built at run time;
     - replace: dataclasses.replace, copy.replace or __replace__ under any name, changing a field of CHANGES, or given a
       mapping spread into it;
-    - mark: the route's mark set - given as a keyword, assigned, or named in a string (setattr, a mapping's key).
+    - mark: the route's mark, or what it was decided from, set - given as a keyword, assigned, or named in a string
+      (setattr, a mapping's key).
 
     Only the outermost of an attribute chain is read. What none of them sees: a name built from pieces at run time."""
     tree = ast.parse(source)
@@ -936,10 +1008,10 @@ def _roads(source: str, package: tuple[str, ...] = ("claude_vm", "engine")) -> l
                 take("runner", node, "the runner module handed on")
             elif dotted == CONNECTIONS or dotted.startswith(f"{CONNECTIONS}."):
                 take("connections", node, dotted)
-            if isinstance(node, ast.Attribute) and node.attr == MARK and isinstance(node.ctx, ast.Store):
-                take("mark", node, f"{MARK} assigned")
-        elif isinstance(node, ast.Constant) and node.value == MARK:
-            take("mark", node, f"{MARK} named in a string")
+            if isinstance(node, ast.Attribute) and node.attr in MARKS and isinstance(node.ctx, ast.Store):
+                take("mark", node, f"{node.attr} assigned")
+        elif isinstance(node, ast.Constant) and node.value in MARKS:
+            take("mark", node, f"{node.value} named in a string")
         elif isinstance(node, ast.Call):
             func = node.func
             called = _dotted(func, names)
@@ -954,8 +1026,8 @@ def _roads(source: str, package: tuple[str, ...] = ("claude_vm", "engine")) -> l
             if called in ("dataclasses.replace", "copy.replace") or last == "__replace__":
                 if None in changes or changes & CHANGES:
                     take("replace", node, f"{called or last} of {sorted(changes - {None}) or 'a mapping spread'}")
-            if MARK in changes:
-                take("mark", node, f"{MARK} given")
+            for mark in sorted(changes & MARKS):
+                take("mark", node, f"{mark} given")
     return found
 
 
@@ -1014,11 +1086,15 @@ SEEN = [
     ("import copy\ncopy.replace(target, hop=None)", "replace"),
     ("target.__replace__(given=())", "replace"),
     ("dataclasses.replace(target, **changes)", "replace"),
-    # The route's mark, set anywhere but where the route gives it.
+    ("dataclasses.replace(target, routed_from=())", "replace"),
+    # The route's mark, or what it was decided from, set anywhere but where the route gives it.
     ("dataclasses.replace(target, hop=None, routed_as='direct')", "mark"),
     ("object.__setattr__(target, 'routed_as', 'direct')", "mark"),
     ("target.routed_as = 'direct'", "mark"),
     ("runner.machine(i, a, 'dev', c, routed_as='direct')", "mark"),
+    ("dataclasses.replace(target, address=a, routed_from=runner.decided_from(moved))", "mark"),
+    ("object.__setattr__(target, 'routed_from', ())", "mark"),
+    ("target.routed_from = ()", "mark"),
     # The connections.
     ("from ..ssh import connections", "connections"),
     ("from . import connections", "connections"),
@@ -1034,11 +1110,13 @@ UNSEEN = [
     "from ..ssh import runner\ntarget: runner.Target = at",
     "from ..ssh import runner\nisinstance(target, runner.Target)",
     "from ..ssh import runner\ndef reach(target: runner.Target) -> runner.Target | None: ...",
+    # Seen by the runner instead, which refuses a Target whose address changed since the route marked it.
     "dataclasses.replace(target, address=address)",
     "dataclasses.replace(limits, seconds=left)",
     "dataclasses.replace(target)",
     "await found.connections.held(target, found.settled)",
     "said = target.routed_as",
+    "said = runner.decided_from(target) == target.routed_from",
 ]
 
 

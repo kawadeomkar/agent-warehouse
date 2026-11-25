@@ -260,8 +260,9 @@ def _machine(tmp_path: Path, short_dir: Path, address: str = ADDRESS, **over) ->
 
 def _marked(target: runner.Target) -> runner.Target:
     """target marked as target_for marks one, for a test that reaches a machine with no route settled: through the hop
-    where it has one, else straight at its address."""
-    return dataclasses.replace(target, routed_as="hop" if target.hop is not None else "direct")
+    where it has one, else straight at its address; with what the mark was decided from, as target_for gives it."""
+    mark = "hop" if target.hop is not None else "direct"
+    return dataclasses.replace(target, routed_as=mark, routed_from=runner.decided_from(target))
 
 
 def _settle(short_dir: Path, setting: str, address: str = HOST, **over) -> dict:

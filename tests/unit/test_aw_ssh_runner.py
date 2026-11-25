@@ -17,6 +17,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import contextlib
+import copy
 import dataclasses
 import json
 import os
@@ -172,9 +173,12 @@ def _machine(tmp_path: Path, **over) -> runner.Target:
 
 def _marked(target: runner.Target, routed_as: str | None = None) -> runner.Target:
     """target marked as connections.target_for marks one, which a test of the runner reaches without a route: through
-    the hop where it has one, else straight at its address; routed_as gives another mark."""
+    the hop where it has one, else straight at its address; routed_as gives another mark, "" none. A mark is given
+    with what it was decided from (runner.decided_from), as target_for gives it."""
     mark = ("hop" if target.hop is not None else "direct") if routed_as is None else routed_as
-    return dataclasses.replace(target, routed_as=mark)
+    if not mark:
+        return target
+    return dataclasses.replace(target, routed_as=mark, routed_from=runner.decided_from(target))
 
 
 def _run(job, target, command, stdin=None, limits=runner.LIMITS, started=None) -> runner.Result:
@@ -516,7 +520,7 @@ def test_a_machine_s_target_carries_the_route_s_mark_and_none_unmarked_is_connec
     with pytest.raises(runner.Refused, match="no route's mark"):
         dataclasses.replace(runner.proxmox_host("pve.example.test", "root", CONTROL), routed_as="direct")
     through = _machine(tmp_path, hop=_hop())
-    assert dataclasses.replace(through, given=(("Compression", "yes"),)).routed_as == "hop"
+    assert dataclasses.replace(through, known_hosts=tmp_path / "elsewhere").routed_as == "hop"
     with pytest.raises(runner.Refused, match="has lost its hop"):
         dataclasses.replace(through, hop=None)
     lines = (
@@ -528,6 +532,85 @@ def test_a_machine_s_target_carries_the_route_s_mark_and_none_unmarked_is_connec
         for line in lines:
             with pytest.raises(runner.Refused, match="this one is unmarked, so nothing was started"):
                 line(unmarked)
+
+
+def test_a_mark_goes_with_what_the_route_decided_it_from_and_nothing_else(tmp_path) -> None:
+    # The mark is bound to the fields the route decided it from (review 56, G29.md 2): routed_from is what decided_from
+    # reads, one pair for each of ROUTED_FROM. A Target unmarked, or the Proxmox host's, carries none; a mark given
+    # with another's is refused as it is made, and so is one whose fields changed since, by a replace; where a field
+    # is changed by other means, every line refuses it. What decides no road - the known-hosts file, a first use, the
+    # identity file, the control directory - goes with the mark. The route's own Targets are test_aw_routes.py's.
+    at = _machine(tmp_path, given={"ServerAliveInterval": "5"})
+    record = (
+        ("address", ADDRESS),
+        ("account", "dev"),
+        ("port", 22),
+        ("ssh", "ssh"),
+        ("given", (("ServerAliveInterval", "5"),)),
+        ("hop", None),
+    )
+    assert at.routed_from == runner.decided_from(at) == record
+    assert tuple(name for name, _ in at.routed_from) == runner.ROUTED_FROM
+    unmarked = runner.machine(IDENTITY, ADDRESS, "dev", CONTROL, known_hosts=tmp_path / "known_hosts")
+    with pytest.raises(runner.Refused, match="no route marked carries nothing a route decided from"):
+        dataclasses.replace(unmarked, routed_from=at.routed_from)
+    with pytest.raises(runner.Refused, match="no route's mark"):
+        dataclasses.replace(runner.proxmox_host("pve.example.test", "root", CONTROL), routed_from=at.routed_from)
+    another = tuple((name, "192.0.2.99" if name == "address" else value) for name, value in at.routed_from)
+    with pytest.raises(runner.Refused, match="its address changed since"):
+        dataclasses.replace(at, routed_from=another)
+    for kept in (None, (), "address", (("address", ADDRESS),)):
+        with pytest.raises(runner.Refused, match="address, account, port, ssh program, vm_ssh_options, hop changed"):
+            dataclasses.replace(at, routed_from=kept)
+    changes = {
+        "address": ("192.0.2.99", "address"),
+        "account": ("other", "account"),
+        "port": (2222, "port"),
+        "ssh": ("ssh-other", "ssh program"),
+        "given": ((), "vm_ssh_options"),
+        "hop": (_hop(), "hop"),
+    }
+    lines = (
+        lambda target: runner.argv(target, ["true"]),
+        runner.ansible_vars,
+        lambda target: runner.forward_argv(target, ["127.0.0.1:5000:127.0.0.1:5000"], 60),
+    )
+    for name, (value, said) in changes.items():
+        moved = f"its {said} changed since, so the mark is no longer the route's: nothing was started"
+        if name != "hop":
+            with pytest.raises(runner.Refused, match=moved):
+                dataclasses.replace(at, **{name: value})
+        changed = dataclasses.replace(at)
+        object.__setattr__(changed, name, value)
+        for line in lines:
+            with pytest.raises(runner.Refused, match=moved if name != "hop" else "has been given a hop: nothing"):
+                line(changed)
+    # The spellings of a change to the person's options that no scan sees (review 56, G29.md 7): an aliased replace,
+    # setattr on a copy, the instance's own dict.
+    moved = "its vm_ssh_options changed since"
+    rep = dataclasses.replace
+    with pytest.raises(runner.Refused, match=moved):
+        rep(at, given=())
+    copied = copy.copy(at)
+    object.__setattr__(copied, "given", ())
+    in_dict, updated = dataclasses.replace(at), dataclasses.replace(at)
+    vars(in_dict)["given"] = ()
+    updated.__dict__.update(given=())
+    for changed in (copied, in_dict, updated):
+        with pytest.raises(runner.Refused, match=moved):
+            runner.argv(changed, ["true"])
+    through = _machine(tmp_path, hop=_hop())
+    with pytest.raises(runner.Refused, match="its hop changed since"):
+        dataclasses.replace(through, hop=runner.Hop(through.hop.proxy_command, "awh-000000000000"))
+    for name, value in (
+        ("known_hosts", tmp_path / "scratch"),
+        ("first_use", True),
+        ("identity_file", tmp_path / "id"),
+        ("control_dir", tmp_path / "cp"),
+    ):
+        kept = dataclasses.replace(at, **{name: value})
+        assert (kept.routed_as, kept.routed_from) == (at.routed_as, at.routed_from)
+        assert runner.argv(kept, ["true"])[-1] == "true"
 
 
 def test_a_first_use_takes_the_key_into_its_scratch_file_under_the_identity_and_never_by_address(tmp_path) -> None:
@@ -1028,8 +1111,9 @@ from claude_vm.runs import job as jobs
 from claude_vm.ssh import runner
 
 job = jobs.create(Path(jobs_dir), "deploy", "deploy alpha", "pve", ["alpha"], {"kind": "terminal"}, True)
-# Marked as a route settled straight at it marks one (connections.target_for).
-target = dataclasses.replace(runner.machine(identity, address, "dev", control, known_hosts=known), routed_as="direct")
+# Marked as a route settled straight at it marks one (connections.target_for), with what it was decided from.
+made = runner.machine(identity, address, "dev", control, known_hosts=known)
+target = dataclasses.replace(made, routed_as="direct", routed_from=runner.decided_from(made))
 
 
 async def main():

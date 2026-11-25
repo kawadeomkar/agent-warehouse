@@ -116,8 +116,8 @@ def _run(job: jobs.Job, at: runner.Target, command: list[str], stdin=None) -> ru
 
 def _direct(at: runner.Target) -> runner.Target:
     """at marked as a route settled straight at it marks one (connections.target_for), which a test of the stand-ins
-    reaches without a route: a Target made for an address no target() gives."""
-    return dataclasses.replace(at, routed_as="direct")
+    reaches without a route: a Target made for an address no target() gives, with what the mark was decided from."""
+    return dataclasses.replace(at, routed_as="direct", routed_from=runner.decided_from(at))
 
 
 def _stand_in(folder: Path, words: list[str]) -> subprocess.CompletedProcess[str]:

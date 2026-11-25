@@ -41,7 +41,8 @@ refuses the route through the host from a home so long that the hop's socket cou
 hop's own `ssh` is run with pins `ForwardX11=no` and `PermitLocalCommand=no` first (`route.hop_settings`' `pinned`), as
 the runner pins them for a machine. Nothing here ever dials a machine where the rule goes through the host. The engine
 settles its route once a run, and gives every machine its Target, through engine/routes.py alone: `target_for` marks
-each with the route it was given (`runner.Target.routed_as`), and the runner connects to no machine's Target unmarked.
+each with the route it was given (`runner.Target.routed_as`) and what it was decided from (`routed_from`), and the
+runner connects to no machine's Target unmarked, nor to one changed since in what the route decided from.
 
 Standard library only; asyncio is imported inside the coroutines that start a child.
 """
@@ -371,8 +372,10 @@ class Connections:
         in `given`, or in what ssh -G resolves for its address from the person's own ~/.ssh/config, read once a run for
         each machine. `machine` is a machine's Target with neither a hop nor options of its own, unmarked: they are
         given here. The one place a Target is marked with the route it was given (runner.Target.routed_as): `direct`
-        where the route is, `own` for a jump of its own, `hop` with the hop; the runner connects to no machine's Target
-        unmarked, nor to one marked `hop` without one, which dataclasses.replace cannot take off unseen."""
+        where the route is, `own` for a jump of its own, `hop` with the hop; and with what it was decided from, its
+        address, account, port, ssh program and options and the hop given (runner.Target.routed_from,
+        runner.decided_from). The runner connects to no machine's Target unmarked, nor to one marked `hop` without one,
+        nor to one any of those changed on since, whatever changed it."""
         self._own(machine)
         if machine.is_host or machine.hop is not None or machine.given or machine.routed_as:
             raise runner.Refused(
@@ -384,13 +387,16 @@ class Connections:
         pairs = tuple(given.items()) if isinstance(given, Mapping) else tuple(given)
         candidate = dataclasses.replace(machine, given=pairs)
         if settled["route"] != "host":
-            return dataclasses.replace(candidate, routed_as="direct")
-        found = route.vm_hop(dict(settled), candidate.address, runner.given_words(candidate))
-        if found["jump"] or await self._configured_jump(job, candidate):
-            return dataclasses.replace(candidate, routed_as="own")
-        [_, option] = shlex.split(found["option"])
-        hop = runner.Hop(option.removeprefix("ProxyCommand="), found["name"])
-        return dataclasses.replace(candidate, hop=hop, routed_as="hop")
+            mark = "direct"
+        else:
+            found = route.vm_hop(dict(settled), candidate.address, runner.given_words(candidate))
+            if found["jump"] or await self._configured_jump(job, candidate):
+                mark = "own"
+            else:
+                [_, option] = shlex.split(found["option"])
+                hop = runner.Hop(option.removeprefix("ProxyCommand="), found["name"])
+                candidate, mark = dataclasses.replace(candidate, hop=hop), "hop"
+        return dataclasses.replace(candidate, routed_as=mark, routed_from=runner.decided_from(candidate))
 
     def _key(self, target: runner.Target) -> tuple[object, ...]:
         return (target.ssh, target.address, target.account, target.port, target.given)
