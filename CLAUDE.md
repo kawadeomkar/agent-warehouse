@@ -1381,14 +1381,15 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `ssh-keygen` for a name as `ssh` reads and hashes one.
     - A secret reaches a child only on its standard input, revealed in `_bytes` alone (`REVEALS`). Every child is
       started through `children.start` in a group of its own, its output read under bounds for a line, the whole, a
-      deadline and a silence, its group killed on a breach, and every string it gave made plain. Ending the local
-      `ssh` never ends the command on the machine. A 255 is `ssh`'s or the command's own, and nothing tells which:
-      `Unreachable` keeps the command's lines and never says a command did not run, so a caller whose command changes
-      something - one that must run once above all, as Tailscale's key - reads the machine's state again before it
-      tries it again, never deciding a retry from `Unreachable` alone. A held child (a sign-in's) and a forward
-      (`ControlPath=none`) are ended by their deadline, their caller or the run; a forward's deadline is required, and
-      its far end is `sleep <deadline>`, so after a run killed outright it ends by itself once its deadline has passed
-      and the connections through it have closed, nothing recorded on the machine.
+      deadline and a silence, and its lines where the caller bounds them, its group killed on a breach, and every
+      string it gave made plain. Ending the local `ssh` never ends the command on the machine. A 255 is `ssh`'s or the
+      command's own, and nothing tells which: `Unreachable` keeps the command's lines and never says a command did not
+      run, so a caller whose command changes something - one that must run once above all, as Tailscale's key - reads
+      the machine's state again before it tries it again, never deciding a retry from `Unreachable` alone. A held child
+      (a sign-in's, or a helper call's while `sudo` takes a password) and a forward (`ControlPath=none`) are ended by
+      their deadline, their caller or the run; a forward's deadline is required, and its far end is `sleep <deadline>`,
+      so after a run killed outright it ends by itself once its deadline has passed and the connections through it have
+      closed, nothing recorded on the machine.
       `ansible_vars` gives layer 1's Ansible child the same options in the same order.
     - `tests/unit/test_aw_ssh_runner.py` holds it against a stand-in `ssh` that records its words, environment and
       standard input, with this machine's `ssh -G -F /dev/null` for the values the options hold, and scans: a child

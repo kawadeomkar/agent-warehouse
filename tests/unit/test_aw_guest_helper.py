@@ -17,10 +17,13 @@ docs/architecture/engine.md §16.10).
   and ruff's rules that would write past 3.10 kept off the helper's folder.
 - The invariant with a test of its own: the rule `just status` rests on holds over the whole bundle. At run time, the
   script started by a test-only bootstrap that first sets an audit hook (PEP 578) recording every program started,
-  every file opened and every file-system write of the machine's Python: each program one of `ALLOWED`'s reads or
-  git_checkouts.py's, each open without a flag that writes, no write. And statically, over each carried file: the
-  functions that start a program named, with what each starts, those the probe never reaches among them; today's rule
-  over the probe's own literal reads; git's reads by their subcommand; and every open a read.
+  every file opened, every file-system write, every socket and every signal sent of the machine's Python: each program
+  one of `ALLOWED`'s reads or git_checkouts.py's, each open without a flag that writes, no write, no socket, no signal.
+  And statically, over each carried file: the functions that start a program named, with what each starts, those the
+  probe never reaches among them; the functions that reach past the machine's files and programs (a socket, a signal,
+  ctypes) named likewise, alive's os.kill alone, reached from running_claude alone; today's rule over the probe's own
+  literal reads; git's reads by their subcommand; and every open a read. The probe's root branch (a fork that becomes
+  the machine's user) is held by the static rule alone: a test runs as no root.
 """
 
 from __future__ import annotations
@@ -102,6 +105,33 @@ STARTING_FUNCTIONS = {
     ("ansible.module_utils.agent_warehouse", "process_argv"): "ps, one pid's argument list for the session modules:"
     " the probe never reaches it, and ps is no read of ALLOWED's",
 }
+# What in a carried file reaches past the machine's files and programs - a socket, a signal sent, a library loaded -
+# each a module, or a name of os's, as _starts reads STARTERS but by the whole of a dotted name.
+REACHERS = (
+    "socket",
+    "socketserver",
+    "ssl",
+    "http",
+    "urllib",
+    "ftplib",
+    "smtplib",
+    "imaplib",
+    "poplib",
+    "xmlrpc",
+    "asyncio",
+    "selectors",
+    "signal",
+    "ctypes",
+    "mmap",
+    "os.kill",
+    "os.killpg",
+)
+# Each function of a carried file that reaches past them, with what it reaches: none the probe reaches, which the audit
+# holds at run time too.
+REACHING_FUNCTIONS = {
+    ("ansible.module_utils.agent_warehouse", "alive"): "os.kill(pid, 0), whether a pid lives, for running_claude alone,"
+    " which the probe never reaches (NEVER_REACHED)",
+}
 # Functions of a carried file the probe never reaches, which start a program or run one through another, each with
 # why: none of what they run is a read of ALLOWED's or GIT_READS', so a run that reached one would fail the audit.
 NEVER_REACHED = {
@@ -157,7 +187,23 @@ WRITING = (
     "shutil.move",
     "shutil.rmtree",
 )
-WATCHED = ("open", *STARTING, *WRITING)
+# And each way it reaches past the machine's files and programs: a socket made, bound, connected or sent through, a
+# name looked up, a signal sent, a library loaded.
+REACHING = (
+    "socket.__new__",
+    "socket.bind",
+    "socket.connect",
+    "socket.sendto",
+    "socket.sendmsg",
+    "socket.getaddrinfo",
+    "socket.gethostbyname",
+    "socket.gethostbyaddr",
+    "os.kill",
+    "os.killpg",
+    "signal.pthread_kill",
+    "ctypes.dlopen",
+)
+WATCHED = ("open", *STARTING, *WRITING, *REACHING)
 # The flags of an open that may write.
 WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
 # The properties the probe reads of Remote Control's units, as status/found.py and the probe name them.
@@ -232,19 +278,28 @@ def _dotted(node: ast.AST) -> str:
     return ""
 
 
+def _named(source: str) -> list[str]:
+    """Each name source imports, or reads as a name or attribute, dotted."""
+    names = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            names += [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            names += [node.module or "", *(f"{node.module}.{alias.name}" for alias in node.names)]
+        elif isinstance(node, (ast.Name, ast.Attribute)):
+            names.append(_dotted(node))
+    return names
+
+
 def _starts(source: str) -> list[str]:
     """What in source names a way to start a program: an import of one, or a name or attribute read as one."""
-    found = []
-    for node in ast.walk(ast.parse(source)):
-        names = []
-        if isinstance(node, ast.Import):
-            names = [alias.name for alias in node.names]
-        elif isinstance(node, ast.ImportFrom):
-            names = [node.module or "", *(f"{node.module}.{alias.name}" for alias in node.names)]
-        elif isinstance(node, (ast.Name, ast.Attribute)):
-            names = [_dotted(node)]
-        found += [name for name in names if any(name == s or name.startswith((f"{s}.", s)) for s in STARTERS)]
-    return found
+    return [name for name in _named(source) if any(name == s or name.startswith((f"{s}.", s)) for s in STARTERS)]
+
+
+def _reaches(source: str) -> list[str]:
+    """What in source names a way to reach past the machine's files and programs (REACHERS): an import of one, or a
+    name or attribute read as one, by the whole of its dotted name."""
+    return [name for name in _named(source) if any(name == r or name.startswith(f"{r}.") for r in REACHERS)]
 
 
 def _imports(source: str) -> list[tuple[int, str]]:
@@ -690,8 +745,9 @@ def _qualified(tree: ast.Module) -> list[tuple[str, ast.AST]]:
     return found
 
 
-def _starting_functions(source: str) -> set[str]:
-    """The innermost function of source (Class.method, '' outside one) around each call that starts a program."""
+def _starting_functions(source: str, scan=_starts) -> set[str]:
+    """The innermost function of source (Class.method, '' outside one) around each call that starts a program, or that
+    scan finds otherwise."""
     found: set[str] = set()
 
     def visit(node: ast.AST, function: str, prefix: str) -> None:
@@ -701,11 +757,31 @@ def _starting_functions(source: str) -> set[str]:
             elif isinstance(child, ast.ClassDef):
                 visit(child, function, f"{prefix}{child.name}.")
             else:
-                if isinstance(child, ast.Call) and _starts(ast.unparse(child.func)):
+                if isinstance(child, ast.Call) and scan(ast.unparse(child.func)):
                     found.add(function)
                 visit(child, function, prefix)
 
     visit(ast.parse(source), "", "")
+    return found
+
+
+def _callers(carried: dict[str, str], module: str, function: str) -> set[tuple[str, str]]:
+    """Each function of the carried files around a call of module's function: by its name in module, or imported from
+    it."""
+    found = set()
+    for name, source in carried.items():
+        tree = ast.parse(source)
+        imported = name == module or any(
+            isinstance(node, ast.ImportFrom)
+            and node.module == module
+            and any(alias.name == function for alias in node.names)
+            for node in ast.walk(tree)
+        )
+        if imported:
+            found |= {(name, where) for where in _starting_functions(source, lambda called: called == function)}
+        found |= {
+            (name, where) for where in _starting_functions(source, lambda called: called == f"{module}.{function}")
+        }
     return found
 
 
@@ -719,6 +795,20 @@ def test_each_carried_file_starts_a_program_only_where_it_is_named() -> None:
     probe = carried[PROBE]
     assert [name for _, name in NEVER_REACHED if name in probe] == []
     assert 'read_checkout(commands, path, False, "", None, "", True)' in probe
+
+
+def test_each_carried_file_reaches_past_the_machine_s_files_and_programs_only_where_it_is_named() -> None:
+    carried = _carried(bundle.script(["probe"], {}))
+    reaching = {
+        (module, function) for module, source in carried.items() for function in _starting_functions(source, _reaches)
+    }
+    assert reaching == set(REACHING_FUNCTIONS)
+    # None imports a module of REACHERS, and the one that reaches is called by what the probe never reaches alone.
+    imported = [(module, name) for module, source in carried.items() for _, name in _imports(source)]
+    assert [(module, name) for module, name in imported if _reaches(f"import {name}")] == []
+    for module, function in REACHING_FUNCTIONS:
+        callers = _callers(carried, module, function)
+        assert callers and callers <= set(NEVER_REACHED), (function, callers)
 
 
 def test_today_s_rule_holds_the_probe_s_literal_reads_and_git_s_by_subcommand() -> None:
@@ -814,3 +904,33 @@ def test_each_carried_file_opens_every_file_to_read() -> None:
 )
 def test_the_scan_sees_each_way_to_start_a_program(source: str, found: list[str]) -> None:
     assert sorted(set(_starts(source))) == sorted(found)
+
+
+@pytest.mark.parametrize(
+    ("source", "found"),
+    [
+        ("import socket", ["socket"]),
+        ("from socket import create_connection", ["socket", "socket.create_connection"]),
+        ("socket.socket().connect(('127.0.0.1', 9))", ["socket", "socket.socket"]),
+        ("os.kill(pid, 0)", ["os.kill"]),
+        ("os.killpg(pid, 9)", ["os.killpg"]),
+        ("import signal", ["signal"]),
+        ("from urllib.request import urlopen", ["urllib.request", "urllib.request.urlopen"]),
+        ("import ctypes", ["ctypes"]),
+        ("thread.is_alive()", []),
+        ("signals = 1", []),
+        ("os.killed", []),
+    ],
+)
+def test_the_scan_sees_each_way_to_reach_past_the_machine(source: str, found: list[str]) -> None:
+    assert sorted(set(_reaches(source))) == sorted(found)
+
+
+def test_the_callers_scan_finds_a_call_by_name_and_by_import() -> None:
+    carried = {
+        "m": "def alive(pid):\n    pass\ndef a():\n    alive(1)\n",
+        "n": "from m import alive\ndef b():\n    alive(2)\ndef c():\n    thread.is_alive()\n",
+        "o": "import m\ndef d():\n    m.alive(3)\n",
+        "p": "def alive():\n    pass\ndef e():\n    alive()\n",
+    }
+    assert _callers(carried, "m", "alive") == {("m", "a"), ("n", "b"), ("o", "d")}

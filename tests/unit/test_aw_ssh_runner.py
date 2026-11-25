@@ -1007,6 +1007,20 @@ def test_a_child_that_sends_more_than_it_may_is_cut(tmp_path, stand_in, made, co
     assert children.live(made) == []
 
 
+def test_a_child_that_sends_more_lines_than_it_may_is_cut_where_a_bound_on_lines_is_set(tmp_path, stand_in, made):
+    four = dataclasses.replace(BYTES, lines=4)
+    result = _run(made, _machine(tmp_path), ["much", "5"], limits=four)
+    assert result == runner.Cut("it sent more than 4 lines", ("y" * 40,) * 4, ""), result
+    assert children.live(made) == []
+    assert _run(made, _machine(tmp_path), ["much", "4"], limits=four) == runner.Done(0, ("y" * 40,) * 4, "")
+    # None, the default, bounds them by their bytes alone.
+    assert runner.LIMITS.lines is None
+    assert isinstance(_run(made, _machine(tmp_path), ["much", "5"], limits=BYTES), runner.Done)
+    for wrong in (0, -1, True, 2.5, "4"):
+        with pytest.raises(runner.Refused, match=r"\Athe limit lines is a number of lines, 1 or more, or none\Z"):
+            runner.Limits(lines=wrong)
+
+
 def test_a_child_that_says_nothing_is_silent_and_leaves_nothing(tmp_path, stand_in, made) -> None:
     marker = _marker()
     assert _run(made, _machine(tmp_path), ["quiet", marker], limits=SILENCE) == runner.Silent("")
@@ -1071,6 +1085,27 @@ def test_a_held_child_takes_one_line_at_a_time_and_none_once_it_has_ended(tmp_pa
             await child.send("late")
 
     asyncio.run(held())
+
+
+def test_a_held_child_is_written_bytes_as_they_are_and_never_a_secret_or_text(tmp_path, stand_in, made) -> None:
+    data = b"\x00raw\nbytes\r\nwith no end"
+
+    async def held() -> runner.Result:
+        child = await runner.hold(made, _machine(tmp_path), ["say", "done"], dict(os.environ), deadline=60)
+        for wrong in (Secret(CANARY), "text", bytearray(b"x")):
+            with pytest.raises(runner.Refused, match=r"\Awhat is written to a held child is bytes, never a Secret"):
+                await child.write(wrong)
+        await child.send("a line")
+        await child.write(data)
+        await child.close()
+        result = await child.result()
+        with pytest.raises(runner.Ended):
+            await child.write(b"late")
+        return result
+
+    assert asyncio.run(held()) == runner.Done(0, ("done",), "")
+    assert (stand_in / "stdin.bin").read_bytes() == b"a line\n" + data
+    assert searched_for([CANARY], stand_in) == []
 
 
 def test_end_leaves_nothing_of_a_held_child(tmp_path, stand_in, made) -> None:

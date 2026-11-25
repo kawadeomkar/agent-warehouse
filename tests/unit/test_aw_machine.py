@@ -8,8 +8,9 @@ machine's identity at another's address is refused as ssh refuses it, as is one 
 files the key as ssh does, a machine's under its identity in its scratch file and the Proxmox host's under its address
 in the test's own known-hosts file; words whose first StrictHostKeyChecking is neither yes nor accept-new, or whose
 first BatchMode is not yes, another account, a known-hosts file of this computer's own ~/.ssh and a sudo named by its
-path are refused, and nothing runs; standard input arrives whole, and a held child reads a line sent later; a
-machine's command has no terminal, its own HOME, its bin/ first on PATH (its python3 the test's own Python) and the
+path are refused, and nothing runs; standard input arrives whole, and a held child reads a line sent later; the home's
+.bashrc, where it has one, is read before the command, as bash run by sshd reads it; a machine's command has no
+terminal, its own HOME, its bin/ first on PATH (its python3 the test's own Python) and the
 test's own failing stand-ins next, and nothing else of the test's environment, and calls.log keeps the names of the
 variables it was started with, never their values; a sudo that asks receives the password only after -n was refused
 for want of one, takes each line after a wrong one as a further attempt, up to sudo's three, and keeps it nowhere but
@@ -502,6 +503,15 @@ def test_standard_input_arrives_whole_and_a_held_child_reads_a_line_sent_later(t
         return first, await child.result()
 
     assert asyncio.run(held()) == ("ready", runner.Done(0, ("ready", "got a line sent once the child spoke"), ""))
+
+
+def test_the_home_s_bashrc_is_read_before_the_command_as_bash_run_by_sshd_reads_it(two, made) -> None:
+    alpha, beta, *_ = two
+    (alpha.home / ".bashrc").write_text('echo "Welcome, dev"\necho "a word at login" >&2\n')
+    command = ["sh", "-c", "echo the command"]
+    assert _run(made, target(alpha), command) == runner.Done(0, ("Welcome, dev", "the command"), "a word at login")
+    # A home with none: the command alone.
+    assert _run(made, target(beta), command) == runner.Done(0, ("the command",), "")
 
 
 def test_a_machine_s_command_has_its_own_environment_and_meets_the_stand_ins_first(two, made, engine_guard) -> None:
