@@ -148,6 +148,31 @@ if ($question eq "acl") {
     }
     exit 1;
 }
+if ($question eq "grants") {
+    my ($roles, $user, $token, $pattern, @listed) = @words;
+    my %role = map { $_ => 1 } split /,/, $roles;
+    my %kind = ($user => "users", $token => "tokens");
+    my (%made, %seen, @left);
+    while (@listed) {
+        my ($path, $role, $subject) = splice @listed, 0, 3;
+        $made{"$path $role $subject"} = 1;
+    }
+    my $entries = answer();
+    die "not a list of ACL entries\n" unless ref $entries eq "ARRAY";
+    for my $entry (@$entries) {
+        next unless ref $entry eq "HASH";
+        my ($path, $role, $subject) = map { defined $entry->{$_} && !ref $entry->{$_} ? "$entry->{$_}" : "" }
+            qw(path roleid ugid);
+        next unless $role{$role} && exists $kind{$subject} && held($path, $pattern);
+        my $key = "$path $role $subject";
+        next if $made{$key} || $seen{$key}++;
+        push @left, [$path, $role, $subject];
+    }
+    for my $each (sort { $a->[0] cmp $b->[0] || $a->[1] cmp $b->[1] || $a->[2] cmp $b->[2] } @left) {
+        print "$each->[0] $each->[1] $kind{$each->[2]} $each->[2]\n";
+    }
+    exit 0;
+}
 if ($question eq "privsep") {
     my $token = answer();
     die "not a token\n" unless ref $token eq "HASH";
@@ -339,7 +364,7 @@ fi
 # with the paths of its grants (paths_<role>) and those granted already (granted_<role>); one held exactly that holds
 # more is withheld, with its grants.
 n=0 planned=0 steps=0 pools_read=0 acl_read=0 said_roles='' withheld='' token_there=0 token_to_make=0
-made_user='' made_name='' secret=''
+made_user='' made_name='' secret='' listed_grants=''
 decide() {
   put "d_$n" "$1"
   [ "$1" = none ] || planned=$((planned + 1))
@@ -452,6 +477,12 @@ User() { # User <name> <comment>
   if pvesh get "/access/users/$1" --output-format json </dev/null >/dev/null 2>&1; then decide none; else decide add; fi
 }
 
+read_acl() {
+  if [ "$acl_read" = 0 ]; then
+    acl=$(pvesh get /access/acl --output-format json </dev/null) || die "Proxmox would not list its ACL"
+    acl_read=1
+  fi
+}
 Grant() { # Grant <path> <role> <users, or tokens> <the user's ID, or the token's full ID>
   n=$((n + 1))
   if [ "$phase" = make ]; then
@@ -459,10 +490,8 @@ Grant() { # Grant <path> <role> <users, or tokens> <the user's ID, or the token'
     [ "$got" != add ] || run pveum acl modify "$1" "--$3" "$4" --roles "$2"
     return 0
   fi
-  if [ "$acl_read" = 0 ]; then
-    acl=$(pvesh get /access/acl --output-format json </dev/null) || die "Proxmox would not list its ACL"
-    acl_read=1
-  fi
+  read_acl
+  listed_grants="$listed_grants $1 $2 $4"
   # there: 0 where the entry is there, propagating; 1 where it is not.
   there=0
   printf '%s' "$acl" | answer acl "$1" "$2" "$4" || there=$?
@@ -531,6 +560,18 @@ for name in $said_roles; do
   got "granted_$name"
   say "$(sentence "too-much-$name" "$more" "$paths" "$got")"
 done
+# Each grant of the engine's roles to the user or the token that this run's list does not make: said, never removed.
+read_acl
+left=$(printf '%s' "$acl" | answer grants "$engine_roles" "$user" "$user!$token" "$re_path" $listed_grants) \
+  || die "Proxmox's ACL could not be read"
+while read -r left_path left_role left_kind left_subject; do
+  [ -n "$left_path" ] || continue
+  line=$(plain quote pveum acl delete "$left_path" --roles "$left_role" "--$left_kind" "$left_subject") \
+    || die "Perl could not quote a command"
+  say "$(sentence granted-beyond "$left_path" "$left_role" "$left_subject" "$line")"
+done <<LEFT
+$left
+LEFT
 if [ "$token_there" = 1 ]; then
   say "The token $(plain quote "$user!$token") is there: Proxmox showed its secret once, when it was made, and" \
     "never again. If it is lost, as root here $(plain quote pveum user token delete "$user" "$token") deletes it," \

@@ -14,13 +14,15 @@ The invariant with a test of its own: `check` answers missing or the engine's ow
 this fleet's and a token of the list's ID made without privilege separation being refused, never a third answer; and a
 role of the engine's own that lacks a privilege gets it appended and loses none, and one that holds more is granted all
 the same and said. A role held exactly that holds more (the audit role, the clone role) is neither changed nor granted,
-and said with the line that fixes it, or as granted already where its grants are there. The host a sentence's init
-line reaches is given by every caller of check and plan. The module imports the standard library alone.
+and said with the line that fixes it, or as granted already where its grants are there. A grant of the engine's roles to
+the list's user or token that the list does not make is said with the line that removes it, and left. The host a
+sentence's init line reaches is given by every caller of check and plan. The module imports the standard library alone.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import shlex
 import sys
 
 import pytest
@@ -682,6 +684,69 @@ def test_a_role_held_exactly_that_lacks_one_and_holds_more_is_neither_appended_t
     assert not [step for step in planned.steps if getattr(step.object, "role", None) == role]
     (said,) = planned.said
     assert said.startswith(f"The role {role} holds VM.Allocate beyond") and "so it is not granted" in said
+
+
+# A host set up under node, its template named, a storage and bridge of its own: then run with every setting the
+# default but proxmox_audit_scope pool and no template.
+BEFORE = _host(custom_template=TEMPLATE, storage="old", bridges=("vmbr0", "vmbr9"))
+AFTER = _host(audit_scope="pool")
+
+
+def test_a_grant_the_settings_no_longer_make_is_said_with_its_delete_line_and_never_taken_away() -> None:
+    listed = access.objects(AFTER)
+    found = _everything(access.objects(BEFORE))
+    planned = access.plan(listed, found, host_flag="")
+    # Nothing is taken away: the steps are what the new settings make that is missing, and nothing else.
+    assert {type(step.object) for step in planned.steps} == {access.Grant}
+    assert all(step.object in listed and not step.append for step in planned.steps)
+    made = {(each.path, each.role, each.subject) for each in _grants(listed)}
+    left = sorted({(each.path, each.role, each.subject) for each in found.grants} - made)
+    assert [path for path, _, _ in left] == [
+        "/sdn/zones/localnetwork/vmbr9",
+        "/sdn/zones/localnetwork/vmbr9",
+        "/storage/old",
+        "/storage/old",
+        "/vms",
+        "/vms",
+        f"/vms/{TEMPLATE}",
+        f"/vms/{TEMPLATE}",
+    ]
+    kinds = {USER: "--users", TOKEN: "--tokens"}
+    assert list(planned.said) == [
+        f"The role {role} is granted to {subject} on {path}, which init does not grant with these settings, and is"
+        f" left there, since init never takes a grant away: there it gives {subject} each of its privileges all the"
+        f" same. As root on the Proxmox host, {shlex.join(['pveum', 'acl', 'delete', path, '--roles', role])}"
+        f" {kinds[subject]} {shlex.quote(subject)} removes it."
+        for path, role, subject in left
+    ]
+    # Once the person removes them, nothing is said; the same host under node again says nothing either.
+    kept = {each for each in found.grants if (each.path, each.role, each.subject) not in set(left)}
+    assert access.plan(listed, dataclasses.replace(found, grants=kept), host_flag="").said == ()
+    assert access.plan(access.objects(BEFORE), found, host_flag="") == access.Plan((), ())
+
+
+def test_only_a_grant_of_the_engine_s_roles_to_the_list_s_user_or_token_is_said() -> None:
+    listed = access.objects(AFTER)
+    everything = _everything(listed)
+    others = [
+        access.Grant("/vms", access.AUDIT_ROLE, "someone@pve"),
+        access.Grant("/vms", access.AUDIT_ROLE, "someone@pve!aw"),
+        access.Grant("/vms", "PVEAuditor", USER),
+        access.Grant("/vms", "PVEVMAdmin", TOKEN),
+        access.Grant("/vms/1\n00", access.AUDIT_ROLE, TOKEN),
+        access.Grant("vms", access.AUDIT_ROLE, TOKEN),
+        access.Grant("/vms/\x1b[2J", access.AUDIT_ROLE, TOKEN),
+    ]
+    beside = dataclasses.replace(everything, grants={*everything.grants, *others})
+    assert access.plan(listed, beside, host_flag="") == access.Plan((), ())
+    # One there twice, propagating and not, is said once.
+    twice = {access.Grant("/vms", access.AUDIT_ROLE, TOKEN), access.Grant("/vms", access.AUDIT_ROLE, TOKEN, False)}
+    doubled = dataclasses.replace(everything, grants={*everything.grants, *twice})
+    (said,) = access.plan(listed, doubled, host_flag="").said
+    assert said.endswith(
+        "As root on the Proxmox host, pveum acl delete /vms --roles AgentWarehouseAudit --tokens"
+        " 'agent-warehouse@pve!aw' removes it."
+    )
 
 
 def test_what_a_host_holds_is_said_as_one_line_of_plain_text() -> None:

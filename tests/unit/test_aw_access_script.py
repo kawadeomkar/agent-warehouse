@@ -10,10 +10,11 @@ found)`, quoted as shlex quotes them, and says each of `plan`'s sentences, over 
 only as root, on Proxmox VE 9 or later; refuses root@pam, a value of the wrong form before any pveum or pvesh, an option
 it does not have (today's --move and --template among them), a pool another fleet marked or whose mark cannot be read,
 and a token made without privilege separation (its sentence naming init's line for the host the script was rendered
-for), each leaving the host byte for byte as it was; takes a pool with no mark only given `--pool <name>
---take-unmarked`, its comment kept and the mark added at its end. It reads every answer as JSON through Perl, so a
-pool's comment is read as fleet/mark.py reads it, held by a corpus of comments. A person's own template is looked up by
-its name, its network cards' bridges from its configuration, which the stand-in does not read: a pvesh of this file's
+for), each leaving the host byte for byte as it was; says each grant of the engine's roles to its user or token that its
+settings do not make with the line that removes it, and removes none; takes a pool with no mark only given `--pool
+<name> --take-unmarked`, its comment kept and the mark added at its end. It reads every answer as JSON through Perl, so
+a pool's comment is read as fleet/mark.py reads it, held by a corpus of comments. A person's own template is looked up
+by its name, its network cards' bridges from its configuration, which the stand-in does not read: a pvesh of this file's
 own, first on PATH, answers that one read and hands every other to the stand-in.
 
 The rule with a test of its own (V2-9): no file of the checkout holds a rendering of the list, found by its header.
@@ -173,6 +174,34 @@ def _acl(path: str, role: str, subject: str, propagate: int = 1) -> dict:
     return {"path": path, "ugid": subject, "roleid": role, "propagate": propagate, "type": kind}
 
 
+def _set_up(host: access.Host) -> dict:
+    """The stand-in's state of a host the script set up for host: every object of its list there."""
+    listed = access.objects(host)
+    roles = {each.name: list(each.privileges) for each in listed if isinstance(each, access.Role)}
+    acls = [_acl(each.path, each.role, each.subject) for each in listed if isinstance(each, access.Grant)]
+    return {
+        "pools": {host.pool: {"comment": MARK}},
+        "roles": roles,
+        "users": {"root@pam": {}, host.user: {"comment": access.COMMENT}},
+        "tokens": {f"{host.user}!{host.token}": {"privsep": 1, "secret": SECRET, "comment": access.COMMENT}},
+        "acls": acls,
+    }
+
+
+# Grants of the engine's roles a run with the default settings does not make, each with whether it is said: to its user
+# or token on a path the list leaves out (a template no longer named, a storage given before, one twice), and to
+# another user, of another role, or on a path of no form Proxmox writes, none of them said.
+NOT_MADE = [
+    (_acl(f"/vms/{TEMPLATE}", access.CLONE_ROLE, access.USER), True),
+    (_acl(f"/vms/{TEMPLATE}", access.CLONE_ROLE, TOKEN_ID), True),
+    (_acl("/storage/old", access.ROLE, TOKEN_ID), True),
+    (_acl("/storage/old", access.ROLE, TOKEN_ID, 0), True),
+    (_acl("/storage/old", access.ROLE, "someone@pve"), False),
+    (_acl("/vms", "PVEAuditor", access.USER), False),
+    (_acl("/storage/old store", access.ROLE, access.USER), False),
+]
+NOT_MADE_THERE = {**_set_up(_host()), "acls": [*_set_up(_host())["acls"], *(acl for acl, _ in NOT_MADE)]}
+
 GUEST = {"vmid": TEMPLATE, "name": "my-template", "template": 1, "pool": ""}
 CONFIG = {"net0": "virtio=BC:24:11:00:00:01,bridge=vmbr1,firewall=1", "net1": "virtio=BC:24:11:00:00:02,bridge=vmbr0"}
 TWO_BRIDGES = {"bridges": ["vmbr0", "vmbr1"]}
@@ -247,6 +276,13 @@ HELD = {
         {"bridges": ("vmbr0", "vmbr1"), "custom_template": TEMPLATE, "audit_scope": "pool"},
         "my-template",
     ),
+    "set up under node, then run under pool": (
+        _set_up(_host()),
+        ("--audit-scope", "pool"),
+        {"audit_scope": "pool"},
+        "",
+    ),
+    "grants of the engine's roles these settings do not make": (NOT_MADE_THERE, (), {}, ""),
     "a template of the person's own in the pool": (
         {**TWO_BRIDGES, "guests": [GUEST | {"pool": access.POOL}]},
         (),
@@ -461,6 +497,59 @@ def test_a_token_made_without_privilege_separation_is_refused_with_plan_s_senten
     beside = printer.line("init", {"token_id": PLACEHOLDER}, refused=True, host_flag=host_flag)
     assert f"or {beside}, with an ID of the fleet's own" in str(refusal.value)
     assert ("--host nuc" in str(refusal.value)) == bool(host_flag)
+
+
+def test_a_grant_these_settings_do_not_make_is_said_with_its_delete_line_and_left(tmp_path: Path) -> None:
+    # Set up under node, then run under pool: the audit role's grants on every guest stay, each said with the line
+    # that removes it, and nothing is changed.
+    assert _run(tmp_path).returncode == 0
+    before = _state_bytes(tmp_path)
+    lines = [
+        "pveum acl delete /vms --roles AgentWarehouseAudit --users agent-warehouse@pve",
+        "pveum acl delete /vms --roles AgentWarehouseAudit --tokens 'agent-warehouse@pve!aw'",
+    ]
+    for args in (("--audit-scope", "pool", "--dry-run"), ("--audit-scope", "pool")):
+        result = _run(tmp_path, *args)
+        assert (result.returncode, result.stdout) == (0, ""), result.stderr
+        assert "Nothing to do: the access is set up." in result.stderr
+        said = _said(result.stderr)
+        assert said == list(_planned(_host(audit_scope="pool"), _state(tmp_path)).said)
+        # The user first, whose ID begins the token's.
+        assert said == [
+            f"The role {access.AUDIT_ROLE} is granted to {subject} on /vms, which init does not grant with these"
+            f" settings, and is left there, since init never takes a grant away: there it gives {subject} each of its"
+            f" privileges all the same. As root on the Proxmox host, {line} removes it."
+            for subject, line in ((access.USER, lines[0]), (TOKEN_ID, lines[1]))
+        ]
+    assert _state_bytes(tmp_path) == before
+    # The line removes what it names (the stand-in deletes a user's grant alone), and that grant is no longer said.
+    env = {"PATH": os.pathsep.join([str(tmp_path / "pve"), "/usr/bin", "/bin"]), "LC_ALL": "C"}
+    subprocess.run(shlex.split(lines[0]), env=env, check=True, capture_output=True)
+    held = [(a["path"], a["roleid"], a["ugid"]) for a in _state(tmp_path)["acls"]]
+    assert ("/vms", access.AUDIT_ROLE, access.USER) not in held
+    assert ("/vms", access.AUDIT_ROLE, TOKEN_ID) in held
+    again = _run(tmp_path, "--audit-scope", "pool")
+    assert [line for line in _said(again.stderr) if "is granted to" in line] == [said[1]]
+    # Under node again, the user's grant is made anew: the list makes it there.
+    assert _run(tmp_path).returncode == 0
+    held = [(a["path"], a["roleid"], a["ugid"]) for a in _state(tmp_path)["acls"]]
+    assert ("/vms", access.AUDIT_ROLE, access.USER) in held
+
+
+def test_only_the_engine_s_roles_granted_to_its_user_or_token_on_a_path_proxmox_writes_are_said(tmp_path) -> None:
+    result = _run(tmp_path, "--dry-run", state=NOT_MADE_THERE)
+    assert (result.returncode, result.stdout) == (0, ""), result.stderr
+    beyond = [line for line in _said(result.stderr) if "is granted to" in line]
+    said = {(acl["path"], acl["roleid"], acl["ugid"]) for acl, told in NOT_MADE if told}
+    # Once each, in order of the path, the role and whom it is for, as plan says them.
+    assert len(beyond) == len(said) == 3
+    assert beyond == [line for line in _planned(_host(), _state(tmp_path)).said if "is granted to" in line]
+    for (path, role, subject), line in zip(sorted(said), beyond, strict=True):
+        kind = "--tokens" if "!" in subject else "--users"
+        delete = shlex.join(["pveum", "acl", "delete", path, "--roles", role, kind, subject])
+        assert line.startswith(f"The role {role} is granted to {subject} on {path}, ")
+        assert line.endswith(f"{delete} removes it.")
+    assert not [line for line in beyond if "someone@pve" in line or "PVEAuditor" in line or "old store" in line]
 
 
 # --------------------------------------------------------------- the pool's mark ---
