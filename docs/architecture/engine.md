@@ -864,15 +864,16 @@ and a pool or a token Proxmox refuses, are refusals with nothing written; with n
 or a new one gets one. Then each file through its one writer, none of whose locks is held around another's, each only
 where nothing is set: the key (`vaultkey.make_key` at `vault_key_file`'s place), `fleet.json`, the vault
 (`sealed.create`, then the secret as the host's `token`), `host.yml` and its anchor (`hosts.write`), with `made`
-recording by ID what the administrator made by hand where the secret was given, the host's storage, bridge and pool
-(`aw-fleet` where none is given or set), the fleet's `github_username` and `vpn`, and `client.yml`'s current host. The
-names written where none is given are the engine's own: the user `agent-warehouse@pve`, the token `aw`, the pool
-`aw-fleet`, and the first host `pve`. `made` records the pool, the user and the token only where each is that default
-(`OWN_NAMES`), never a name the person gave or `host.yml` sets, which may be an object of the person's own that a
+recording by ID what the administrator made by hand where the secret was given, or what the offer made (below), the
+host's storage, bridge and pool (`aw-fleet` where none is given or set), the fleet's `github_username` and `vpn`, and
+`client.yml`'s current host. The names written where none is given are the engine's own: the user
+`agent-warehouse@pve`, the token `aw`, the pool `aw-fleet`, and the first host `pve`. `made` records the pool, the user
+and the token only where each is that default (`OWN_NAMES`), the offer's roles where each is one of `access.ROLES` and
+its grants where the role is, the user or token is the engine's own and the path is of Proxmox's form, never a name the
+person gave or `host.yml` sets, which may be an object of the person's own that a
 cleanup by `made` would then remove; the run's report names the fleet the pool's mark gives wherever the secret was
 given, though `made` may then record nothing. A run stopped after any write goes on from what it wrote, and the same
-run again writes nothing. The modes other cards build (`--check`, `--print-commands`, `--machines`) are refused by name
-until each lands.
+run again writes nothing. The modes other cards build (`--check`, `--machines`) are refused by name until each lands.
 
 **`init` at a terminal: `attended`.** With standard input a terminal whose foreground the run is, as `runs/ask.py`'s
 `terminal()` decides for each question (16.8), and no `--no-prompt`, the same steps run drawn live (`INIT`, one stage
@@ -898,6 +899,25 @@ written. What was left is said, and NEXT STEPS keeps the line that asks again; o
 with nothing written. A run in the background of its terminal (`aw init &`) is one with nobody there, never drawn: the
 live region's change of the terminal's settings from there would have the terminal stop it (`SIGTTOU`) before its first
 question. `tests/unit/test_aw_engine_init.py` holds it at a pseudo-terminal of its own, against the fake.
+
+**The offer, and `--print-commands`.** At a terminal alone, between the token's ID and its secret and once the
+certificate is settled, `attended` offers to make what is missing on the host: `as_script` rendered for the host's
+values and the fleet's ID (`fleet.json`'s where there is one) is run there as root over root SSH in batch mode, `/bin/sh
+-s` reading it from standard input, no copy left on the host. The node is read first where `settings.yml` names none
+(`hostname -s`); the script's `--list` gives the storages and bridges where none is given or set (the one in effect
+where the node lists it, else a question); then its `--dry-run`, with `--no-token` where the vault holds the token's
+secret or one is given. Where something is missing, the plan (each object of the list with its privileges, and whether
+it is there), the dry run's commands and what the script said are shown with today's question, "Set it up now? y or n",
+no first, and the script runs on a `y` alone. Its standard output, the token's secret, is held to a UUID and sealed in
+the vault before anything else runs, then read back; where it is not there as printed, where the script printed none,
+or where it failed after it made the token, the token the run made is deleted again and `init` stops, and where the
+connection is lost after the token, the delete line is said. What it made of the engine's own names, the pool, the user,
+the token, the three roles and their grants for the engine's user or token, is recorded in `host.yml`'s `made` with
+this engine its maker, read from the commands the script said it ran (its `+` lines). No, Esc, Enter, root SSH that
+does not answer, a script that refuses, nothing missing, and a token there whose secret is held nowhere here (until
+the pool's mark settles whose it is) leave the host as it was, said, and the secret is then asked. With nobody there
+no offer is made. `aw init --print-commands` prints the same script on standard output, and on standard error how to
+run it as root, reading `host.yml`, the settings and `fleet.json` alone: no vault, run, lock, request or write.
 
 `tests/unit/test_aw_engine_init.py` holds `init` against the fake Proxmox, through `tools/aw` with a refusing `ssh`
 first on `PATH` and in this process with root SSH a reader of the test's own; its runs through `tools/aw` from a home
