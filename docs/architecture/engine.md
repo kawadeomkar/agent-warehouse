@@ -3375,10 +3375,20 @@ its check's arguments; the play's `vars_files`; each template a role's template 
 `files/` that a `copy`, `unarchive`, `assemble` or `uri` sends from this computer (`src`, and `uri`'s multipart
 `filename`s, unless `remote_src` is true as written, as it is for `assemble` unless said). What it does not follow it
 never passes over: a playbook imported, an include in a handler
-(Ansible resolves those otherwise), a file or role named by a template, a collection's role, a `collections` keyword
-(under which a short name can stand for a collection's module), a role in the play's own roles folder (searched before
-`roles_path`), a template outside a role or one that includes another (`{%+` too) each raise `Unfollowed`, which fails
-every test. So do a task file Ansible looks for elsewhere before the walk's (review 50): an `import_tasks` in a role's
+(Ansible resolves those otherwise), a file or role named by a template, a name Ansible reads otherwise than the walk
+(one that starts with `~`, which `DataLoader` takes from the person's home, holds a `$`, which it expands, or is quoted,
+which it takes off: the walk follows a relative name each part of which starts with a letter, a digit or `_`), a
+collection's role, a `collections` keyword (under which a short name can stand for a collection's module), a role in the
+play's own roles folder (searched before `roles_path`), and a template outside a role each raise `Unfollowed`, which
+fails every test (review 61). So do what Ansible renders that the walk would read as text - a template, or any string
+of any file the walk read, that names another template (`include`, `import`, `from` or `extends`, `{%-` and `{%+` too:
+Ansible renders a task's string with the play's folder to load from), or that sets its own delimiters, under which such
+a statement reads as text (a `#jinja2:` line, ansible-core's `JINJA2_OVERRIDE`, or one of the template action's six
+delimiter arguments) - and arguments the walk does not read, which ansible-core merges into a task's once its parser
+has read them: `module_defaults` on a play, a role entry, a block, a task or an include's `apply`; an `args:` given as
+one template (the parser's `_variable_params`); and a module given one template as its whole value, but a command's,
+whose words `REASONS` holds. So do a task file Ansible looks for elsewhere before the walk's (review 50): an
+`import_tasks` in a role's
 file that an include or import brought in, which Ansible looks for first under that file's own folder's `tasks/` and
 then the working folder's, and any include or import two files below the play, looked for beside the play first (one
 file below, the walk's file is Ansible's first); a file sent from this computer outside a role, or one that is no
@@ -3391,7 +3401,12 @@ that has no action of its own) - and any folder of plugins in a role, each kind 
 Four tests read what it found. A `command`, `shell`, `raw`, `script` or `expect` is listed in `REASONS` with its reason
 and with its module and arguments as Ansible's `ModuleArgsParser` reads them, so that a reason is held to what runs: a
 new one, one no longer reached and one whose words changed under its name each fail, and two such tasks of one file and
-name fail as one key. A module outside `ansible.builtin` fails but the three F6a replaces with built-in ones
+name fail as one key. A module of `ansible.builtin` is one written so that ansible-core's own routing table
+(`ansible_builtin_runtime.yml`, read from the installed package) keeps within `ansible.builtin` for its action and its
+module, neither removed, and that names one of ansible-core's own actions or modules there: the table sends
+`ansible.builtin.synchronize` (whose rsync starts here), `ansible.builtin.patch` and hundreds more to a collection, and
+a test holds that no name it keeps within `ansible.builtin` comes to one of those the scans read by name. A module
+outside `ansible.builtin` fails but the three F6a replaces with built-in ones
 (`ansible.posix.authorized_key`, `ansible.posix.sysctl`, `community.general.npm`). Nothing it reaches sets a variable
 whose name begins `ansible_` - the vars of a play, block, task, role entry or dependency, `vars_files`, `vars_prompt`, a
 role's defaults and vars, a fact (a templated name refused), a register, a loop's variable, an include's `apply`,
@@ -3399,8 +3414,14 @@ role's defaults and vars, a fact (a templated name refused), a register, a loop'
 computer: no `delegate_to`, `local_action` or `connection` on a play, role entry, block, task or `apply`, no `fetch`,
 no `group_by` or `add_host` (a group joined after the play's check, whose variables the check never saw), no play over
 any host but `all`, no `with_` loop, and no lookup but the five `LOOKUPS` lists by its file and whole
-string (the check's read of the inventory, `remote_tmp.yml`'s setting, and the three vendors' keys), found in every
-string of every file the walk read (the roles' argument specs among them) and in the templates. Until F6a those three
+string (the check's read of the inventory, `remote_tmp.yml`'s setting, and the three vendors' keys), found as `lookup`,
+`query` or `q` as a word (Jinja calls one wherever it is named: `(q)(...)`, or a name set to it) in every string of
+every file the walk read (the roles' argument specs among them) and in the templates. Each road review 61 ran is run
+as Ansible runs it too: planted under the test's own folder, found by the four tests, then run by `layer1.run` over the
+test-only local connection on a stand-in machine, where its decoy writes a mark in the test's own folder - a copy given
+its `src` by `module_defaults` or by `args:`, a fact of the interpreter so given, `ansible.builtin.synchronize`'s rsync,
+a copy, template or include of a name that starts with `~`, `q` named apart from its call, a template's own delimiters and its
+`#jinja2:` line, an include in a task's string, and an import two files below the play. Until F6a those three
 modules need their collections, from
 the checkout's own folder that layer 1's configuration names for now (above), or a test's in its place, the
 scenario's. The `system` scenario
