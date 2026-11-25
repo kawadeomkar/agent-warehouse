@@ -270,7 +270,8 @@ lib/claude_vm/pve/                the typed Proxmox VE client, and the one table
                                   status judge by alike; ownership.py, the one rule of what is the fleet's, which status
                                   judges by too, and the Owned every write of a VM takes, which it alone makes;
                                   script.py, the access script's fixed text, its shell and its Perl around the calls
-                                  engine/access.py renders
+                                  engine/access.py renders; commands.py, the base template's build as argument lists
+                                  run over root SSH, each value held to its form, which runs nothing
 lib/claude_vm/ssh/                the runner over OpenSSH: ssh as a child, host keys taken at first use, the control
                                   directory, the children a run holds
 lib/claude_vm/vendors/            one HTTPS transport, Tailscale's calls, downloads held to a signature or a digest;
