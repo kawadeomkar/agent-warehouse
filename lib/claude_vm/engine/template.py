@@ -38,14 +38,15 @@ the host's sha256sum to the digest verified here, removed and the build stopped,
 renamed into place; where the guest agent goes in, the image tool installed by apt where
 `proxmox_template_manage_libguestfs` is on and dpkg's own state of it is not installed (one held is there, and one
 neither installed nor absent, or whose state could not be read, stops the build), the image's system read and one
-outside the Debian family refused by name, a copy customised; the template that differs removed, once the guest at the
-ID is still the one judged (`Compared.identity`), a refusal of Proxmox's - a linked clone's - said; `qm create` with the
-record as its description, its SMBIOS UUID made here so that the record names it from its first write, and the pool; the
-disk imported; the cloud-init drive, the boot order and DHCP, with no `ciupgrade`; `qm template`; and the template read
-back and judged again, which must find it as its settings would build it. The customised copy is removed whatever
-happens. What the build leaves on the host is recorded in host.yml's `made` through fleet/hosts.py's one writer as it is
-made: each image file it downloaded, the template by its ID, and each package of the image tool this run installed (none
-that was there before), so that a cleanup removes exactly that.
+outside the Debian family refused by name, a copy customised; the template that differs removed only once judged again
+just before, still this engine's template that differs, with its record, its name and the pool, under the UUID first
+judged (`Compared.identity`), and anything that changed in between left as it is, a refusal of Proxmox's - a linked
+clone's - said; `qm create` with the record as its description, its SMBIOS UUID made here so that the record names it
+from its first write, and the pool; the disk imported; the cloud-init drive, the boot order and DHCP, with no
+`ciupgrade`; `qm template`; and the template read back and judged again, which must find it as its settings would build
+it. The customised copy is removed whatever happens. What the build leaves on the host is recorded in host.yml's `made`
+through fleet/hosts.py's one writer as it is made: each image file it downloaded, the template by its ID, and each
+package of the image tool this run installed (none that was there before), so that a cleanup removes exactly that.
 """
 
 from __future__ import annotations
@@ -516,14 +517,17 @@ async def _installed(at: _Host, package: str) -> bool:
     )
 
 
-async def _destroyed(at: _Host, base: judging.Base, found: Compared, nic: str) -> None:
-    """The template that differs removed, once the guest at its ID is still the one judged: Proxmox's refusal, a
-    linked clone's, said."""
-    now = await _config(at, base, nic)
-    if not found.identity or now.identity != found.identity:
+async def _destroyed(at: _Host, base: judging.Base, found: Compared, settings: Mapping[str, object]) -> None:
+    """The template found to differ removed, once judged again just before: only while the judgement still finds this
+    engine's template that differs, its record, its name, its node and the pool as the first did, and under the SMBIOS
+    UUID first judged (Compared.identity). One that changed in the minutes the image took - taken out of the pool,
+    stripped of its record, renamed, or another guest - is left as it is, said with the judgement's sentence. Proxmox's
+    refusal, a linked clone's, is said."""
+    now = await _judged(at, base, settings)
+    if now.outcome != DIFFERENT or not found.identity or now.identity != found.identity:
         raise Refused(
-            f"The guest at ID {base.template_id} is no longer the template that was judged to differ from its "
-            "settings: it is left as it is, and the base template was not built."
+            f"The guest at ID {base.template_id} changed after it was judged to differ from its settings, so it is "
+            f"left as it is and the base template was not built: {now.said()}"
         )
     removed = await at(commands.destroy(base.template_id))
     if not _ok(removed):
@@ -559,7 +563,6 @@ async def build(
             "read and cloned: no base template is built."
         )
     image = _Image.of(settings, base.template_id)
-    nic = str(settings["proxmox_nic"])
     at = _Host(ctx, target if target is not None else _target(host), host.environ)
     async with locks.section(ctx, lock_sets.section_name("template", host.name)):
         found = await _judged(at, base, settings)
@@ -606,7 +609,7 @@ async def build(
             if image.copy:
                 await _customised(at, image, made)
             if found.outcome == DIFFERENT:
-                await _destroyed(at, base, found, nic)
+                await _destroyed(at, base, found, settings)
             await _must(at, create, SHORT, f'The template "{base.name}" ({base.template_id}) could not be created')
             made.add("template", str(base.template_id))
             for step in steps:

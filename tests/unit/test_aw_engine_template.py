@@ -37,9 +37,10 @@ names no image, fetches nothing on the host; an image whose digest differs is re
 command is pve/commands.py's, nothing on its standard input, under the host's template section, with no ciupgrade; only
 the image tool's packages this run installed are recorded, one held is there, and one half configured or unread stops
 the build; a difference is rebuilt at the same ID, and kept under proxmox_template_rebuild: false; a template a linked
-clone uses is said with the way on; a template with no record of the build, a guest outside the pool and a guest that
-changed after it was judged are never removed; an image outside the Debian family, a custom image with no checksum of
-its own and a template of the person's own build nothing; and every value a command takes is held to its form.
+clone uses is said with the way on; a template with no record of the build, a guest outside the pool and a template that
+changed after it was judged - out of the pool, its record stripped, renamed, another guest - are never removed; an image
+outside the Debian family, a custom image with no checksum of its own and a template of the person's own build nothing;
+and every value a command takes is held to its form.
 """
 
 from __future__ import annotations
@@ -1293,20 +1294,63 @@ def test_a_template_with_no_record_or_a_guest_outside_the_pool_is_never_destroye
     assert lab.conf()[0] == f"name: {NAME}"
 
 
-def test_a_guest_that_changed_after_it_was_judged_is_never_destroyed(lab, monkeypatch) -> None:
+def _out_of_the_pool(lab: Lab) -> None:
+    (lab.qm / f"{TEMPLATE}.pool").unlink()
+
+
+def _in_another_pool(lab: Lab) -> None:
+    (lab.qm / f"{TEMPLATE}.pool").write_text("someone-else\n")
+
+
+def _record_stripped(lab: Lab) -> None:
+    path = lab.qm / f"{TEMPLATE}.conf"
+    path.write_text("".join(line for line in path.read_text().splitlines(True) if not line.startswith("description: ")))
+
+
+def _renamed(lab: Lab) -> None:
+    path = lab.qm / f"{TEMPLATE}.conf"
+    path.write_text(path.read_text().replace(f"name: {NAME}\n", "name: renamed-by-hand\n"))
+
+
+def _another_guest(lab: Lab) -> None:
+    # Another guest at the ID with the template's record copied into its notes: its own SMBIOS UUID, the record's not.
+    path = lab.qm / f"{TEMPLATE}.conf"
+    old = f"smbios1: uuid={lab.identity()}\n"
+    path.write_text(path.read_text().replace(old, "smbios1: uuid=0f0e0d0c-0b0a-4909-8807-060504030201\n"))
+
+
+def _rebuilt_elsewhere(lab: Lab) -> None:
+    # Rebuilt by another run, as differing as before: another UUID, in the configuration and the record alike.
+    path = lab.qm / f"{TEMPLATE}.conf"
+    path.write_text(path.read_text().replace(lab.identity(), "0f0e0d0c-0b0a-4909-8807-060504030201"))
+
+
+@pytest.mark.parametrize(
+    ("change", "words"),
+    [
+        pytest.param(_out_of_the_pool, "is no member of the pool", id="taken out of the pool"),
+        pytest.param(_in_another_pool, "is no member of the pool", id="moved to another pool"),
+        pytest.param(_record_stripped, "keeps no record of this engine's build", id="its record stripped"),
+        pytest.param(_renamed, 'holds a template named "renamed-by-hand"', id="renamed"),
+        pytest.param(_another_guest, "is never rebuilt or cloned", id="another guest, the record copied"),
+        pytest.param(_rebuilt_elsewhere, "differs from its settings: cpu", id="rebuilt under another UUID"),
+    ],
+)
+def test_a_template_that_changed_after_it_was_judged_is_never_destroyed(lab, monkeypatch, change, words) -> None:
     lab.build()
     real = template._fetched
 
-    async def swapped(*args, **named):
+    async def changed(*args, **named):
         await real(*args, **named)
-        # Another guest at the ID between the judgement and the removal: a new SMBIOS UUID.
-        path = lab.qm / f"{TEMPLATE}.conf"
-        path.write_text(path.read_text().replace(lab.identity(), "0f0e0d0c-0b0a-4909-8807-060504030201"))
+        # Between the judgement and the removal, in the minutes the image takes: a person's change at the ID.
+        change(lab)
 
-    monkeypatch.setattr(template, "_fetched", swapped)
+    monkeypatch.setattr(template, "_fetched", changed)
     refused = _stopped(lab, lab.settings(proxmox_template_cpu_type="x86-64-v3"))
-    assert "is no longer the template that was judged" in refused, refused
-    assert "destroy" not in [call[0] for call in lab.qm_calls()]
+    assert f"The guest at ID {TEMPLATE} changed after it was judged to differ from its settings" in refused, refused
+    assert words in refused, refused
+    assert "destroy" not in [call[0] for call in lab.qm_calls()] and lab.conf()
+    assert lab.made() == [("file", str(lab.images / IMAGE_FILE), "engine"), ("template", str(TEMPLATE), "engine")]
     assert lab.in_images() == [IMAGE_FILE]
 
 
