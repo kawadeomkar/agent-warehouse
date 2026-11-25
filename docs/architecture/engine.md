@@ -2253,7 +2253,10 @@ Where the stream is a terminal that can take the region (`live_region.can_draw`)
 stream through the one live region every live output shares (`tui/live_region.py`'s `LiveRegion`, given a small
 `Display` of its own, as the status engine gives it one: a lock, `display()` and the two prompt methods, which refuse,
 since a run's questions are asked by a module of their own that steps the region aside): redrawn after each event and
-ten times a second for the spinner, the terminal's title saying where the run is, the echo off while it draws; what is
+ten times a second for the spinner, the terminal's title saying where the run is, the echo off while it draws and at a
+Ctrl-C what the terminal has not read yet kept (`NOFLSH`), where it would throw away a line said above or part of a
+frame (keys typed unseen before it are then left for the next reader, as keys typed with no Ctrl-C are), and for a
+question and at the end the terminal's settings put back exactly as found; what is
 said above (`View.above`: each report whole, each failure) printed above the region after each event; and while it
 draws, standard error said above the region too, a whole line at a time, so that the ladder's `stopping` line at a
 Ctrl-C, or a warning, never lands inside the region. Where the stream is no terminal, what is said above and a line as
@@ -2284,9 +2287,11 @@ succeeds and the run ends with its own status. A question at the run's terminal 
 steps the region aside as it does for a prompt: erased and paused, the echo on; after, the echo off again and the region
 drawn once the run has worked half a second more. `tests/unit/test_aw_live.py` holds it at a pseudo-terminal, a run made
 by `runs.run` in a child process emitting a canned run: each redraw one write, no line wrapped at 80 or 100 columns, the
-echo off while it draws and back after a return, a Ctrl-C, a SIGTERM and a SIGHUP, a report and a failure said above
-and left there, the stopping line above the region and the footer saying so, the summary and then NEXT STEPS once; a
-SIGTERM or a SIGHUP at a random moment while events flow, no frame's remains left and no line said above lost; a
+echo off while it draws and back after a return, a Ctrl-C, a SIGTERM and a SIGHUP, the terminal's settings then those it
+had before the run, a report and a failure said above and left there, the stopping line above the region and the footer
+saying so, the summary and then NEXT STEPS once; 300 reports said above with nobody reading and a Ctrl-C typed before
+the terminal has read any, each still on the screen; a SIGTERM or a SIGHUP at a random moment while events flow, no
+frame's remains left and no line said above lost; a
 question asked aside; piped, a line as each step ends, and into a reader that leaves after the first line, the run's
 own status; with `-v`, each event a line; in its own process, with a clock of its own, that what a run says off a
 terminal is exactly what the view gives after each event, a refused event said once with the run going on, a person's
@@ -2310,7 +2315,9 @@ every read through `Context.typed`, on the loop and never in a thread, so one Ct
 process's controlling terminal opened by its name, and never through `getpass`. Then an empty `waiting` event ends that
 wait alone, and a `step` event, a line of the machine's work, says what was answered: the line, the choice's words, or
 of a hidden answer only that one was given. A line is read in the terminal's cooked mode with its echo on; a hidden
-answer the same with the echo off; either question's line is ended wherever the person's Enter did not end it on the
+answer the same with the echo off; at either, a Ctrl-C keeps what the terminal has not read yet (`NOFLSH`), where the
+terminal would throw away the echo of what was typed and leave the question's line saying `^C` where `192^C` was typed;
+either question's line is ended wherever the person's Enter did not end it on the
 screen, however its read ends (a hidden answer, the end of the input, a Ctrl-C, a SIGTERM), so that what the view kept
 while it was up is said from a line of its own; a choice is `tui/choose.py`'s menu where the terminal can draw it
 (`choose.can_choose`), picked with the arrow keys through `choose.asked`, the menu's keys read as a read on the loop
@@ -2324,7 +2331,8 @@ otherwise write to the terminal as it is; the value is given back as it was give
 as found once each question ends, however it ends, and each change of them, the question's mode and the change back, is
 `TCSAFLUSH`'s, as `getpass` makes it: the keys typed before are flushed by the change that sets the mode, never one
 typed between a flush and the change, and what was typed at the question and not read (the rest of a paste, the line
-after a token) is discarded by the change back, never left in the terminal's input for the shell to run once the run
+after a token, the part of a line a Ctrl-C kept) is discarded by the change back, never left in the terminal's input for
+the shell to run once the run
 has ended. A change that a signal interrupts is made again (`live_region.set_terminal`, which the region's own switch
 of the echo uses too): `TCSAFLUSH` and `TCSADRAIN` wait for the output to drain, and a signal whose handler raises
 nothing, the run's first Ctrl-C or a resize, ends that wait with `EINTR`.
@@ -2345,17 +2353,21 @@ choice whose words and note hold an OSC, an erase of the screen, a colour and a 
 screen read back with `tests/unit/vt.py`), two questions asked at once from two tasks, the second drawn only once the
 first is answered, a report, a line on standard error and an event the view refuses, each said while a question is up,
 shown after it and never on its line, and so when a Ctrl-C or a SIGTERM cuts the question short, the question's line
-ended where it was cut, a line, a hidden answer whose characters reach neither the screen, the record nor
+ended where it was cut and what was typed on it kept there (`192^C`, the keys and the Ctrl-C in one write too) and never
+left in the terminal's input, however a run ends the terminal's settings those it had before the run, a line, a hidden
+answer whose characters reach neither the screen, the record nor
 the run's events, two lines pasted at a line and at a hidden answer, the second never left in the terminal's input once
 the run has ended, the region gone while a question is up and back after it, Enter taking the default, Ctrl-C at a
 line, a hidden answer and the menu ending the run, and keys typed before the question not taken as its answer; with
 standard input on `/dev/null`, the default at once and the line that says so; and in its own process, every refusal of
 `Question`, a question with no default among them, a choice's words and note made plain, two questions asked at once
 taking turns, how the menu's keys are cut, what is typed at the menu after its answer never left, a question and the
-menu putting the terminal back through an `EINTR`, each change `TCSAFLUSH`'s, what the view says kept while a question
+menu putting the terminal back through an `EINTR`, each change `TCSAFLUSH`'s, a question's mode with `NOFLSH` and the
+settings put back exactly as found, what the view says kept while a question
 is up, a refused event's line among it, or said before the summary where the run's end cuts the question short, and the
 bell rung only after a quiet while. `tests/unit/test_live_region.py` holds the region's own switch of the echo to the
-same through an `EINTR`.
+same through an `EINTR`, `NOFLSH` beside the echo while it draws and the settings back exactly as found, and 300 lines
+said above the region with nobody reading and then a Ctrl-C, none of them lost.
 
 ## 16.9 `fleet/` — the fleet's files, the settings, the secrets and the fleet's mark
 

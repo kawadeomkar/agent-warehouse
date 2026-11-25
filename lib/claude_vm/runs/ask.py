@@ -23,13 +23,15 @@ empty `waiting` event ends that wait alone (runs/model.py), and a `step` event, 
 was answered: the line, the choice's words, or of a hidden answer only that one was given. A hidden answer is in no
 event, no record and no line on the screen.
 
-- A line: read in the terminal's cooked mode, its echo on, Enter ending it.
+- A line: read in the terminal's cooked mode, its echo on, Enter ending it, and a Ctrl-C keeping what the terminal has
+  not read yet (NOFLSH): the question's line shows what was typed before it, `192^C`, never `^C` alone.
 - A choice: tui/choose.py's menu where the terminal can draw it (choose.can_choose), picked with the arrow keys
   (choose.asked), its keys read raw, where Ctrl-C is a byte: the terminal's settings, its signal keys among them, are
   put back first, and then the run is sent SIGINT for it, as a Ctrl-C anywhere else. The line the menu leaves says the
   answer (choose.collapsed). Where it cannot be drawn, the choice is typed: a number, a value or its words; one that is
   none is asked once more, saying the choices, and a second is left at the default, said.
-- A hidden answer: read in cooked mode with the echo off, and returned as a Secret.
+- A hidden answer: read in cooked mode with the echo off, a Ctrl-C keeping what the terminal has not read the same
+  way, and returned as a Secret.
 
 The terminal's settings are put back as they were found once each question ends, however it ends, and each change of
 them is TCSAFLUSH's, as getpass makes it: the keys typed before are flushed by the change that sets the question's
@@ -279,7 +281,10 @@ async def _line(context: Context, fd: int, out: IO[str], prompt: str, *, echo: b
     was up among it, begins on a line of its own."""
     found = termios.tcgetattr(fd)
     mode = list(found)
-    on = termios.ICANON | termios.ISIG
+    # NOFLSH: a Ctrl-C keeps what the terminal has not read yet - the echo of what was typed, the prompt - where it
+    # would throw it away and leave `^C` alone after the question's words; what was typed and not read is discarded by
+    # the change back all the same.
+    on = termios.ICANON | termios.ISIG | termios.NOFLSH
     mode[3] = (found[3] | on | termios.ECHO) if echo else ((found[3] | on) & ~(termios.ECHO | termios.ECHONL))
     # TCSAFLUSH, as getpass sets and puts back: the keys typed before are flushed in the same call that sets the mode,
     # so none typed between a flush and the change is taken; and what is still unread once the line is read - the rest

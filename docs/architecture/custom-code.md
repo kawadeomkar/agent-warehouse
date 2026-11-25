@@ -823,7 +823,11 @@ good, and runs at exit, Ctrl-C included.
   question steps it aside the same way, inside `aside()`, which the wrappers use too.
 - **The terminal.** Its echo is off while the region is up, and on for a prompt and at the end: an Enter
   typed during a run would move the cursor under the region, and the next redraw would leave a copy of it
-  behind. A change of the terminal's settings that a signal interrupts is made again (`set_terminal`):
+  behind. Meanwhile it keeps at a Ctrl-C what it has not read yet (`NOFLSH`), where it would throw away a line
+  said above or part of a frame - macOS all it holds unread, Linux what it holds past its line discipline's
+  buffer - and the keys typed unseen before it are left for the next reader, as keys typed with no Ctrl-C are.
+  For a prompt and at the end the settings are put back exactly as found. A change of the terminal's settings
+  that a signal interrupts is made again (`set_terminal`):
   `TCSADRAIN` waits for the output to drain, a signal whose handler raises nothing (a first Ctrl-C, a hold's note,
   a resize) ends the wait with `EINTR`, and `termios` does not try again itself; taken for no terminal, it dropped
   the settings to put back and left the echo off for the prompt. A resize (`SIGWINCH`) pushes the screen into the scrollback and draws afresh, since no count of
