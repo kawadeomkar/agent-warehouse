@@ -3393,8 +3393,9 @@ whose words `REASONS` holds. So do a task file Ansible looks for elsewhere befor
 file that an include or import brought in, which Ansible looks for first under that file's own folder's `tasks/` and
 then the working folder's, and any include or import two files below the play, looked for beside the play first (one
 file below, the walk's file is Ansible's first); a file sent from this computer outside a role, or one that is no
-regular file of its role's `files/` as the checkout holds it (a name under `files/`, a folder, a link out); a role, or a
-folder of a role that Ansible reads, that is a link, and any file the play reaches that is a link out of the checkout,
+regular file of its role's `files/` as the checkout holds it (a name under `files/`, a folder, a link out); a role, or
+one of its own folders (`tasks/`, `files/` and the rest), that is a link, and any file the play reaches that is a link
+out of the checkout,
 through which Ansible would read a folder the test never saw, on the computer the play runs on (review 67); and what
 Ansible takes from the
 play's folder that the walk does not read - `group_vars/` or `host_vars/`, whose variables reach the host whenever it
@@ -3423,19 +3424,26 @@ lists by its file and whole
 string (the check's read of the inventory, `remote_tmp.yml`'s setting, and the three vendors' keys), found as `lookup`,
 `query` or `q` as a word (Jinja calls one wherever it is named: `(q)(...)`, or a name set to it) in every string of
 every file the walk read (the roles' argument specs among them) and in the templates. Nor does it ask this computer of
-its paths, which tells a name's existence, kind, real name, home or environment where the play is rendered, never a
-file's text (review 67): no test of ansible-core's `files` test plugin but `abs` (`exists`, `file`, `link` and the
-rest, read from the plugin), no `fileglob`, `realpath`, `relpath`, `expanduser` or `expandvars` filter, whether
-written or named to `select`, `reject`, `selectattr`, `rejectattr` or `map`, and none of those five given a name only a
-run can say. They are read as Jinja's own parser reads each string Ansible renders (a template, a string that opens
-one, or the value of a `when`, `changed_when`, `failed_when`, `until`, `that` or `var`), not as words, which would take
-the same names in the roles' prose and paths; a string the parser cannot read is refused. Each road review 61 ran is
-run as Ansible runs it too: planted under the test's own folder, found by the four tests, then run by `layer1.run`
-over the test-only local connection on a stand-in machine, where its decoy writes a mark in the test's own folder - a
-copy given its `src` by `module_defaults` or by `args:`, a fact of the interpreter so given,
-`ansible.builtin.synchronize`'s rsync, a copy, template or include of a name that starts with `~`, `q` named apart from
-its call, a template's own delimiters and its `#jinja2:` line, an include in a task's string, and an import two files
-below the play; and review 67's `loop_with: pipe` and a role's `files/` linked to a folder elsewhere. Until F6a those
+its paths, which tells a name's existence, kind, real name, home or environment where the play is rendered, or open a
+file there (review 67): no test of ansible-core's `files` test plugin but `abs` (`exists`, `file`, `link` and the
+rest, read from the plugin) and no `vaulted_file` (core's, which opens the file to see whether it is a vault); no
+`fileglob`, `realpath`, `relpath`, `expanduser` or `expandvars` filter, whether written or named to `select`,
+`reject`, `selectattr`, `rejectattr` or `map`, or to one of those five that another is given by name
+(`map('select', 'exists')`); and none of the five given a name only a run can say, or its arguments by `*` or `**`.
+They are read as Jinja's own parser reads each string Ansible renders, not as words, which would take the same names
+in the roles' prose and paths: a template and a string that opens one; and, as an expression, the way Ansible's
+`_normalize_and_evaluate_conditional` and its debug and assert actions evaluate one, the value of a `when`,
+`changed_when`, `failed_when`, `until` and a loop's `break_when`, a debug's `var` and an assert's `that` (read from the
+arguments as the parser reads them, `var=` and `that=` among them), with the template a string in it holds, which
+Ansible renders as it evaluates it. An expression made of one template, whose result Ansible evaluates as an
+expression the walk never sees (the roles have none), and a string the parser cannot read are refused (review 67's
+second reading). Each road review 61 ran is run as Ansible runs it too: planted under the test's own folder, found by
+the four tests, then run by `layer1.run` over the test-only local connection on a stand-in machine, where its decoy
+writes a mark in the test's own folder - a copy given its `src` by `module_defaults` or by `args:`, a fact of the
+interpreter so given, `ansible.builtin.synchronize`'s rsync, a copy, template or include of a name that starts with `~`,
+`q` named apart from its call, a template's own delimiters and its `#jinja2:` line, an include in a task's string, and
+an import two files below the play; and review 67's `loop_with: pipe` and a role's `files/` linked to a folder
+elsewhere. Until F6a those
 three modules need their collections, from
 the checkout's own folder that layer 1's configuration names for now (above), or a test's in its place, the
 scenario's. The `system` scenario

@@ -140,11 +140,17 @@ LOOKUP = re.compile(r"\b(?:lookup|query|q)\b")
 TEMPLATE_INCLUDE = re.compile(r"\{%[-+]?\s*(?:include|import|from|extends)\b")
 # Review 67's 4: the filters that read this computer where Ansible renders, here - its folders' names (fileglob), its
 # links and working folder (realpath, relpath), its home (expanduser) and the child's environment (expandvars) - beside
-# ansible-core's files tests (file_tests()); the filters that apply a test or a filter given by its name, and which of
-# their arguments names it; and the keys whose string Ansible renders as an expression, with no {{ }} around it.
+# ansible-core's files tests and core's vaulted_file, which opens the file (file_tests()); the filters that apply a
+# test or a filter given by its name, and which of their arguments names it; the keywords whose string Ansible
+# evaluates as an expression, with no {{ }} around it (review 67's 8: a loop's break_when too); the actions that
+# evaluate one of their arguments so, read as Ansible's parser reads the arguments (var=... and that=... too); and what
+# closes a template, of which a condition that starts with an opener and ends with one is made whole (review 67's 9).
 PATH_FILTERS = ("fileglob", "realpath", "relpath", "expanduser", "expandvars")
+CORE_FILE_TESTS = ("vaulted_file",)
 BY_NAME = {"select": 0, "reject": 0, "selectattr": 1, "rejectattr": 1, "map": 0}
-EXPRESSIONS = ("when", "changed_when", "failed_when", "until", "that", "var")
+EXPRESSIONS = ("when", "changed_when", "failed_when", "until", "break_when")
+EXPRESSION_ARGS = {**dict.fromkeys(_spelt("debug"), "var"), **dict.fromkeys(_spelt("assert"), "that")}
+TEMPLATE_END = ("}}", "%}", "#}")
 # What makes a string or a template set its own delimiters, under which an include reads as text: Ansible's prefix of
 # a template's first line (JINJA2_OVERRIDE), and the template action's six arguments.
 TEMPLATE_HEADER = "#jinja2:"
@@ -547,10 +553,12 @@ def private_fields() -> frozenset[str]:
 @functools.cache
 def file_tests() -> frozenset[str]:
     """Jinja's tests that look at this computer's paths where Ansible renders, here: ansible-core's files test plugin,
-    read from it, but abs (and is_abs), which reads a name's text alone."""
+    read from it, but abs (and is_abs), which reads a name's text alone; and core's vaulted_file, which opens the file
+    to read whether it is a vault."""
     from ansible.plugins.test.files import TestModule
 
-    return frozenset(name for name in TestModule().tests() if name not in ("abs", "is_abs"))
+    files = frozenset(name for name in TestModule().tests() if name not in ("abs", "is_abs"))
+    return files | frozenset(CORE_FILE_TESTS)
 
 
 def _builtin(name: str) -> str:
@@ -562,11 +570,15 @@ def _builtin(name: str) -> str:
 def _reads_paths(text: str, expression: bool) -> list[str]:
     """What text, which Ansible renders here (an expression where expression is true), asks of this computer's paths,
     each said by its name, as Jinja reads it: a test of file_tests(), a filter of PATH_FILTERS, either named to a filter
-    of BY_NAME, or a name BY_NAME's filter is given that only a run can say. A text Jinja cannot read is said too."""
+    of BY_NAME, or a name BY_NAME's filter is given that only a run can say. A text Jinja cannot read is said too; and,
+    as Ansible evaluates a condition, an expression made of one template, whose result it evaluates, and the template a
+    string of an expression holds, which it renders (review 67's 9)."""
     import jinja2
     from jinja2 import nodes
 
-    source = f"{{{{ {text} }}}}" if expression and not any(opener in text for opener in TEMPLATE) else text
+    if expression and text.strip().startswith(TEMPLATE) and text.strip().endswith(TEMPLATE_END):
+        return ["an expression made of one template, whose result Ansible evaluates as one the walk cannot read"]
+    source = f"{{{{ {text} }}}}" if expression else text
     try:
         tree = jinja2.Environment().parse(source)
     except jinja2.TemplateSyntaxError as error:
@@ -577,20 +589,41 @@ def _reads_paths(text: str, expression: bool) -> list[str]:
         test, path_filter = isinstance(node, nodes.Test), isinstance(node, nodes.Filter)
         if (test and name in file_tests()) or (path_filter and name in PATH_FILTERS):
             said.append(f"the {type(node).__name__.lower()} {node.name}, which reads this computer's paths")
-        at = BY_NAME.get(name) if path_filter else None
-        if at is None or len(node.args) <= at:
+        if not path_filter or name not in BY_NAME:
             continue
-        given = node.args[at]
-        if not isinstance(given, nodes.Const) or not isinstance(given.value, str):
-            said.append(f"{node.name} given a test or a filter by a name only a run can say")
-        elif _builtin(given.value) in file_tests() | frozenset(PATH_FILTERS):
-            said.append(f"{node.name} given {given.value}, which reads this computer's paths")
+        if node.dyn_args is not None or node.dyn_kwargs is not None:
+            said.append(f"{node.name} given its arguments by * or **, a name only a run can say")
+        else:
+            said += _named(node.name, list(node.args), BY_NAME[name])
+    if expression:
+        for each in tree.find_all(nodes.Const):
+            if isinstance(each.value, str) and any(opener in each.value for opener in TEMPLATE):
+                said += _reads_paths(each.value, False)
     return said
+
+
+def _named(by: str, args: list, at: int) -> list[str]:
+    """What the filter by of BY_NAME is given at args[at], as a test's or a filter's name; where that name is one of
+    BY_NAME's too (map('select', 'exists')), what it is given in turn, from the arguments after it."""
+    from jinja2 import nodes
+
+    while len(args) > at:
+        given = args[at]
+        if not isinstance(given, nodes.Const) or not isinstance(given.value, str):
+            return [f"{by} given a test or a filter by a name only a run can say"]
+        name = _builtin(given.value)
+        if name in file_tests() | frozenset(PATH_FILTERS):
+            return [f"{by} given {given.value}, which reads this computer's paths"]
+        if name not in BY_NAME:
+            return []
+        by, args, at = given.value, args[at + 1 :], BY_NAME[name]
+    return []
 
 
 def _rendered(value: object, key: object = None) -> Iterator[tuple[str, bool]]:
     """Each string of a document that Ansible renders: one that opens a template, and one of EXPRESSIONS' values, an
-    expression; with whether it is one. A mapping's keys are names, never rendered."""
+    expression; with whether it is one. A mapping's keys are names, never rendered. The arguments EXPRESSION_ARGS
+    names are read from each task as Ansible's parser reads them, in reaching_this_computer."""
     if isinstance(value, str):
         if key in EXPRESSIONS or any(opener in value for opener in TEMPLATE):
             yield value, key in EXPRESSIONS
@@ -1000,6 +1033,11 @@ def reaching_this_computer(play: Path = PLAY, repo: Path = REPO, lookups: Iterab
             said.append(f"{where}: {action}, which writes on this computer")
         if action in GROUPS:
             said.append(f"{where}: {action}, a group joined after the play's check of the connection")
+        # Review 67's 8: debug's var and assert's that, evaluated as expressions, in any form the parser takes.
+        given = args.get(EXPRESSION_ARGS[action]) if action in EXPRESSION_ARGS else None
+        for text in given if isinstance(given, list) else [given]:
+            if isinstance(text, str):
+                said += [f"{_where(path, repo)}: {each}: {text!r}" for each in _reads_paths(text, True)]
         if action in TASK_INCLUDES | ROLE_INCLUDES and isinstance(args.get("apply"), dict):
             said += [f"{where}: its apply's {key}" for key in ELSEWHERE if key in args["apply"]]
     for path in found.templates:
@@ -1117,13 +1155,15 @@ def test_what_the_walk_holds_templates_and_names_to_is_ansible_s_own() -> None:
     taken = set(re.findall(r"self\._task\.args\.get\('(\w+)'", action))
     spacing = {"trim_blocks", "lstrip_blocks", "newline_sequence", "keep_trailing_newline"}
     assert taken & (overrides - spacing) == set(DELIMITERS)
-    # Review 67's 1 and 4: a task's one private field, which runs a with_ loop's lookup; the files tests, of which abs
-    # alone reads no path; and the path filters, each one of ansible-core's own.
+    # Review 67's 1, 4 and 11: a task's one private field, which runs a with_ loop's lookup; the files tests, of which
+    # abs alone reads no path, and core's vaulted_file beside them; and the path filters, each ansible-core's own.
     from ansible.plugins.filter.core import FilterModule
+    from ansible.plugins.test.core import TestModule as CoreTests
     from ansible.plugins.test.files import TestModule
 
     assert private_fields() == {"loop_with"}
     assert set(TestModule().tests()) - file_tests() == {"abs", "is_abs"}
+    assert file_tests() - set(TestModule().tests()) == set(CORE_FILE_TESTS) <= set(CoreTests().tests())
     assert set(PATH_FILTERS) <= set(FilterModule().filters())
     # The routing table, read from the installed package: hundreds of names of ansible.builtin are a collection's.
     away = {name for name, entry in routing()["modules"].items() if not_builtin(f"ansible.builtin.{name}") is not None}
@@ -1793,6 +1833,12 @@ LINK_ROADS = {
         lambda root, out: _folder_link(root, "roles/one/files", root / "roles/two/files"),
         "a role's folder that is a link",
     ),
+    # Review 67's 12: a folder of the role's that the walk reads no file of here, a link all the same.
+    "a role's vars/ a link to another role's": (
+        {**_in_one(PING), "roles/two/vars/main.yml": {"v": 1}},
+        lambda root, out: _folder_link(root, "roles/one/vars", root / "roles/two/vars"),
+        "a role's folder that is a link",
+    ),
     "a folder under a role's files/ that is a link out": (
         _in_one({"name": "c", "ansible.builtin.copy": {"src": "sub/x", "dest": "/y"}}),
         lambda root, out: _folder_link(root, "roles/one/files/sub", out),
@@ -1984,6 +2030,18 @@ def _debug_of(msg: str) -> dict[str, object]:
     return {"name": "t", "ansible.builtin.debug": {"msg": msg}}
 
 
+def _said(text: str, what: str) -> str:
+    """What the fourth test says of text, in the role's tasks file, where it finds what."""
+    return f"{ONE}: {what}: {text!r}"
+
+
+# Review 67's 8 to 11: a file test, the finding of it and of a condition made of one template; a condition with a
+# comment's opener in a string, and one whose string holds a template, which Ansible renders as it evaluates it.
+EXISTS = "'/x' is exists"
+FOUND_EXISTS = "the test exists, which reads this computer's paths"
+WHOLE = "an expression made of one template, whose result Ansible evaluates as one the walk cannot read"
+COMMENTED = "'/x' is exists or '{# #}' == 'x'"
+EMBEDDED = "'{{ \"/x\" is exists }}' == 'True'"
 # Review 61's 4: q named apart from its call, which Jinja calls all the same.
 Q_APART = "{{ (q)('ansible.builtin.pipe', 'id') }}"
 Q_SET = "{% set f = q %}{{ f('ansible.builtin.pipe', 'id') }}"
@@ -2141,6 +2199,57 @@ COMPUTER_ROADS: dict[str, tuple[dict[str, object], str]] = {
     "a test chosen at run time": (
         _in_one({"name": "t", "ansible.builtin.debug": {"msg": "{{ ['/x'] | reject(which) }}"}}),
         f"{ONE}: reject given a test or a filter by a name only a run can say: \"{{{{ ['/x'] | reject(which) }}}}\"",
+    ),
+    # Review 67's 8 and 12: what Ansible evaluates as an expression under no keyword of its own, debug's var and
+    # assert's that in any form its parser takes, and a loop's break_when.
+    "debug's var as a mapping": (
+        _in_one({"name": "t", "ansible.builtin.debug": {"var": EXISTS}}),
+        _said(EXISTS, FOUND_EXISTS),
+    ),
+    "debug's var given free-form": (
+        _in_one({"name": "t", "ansible.builtin.debug": f'var="{EXISTS}"'}),
+        _said(EXISTS, FOUND_EXISTS),
+    ),
+    "assert's that given free-form": (
+        _in_one({"name": "a", "ansible.builtin.assert": f'that="{EXISTS}"'}),
+        _said(EXISTS, FOUND_EXISTS),
+    ),
+    "a loop's break_when": (
+        _in_one({**PING, "loop": [1, 2], "loop_control": {"break_when": [EXISTS]}}),
+        _said(EXISTS, FOUND_EXISTS),
+    ),
+    # Review 67's 9: a condition read as Ansible evaluates it, an expression wherever an opener stands in it.
+    "a condition with a comment's opener in it": (_in_one({**PING, "when": COMMENTED}), _said(COMMENTED, FOUND_EXISTS)),
+    "a template in a string of a condition": (_in_one({**PING, "when": EMBEDDED}), _said(EMBEDDED, FOUND_EXISTS)),
+    "a condition made of one template": (_in_one({**PING, "when": "{{ check }}"}), _said("{{ check }}", WHOLE)),
+    "an assert's that made of one template": (
+        _in_one({"name": "a", "ansible.builtin.assert": {"that": "{{ checks }}"}}),
+        _said("{{ checks }}", WHOLE),
+    ),
+    # Review 67's 10: a name given by *, and one given to a filter that a filter of BY_NAME is given by its name.
+    "select given its test by *": (
+        _in_one(_debug_of("{{ ['/x'] | select(*['exists']) }}")),
+        _said("{{ ['/x'] | select(*['exists']) }}", "select given its arguments by * or **, a name only a run can say"),
+    ),
+    "selectattr given its test by *": (
+        _in_one(_debug_of("{{ [{'p': '/x'}] | selectattr('p', *['exists']) }}")),
+        _said(
+            "{{ [{'p': '/x'}] | selectattr('p', *['exists']) }}",
+            "selectattr given its arguments by * or **, a name only a run can say",
+        ),
+    ),
+    "map given select, given a file test": (
+        _in_one(_debug_of("{{ [['/x']] | map('select', 'exists') }}")),
+        _said("{{ [['/x']] | map('select', 'exists') }}", "select given exists, which reads this computer's paths"),
+    ),
+    "map given map, given a path filter": (
+        _in_one(_debug_of("{{ [['/x/*']] | map('map', 'fileglob') }}")),
+        _said("{{ [['/x/*']] | map('map', 'fileglob') }}", "map given fileglob, which reads this computer's paths"),
+    ),
+    # Review 67's 11: core's test that opens a file here, outside the files plugin.
+    "core's vaulted_file in a condition": (
+        _in_one({**PING, "when": "not ('/x' is vaulted_file)"}),
+        _said("not ('/x' is vaulted_file)", "the test vaulted_file, which reads this computer's paths"),
     ),
     "q named apart in a template": (
         {**_in_one(TEMPLATE_TASK), "roles/one/templates/x.j2": f"{Q_APART}\n"},
