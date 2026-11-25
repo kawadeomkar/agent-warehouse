@@ -597,9 +597,9 @@ plain `parse`, says what `compare` says, a template's record that names no UUID 
 them, and imports nothing of the engine and not the client; and `compare` sends nothing but GETs.
 
 **What `init` makes on a host: `access.py`.** One list names every object a first `init` makes on a Proxmox host with
-its administrator's authority, and one check tells what is there of each; the script that makes them (card E2) is
-their one rendering, run over root SSH on a `y` or printed for a person to run, and this module runs and renders
-nothing. `objects(host)` is the list, in the order it is made: the pool, its comment the fleet's mark
+its administrator's authority, and one check tells what is there of each; the script that makes them is their one
+rendering, `as_script`'s, run over root SSH on a `y` or printed for a person to run, and this module runs nothing.
+`objects(host)` is the list, in the order it is made: the pool, its comment the fleet's mark
 (`fleet/mark.py`'s `render`, `controller=none`); the engine's role, `AgentWarehouse`, whose privileges are what the one
 table of privileges needs on every kind of path (16.5), so that one table says both what the client calls and what
 `init` grants, and a call added to it is granted with no list of this module's to change; under
@@ -643,6 +643,55 @@ pool of another fleet's, of no mark or of a control VM refused with nothing plan
 what it lacks and losing none and one holding more granted and said, a role held exactly that holds more, or lacks
 one and holds more, said and left ungranted, or said to give it now where its grants are there, and a token known by
 its full ID and its separation, another user's of the same ID missing and one made without separation refused.
+
+**The script that makes them: `as_script`.** `as_script(host, custom, host_flag=)` renders the list as the script `init`
+runs on the host as root, `/bin/sh` run as `sh -s` with itself on standard input: over root SSH on a `y`, or printed by
+`aw init --print-commands` for a person to run there (`aw init --print-commands | ssh root@<host> sh -s -- --dry-run` to
+see each command, then the same without `--dry-run`). It is rendered each time and never written into the checkout; its
+header says it was rendered by `aw init` for the host's node and fleet, and its lines that print and run it are init's
+as the printer writes them (16.2), the header said through `said` with each a `Line`, with `--host` and the host's name
+for a further host (`host_flag`). Its options change the values the list is made of: `--storage`, `--bridge`, `--user`,
+`--token`, `--pool` and `--audit-scope node|pool`, each the host's value where not given; and a person's own template,
+which `proxmox_template_custom` names (`custom`), is looked up on the host by its name, the one guest of that name and a
+template on the node, with the bridges its network cards are on, so the host it is rendered for has the base template's
+bridge alone and no template's ID. Each object is one call of the script's fixed interpreter (16.5, `pve/script.py`),
+its values the script's shell variables: the list is made for a host of placeholders, each rendered as its variable, the
+objects of one scope under that scope's test, the clone role and its grants under the template's lookup, and a bridge's
+grants in a loop over the bridges; and at every rendering the shape is held to the list itself, under each scope, with
+and without the template, over one bridge and two. The calls run twice: first each reads what is there and decides as
+`check` and `plan` decide, a refusal ending the run before anything is made; then each makes what was decided, in the
+list's order, and the token's secret is printed last, the one line on standard output, everything said to a person going
+to standard error. Every check of a value and every sentence the script says of the list is this module's or
+`fleet/mark.py`'s, rendered: a value of another form than Proxmox makes an object by is refused before any `pveum` and
+never said back; a pool another fleet marked, one naming a control VM and one whose mark cannot be read are refused; a
+pool with no mark is refused naming `--take-unmarked`, and taken only given `--pool <name> --take-unmarked`, the mark
+added at its comment's end and the rest kept, while `--take-unmarked` without `--pool`, or for a marked pool, is
+refused; a token made without privilege separation is refused with its delete line; and a role holding more than its own
+is said and granted, or withheld, as `plan` says. The script runs only as root, on Proxmox VE 9 or later, and refuses
+`root@pam` and any option it does not have, today's `--move` and `--template` among them. `--no-token` makes no token
+and changes nothing where the token is not there; a step that fails after the token was made says that it is there with
+its secret unsaid, and the line that deletes it, after which a run again makes it anew. The dry run prints the commands,
+one an object, every token ID quoted, the token's own line asking for JSON, whose `value` is the secret; `--list` prints
+the node's storages and bridges.
+
+`tests/unit/test_aw_access_script.py` holds it, each case the rendered script run as `sh -s` under `/bin/sh` against the
+stand-in `pveum` and `pvesh`: a fresh host gets every object in the list's order and the secret alone on standard
+output; a second run changes nothing and prints no secret; a role an older version made gets what it lacks and loses
+nothing; the dry run prints one line, quoted as `shlex` quotes it, for each step of `plan(objects(host), found)` and
+says each of `plan`'s sentences, the run makes those steps, and once made nothing is left to make, over a fresh host,
+`pool`, values of another host, a host an older version half made, a grant that does not propagate, roles holding more,
+`--no-token` and a person's template inside and outside the pool; `--no-token` with no token there, `--dry-run` and
+`--list` change nothing; under `pool` nothing is granted on a guest; every printed token ID is quoted and the token's
+line asks for JSON; a grant that fails after the token says its delete line and prints no secret; and each refusal
+leaves the stand-in's state byte for byte as it was: not root, Proxmox VE 8, a value of the wrong form before any call
+of the stand-in's, `root@pam`, an option it does not have, a token without privilege separation, a pool of another
+fleet's, a pool with no mark without `--take-unmarked`, `--take-unmarked` without `--pool` or for a marked pool, and a
+template that is not the one guest of its name on the node or has a network card on a bridge not there. A corpus of
+comments holds the script's reading of the mark to `fleet/mark.py`'s, separators and spaces of every kind among them.
+The header's lines are the printer's, a further host's flag in them. The rule of V2-9 has a test of its own: no file of
+the checkout, tracked or untracked and not ignored, holds a rendering, found by its header. The stand-in reads no
+guest's configuration, so a `pvesh` of the test's own, first on `PATH`, answers that one read and hands every other to
+the stand-in.
 
 **The API's certificate: `certificate.py`.** Before `init` sends a Proxmox host anything that carries a credential,
 `work_out(host, given, root_ssh, ask)` settles what its API's certificate is held to, by today's `trust.py`'s probes,
@@ -1319,6 +1368,24 @@ address on another card, each no address; shapes of an answer that raise nothing
 and during one. Its rules: the agent's calls go on connections whose reads wait less; the words that tell a stopped VM
 are the fake's; and no error of the wait says the token's secret. `tests/unit/test_aw_pve_privileges.py` holds that no
 call writes a pool and that the role on the pool holds no `Pool.*` privilege but `Pool.Audit`.
+
+**The access script's fixed text: `script.py`.** The script `init` runs on a host as root (16.4, `engine/access.py`'s
+`as_script`) is the list's calls, rendered there, inside the fixed text here, after its first lines, which `access.py`
+says through the printer: the Perl program; the body, which reads the options, holds each value and the host (root,
+`pveum` and `pvesh` there, Proxmox VE 9 or later), lists the node's storages and bridges, looks a person's template up,
+and defines the five calls, `Pool`, `Role`, `User`, `Grant` and `Token`; and the run, which calls the list twice, to
+read and decide, then to make, the secret last. It is here, in Proxmox's own folder, since it names the paths of
+Proxmox's command line, which no file of the engine's outside `pve/` names. The script is `/bin/sh` run as `sh -s`,
+itself on standard input, so each command it starts reads `/dev/null` or a pipe, never the rest of it. Every answer of
+`pveum` and `pvesh` is asked for as JSON and read by the one Perl program, with JSON::PP, core Perl and on every Proxmox
+VE host, never by grep or sed: a role's privileges it lacks and those it holds beyond its own; a pool's state by the
+fleet's mark, read as `fleet/mark.py` reads it, white space being what Python reads as such (Perl's, and the separators
+`\x1c` to `\x1f`); the comment taking an unmarked pool gives it; whether an ACL entry is there, propagating; a token's
+privilege separation; a person's template, the one guest of its name and a template on the node, and the bridges its
+network cards are on; a new token's secret, held to the form of one; and a command's words, quoted as Python's
+`shlex.quote` quotes them, for each line the script prints. Its one cut of what the host holds, of the privileges a role
+holds beyond its own, makes each run of characters outside printable ASCII one space where `text.py`'s `one_line` keeps
+what it can print: Proxmox names a privilege in ASCII alone. It imports nothing of the project's.
 
 ## 16.6 `ssh/` — the runner over OpenSSH
 

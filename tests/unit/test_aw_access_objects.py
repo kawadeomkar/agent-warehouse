@@ -505,8 +505,8 @@ def test_a_token_is_the_engine_s_own_only_by_its_full_id_and_with_privilege_sepa
     assert str(refused.value) == (
         "The token aw of agent-warehouse@pve is there without privilege separation, so it holds every privilege its"
         " user holds, not only its own grants: it is not one init makes. As root on the Proxmox host, pveum user token"
-        " delete agent-warehouse@pve aw deletes it, and init then makes it again; or aw init --token-id <an ID of the"
-        " fleet's own> makes one beside it."
+        " delete agent-warehouse@pve aw deletes it, and init then makes it again; or aw init --token-id <id>, with an"
+        " ID of the fleet's own, makes one beside it."
     )
     with pytest.raises(access.NotOwn, match="without privilege separation"):
         access.plan(listed, access.Found(tokens={TOKEN: False}))
