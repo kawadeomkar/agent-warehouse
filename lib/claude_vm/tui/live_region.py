@@ -22,8 +22,11 @@ What it does, once started:
   scrollback and draws again from the top. The cursor is never hidden.
 - Sets the terminal's title (OSC 0) when it changes, and rings the bell when asked.
 - Turns the terminal's echo off while it draws, and back on for a prompt and at the end: an Enter typed during the
-  run would move the cursor under the region, and the next redraw would leave a copy of it behind. A change of the
-  terminal's settings that a signal interrupts is made again (set_terminal): the terminal is still there.
+  run would move the cursor under the region, and the next redraw would leave a copy of it behind. Meanwhile a Ctrl-C
+  keeps what the terminal has not read yet (NOFLSH), where it would throw away a line said above the region or part
+  of a frame; the keys typed unseen before it are then left for the next reader, as keys typed with no Ctrl-C are.
+  For a prompt and at the end the settings are put back exactly as found. A change of the terminal's settings that a
+  signal interrupts is made again (set_terminal): the terminal is still there.
 - Erases the region at exit, Ctrl-C included, and holds a Ctrl-C, a SIGTERM and a SIGHUP off between a write and its
   count of the lines it drew (uninterrupted), each delivered once the count is right, in the order it came: a
   KeyboardInterrupt between the two left the count stale, and the erase that followed missed the region; a program
@@ -219,14 +222,17 @@ class LiveRegion:
                 self._write("\a")
 
     def _quiet(self, on):
-        """The terminal's echo off (on=True), or back as it was. Nothing for an input that is no terminal; a change a
-        signal interrupted is made again (set_terminal), never taken for no terminal, which would drop the settings to
-        put back and leave the echo off for a prompt."""
+        """The terminal's echo off and its output kept at an interrupt (on=True), or both back exactly as found.
+        NOFLSH: at a Ctrl-C (a quit, a suspend) the terminal otherwise throws away what was written and not yet read
+        by it - a line said above the region, a part of a frame - which macOS keeps in its queue until it is read and
+        Linux for a moment. Nothing for an input that is no terminal; a change a signal interrupted is made again
+        (set_terminal), never taken for no terminal, which would drop the settings to put back and leave the echo off
+        for a prompt."""
         try:
             fd = sys.stdin.fileno()
             if on and self._echo is None and os.isatty(fd):
                 settings = termios.tcgetattr(fd)
-                quiet = [*settings[:3], settings[3] & ~termios.ECHO, *settings[4:]]
+                quiet = [*settings[:3], (settings[3] & ~termios.ECHO) | termios.NOFLSH, *settings[4:]]
                 set_terminal(fd, termios.TCSADRAIN, quiet)
                 self._echo = settings
             elif not on and self._echo is not None:

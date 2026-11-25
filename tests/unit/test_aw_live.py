@@ -5,11 +5,13 @@ At a pseudo-terminal of the test's own (harness._at_a_pseudo_terminal), each run
 runs.run as a verb makes one, whose body makes the live view and emits one of tests/unit/test_aw_run_view.py's canned
 runs, a moment between its events: the frames it drew, each redraw one write, read back by tests/unit/vt.py with no line
 wrapped at 80 or 100 columns, and none drawn once the run has ended; the terminal's echo off while it draws and back at
-the end, however the run ended (a return, a Ctrl-C, a SIGTERM, a SIGHUP); a report said above the region and left there;
-a failure said above, and the summary's head where it failed; the stopping line a Ctrl-C makes said above the region,
-never inside it, and the footer saying the run is stopping; the summary, then NEXT STEPS once, after it, and the bell; a
-SIGTERM or a SIGHUP at a random moment while events flow, which leaves no frame's remains and loses no line said above;
-and a question asked with the region aside, the view found by the run's job. Piped, and with -v at a terminal, nothing
+the end, its settings then those it had before the run, however the run ended (a return, a Ctrl-C, a SIGTERM, a
+SIGHUP); a report said above the region and left there; a failure said above, and the summary's head where it failed;
+the stopping line a Ctrl-C makes said above the region, never inside it, and the footer saying the run is stopping; the
+summary, then NEXT STEPS once, after it, and the bell; 300 reports said above with nobody reading and a Ctrl-C typed
+before the terminal has read any, each still on the screen; a SIGTERM or a SIGHUP at a random moment while events
+flow, which leaves no frame's remains and loses no line said above; and a question asked with the region aside, the
+view found by the run's job. Piped, and with -v at a terminal, nothing
 is drawn: a line as each step ends, or each event as a line; piped into a reader that leaves after the first line, the
 run ends with its own status. In this process, with a clock of the test's own: what a run off a terminal prints is
 exactly what the view gives after each event (what is said above, the lines of what ended), then the summary and NEXT
@@ -23,11 +25,11 @@ broken pipe pointed at /dev/null. The rule with a test of its own: nothing in ru
 here (TWINS), before K14 removes that file.
 
 A key a test types at a run's terminal (an act) waits for a frame that shows what the run waits for, never for the
-terminal's title alone. The region writes the title one write before the frame that says the same, and a Ctrl-C typed
-between the two can take the frame with it: at an interrupt a terminal flushes what the run wrote and its reader has
-not read (ISIG without NOFLSH), and macOS's pseudo-terminal keeps a write there until it is read, where Linux's has
-handed it over at once. So the Ctrl-C's act is played again over the run's own writes, read one at a time as macOS
-can hand them over, and a scan holds every act of this file to a frame.
+terminal's title alone. The region writes the title one write before the frame that says the same, and at an interrupt
+a terminal without NOFLSH throws away what the run wrote and its reader has not read (which macOS's pseudo-terminal
+keeps until it is read, Linux's for a moment): the region's NOFLSH, which the case of 300 reports holds, is what keeps a
+Ctrl-C typed between the two from taking the frame with it. So the Ctrl-C's act is played again over the run's own
+writes, read one at a time as macOS can hand them over, and a scan holds every act of this file to a frame.
 """
 
 from __future__ import annotations
@@ -417,6 +419,17 @@ async def body(ctx):
         asked.extend([echoes(), time.monotonic()])
         await asyncio.sleep(1.0)
         return 0
+    if way == "burst":
+        # Once the test says go, a report said above the region each turn with no pause, while the test reads nothing;
+        # then the Ctrl-C it types, and the run stopped as for "stop".
+        while not (folder / "go").exists():
+            await asyncio.sleep(0.01)
+        for turn in range(1, 301):
+            ctx.emit("report", "alpha", f"report {turn:05}")
+        (folder / "said").write_text("")
+        await ctx.cancelled.wait()
+        await asyncio.sleep(0.6)
+        return 130
     if way == "hold":
         await asyncio.sleep(600)
     if way == "stop":
@@ -441,16 +454,19 @@ sys.exit(runs.run(draft, body))
 """
 
 # At a pseudo-terminal: the run as a child in the terminal's foreground group, and once it has ended, whether the
-# terminal echoes and how the run ended, as one line of JSON. A Ctrl-C typed reaches both: this one takes it with a
-# handler that does nothing, never SIG_IGN, which the run would inherit (as tests/unit/test_aw_attached.py's).
+# terminal echoes, how the run ended, and whether the terminal's settings are those it had before the run, as one line
+# of JSON. A Ctrl-C typed reaches both: this one takes it with a handler that does nothing, never SIG_IGN, which the run
+# would inherit (as tests/unit/test_aw_attached.py's).
 WATCHES = r"""
 import json, signal, subprocess, sys, termios
 signal.signal(signal.SIGINT, lambda *_: None)
+before = termios.tcgetattr(0)
 run = subprocess.Popen(sys.argv[1:])
 status = run.wait()
-print(json.dumps({"echo": bool(termios.tcgetattr(0)[3] & termios.ECHO), "status": status}), flush=True)
+after = termios.tcgetattr(0)
+print(json.dumps({"echo": bool(after[3] & termios.ECHO), "status": status, "same": after == before}), flush=True)
 """
-WATCHED = re.compile(rb'\{"echo": (true|false), "status": (-?\d+)\}')
+WATCHED = re.compile(rb'\{"echo": (true|false), "status": (-?\d+), "same": (true|false)\}')
 # The run's Python: isolated, as every run of the engine's is, and in UTF-8 whatever the locale (-I ignores PYTHONUTF8).
 CHILD = [sys.executable, "-I", "-X", "utf8", "-c", RUN]
 # A canned run's pauses: a moment between two events, and a longer one where the run would be at work, for the
@@ -505,6 +521,8 @@ def _at_a_terminal(
     harness._fail_if_the_desktop_was_reached(stand_ins(home))
     found = WATCHED.search(raw)
     assert rc == 0 and found is not None, raw.decode(errors="replace")
+    # However the run ended, the terminal's settings are those it had before it: the echo, and NOFLSH, as found.
+    assert found.group(3) == b"true", raw.decode(errors="replace")
     watched = {"echo": found.group(1) == b"true", "status": int(found.group(2))}
     kept = folder / "kept.json"
     return AtATerminal(Ran(rc, raw, "", screen), watched, json.loads(kept.read_text()) if kept.is_file() else None)
@@ -653,6 +671,51 @@ def test_a_ctrl_c_is_said_above_the_region_the_footer_says_stopping_and_the_run_
     assert re.match(r"agent-warehouse  deploy alpha · stopped after \d+ s at Claude", head), head
     assert lines.index(stopping[0]) < lines.index(head)
     assert ran.screen.titles[-1] == "deploy alpha · stopped"
+
+
+# How many reports the bursting run says above the region (each as FLOWED reads it, below), and how long the test,
+# reading nothing, waits for the run to have said them all before it types its Ctrl-C: a run whose write waits for the
+# terminal's reader, once the terminal holds as much unread as it takes, has said fewer, which wait unread the same.
+BURST_REPORTS, BURST_WAIT = 300, 1.5
+
+
+def _ctrl_c_before_the_terminal_reads() -> tuple[Callable[[bytes, VT, int, Path], None], list[int]]:
+    """An act that, once a frame is drawn whole, lets the run say its reports and reads nothing meanwhile, then types
+    Ctrl-C, once: everything the run said since is still unread by the terminal when the Ctrl-C lands."""
+    typed: list[int] = []
+
+    def burst(output: bytes, screen: VT, master: int, folder: Path) -> None:
+        if typed or not _newest_frame(output):
+            return
+        (folder / "go").write_text("")
+        waited = time.monotonic() + BURST_WAIT
+        while not (folder / "said").exists() and time.monotonic() < waited:
+            time.sleep(0.02)
+        typed.append(os.write(master, b"\x03"))
+
+    return burst, typed
+
+
+def test_a_ctrl_c_typed_before_the_terminal_reads_what_the_run_said_loses_none_of_it(home, tmp_path) -> None:
+    # At an interrupt the terminal throws away what the run wrote and its reader has not read, unless NOFLSH, which
+    # the region sets beside the echo: on Linux what it holds past its line discipline's buffer, on macOS all it holds.
+    # So the run says 300 reports above the region (the body's "burst") with the test reading nothing, and the Ctrl-C
+    # lands before the test has read any of them: each is on the screen, once and in order.
+    _events(tmp_path, canned.ONE_TO_CONFIGURE[:6])
+    burst, typed = _ctrl_c_before_the_terminal_reads()
+    seen = _at_a_terminal(home, tmp_path, "burst", act=burst)
+    ran = seen.ran
+    lines = ran.screen.transcript()
+    tail = "\n".join(lines[-60:])
+    assert typed and seen.watched == {"echo": True, "status": 130}, tail
+    ran.assert_drawn_and_gone()
+    screen = ran.transcript
+    head = re.search(r"^agent-warehouse  deploy alpha · stopped after .+ at configure", screen, re.M)
+    assert head is not None, tail
+    said = [int(number) for number in FLOWED.findall(screen[: head.start()])]
+    lost = sorted(set(range(1, BURST_REPORTS + 1)) - set(said))
+    assert said == list(range(1, BURST_REPORTS + 1)), (f"{len(lost)} lost, the first {lost[:5]}", tail)
+    assert len([line for line in lines if line.startswith(STOPPING)]) == 1, tail
 
 
 @pytest.mark.parametrize("signum", [signal.SIGTERM, signal.SIGHUP], ids=["SIGTERM", "SIGHUP"])

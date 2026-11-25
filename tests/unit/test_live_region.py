@@ -17,6 +17,8 @@ import errno
 import inspect
 import io
 import os
+import re
+import select
 import signal
 import subprocess
 import sys
@@ -433,6 +435,99 @@ def test_a_change_of_the_echo_a_signal_interrupts_is_made_again_never_taken_for_
     finally:
         terminal.close()
         os.close(master)
+
+
+@pytest.mark.parametrize("kept", [False, True], ids=["found without NOFLSH", "found with NOFLSH"])
+def test_while_it_draws_the_terminal_keeps_its_output_at_an_interrupt_and_its_settings_go_back_as_found(
+    monkeypatch, kept
+):
+    # NOFLSH beside the echo off while the region draws: at a Ctrl-C the terminal keeps what it has not read yet. For a
+    # prompt and at the end, the settings exactly as found, NOFLSH as it was.
+    master, slave = os.openpty()
+    terminal = os.fdopen(slave, "r")
+    monkeypatch.setattr(live.sys, "stdin", terminal)
+    try:
+        given = termios.tcgetattr(slave)
+        given[3] = given[3] | termios.NOFLSH if kept else given[3] & ~termios.NOFLSH
+        termios.tcsetattr(slave, termios.TCSANOW, given)
+        found = termios.tcgetattr(slave)
+        region, display, _ = _region(frame=lambda cols, rows, glyph: ["region"])
+        during = []
+        display.prompt_until = lambda *args, **kwargs: during.append(termios.tcgetattr(slave)) or b"typed"
+        region.start()
+        region.redraw()
+        drawing = termios.tcgetattr(slave)
+        assert drawing[3] == (found[3] & ~termios.ECHO) | termios.NOFLSH
+        assert drawing[:3] + drawing[4:] == found[:3] + found[4:]
+        display.prompt_until("Code:")
+        assert during == [found] and termios.tcgetattr(slave) == drawing
+        region.finish()
+        assert termios.tcgetattr(slave) == found
+    finally:
+        terminal.close()
+        os.close(master)
+
+
+# How many lines the case below says above the region before its Ctrl-C, and how long it waits for them, reading
+# nothing: a writer that waits for the terminal's reader, once the terminal holds as much unread as it takes, has said
+# fewer, which wait unread the same.
+LINES_SAID, SAYING = 300, 1.5
+
+
+def test_a_ctrl_c_before_the_terminal_reads_the_lines_said_above_the_region_loses_none_of_them(monkeypatch):
+    # 300 lines said above the region with nobody reading the terminal yet, and then a Ctrl-C typed: at an interrupt a
+    # terminal throws away what it holds unread unless NOFLSH - Linux what it holds past its line discipline's buffer,
+    # macOS all it holds. Every line is read after, once and in order. No process has this terminal for its own, so
+    # the Ctrl-C signals nobody: the throwing away is the terminal's alone.
+    master, slave = os.openpty()
+    terminal = os.fdopen(slave, "r")
+    screen = os.fdopen(os.dup(slave), "w", encoding="utf-8")
+    monkeypatch.setattr(live.sys, "stdin", terminal)
+    interrupted = []
+    handler = signal.signal(signal.SIGINT, lambda *_: interrupted.append(True))
+    display = Display(screen)
+    region = live.LiveRegion(display, frame=lambda cols, rows, glyph: ["region one", "region two"], stream=screen)
+    region._terminal_size = lambda: (80, 24)
+    read = bytearray()
+
+    def drain(quiet):
+        # What the terminal holds, until it has held nothing for quiet seconds.
+        while select.select([master], [], [], quiet)[0]:
+            try:
+                chunk = os.read(master, 65536)
+            except OSError:
+                return
+            if not chunk:
+                return
+            read.extend(chunk)
+
+    def say():
+        for number in range(1, LINES_SAID + 1):
+            display.display(f"line {number:05}")
+
+    try:
+        found = termios.tcgetattr(slave)
+        region.start()
+        region.redraw()
+        writer = threading.Thread(target=say, daemon=True)
+        writer.start()
+        writer.join(SAYING)
+        os.write(master, b"\x03")
+        while writer.is_alive():
+            drain(0.1)
+        writer.join()
+        region.finish()
+        drain(0.3)
+        assert termios.tcgetattr(slave) == found
+    finally:
+        signal.signal(signal.SIGINT, handler)
+        screen.close()
+        terminal.close()
+        os.close(master)
+    said = [int(number) for number in re.findall(rb"line (\d{5})\r\n", bytes(read))]
+    lost = sorted(set(range(1, LINES_SAID + 1)) - set(said))
+    assert said == list(range(1, LINES_SAID + 1)), f"{len(lost)} lost, the first {lost[:5]}"
+    assert interrupted == []
 
 
 def test_a_change_of_the_settings_that_fails_otherwise_goes_through():

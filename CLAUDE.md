@@ -782,8 +782,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       and a nested recipe joins its parent's run through the `live_run` setting, never the environment.
     - The region draws one write per redraw in synchronized output, up exactly the lines drawn, so no line may
       wrap (`tests/unit/vt.py` counts them); steps aside for every prompt (`prompt_until`, and a `vars_prompt`'s
-      `do_var_prompt`), back only half a second after it; keeps the echo off while it is up; and never hides the
-      cursor.
+      `do_var_prompt`), back only half a second after it; keeps the echo off while it is up, and at a Ctrl-C what
+      the terminal has not read (`NOFLSH`), the settings put back exactly as found; and never hides the cursor.
     - A question with a few answers - `just init`'s yes or no, a storage, a bridge - is a menu picked with the
       arrow keys (`lib/claude_vm/tui/choose.py`), drawn with `screen.py` while the region steps aside, never a second
       way of drawing. Its answers ride in `prompt_until`'s `complete_input` as built-in bytes (Enter's two and
@@ -796,7 +796,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       nothing); at one, one question at a time (a second waits till the first has ended, never nests), the run's view,
       `Live.of(context.job)`, steps aside (`aside()`, back half a second after the answer) and keeps its own lines and
       standard error's till the question ends, each change of the terminal's settings is `TCSAFLUSH`'s (the keys typed
-      before flushed, the rest of a paste never left for the shell), every read is the run's `Context.typed` - never
+      before flushed, the rest of a paste never left for the shell) and a Ctrl-C keeps what was typed on its line
+      (`NOFLSH`), every read is the run's `Context.typed` - never
       `/dev/tty`, `getpass` or a thread - the menu is `choose.asked`, a choice's words and note are made one line of
       plain text, and a hidden answer is a `Secret`, in no event. `tests/unit/test_aw_ask.py` holds it.
     - What the callbacks, engines and tools share is one package, `claude_vm` in `lib/`, imported, never loaded

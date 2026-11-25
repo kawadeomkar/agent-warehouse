@@ -10,9 +10,11 @@ keys typed before a question was there never its answer; two lines pasted at a l
 never left in the terminal's input once the run has ended; two questions asked at once, from two tasks, the second
 drawn only once the first is answered; a report, a line on standard error and an event the view refuses, said while a
 question is up, shown after it, never on its line, and so where a Ctrl-C or a SIGTERM cuts the question short, its line
-ended where it was cut; a choice whose words and note hold escapes and newlines drawn as
+ended where it was cut, what was typed on it kept there (`192^C`, the keys and the Ctrl-C in one write too) and never
+left in the terminal's input; a choice whose words and note hold escapes and newlines drawn as
 plain text, nothing of the menu left behind; a choice typed, and asked once more, where the terminal cannot draw the
-menu; one Ctrl-C at a line, a hidden answer and the menu ending the run, cancelled, with the echo back; the region gone
+menu; one Ctrl-C at a line, a hidden answer and the menu ending the run, cancelled, with the echo back; however a run
+ends, the terminal's settings those it had before the run; the region gone
 from the screen while a question is up, the title saying the run waits for you, and a frame drawn again only half a
 second after the answer, none between two questions; each question a `waiting` event, an empty one once it is
 answered, and a `step` event that says what was answered. With standard input on /dev/null, the default at once and a
@@ -25,7 +27,8 @@ asked at once taking turns at the terminal; the menu's keys cut from a read as c
 the menu asked through a read of the test's own, a sequence in parts, Esc, Ctrl-C and the terminal's size looked at
 again, what is typed after its answer never left in the terminal's input; a question and the menu putting the
 terminal's settings back through a signal that interrupts the change (EINTR, made again by tui/live_region.py's
-set_terminal), each change TCSAFLUSH's; what the view says while a question is up, the line of an event it refuses
+set_terminal), each change TCSAFLUSH's; a question's mode keeping at a Ctrl-C what the terminal has not read (NOFLSH)
+and the settings put back exactly as found; what the view says while a question is up, the line of an event it refuses
 among it, kept until it is answered, or said before the summary where the run's end cuts the question short, and the
 bell of a question's wait rung only after a quiet while; and by a scan, that ask.py reads the terminal only through the
 run's Context.typed.
@@ -233,19 +236,27 @@ sys.exit(runs.run(draft, body))
 """
 
 # At a pseudo-terminal: the run as a child in the terminal's foreground group, and once it has ended, whether the
-# terminal echoes, how the run ended, and how many bytes the run left in the terminal's input for whatever reads it
-# next (the shell, after a run), as one line of JSON. A Ctrl-C typed reaches both: this one takes it with a handler that
-# does nothing, never SIG_IGN, which the run would inherit (as tests/unit/test_aw_attached.py's).
+# terminal echoes, how the run ended, how many bytes the run left in the terminal's input for whatever reads it next
+# (the shell, after a run), and whether the terminal's settings are those it had before the run, as one line of JSON.
+# The bytes left are counted as a shell's line editor reads them, with the line off: in the terminal's line mode
+# FIONREAD counts whole lines alone, and a part of one (`192`, kept by a Ctrl-C) would go uncounted. A Ctrl-C typed
+# reaches both: this one takes it with a handler that does nothing, never SIG_IGN, which the run would inherit (as
+# tests/unit/test_aw_attached.py's).
 WATCHES = r"""
 import fcntl, json, signal, struct, subprocess, sys, termios
 signal.signal(signal.SIGINT, lambda *_: None)
+before = termios.tcgetattr(0)
 run = subprocess.Popen(sys.argv[1:])
 status = run.wait()
+after = termios.tcgetattr(0)
+raw = [*after[:3], after[3] & ~termios.ICANON, *after[4:]]
+termios.tcsetattr(0, termios.TCSANOW, raw)
 left = struct.unpack("i", fcntl.ioctl(0, termios.FIONREAD, struct.pack("i", 0)))[0]
-echo = bool(termios.tcgetattr(0)[3] & termios.ECHO)
-print(json.dumps({"echo": echo, "status": status, "left": left}), flush=True)
+termios.tcsetattr(0, termios.TCSANOW, after)
+echo = bool(after[3] & termios.ECHO)
+print(json.dumps({"echo": echo, "status": status, "left": left, "same": after == before}), flush=True)
 """
-WATCHED = re.compile(rb'\{"echo": (true|false), "status": (-?\d+), "left": (\d+)\}')
+WATCHED = re.compile(rb'\{"echo": (true|false), "status": (-?\d+), "left": (\d+), "same": (true|false)\}')
 # A key of a way's plan that is no key: SIGTERM sent to the run, by the pid it wrote down.
 TERM = b"<SIGTERM>"
 CHILD = [sys.executable, "-I", "-X", "utf8", "-c", RUN]
@@ -329,6 +340,8 @@ def _at_a_terminal(home: Path, folder: Path, way: str, plan: Plan, *, term: str 
     found = WATCHED.search(raw)
     assert rc == 0 and found is not None, raw.decode(errors="replace")
     assert not left, f"no {left[0][0]!r} appeared:\n" + raw.decode(errors="replace")
+    # However the run ended, the terminal's settings are those it had before it: its echo, its line, and NOFLSH.
+    assert found.group(4) == b"true", raw.decode(errors="replace")
     return Ran(folder, raw, {"echo": found.group(1) == b"true", "status": int(found.group(2))}, int(found.group(3)))
 
 
@@ -343,6 +356,9 @@ def _stopped(ran: Ran) -> None:
     assert (ran.record["outcome"], ran.record["exit"], ran.record["why"]) == ("cancelled", 130, "Ctrl-C"), ran.record
     assert "aw: stopping" in ran.text and "^Caw:" not in ran.text, ran.text
     assert ran.answers is None, ran.answers
+    # What was typed before the Ctrl-C, kept by the terminal at the interrupt (NOFLSH), is discarded with the question:
+    # never left for the shell.
+    assert ran.left == 0, ran.left
 
 
 def test_a_yes_or_no_is_a_menu_picked_with_the_arrow_keys_the_region_out_of_the_way(home, tmp_path) -> None:
@@ -498,6 +514,19 @@ def test_one_ctrl_c_at_a_question_ends_the_run(way, plan, home, tmp_path) -> Non
     assert [event for event in ran.of("step") if event["data"].get("stage") is None] == []
 
 
+def test_a_ctrl_c_typed_with_what_was_typed_keeps_it_on_the_questions_line(home, tmp_path) -> None:
+    # "192" and the Ctrl-C in one write: the echo of 192 is still the terminal's own, unread, when the interrupt lands,
+    # and without NOFLSH Linux throws it away (as macOS throws away every echo the screen has not read yet), the line
+    # left saying ^C alone. With it the line says what was typed, and the change back discards the 192 kept unread.
+    ran = _at_a_terminal(home, tmp_path, "line-ctrl-c", [(b"Proxmox host address: ", [b"192\x03"], False)])
+    _stopped(ran)
+    screen = VT(100, 30)
+    screen.feed(ran.raw)
+    lines = screen.transcript()
+    asked = [line for line in lines if line.startswith("Proxmox host address:")]
+    assert asked == ["Proxmox host address: 192^C"], lines
+
+
 def _first(lines: list[str], start: str) -> int:
     """Where the first of lines that starts with start is, its indent aside; -1 where none does."""
     return next((at for at, line in enumerate(lines) if line.lstrip().startswith(start)), -1)
@@ -536,6 +565,8 @@ def test_a_question_cut_short_ends_its_line_before_what_was_kept_is_said(
     assert said[kept[0]] == "aw: a line on standard error while a question is up", said
     if way == "held-ctrl-c":
         assert _first(said, "aw: stopping") > kept[-1], said
+    # What was typed, kept unread at the interrupt or not, is discarded with the question: never left for the shell.
+    assert ran.left == 0, ran.left
 
 
 def test_where_the_menu_cannot_be_drawn_a_choice_is_typed_and_asked_once_more(home, tmp_path) -> None:
@@ -858,6 +889,46 @@ def test_a_question_puts_the_terminal_back_through_a_signal_that_interrupts_the_
         assert termios.tcgetattr(slave) == found
         assert tried == [termios.TCSAFLUSH] * 4, tried
         assert out.getvalue() == "Tailscale auth key: \n"
+    finally:
+        given.close()
+        os.close(master)
+
+
+@pytest.mark.parametrize("hidden", [False, True], ids=["a line", "a hidden answer"])
+def test_a_questions_mode_keeps_what_the_terminal_has_not_read_at_a_ctrl_c_and_goes_back_as_found(
+    hidden, home, monkeypatch
+) -> None:
+    # The question's mode: its line, its signal keys and NOFLSH, the echo on for a line and off for a hidden answer,
+    # nothing else of the terminal's changed; then the settings exactly as found, NOFLSH as it was, each change
+    # TCSAFLUSH's.
+    master, slave = pty.openpty()
+    given = os.fdopen(slave, "r")
+    out = io.StringIO()
+    monkeypatch.setattr(sys, "stdin", given)
+    monkeypatch.setattr(sys, "stdout", out)
+    monkeypatch.setattr(os, "tcgetpgrp", lambda fd: os.getpgrp())
+    change = termios.tcsetattr
+    changes: list[tuple[int, list]] = []
+
+    def recorded(fd: int, when: int, settings: list) -> None:
+        changes.append((when, [*settings[:6], list(settings[6])]))
+        change(fd, when, settings)
+
+    try:
+        found = termios.tcgetattr(slave)
+        assert not found[3] & termios.NOFLSH, found
+        monkeypatch.setattr(termios, "tcsetattr", recorded)
+        with _job() as made:
+            context = _Typing(made, master, [b"192.0.2.1\n"])
+            default = Secret("") if hidden else ""
+            answer = asyncio.run(asking.ask(context, "Proxmox host address:", default, hidden=hidden))
+        assert (answer.reveal() if isinstance(answer, Secret) else answer) == "192.0.2.1"
+        assert [when for when, _ in changes] == [termios.TCSAFLUSH] * 2, changes
+        (_, mode), (_, back) = changes
+        wanted = termios.ICANON | termios.ISIG | termios.NOFLSH
+        assert mode[3] & wanted == wanted and bool(mode[3] & termios.ECHO) is not hidden, mode
+        assert mode[:3] + mode[4:] == found[:3] + found[4:]
+        assert back == found and termios.tcgetattr(slave) == found
     finally:
         given.close()
         os.close(master)
