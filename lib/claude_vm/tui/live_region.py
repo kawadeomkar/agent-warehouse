@@ -24,9 +24,14 @@ What it does, once started:
 - Turns the terminal's echo off while it draws, and back on for a prompt and at the end: an Enter typed during the
   run would move the cursor under the region, and the next redraw would leave a copy of it behind. Meanwhile a Ctrl-C
   keeps what the terminal has not read yet (NOFLSH), where it would throw away a line said above the region or part
-  of a frame; the keys typed unseen before it are then left for the next reader, as keys typed with no Ctrl-C are.
-  For a prompt and at the end the settings are put back exactly as found. A change of the terminal's settings that a
-  signal interrupts is made again (set_terminal): the terminal is still there.
+  of a frame, and the keys typed unseen before it are thrown away all the same, as the terminal's own Ctrl-C threw
+  them away (hold's Ctrl-C, before the handler that was in place). For a prompt and at the end the settings are put
+  back exactly as found - at a run's end, where it asks (finish(kept=True)), with NOFLSH kept on until its last
+  words are said, then all as found (release). A change of the terminal's settings is made only while this process
+  is the terminal's foreground, SIGTTOU held off, so that a run put in the background (Ctrl-Z, then bg) is not
+  stopped again by it, and leaves the shell's settings; a put-back is made with a Ctrl-C, a SIGTERM and a SIGHUP held
+  off till it is made (uninterrupted), and one that a signal interrupts is made again (set_terminal): the terminal
+  is still there.
 - Erases the region at exit, Ctrl-C included, and holds a Ctrl-C, a SIGTERM and a SIGHUP off between a write and its
   count of the lines it drew (uninterrupted), each delivered once the count is right, in the order it came: a
   KeyboardInterrupt between the two left the count stale, and the erase that followed missed the region; a program
@@ -83,6 +88,8 @@ def uninterrupted():
     def note(signum, _frame):
         held.append(signum)
 
+    # A hold's own, which the terminal's hold (_Hold) never takes a signal from.
+    note.holding = True
     try:
         for signum in HELD:
             if signal.getsignal(signum) not in (None, signal.SIG_IGN):
@@ -91,10 +98,11 @@ def uninterrupted():
     finally:
         raised = None
         for signum, handler in swapped.items():
-            # Each handler put back whatever another one raises meanwhile (one put back before it, at a signal now).
+            # Each handler put back whatever another one raises meanwhile (one put back before it, at a signal now);
+            # the hold of the terminal's, given back meanwhile, as the one it took (_in_place_of).
             while True:
                 try:
-                    signal.signal(signum, handler)
+                    signal.signal(signum, _in_place_of(signum, handler))
                     break
                 except BaseException as error:
                     raised = raised or error
@@ -120,6 +128,166 @@ def set_terminal(fd, when, settings):
         except termios.error as error:
             if not error.args or error.args[0] != errno.EINTR:
                 raise
+
+
+def foreground(fd) -> bool:
+    """Whether this process is the terminal's foreground, where a change of its settings is its own to make: its group
+    the terminal's, or a terminal that is not this process's controlling one (tcgetpgrp fails), whose changes stop
+    nobody."""
+    try:
+        return os.tcgetpgrp(fd) == os.getpgrp()
+    except OSError:
+        return True
+
+
+@contextmanager
+def _unstopped():
+    """SIGTTOU held off in this thread: a change of the terminal's settings, or a flush of its input, made while this
+    process is no longer its foreground goes through, rather than stopping the process."""
+    held = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTTOU})
+    try:
+        yield
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, held)
+
+
+def _made(fd, when, settings) -> bool:
+    """settings made (set_terminal), only while this process is the terminal's foreground and with SIGTTOU held off;
+    whether they were. A process the shell put in the background (Ctrl-Z, then bg) leaves the shell's settings, and
+    is not stopped by a change of its own."""
+    with _unstopped():
+        if not foreground(fd):
+            return False
+        set_terminal(fd, when, settings)
+        return True
+
+
+class _Hold:
+    """The terminal while this process holds it in a mode of its own (change): the settings found before the first
+    change, the mode made last, and the Ctrl-C's signal taken meanwhile - where a Python handler takes it, which then
+    still does - so that the keys typed unseen under NOFLSH are thrown away at a Ctrl-C, as the terminal's own Ctrl-C
+    threw them away. Given back once the settings are put back as found (put_back), the handler put back where it is
+    still the hold's. A forked process's copy is no hold of its own: its handler hands each signal on."""
+
+    def __init__(self):
+        self.pid = 0
+        self.fd = None
+        self.found = None
+        self.made = None  # (when, settings): the mode made last
+        # signum: the handler in place before the hold's, kept while the hold's is in place - given back, or not, as a
+        # handler of a hold (uninterrupted) put it back after the give back.
+        self.taken = {}
+
+    def ours(self) -> bool:
+        return self.found is not None and self.pid == os.getpid()
+
+    def take(self, fd):
+        if self.ours() and self.fd == fd:
+            return
+        if self.ours():
+            self.give_back()
+        self.pid, self.fd, self.found, self.made = os.getpid(), fd, termios.tcgetattr(fd), None
+        if threading.current_thread() is not threading.main_thread():
+            return
+        for signum, own in _OWN.items():
+            handler, mine = signal.getsignal(signum), getattr(self, own)
+            if handler == mine:
+                continue
+            if self._takes(signum, handler):
+                self.taken[signum] = signal.signal(signum, mine)
+
+    @staticmethod
+    def _takes(signum, handler) -> bool:
+        """Whether the hold takes signum from handler: a Ctrl-C from a Python handler, never a hold's note
+        (uninterrupted) nor one that throws the keys typed away itself (DISCARDS: the new engine's ladder)."""
+        return callable(handler) and not getattr(handler, "holding", False) and not getattr(handler, DISCARDS, False)
+
+    def give_back(self):
+        self.found = self.made = self.fd = None
+        if threading.current_thread() is not threading.main_thread():
+            return
+        for signum, handler in list(self.taken.items()):
+            if signal.getsignal(signum) == getattr(self, _OWN[signum]):
+                signal.signal(signum, handler)
+                del self.taken[signum]
+
+    def _handed_on(self, signum, frame):
+        """The signal to the handler that was in place before the hold's."""
+        handler = self.taken.get(signum)
+        if callable(handler):
+            handler(signum, frame)
+        elif signum == signal.SIGINT:
+            signal.default_int_handler(signum, frame)
+
+    def _interrupted(self, signum, frame):
+        if self.ours():
+            discard_typed(self.fd)
+        self._handed_on(signum, frame)
+
+
+# The hold's own handler of each signal it takes, by its name.
+_OWN = {signal.SIGINT: "_interrupted"}
+# Set true on a handler that throws the keys typed away itself at a Ctrl-C (discard_typed), which the hold then leaves
+# in place.
+DISCARDS = "discards_typed"
+_HOLD = _Hold()
+
+
+def _in_place_of(signum, handler):
+    """The handler to put back for handler once a hold (uninterrupted) ends: the hold of the terminal's own, where the
+    hold was given back meanwhile, which could not put back the one it took while the note was in its place, is that
+    one; any other is itself."""
+    own = _OWN.get(signum)
+    if own is not None and handler == getattr(_HOLD, own) and not _HOLD.ours():
+        return _HOLD.taken.pop(signum, handler)
+    return handler
+
+
+def change(fd, when, settings, *, wait=False) -> bool:
+    """A mode of this process's own made (set_terminal): the terminal held (_Hold) from the first one, the settings
+    found before it kept, and this mode as the one made last. Made only while this process is the terminal's
+    foreground, SIGTTOU held off (whether it was is given back) - but with wait, at once, for a question that needs the
+    terminal: a process in the background is stopped there (SIGTTOU) until it is the foreground again."""
+    _HOLD.take(fd)
+    _HOLD.made = (when, settings)
+    if wait:
+        set_terminal(fd, when, settings)
+        return True
+    return _made(fd, when, settings)
+
+
+def put_back(fd, when, settings, *, last=False) -> bool:
+    """settings put back, with a Ctrl-C, a SIGTERM and a SIGHUP held off till they are (uninterrupted): a second Ctrl-C
+    never leaves a change back half made. Only while this process is the terminal's foreground, SIGTTOU held off;
+    whether they were made. A draining one (TCSADRAIN) of the settings the terminal has already is no change. The
+    hold given back once the terminal is as found, or with last whatever it holds."""
+    try:
+        with uninterrupted():
+            if when != termios.TCSADRAIN or termios.tcgetattr(fd) != list(settings):
+                return _made(fd, when, settings)
+            return False
+    finally:
+        if _HOLD.ours() and _HOLD.fd == fd:
+            _HOLD.made = (when, settings)
+            if last or list(settings) == _HOLD.found:
+                _HOLD.give_back()
+
+
+def discard_typed(fd=None) -> bool:
+    """What was typed and not read yet thrown away (TCIFLUSH), as the terminal's own Ctrl-C throws it away where NOFLSH
+    is off: only while this process is the terminal's foreground, SIGTTOU held off; whether it was. Nothing for an
+    input that is no terminal, or has gone."""
+    try:
+        fd = sys.stdin.fileno() if fd is None else fd
+        if not os.isatty(fd):
+            return False
+        with _unstopped():
+            if not foreground(fd):
+                return False
+            termios.tcflush(fd, termios.TCIFLUSH)
+            return True
+    except (OSError, ValueError, AttributeError, termios.error):
+        return False
 
 
 def can_draw(stream=None, environ=None) -> bool:
@@ -156,6 +324,7 @@ class LiveRegion:
         self._thread = None
         self._title = None
         self._echo = None  # the terminal's settings before the echo went off, while it is off
+        self._kept = None  # the same, while finish(kept=True) has left NOFLSH on for release() to put back
         self._settle = 0.0  # until when, after a prompt, nothing is drawn
         self.prompting = False
 
@@ -221,23 +390,31 @@ class LiveRegion:
             with self._display._lock:
                 self._write("\a")
 
-    def _quiet(self, on):
-        """The terminal's echo off and its output kept at an interrupt (on=True), or both back exactly as found.
-        NOFLSH: at a Ctrl-C (a quit, a suspend) the terminal otherwise throws away what was written and not yet read
-        by it - a line said above the region, a part of a frame - which macOS keeps in its queue until it is read and
-        Linux for a moment. Nothing for an input that is no terminal; a change a signal interrupted is made again
-        (set_terminal), never taken for no terminal, which would drop the settings to put back and leave the echo off
-        for a prompt."""
+    def _quiet(self, on, kept=False):
+        """The terminal's echo off and its output kept at an interrupt (on=True), or both back exactly as found - or,
+        with kept, all but NOFLSH, which release() puts back after the run's last words. NOFLSH: at a Ctrl-C (a quit,
+        a suspend) the terminal otherwise throws away what was written and not yet read by it - a line said above the
+        region, a part of a frame - which macOS keeps in its queue until it is read and Linux for a moment. The
+        settings to put back are kept before the change is made, so that an interrupt inside it leaves them to put
+        back. Each change only while this process is the terminal's foreground (change, put_back): in the background
+        the settings are the shell's, never read as the ones to put back. Nothing for an input that is no terminal; a
+        change a signal interrupted is made again (set_terminal), never taken for no terminal, which would drop the
+        settings to put back and leave the echo off for a prompt."""
         try:
             fd = sys.stdin.fileno()
-            if on and self._echo is None and os.isatty(fd):
+            if on and self._echo is None and os.isatty(fd) and foreground(fd):
                 settings = termios.tcgetattr(fd)
                 quiet = [*settings[:3], (settings[3] & ~termios.ECHO) | termios.NOFLSH, *settings[4:]]
-                set_terminal(fd, termios.TCSADRAIN, quiet)
                 self._echo = settings
+                change(fd, termios.TCSADRAIN, quiet)
             elif not on and self._echo is not None:
-                set_terminal(fd, termios.TCSADRAIN, self._echo)
+                found = self._echo
+                back = found
+                if kept and not found[3] & termios.NOFLSH:
+                    back = [*found[:3], found[3] | termios.NOFLSH, *found[4:]]
+                    self._kept = found
                 self._echo = None
+                put_back(fd, termios.TCSADRAIN, back)
         except (OSError, ValueError, AttributeError, termios.error):
             self._echo = None
 
@@ -324,7 +501,7 @@ class LiveRegion:
         self._wrap()
         if self._frame:
             signal.signal(signal.SIGWINCH, lambda *_: setattr(self, "_resized", True))
-            atexit.register(self.finish)
+            atexit.register(self._at_exit)
             self._quiet(True)
 
     def spin(self):
@@ -333,13 +510,29 @@ class LiveRegion:
             self._thread = threading.Thread(target=self._spin, daemon=True)
             self._thread.start()
 
-    def finish(self):
-        """Erase the region and draw no more; Display's output goes on as it would without the region."""
+    def finish(self, kept=False):
+        """Erase the region and draw no more; Display's output goes on as it would without the region. The terminal's
+        settings back as found - but with kept, NOFLSH kept on, so that a Ctrl-C the terminal has not read the run's
+        last words by (its summary, NEXT STEPS) throws none of them away: release() then puts it back."""
         if self._started and not self._stop.is_set() and os.getpid() == self._pid:
             with self._display._lock:
                 self._erase()
                 self._stop.set()
-                self._quiet(False)
+                self._quiet(False, kept=kept)
+
+    def release(self):
+        """The terminal's settings exactly as found once the run's last words are said, after finish(kept=True): its
+        last change of them, a draining one, which where the terminal waits for its reader (macOS) lets NOFLSH go only
+        once those words are read. Nothing otherwise, and nothing a second time."""
+        found, self._kept = self._kept, None
+        if found is not None and os.getpid() == self._pid:
+            with contextlib.suppress(OSError, ValueError, AttributeError, termios.error):
+                put_back(sys.stdin.fileno(), termios.TCSADRAIN, found)
+
+    def _at_exit(self):
+        """At exit, whatever ended the run: the region erased and the settings exactly as found."""
+        self.finish()
+        self.release()
 
 
 class Output:

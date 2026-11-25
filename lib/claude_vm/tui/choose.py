@@ -20,7 +20,10 @@ The same menu, its keys read by a caller's coroutine (asked): the new engine's q
 event loop, never in a thread (docs/architecture/engine.md §16.8). Its keys come as a read gives them, several at once
 or a sequence in parts, and are split as ask reads them one at a time (split); the drawing (Shown) and the terminal's
 settings (raw) are ask's own, each change of the settings is TCSAFLUSH's, which discards what was typed and not read,
-and a change a signal interrupts is made again (live_region's set_terminal).
+and a change a signal interrupts is made again (live_region's set_terminal). The question's words above the menu are
+written once the terminal is raw, where a Ctrl-C is a key and throws nothing the terminal has not read away; the change
+back is made with the run's signals held off till it is made, and only while the run is the terminal's foreground
+(live_region's put_back).
 
 Stdlib only; imported as claude_vm.tui.choose (docs/architecture/custom-code.md §7.10).
 """
@@ -33,7 +36,7 @@ import select
 import termios
 
 from . import screen
-from .live_region import SYNC_OFF, SYNC_ON, can_draw, set_terminal
+from .live_region import SYNC_OFF, SYNC_ON, can_draw, change, put_back, uninterrupted
 
 # The mark of a prompt whose answers ride along: a NUL each side, so no key a person types is ever it.
 MARKER = b"\x00agent-warehouse:choices\x00"
@@ -331,22 +334,29 @@ def ask(menu, stdin, stdout, color=True):
         termios.tcsetattr(stdin_fd, termios.TCSADRAIN, settings)
 
 
-async def asked(menu, read, stdin, stdout, color=True):
+async def asked(menu, read, stdin, stdout, color=True, above=""):
     """ask, with the keys read by read(seconds), a coroutine function of the caller's: what was typed since the last
     read, b"" at the end of the input, or None where nothing was typed within seconds. The same menu, keys and answers,
     and the same end: Interrupted at the terminal's interrupt key, read as a byte, the menu erased and the terminal left
     as it was found whatever happens, its interrupt key's signal back among it, a change a signal interrupted made again
     (live_region.set_terminal). Each change is TCSAFLUSH's, as getpass makes them: the keys typed before the menu and
-    whatever is still unread once it is answered are discarded, never an answer and never left for the shell. A read's
-    error, or its cancellation, goes through as itself. Stdin's descriptor is read only through read."""
+    whatever is still unread once it is answered are discarded, never an answer and never left for the shell. above,
+    the question's words, is written once the terminal is raw, before the menu is first drawn. The change back is made
+    with the run's signals held off till it is made, and only while this process is the terminal's foreground
+    (live_region.put_back). A read's error, or its cancellation, goes through as itself. Stdin's descriptor is read
+    only through read."""
     stdin_fd = stdin.fileno()
     settings = termios.tcgetattr(stdin_fd)
     interrupt = interrupt_of(settings)
     shown = Shown(menu, stdout, color)
     # TCSAFLUSH, as getpass sets and puts back: the keys typed before flushed in the call that makes the terminal raw,
     # and what is still unread once the menu is answered discarded with the change back, never left for the shell.
-    set_terminal(stdin_fd, termios.TCSAFLUSH, raw(settings))
+    # Made at once: a run in the background waits for the terminal there (SIGTTOU), as the menu needs it.
+    change(stdin_fd, termios.TCSAFLUSH, raw(settings), wait=True)
     try:
+        if above:
+            stdout.write(above)
+            stdout.flush()
         chosen = menu["chosen"]
         shown.draw(chosen)
         left = b""  # the start of a sequence a read has not yet ended
@@ -372,5 +382,8 @@ async def asked(menu, read, stdin, stdout, color=True):
                 elif what in ("choose", "later"):
                     return then
     finally:
-        shown.erase()
-        set_terminal(stdin_fd, termios.TCSAFLUSH, settings)
+        with uninterrupted():
+            try:
+                shown.erase()
+            finally:
+                put_back(stdin_fd, termios.TCSAFLUSH, settings)

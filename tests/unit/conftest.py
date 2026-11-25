@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import inspect
 import json
@@ -247,6 +248,77 @@ def aw_home(tmp_path) -> Iterator[Path]:
     with pytest.MonkeyPatch.context() as patch:
         patch.setenv(paths.VARIABLE, str(home))
         yield home
+
+
+# How long a draining change of a terminal's settings waits, in a test of this process's own, for another thread to read
+# what its pseudo-terminal's master holds unread (drainwatch).
+DRAIN_GRACE = 2.0
+
+
+@pytest.fixture(autouse=True)
+def drainwatch() -> Iterator[list[str]]:
+    """A draining change of a terminal's settings (TCSADRAIN, TCSAFLUSH) made in this process at a pseudo-terminal it
+    opened, with output its master holds unread and nothing reading it: a failure of the test. macOS waits there until
+    the master has read everything (ttywait), where Linux returns at once, so such a test hangs on macOS alone (#310's
+    hang); here it fails on Linux too. Each master opened during the test (os.openpty, which pty.openpty calls) is
+    watched by its terminal's name; at such a change, one still holding output after DRAIN_GRACE - which another
+    thread reading it would have taken - is noted, and the test fails at its end. Then the hold of a terminal
+    tui/live_region.py keeps for this process, which a region a test started and never finished would leave to the
+    next test, given back. Function scoped, as aw_home is, and by a MonkeyPatch of its own."""
+    import fcntl
+    import struct
+    import termios
+    import threading
+    import time
+
+    from claude_vm.tui import live_region
+
+    masters: dict[str, tuple[int, int, int]] = {}  # the terminal's name: its master, by descriptor and identity
+    found: list[str] = []
+    opened, changed = os.openpty, termios.tcsetattr
+
+    def openpty() -> tuple[int, int]:
+        master, slave = opened()
+        with contextlib.suppress(OSError):
+            stat = os.fstat(master)
+            masters[os.ttyname(slave)] = (master, stat.st_dev, stat.st_ino)
+        return master, slave
+
+    def unread(name: str) -> int:
+        master, dev, ino = masters[name]
+        try:
+            stat = os.fstat(master)
+            if (stat.st_dev, stat.st_ino) != (dev, ino):
+                return 0
+            return struct.unpack("i", fcntl.ioctl(master, termios.FIONREAD, struct.pack("i", 0)))[0]
+        except OSError:
+            return 0
+
+    def tcsetattr(fd, when, settings):
+        name = None
+        if when in (termios.TCSADRAIN, termios.TCSAFLUSH) and masters:
+            with contextlib.suppress(OSError):
+                name = os.ttyname(fd)
+        if name in masters and unread(name):
+            waited = time.monotonic() + DRAIN_GRACE
+            while (left := unread(name)) and time.monotonic() < waited:
+                time.sleep(0.02)
+            if left:
+                kind = "TCSADRAIN" if when == termios.TCSADRAIN else "TCSAFLUSH"
+                found.append(
+                    f"a {kind} change of {name}'s settings, in {threading.current_thread().name}, with {left} bytes"
+                    " unread at its master and nothing reading them: macOS waits there for good"
+                )
+        return changed(fd, when, settings)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(os, "openpty", openpty)
+        patch.setattr(termios, "tcsetattr", tcsetattr)
+        yield found
+    hold = live_region._HOLD
+    if hold.found is not None and threading.current_thread() is threading.main_thread():
+        hold.give_back()
+    assert not found, found
 
 
 def pytest_addoption(parser):

@@ -113,7 +113,13 @@ again at its teardown, a `PATH` that finds this machine's own programs ahead of 
 test's own programs, a stand-in `ssh` say, goes first in its own process by `engine_guard.first_on_path(dir)`, held to
 the test's own directory as a run's `first_on_path=` is. pytest makes a fixture wider than one test before the guard
 holds and ends it after the guard lets go, so every such fixture of an engine file is named, with why, in
-`test_aw_guards.py`'s `WIDER_THAN_A_TEST`.
+`test_aw_guards.py`'s `WIDER_THAN_A_TEST`. Another autouse fixture of `conftest.py`'s, `drainwatch`, fails any test,
+of either suite, that makes a draining change of a pseudo-terminal's settings (`TCSADRAIN`, `TCSAFLUSH`) in its own
+process while the master it opened holds output nothing reads: macOS waits there until the master has read it all,
+where Linux returns at once, so such a test would hang on macOS alone. Each master the test opens is watched by its
+terminal's name, and a change that still finds output unread after two seconds, which another thread reading it
+would have taken, is the failure. It then gives back the hold of the terminal `tui/live_region.py` keeps for the
+process, which a region a test started and never finished would leave to the next test.
 
 A test reaches `tools/aw` through the kit alone. `run_aw` runs the program under `python -I` in an environment built
 from `harness.PASSED_ON`'s names and the home's, never the test's whole one, with the same stand-ins first on `PATH`,

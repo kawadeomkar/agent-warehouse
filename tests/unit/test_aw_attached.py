@@ -23,8 +23,9 @@ hook is back once the run has returned. A shielded phase finishes before the sto
 after each end; a signal ignored on the way in stays ignored; a child meant to outlive the run, as a page's opener is,
 lives on unmarked after every end; a child the terminal stopped for asking a question there - reading it or changing it
 first, or route.py's ssh - is said within a second, named, given ssh's remedies only where it is ssh, and ended, and its
-run ends, and a run at a terminal whose child in a group of its own asks nothing starts no ps; and end_under ends what
-is under a process, never the process, nor what it is told to leave.
+run ends, and a run at a terminal whose child in a group of its own asks nothing starts no ps; a run started in the
+background reads no settings to put back; and end_under ends what is under a process, never the process, nor what it
+is told to leave.
 """
 
 from __future__ import annotations
@@ -1553,6 +1554,27 @@ TWO = (
     "open(sys.argv[1], 'w').write(f'{away.pid} {kept.pid}')\n"
     "time.sleep(120)\n"
 )
+
+
+def test_a_run_started_in_the_background_reads_no_settings_to_put_back_at_its_end(monkeypatch) -> None:
+    # Started with a shell's & (or put there before it began), the run finds the shell's own settings of the moment, a
+    # line editor's maybe: none are the run's to put back at its end, once it may be the foreground again.
+    import pty
+    import termios
+
+    master, slave = pty.openpty()
+    given = os.fdopen(slave, "r")
+    monkeypatch.setattr(sys, "stdin", given)
+    try:
+        monkeypatch.setattr(os, "tcgetpgrp", lambda fd: os.getpgrp() + 1)
+        assert attached._terminal() is None
+        monkeypatch.setattr(os, "tcgetpgrp", lambda fd: os.getpgrp())
+        assert attached._terminal() == (slave, termios.tcgetattr(slave))
+    finally:
+        given.close()
+        os.close(master)
+
+
 # A child that starts HOLDS's shape under it, which writes its own pid and its grandchild's to the file named.
 NESTS = "import subprocess, sys, time\nsubprocess.Popen([sys.executable, '-I', '-c', sys.argv[1], sys.argv[2]])\n"
 NESTS += "time.sleep(120)\n"

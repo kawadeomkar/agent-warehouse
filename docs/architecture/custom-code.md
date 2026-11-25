@@ -825,9 +825,15 @@ good, and runs at exit, Ctrl-C included.
   typed during a run would move the cursor under the region, and the next redraw would leave a copy of it
   behind. Meanwhile it keeps at a Ctrl-C what it has not read yet (`NOFLSH`), where it would throw away a line
   said above or part of a frame - macOS all it holds unread, Linux what it holds past its line discipline's
-  buffer - and the keys typed unseen before it are left for the next reader, as keys typed with no Ctrl-C are.
-  For a prompt and at the end the settings are put back exactly as found. A change of the terminal's settings
-  that a signal interrupts is made again (`set_terminal`):
+  buffer - and the keys typed unseen before it are thrown away all the same (`discard_typed`), as the terminal's
+  own Ctrl-C threw them away: the hold of the terminal (`change`) takes the Ctrl-C from the Python handler in
+  place, throws them away, and hands the signal on, or leaves a handler that throws them away itself (the new
+  engine's ladder). For a prompt and at the end the settings are put back exactly as found - at the new engine's
+  run's end with `NOFLSH` kept on until its summary and NEXT STEPS are said (`finish(kept=True)`, then
+  `release()`). Each change is made only while the process is the terminal's foreground, SIGTTOU held off, so
+  that a run a shell put in the background leaves the shell's settings and is not stopped again by one; and each
+  change back (`put_back`) with a Ctrl-C, a SIGTERM and a SIGHUP held off till it is made (`uninterrupted`). A
+  change of the terminal's settings that a signal interrupts is made again (`set_terminal`):
   `TCSADRAIN` waits for the output to drain, a signal whose handler raises nothing (a first Ctrl-C, a hold's note,
   a resize) ends the wait with `EINTR`, and `termios` does not try again itself; taken for no terminal, it dropped
   the settings to put back and left the echo off for the prompt. A resize (`SIGWINCH`) pushes the screen into the scrollback and draws afresh, since no count of
@@ -862,8 +868,10 @@ line (`collapsed`), to the screen and the log.
 - **The same menu, for the new engine** (`asked`): its keys read by a coroutine of the caller's, as a read on the
   run's event loop gives them, several at once or a sequence in parts, and cut as `ask` reads them one at a time
   (`split`); the drawing (`Shown`), the terminal's settings (`raw`) and the keys' meaning are `ask`'s own, and its
-  changes of the settings are `set_terminal`'s, each `TCSAFLUSH`'s, as `getpass` makes them, so that a key typed
-  before the menu is never taken and one typed after its answer is never left for the shell. The new engine's
+  changes of the settings are `live_region`'s `change` and `put_back`, each `TCSAFLUSH`'s, as `getpass` makes them,
+  so that a key typed before the menu is never taken and one typed after its answer is never left for the shell;
+  the question's words (`above`) are written once the terminal is raw, and the change back is made with the run's
+  signals held off and only while the run is the terminal's foreground. The new engine's
   questions ask it, reading on the loop, never in a thread
   ([§16.8](engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run)); `ask` is unchanged for today's.
 
