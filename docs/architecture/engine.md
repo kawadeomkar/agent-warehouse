@@ -3115,8 +3115,9 @@ at a run's end till `release()`, a Ctrl-C throwing away what was typed unseen an
 no settings read in the background, a signal landing as the settings go back delivered once they are, a Ctrl-Z coming
 back to them, a Ctrl-Z and a `Ctrl-\` at their default taken while it draws - the region erased, the settings put back
 as found and what was typed unseen thrown away before the stop or the quit, the mode again after a stop - a handler of
-the program's own left in place, and from an interactive shell, nothing typed unseen left on its line or in its history
-at either, and 300 lines said above the region with nobody reading and then a Ctrl-C, none of them lost;
+the program's own left in place, the handlers the hold took put back where it ends with the signals held off (a
+question's end), and from an interactive shell, nothing typed unseen left on its line or in its history at either, and
+300 lines said above the region with nobody reading and then a Ctrl-C, none of them lost;
 `tests/unit/test_aw_attached.py` a run started in the background reading no settings to put back, and a `Ctrl-\` ending
 the run as a SIGTERM does, the tree ended with SIGTERM and the run dying of SIGQUIT. In every in-process test, a
 draining change of a
