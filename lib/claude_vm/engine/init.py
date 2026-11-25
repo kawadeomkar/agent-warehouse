@@ -16,8 +16,8 @@ the folder itself is put in its place. Under the fleet's lock (the verb's row: `
    check has passed; a key named elsewhere for a fleet with no vault yet is `NoVaultYet`'s refusal, as is any other of
    the vault's or the key's.
 2. Refuses a given value that differs from the one set, naming both (the secret unsaid), with nothing written: init
-   never writes over a value; and a pool the host's settings.yml sets that is no name of a pool, held to --pool's rule
-   (`_pool_name`), naming the file, before anything is asked or sent.
+   never writes over a value. A pool the host's settings.yml sets that is no name of a pool is refused before it, by
+   the read of the file, which holds proxmox_pool to the settings table's rule of a pool's name, as --pool is held.
 3. Works out the API's certificate with no credential sent (engine/certificate.py), with nobody to ask: what checking
    uses now, else the host's own certificates read over root SSH (the owner's answer of 2026-11-23 to review 20), else
    only `--certificate`. No request carries the token before it is settled, and every one after goes through the
@@ -88,7 +88,7 @@ from ..schema.words import EXITS, PLACEHOLDER, Line
 from ..secret import Secret
 from ..ssh import runner
 from ..text import banner, one_line, plain_text
-from . import certificate, routes
+from . import access, certificate, routes
 
 if TYPE_CHECKING:
     from ..pve.client import Proxmox
@@ -117,9 +117,6 @@ NOT_YET = {"check": "E6", "print_commands": "E7", "machines": "J14"}
 HOST_OWN = ("proxmox_storage", "proxmox_bridge", "proxmox_pool", "proxmox_node")
 # The vault's entry of Tailscale's auth key, one for the fleet.
 AUTH_KEY = "tailscale_auth_key"
-# A pool's name as Proxmox makes one, in words (_pool_name holds it): what --pool and the host's proxmox_pool are
-# held to.
-POOL_RULE = "letters, digits, _, . and -, from a letter, at most 64 characters"
 
 # ---------------------------------------------------------------- the questions at a terminal (card E5) ----
 
@@ -327,10 +324,10 @@ def _rule(kind: str) -> str:
 
 
 def _pool_name(pool: object) -> bool:
-    """Whether pool is a name Proxmox makes a pool by (POOL_RULE): the one rule of a pool's name here, which --pool and
-    the pool the host's settings.yml sets are each held to before the pool is read. A / makes a nested pool on VE 9.2,
-    and Proxmox makes none whose name starts with anything but a letter."""
-    return isinstance(pool, str) and bool(proxmox_name(pool, "pool")) and pool[:1].isalpha()
+    """Whether pool is a name Proxmox makes a pool by: card E1's access.POOL_NAME, the settings table's one rule of a
+    pool's name, which --pool is held to before anything is sent, as the pool the host's settings.yml sets is held to
+    it where the file is written and read (fleet/overrides.py, proxmox_pool's form)."""
+    return isinstance(pool, str) and access.POOL_NAME.fullmatch(pool) is not None
 
 
 def _bounded(path: Path, most: int, *, links: bool = True) -> bytes:
@@ -426,7 +423,7 @@ def given(
             raise Refused(f"--{option} ({named}) is no name Proxmox gives a {kind}")
     pool = _text(values, "pool")
     if pool and not _pool_name(pool):
-        raise Refused(f"--pool ({pool}) is no name of a pool: {POOL_RULE}")
+        raise Refused(f"--pool ({pool}) is no name of a pool: {access.POOL_RULE}")
     secret_file = _text(values, "token_secret_file")
     if secret_file and variable.given:
         raise Refused(
@@ -1051,15 +1048,6 @@ async def _run(
     if differs:
         never = said("{init} never writes over a value: edit the file to change it.", {"init": _init()})
         raise Refused(" ".join([*differs, never]))
-    own = {} if found.layers.host is None else found.layers.host.settings
-    if own.get("proxmox_pool") not in (None, "") and not _pool_name(own["proxmox_pool"]):
-        # The host's file is the host's problem, said in one sentence before anything is asked or sent (review 55, 2):
-        # a --pool given that differs from it is refused above, naming both.
-        raise Refused(
-            f"{hosts.HOSTS_REL}/{name}/{overrides.SETTINGS} sets proxmox_pool to"
-            f" {one_line(json.dumps(str(own['proxmox_pool'])), 80)}, which is no name of a pool ({POOL_RULE}): edit"
-            " the file to change it; nothing was written"
-        )
     if typed.secret is not None and held is not None and not _same(held, typed.secret):
         raise Refused(
             said(

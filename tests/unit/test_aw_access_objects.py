@@ -236,6 +236,10 @@ def test_the_names_are_the_engine_s_own_and_one_set() -> None:
     assert harness == (access.USER, access.TOKEN, access.POOL, access.ROLE)
     host = _host()
     assert (host.user, host.token, host.pool, host.audit_scope) == (access.USER, access.TOKEN, access.POOL, "node")
+    # A pool's name and its words are the settings table's one rule (card E5's landing), which proxmox_pool's form
+    # holds a value to where it is written and read, and init's --pool to before anything is sent: never a copy here.
+    assert (access.POOL_NAME.pattern, access.POOL_RULE) == (registry.POOL_NAME.pattern, registry.POOL_NAME.said)
+    assert registry.POOL_NAME.allows(access.POOL)
 
 
 # ---------------------------------------------------------------- the roles: A6's one table ----

@@ -1097,6 +1097,10 @@ def test_a_proxy_s_user_and_password_still_reach_the_transport_as_a_secret_from_
         ("run_forks", "-3", "run_forks takes a whole number of at least 1"),
         ("github_username", "some one", "github_username takes a GitHub account's name"),
         ("github_username", "some_one", "github_username takes a GitHub account's name"),
+        # A pool Proxmox makes none by (card E5's landing): from a digit, nested, with a space.
+        ("proxmox_pool", "1fleet", "proxmox_pool takes a pool's name"),
+        ("proxmox_pool", "fleet/aw", "proxmox_pool takes a pool's name"),
+        ("proxmox_pool", "aw fleet", "proxmox_pool takes a pool's name"),
     ],
 )
 def test_a_row_held_to_more_than_its_type_refuses_what_its_reader_could_not_use(home, name, text, said) -> None:
@@ -1105,11 +1109,13 @@ def test_a_row_held_to_more_than_its_type_refuses_what_its_reader_could_not_use(
     with pytest.raises(Refused, match=re.escape(said)):
         overrides.run_values([f"{name}={text}"], secrets=())
     where = _where()
-    file = _client_file(where) if registry.row(name).home == "client" else _fleet_file(where)
+    file = {"client": _client_file(where), "host": _host_file(where, "lab")}.get(
+        registry.row(name).home, _fleet_file(where)
+    )
     # In a file, as YAML reads the same text: a string, or the integer.
     _put(file, yaml.safe_dump({name: yaml.safe_load(text)}))
     with pytest.raises(Refused, match=f"line 1: {re.escape(said)}"):
-        overrides.read(where, None)
+        overrides.read(where, "lab")
 
 
 def test_the_rows_held_to_more_take_what_their_readers_use() -> None:
@@ -1118,3 +1124,5 @@ def test_the_rows_held_to_more_take_what_their_readers_use() -> None:
     assert overrides.typed(registry.row("run_forks"), "1") == 1
     assert overrides.typed(registry.row("github_username"), "octo-cat") == "octo-cat"
     assert overrides.typed(registry.row("github_username"), "") == ""
+    for pool in ("", "aw-fleet", "dev.vms_1"):
+        assert overrides.typed(registry.row("proxmox_pool"), pool) == pool

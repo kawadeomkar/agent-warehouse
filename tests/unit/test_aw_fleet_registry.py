@@ -314,18 +314,28 @@ def test_a_path_of_this_computer_s_says_how_it_is_read() -> None:
     )
 
 
-def test_four_rows_are_held_to_more_than_their_type_by_one_rule_each() -> None:
+def test_five_rows_are_held_to_more_than_their_type_by_one_rule_each() -> None:
     # Their readers need more than a type (review 12, D4.md 5): one Proxmox tag, which a , or a ; would make two; a
-    # GitHub account's name, as init --github-user takes it; at least one machine at once; and the two policies of the
-    # run's locks. network_proxy is held by vendors/proxy.py's one check (tests/unit/test_aw_fleet_overrides.py).
+    # GitHub account's name, as init --github-user takes it; a pool's name as Proxmox makes one, or none (card E5's
+    # landing); at least one machine at once; and the two policies of the run's locks. network_proxy is held by
+    # vendors/proxy.py's one check (tests/unit/test_aw_fleet_overrides.py).
     assert {each.name: each.form for each in registry.rows() if each.form is not None} == {
         "vm_label": registry.PROXMOX_TAG,
         "github_username": registry.GITHUB_USER,
+        "proxmox_pool": registry.PROXMOX_POOL,
     }
     assert registry.PROXMOX_TAG.pattern == pve_client.TAG.pattern
     assert registry.GITHUB_USER.pattern == patterns.PATTERNS["github_user"].text
     for tag in ("a,b", "a;b", "a b", "-a", "", "a" * 101):
         assert not registry.PROXMOX_TAG.allows(tag), tag
+    # A pool: from a letter, no /, which makes a nested pool on Proxmox VE 9.2, no space or colon, at most 64
+    # characters; or none, the fleet's own. engine/access.py's POOL_NAME and POOL_RULE are this one rule, never a copy.
+    for pool in ("", "aw-fleet", "dev.vms_1", "P" + "p" * 63):
+        assert registry.PROXMOX_POOL.allows(pool), pool
+    for pool in ("1fleet", "_pool", "-pool", "fleet/aw", "aw-fleet ", " aw-fleet", "a:b", "a b", "p" * 65):
+        assert not registry.PROXMOX_POOL.allows(pool) and not registry.POOL_NAME.allows(pool), pool
+    assert not registry.POOL_NAME.allows("")
+    assert registry.PROXMOX_POOL.said == f"a pool's name: {registry.POOL_NAME.said}"
     assert {each.name: each.least for each in registry.rows() if each.least is not None} == {"run_forks": 1}
     assert registry.row("run_lock").choices == locks.POLICIES
 

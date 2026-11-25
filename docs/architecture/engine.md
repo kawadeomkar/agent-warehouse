@@ -586,14 +586,16 @@ alone. A role is one set of privileges granted on a path, so the engine's role, 
 outside the pool; under `pool`, the stricter opt-in, the token holds nothing on a guest outside it but that template.
 The user's grants come before the token and the token's after it, since an ACL entry can name only a token that
 exists. `Host` holds each value of a host to the form Proxmox gives it before any object is made of it, a pool's name
-from a letter and with no `/`, which on Proxmox VE 9.2 makes a nested pool, and `Host.of` reads them from a host's
-settings. `check(object, found)`, given what one read of the host holds (`Found`), answers missing or the engine's own
-and nothing else: a pool whose comment does not carry this fleet's mark is refused with `fleet/mark.py`'s sentence,
-never taken; a role is told with what it lacks; and the audit and clone roles, granted on guests outside the pool, are
-held to their privileges exactly. `plan(objects, found)` makes each object that is missing and appends to a role of the
-engine's own what it lacks, never taking one away; a role held exactly that holds more is neither changed nor granted,
-and said with the line that fixes it (`pveum role modify AgentWarehouseAudit --privs VM.Audit`, as root on the host),
-since on `/vms` it would hand each privilege it holds over every VM of the node.
+from a letter and with no `/`, which on Proxmox VE 9.2 makes a nested pool (`POOL_NAME`, and `POOL_RULE` its words: the
+settings table's one rule of a pool's name, `registry.POOL_NAME`, which `proxmox_pool`'s form holds), and `Host.of`
+reads them from a host's settings. `check(object, found)`, given what one read of the host holds (`Found`), answers
+missing or the engine's own and nothing else: a pool whose comment does not carry this fleet's mark is refused with
+`fleet/mark.py`'s sentence, never taken; a role is told with what it lacks; and the audit and clone roles, granted on
+guests outside the pool, are held to their privileges exactly. `plan(objects, found)` makes each object that is missing
+and appends to a role of the engine's own what it lacks, never taking one away; a role held exactly that holds more is
+neither changed nor granted, and said with the line that fixes it
+(`pveum role modify AgentWarehouseAudit --privs VM.Audit`, as root on the host), since on `/vms` it would hand each
+privilege it holds over every VM of the node.
 
 `tests/unit/test_aw_access_objects.py` holds it: the list, its order and its count, fifteen objects with the defaults
 and twelve under `pool`; no object but the pool with the mark, the roles, the user, the token and their grants,
@@ -653,22 +655,23 @@ sent or written, so that nothing is written through it, and the same command fin
 place. As its run, under the fleet's lock, `unattended` reads what is set (the host's folder, the three files of
 overrides, `fleet.json` and the vault, opened as `vaultkey.py` finds its key: a fleet
 with no key file yet has its key made once every check has passed, and a key named elsewhere for a fleet with no vault
-yet is `NoVaultYet`'s refusal); refuses a value given that differs from the one set, naming both, the secret unsaid,
-and a pool the host's `settings.yml` sets that is no name of a pool (`--pool`'s rule), naming the file, with nothing
-written; works out the API's certificate with `certificate.py`'s `work_out` and nobody to ask, the host's
-own certificates read over root SSH where nothing else vouches for them; and, where the secret was given, reads the
-pool with it through the `Pin` the `Kept` carries. Holding a token Proxmox takes for a pool whose comment carries a mark
-with `controller=none` is the authority: `fleet.json` takes the mark's fleet ID. A mark that names a control VM, another
-fleet than `fleet.json`'s, none or none that reads, and a pool or a token Proxmox refuses, are refusals with nothing
-written; with no secret given the fleet keeps its ID, or a new one gets one. Then each file through its one writer,
-none of whose locks is held around another's, each only where nothing is set: the key (`vaultkey.make_key` at
-`vault_key_file`'s place), `fleet.json`, the vault (`sealed.create`, then the secret as the host's `token`), `host.yml`
-and its anchor (`hosts.write`), with `made` recording by ID the pool, the user and the token the administrator made by
-hand where the secret was given, the host's storage, bridge and pool (`aw-fleet` where none is given or set), the
-fleet's `github_username` and `vpn`, and `client.yml`'s current host. The names written where none is given are the
-engine's own: the user `agent-warehouse@pve`, the token `aw`, the pool `aw-fleet`, and the first host `pve`. A run
-stopped after any write goes on from what it wrote, and the same run again writes nothing. The modes other cards build
-(`--check`, `--print-commands`, `--machines`) are refused by name until each lands.
+yet is `NoVaultYet`'s refusal, as is a pool the host's `settings.yml` sets that is no name of a pool, which the read
+holds to `proxmox_pool`'s form, the rule `--pool` is held to, naming the file); refuses a value given that differs from
+the one set, naming both, the secret unsaid, with nothing written; works out the API's certificate with
+`certificate.py`'s `work_out` and nobody to ask, the host's own certificates read over root SSH where nothing else
+vouches for them; and, where the secret was given, reads the pool with it through the `Pin` the `Kept` carries. Holding
+a token Proxmox takes for a pool whose comment carries a mark with `controller=none` is the authority: `fleet.json`
+takes the mark's fleet ID. A mark that names a control VM, another fleet than `fleet.json`'s, none or none that reads,
+and a pool or a token Proxmox refuses, are refusals with nothing written; with no secret given the fleet keeps its ID,
+or a new one gets one. Then each file through its one writer, none of whose locks is held around another's, each only
+where nothing is set: the key (`vaultkey.make_key` at `vault_key_file`'s place), `fleet.json`, the vault
+(`sealed.create`, then the secret as the host's `token`), `host.yml` and its anchor (`hosts.write`), with `made`
+recording by ID the pool, the user and the token the administrator made by hand where the secret was given, the host's
+storage, bridge and pool (`aw-fleet` where none is given or set), the fleet's `github_username` and `vpn`, and
+`client.yml`'s current host. The names written where none is given are the engine's own: the user `agent-warehouse@pve`,
+the token `aw`, the pool `aw-fleet`, and the first host `pve`. A run stopped after any write goes on from what it wrote,
+and the same run again writes nothing. The modes other cards build (`--check`, `--print-commands`, `--machines`) are
+refused by name until each lands.
 
 **`init` at a terminal: `attended`.** With standard input a terminal whose foreground the run is, as `runs/ask.py`'s
 `terminal()` decides for each question (16.8), and no `--no-prompt`, the same steps run drawn live (`INIT`, one stage
@@ -2655,22 +2658,24 @@ agents' server allows today; `values`, a `ValueRule` for what an agent may give 
 (`claude_code_version`: a channel or a release, never another spec for npm); and, where its readers need more than its
 type, `form`, a `ValueRule` every value of a string must match (`vm_label` one Proxmox tag, which a `,` or a `;` would
 make two, held equal to `pve/client.py`'s `TAG`; `github_username` a GitHub account's name, as `init --github-user`
-takes one), or `least`, the least an integer may be (`run_forks` 1). `run_lock`'s choices are `runs/locks.py`'s
-`POLICIES`, and `network_proxy` is held by `vendors/proxy.py`'s one check of it (§16.7). A row that names a secret and
-that an agent may change, that has a rule for an agent's values and that no agent may change, or that has a form or a
-least value its type has not, raises as it is made. A setting each host sets for itself today, or that the shared files
-may never supply, is each host's own, and so is `vm_searchdomain`, one network's as the nameservers are; of them
-`claude_ssh_host_domain` and `vm_ssh_route`, how this computer finds and reaches a host's VMs, are this computer's, in
-`client.yml`'s map `hosts`, so that another computer that copies the fleet's folder reaches them its own way. A setting
-whose default is made from the machine's name is each machine's own. A list's default is a tuple and a mapping's
-read-only, so no reader changes the table. `rows()`, `row(name)` and `group(name)` read it. Nothing generates it, and
-nothing is generated from it into a tracked file. `tests/unit/test_aw_fleet_registry.py` holds the table, with the place
-of each of today's settings in two literal sets (this computer's, by scope, and each host's, by home), every other one
-the fleet's; `tests/unit/test_aw_fleet_registry_today.py`, the cutover's check, which goes with today's files, holds it
-to them: every documented setting has exactly one row but the nine, each named, and the four that left with where each
-went, each type, choice, literal default and group as today's, a secret where the role variable is `no_log`, the rows an
-agent may change today's `ALLOWED` with `VALUES`' rule, every name of `ALLOWED` and `REFUSED` a row but the nine,
-`run_forks` as many as `ansible.cfg`'s `forks`, and a setting added to the example without a row fails by its name.
+takes one; `proxmox_pool` a pool's name as Proxmox makes one, or none, by `POOL_NAME`, the one rule of a pool's name,
+which `engine/access.py` reads), or `least`, the least an integer may be (`run_forks` 1). `run_lock`'s choices are
+`runs/locks.py`'s `POLICIES`, and `network_proxy` is held by `vendors/proxy.py`'s one check of it (§16.7). A row that
+names a secret and that an agent may change, that has a rule for an agent's values and that no agent may change, or that
+has a form or a least value its type has not, raises as it is made. A setting each host sets for itself today, or that
+the shared files may never supply, is each host's own, and so is `vm_searchdomain`, one network's as the nameservers
+are; of them `claude_ssh_host_domain` and `vm_ssh_route`, how this computer finds and reaches a host's VMs, are this
+computer's, in `client.yml`'s map `hosts`, so that another computer that copies the fleet's folder reaches them its own
+way. A setting whose default is made from the machine's name is each machine's own. A list's default is a tuple and a
+mapping's read-only, so no reader changes the table. `rows()`, `row(name)` and `group(name)` read it. Nothing generates
+it, and nothing is generated from it into a tracked file. `tests/unit/test_aw_fleet_registry.py` holds the table, with
+the place of each of today's settings in two literal sets (this computer's, by scope, and each host's, by home), every
+other one the fleet's; `tests/unit/test_aw_fleet_registry_today.py`, the cutover's check, which goes with today's files,
+holds it to them: every documented setting has exactly one row but the nine, each named, and the four that left with
+where each went, each type, choice, literal default and group as today's, a secret where the role variable is `no_log`,
+the rows an agent may change today's `ALLOWED` with `VALUES`' rule, every name of `ALLOWED` and `REFUSED` a row but the
+nine, `run_forks` as many as `ansible.cfg`'s `forks`, and a setting added to the example without a row fails by its
+name.
 
 **The overrides: `overrides.py`.** What a person sets is kept in plain files of literals, written by hand or by the
 engine, never sealed, each a YAML mapping of setting names to values and nothing else: no expression, no anchor, alias,
