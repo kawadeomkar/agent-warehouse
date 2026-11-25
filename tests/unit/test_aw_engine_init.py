@@ -933,11 +933,11 @@ def test_every_answer_typed_writes_the_files_and_the_same_again_asks_nothing(fak
         # answer).
         (TRUST_ASKED, [UP, ENTER], True),
         (SECRET_ASKED, [fake.secret.encode() + b"\n"], False),
-        # The node, the storage and the bridge the host lists, each the only one the token can use: a yes or no, whose
-        # default, no, is marked: up to yes.
-        (b"Use pve?\r\n", [UP, ENTER], True),
-        (b"Use local-lvm?\r\n", [UP, ENTER], True),
-        (b"Use vmbr0?\r\n", [UP, ENTER], True),
+        # The node, the storage and the bridge the host lists, each the only one the token can use: a yes or no, yes
+        # marked first, which Enter takes.
+        (b"Use pve?\r\n", [ENTER], True),
+        (b"Use local-lvm?\r\n", [ENTER], True),
+        (b"Use vmbr0?\r\n", [ENTER], True),
         # No ~/.ssh/id_ed25519.pub: which other key the VMs get.
         (SSH_KEY_ASKED, [ENTER], True),
         (GITHUB_ASKED, [b"octocat\n"], False),
@@ -994,18 +994,64 @@ def test_every_answer_typed_writes_the_files_and_the_same_again_asks_nothing(fak
     assert _files() == files
 
 
-def test_enter_at_the_only_node_s_yes_or_no_leaves_it_at_the_menu_and_typed_alike(fake) -> None:
-    # Review 54, E5.md 7: the only node the token can use is asked as a yes or no whose default is no, which leaves it,
-    # as its words say: Enter at the menu (no is marked) and Enter typed where no menu can be drawn both leave the node
-    # unwritten, and the storage and the bridge, which are listed on a node, with it.
+# The node, the storage and the bridge, in the order they are asked, each as the fake's host lists it, the only one the
+# token can use there: its setting, its name, and its title, as a line of what was left names it.
+ONLY_ONE = (
+    ("proxmox_node", "pve", "Node"),
+    ("proxmox_storage", "local-lvm", "Storage"),
+    ("proxmox_bridge", "vmbr0", "Bridge"),
+)
+
+
+def _only_one(fake: Fake, *before: tuple[str, str, str]) -> None:
+    """The fake's host, its token granted the engine's privileges on each one it lists, with a key in ~/.ssh, and each
+    of before set in the host's settings.yml, as a run before this one answered it, so that it is not asked."""
     mark_pool(fake.base, record.new_id())
     with_port(fake.port)
     _grants(fake)
     _public_key("id_ed25519.pub", PUBLIC_KEY)
+    digest = overrides.MISSING
+    for setting, name, _ in before:
+        digest = overrides.set(_home(), setting, name, "pve", digest)
+
+
+@pytest.mark.parametrize("at", range(len(ONLY_ONE)), ids=[title.lower() for _, _, title in ONLY_ONE])
+def test_enter_at_the_only_one_s_yes_or_no_takes_yes_and_writes_the_name_the_host_reported(fake, at) -> None:
+    # The coordinator's ruling on review 54's E5.md 7: where the host reports one node, storage or bridge the token can
+    # use, its yes or no marks yes first, and Enter takes it, writing the name the host reported: three Enters that
+    # left all three had the fleet fall back to pve, local-lvm and vmbr0, wrong on a host whose names differ. Those
+    # above it set, so that it is asked; Esc at each after it, which leaves those.
+    _only_one(fake, *ONLY_ONE[:at])
     plan: Plan = [
         (TRUST_ASKED, [UP, ENTER], True),
         (SECRET_ASKED, [fake.secret.encode() + b"\n"], False),
-        (b"Use pve?\r\n", [ENTER], True),
+        (f"Use {ONLY_ONE[at][1]}?\r\n".encode(), [ENTER], True),
+        *((f"Use {name}?\r\n".encode(), [ESC], True) for _, name, _ in ONLY_ONE[at + 1 :]),
+        (GITHUB_ASKED, [b"octocat\n"], False),
+        (VPN_ASKED, [ENTER], True),
+    ]
+    rc, raw = _asked(fake, plan)
+    said = raw.decode(errors="replace")
+    assert rc == 0, said
+    assert f"Use {ONLY_ONE[at][1]}? yes" in _read(raw), said
+    own = overrides.read(_home(), "pve").host.settings
+    assert dict(own) == {**{setting: name for setting, name, _ in ONLY_ONE[: at + 1]}, "proxmox_pool": ENGINE_POOL}, own
+    left = [title for _, _, title in ONLY_ONE[at + 1 :]]
+    if left:
+        assert f"left for later: {' and '.join(left)}; the next aw init asks again" in _read(raw), said
+    else:
+        assert "left for later" not in _read(raw), said
+
+
+def test_no_at_the_only_node_s_yes_or_no_writes_nothing_and_typed_enter_leaves_it_as_its_prompt_says(fake) -> None:
+    # The ruling's other half: no, picked by its letter, leaves the only node, and the storage and the bridge, which
+    # are listed on a node, with it; nothing of the three is written, and nothing above the question says Enter leaves
+    # it, since Enter there takes yes. (Esc leaves it too: the cases above press it at the storage and the bridge.)
+    _only_one(fake)
+    plan: Plan = [
+        (TRUST_ASKED, [UP, ENTER], True),
+        (SECRET_ASKED, [fake.secret.encode() + b"\n"], False),
+        (b"Use pve?\r\n", [b"n", ENTER], True),
         (GITHUB_ASKED, [b"octocat\n"], False),
         (VPN_ASKED, [ENTER], True),
     ]
@@ -1013,14 +1059,18 @@ def test_enter_at_the_only_node_s_yes_or_no_leaves_it_at_the_menu_and_typed_alik
     said = raw.decode(errors="replace")
     assert rc == 0, said
     asked = said[said.index("What your token can see:") : said.index("Use pve?")]
-    assert engine_init.LATER in asked, asked
-    own = overrides.read(_home(), "pve").host.settings
-    assert dict(own) == {"proxmox_pool": ENGINE_POOL}, own
+    assert engine_init.LATER not in asked, asked
+    assert b"Use local-lvm?" not in raw and b"Use vmbr0?" not in raw, said
+    assert "Use pve? no" in _read(raw), said
+    assert dict(overrides.read(_home(), "pve").host.settings) == {"proxmox_pool": ENGINE_POOL}
     assert "left for later: Node, Storage and Bridge; the next aw init asks again" in _read(raw), said
-    # Again, where the terminal cannot draw a menu: the same question typed, and Enter leaves it too.
+    # Again, where the terminal cannot draw a menu (TERM=dumb): the same question typed, whose Enter gives back the
+    # question's default, as Esc at the menu does (runs/ask.py gives the two one default), and so leaves the node, as
+    # the typed prompt says.
     rc, raw = _asked(fake, [(b"Use pve?", [], False), (TYPED_ASKED, [b"\n"], False)], term="dumb")
     said = raw.decode(errors="replace")
     assert rc == 0, said
+    assert b"Enter for left for later" in raw, said
     assert GITHUB_ASKED not in raw and TRUST_ASKED not in raw and SECRET_ASKED not in raw, said
     assert dict(overrides.read(_home(), "pve").host.settings) == {"proxmox_pool": ENGINE_POOL}
     assert "left for later: Node, Storage and Bridge" in _read(raw), said
