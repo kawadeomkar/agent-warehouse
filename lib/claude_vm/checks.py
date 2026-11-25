@@ -277,10 +277,12 @@ _LABEL = re.compile(r"(?!-)[A-Za-z0-9-]{1,63}(?<!-)")
 # init writes such a name into local.yml, which every later run reads as a
 # template: a name the API or root SSH reported is held to these first, so
 # one that holds anything else - {{ ... }} above all - is never offered or
-# written, whoever answered for the host.
+# written, whoever answered for the host. Each is ASCII, written out rather than
+# folded by (?i), under which [a-z] also takes the Kelvin sign and the long s,
+# and of at most 64 characters.
 PROXMOX_NAMES = {
     "node": _LABEL,
-    "storage": re.compile(r"(?i)[a-z][a-z0-9_.-]*[a-z0-9]"),
+    "storage": re.compile(r"[A-Za-z][A-Za-z0-9_.-]{0,62}[A-Za-z0-9]"),
     "bridge": re.compile(r"[A-Za-z][A-Za-z0-9_.-]{0,63}"),
     "pool": re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}"),
 }
