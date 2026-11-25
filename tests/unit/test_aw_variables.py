@@ -17,9 +17,9 @@ its caller gives beside the document and never leaves out (`TAKEN` here), a key 
 anything that would make Ansible's JSON decoding fail and its loader read the text as YAML - where a wrapped template
 is trusted, as a test shows - a type no variable holds, and a document that holds a secret the run opened, anywhere,
 never said back. The file is 0600, whole, never written through a link; layer1.run holds the file it is given to the
-same rules and to the names its caller gives beside the play before its child starts, a connection's variable above
-all, and refuses a file given without them. The invariant with a test of its own: a walk of every file written here
-finds no bare string leaf.
+same rules and to the names of its own list of the play's (`PLAY_NAMES`, which a test here gives its own play) before
+its child starts, a connection's variable above all, and refuses a file beside a play it lists no names for. The
+invariant with a test of its own: a walk of every file written here finds no bare string leaf.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ from aw_machine import Machine, layer1_host, machine, target
 from harness import REPO
 
 from claude_vm.fleet import paths
-from claude_vm.guest import layer1, variables
+from claude_vm.guest import layer1, system, variables
 from claude_vm.runs import children, rundir
 from claude_vm.runs import job as jobs
 from claude_vm.secret import MARK, Secret
@@ -75,8 +75,8 @@ EVERY_KIND = {
     "aw_nested": {"list": [TEMPLATE, {"deeper": [True, None, 7, "x"]}], TEMPLATE: "a key that looks like one", "": []},
     "aw_mapping": {},
 }
-# The names this file's plays take, as a play's caller gives its own beside its variables: every variable its documents
-# name.
+# The names this file's plays take, as the writer's caller gives them and as layer 1's list gives them for a play of a
+# test's own here (_listed): every variable its documents name.
 TAKEN = frozenset(
     {
         *EVERY_KIND,
@@ -134,6 +134,13 @@ def made(home: Path) -> Iterator[jobs.Job]:
 
 def _vars(job: jobs.Job) -> Path:
     return rundir.path_for(job, "vars.json")
+
+
+def _listed(play: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """play, a test's own, added to layer 1's list of the names each play takes, with this file's (TAKEN), for the
+    test alone: layer1.run takes a play's names from that list, never from its caller."""
+    monkeypatch.setattr(layer1, "PLAY_NAMES", {**layer1.PLAY_NAMES, play: TAKEN})
+    return play
 
 
 # ---------------------------------------------------------------- the wrapping ----
@@ -728,7 +735,7 @@ def _converge(
     built = layer1.environment
     monkeypatch.setattr(layer1, "environment", lambda *words, **named: {**built(*words, **named), SWITCH: switch})
     folder.mkdir(parents=True, exist_ok=True)
-    play = folder / "play.yml"
+    play = _listed(folder / "play.yml", monkeypatch)
     play.write_text(json.dumps([{"hosts": "all", "gather_facts": False, "tasks": tasks}]))
     return asyncio.run(
         layer1.run(
@@ -739,7 +746,6 @@ def _converge(
             name="alpha",
             host_flag="",
             env=dict(os.environ),
-            names=TAKEN,
             test_connection=layer1_host(alpha),
         )
     )
@@ -758,7 +764,7 @@ def test_a_wrapped_template_reaches_a_task_as_its_text_and_an_unwrapped_one_is_t
     # The control: the same variable unwrapped, run's own check of the file set aside, is a template Ansible renders.
     plain = tmp_path / "plain.json"
     plain.write_text(json.dumps({"aw_text": TEMPLATE}))
-    monkeypatch.setattr(layer1, "_variables", lambda path, names: path)
+    monkeypatch.setattr(layer1, "_variables", lambda path, play: path)
     ended = _converge(
         made, alpha, tmp_path / "plain", plain, [_writes(alpha, "plain.txt", "{{ aw_text }}")], "ignore", monkeypatch
     )
@@ -803,12 +809,12 @@ def test_every_scalar_type_round_trips_through_a_real_child(made, tmp_path, monk
     ],
 )
 def test_run_refuses_a_variables_file_with_a_connection_s_variable_before_the_child_starts(
-    made, tmp_path, name, value
+    made, tmp_path, monkeypatch, name, value
 ) -> None:
     alpha = _alpha(tmp_path)
     given = tmp_path / "given.json"
     given.write_text(json.dumps({"aw_text": {WRAPPER: "x"}, name: value}))
-    play = tmp_path / "play.yml"
+    play = _listed(tmp_path / "play.yml", monkeypatch)
     play.write_text(json.dumps([{"hosts": "all", "gather_facts": False, "tasks": [{"ansible.builtin.ping": {}}]}]))
     with pytest.raises(layer1.Refused) as refused:
         asyncio.run(
@@ -820,7 +826,6 @@ def test_run_refuses_a_variables_file_with_a_connection_s_variable_before_the_ch
                 name="alpha",
                 host_flag="",
                 env=dict(os.environ),
-                names=TAKEN,
                 test_connection=layer1_host(alpha),
             )
         )
@@ -838,29 +843,24 @@ def test_run_refuses_a_variables_file_with_a_connection_s_variable_before_the_ch
         ("a name the play does not take", '{"aw_other": {"__ansible_unsafe": "x"}}', "^aw_other is no variable of"),
     ],
 )
-def test_run_refuses_a_variables_file_write_would_not_have_made(made, tmp_path, case, text, said) -> None:
+def test_run_refuses_a_variables_file_write_would_not_have_made(made, tmp_path, monkeypatch, case, text, said) -> None:
     alpha = _alpha(tmp_path)
     given = _hand_made(tmp_path, text)
-    play = tmp_path / "play.yml"
+    play = _listed(tmp_path / "play.yml", monkeypatch)
     play.write_text("[]")
     with pytest.raises(layer1.Refused, match=said):
-        asyncio.run(
-            layer1.run(made, target(alpha), play, given, name="alpha", host_flag="", env=dict(os.environ), names=TAKEN)
-        )
+        asyncio.run(layer1.run(made, target(alpha), play, given, name="alpha", host_flag="", env=dict(os.environ)))
     directory = rundir.made(made)
     assert directory is not None
     assert _written(directory) == [] and children.live(made) == []
 
 
-@pytest.mark.parametrize("names", [None, "aw_text"])
-def test_run_refuses_a_variables_file_without_the_names_its_play_takes(made, tmp_path, names) -> None:
+@pytest.mark.parametrize("case", ["a play of its own", "a copy of the system play"])
+def test_run_refuses_a_variables_file_beside_a_play_it_lists_no_names_for(made, tmp_path, case) -> None:
     alpha = _alpha(tmp_path)
     given = variables.write(_vars(made), {"aw_text": "x"}, secrets=(), names=TAKEN)
     play = tmp_path / "play.yml"
-    play.write_text("[]")
-    said = "^a variables file is held to the names its play takes" if names is None else "^the names a play takes are"
-    with pytest.raises(layer1.Refused, match=said):
-        asyncio.run(
-            layer1.run(made, target(alpha), play, given, name="alpha", host_flag="", env=dict(os.environ), names=names)
-        )
+    play.write_text("[]" if case == "a play of its own" else system.PLAY.read_text())
+    with pytest.raises(layer1.Refused, match=f"^{play} takes no variables file: layer 1 holds one to the names of"):
+        asyncio.run(layer1.run(made, target(alpha), play, given, name="alpha", host_flag="", env=dict(os.environ)))
     assert _written(given.parent) == ["vars.json"] and children.live(made) == []

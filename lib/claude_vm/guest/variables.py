@@ -43,7 +43,8 @@ guest/system.py's `NAMES`, guest/wiring.py's one list. It refuses, before anythi
 
 `held(path, names)` holds a file to what `write` makes - JSON, a mapping of the names the play takes, every string
 wrapped and nothing above refused, its nesting measured on its text before it is decoded - and layer1.run asks it of the
-file it is given, with the names its caller gives beside the play, before anything is written or started.
+file it is given, with the names of its own list of the play's (layer1.py's `PLAY_NAMES`), never a caller's, before
+anything is written or started.
 
 Standard library only, and nothing at import but json, math, os, re and tempfile.
 """

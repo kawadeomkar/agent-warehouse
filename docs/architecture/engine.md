@@ -2997,11 +2997,18 @@ for one run, never saying the value. `typed(option, text)` holds typed text to t
 to a row. A kind of option no row's type holds (a list of anything but strings, choices of anything but a string) is
 refused as the table is made, before it could be passed through. `tests/unit/test_aw_fleet_passthrough.py` holds it:
 every option a row's, passed through or refused, none left out; each passed through carrying its spec; no secret passed
-through, nor an option that `defaults.yml` or a role sets for itself, by any road: a scan of the roles' task files and
-handlers, `.yaml` too, and every file of their `vars/` folders, that reads a `set_fact` by any of its names, given its
-names directly, through `action:` or `local_action:`, `args:` or a `module_defaults` of the role's or of a play that
-runs it (on the play, a role entry, a block or a task), a `register` and a `vars:`, and finds no road whose names it
-cannot read - an `include_vars`, a template in their place - and no `module_defaults` group that holds a `set_fact`;
+through, nor an option that `defaults.yml`, a role or a play sets for itself, by each road a scan reads: of every folder
+under `roles/`, with an `argument_specs.yml` or none, its task files and handlers, `.yaml` too, and every file of its
+`vars/` folder, and of every play, its tasks and keywords, that reads a `set_fact` by any of its names, given its names
+directly (a templated name as every name it can make), through `action:` or `local_action:` (text split at its first
+whitespace of any kind, or a mapping's `module` split the same way, beside the rest of the mapping and its own `args:`),
+`args:` or a `module_defaults` (on the play, a role entry, a block or a task), a `register`, a `vars:`, a play's
+`vars_files` and `vars_prompt`, and a role entry's parameters; and that finds no road whose names it cannot read - an
+`include_vars`, a template in their place, a free-form name of no variable's shape - no `include_tasks`, `import_tasks`,
+`import_playbook`, `include_role` or `import_role` of a file or a role it does not read (outside a role's `tasks/`,
+`handlers/` or `vars/` and the plays, a hidden file or one of another suffix, a role outside `roles/`), no role's
+`dependencies`, and no `module_defaults` group that holds a `set_fact` (a loop's variable, which outranks an extra
+variable, is not read);
 each refusal's reason; a value held to its spec typed and in a file; each `text` read back whole from the fleet's file,
 the vendored key among them, a control character but the line's end and an expression refused by its line, and neither
 typed; and, against today's `tools/settings` run
@@ -3435,13 +3442,15 @@ internal or register (`common_names_1x`, a list of files moved as root; `common_
 `common_user_password_salt`), a loop's `item`. For the system play the names are `guest/wiring.py`'s `NAMES`, the one
 list, made from its `PLAY`, `TABLE` and `INTERNALS` and written once, which `guest/system.py` names beside the play
 (`system.NAMES`); a later variable of the play is added there. `layer1.run` holds the file it is given to the same rules
-and to the names its caller gives beside the play (`held(path, names)`, `run(..., names=system.NAMES)`) before anything
-is written or started, and refuses a variables file given without them. The decoder is under
-`ansible._internal`, so the tests, not Ansible's documentation, hold this across releases:
+(`held(path, names)`) and to the names of its own list of each play's (`PLAY_NAMES`, the system play to `system.NAMES`),
+never a caller's: it takes no names, so a caller cannot widen the list by handing the file's own names or the play's
+with more, and a variables file beside a play it lists none for is refused, a copy of the system play elsewhere among
+them, before anything is written or started. The decoder is under `ansible._internal`, so the tests, not Ansible's
+documentation, hold this across releases:
 `tests/unit/test_aw_variables.py` holds each rule, a name outside `names` among them, by `write`, by `held` and by
 `layer1.run`, and `tests/unit/test_aw_layer1_play.py` each name above refused by `system.variables` and by layer 1's hold
-beside the system play; `test_aw_variables.py` holds `FIXED` equal to what a child of the locked ansible-core gives a
-host, a play
+beside the system play, and a caller's own list refused (the file's names, a set made from them, `NAMES` and two
+more); `test_aw_variables.py` holds `FIXED` equal to what a child of the locked ansible-core gives a host, a play
 and a role's task beside an inventory's and a play's own, and its reserved names; it loads a written file through
 Ansible's own loader, in a Python of its own, and finds no string trusted (the same document unwrapped, every string trusted), and through a real child on a stand-in machine a
 wrapped `{{ 7 * 7 }}` reaches a task as that text, an unwrapped one is templated, with the untrusted-template switch at
@@ -3474,12 +3483,13 @@ and a profile's name that is no setting or option of the table. Every value is a
 them. `tests/unit/test_aw_guest_wiring.py` holds the table to the roles' specs, every variable in it or among the
 internals once; each setting to the row today's wiring reaches the variable from, both ways; each option to
 `passthrough.py`'s, both ways; `NAMES` to the table, every name the function makes among them and taken by the writer
-and by layer 1's hold; and the output, for the registry's defaults and four sets of overrides (the rows the play reads,
-twice, with their switches set apart; every option of its roles; values given for one run), equal variable by variable,
-in type and value (`true` is not `1`), to what a child of the locked ansible-core gives the same roles, with a machine's
-facts set, from today's example inventory with the same values in `local.yml`, against the one host's inventory layer 1
-writes and the file the play's own writer made, loaded as extra variables. No two rows the play reads carry one value
-in every case, which the test holds too, so a row read in another's place is a difference. The
+and by layer 1's hold, with layer 1's own list; and the output, for the registry's defaults and four sets of overrides
+(the rows the play reads, twice, with their switches set apart; every option of its roles; values given for one run),
+equal variable by variable, in type and value (`true` is not `1`), to what a child of the locked ansible-core gives the
+same roles, with a machine's facts set, from today's example inventory with the same values in `local.yml`, against the
+one host's inventory layer 1 writes and the file the play's own writer made, loaded as extra variables. No two rows the
+play reads carry one value in every case, which the test holds too, so a row read in another's place is a difference.
+The
 `system` scenario converges its container from `role_variables` alone, its settings written into a fleet home of its own
 and given with `--set`, with no `group_vars` or `host_vars` beside the play or the inventory.
 

@@ -34,9 +34,10 @@ target carries one. The child never takes a key at first use: a target whose ide
 name before anything starts, with the line that files it (`NoKey`), and so is a first use's target. The inventory is a
 source Ansible templates, so a value of it that would open a template is refused, never written. The variables file is
 held first to what guest/variables.py writes, since an extra variable outranks the inventory, the play's own variables
-and its roles': no `ansible_` name, which would replace the connection's; no name but those the play takes, which the
-caller gives beside the play (`names`, guest/system.py's `NAMES` for the system play), and without which a variables
-file is refused; and every string wrapped, so that none is read as a template.
+and its roles': no `ansible_` name, which would replace the connection's; no name but those the play takes, from
+layer 1's own list of each play's (`PLAY_NAMES`, guest/system.py's `NAMES` for the system play), never a caller's, so
+that a variables file beside a play with no list is refused; and every string wrapped, so that none is read as a
+template.
 
 The child's environment is an allow list (`KEPT`, then the engine's own): `PATH`, `HOME`, `LANG` and `SSH_AUTH_SOCK`
 where the caller's environment has them, `ANSIBLE_CONFIG` naming the generated configuration, the untrusted-template
@@ -81,12 +82,13 @@ import json
 import os
 import re
 import sys
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from claude_vm import checks
-from claude_vm.guest import events
+from claude_vm.guest import events, system
 from claude_vm.guest import variables as play_variables
 from claude_vm.runs import children, rundir
 from claude_vm.schema import patterns, printer
@@ -110,6 +112,10 @@ INVENTORY_SUFFIX = ".yml"
 PREFIX = "agent-warehouse-"
 # The host variable that carries the name a person chose for the machine, which is never the inventory's name.
 NAME_VARIABLE = "aw_name"
+# The names each play's variables may hold, by the play: a variables file is given only beside a play listed here, and
+# holds its names alone. Each list is its play's module's, never a caller's, since a name the play does not take would
+# outrank its own variables, its checks' and its roles' for every task.
+PLAY_NAMES: Mapping[Path, frozenset[str]] = MappingProxyType({system.PLAY: system.NAMES})
 # The machine's own interpreter and sudo, by their paths: a python3 or a sudo on the account's PATH (~/.local/bin is
 # first there) would run as root.
 PYTHON = "/usr/bin/python3"
@@ -295,15 +301,16 @@ def _file(path: object, what: str) -> Path:
     return found
 
 
-def _variables(path: Path, names: object) -> Path:
-    """The variables file held to what guest/variables.py writes, and to names, the names the play takes, which the
-    caller gives beside it: a variable it gives outranks the inventory, the play's own variables and its roles', so none
-    may name the play's connection (an ansible_ name) or be any name but the play's, and none of its strings may be read
-    as a template."""
+def _variables(path: Path, play: Path) -> Path:
+    """The variables file held to what guest/variables.py writes, and to the names play takes (PLAY_NAMES): a variable
+    it gives outranks the inventory, the play's own variables and its roles', so none may name the play's connection
+    (an ansible_ name) or be any name but the play's, and none of its strings may be read as a template. A play with no
+    list takes no variables file."""
+    names = PLAY_NAMES.get(play)
     if names is None:
         raise Refused(
-            "a variables file is held to the names its play takes, given beside it: guest/system.py's NAMES for the"
-            " system play"
+            f"{play} takes no variables file: layer 1 holds one to the names of a play it lists alone, the system"
+            " play's (guest/system.py's NAMES)"
         )
     try:
         return play_variables.held(path, names)
@@ -667,7 +674,6 @@ async def run(
     name: str,
     host_flag: str,
     env: Mapping[str, str],
-    names: Collection[str] | None = None,
     tags: Sequence[str] = (),
     check: bool = False,
     diff: bool = False,
@@ -684,14 +690,15 @@ async def run(
     opened) struck from it; its exit status, the end of what it printed, and the counts. The configuration names the
     checkout's own folder of collections for env (checkout_collections) until F6a, or test_collections where a test
     gives it. name is the name a person chose for the machine, and host_flag the host a line that names it names (the
-    printer's). names are the names the play takes, which a variables file holds and no other (guest/system.py's NAMES
-    for the system play). Everything is held before anything is written or started: a target that is no machine's, a
-    first use's, or whose identity has no key filed, a play or a variables file that is not there, a variables file
-    given without names, one that is not what guest/variables.py writes or that holds a name not among names, a part, a
-    flag, a verbosity or a redaction list that is not one, a test's folder of collections given without a test-only
-    connection, an environment that names neither HOME nor XDG_DATA_HOME where no test gives its folder; and, where
-    none does, the checkout's folder of collections not there or not at requirements.yml's pins, or no tools/env-run to
-    find it, in the sentence that names just install. A listener of job's that fails while the child runs ends the
+    printer's). A variables file holds the names its play takes and no other, from layer 1's own list of the play's
+    (PLAY_NAMES: guest/system.py's NAMES for the system play), never a caller's. Everything is held before anything is
+    written or started: a target that is no machine's, a first use's, or whose identity has no key filed, a play or a
+    variables file that is not there, a variables file beside a play with no list, one that is not what
+    guest/variables.py writes or that holds a name the play does not take, a part, a flag, a verbosity or a redaction
+    list that is not one, a test's folder of collections given without a test-only connection, an environment that
+    names neither HOME nor XDG_DATA_HOME where no test gives its folder; and, where none does, the checkout's folder of
+    collections not there or not at requirements.yml's pins, or no tools/env-run to find it, in the sentence that names
+    just install. A listener of job's that fails while the child runs ends the
     child, and its error is raised."""
     import asyncio
     import tempfile
@@ -702,7 +709,7 @@ async def run(
     name = _name(name)
     _key_filed(machine, name, host_flag)
     play = _file(play, "the play")
-    variables = None if variables_file is None else _variables(_file(variables_file, "the variables file"), names)
+    variables = None if variables_file is None else _variables(_file(variables_file, "the variables file"), play)
     tags = _tags(tags)
     check, diff, verbosity = _flag(check, "check"), _flag(diff, "diff"), _verbosity(verbosity)
     if not isinstance(env, Mapping):
