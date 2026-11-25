@@ -271,11 +271,14 @@ async def start(
     stderr: object,
     kind: str,
     pass_fds: Sequence[int] = (),
+    cwd: str | os.PathLike[str] | None = None,
 ) -> Process:
     """argv started as a child of the job's run, in a group (`group`) or a session (`session`) of its own, with env and
     the job's marker (a master: without it), the signals at their defaults, and no descriptor open but its standard
     streams and pass_fds; entered under its kind, but a master. The streams are asyncio's: DEVNULL, PIPE, a descriptor
-    or a file; standard input is always named, and in a session of its own it is DEVNULL. Everything is checked before
+    or a file; standard input is always named, and in a session of its own it is DEVNULL. Its working folder is cwd, an
+    absolute path, where one is given (layer 1's child is given the run's directory, so that no file of the folder the
+    person started the run from is ever one Ansible finds), and the run's own otherwise. Everything is checked before
     anything starts, and a descriptor of one of the run's locks is refused by the lock's name."""
     import asyncio
     import subprocess
@@ -301,6 +304,8 @@ async def start(
         isinstance(each, int) and not isinstance(each, bool) and each >= 0 for each in pass_fds
     ):
         raise TypeError("pass_fds names descriptors, by their numbers")
+    if cwd is not None and (not isinstance(cwd, (str, os.PathLike)) or not os.path.isabs(cwd)):
+        raise ValueError("a child's working folder is an absolute path: a relative one is the run's own folder's")
     handed = [*pass_fds, *(found for found in map(_descriptor, (stdin, stdout, stderr)) if found is not None)]
     _refuse_locks([*handed, *_inherited(stdout, stderr)])
     environment = unmarked(env) if kind == MASTER else {**env, MARKER: job_id}
@@ -314,6 +319,7 @@ async def start(
         close_fds=True,
         pass_fds=tuple(pass_fds),
         preexec_fn=_default_signals,
+        cwd=cwd,
         **kept,
     )
     if kind != MASTER:
