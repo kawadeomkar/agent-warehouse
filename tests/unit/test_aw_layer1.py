@@ -8,16 +8,17 @@ the checkout's own folder of Galaxy collections until F6a, the one tools/env-run
 environment, where its answer is one absolute path given in time and refused otherwise, and the folder is held to
 requirements.yml's pins as today's tools/check collections holds it, with the same verdict, a folder not there, a
 collection at another version or not there, and a tools/env-run not there to run each refused in a sentence that names
-just install before anything is written or started; a play of one ping
-runs, its child in a session of its own and in the run's registry with its pid, with nothing on this process's
-terminal; the caller's ANSIBLE_*, PYTHON* and an exported stdout callback never reach the child, whose environment is
-the allow list and the engine's own; a target that is no machine's, a first use's, one with no key filed, an inventory
-name that is not an identity, and every other value that is not one are refused before anything is written or started;
-SIGINT to the child's group ends it, and proc.end leaves nothing of it; a call cancelled ends the child with its tree;
-and the host's ansible_ssh_common_args start with the runner's own, StrictHostKeyChecking=yes against the product's
-known-hosts file, which ssh -G shows holding over a Host * that loosens them, in the very words Ansible gave ssh. The
-rules with a test of their own: the argument list never holds key=value after -e, and no product code passes the
-test-only connection.
+just install before anything is written or started; a play of one ping runs, its child in a session of its own and in
+the run's registry with its pid, with nothing on this process's terminal; the child knows the two filters of the
+engine's own folder, each the core's, and none of today's filter_plugins/, and runs in the run's directory, so a task
+file in the caller's folder never runs; the caller's ANSIBLE_*, PYTHON* and an exported stdout callback never reach the
+child, whose environment is the allow list and the engine's own; a target that is no machine's, a first use's, one with
+no key filed, an inventory name that is not an identity, and every other value that is not one are refused before
+anything is written or started; SIGINT to the child's group ends it, and proc.end leaves nothing of it; a call cancelled
+ends the child with its tree; and the host's ansible_ssh_common_args start with the runner's own,
+StrictHostKeyChecking=yes against the product's known-hosts file, which ssh -G shows holding over a Host * that loosens
+them, in the very words Ansible gave ssh. The rules with a test of their own: the argument list never holds key=value
+after -e, and no product code passes the test-only connection.
 """
 
 from __future__ import annotations
@@ -51,6 +52,7 @@ from claude_vm.runs import children, rundir
 from claude_vm.runs import job as jobs
 from claude_vm.schema import printer
 from claude_vm.ssh import hostkeys, runner
+from claude_vm.text import plain_text
 
 # Until F6a, every run here but those with a folder of collections of their own finds the checkout's folder planted at
 # requirements.yml's pins in the test's home, which layer 1 holds it to before its child starts.
@@ -241,7 +243,7 @@ def test_the_generated_configuration_read_back_is_the_fixed_expectation(made) ->
     assert {origins.pop(name) for name in FROM_THE_ENVIRONMENT} == {f"env: {layer1.UNTRUSTED_VARIABLE}"}
     assert {local_tmp["origin"], *origins.values(), *(entry["origin"] for entry in empty.values())} == {str(config)}
     assert layer1.ROLES == REPO.resolve() / "roles"
-    assert layer1.FILTERS == REPO.resolve() / "filter_plugins"
+    assert layer1.FILTERS == REPO.resolve() / "lib" / "claude_vm" / "guest" / "ansible" / "filter_plugins"
 
 
 def _keys(text: str) -> dict[str, list[str]]:
@@ -271,9 +273,9 @@ def test_the_configuration_names_every_folder_ansible_searches_and_ssh_args_offe
         "HostbasedAuthentication=no",
     ]
     assert "callbacks_enabled" not in keys
-    # The product's callback and today's filters, by their folders beside the engine, and no other of either.
+    # The product's callback and the engine's two filters, by their folders beside the engine, and no other of either.
     assert keys["callback_plugins"] == [str(layer1.CALLBACKS)] and keys["filter_plugins"] == [str(layer1.FILTERS)]
-    assert (layer1.CALLBACKS / f"{layer1.CALLBACK}.py").is_file() and (layer1.FILTERS / "text.py").is_file()
+    assert (layer1.CALLBACKS / f"{layer1.CALLBACK}.py").is_file() and (layer1.FILTERS / "aw_filters.py").is_file()
     # Every other folder, and the collections', the run's empty one, and Python's path not scanned for collections.
     for key in (*layer1.PLUGIN_FOLDERS, "collections_path"):
         assert keys[key] == [str(directory / layer1.NONE)], key
@@ -296,6 +298,30 @@ def test_every_folder_ansible_would_search_under_home_is_named(made) -> None:
     assert directory is not None
     named = set(_keys(layer1.configuration_text(directory)))
     assert len(searched) > 15 and searched - named == set(), sorted(searched - named)
+
+
+def test_the_filter_folder_holds_one_adapter_of_the_two_filters_the_roles_call_each_the_core_s() -> None:
+    # Review 50's high 3: today's filter_plugins/ runs filters here that reach out (proxmox_trust_holds opens a
+    # connection to the address it is given). The engine's folder holds one adapter, which loads nothing of the core
+    # until a filter is called, as today's adapters do, and each filter it names is the core's function of its name.
+    assert sorted(entry.name for entry in layer1.FILTERS.iterdir() if entry.name != "__pycache__") == ["aw_filters.py"]
+    script = f"""
+import importlib, importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("adapter", {str(layer1.FILTERS / "aw_filters.py")!r})
+adapter = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(adapter)
+filters = adapter.FilterModule().filters()
+loaded = sorted(m for m in sys.modules if m.split(".")[0] == "claude_vm" and m not in ("claude_vm", "claude_vm.plugin"))
+given = {{"plain_text": ("a\\x1b[31mb\\x07c",), "sshd_match_spec": ("192.0.2.1 50000 192.0.2.2 22", "alpha")}}
+same = {{}}
+for name, call in filters.items():
+    core = {{"plain_text": "text", "sshd_match_spec": "checks"}}[name]
+    same[name] = call(*given[name]) == getattr(importlib.import_module("claude_vm." + core), name)(*given[name])
+print(json.dumps({{"loaded": loaded, "same": same}}))
+"""
+    done = subprocess.run([sys.executable, "-I", "-c", script], capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout) == {"loaded": [], "same": {"plain_text": True, "sshd_match_spec": True}}
 
 
 @pytest.mark.parametrize("data_home", ["the test's own", "another", "none, HOME's"])
@@ -547,7 +573,72 @@ def test_a_vars_plugin_under_the_caller_s_home_is_never_run(made, root, tmp_path
     assert not mark.exists()
 
 
-# ---------------------------------------------------------------- a play runs ----
+# Filters of today's filter_plugins/ the child must not know: one that opens a connection from here, and two others.
+TODAYS_FILTERS = ("proxmox_trust_holds", "one_line", "toolchain_digest")
+
+
+def test_the_child_knows_the_two_filters_of_its_own_folder_and_none_of_today_s(made, root, tmp_path) -> None:
+    alpha = _alpha(root)
+    given = {"text": "a\x1b[31mb\x07c", "connection": "192.0.2.1 50000 192.0.2.2 22"}
+    wanted = {"text": plain_text(given["text"]), "spec": checks.sshd_match_spec(given["connection"], "alpha")}
+    tasks: list[dict] = [
+        {
+            "name": "the two",
+            "vars": {"given": given, "wanted": wanted},
+            "ansible.builtin.assert": {
+                "that": [
+                    "(given.text | plain_text) == wanted.text",
+                    "(given.connection | sshd_match_spec('alpha')) == wanted.spec",
+                ]
+            },
+        }
+    ]
+    for name in TODAYS_FILTERS:
+        tasks += [
+            {
+                "name": f"today's {name}",
+                "ansible.builtin.debug": {"msg": "{{ 'x' | " + name + " }}"},
+                "register": f"called_{name}",
+                "ignore_errors": True,
+            },
+            {
+                "name": f"{name} unknown",
+                "ansible.builtin.assert": {"that": [f"called_{name} is failed", f"'{name}' in called_{name}.msg"]},
+            },
+        ]
+    ended = _run(made, target(alpha), _play(tmp_path, *tasks), test_connection=layer1_host(alpha))
+    assert ended.status == 0, ended.said
+
+
+def test_the_child_runs_in_the_run_s_directory_never_the_caller_s(made, root, tmp_path, monkeypatch) -> None:
+    # Review 50's high 1: Ansible looks for a task file in its working folder too, before the walk's file in some
+    # cases (a shared file's include with none beside it): a decoy in the caller's folder never runs.
+    caller = tmp_path / "caller"
+    mark = tmp_path / "decoy-ran"
+    (caller / "tasks").mkdir(parents=True)
+    decoy = [{"name": "decoy", "ansible.builtin.copy": {"content": "ran", "dest": str(mark)}}]
+    (caller / "tasks" / "x.yml").write_text(json.dumps(decoy))
+    (caller / "x.yml").write_text(json.dumps(decoy))
+    monkeypatch.chdir(caller)
+    folder = tmp_path / "play"
+    (folder / "tasks").mkdir(parents=True)
+    (folder / "tasks" / "shared.yml").write_text(json.dumps([{"name": "x", "ansible.builtin.include_tasks": "x.yml"}]))
+    seen: dict[str, str] = {}
+
+    def started(process) -> None:
+        # Where the kernel shows it (Linux); Ansible's pipe lookup runs in the play's folder, whatever the child's.
+        if Path(f"/proc/{process.pid}/cwd").exists():
+            seen["cwd"] = os.readlink(f"/proc/{process.pid}/cwd")
+
+    alpha = _alpha(root)
+    play = _play(folder, {"name": "shared", "ansible.builtin.import_tasks": "tasks/shared.yml"})
+    ended = _run(made, target(alpha), play, started=started, test_connection=layer1_host(alpha))
+    # The include finds no x.yml where the play has it, and fails there; the caller's never runs.
+    assert ended.status != 0 and not mark.exists(), ended.said
+    directory = rundir.made(made)
+    assert directory is not None
+    if "cwd" in seen:
+        assert os.path.realpath(seen["cwd"]) == os.path.realpath(directory)
 
 
 def test_a_play_of_one_ping_runs_through_layer1_on_a_stand_in_its_child_in_the_registry(made, root, tmp_path, capfd):

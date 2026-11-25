@@ -3,16 +3,17 @@
 Each child here is a real process, a probe that reports what it was given: its environment's marker, its process group
 and session, the signals it ignores or blocks (as Python reads them, and on Linux as the kernel shows a program that is
 not Python), and the descriptors it has open. A child meant to outlive its run is outlive's: unmarked, in a session of
-its own, its standard streams /dev/null, in no registry. A run started with another job's marker carries none from the
-moment its program hands the verb on, and nor do the children it starts outside start (route.py's ssh, proc.py's ps). A
-child the terminal stopped is asking's, route.py's ssh in a process group of its own among them, and one stopped for any
-other reason is not. The rules with a test of their own: what a forked child runs before its exec is signal's two calls
-alone; in the new engine's code a child process is started only through children.py, the SSH runner's among them, by a
-scan for every way Python starts one, the standard library's own in platform among them; close_fds is never turned
-off; no process is forked without an exec (a forked child keeps every lock the run holds, since a descriptor that is
-not inheritable is closed only at an exec); pass_fds and set_inheritable(..., True), and every other way to make a
-descriptor inheritable, appear only in children.start; and every module of runs/ that takes a kernel lock is one
-children.HOLDERS reads, so that its locks are refused too.
+its own, its standard streams /dev/null, in no registry. A child runs in the folder it is given, which is an absolute
+path, and otherwise where the run does. A run started with another job's marker carries none from the moment its program
+hands the verb on, and nor do the children it starts outside start (route.py's ssh, proc.py's ps). A child the terminal
+stopped is asking's, route.py's ssh in a process group of its own among them, and one stopped for any other reason is
+not. The rules with a test of their own: what a forked child runs before its exec is signal's two calls alone; in the
+new engine's code a child process is started only through children.py, the SSH runner's among them, by a scan for every
+way Python starts one, the standard library's own in platform among them; close_fds is never turned off; no process is
+forked without an exec (a forked child keeps every lock the run holds, since a descriptor that is not inheritable is
+closed only at an exec); pass_fds and set_inheritable(..., True), and every other way to make a descriptor inheritable,
+appear only in children.start; and every module of runs/ that takes a kernel lock is one children.HOLDERS reads, so that
+its locks are refused too.
 """
 
 from __future__ import annotations
@@ -371,6 +372,8 @@ def test_a_child_is_never_handed_a_lock_and_nothing_starts(made, nothing_starts,
         ({"own": children.SESSION, "stdin": PIPE}, ValueError, "/dev/null"),
         ({"pass_fds": ("3",)}, TypeError, "descriptors"),
         ({"pass_fds": (True,)}, TypeError, "descriptors"),
+        ({"cwd": "relative"}, ValueError, "absolute path"),
+        ({"cwd": b"/tmp"}, ValueError, "absolute path"),
     ],
 )
 def test_a_child_asked_for_wrongly_is_refused_and_nothing_starts(made, nothing_starts, given, error, said) -> None:
@@ -430,6 +433,30 @@ def test_a_lock_on_a_standard_stream_the_child_would_inherit_is_refused_and_noth
         os.close(saved)
     assert f"descriptor {number} holds job {made.id}'s lock" in str(refused.value)
     assert nothing_starts == [] and children.live(made) == []
+
+
+def test_a_child_given_a_folder_runs_there_and_one_given_none_where_the_run_does(made, tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    folder = tmp_path / "the child's"
+    folder.mkdir()
+
+    async def run(**given) -> str:
+        process = await children.start(
+            made,
+            [sys.executable, "-I", "-c", "import os; print(os.getcwd())"],
+            children.GROUP,
+            dict(os.environ),
+            DEVNULL,
+            PIPE,
+            DEVNULL,
+            children.PROGRAM,
+            **given,
+        )
+        out, _ = await asyncio.wait_for(process.communicate(), 60)
+        return os.path.realpath(out.decode().strip())
+
+    assert asyncio.run(run(cwd=folder)) == os.path.realpath(folder)
+    assert asyncio.run(run()) == os.path.realpath(tmp_path)
 
 
 def test_a_standard_stream_the_child_inherits_that_is_no_lock_is_handed_over(made) -> None:

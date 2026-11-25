@@ -1805,8 +1805,9 @@ to outlive its run. Only the process that made a job marks a child with it, and 
 it inherited (a run started from an agent's job, or from a terminal of an editor a run opened) is unset by the launcher
 and taken out of the program's environment at its start (16.3), so the children a run starts outside `start` - the
 `ssh` that `route.py` runs for the hop and `ssh -G`, the `ps` that `proc.py` runs for the tree - carry none.
-`start(job, argv, own, env, stdin, stdout, stderr, kind, pass_fds=())` is the one way the engine starts a child that
-ends with its run, the SSH runner's `ssh` children among them, a coroutine over asyncio's own:
+`start(job, argv, own, env, stdin, stdout, stderr, kind, pass_fds=(), cwd=None)` is the one way the engine starts a
+child that ends with its run, the SSH runner's `ssh` children among them, a coroutine over asyncio's own, in the folder
+`cwd` names, an absolute path (a relative one is refused before anything starts), or else where the run is:
 
 - `own` is `group`, a process group of its own, so that the terminal's Ctrl-C reaches the run alone; or `session`, a
   session of its own, its standard input `/dev/null`. Standard input is always named, and never the run's own
@@ -2806,7 +2807,8 @@ canary of a verb's words, its ask, its input and the password in no word of `ssh
 step that asks whether Claude is signed in, in a Python of its own, with no Ansible loaded.
 
 **Layer 1's child.** `lib/claude_vm/guest/layer1.py`'s `run` converges one machine with one `ansible-playbook`, started
-through `children.start` as an `ansible` child of the run, in a session of its own: it has no terminal, a terminal's
+through `children.start` as an `ansible` child of the run, in a session of its own and in the run's directory (`start`'s
+`cwd`), never the caller's working folder, where Ansible looks for a task file too: it has no terminal, a terminal's
 Ctrl-C reaches the run alone, and the run's ladder hands it on as SIGINT to the child's group (§16.8). Its standard
 input is `/dev/null` and its one pipe is the events', whose write end goes over through `start`'s descriptors and whose
 read end the run reads while the child runs; what it prints goes to a file of its own, never the terminal, and its last
@@ -2814,8 +2816,12 @@ read end the run reads while the child runs; what it prints goes to a file of it
 an inventory of one host for each machine, `inventory-<identity>.yml`. The configuration names one stdout callback and
 no other, one fork, facts kept under `ansible_facts`, pipelining, the `yaml` inventory plugin alone, this checkout's
 `roles/`, Ansible's local temporary files in the run's directory, and every folder Ansible searches for a plugin or a
-collection: the product's own (the callback's, and today's `filter_plugins/`, whose `plain_text` and `sshd_match_spec`
-the roles call) and, for every other kind, an empty folder of the run's directory, Python's path not scanned for
+collection: the product's own (the callback's, and the engine's filter folder,
+`lib/claude_vm/guest/ansible/filter_plugins/`, whose one adapter, `aw_filters.py`, gives `plain_text` and
+`sshd_match_spec`, the two the roles call, each the core's function of its name - never today's `filter_plugins/`, whose
+filters run on this computer as a play calls them, `proxmox_trust_holds` opening a connection to the address it is
+given; a role that calls another filter adds it to the adapter) and, for every other kind, an empty folder of the run's
+directory, Python's path not scanned for
 collections, so that nothing under the caller's home or `/usr/share/ansible` is searched (a vars plugin in
 `~/.ansible/plugins/vars` runs without being enabled), but for one folder, for now. **Until F6a** (the owner's answer
 of 2026-11-23), the collections' path is the checkout's own folder of Galaxy collections, the one today's product's
@@ -2835,7 +2841,9 @@ install`, which fills the folder, before anything is written, never Ansible's ex
 home that Ansible searches: it holds the collections pinned there, and a collection's vars plugin runs only where it
 is enabled, which the configuration enables none of. F6a, once built-in modules replace those three, takes the folder
 out, and the collections' path is the run's empty folder again. Ansible still adds the play's own folders beside it
-(`playbooks/library/`, `action_plugins/` and `module_utils/`, today's) and each role's. `ssh_args`, the one place ahead
+(`playbooks/library/`, `action_plugins/` and `module_utils/`, today's) and each role's, and searches a `collections/`
+beside the play whatever the configuration names: the ratchet (below) holds the play's folder to those three, none
+holding a name of Ansible's own, and the roles to none. `ssh_args`, the one place ahead
 of Ansible's own words to `ssh`, holds `-o PreferredAuthentications=publickey -o GSSAPIAuthentication=no -o
 HostbasedAuthentication=no`, a key and no other way to log in, as the SSH runner offers, and never Ansible's default,
 which would put `ControlMaster=auto` ahead of the host's options and make the child a connection's master. The one
@@ -2899,11 +2907,24 @@ post-tasks and handlers, a block's three parts among them; an include or import 
 one included or imported from anywhere, and one a role's `meta/main.yml` names among its dependencies, found in the
 roles' folder; each role's tasks, handlers, defaults, vars and meta in every spelling Ansible's own `_load_role_yaml`
 takes (`main.yml`, `main.yaml`, `main.json`, `main`, a `main/` folder of defaults or vars, the file an include's
-`_from` names), read through Ansible's own `find_vars_files`; the play's `vars_files`; and each template a role's
-template task renders. What it does not follow it never passes over: a playbook imported, an include in a handler
+`_from` names), read through Ansible's own `find_vars_files`, and its argument specs, which Ansible templates here as
+its check's arguments; the play's `vars_files`; each template a role's template task renders; and each file of a role's
+`files/` that a `copy`, `unarchive`, `assemble` or `uri` sends from this computer (`src`, and `uri`'s multipart
+`filename`s, unless `remote_src` is true as written, as it is for `assemble` unless said). What it does not follow it
+never passes over: a playbook imported, an include in a handler
 (Ansible resolves those otherwise), a file or role named by a template, a collection's role, a `collections` keyword
 (under which a short name can stand for a collection's module), a role in the play's own roles folder (searched before
-`roles_path`), a template outside a role or one that includes another each raise `Unfollowed`, which fails every test.
+`roles_path`), a template outside a role or one that includes another (`{%+` too) each raise `Unfollowed`, which fails
+every test. So do a task file Ansible looks for elsewhere before the walk's (review 50): an `import_tasks` in a role's
+file that an include or import brought in, which Ansible looks for first under that file's own folder's `tasks/` and
+then the working folder's, and any include or import two files below the play, looked for beside the play first (one
+file below, the walk's file is Ansible's first); a file sent from this computer outside a role, or one that is no
+regular file of its role's `files/` (a name under `files/`, a folder, a link out); and what Ansible takes from the
+play's folder that the walk does not read - `group_vars/` or `host_vars/`, whose variables reach the host whenever it
+joins a group, `collections/`, a folder of any kind of plugin but the three `BESIDE_THE_PLAY` lists with its reason
+(`library`, `action_plugins`, `module_utils`), and in those three a name of Ansible's own module, action or
+module_utils, which Ansible looks for there first under `ansible.legacy` (a local `normal.py` runs here for every module
+that has no action of its own) - and any folder of plugins in a role, each kind and name read from Ansible itself.
 Four tests read what it found. A `command`, `shell`, `raw`, `script` or `expect` is listed in `REASONS` with its reason
 and with its module and arguments as Ansible's `ModuleArgsParser` reads them, so that a reason is held to what runs: a
 new one, one no longer reached and one whose words changed under its name each fail, and two such tasks of one file and
@@ -2913,9 +2934,11 @@ whose name begins `ansible_` - the vars of a play, block, task, role entry or de
 role's defaults and vars, a fact (a templated name refused), a register, a loop's variable, an include's `apply`,
 `add_host` - nor includes variables at all, which the play's first check cannot see. And nothing runs or writes on this
 computer: no `delegate_to`, `local_action` or `connection` on a play, role entry, block, task or `apply`, no `fetch`,
-no play over any host but `all`, no `with_` loop, and no lookup but the five `LOOKUPS` lists by its file and whole
+no `group_by` or `add_host` (a group joined after the play's check, whose variables the check never saw), no play over
+any host but `all`, no `with_` loop, and no lookup but the five `LOOKUPS` lists by its file and whole
 string (the check's read of the inventory, `remote_tmp.yml`'s setting, and the three vendors' keys), found in every
-string of every file the walk read and in the templates. Until F6a those three modules need their collections, from
+string of every file the walk read (the roles' argument specs among them) and in the templates. Until F6a those three
+modules need their collections, from
 the checkout's own folder that layer 1's configuration names for now (above), or a test's in its place, the
 scenario's. The `system` scenario
 (`molecule/system/`, [§11.3](testing.md#113-playbook-scenarios--just-test-integration-and-provision)) converges a
