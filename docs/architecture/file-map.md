@@ -257,7 +257,8 @@ lib/claude_vm/engine/             the workflows, one module a verb, in place of 
                                   alone; init.py, init with nobody there: a whole fleet folder written, the vault sealed;
                                   fleet.py, the fleet as the engine reads it: a host's pool members as targets, what is
                                   refused, and the Owned of each a changing read may change; access.py, the one list of
-                                  what init makes on a host, and the check of each against what is there
+                                  what init makes on a host, the check of each against what is there, and the script
+                                  that makes them, rendered
 lib/claude_vm/pve/                the typed Proxmox VE client, and the one table of each call's privilege; client.py,
                                   Proxmox, the one class that sends the token, and its reads and writes; answers.py,
                                   each answer's frozen record and its parsing function; pin.py, the connection the token
@@ -267,7 +268,9 @@ lib/claude_vm/pve/                the typed Proxmox VE client, and the one table
                                   its notes, parsed and rendered with nothing of the engine's but text.py; template.py,
                                   the base template judged from what was read of it, with no client, which deploy and
                                   status judge by alike; ownership.py, the one rule of what is the fleet's, which status
-                                  judges by too, and the Owned every write of a VM takes, which it alone makes
+                                  judges by too, and the Owned every write of a VM takes, which it alone makes;
+                                  script.py, the access script's fixed text, its shell and its Perl around the calls
+                                  engine/access.py renders
 lib/claude_vm/ssh/                the runner over OpenSSH: ssh as a child, host keys taken at first use, the control
                                   directory, the children a run holds
 lib/claude_vm/vendors/            one HTTPS transport, Tailscale's calls, downloads held to a signature or a digest;

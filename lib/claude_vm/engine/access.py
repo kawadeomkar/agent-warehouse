@@ -35,24 +35,35 @@ granted, and said with the line that fixes it, or, where its grants are there al
 now, since a role is one set of privileges granted on a path, and that role on `/vms` hands each privilege it holds
 over every VM of the node.
 
-This module runs nothing against a host and renders nothing: card E2's script is the one rendering of the list, run
-over root SSH on a `y` (E7) or printed for the person to run. Standard library only, with fleet/'s mark and settings
-table, pve/'s table of privileges and template judgement, and today's checks.py and text.py.
+`as_script(host, custom)` is the one rendering of the list: the script init runs on the host as root, over root SSH
+on a `y` (E7), or prints for the person to run there (`aw init --print-commands`), rendered each time and never written
+into the checkout. Its options change the values the list is made of, and a person's own template, which
+`proxmox_template_custom` names (custom), is looked up on the host by its name, with the bridges its network cards are
+on: so each object is rendered as one call of the script's fixed interpreter (pve/script.py), the values its shell
+variables, made from the list of a host of placeholders, and held at every rendering to the list itself for each
+scope, with and without the template, over one bridge and two. The checks of each value and the sentences the script
+says are this module's and fleet/mark.py's, rendered: what the script decides is what `plan` decides of the same
+host. This module runs nothing against a host and writes nothing. Standard library only, with fleet/'s mark and
+settings table, pve/'s table of privileges, template judgement and the script's fixed text, and today's checks.py and
+text.py.
 """
 
 from __future__ import annotations
 
 import re
+import shlex
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, replace
 from types import MappingProxyType
 from typing import ClassVar
 
-from ..checks import proxmox_name
+from ..checks import PROXMOX_NAMES, proxmox_name
 from ..fleet import mark, record, registry
-from ..pve import privileges
+from ..pve import privileges, script
 from ..pve.template import AUDIT, GUESTS, option
 from ..schema import patterns
+from ..schema.printer import said
+from ..schema.words import PLACEHOLDER, Line
 from ..text import one_line
 
 __all__ = [
@@ -79,6 +90,7 @@ __all__ = [
     "Step",
     "Token",
     "User",
+    "as_script",
     "check",
     "objects",
     "plan",
@@ -114,6 +126,9 @@ TOKEN_NAME = re.compile(r"[A-Za-z][A-Za-z0-9._-]+")
 GUEST_ID = range(100, 1_000_000_000)
 # The most characters of what the host holds that a sentence says.
 SAID_MOST = 200
+# A person's own template, by the name proxmox_template_custom gives it: a name Proxmox gives a guest, a DNS name's
+# characters, from and to a letter or a digit, at most 63.
+TEMPLATE_NAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9.-]{0,61}[A-Za-z0-9])?")
 
 # What check answers.
 MISSING, OWN = ANSWERS = ("missing", "own")
@@ -417,11 +432,15 @@ def _token(token: Token, found: Found) -> Answer:
     if privsep is None:
         return Answer(MISSING)
     if privsep != token.privsep:
+        beside = Line("init", {"token_id": PLACEHOLDER}, host_flag="")
         raise NotOwn(
-            f"The token {token.name} of {token.user} is there without privilege separation, so it holds every privilege"
-            f" its user holds, not only its own grants: it is not one init makes. As root on the Proxmox host, pveum"
-            f" user token delete {token.user} {token.name} deletes it, and init then makes it again; or aw init"
-            " --token-id <an ID of the fleet's own> makes one beside it."
+            said(
+                "The token {token} of {user} is there without privilege separation, so it holds every privilege its"
+                " user holds, not only its own grants: it is not one init makes. As root on the Proxmox host, pveum"
+                " user token delete {user} {token} deletes it, and init then makes it again; or {line}, with an ID of"
+                " the fleet's own, makes one beside it.",
+                {"token": token.name, "user": token.user, "line": beside},
+            )
         )
     return Answer(OWN)
 
@@ -523,3 +542,311 @@ def plan(listed: Sequence[Object], found: Found) -> Plan:
 
 def _roles_of(listed: Sequence[Object]) -> dict[str, Role]:
     return {each.name: each for each in listed if isinstance(each, Role)}
+
+
+# ---------------------------------------------------------------- the script ----
+
+# The values the script takes as options, each its shell variable in the rendered calls: the list is made for a host of
+# placeholders, each a value its check holds and that nothing else of a list holds (an _ is in no node's name and no
+# fleet's ID), and each placeholder is rendered as its variable. `each` is the bridge of the loop over the bridges.
+_POOL, _STORAGE, _BRIDGE, _SECOND_BRIDGE = "Z_pool_1", "Z_storage_1", "Z_bridge_1", "Z_bridge_2"
+_USER, _TOKEN = "Z_user_1@Z_realm_1", "Z_token_1"
+_PLACES = {_POOL: "pool", _STORAGE: "storage", _BRIDGE: "each", _USER: "user", _TOKEN: "token"}
+# The sentences' own: the privileges a role holds beyond its own, its grants' paths and those granted already (the
+# arguments of the script's `sentence`), and the fleet or control VM a mark names.
+_MORE, _PATHS, _GRANTED = "Z_more_1", "Z_paths_1", "Z_granted_1"
+_SAID = {_MORE: "2", _PATHS: "3", _GRANTED: "4"}
+_OTHERS = ("00000000-0000-4000-8000-000000000000", "00000000-0000-4000-8000-000000000001")
+# A role's ID, which the script keeps values under.
+_ROLE_ID = re.compile(r"[A-Za-z]+")
+
+
+@dataclass(frozen=True)
+class _Entry:
+    """One call of the rendered list: the object, of the placeholders' host; the scopes it is made under; whether only
+    with a person's own template outside the pool; and whether once for each bridge."""
+
+    obj: Object
+    scopes: tuple[str, ...]
+    custom: bool
+    per_bridge: bool
+
+
+def _placed(host: Host, scope: str, custom_id: int | None, bridges: tuple[str, ...]) -> Host:
+    return Host(
+        fleet=host.fleet,
+        node=host.node,
+        storage=_STORAGE,
+        bridges=bridges,
+        pool=_POOL,
+        user=_USER,
+        token=_TOKEN,
+        audit_scope=scope,
+        custom_template=custom_id,
+    )
+
+
+def _texts(obj: Object) -> list[str]:
+    return [value for each in fields(obj) if isinstance(value := getattr(obj, each.name), str)]
+
+
+def _bridged(obj: Object, bridge: str) -> Object:
+    """obj with the bridge's placeholder made bridge: a grant's path is the one text of the list that names a bridge,
+    which the shape's check holds."""
+    return replace(obj, path=obj.path.replace(_BRIDGE, bridge)) if isinstance(obj, Grant) else obj
+
+
+def _shape(host: Host, custom_id: int) -> tuple[_Entry, ...]:
+    """The list as the script makes it: each object of the placeholders' host, with when it is made. Held to the list
+    itself under every scope, with and without the template, over one bridge and two: a list of another shape is
+    refused, never rendered otherwise than it is."""
+    one, two = (_BRIDGE,), (_BRIDGE, _SECOND_BRIDGE)
+    listed = {
+        (scope, made): objects(_placed(host, scope, custom_id if made else None, one))
+        for scope in SCOPES
+        for made in (True, False)
+    }
+    entries = tuple(
+        _Entry(
+            obj,
+            tuple(scope for scope in SCOPES if obj in listed[scope, True]),
+            any(obj in listed[scope, True] and obj not in listed[scope, False] for scope in SCOPES),
+            any(_BRIDGE in text for text in _texts(obj)),
+        )
+        for obj in max(listed.values(), key=len)
+    )
+    for scope in SCOPES:
+        for made in (True, False):
+            for bridges in (one, two):
+                rendered = tuple(
+                    _bridged(entry.obj, bridge)
+                    for entry in entries
+                    if scope in entry.scopes and (made or not entry.custom)
+                    for bridge in (bridges if entry.per_bridge else one)
+                )
+                if rendered != objects(_placed(host, scope, custom_id if made else None, bridges)):
+                    raise RuntimeError(f"the list under {scope} is not of a shape the script renders")
+    return entries
+
+
+def _word(text: str, places: Mapping[str, str]) -> str:
+    """text as one shell word: quoted as shlex quotes it where it holds no placeholder, else in double quotes with each
+    placeholder its variable."""
+    if not any(place in text for place in places):
+        return shlex.quote(text)
+    pattern = "|".join(re.escape(place) for place in sorted(places, key=len, reverse=True))
+    parts = re.split(f"({pattern})", text)
+    quoted = "".join(
+        f"${{{places[part]}}}" if index % 2 else re.sub(r'([\\"$`])', r"\\\1", part) for index, part in enumerate(parts)
+    )
+    return f'"{quoted}"'
+
+
+def _call(obj: Object, tokens: frozenset[str], places: Mapping[str, str]) -> str:
+    """One object as one call of the script's interpreter."""
+    if isinstance(obj, Pool):
+        words = ("Pool", _word(obj.name, places), _word(obj.comment, places))
+    elif isinstance(obj, Role):
+        if not _ROLE_ID.fullmatch(obj.name):
+            raise RuntimeError("a role's ID is letters alone, which the script keeps values under")
+        words = ("Role", _word(obj.name, places), _word(",".join(obj.privileges), places), str(int(obj.exact)))
+    elif isinstance(obj, User):
+        words = ("User", _word(obj.name, places), _word(obj.comment, places))
+    elif isinstance(obj, Token):
+        words = ("Token", _word(obj.user, places), _word(obj.name, places), _word(obj.comment, places))
+        words += (str(int(obj.privsep)),)
+    else:
+        if not obj.propagate or not _ROLE_ID.fullmatch(obj.role):
+            raise RuntimeError("the script makes a grant of a role of its own, propagating, as pveum makes one")
+        kind = "tokens" if obj.subject in tokens else "users"
+        words = ("Grant", _word(obj.path, places), _word(obj.role, places), kind, _word(obj.subject, places))
+    return " ".join(words)
+
+
+def _objects_function(entries: Sequence[_Entry], places: Mapping[str, str]) -> str:
+    """The script's `objects`: each call, under the scopes it is made under, the template's lookup, and the loop over
+    the bridges."""
+    tokens = frozenset(entry.obj.id for entry in entries if isinstance(entry.obj, Token))
+    lines = ["objects() {"]
+    for entry in entries:
+        conditions = []
+        if entry.scopes != SCOPES:
+            conditions.append(" || ".join(f'[ "$audit_scope" = {shlex.quote(scope)} ]' for scope in entry.scopes))
+        if entry.custom:
+            conditions.append('[ -n "$custom_id" ]')
+        body = [_call(entry.obj, tokens, places)]
+        if entry.per_bridge:
+            body = ["for each in $bridges; do", *(f"  {line}" for line in body), "done"]
+        if conditions:
+            body = [f"if {' && '.join(conditions)}; then", *(f"  {line}" for line in body), "fi"]
+        lines += [f"  {line}" for line in body]
+    return "\n".join([*lines, "}", ""])
+
+
+def _refusal(host: Host, changed: Mapping[str, object]) -> str:
+    """The sentence Host refuses host with, changed so."""
+    values = {each.name: getattr(host, each.name) for each in fields(host)}
+    try:
+        Host(**{**values, **changed})
+    except Refused as refused:
+        return str(refused)
+    raise RuntimeError(f"a host of {', '.join(changed)} so is not refused")
+
+
+def _unreadable(comment: str) -> str:
+    try:
+        mark.parse(comment)
+    except mark.Unreadable as unreadable:
+        return str(unreadable)
+    raise RuntimeError("a comment that does not read as a mark is read as one")
+
+
+def _printed(text: str, places: Mapping[str, str] | None = None) -> str:
+    return f"printf '%s' {_word(text, places or {})}"
+
+
+def _sentence_function(host: Host, entries: Sequence[_Entry]) -> str:
+    """The script's `sentence <key> [more paths granted]`: each sentence it says that this module or fleet/mark.py
+    words, with the values it names its variables."""
+    listed = [entry.obj for entry in entries]
+    cases = [
+        (f"refused-{key}", _printed(_refusal(host, changed)))
+        for key, changed in (
+            ("pool", {"pool": "1"}),
+            ("user", {"user": "x"}),
+            ("root", {"user": "root@pam"}),
+            ("token", {"token": "x"}),
+            ("storage", {"storage": "-"}),
+            ("bridge", {"bridges": ("-",)}),
+            ("scope", {"audit_scope": "-"}),
+        )
+    ]
+    ours = record.first(host.fleet)
+    other = next(each for each in _OTHERS if each != host.fleet)
+    found = {other: "found"}
+    cases += [
+        ("pool-unmarked", _printed(str(mark.may_change(None, ours)))),
+        ("pool-other", _printed(str(mark.may_change(mark.Mark(other, mark.NONE), ours)), found)),
+        ("pool-controlled", _printed(str(mark.may_change(mark.Mark(host.fleet, other), ours)), found)),
+        ("pool-doubled", _printed(_unreadable(f"{mark.WORD} fleet= {mark.WORD} fleet="))),
+        ("pool-unreadable", _printed(_unreadable(f"{mark.WORD} fleet="))),
+    ]
+    token = next(each for each in listed if isinstance(each, Token))
+    try:
+        check(token, Found(tokens={token.id: not token.privsep}))
+    except NotOwn as not_own:
+        cases.append(("token-not-own", _printed(str(not_own), {_USER: "user", _TOKEN: "token"})))
+    else:
+        raise RuntimeError("a token of the list's ID made otherwise is taken for the engine's own")
+    for role in _roles_of(listed).values():
+        apart = _printed(_too_much(role, (_MORE,), [_PATHS], []), _SAID)
+        if role.exact:
+            granted = _printed(_too_much(role, (_MORE,), [_PATHS], [_GRANTED]), _SAID)
+            apart = f'if [ -n "${{4}}" ]; then {granted}; else {apart}; fi'
+        cases.append((f"too-much-{role.name}", apart))
+    lines = ["sentence() {", '  case "$1" in', *(f"  {key}) {body} ;;" for key, body in cases), "  esac", "}"]
+    return "\n".join([*lines, ""])
+
+
+# The access script's first lines: what it is, how it is run, and its options with their values for this host. Said
+# through the printer, which writes init's two lines, the one that rendered it and the one that prints it, as Lines;
+# every other value is one the host's checks held to its plain form.
+_HEAD = """#!/bin/sh
+# Rendered by {init} for node {node} of fleet {fleet}: the API access the engine uses on this Proxmox VE host, and
+# nothing else. Run it on the host as root, as init does over root SSH on a y. Each command it would run, one an
+# object, and then the same, run:
+#
+#   {print_commands} | ssh root@<host> sh -s -- --dry-run
+#   {print_commands} | ssh root@<host> sh -s
+#
+# It makes whichever of the objects init makes is missing, in their order, and changes nothing that is there but a
+# role of the engine's own, to which it adds a privilege it lacks, never taking one away: the pool, its comment the
+# fleet's mark; the roles; the user; the user's grants; the token, with privilege separation; and the token's grants.
+# A pool another fleet marked, or with no mark, and a token made without privilege separation are refused, and
+# nothing is changed.
+#
+# Options:
+#   --storage <id>           the storage for VM disks: {storage}
+#   --bridge <name>          the bridge the base template's network card is on: {bridge}
+#   --user <user@realm>      the token's user: {user}
+#   --token <id>             the token's ID: {token}
+#   --pool <name>            the fleet's pool: {pool}
+#   --audit-scope {scopes}  what the token may read of single VMs beyond its pool: {scope}
+#   --take-unmarked          with --pool: take that pool, whose comment carries no mark, the mark added at its end
+#   --no-token               make no token: the token must be there, or nothing changes
+#   --dry-run                print the commands it would run, one an object, and run none
+#   --list                   print this node's storages for VM disks and its bridges, and change nothing
+#
+# A person's own template, which proxmox_template_custom names, is looked up here by its name: {custom}.
+#
+# stdout carries only data: the token's secret, one line, where it makes the token; the commands with --dry-run; the
+# lines "storage <id>" and "bridge <name>" with --list. Everything said to a person goes to stderr.
+"""
+
+
+def as_script(host: Host, custom: str = "", *, host_flag: str = "") -> str:
+    """The script that makes host's list on the host, run there as root as `sh -s`: rendered for host, whose values
+    are its options' defaults, its one bridge the base template's (`--bridge`); custom is the name of a person's own
+    template, which proxmox_template_custom names, looked up on the host with the bridges of its network cards, or ""
+    for none. Its header says it was rendered by aw init for host's node and fleet, and the lines that print and run
+    it, init's as the printer writes them, with host_flag as the printer takes it: a further host's name, "" with one
+    host. Refused where custom is not a name Proxmox gives a guest; a host given a template's ID, or the bridges of
+    one, is the caller's mistake: the script looks them up. ValueError where the printer refuses host_flag."""
+    if not isinstance(host, Host):
+        raise TypeError(f"the script is rendered for a Host, not a {type(host).__name__}")
+    if host.custom_template is not None or len(host.bridges) != 1:
+        raise ValueError(
+            "the script looks a person's own template and its bridges up on the host, by the name given as custom:"
+            " it is rendered for a host of the base template's bridge alone, and no template's ID"
+        )
+    if not isinstance(custom, str) or (custom and not TEMPLATE_NAME.fullmatch(custom)):
+        raise Refused(
+            "proxmox_template_custom is not a name Proxmox gives a guest: letters, digits, . and -, from and to a"
+            " letter or a digit, at most 63 characters"
+        )
+    custom_id = next(each for each in range(999_999_001, 999_999_999) if str(each) not in host.fleet + host.node)
+    entries = _shape(host, custom_id)
+    places = {**_PLACES, str(custom_id): "custom_id"}
+    head = said(
+        _HEAD,
+        {
+            "init": Line("init", host_flag=host_flag),
+            "print_commands": Line("init", {"print_commands": True}, host_flag=host_flag),
+            "node": host.node,
+            "fleet": host.fleet,
+            "storage": host.storage,
+            "bridge": host.bridges[0],
+            "user": host.user,
+            "token": host.token,
+            "pool": host.pool,
+            "scopes": "|".join(SCOPES),
+            "scope": host.audit_scope,
+            "custom": custom or "(none)",
+        },
+    )
+    values = [
+        ("node", host.node),
+        ("fleet", host.fleet),
+        ("storage", host.storage),
+        ("bridge", host.bridges[0]),
+        ("pool", host.pool),
+        ("user", host.user),
+        ("token", host.token),
+        ("audit_scope", host.audit_scope),
+        ("custom", custom),
+        ("mark_line", mark.Mark(host.fleet, mark.NONE).line),
+        ("said_most", str(SAID_MOST)),
+        ("user_most", str(USER_MOST)),
+        ("re_pool", POOL_NAME.pattern),
+        ("re_user", USER_NAME.pattern),
+        ("re_token", TOKEN_NAME.pattern),
+        ("re_storage", PROXMOX_NAMES["storage"].pattern),
+        ("re_bridge", PROXMOX_NAMES["bridge"].pattern),
+        ("re_scope", "|".join(re.escape(scope) for scope in SCOPES)),
+    ]
+    functions = _sentence_function(host, entries) + _objects_function(entries, places)
+    text = script.render(head, [(name, shlex.quote(value)) for name, value in values], functions)
+    left = [place for place in (*places, *_SAID, *_OTHERS) if place in text and place not in host.fleet]
+    if left:
+        raise RuntimeError("a placeholder of the list is left in the script")
+    return text
