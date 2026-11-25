@@ -112,8 +112,8 @@ SSH_VIA = "is set by the run: how a machine is reached is the route's, which the
 # chooses or a role sets for itself (the template a VM is cloned from, the golden's build VM), and a folder of this
 # computer's; what each machine's record keeps (its own repositories, whether its Tailscale had a login); the lines that
 # name a machine's host and the route to it, the run's; and one a row of another name stands for, with today's
-# behaviour. tests/unit/test_aw_fleet_passthrough.py fails on an option passed through that defaults.yml or a role's own
-# task sets.
+# behaviour. tests/unit/test_aw_fleet_passthrough.py fails on an option passed through that defaults.yml or a role sets
+# for itself, by any road.
 LEFT_OUT = MappingProxyType(
     {
         "proxmox_vm_api_host": "is the host's connection: the host's address is a field of each host's host.yml",

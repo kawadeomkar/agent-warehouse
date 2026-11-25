@@ -20,7 +20,10 @@ by hand as plain data, a `Source` of one of three kinds:
 L-3). Today it is made from the vault's `vault_vm_password` and matters only where `common_user_passwordless_sudo` is
 false, which guest/system.py refuses until F24 hands the password to Ansible's own become-password file on a pipe; no
 secret is ever in the variables file (guest/variables.py). F24 changes this line. `PLAY` is the play's own variable,
-which its opening tasks read under any part: `configure_wait_for_cloud_init`, its row's value.
+which its opening tasks read under any part: `configure_wait_for_cloud_init`, its row's value. `NAMES` is every name of
+the three, the one list of the names the system play's variables may hold: guest/system.py's `variables` writes no other
+and layer1.run's hold of the file takes no other, since an extra variable would outrank the play's own check, a register
+or a role's internal of any other name for every task.
 
 `role_variables(settings, target, parts, profile={})` returns the play's variables for one machine, the document
 guest/system.py's `variables` writes: `settings` is fleet/overrides.py's `resolve` for the machine's run (each name's
@@ -167,6 +170,12 @@ INTERNALS: Mapping[str, Internal] = MappingProxyType(
 
 # The play's own variables, which its opening tasks read under any part.
 PLAY: Mapping[str, Source] = MappingProxyType({"configure_wait_for_cloud_init": _row("configure_wait_for_cloud_init")})
+
+# Every name the system play's variables may hold, and no other: the play's own, each role variable of the table and
+# each internal, the one list, written here once. guest/system.py's `variables` and layer1.run's hold refuse any other
+# name: an extra variable outranks a play's vars, a task's vars, a set_fact and a register for every task, so a name of
+# the play's own check, of a register or of a role's internals would turn them off.
+NAMES: frozenset[str] = frozenset({*PLAY, *INTERNALS, *(name for role in TABLE.values() for name in role)})
 
 
 class Refused(ValueError):

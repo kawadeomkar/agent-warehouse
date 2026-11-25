@@ -5,7 +5,10 @@ through the wiring), passed through, or refused with why. An option passed throu
 type, choices, list elements and description, and the entry point that first lists it - and is held to that spec when
 typed and in a file: a value outside its type or its choices is refused, a list's elements are held, a path on the
 machine is kept as typed. A secret is never passed through, whatever reaches it, nor a value the project's defaults or
-a role's own task sets, unless another part of the engine holds it and it is left out by name. The overrides take its
+a role sets for itself, by any road - a set_fact by any of its names, given its names directly, through action:, args:
+or a module_defaults of the role's or of a play that runs it, a register, a vars:, a file of its vars/ folder - unless
+another part of the engine holds it and it is left out by name; and no road whose names cannot be read (an
+include_vars, a template in their place) is in a role's files. The overrides take its
 name where they take a row's, at the top of the fleet's settings.yml and with --set, and refuse one of the roles'
 options that is no setting by its name and why, in a file and for one run, never saying the value. The two whose value
 is several lines by what they are, an armored key and a whole CLAUDE.md, are each a text: taken from the fleet's file
@@ -22,6 +25,7 @@ the same test reads the roles' specs alone.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import re
@@ -307,37 +311,169 @@ def test_a_machine_s_own_a_run_s_own_and_one_of_any_value_are_refused() -> None:
     assert sorted(name for name in every if passthrough.refusal(name) == ANY_VALUE) == ["proxmox_vm_id"]
 
 
-def _walked(node: object, path: Path, found: dict[str, set[str]]) -> None:
-    """Each name a set_fact's or a vars: mapping sets, at any depth of a task file's YAML, noted with its file."""
-    if isinstance(node, dict):
-        for key, value in node.items():
-            if key in ("set_fact", "ansible.builtin.set_fact", "vars") and isinstance(value, dict):
-                for name in value:
-                    if name != "cacheable":
-                        found.setdefault(str(name), set()).add(str(path.relative_to(REPO)))
-            _walked(value, path, found)
-    elif isinstance(node, list):
+# An action by any name ansible-core resolves to it: bare, ansible.builtin., ansible.legacy. or a collection's.
+def _is(action: object, name: str) -> bool:
+    return isinstance(action, str) and (action == name or action.endswith(f".{name}"))
+
+
+# The names of free-form k=v text, as ansible-core's parse_kv reads a set_fact's: each word's part before its first =.
+FREE_FORM = re.compile(r"(?:^|\s)([^\s=]+)=")
+TEMPLATED = ("{{", "{%")
+# What Ansible loads a task, handler or variables file from: a file with one of these suffixes, never a hidden one.
+LOADED = ("", ".yml", ".yaml", ".json")
+
+
+@dataclasses.dataclass
+class _Scan:
+    """What the scan found, each with the files it is in: every name set for the play; every road whose names it cannot
+    read (an include_vars, a template given in their place or as one of them); and every action group a module_defaults
+    gives arguments to."""
+
+    names: dict[str, set[str]] = dataclasses.field(default_factory=dict)
+    unread: dict[str, set[str]] = dataclasses.field(default_factory=dict)
+    groups: dict[str, set[str]] = dataclasses.field(default_factory=dict)
+
+
+def _noted(found: dict[str, set[str]], key: object, where: str) -> None:
+    found.setdefault(str(key), set()).add(where)
+
+
+def _templated(text: object) -> bool:
+    return not isinstance(text, str) or any(mark in text for mark in TEMPLATED)
+
+
+def _facts(given: object, where: str, scan: _Scan, road: str) -> None:
+    """The names a set_fact is given by road: a mapping's keys, or free-form text's names; a template in their place, or
+    a name that is one (set_fact templates its keys), is a road whose names the scan cannot read."""
+    if given is None:
+        return
+    if isinstance(given, dict):
+        names = [name for name in given if name != "cacheable"]
+    elif isinstance(given, str):
+        names = FREE_FORM.findall(given)
+        if not names and _templated(given):
+            _noted(scan.unread, f"{road} as a template", where)
+    else:
+        names = []
+        _noted(scan.unread, f"{road} as no mapping", where)
+    for name in names:
+        if _templated(name):
+            _noted(scan.unread, f"{road} with a templated name", where)
+        else:
+            _noted(scan.names, name, where)
+
+
+def _defaults(given: object, where: str, scan: _Scan) -> None:
+    """A module_defaults, which ansible-core merges into the arguments of every action under it: a set_fact's entry read
+    as the names it gives every set_fact there, each action group's noted, and one that is not a mapping unread."""
+    for each in given if isinstance(given, list) else [given]:
+        if not isinstance(each, dict):
+            _noted(scan.unread, "a module_defaults as a template", where)
+            continue
+        for action, arguments in each.items():
+            if _is(action, "set_fact"):
+                _facts(arguments, where, scan, "a set_fact's module_defaults")
+            elif isinstance(action, str) and action.startswith("group/"):
+                _noted(scan.groups, action, where)
+
+
+def _task(node: dict, where: str, scan: _Scan) -> None:
+    """What one mapping of a role's file sets, read as a task: its set_fact by any name, through action: or
+    local_action: too, and its args: when its action is a set_fact; its register; its vars:; an include_vars, whose
+    names the scan cannot read."""
+    actions = [(key, value) for key, value in node.items() if key not in ("action", "local_action")]
+    for key in ("action", "local_action"):
+        given = node.get(key)
+        if isinstance(given, str):
+            module, _, rest = given.strip().partition(" ")
+            actions.append((module, rest))
+        elif isinstance(given, dict):
+            actions.append((given.get("module"), {name: value for name, value in given.items() if name != "module"}))
+    facts = False
+    for action, arguments in actions:
+        if _is(action, "set_fact"):
+            facts = True
+            _facts(arguments, where, scan, "a set_fact")
+        elif _is(action, "include_vars"):
+            _noted(scan.unread, "an include_vars", where)
+    if facts and "args" in node:
+        _facts(node["args"], where, scan, "a set_fact's args:")
+    if isinstance(node.get("register"), str):
+        _noted(scan.names, node["register"], where)
+    if isinstance(node.get("vars"), dict):
+        for name in node["vars"]:
+            _noted(scan.names, name, where)
+
+
+def _walked(node: object, where: str, scan: _Scan, *, role: bool) -> None:
+    """Every road a role's file sets a name by, at any depth of its YAML (role), or in a play's file its module_defaults
+    alone, on the play, a role entry, a block or a task, which reach every set_fact of the roles it runs."""
+    if isinstance(node, list):
         for item in node:
-            _walked(item, path, found)
+            _walked(item, where, scan, role=role)
+        return
+    if not isinstance(node, dict):
+        return
+    if "module_defaults" in node:
+        _defaults(node["module_defaults"], where, scan)
+    if role:
+        _task(node, where, scan)
+    for key, value in node.items():
+        if key != "module_defaults":
+            _walked(value, where, scan, role=role)
 
 
-def _set_in_the_tree() -> dict[str, set[str]]:
-    """Every name the project's defaults.yml gives a value, and every name a role's own task file or handler sets for
-    the play (a set_fact's key, a vars: key at any depth) or its vars/main.yml holds, with the files that set it: what
-    outranks an option's own default where today's product runs the role, so a value the run or the role works out."""
-    found: dict[str, set[str]] = {}
-    defaults = REPO / "inventory" / "group_vars" / "all" / "defaults.yml"
-    for name in yaml.safe_load(defaults.read_text()) or {}:
-        found.setdefault(str(name), set()).add(str(defaults.relative_to(REPO)))
+def _loaded(folder: Path, suffixes: tuple[str, ...] = LOADED) -> list[Path]:
+    """Every file under folder Ansible would load as tasks, handlers or variables (or of suffixes), at any depth."""
+    if not folder.is_dir():
+        return []
+    return sorted(
+        path
+        for path in folder.rglob("*")
+        if path.is_file() and path.suffix in suffixes and not path.name.startswith(".")
+    )
+
+
+def _set_in_the_tree(root: Path = REPO) -> _Scan:
+    """Every name the project's defaults.yml gives a value, and every name a role sets for the play by any road - a
+    set_fact by any of its names, given its names directly, through action:, args: or a module_defaults, a register, a
+    vars: at any depth of its task files and handlers, a file of its vars/ folder at any depth - with the files that set
+    it: what outranks an option's own default where today's product runs the role, so a value the run or the role works
+    out. And of every play's file under root, its module_defaults, which reach the set_fact of every role it runs."""
+    scan = _Scan()
+    defaults = root / "inventory" / "group_vars" / "all" / "defaults.yml"
+    if defaults.is_file():
+        for name in yaml.safe_load(defaults.read_text()) or {}:
+            _noted(scan.names, name, str(defaults.relative_to(root)))
     for role in ROLES:
-        folder = REPO / "roles" / role
-        for path in sorted([*folder.glob("tasks/**/*.yml"), *folder.glob("handlers/**/*.yml")]):
-            _walked(yaml.safe_load(path.read_text()), path, found)
-        internals = folder / "vars" / "main.yml"
-        if internals.is_file():
-            for name in yaml.safe_load(internals.read_text()) or {}:
-                found.setdefault(str(name), set()).add(str(internals.relative_to(REPO)))
-    return found
+        folder = root / "roles" / role
+        for path in [*_loaded(folder / "tasks"), *_loaded(folder / "handlers")]:
+            _walked(yaml.safe_load(path.read_text()), str(path.relative_to(root)), scan, role=True)
+        for path in _loaded(folder / "vars"):
+            for name in yaml.safe_load(path.read_text()) or {}:
+                _noted(scan.names, name, str(path.relative_to(root)))
+    for path in sorted([*root.glob("*.yml"), *_loaded(root / "playbooks", (".yml", ".yaml"))]):
+        _walked(yaml.safe_load(path.read_text()), str(path.relative_to(root)), scan, role=False)
+    return scan
+
+
+def _set_here(scan: _Scan) -> dict[str, list[str]]:
+    """Each option passed through that the scan found set, with its files."""
+    return {name: sorted(scan.names[name]) for name in _passed() if name in scan.names}
+
+
+def _group(group: str) -> list[object]:
+    """The actions of a module_defaults' group/<namespace>.<collection>.<group>, from its collection's meta/runtime.yml
+    in the collections' path every sanctioned run exports (tools/env-run)."""
+    found = os.environ.get("ANSIBLE_COLLECTIONS_PATH")
+    if not found:
+        pytest.fail("ANSIBLE_COLLECTIONS_PATH is not set: run the suite through tools/env-run, as just test does")
+    namespace, collection, name = group.removeprefix("group/").split(".")
+    for folder in found.split(os.pathsep):
+        runtime = Path(folder) / "ansible_collections" / namespace / collection / "meta" / "runtime.yml"
+        if runtime.is_file():
+            return list((yaml.safe_load(runtime.read_text()).get("action_groups") or {})[name])
+    pytest.fail(f"no folder of ANSIBLE_COLLECTIONS_PATH holds {namespace}.{collection}")
 
 
 def test_no_option_passed_through_is_one_defaults_yml_or_a_role_s_own_tasks_set() -> None:
@@ -345,16 +481,145 @@ def test_no_option_passed_through_is_one_defaults_yml_or_a_role_s_own_tasks_set(
     # person's value for it, handed to the play as an extra variable, would outrank the role's own set_fact for the
     # whole run. Each such option is a row's, refused, or left out by name with why.
     found = _set_in_the_tree()
-    set_here = {name: sorted(found[name]) for name in _passed() if name in found}
-    assert set_here == {}, f"passed through, yet set by the project or a role: {set_here}"
-    # The scan reads what it is meant to: a line of defaults.yml, a mapping there, a role's set_fact, a task's vars, and
-    # a role's vars/main.yml.
-    assert "inventory/group_vars/all/defaults.yml" in found["proxmox_vm_api_host"]
-    assert "inventory/group_vars/all/defaults.yml" in found["tailscale_off_setting"]
-    assert "roles/proxmox_template/tasks/golden_build.yml" in found["proxmox_template_build_vm"]
-    assert "roles/claude_code/tasks/remote_control.yml" in found["claude_code_unit_retired"]
-    assert "roles/common/vars/main.yml" in found["common_ssh_path"]
-    assert set(HELD_ELSEWHERE) - set(found) == {"proxmox_template_known_hosts_dir"}
+    assert _set_here(found) == {}, f"passed through, yet set by the project or a role: {_set_here(found)}"
+    # No road whose names the scan cannot read, and a module_defaults gives arguments to the Proxmox modules' group
+    # alone, whose actions are each a module of its own, no set_fact among them and no other group's.
+    assert found.unread == {}, found.unread
+    assert set(found.groups) == {"group/community.proxmox.proxmox"}, found.groups
+    actions = _group("group/community.proxmox.proxmox")
+    assert actions and all(type(action) is str and not _is(action, "set_fact") for action in actions), actions
+    # The scan reads what it is meant to: a line of defaults.yml, a mapping there, a role's set_fact, a task's vars, a
+    # register, and a role's vars/main.yml.
+    assert "inventory/group_vars/all/defaults.yml" in found.names["proxmox_vm_api_host"]
+    assert "inventory/group_vars/all/defaults.yml" in found.names["tailscale_off_setting"]
+    assert "roles/proxmox_template/tasks/golden_build.yml" in found.names["proxmox_template_build_vm"]
+    assert "roles/claude_code/tasks/remote_control.yml" in found.names["claude_code_unit_retired"]
+    assert "roles/common/tasks/sudo.yml" in found.names["common_user_password_salt"]
+    assert "roles/common/vars/main.yml" in found.names["common_ssh_path"]
+    assert set(HELD_ELSEWHERE) - set(found.names) == {"proxmox_template_known_hosts_dir"}
+
+
+# Each road a role sets an option passed through by, planted alone in a tree of its own: where (under the tree's root)
+# and its YAML. Review 53's low 3 (a register, ansible.legacy.set_fact, a vars/main/ folder) and review 61's 1 (args:,
+# module_defaults on the play, a role entry, a block and a task), with the other spellings of the same action.
+SET = "common_timezone"
+PLANTED = [
+    ("a register", "roles/common/tasks/main.yml", [{"ansible.builtin.command": "date", "register": SET}]),
+    ("ansible.legacy.set_fact", "roles/common/tasks/main.yml", [{"ansible.legacy.set_fact": {SET: "UTC"}}]),
+    ("a free-form set_fact", "roles/common/tasks/main.yml", [{"set_fact": f"{SET}=UTC"}]),
+    ("a set_fact through action:", "roles/common/tasks/main.yml", [{"action": f"ansible.builtin.set_fact {SET}=UTC"}]),
+    (
+        "a set_fact through local_action:",
+        "roles/common/tasks/main.yml",
+        [{"local_action": {"module": "set_fact", SET: "UTC"}}],
+    ),
+    (
+        "a set_fact in a block's rescue",
+        "roles/common/tasks/main.yml",
+        [{"block": [{"ansible.builtin.ping": None}], "rescue": [{"ansible.builtin.set_fact": {SET: "UTC"}}]}],
+    ),
+    ("a .yaml task file", "roles/common/tasks/more.yaml", [{"ansible.builtin.set_fact": {SET: "UTC"}}]),
+    ("a handler", "roles/common/handlers/main.yml", [{"name": "x", "ansible.builtin.set_fact": {SET: "UTC"}}]),
+    ("a task's vars:", "roles/common/tasks/main.yml", [{"ansible.builtin.ping": None, "vars": {SET: "UTC"}}]),
+    ("a vars/main/ folder", "roles/common/vars/main/extra.yml", {SET: "UTC"}),
+    ("args:", "roles/common/tasks/main.yml", [{"ansible.builtin.set_fact": None, "args": {SET: "UTC"}}]),
+    (
+        "module_defaults on a task",
+        "roles/common/tasks/main.yml",
+        [{"ansible.builtin.set_fact": {"common_x": 1}, "module_defaults": {"ansible.builtin.set_fact": {SET: "UTC"}}}],
+    ),
+    (
+        "module_defaults on a block",
+        "roles/common/tasks/main.yml",
+        [{"block": [{"set_fact": {"common_x": 1}}], "module_defaults": {"set_fact": {SET: "UTC"}}}],
+    ),
+    (
+        "module_defaults on the play",
+        "playbooks/system.yml",
+        [{"hosts": "all", "module_defaults": [{"ansible.legacy.set_fact": {SET: "UTC"}}], "roles": ["common"]}],
+    ),
+    (
+        "module_defaults on a role entry",
+        "playbooks/system.yml",
+        [{"hosts": "all", "roles": [{"role": "common", "module_defaults": {"set_fact": {SET: "UTC"}}}]}],
+    ),
+]
+# And each road whose names the scan cannot read, planted alone: where, its YAML, and what the scan says of it.
+UNREAD = [
+    (
+        "an include_vars",
+        "roles/common/tasks/main.yml",
+        [{"ansible.builtin.include_vars": {"file": "/elsewhere/settings.yml"}}],
+        "an include_vars",
+    ),
+    (
+        "an include_vars through action:",
+        "roles/common/tasks/main.yml",
+        [{"action": "include_vars /elsewhere/settings.yml"}],
+        "an include_vars",
+    ),
+    (
+        "args: as one template string",
+        "roles/common/tasks/main.yml",
+        [{"ansible.builtin.set_fact": None, "args": "{{ common_given }}"}],
+        "a set_fact's args: as a template",
+    ),
+    (
+        "a set_fact's module_defaults as a template",
+        "playbooks/system.yml",
+        [{"hosts": "all", "module_defaults": {"set_fact": "{{ given }}"}, "roles": ["common"]}],
+        "a set_fact's module_defaults as a template",
+    ),
+    (
+        "a module_defaults as a template",
+        "roles/common/tasks/main.yml",
+        [{"block": [{"set_fact": {"common_x": 1}}], "module_defaults": "{{ given }}"}],
+        "a module_defaults as a template",
+    ),
+    (
+        "a templated name",
+        "roles/common/tasks/main.yml",
+        [{"ansible.builtin.set_fact": {"{{ common_which }}": "UTC"}}],
+        "a set_fact with a templated name",
+    ),
+]
+
+
+def _planted(root: Path, where: str, document: object) -> Path:
+    path = root / where
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(document))
+    return path
+
+
+def test_a_tree_with_nothing_planted_sets_nothing(tmp_path) -> None:
+    (tmp_path / "roles" / "common" / "tasks").mkdir(parents=True)
+    assert _set_in_the_tree(tmp_path) == _Scan()
+
+
+@pytest.mark.parametrize(("case", "where", "document"), PLANTED, ids=[case for case, _, _ in PLANTED])
+def test_each_road_a_role_sets_an_option_by_fails_the_scan_alone(tmp_path, case, where, document) -> None:
+    assert SET in _passed()
+    _planted(tmp_path, where, document)
+    scan = _set_in_the_tree(tmp_path)
+    assert _set_here(scan) == {SET: [where]}
+    assert scan.unread == {} and scan.groups == {}
+
+
+@pytest.mark.parametrize(("case", "where", "document", "said"), UNREAD, ids=[case for case, _, _, _ in UNREAD])
+def test_each_road_whose_names_the_scan_cannot_read_fails_it_alone(tmp_path, case, where, document, said) -> None:
+    _planted(tmp_path, where, document)
+    scan = _set_in_the_tree(tmp_path)
+    assert scan.unread == {said: {where}}
+    assert _set_here(scan) == {}
+
+
+def test_a_module_defaults_group_is_noted_and_another_module_s_entry_sets_nothing(tmp_path) -> None:
+    group = "group/community.proxmox.proxmox"
+    play = [{"hosts": "all", "module_defaults": {group: "{{ given }}", "ansible.builtin.copy": {SET: 1}}}]
+    _planted(tmp_path, "playbooks/system.yml", play)
+    scan = _set_in_the_tree(tmp_path)
+    assert scan == _Scan(groups={group: {"playbooks/system.yml"}})
 
 
 def test_the_module_imports_the_standard_library_the_table_and_today_s_wiring_alone(home) -> None:
