@@ -206,10 +206,11 @@ def _read(target: Target) -> ownership.Member:
     return target.member
 
 
-def _kept(target: Target, **changes: object) -> Target:
-    """target with changes made by this module, after its read - its Owned, its address - still carrying the Member
-    its read made: a caller's dataclasses.replace leaves it none."""
-    changed = dataclasses.replace(target, **changes)
+def _kept(target: Target, *, address: str, shared: str, owned: Owned | None) -> Target:
+    """target as this module changes it after its read, each field it may change named - its address, the address
+    another member reports too, its Owned - and nothing else of it, still carrying the Member its read made: a caller's
+    dataclasses.replace leaves it none."""
+    changed = dataclasses.replace(target, address=address, shared=shared, owned=owned)
     object.__setattr__(changed, "member", target.member)
     return changed
 
@@ -427,9 +428,9 @@ def _addressed(
     counts = Counter(found for found in reported.values() if found)
     shared = {identity for identity, found in reported.items() if found and counts[found] > 1}
     found = [
-        _kept(target, address="", shared=reported[target.identity])
+        _kept(target, address="", shared=reported[target.identity], owned=target.owned)
         if target.identity in shared
-        else _kept(target, address=reported[target.identity])
+        else _kept(target, address=reported[target.identity], shared=target.shared, owned=target.owned)
         if target.identity in reported
         else target
         for target in targets
@@ -718,7 +719,9 @@ def requested(host: Host, names: Sequence[str] = (), *, create: bool = False, ch
         else:
             (targets, lines), new = _every(host, everyone, change), []
         if change:
-            targets = [_kept(target, owned=owned(target)) for target in targets]
+            targets = [
+                _kept(target, address=target.address, shared=target.shared, owned=owned(target)) for target in targets
+            ]
         outside = True
         if new:
             outside, more = _outside(host, everyone, new)
