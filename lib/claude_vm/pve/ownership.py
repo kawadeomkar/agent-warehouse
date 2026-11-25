@@ -14,12 +14,16 @@ clone a run made, which that run alone may own, by its own job, which the record
 VMID is the member's (`job`, `clone`), before it writes the rest; a VM with no SMBIOS UUID, which is its identity; and
 two members with one UUID, both (a restore without unique keeps its source's).
 
-A `Member` the rule may pass is one a reader made from what it read: `Member.read(config)`, from a VM's configuration as
-the client read it (answers.VmConfig) and the record its notes hold, as pve/record.py's parse reads it, whichever reader
-asks. It marks the member read (a field no constructor takes, which dataclasses.replace and copy.replace leave unset),
-and `owned` and `building` refuse a Member without that mark, TypeError: one made by hand, or changed after its read,
-holds whatever its maker wrote, and the record is the whole of the rule, so writing a field would be writing the
-verdict. A Member made by hand still reads as refusal() judges it, for a sentence.
+A `Member` the rule may pass is one a reader made from what it read: `Member.read(config, twins=)`, from a VM's
+configuration as the client read it (answers.VmConfig) and the record its notes hold, as pve/record.py's parse reads it,
+whichever reader asks, and the other members of the pool that carry its UUID, which its reader read beside it and must
+say (no default: one configuration knows nothing of the pool). It marks the member read (a field no constructor takes,
+which dataclasses.replace and copy.replace leave unset), and `owned` and `building` refuse a Member without that mark,
+TypeError: one made by hand, or changed after its read, holds whatever its maker wrote, and the record is the whole of
+the rule, so writing a field would be writing the verdict. A Member made by hand still reads as refusal() judges it, for
+a sentence. The mark says a configuration was read, not that the pool was, so in lib/ only the reader of the pool calls
+Member.read, engine/fleet.py's (and status's, card G16): a workflow owns a VM again through that reader, never through
+Member.read of one configuration (tests/unit/test_aw_ownership.py's scan).
 
 `owned(member)` returns an `Owned`, which nothing else makes: the VM a change may be made on, by its node and VMID, with
 its name, its SMBIOS UUID and the digest of the configuration the decision was made from. Made by hand it is a
@@ -121,13 +125,15 @@ class Member:
     _read: bool = dataclasses.field(default=False, init=False, repr=False, compare=False)
 
     @classmethod
-    def read(cls, config: VmConfig, *, unread: str = "", twins: tuple[int, ...] = ()) -> Member:
+    def read(cls, config: VmConfig, *, unread: str = "", twins: tuple[int, ...]) -> Member:
         """The member a reader read: its name, node, VMID, SMBIOS UUID, digest and template flag from its configuration
         as the client read it, and its record from its notes there, as pve/record.py's parse reads them (none for a
         template, which is never a target), a record parse cannot read making it unread. unread, why the reader could
         not use what it read where it knows (its own typed read refused the record, say), which only ever refuses it;
-        twins, the VMIDs of the other members of the pool that carry its UUID, which the reader read beside it. The
-        one maker of a Member owned() and building() judge, whichever reader asks: engine/fleet.py's and status's."""
+        twins, the VMIDs of the other members of the pool that carry its UUID, which the reader read beside it: a
+        keyword with no default, since one configuration says nothing of the pool beside it, so that its reader says
+        what it read there, () where no other member carries the UUID. The one maker of a Member owned() and building()
+        judge, whichever reader asks: engine/fleet.py's reader of the pool alone in lib/, and status's (card G16)."""
         if not isinstance(config, VmConfig):
             raise TypeError("a member is read from its configuration as the client read it, an answers.VmConfig")
         if not isinstance(unread, str):

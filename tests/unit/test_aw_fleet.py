@@ -368,6 +368,15 @@ def test_two_vms_with_one_uuid_are_both_refused(fake) -> None:
         with pytest.raises(fleet.NotOwned) as refused:
             _requested(name)
         assert f"carries one UUID with VMID {other}" in refused.value.sentence
+    # Review 51b's M-A: the road a workflow might take to own one again, the client's read of its one configuration,
+    # knows nothing of the pool beside it, and owned beta and stopped it. It is no Member until a reader says the
+    # twins it read there (pve/ownership.py's Member.read, which only the fleet's reader of the pool calls in lib/).
+    with _host() as host:
+        config = host.client.config("pve", BETA, host.nic)
+        before = fake.sent()
+        with pytest.raises(TypeError, match="twins"):
+            host.client.stop(ownership.owned(ownership.Member.read(config)))
+    assert fake.sent() == before
 
 
 def test_a_member_the_token_may_not_read_is_said_and_never_changed(fake) -> None:

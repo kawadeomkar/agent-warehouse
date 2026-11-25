@@ -680,8 +680,9 @@ machine a run reads: its kind (`vm`), name, identity (`agent-warehouse-<its SMBI
 account a run logs in as, its address, its record, whether it runs, and the digest of the configuration it was read
 from. What is the fleet's is its pool's members with a valid record, never a label, by `pve/ownership.py`'s one rule
 (16.5), which `status` judges by too. Each target a read makes carries the `Member` that module's `Member.read` made of
-its configuration as the client read it (`Target.member`), which no constructor takes and `dataclasses.replace` leaves
-none of; `refusal(target)` asks the rule of it, and `owned(target, job=, clone=)` raises it or returns the `Owned` only
+its configuration as the client read it, with the other members of the pool that carry its UUID (`Target.member`; the
+one call of `Member.read` in `lib/`), which no constructor takes and `dataclasses.replace` leaves none of;
+`refusal(target)` asks the rule of it, and `owned(target, job=, clone=)` raises it or returns the `Owned` only
 that module makes, the identity and the digest the decision was made on. A target made by hand, or changed after its
 read, a record given to it above all, is a `TypeError` to both: what is judged is what was read, never a target's
 fields. A changing read gives each target its `Owned` (`Target.owned`); `members` and a read that changes nothing give
@@ -1106,12 +1107,16 @@ carry its UUID. `Member.read(config, unread=, twins=)` makes one from a VM's con
 (`answers.VmConfig`), its record from its notes as `parse` reads them, and marks it read, a field no constructor takes
 and `dataclasses.replace` and `copy.replace` leave unset: what `owned` and `building` judge is a member a reader made,
 never one made by hand or changed after its read, which is a `TypeError` to both (a record written into a member's
-fields would be its verdict). `refusal(member, job="", clone=None)` says why it is not the fleet's to change, "" where
-it is: a guest that is no VM; a template; one that could not be read; one with no record of this engine's, whatever
-tags it carries; a record of a template, a golden or a build on a VM that is no template, or one that names another VM's
-UUID (`copied`), each a copy; a VM's record that names no stage; a record that names no UUID, but the first form of a
-clone (`first_form`), which the run that cloned it alone owns, by its own job, which the record names, and its own
-clone's task, whose VMID is the member's (`clone`, the clone call's answer or its own job record's; never read from the
+fields would be its verdict). The mark says a configuration was read, not the pool beside it, so `twins`, the other
+members its reader read that carry its UUID, is a keyword with no default, and in `lib/` only the reader of the pool
+calls `Member.read`, `engine/fleet.py`'s (and `status`'s, card G16): a workflow owns a VM again through that reader,
+never through `Member.read` of one configuration, which would own one of two twins, or a VM outside the pool.
+`refusal(member, job="", clone=None)` says why it is not the fleet's to change, "" where it is: a guest that is no
+VM; a template; one that could not be read; one with no record of this engine's, whatever tags it carries; a record
+of a template, a golden or a build on a VM that is no template, or one that names another VM's UUID (`copied`), each a
+copy; a VM's record that names no stage; a record that names no UUID, but the first form of a clone (`first_form`),
+which the run that cloned it alone owns, by its own job, which the record names, and its own clone's task, whose VMID
+is the member's (`clone`, the clone call's answer or its own job record's; never read from the
 record judged, whose job anyone may read), before it writes the rest; a VM with no SMBIOS UUID; and two members of one
 UUID, both. `owned(member, job=, clone=)` returns an `Owned` where it passes, `NotOwned` with that sentence where it
 does not, and is the one maker of one: its name, node, VMID, SMBIOS UUID and the digest of the configuration it was
@@ -1125,8 +1130,10 @@ another clone's VMID, a copy are each refused. An `Owned` is never a `Building`,
 `tests/unit/test_aw_ownership.py` holds each refusal, a record judged alike whichever reader read it, the records the
 typed reader refuses among them, the first form owned by its run's job and clone's task alone, an `Owned` made by
 `owned` alone and a `Building` by `building` alone of the asking run's own build VM, a member no reader made never
-judged for a change, and, by scans, that a member is marked read in its readers alone (`tests/unit/aw_kit.py`'s one
-helper for the tests of what a write sends, allowed by name), that the module imports `record.py` and `answers.py` and
+judged for a change, a member read with no twins said a `TypeError` and one with a twin refused by both judges, and,
+by scans, that a member is marked read in its readers alone (`tests/unit/aw_kit.py`'s one helper for the tests of what
+a write sends, allowed by name), that `Member.read` is reached in `lib/` by `engine/fleet.py`'s reader of the pool
+alone, under any name a `from` import gives it, that the module imports `record.py` and `answers.py` and
 nothing else of `pve/`, the client above all, and nothing of the engine, and opening a host (`fleet/opened.py`, 16.9)
 nothing of the engine, pydantic, Ansible, Jinja2 or the MCP SDK, so that `status` may import both.
 
