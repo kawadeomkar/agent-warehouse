@@ -36,8 +36,12 @@ VMID above all (docs/architecture/failure-modes.md, "VMID allocation is racy").
 
 `building(member, job=, clone=)` returns a `Building`, which nothing else makes either: the VM a golden image is built
 in (card E18), the one thing a conversion to a template is made on (pve/client.py's `to_template`), from a fresh read of
-a VM whose record is of kind build and names its own UUID, whose job is the asking run's own and whose VMID its own
-clone's task made; never a template, never a VM of the fleet (a record of kind vm), never another run's build VM.
+a VM whose record is of kind build, or golden once the run has written the golden's record on it, and names its own
+UUID, whose job is the asking run's own and whose VMID its own clone's task made; never a template, never a VM of the
+fleet (a record of kind vm), never another run's build VM, never a clone of a golden (whose record names the golden's
+UUID). E18's order is today's: the golden's record written on the build VM, read back as a clone would read it, the
+Building made from that read, and converted, so that the conversion holds the digest of the configuration that holds
+the golden's record.
 `build_refusal` says why not, as `refusal` does for `owned`. The two never make one another: an Owned is never
 converted, and a Building is never written as a VM of the fleet is.
 
@@ -67,8 +71,10 @@ __all__ = [
 
 # The kind of guest the fleet's members are: a Proxmox VM (card J3 adds the machine that is none).
 KIND = "vm"
-# The record's kind of a VM a golden image is built in (pve/record.py's KINDS).
+# The record's kind of a VM a golden image is built in, and of a golden image (pve/record.py's KINDS): the build VM
+# carries the first until the run writes the second on it, reads it back as a clone would, and converts (card E18).
 BUILD = "build"
+GOLDEN = "golden"
 # A VM's identity, its SSH host key's name: this prefix and its SMBIOS UUID (proxmox.ssh_host_key_alias).
 IDENTITY = "agent-warehouse-"
 # What an Owned made by anything but owned() is told.
@@ -324,8 +330,11 @@ def owned(member: Member, *, job: str = "", clone: Task | None = None) -> Owned:
 
 def build_refusal(member: Member, job: str = "", clone: Task | None = None) -> str:
     """Why member is not a build VM of the asking run's own, which it may make a template, "" where it is: a VM that is
-    no template, whose record is of kind build and names its own UUID and the asking run's job, at the VMID the asking
-    run's own clone made (job and clone, as refusal() takes them), carrying its UUID alone."""
+    no template, whose record is of kind build, or golden once the run has written the golden's record on it (card
+    E18's order: the golden's record written, read back as a clone would read it, the Building made from that read,
+    then the conversion, which holds that read's digest), and names its own UUID and the asking run's job, at the VMID
+    the asking run's own clone made (job and clone, as refusal() takes them), carrying its UUID alone. A clone of a
+    golden carries the golden's record, which names the golden's UUID, not its own: a copy, refused."""
     said = member.said
     if member.kind != KIND:
         return f"{said} is no Proxmox VM, which is all this host's runs change"
@@ -340,7 +349,7 @@ def build_refusal(member: Member, job: str = "", clone: Task | None = None) -> s
         )
     if member.recorded == KIND:
         return f"{said} holds a VM's record, a VM of the fleet, which is never made a template"
-    if member.recorded != BUILD:
+    if member.recorded not in (BUILD, GOLDEN):
         return (
             f"{said} holds a {member.recorded}'s record and is no template, so it is a copy of another's notes: it is"
             " never made a template"
@@ -352,8 +361,8 @@ def build_refusal(member: Member, job: str = "", clone: Task | None = None) -> s
         )
     if not member.record_uuid or block.copied({"uuid": member.record_uuid}, member.uuid):
         return (
-            f"{said}'s build record does not name its own UUID, so it is a copy of another's notes: it is never made a"
-            " template"
+            f"{said}'s {member.recorded} record does not name its own UUID, so it is a copy of another's notes (a clone"
+            " of a golden carries the golden's): it is never made a template"
         )
     if not (job and member.job == job):
         return (
