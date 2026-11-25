@@ -898,10 +898,11 @@ def test_every_answer_typed_writes_the_files_and_the_same_again_asks_nothing(fak
         # answer).
         (TRUST_ASKED, [UP, ENTER], True),
         (SECRET_ASKED, [fake.secret.encode() + b"\n"], False),
-        # The node, the storage and the bridge the host lists, each the only one the token can use: a yes or no.
-        (b"Use pve?\r\n", [ENTER], True),
-        (b"Use local-lvm?\r\n", [ENTER], True),
-        (b"Use vmbr0?\r\n", [ENTER], True),
+        # The node, the storage and the bridge the host lists, each the only one the token can use: a yes or no, whose
+        # default, no, is marked: up to yes.
+        (b"Use pve?\r\n", [UP, ENTER], True),
+        (b"Use local-lvm?\r\n", [UP, ENTER], True),
+        (b"Use vmbr0?\r\n", [UP, ENTER], True),
         # No ~/.ssh/id_ed25519.pub: which other key the VMs get.
         (SSH_KEY_ASKED, [ENTER], True),
         (GITHUB_ASKED, [b"octocat\n"], False),
@@ -956,6 +957,38 @@ def test_every_answer_typed_writes_the_files_and_the_same_again_asks_nothing(fak
     assert rc == 0, raw.decode(errors="replace")
     assert engine_init.ASKED.encode() not in raw and b"nothing to write" in raw
     assert _files() == files
+
+
+def test_enter_at_the_only_node_s_yes_or_no_leaves_it_at_the_menu_and_typed_alike(fake) -> None:
+    # Review 54, E5.md 7: the only node the token can use is asked as a yes or no whose default is no, which leaves it,
+    # as its words say: Enter at the menu (no is marked) and Enter typed where no menu can be drawn both leave the node
+    # unwritten, and the storage and the bridge, which are listed on a node, with it.
+    mark_pool(fake.base, record.new_id())
+    with_port(fake.port)
+    _grants(fake)
+    _public_key("id_ed25519.pub", PUBLIC_KEY)
+    plan: Plan = [
+        (TRUST_ASKED, [UP, ENTER], True),
+        (SECRET_ASKED, [fake.secret.encode() + b"\n"], False),
+        (b"Use pve?\r\n", [ENTER], True),
+        (GITHUB_ASKED, [b"octocat\n"], False),
+        (VPN_ASKED, [ENTER], True),
+    ]
+    rc, raw = _asked(fake, plan)
+    said = raw.decode(errors="replace")
+    assert rc == 0, said
+    asked = said[said.index("What your token can see:") : said.index("Use pve?")]
+    assert engine_init.LATER in asked, asked
+    own = overrides.read(_home(), "pve").host.settings
+    assert dict(own) == {"proxmox_pool": ENGINE_POOL}, own
+    assert "left for later: Node, Storage and Bridge; the next aw init asks again" in _read(raw), said
+    # Again, where the terminal cannot draw a menu: the same question typed, and Enter leaves it too.
+    rc, raw = _asked(fake, [(b"Use pve?", [], False), (TYPED_ASKED, [b"\n"], False)], term="dumb")
+    said = raw.decode(errors="replace")
+    assert rc == 0, said
+    assert GITHUB_ASKED not in raw and TRUST_ASKED not in raw and SECRET_ASKED not in raw, said
+    assert dict(overrides.read(_home(), "pve").host.settings) == {"proxmox_pool": ENGINE_POOL}
+    assert "left for later: Node, Storage and Bridge" in _read(raw), said
 
 
 def test_a_certificate_nothing_vouches_for_is_kept_only_on_a_yes_and_enter_is_no(fake) -> None:
