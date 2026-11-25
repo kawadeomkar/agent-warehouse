@@ -22,9 +22,10 @@ a route that cannot be settled - from a home too long for the hop's socket, or a
 ended by a signal or exiting with an error - stops the run with nothing reached; every machine is held before the hop's
 login and the forward; a forward's verdict that stopped the run stops every later targets, and one cut before its
 verdict is made again; and the runner connects to no machine's Target the route did not mark, nor to one that lost its
-hop. The rules with a test of their own: every fleet a test makes pins vm_ssh_route: direct before anything reads it,
-each maker read back; and no module of the new engine but routes.py and ssh/'s own makes a Target, or changes one's
-route after it was made, by any name a scan can see, so every runner call takes the arguments routes.py made.
+hop. And review 56's (G29.md): a forward's verdict that stopped the run stops a targets that waited on it too. The rules
+with a test of their own: every fleet a test makes pins vm_ssh_route: direct before anything reads it, each maker read
+back; and no module of the new engine but routes.py and ssh/'s own makes a Target, or changes one's route after it was
+made, by any name a scan can see, so every runner call takes the arguments routes.py made.
 """
 
 from __future__ import annotations
@@ -447,6 +448,24 @@ def test_a_forward_that_stopped_the_run_stops_every_later_targets(made_fleet, sh
     assert [outcome for outcome in _outcomes(stand_ins.pve) if outcome.startswith("forward")] == [
         f"forward {alpha.address}:22 unshared"
     ]
+
+
+def test_two_targets_at_once_after_a_refused_forward_both_stop_the_run(made_fleet, short, run, stand_ins):
+    # Two targets of one step at once (a TaskGroup over the machines): the one that waited on the lock while the
+    # other's forward was refused hands out no hop either, and raises the same stop (review 56, G29.md 3).
+    _set(ROUTE, "host")
+    hop_modes(stand_ins.pve, forward="prohibited")
+    alpha, beta = stand_ins.alpha, stand_ins.beta
+
+    async def body() -> list[object]:
+        found = await _settled(run, short)
+        return await asyncio.gather(found.targets([_vm(alpha)]), found.targets([_vm(beta)]), return_exceptions=True)
+
+    first, second = asyncio.run(body())
+    assert type(first) is routes.Unusable and type(second) is routes.Unusable, (first, second)
+    assert first.sentence == second.sentence and f"{LABEL} refused to forward to " in first.sentence
+    assert len([outcome for outcome in _outcomes(stand_ins.pve) if outcome.startswith("forward")]) == 1
+    assert alpha.calls() == beta.calls() == []
 
 
 def test_a_forward_cut_before_its_verdict_is_made_again_by_the_next_targets(made_fleet, short, run, stand_ins):
