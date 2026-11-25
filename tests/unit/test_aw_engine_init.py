@@ -46,6 +46,7 @@ import base64
 import contextlib
 import dataclasses
 import errno
+import json
 import os
 import re
 import select
@@ -336,6 +337,32 @@ def test_a_value_given_that_differs_from_the_one_set_fails_naming_both_and_write
     assert ran.stderr == f"error: {said} aw init never writes over a value: edit the file to change it.\n"
     assert _files() == files and len(fake.calls()) == sent
     _sealed(fake.secret)
+
+
+@pytest.mark.parametrize("pool", ["aw-fleet ", "1fleet", "fleet/aw"], ids=["a space", "from a digit", "nested"])
+def test_a_pool_the_host_s_settings_set_that_is_no_pool_s_name_is_refused_in_one_sentence(fake, secret_file, pool):
+    # Review 55, 2: the pool the host's settings.yml sets, which its row's writer takes as any text, is held to --pool's
+    # rule before anything is asked or sent. One Proxmox makes no pool by is the host's file's problem: said in one
+    # sentence that names the file and the value, never a traceback, with nothing written and nothing sent.
+    mark_pool(fake.base, record.new_id())
+    with_port(fake.port)
+    overrides.set(_home(), "proxmox_pool", pool, "pve", overrides.MISSING)
+    files, sent = _files(), len(fake.calls())
+    ran = _init(fake, *_given(fake, secret=secret_file))
+    assert (ran.returncode, ran.stdout) == (1, ""), ran
+    assert ran.stderr == (
+        f"error: {HOST_SETTINGS} sets proxmox_pool to {json.dumps(pool)}, which is no name of a pool"
+        f" ({engine_init.POOL_RULE}): edit the file to change it; nothing was written\n"
+    ), ran
+    assert _files() == files and len(fake.calls()) == sent
+
+
+def test_a_pool_given_that_is_no_pool_s_name_is_refused_by_the_same_rule(fake, secret_file) -> None:
+    # --pool's own pattern takes a name from a digit, which Proxmox makes no pool by: held to the same rule.
+    ran = _init(fake, *_given(fake, "--pool", "1fleet", secret=secret_file))
+    assert (ran.returncode, ran.stdout) == (1, ""), ran
+    assert ran.stderr == f"error: --pool (1fleet) is no name of a pool: {engine_init.POOL_RULE}\n", ran
+    assert _untouched()
 
 
 def test_a_secret_given_that_differs_from_the_vault_s_fails_unsaid_and_writes_nothing(fake, secret_file, tmp_path):

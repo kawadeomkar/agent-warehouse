@@ -654,7 +654,8 @@ place. As its run, under the fleet's lock, `unattended` reads what is set (the h
 overrides, `fleet.json` and the vault, opened as `vaultkey.py` finds its key: a fleet
 with no key file yet has its key made once every check has passed, and a key named elsewhere for a fleet with no vault
 yet is `NoVaultYet`'s refusal); refuses a value given that differs from the one set, naming both, the secret unsaid,
-with nothing written; works out the API's certificate with `certificate.py`'s `work_out` and nobody to ask, the host's
+and a pool the host's `settings.yml` sets that is no name of a pool (`--pool`'s rule), naming the file, with nothing
+written; works out the API's certificate with `certificate.py`'s `work_out` and nobody to ask, the host's
 own certificates read over root SSH where nothing else vouches for them; and, where the secret was given, reads the
 pool with it through the `Pin` the `Kept` carries. Holding a token Proxmox takes for a pool whose comment carries a mark
 with `controller=none` is the authority: `fleet.json` takes the mark's fleet ID. A mark that names a control VM, another
