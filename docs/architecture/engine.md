@@ -3378,9 +3378,10 @@ never passes over: a playbook imported, an include in a handler
 (Ansible resolves those otherwise), a file or role named by a template, a name Ansible reads otherwise than the walk
 (one that starts with `~`, which `DataLoader` takes from the person's home, holds a `$`, which it expands, or is quoted,
 which it takes off: the walk follows a relative name each part of which starts with a letter, a digit or `_`), a
-collection's role, a `collections` keyword (under which a short name can stand for a collection's module), a role in the
-play's own roles folder (searched before `roles_path`), and a template outside a role each raise `Unfollowed`, which
-fails every test (review 61). So do what Ansible renders that the walk would read as text - a template, or any string
+collection's role, a `collections` keyword (under which a short name can stand for a collection's module or role),
+an include's `apply` among them, which Ansible loads as a block (review 67), a role in the play's own roles folder
+(searched before `roles_path`), and a template outside a role each raise `Unfollowed`, which fails every test (review
+61). So do what Ansible renders that the walk would read as text - a template, or any string
 of any file the walk read, that names another template (`include`, `import`, `from` or `extends`, `{%-` and `{%+` too:
 Ansible renders a task's string with the play's folder to load from), or that sets its own delimiters, under which such
 a statement reads as text (a `#jinja2:` line, ansible-core's `JINJA2_OVERRIDE`, or one of the template action's six
@@ -3392,7 +3393,10 @@ whose words `REASONS` holds. So do a task file Ansible looks for elsewhere befor
 file that an include or import brought in, which Ansible looks for first under that file's own folder's `tasks/` and
 then the working folder's, and any include or import two files below the play, looked for beside the play first (one
 file below, the walk's file is Ansible's first); a file sent from this computer outside a role, or one that is no
-regular file of its role's `files/` (a name under `files/`, a folder, a link out); and what Ansible takes from the
+regular file of its role's `files/` as the checkout holds it (a name under `files/`, a folder, a link out); a role, or a
+folder of a role that Ansible reads, that is a link, and any file the play reaches that is a link out of the checkout,
+through which Ansible would read a folder the test never saw, on the computer the play runs on (review 67); and what
+Ansible takes from the
 play's folder that the walk does not read - `group_vars/` or `host_vars/`, whose variables reach the host whenever it
 joins a group, `collections/`, a folder of any kind of plugin but the three `BESIDE_THE_PLAY` lists with its reason
 (`library`, `action_plugins`, `module_utils`), and in those three a name of Ansible's own module, action or
@@ -3413,16 +3417,26 @@ role's defaults and vars, a fact (a templated name refused), a register, a loop'
 `add_host` - nor includes variables at all, which the play's first check cannot see. And nothing runs or writes on this
 computer: no `delegate_to`, `local_action` or `connection` on a play, role entry, block, task or `apply`, no `fetch`,
 no `group_by` or `add_host` (a group joined after the play's check, whose variables the check never saw), no play over
-any host but `all`, no `with_` loop, and no lookup but the five `LOOKUPS` lists by its file and whole
+any host but `all`, no `with_` loop and no private field of ansible-core's task, handler or block, read from its
+`fattributes` (`loop_with` runs a `with_` loop's lookup over `loop`, review 67), and no lookup but the five `LOOKUPS`
+lists by its file and whole
 string (the check's read of the inventory, `remote_tmp.yml`'s setting, and the three vendors' keys), found as `lookup`,
 `query` or `q` as a word (Jinja calls one wherever it is named: `(q)(...)`, or a name set to it) in every string of
-every file the walk read (the roles' argument specs among them) and in the templates. Each road review 61 ran is run
-as Ansible runs it too: planted under the test's own folder, found by the four tests, then run by `layer1.run` over the
-test-only local connection on a stand-in machine, where its decoy writes a mark in the test's own folder - a copy given
-its `src` by `module_defaults` or by `args:`, a fact of the interpreter so given, `ansible.builtin.synchronize`'s rsync,
-a copy, template or include of a name that starts with `~`, `q` named apart from its call, a template's own delimiters and its
-`#jinja2:` line, an include in a task's string, and an import two files below the play. Until F6a those three
-modules need their collections, from
+every file the walk read (the roles' argument specs among them) and in the templates. Nor does it ask this computer of
+its paths, which tells a name's existence, kind, real name, home or environment where the play is rendered, never a
+file's text (review 67): no test of ansible-core's `files` test plugin but `abs` (`exists`, `file`, `link` and the
+rest, read from the plugin), no `fileglob`, `realpath`, `relpath`, `expanduser` or `expandvars` filter, whether
+written or named to `select`, `reject`, `selectattr`, `rejectattr` or `map`, and none of those five given a name only a
+run can say. They are read as Jinja's own parser reads each string Ansible renders (a template, a string that opens
+one, or the value of a `when`, `changed_when`, `failed_when`, `until`, `that` or `var`), not as words, which would take
+the same names in the roles' prose and paths; a string the parser cannot read is refused. Each road review 61 ran is
+run as Ansible runs it too: planted under the test's own folder, found by the four tests, then run by `layer1.run`
+over the test-only local connection on a stand-in machine, where its decoy writes a mark in the test's own folder - a
+copy given its `src` by `module_defaults` or by `args:`, a fact of the interpreter so given,
+`ansible.builtin.synchronize`'s rsync, a copy, template or include of a name that starts with `~`, `q` named apart from
+its call, a template's own delimiters and its `#jinja2:` line, an include in a task's string, and an import two files
+below the play; and review 67's `loop_with: pipe` and a role's `files/` linked to a folder elsewhere. Until F6a those
+three modules need their collections, from
 the checkout's own folder that layer 1's configuration names for now (above), or a test's in its place, the
 scenario's. The `system` scenario
 (`molecule/system/`, [§11.3](testing.md#113-playbook-scenarios--just-test-integration-and-provision)) converges a
