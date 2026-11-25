@@ -614,16 +614,18 @@ through the SSH runner, nothing on its standard input: the image fetched by the 
 image directory (`/var/lib/vz/aw-images`, or `proxmox_template_image_dir`) under a name of its own, held by the host's
 `sha256sum` to the digest verified here and removed, naming both, where it differs, then renamed into place, and left
 where it is already there with that digest; where the guest agent goes in, the image tool installed by apt where
-`proxmox_template_manage_libguestfs` is on and it is missing, the image's system read with `virt-cat` and one outside
-the Debian family refused by name, and a copy customised with `virt-customize`; the template that differs removed only
-once the guest at the ID is still the one judged (`Compared.identity`, its SMBIOS UUID), a refusal of Proxmox's for a
-template a linked clone uses said with `proxmox_template_rebuild: false` as the way on; `qm create` with today's
-settings, the SMBIOS UUID made here, the record as its notes and the fleet's pool; the disk imported; the cloud-init
-drive, the boot order and DHCP, with no `ciupgrade`; `qm template`; and the template read back and judged again, which
-must find it as its settings would build it. The customised copy is removed whatever happens. What the build leaves on
-the host is recorded in `host.yml`'s `made` through `fleet/hosts.py`'s one writer as it is made (16.9): each image file
-it downloaded (`file`), the template by its ID, and each package of the image tool this run installed (`package`), none
-that was there before, so that a cleanup removes exactly that.
+`proxmox_template_manage_libguestfs` is on and dpkg's own state of it (`${db:Status-Status}`) says it is not installed,
+one the administrator holds counted as there, and one neither installed nor absent, or whose state could not be read,
+refused, installing nothing; the image's system read with `virt-cat` and one outside the Debian family refused by name,
+and a copy customised with `virt-customize`; the template that differs removed only once the guest at the ID is still
+the one judged (`Compared.identity`, its SMBIOS UUID), a refusal of Proxmox's for a template a linked clone uses said
+with `proxmox_template_rebuild: false` as the way on; `qm create` with today's settings, the SMBIOS UUID made here, the
+record as its notes and the fleet's pool; the disk imported; the cloud-init drive, the boot order and DHCP, with no
+`ciupgrade`; `qm template`; and the template read back and judged again, which must find it as its settings would build
+it. The customised copy is removed whatever happens. What the build leaves on the host is recorded in `host.yml`'s
+`made` through `fleet/hosts.py`'s one writer as it is made (16.9): each image file it downloaded (`file`), the template
+by its ID, and each package of the image tool this run installed (`package`), none that was there before, so that a
+cleanup removes exactly that.
 
 `tests/unit/test_aw_engine_template.py` holds the build against a stand-in Proxmox host of `tests/unit/aw_machine.py`'s,
 reached as root through the stand-in ssh, whose `qm`, `virt-customize` and `virt-cat` are the role's scenario's fakes
@@ -636,7 +638,9 @@ fetches nothing on the host; an image whose digest differs is removed and both d
 `pve/commands.py`'s, nothing on its standard input, under the section's lock; a template a linked clone uses is said
 with the way on; a template with no record of the build, a guest outside the pool and a guest that changed after it was
 judged are never removed; an image outside the Debian family, a custom image with no checksum of its own and a template
-of the person's own build nothing; and the image tool's packages are recorded only where this run installed them.
+of the person's own build nothing; and the image tool's packages are recorded only where this run installed them: a
+package held is left as it is, one dpkg says is not installed is installed, and one half configured or whose read failed
+stops the build before apt runs.
 
 **What `init` makes on a host: `access.py`.** One list names every object a first `init` makes on a Proxmox host with
 its administrator's authority, and one check tells what is there of each; the script that makes them is their one

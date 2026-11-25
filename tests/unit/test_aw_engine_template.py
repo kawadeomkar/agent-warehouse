@@ -35,11 +35,11 @@ their order, as the role's scenario (roles/proxmox_template/molecule/default/ver
 image file and the template in host.yml's made; a second run reads and changes nothing; a list that does not verify, or
 names no image, fetches nothing on the host; an image whose digest differs is removed and both digests said; each
 command is pve/commands.py's, nothing on its standard input, under the host's template section, with no ciupgrade; only
-the image tool's packages this run installed are recorded; a difference is rebuilt at the same ID, and kept under
-proxmox_template_rebuild: false; a template a linked clone uses is said with the way on; a template with no record of
-the build, a guest outside the pool and a guest that changed after it was judged are never removed; an image outside the
-Debian family, a custom image with no checksum of its own and a template of the person's own build nothing; and every
-value a command takes is held to its form.
+the image tool's packages this run installed are recorded, one held is there, and one half configured or unread stops
+the build; a difference is rebuilt at the same ID, and kept under proxmox_template_rebuild: false; a template a linked
+clone uses is said with the way on; a template with no record of the build, a guest outside the pool and a guest that
+changed after it was judged are never removed; an image outside the Debian family, a custom image with no checksum of
+its own and a template of the person's own build nothing; and every value a command takes is held to its form.
 """
 
 from __future__ import annotations
@@ -778,16 +778,32 @@ sys.exit(2)
 """
 
 
-def _dpkg_query(installed: Path) -> str:
-    """The host's dpkg-query for one package, as dpkg answers --show: its status on a line, or none found."""
+def _dpkg_query(root: Path) -> str:
+    """The host's dpkg-query for one package, as dpkg answers --show in the format asked, ${Status} as its three words
+    and ${db:Status-Status} as the last: a package in root/installed is wanted and installed; one root/dpkg names, a
+    line `<package> <want> <state>`, as that line says, where a state of `exit-<n>` ends the read with that status; any
+    other none found."""
     return f"""#!/bin/sh
+format=$2
 for package in "$@"; do :; done
-if grep -qxF -e "$package" "{installed}"; then
-  echo 'install ok installed'
-  exit 0
+line=
+if grep -qxF -e "$package" "{root / "installed"}"; then
+  line="install installed"
+elif [ -f "{root / "dpkg"}" ]; then
+  line=$(awk -v p="$package" '$1 == p {{ print $2, $3 }}' "{root / "dpkg"}")
 fi
-echo "dpkg-query: no packages found matching $package" >&2
-exit 1
+if [ -z "$line" ]; then
+  echo "dpkg-query: no packages found matching $package" >&2
+  exit 1
+fi
+want=${{line% *}}
+state=${{line#* }}
+case "$state" in exit-*) echo "dpkg-query: the status database could not be read" >&2; exit "${{state#exit-}}" ;; esac
+case "$format" in
+  *'${{db:Status-Status}}'*) printf '%s\\n' "$state" ;;
+  *'${{Status}}'*) printf '%s ok %s\\n' "$want" "$state" ;;
+  *) echo "stand-in dpkg-query: a format it does not answer" >&2; exit 2 ;;
+esac
 """
 
 
@@ -823,7 +839,7 @@ def _stand_ins(host: Machine, root: Path) -> None:
             f'#!/bin/sh\nFAKE_VIRT_CAT_OS_RELEASE="{root / "os-release"}" exec sh "{FAKES / "fake_virt_cat.sh"}" "$@"\n'
         ),
         "pvesh": f'#!/bin/sh\nexec "{sys.executable}" -I "{root / "pvesh.py"}" "{qm}" "$@"\n',
-        "dpkg-query": _dpkg_query(root / "installed"),
+        "dpkg-query": _dpkg_query(root),
         "apt-get": _apt_get(root),
     }
     if shutil.which("sha256sum", path=os.pathsep.join(SYSTEM_PATH)) is None:
@@ -1161,6 +1177,63 @@ def test_only_the_image_tool_s_packages_this_run_installed_are_recorded(lab) -> 
     lab.build(lab.settings(proxmox_template_manage_libguestfs=True, proxmox_template_cpu_type="x86-64-v3"))
     assert lab.apt() == ["update", "install --yes dhcpcd-base"]
     assert [entry for entry in lab.made() if entry[0] == "package"] == [("package", "dhcpcd-base", "engine")]
+
+
+def _packages(lab: Lab) -> list[tuple[str, str, str]]:
+    return [entry for entry in lab.made() if entry[0] == "package"]
+
+
+def test_a_package_the_administrator_holds_is_there_and_never_installed_again_or_recorded(lab) -> None:
+    # dpkg wants libguestfs-tools held, and it is installed: `hold ok installed`; dhcpcd-base it has never had.
+    (lab.root / "dpkg").write_text("libguestfs-tools hold installed\n")
+    built = lab.build(lab.settings(proxmox_template_manage_libguestfs=True))
+    assert built.outcome == template.SAME
+    assert lab.apt() == ["update", "install --yes dhcpcd-base"]
+    assert _packages(lab) == [("package", "dhcpcd-base", "engine")]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        pytest.param("unknown not-installed", id="not installed"),
+        pytest.param("deinstall config-files", id="removed, its configuration kept"),
+    ],
+)
+def test_a_package_dpkg_says_is_not_installed_is_installed_and_recorded(lab, line) -> None:
+    (lab.root / "dpkg").write_text(f"libguestfs-tools {line}\n")
+    (lab.root / "installed").write_text("dhcpcd-base\n")
+    built = lab.build(lab.settings(proxmox_template_manage_libguestfs=True))
+    assert built.outcome == template.SAME
+    assert lab.apt() == ["update", "install --yes libguestfs-tools"]
+    assert _packages(lab) == [("package", "libguestfs-tools", "engine")]
+
+
+@pytest.mark.parametrize(
+    ("line", "words"),
+    [
+        pytest.param(
+            "install half-configured",
+            'dpkg says libguestfs-tools is "half-configured" on the Proxmox host, neither installed nor absent',
+            id="half configured",
+        ),
+        pytest.param(
+            "install exit-2",
+            "Whether libguestfs-tools is installed could not be read on the Proxmox host: it ended with status 2",
+            id="a read that failed",
+        ),
+        pytest.param(
+            "install exit-255",
+            "Whether libguestfs-tools is installed could not be read on the Proxmox host",
+            id="a read that ended 255",
+        ),
+    ],
+)
+def test_a_package_neither_installed_nor_absent_or_unread_is_refused_and_nothing_installed(lab, line, words) -> None:
+    (lab.root / "dpkg").write_text(f"libguestfs-tools {line}\n")
+    refused = _stopped(lab, lab.settings(proxmox_template_manage_libguestfs=True))
+    assert words in refused and "the base template was not built" in refused, refused
+    assert lab.apt() == [] and _packages(lab) == []
+    assert lab.qm_calls() == [] and lab.customised() == [] and lab.in_images() == [IMAGE_FILE]
 
 
 def test_a_difference_is_rebuilt_at_the_same_id_with_a_uuid_of_its_own(lab) -> None:
