@@ -275,11 +275,13 @@ def _nothing(where: paths.Home, file: Path) -> str:
     never the variable, which is a script's and the agents' server's."""
     vault = sealed.path(where)
     if os.path.lexists(vault):
-        return f"error: nothing here opens {_shown(vault)}: " + said(
-            "the key file {file} (vault_key_file) is not there, and vault_key_command names no command: copy the key"
-            " file of the computer that made the fleet to {file}, or name the file that holds it in vault_key_file:"
-            " {settings}",
+        # Said whole, the vault a field: the sentence ends in a line, which nothing is joined to (schema/printer.py).
+        return said(
+            "error: nothing here opens {vault}: the key file {file} (vault_key_file) is not there, and"
+            " vault_key_command names no command: copy the key file of the computer that made the fleet to {file}, or"
+            " name the file that holds it in vault_key_file: {settings}",
             {
+                "vault": _shown(vault),
                 "file": _shown(file),
                 "settings": Line("settings", {"name": "vault_key_file", "value": PLACEHOLDER}),
             },

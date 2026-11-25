@@ -15,10 +15,12 @@ of --set or settings --value back, and every call of the printer, through any na
 value that is off is not said; a placeholder is <name>, the name help gives it, in a form line and a masked one alike,
 and each placeholder given back to aw, as a word or as JSON, is refused in a sentence of aw's own. A form writes its
 placeholders last, and over the printer's whole domain, every verb with each placeholder beside the rest, a form pasted
-into /bin/sh and bash runs nothing, or words aw refuses, with no exception; and no module of the new engine extends a
-printer's line with words of its own, by +, %, a join or an f-string, or says a sentence built at its call. The host's
-flag is given by every caller of a verb with the shared --host, and only a verb whose --host runs it against a host
-takes one.
+into /bin/sh and bash runs nothing, or words aw refuses, with no exception; a form the printer refuses is its
+Unwritten, which aw says in one sentence as its own fault and never as a traceback; and no module of the new engine
+extends a printer's line with words of its own, by +, %, a join, an f-string, print or its replace, through anything
+that hands it on, or says a sentence built at its call, while lines joined by a newline, and a line written with its
+end, are whole. The host's flag is given by every caller of a verb with the shared --host, and only a verb whose --host
+runs it against a host takes one.
 A value the one check refuses is never printed, and a rule between options is the run's to say. Every line, and every
 command a sentence names, is the program as it was started, quoted: aw where aw on PATH is the launcher, else what was
 typed, through the launcher; the one check's own sentences, the rules', help's usage lines and its closing paragraph
@@ -39,6 +41,7 @@ import re
 import shlex
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -49,13 +52,13 @@ from test_aw_cli_rules import REFUSALS
 from test_aw_cli_words import SECRET_TEXT
 from test_aw_layout import NEW
 
-from claude_vm.cli import habits, main, parse
+from claude_vm.cli import dispatch, habits, main, parse
 from claude_vm.cli import help as helps
 from claude_vm.schema import check as checks
 from claude_vm.schema import printer, rules
 from claude_vm.schema.patterns import full
 from claude_vm.schema.printer import said
-from claude_vm.schema.words import BEFORE, LINES, PLACEHOLDER, VERBS, Line, Option, Verb, Words, placeholder
+from claude_vm.schema.words import BEFORE, EXITS, LINES, PLACEHOLDER, VERBS, Line, Option, Verb, Words, placeholder
 from claude_vm.schema.words import HOST as SHARED_HOST
 
 # A value with a space, a quote and a leading -, which a value of free text may be: given as --long=value, quoted.
@@ -316,7 +319,7 @@ def test_a_value_that_is_off_is_not_said() -> None:
     assert _argv("status", {}, before={"detached_run": False}) == ["aw", "status"]
     # A value of another type is no value that is off: refused, as the check refuses it.
     for values in ({"cores": False}, {"check": 0}, {"tags": []}):
-        with pytest.raises(ValueError):
+        with pytest.raises(printer.Unwritten):
             _argv("deploy", values)
 
 
@@ -339,7 +342,7 @@ def test_a_placeholder_is_the_name_help_gives_it() -> None:
                 assert helps.shown(option).endswith(f" {placeholder(option)}"), option
     # A flag and a count have no value to name; and a placeholder is never a value the one check takes.
     for values in ({"check": PLACEHOLDER}, {"verbosity": PLACEHOLDER}):
-        with pytest.raises(ValueError):
+        with pytest.raises(printer.Unwritten):
             _line("deploy", values)
     assert checks.check("code", {"name": PLACEHOLDER}) is not None
     assert checks.check("settings", {"name": "vm_note", "value": PLACEHOLDER}) is not None
@@ -359,7 +362,7 @@ def test_the_line_ends_with_the_host_s_flag_which_every_caller_of_a_verb_with_th
     # None, on a verb with the shared --host whose values give none: refused, so no caller forgets the host.
     for verb in SHARED:
         for printing in (printer.line, printer.argv):
-            with pytest.raises(ValueError):
+            with pytest.raises(printer.Unwritten):
                 printing(verb, {}, refused=False)
     # settings, vault and init run against the host their --host names: a flag there, and none for None.
     for verb in printer.HOSTS_OWN:
@@ -379,7 +382,7 @@ def test_the_line_ends_with_the_host_s_flag_which_every_caller_of_a_verb_with_th
         ("init", {}, "-x"),
     ]:
         for printing in (printer.line, printer.argv):
-            with pytest.raises(ValueError):
+            with pytest.raises(printer.Unwritten):
                 printing(verb, values, host_flag=given, refused=False)
 
 
@@ -442,7 +445,7 @@ def test_a_value_a_terminal_would_not_show_as_it_is_is_never_printed(character: 
         ("mcp", {"extra": f"a{character}"}),
     ]:
         for printing in (_line, _argv):
-            with pytest.raises(ValueError) as refused:
+            with pytest.raises(printer.Unwritten) as refused:
                 printing(verb, values)
             assert character not in str(refused.value) and str(refused.value).startswith("error: aw"), refused.value
     # Masked, the value is not said, so nothing is refused.
@@ -618,10 +621,10 @@ def test_a_value_the_one_check_refuses_is_never_printed() -> None:
         ("nothing", {}),
     ]:
         for printing in (_line, _argv):
-            with pytest.raises(ValueError) as refused:
+            with pytest.raises(printer.Unwritten) as refused:
                 printing(verb, values)
             assert TYPED not in str(refused.value) and str(refused.value).startswith("error: aw"), refused.value
-    with pytest.raises(ValueError):
+    with pytest.raises(printer.Unwritten):
         _argv("deploy", {}, before={"attended": "2"})
 
 
@@ -682,7 +685,7 @@ def test_a_placeholder_given_back_is_refused_as_a_word_and_as_json(verb, words, 
     assert refused.value.sentence == sentence
     check = checks.check_before(values) if not verb else checks.check(verb, values)
     assert check == sentence
-    with pytest.raises(ValueError, match="stands for"):
+    with pytest.raises(printer.Unwritten, match="stands for"):
         _argv(verb or "status", {} if not verb else values, before=values if not verb else None)
 
 
@@ -745,15 +748,21 @@ def test_a_form_whose_one_placeholder_is_its_names_is_written_only_where_the_res
     # deploy.7's), and asks it without saying a rule's sentence, which names this very form.
     assert checks.check("deploy", {"tags": "claude_code"}) == rules.RULES["deploy.7"].check({"tags": "claude_code"})
     assert not checks.takes("deploy", {"tags": "claude_code"}) and checks.takes("deploy", {})
+    # The five forms printer.py's docstring names (review/code/H36.md 3), and beside other words the check takes: each
+    # its Unwritten, which cli/main.py says.
     for verb, values, flag in [
         ("deploy", {}, ""),
+        ("deploy", {"detach": True}, ""),
         ("deploy", {"only": "configure"}, ""),
         ("login", {}, ""),
+        ("login", {"only": "github"}, ""),
         ("login", {}, "lab2"),
+        ("status", {}, ""),
         ("status", {"json": True}, ""),
+        ("destroy", {}, ""),
     ]:
         for printing in (printer.line, printer.argv):
-            with pytest.raises(ValueError, match="would leave a command the one check takes") as refused:
+            with pytest.raises(printer.Unwritten, match="would leave a command the one check takes") as refused:
                 printing(verb, {"names": PLACEHOLDER, **values}, host_flag=flag, refused=False)
             assert str(refused.value).startswith(f"error: a form of aw {verb} "), refused.value
     # Beside another placeholder, or a value masked, it is no line a shell reads: written.
@@ -893,7 +902,7 @@ def test_a_form_pasted_at_a_shell_never_leaves_a_whole_command(tmp_path, pasted_
     for verb, values, refused, flag in _domain():
         try:
             forms.add(printer.line(verb, values, refused=refused, host_flag=flag))
-        except ValueError:
+        except printer.Unwritten:
             unwritten.append((verb, values, refused, flag))
     printed = sorted(form for form in forms if "<" in form)
     usages = sorted(form for form in (helps.usage(verb) for verb in VERBS.values()) if "<" in form)
@@ -1021,6 +1030,29 @@ def test_main_takes_what_the_launcher_said_out_of_the_environment_at_once(monkey
     assert capsys.readouterr().out.startswith("Usage: ./aw deploy [<name>...]\n")
     main.main([str(REPO / "tools" / "aw"), "help", "deploy"])
     assert printer.program() == "aw"
+
+
+def test_a_line_the_printer_will_not_write_is_said_by_main_never_shown_as_a_traceback(monkeypatch, capsys) -> None:
+    # review/code/H36.md 3: a handler that says a form the printer refuses (aw status <name>..., whose rest is taken)
+    # meets its Unwritten, which main says in the printer's sentence as the program's own fault, and exits 1.
+    monkeypatch.setattr(printer, "_program", printer.PROGRAM)
+    monkeypatch.delenv(main.STARTED_AS, raising=False)
+    form = Line("status", {"names": PLACEHOLDER}, host_flag="")
+    with pytest.raises(printer.Unwritten) as refused:
+        said("{line}", {"line": form})
+    asked = []
+
+    def handler(*given: object) -> int:
+        asked.append(given)
+        print(said("{line}", {"line": form}))
+        return 0
+
+    monkeypatch.setattr(dispatch, "dispatch", handler)
+    assert main.main([str(REPO / "tools" / "aw"), "status"]) == EXITS["refused"] == 1
+    out, err = capsys.readouterr()
+    assert len(asked) == 1 and out == ""
+    assert err.splitlines() == [f"{refused.value} ({main.OWN_FAULT})"]
+    assert str(refused.value).startswith("error: a form of aw status ") and "Traceback" not in err
 
 
 def _program_said(result: subprocess.CompletedProcess[str]) -> str:
@@ -1276,7 +1308,7 @@ CHECK = "lib/claude_vm/schema/check.py"
 # check (review/code/H27.md 1): a line to run is the printer's line, and a sentence names a command as a Line, said.
 COMMAND_USERS = {
     CHECK: "the one check's refusals, each naming the command it refuses and where its options are listed",
-    PRINTER: "the printer's refusals of a line it will not write, raised as ValueError, each naming the verb's command",
+    PRINTER: "the printer's refusals of a line it will not write, raised as Unwritten, each naming the verb's command",
     "lib/claude_vm/cli/parse.py": "the parser's refusals, argparse's errors said in the project's own sentences, and "
     "the parser's prog, which nothing prints: every error of argparse's is said by those sentences",
     "lib/claude_vm/cli/dispatch.py": "not_built's refusal of a verb no card has built yet",
@@ -1379,8 +1411,13 @@ def test_the_module_h27_s_review_planted_fails_the_guard_of_the_check_s_command(
 
 # ---------------------------------------------------------------- a printer's line, whole ----
 
-# The calls that build a string from what they are given, which a line among it would be extended by.
+# The calls that build a string from what they are given, which a line among it would be extended by: but a join by a
+# newline whose every item is a line, which puts each whole on a line of its own (review/code/H36.md 1).
 JOINING = ("join", "format", "format_map")
+# A line's own methods that hand it on, whole or cut, as the line: what they give is held as the line is. A line's
+# replace is found wherever it is, since a line is never edited.
+HANDED_ON = ("strip", "lstrip", "rstrip", "ljust", "rjust", "center")
+EDITED = ("replace",)
 # What may follow a printer's line in a string that does not end there: punctuation, which ends the line's words, or a
 # space and a word of prose, letters alone, up to the next punctuation or field holding no word that starts with -.
 _PUNCTUATION = re.compile(r"\s*[^\w\s{-]")
@@ -1434,18 +1471,27 @@ def _a_line_object(node: ast.AST | None) -> bool:
 
 def _extended(source: str, own: bool = False, functions: bool = True) -> list[int]:
     """The line of each place in source where a printer's line is extended, by any name source gives the printer or its
-    functions. A printer's line is a call of line or argv, a call of said whose sentence is one field, a call of a
-    function of the module's own that returns one (but where functions is false), a name bound to one in the same
-    function, or an f-string that ends in one. It is extended where it is an operand of + or %, an element of what a %
-    template takes, or added to; anywhere in what join, format or format_map takes; or followed in an f-string by a
-    field, a word that starts with -, or anything but the string's end, punctuation or a word of prose. And a sentence
-    said is never built at its call (+, %, an f-string, join, format, format_map), and in a literal one, or a constant
-    of the module's, each field a Line fills, given at the call or from LINES, or each of its fields where the call
-    gives them as anything but a mapping written there, is followed as a line in an f-string must be."""
+    functions. A printer's line is a call of line or argv, a call of said whose sentence is one field or ends, but for
+    spaces, in a field a Line fills (LINES', or one given at the call in a mapping written there), a call of a function
+    of the module's own that returns one (but where functions is false), a name bound to one in the same function, an
+    f-string that ends in one, what hands one on (str of it, a subscript of it, its strip, lstrip, rstrip, ljust, rjust
+    or center, any function of textwrap given it first), and lines joined by a newline (a join whose separator is a
+    newline alone, of a list or tuple written there whose every item is a line, or of a comprehension of lines), which
+    ends in its last. It is extended where it is an operand of + or %, an element of what a % template takes, or added
+    to; anywhere in what join, format or format_map takes, but as one of lines joined by a newline; any argument of
+    print but the last; edited by its replace; or followed in an f-string by a field, a word that starts with -, or
+    anything but the string's end, punctuation or a word of prose. An f-string that holds one anywhere is never an
+    operand of + or % nor an argument of print but the last; and a line with a newline added, the one argument of a
+    write, is whole. And a sentence said is never built at its call (+, %, an f-string, join, format, format_map), and
+    in a literal one, or a constant of the module's, each field a Line fills, given at the call or from LINES, or each
+    of its fields where the call gives them as anything but a mapping written there, is followed as a line in an
+    f-string must be. What it cannot see: a line handed to a function as its parameter, or carried in an attribute or a
+    container, a mapping given to said among them."""
     tree = ast.parse(source)
     parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
     makers = {id(node) for node in _references(tree, ("line", "argv"), own)}
     sayers = {id(node) for node in _references(tree, ("said",), own)}
+    wrappers = {id(node) for node in _references(tree, tuple(textwrap.__all__), False, "textwrap")}
     constants = {
         target.id: node.value.value
         for node in tree.body
@@ -1453,13 +1499,48 @@ def _extended(source: str, own: bool = False, functions: bool = True) -> list[in
         for target in node.targets
         if isinstance(target, ast.Name)
     }
+    # Filled below, once the functions that read them are defined: a line returned by a function of the module's own,
+    # and a name bound to one.
+    lines_returned: set[str] = set()
+    bound: set[tuple[int, str]] = set()
 
     def said_of(node: ast.AST) -> bool:
         return isinstance(node, ast.Call) and id(node.func) in sayers
 
+    def sentence_of(node: ast.Call) -> ast.AST | None:
+        """said's sentence at its call: as written, or a constant of the module's that it names."""
+        sentence = node.args[0] if node.args else None
+        if isinstance(sentence, ast.Name) and sentence.id in constants:
+            return ast.Constant(constants[sentence.id])
+        return sentence
+
+    def lines_filled(node: ast.Call) -> set[str] | None:
+        """The fields a Line fills in said's call: LINES' names the call does not give, and each it gives a Line or a
+        printer's line; None, each field, where it gives them as anything but a mapping written there."""
+        filled = node.args[1] if len(node.args) > 1 else None
+        if filled is not None and not isinstance(filled, ast.Dict):
+            return None
+        pairs = zip(filled.keys, filled.values, strict=True) if isinstance(filled, ast.Dict) else []
+        keys = {key.value: value for key, value in pairs if isinstance(key, ast.Constant)}
+        return (set(LINES) - set(keys)) | {key for key, value in keys.items() if a_line_given(value)}
+
+    def ends_in_a_line(node: ast.Call) -> bool:
+        """Whether said's sentence at node ends, but for spaces, in a field a Line fills: one of LINES' the call does
+        not give, or one it gives a Line or a printer's line in a mapping written there. Where it gives its values
+        otherwise, only LINES' names: a Line carried in a mapping is in a container, which the scan does not see."""
+        sentence = sentence_of(node)
+        if not (isinstance(sentence, ast.Constant) and isinstance(sentence.value, str)):
+            return False
+        last = re.search(r"\{(\w+)\}\s*\Z", sentence.value)
+        if last is None:
+            return False
+        fields = lines_filled(node)
+        return last.group(1) in (set(LINES) if fields is None else fields)
+
     def made(node: ast.AST | None) -> bool:
         return isinstance(node, ast.Call) and (
-            id(node.func) in makers or (said_of(node) and bool(node.args) and _one_field(node.args[0]))
+            id(node.func) in makers
+            or (said_of(node) and bool(node.args) and (_one_field(node.args[0]) or ends_in_a_line(node)))
         )
 
     def scope(node: ast.AST) -> ast.AST:
@@ -1482,7 +1563,6 @@ def _extended(source: str, own: bool = False, functions: bool = True) -> list[in
             and any(isinstance(inner, ast.Return) and either(test, inner.value) for inner in ast.walk(node))
         }
 
-    lines_returned = returning(made) if functions else set()
     objects_returned = returning(_a_line_object)
     objects_named = {
         target.id
@@ -1495,16 +1575,39 @@ def _extended(source: str, own: bool = False, functions: bool = True) -> list[in
     def called(node: ast.AST, names: set[str]) -> bool:
         return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in names
 
-    bound: set[tuple[int, str]] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Assign, ast.AnnAssign)) and either(
-            lambda value: made(value) or called(value, lines_returned), node.value
+    def handed_on(node: ast.AST) -> bool:
+        """Whether node hands on a line, whole or cut: str of it, a subscript of it, a method of HANDED_ON's, or a
+        function of textwrap given it first."""
+        if isinstance(node, ast.Subscript):
+            return a_line(node.value)
+        if not isinstance(node, ast.Call):
+            return False
+        if isinstance(node.func, ast.Attribute) and node.func.attr in HANDED_ON:
+            return a_line(node.func.value)
+        given = node.args[0] if node.args else None
+        named_str = isinstance(node.func, ast.Name) and node.func.id == "str" and len(node.args) == 1
+        return given is not None and (named_str or id(node.func) in wrappers) and a_line(given)
+
+    def joined_whole(node: ast.AST | None) -> bool:
+        """Whether node is lines joined by a newline, each whole on a line of its own: a join whose separator is a
+        newline alone, of a list or tuple written there whose every item is a line, or of a comprehension of lines."""
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "join"
+            and isinstance(node.func.value, ast.Constant)
+            and node.func.value.value == "\n"
+            and len(node.args) == 1
+            and not node.keywords
         ):
-            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-            bound |= {(id(scope(node)), target.id) for target in targets if isinstance(target, ast.Name)}
+            return False
+        items = node.args[0]
+        if isinstance(items, (ast.List, ast.Tuple)):
+            return bool(items.elts) and all(a_line(item) for item in items.elts)
+        return isinstance(items, (ast.ListComp, ast.GeneratorExp)) and a_line(items.elt)
 
     def a_line(node: ast.AST) -> bool:
-        if made(node) or called(node, lines_returned):
+        if made(node) or called(node, lines_returned) or handed_on(node) or joined_whole(node):
             return True
         if isinstance(node, ast.IfExp):
             return a_line(node.body) or a_line(node.orelse)
@@ -1513,18 +1616,53 @@ def _extended(source: str, own: bool = False, functions: bool = True) -> list[in
         last = node.values[-1] if isinstance(node, ast.JoinedStr) and node.values else None
         return isinstance(last, ast.FormattedValue) and a_line(last.value)
 
+    def holding(node: ast.AST) -> bool:
+        """Whether node is an f-string that holds a line anywhere."""
+        return isinstance(node, ast.JoinedStr) and any(
+            isinstance(value, ast.FormattedValue) and a_line(value.value) for value in node.values
+        )
+
     def a_line_given(node: ast.AST) -> bool:
         """Whether a value given at said's call fills its field with a command: a Line, a printer's line, or a name or
         a call of the module's own that is one."""
         named = isinstance(node, ast.Name) and node.id in objects_named
         return _a_line_object(node) or called(node, objects_returned) or named or a_line(node)
 
+    def operand(node: ast.AST) -> ast.AST | None:
+        """What node is given to, past the tuples and lists it is an element of."""
+        parent = parents.get(node)
+        while isinstance(parent, (ast.Tuple, ast.List)):
+            parent = parents.get(parent)
+        return parent
+
+    def written(node: ast.AST, joined: ast.AST | None) -> bool:
+        """Whether node, a line, is whole in joined: node with a newline added, the one argument of a write."""
+        call = parents.get(joined) if joined is not None else None
+        return (
+            isinstance(joined, ast.BinOp)
+            and isinstance(joined.op, ast.Add)
+            and joined.left is node
+            and isinstance(joined.right, ast.Constant)
+            and joined.right.value == "\n"
+            and isinstance(call, ast.Call)
+            and getattr(call.func, "attr", None) == "write"
+            and len(call.args) == 1
+            and call.args[0] is joined
+            and not call.keywords
+        )
+
+    lines_returned |= returning(made) if functions else set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and either(
+            lambda value: made(value) or called(value, lines_returned), node.value
+        ):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            bound.update((id(scope(node)), target.id) for target in targets if isinstance(target, ast.Name))
+
     found: set[int] = set()
     for node in ast.walk(tree):
         if said_of(node) and node.args:
-            sentence = node.args[0]
-            if isinstance(sentence, ast.Name) and sentence.id in constants:
-                sentence = ast.Constant(constants[sentence.id])
+            sentence = sentence_of(node)
             built = isinstance(sentence, (ast.BinOp, ast.JoinedStr)) or (
                 isinstance(sentence, ast.Call)
                 and isinstance(sentence.func, ast.Attribute)
@@ -1533,27 +1671,34 @@ def _extended(source: str, own: bool = False, functions: bool = True) -> list[in
             if built:
                 found.add(node.lineno)
             elif isinstance(sentence, ast.Constant) and isinstance(sentence.value, str):
-                filled = node.args[1] if len(node.args) > 1 else None
-                fields: set[str] | None = None
-                if filled is None or isinstance(filled, ast.Dict):
-                    pairs = zip(filled.keys, filled.values, strict=True) if isinstance(filled, ast.Dict) else []
-                    keys = {key.value: value for key, value in pairs if isinstance(key, ast.Constant)}
-                    fields = (set(LINES) - set(keys)) | {key for key, value in keys.items() if a_line_given(value)}
-                if not _fields_kept_whole(sentence.value, fields):
+                if not _fields_kept_whole(sentence.value, lines_filled(node)):
                     found.add(node.lineno)
         if isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Name):
             if (id(scope(node)), node.target.id) in bound or a_line(node.value):
                 found.add(node.lineno)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "print":
+            # print joins its arguments with a space: a line, or an f-string holding one, before another is extended.
+            if any(a_line(given) or holding(given) for given in node.args[:-1]):
+                found.add(node.lineno)
+        if isinstance(node, ast.Attribute) and node.attr in EDITED and a_line(node.value):
+            found.add(node.lineno)
+        if holding(node) and not a_line(node):
+            joined = operand(node)
+            if isinstance(joined, ast.BinOp) and isinstance(joined.op, (ast.Add, ast.Mod)):
+                found.add(node.lineno)
         if not a_line(node):
             continue
-        parent = parents.get(node)
-        while isinstance(parent, (ast.Tuple, ast.List)):
-            parent = parents.get(parent)
-        if isinstance(parent, ast.BinOp) and isinstance(parent.op, (ast.Add, ast.Mod)):
+        parent = operand(node)
+        if isinstance(parent, ast.BinOp) and isinstance(parent.op, (ast.Add, ast.Mod)) and not written(node, parent):
             found.add(node.lineno)
         above, below = parents.get(node), node
         while above is not None and not isinstance(above, ast.stmt):
-            if isinstance(above, ast.Call) and getattr(above.func, "attr", None) in JOINING and below is not above.func:
+            if (
+                isinstance(above, ast.Call)
+                and getattr(above.func, "attr", None) in JOINING
+                and below is not above.func
+                and not joined_whole(above)
+            ):
                 found.add(node.lineno)
                 break
             above, below = parents.get(above), above
@@ -1590,6 +1735,35 @@ def test_no_module_of_the_new_engine_extends_a_printer_s_line() -> None:
         ("x = printer.line('cancel', {}, refused=False) + ' ' + job", [1]),
         ("x = f\"{printer.line('cancel', {}, refused=False)} {job}\"", [1]),
         ("x = printer.said('{line} vm_note --value ' + value, {'line': Line('settings')})", [1]),
+        # The roads review/code/H36.md 1 planted: print, an f-string holding a line then joined, a sentence that ends in
+        # a line then joined, and what hands a line on: str, a slice, replace, textwrap.
+        ("print(printer.line('cancel', {}, refused=False), job)", [1]),
+        ("x = f\"{printer.line('cancel', {}, refused=False)} \" + job", [1]),
+        ("x = printer.said('run {line}', {'line': Line('cancel')}) + ' ' + job", [1]),
+        ("x = printer.said('{line} ', {'line': Line('cancel')}) + job", [1]),
+        ("x = str(printer.line('cancel', {}, refused=False)) + ' ' + job", [1]),
+        ("x = printer.line('cancel', {}, refused=False)[:] + ' ' + job", [1]),
+        ("x = printer.line('cancel', {}, refused=False).replace('cancel', 'cancel ' + job)", [1]),
+        ("import textwrap\nx = textwrap.fill(printer.line('cancel', {}, refused=False)) + ' ' + job", [2]),
+        # And beside them: an f-string holding a line given to print or a % template, a line's strip, textwrap by
+        # another name, a sentence ending in LINES' field, there too where the values are not written at the call, and a
+        # sentence ending in a line with words before it, which is a line all the same (said whole, it is no operand).
+        ("print(f\"{printer.line('cancel', {}, refused=False)} \", job, file=err)", [1]),
+        ("x = f\"run {printer.line('cancel', {}, refused=False)} for %s\" % job", [1]),
+        ("x = printer.line('cancel', {}, refused=False).strip() + job", [1]),
+        ("from textwrap import indent as pad\nx = pad(printer.line('logs', {}, refused=False), '  ') + job", [2]),
+        ("x = printer.said('see {help}') + ' deploy'", [1]),
+        ("x = printer.said('run {help}', filled) + job", [1]),
+        ("x = 'error: ' + printer.said('run {line}', {'line': Line('cancel')})", [1]),
+        # Lines joined by a newline are a line, the last: extended, as any line.
+        (
+            "a = printer.line('logs', {}, refused=False)\n"
+            "x = '\\n'.join([a, printer.line('status', {}, refused=False)]) + job",
+            [2],
+        ),
+        ("x = '\\n'.join([printer.line('logs', {}, refused=False), job])", [1]),
+        ("out.write(printer.line('logs', {}, refused=False) + ' ' + job)", [1]),
+        ("out.write(printer.line('logs', {}, refused=False) + '\\n' + job)", [1]),
         # By any name, and through a name bound to it, a function that returns one, or an f-string that ends in one.
         ("from claude_vm.schema.printer import line as say\nx = say('logs', {}, refused=False) + ' -v'", [2]),
         ("from ..schema import printer as p\nx = '%s %s' % (p.line('logs', {}, refused=False), job)", [2]),
@@ -1630,9 +1804,35 @@ def test_no_module_of_the_new_engine_extends_a_printer_s_line() -> None:
         ("x = 'error: ' + printer.said('{init} sets one up', {'init': Line('init')})", []),
         ("x = printer.said('{names} {be} no VM', {'names': listed, 'be': 'is'})", []),
         ("x = printer.said(option.help or '')", []),
+        # Whole lines, each on a line of its own (review/code/H36.md 1, what G6 prints): joined by a newline, from a
+        # list or a comprehension, indented or bound to names; a line written with its end; print given a line last.
+        ("x = '\\n'.join(printer.line(v, {}, refused=False) for v in verbs)", []),
+        ("x = '\\n'.join([f\"  {printer.line(v, {}, refused=False)}\" for v in verbs])", []),
+        (
+            "def f():\n    a = printer.line('logs', {}, refused=False)\n"
+            "    b = printer.line('status', {}, refused=False)\n    return '\\n'.join((a, b))",
+            [],
+        ),
+        ("out.write(printer.line('logs', {}, refused=False) + '\\n')", []),
+        ("print('run', printer.line('logs', {}, refused=False), file=sys.stderr)", []),
+        ("x = printer.said('run {line}.', {'line': Line('cancel')}) + ' ' + job", []),
         # Not the printer's: another module's line, said or join.
         ("x = other.line('x') + job", []),
         ("x = ' '.join([checks.spelled(option), job])", []),
+        # What the scan cannot see, said in §16.2 and CLAUDE.md, left for a later card: a line handed to a helper of the
+        # module as its parameter, which appends; a line put in a list, a value appended, the list joined; a Line given
+        # in a mapping not written at said's call, whose field the sentence ends in.
+        ("x = printer.said('run {x}', filled) + job", []),
+        (
+            "def tail(run, job):\n    return run + ' ' + job\n\n"
+            "x = tail(printer.line('cancel', {}, refused=False), job)",
+            [],
+        ),
+        (
+            "def f(job):\n    words = [printer.line('cancel', {}, refused=False)]\n"
+            "    words.append(job)\n    return ' '.join(words)",
+            [],
+        ),
     ],
 )
 def test_the_scan_of_a_line_extended_sees_every_road(source: str, lines: list) -> None:
