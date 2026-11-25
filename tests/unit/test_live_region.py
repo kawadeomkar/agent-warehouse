@@ -6,7 +6,10 @@ ignored and one at its default still ending the process; a frame taller than the
 and says how much; a prompt - pause's prompt_until or a vars_prompt's do_var_prompt - has the screen to itself; the
 route sends what it is given to the log alone; a screen too small gets no region; the echo is off while it draws,
 on a pseudo-terminal of the test's own, a change of it that a signal interrupts (EINTR) made again, never taken for no
-terminal; and the Display it wraps is held to ansible-core's. Each live output's own
+terminal; at a run's end NOFLSH kept till its last words are said, then the settings exactly as found; a Ctrl-C while
+it draws throwing away what was typed unseen and handing the signal on; in the background no change of the settings
+made and none of the shell's read as the ones to put back; a signal that lands while the settings go back delivered
+once they are back; and the Display it wraps is held to ansible-core's. Each live output's own
 tests run it for real: test_status_live.py and test_deploy_live.py, at a pseudo-terminal
 (docs/architecture/custom-code.md §7.8).
 """
@@ -464,6 +467,147 @@ def test_while_it_draws_the_terminal_keeps_its_output_at_an_interrupt_and_its_se
         region.finish()
         assert termios.tcgetattr(slave) == found
     finally:
+        terminal.close()
+        os.close(master)
+
+
+def _at_a_terminal_of_its_own(monkeypatch):
+    """A pseudo-terminal of the test's own as the region's standard input: (master, slave, its file)."""
+    master, slave = os.openpty()
+    terminal = os.fdopen(slave, "r")
+    monkeypatch.setattr(live.sys, "stdin", terminal)
+    return master, slave, terminal
+
+
+@pytest.mark.parametrize("noflsh", [False, True], ids=["found without NOFLSH", "found with NOFLSH"])
+def test_at_a_runs_end_noflsh_is_kept_till_its_last_words_are_said_then_the_settings_go_back_as_found(
+    monkeypatch, noflsh
+):
+    # finish(kept=True): the region gone and the echo back, but NOFLSH kept on, so that a Ctrl-C the terminal has not
+    # read the run's summary and NEXT STEPS by throws none of them away; release(): the settings exactly as found, once.
+    master, slave, terminal = _at_a_terminal_of_its_own(monkeypatch)
+    try:
+        given = termios.tcgetattr(slave)
+        given[3] = given[3] | termios.NOFLSH if noflsh else given[3] & ~termios.NOFLSH
+        termios.tcsetattr(slave, termios.TCSANOW, given)
+        found = termios.tcgetattr(slave)
+        region, _, _ = _region(frame=lambda cols, rows, glyph: ["region"])
+        region.start()
+        region.finish(kept=True)
+        kept = termios.tcgetattr(slave)
+        assert kept[3] == found[3] | termios.NOFLSH, (kept[3], found[3])
+        assert kept[:3] + kept[4:] == found[:3] + found[4:]
+        region.release()
+        assert termios.tcgetattr(slave) == found
+        # Nothing a second time: a change made since is left as it is.
+        termios.tcsetattr(slave, termios.TCSANOW, kept)
+        region.release()
+        assert termios.tcgetattr(slave) == kept
+    finally:
+        terminal.close()
+        os.close(master)
+
+
+@pytest.mark.parametrize("handler", ["Python's", "a program's own"])
+def test_a_ctrl_c_while_the_region_draws_throws_away_what_was_typed_unseen_and_hands_the_signal_on(
+    monkeypatch, handler
+):
+    # NOFLSH keeps at a Ctrl-C what the terminal has not written; the kernel then keeps what was typed too, which its
+    # own Ctrl-C threw away. The hold of the terminal throws it away, then hands the signal to the handler that was in
+    # place (Python's raises KeyboardInterrupt), which is in place again once the region is gone.
+    master, slave, terminal = _at_a_terminal_of_its_own(monkeypatch)
+    heard = []
+    own = signal.default_int_handler if handler == "Python's" else (lambda signum, frame: heard.append(signum))
+    previous = signal.signal(signal.SIGINT, own)
+    try:
+        region, _, _ = _region(frame=lambda cols, rows, glyph: ["region"])
+        region.start()
+        os.write(master, b"typed unseen\n")
+        assert select.select([slave], [], [], 5)[0], "the line never reached the terminal's input"
+        if handler == "Python's":
+            with pytest.raises(KeyboardInterrupt):
+                signal.raise_signal(signal.SIGINT)
+        else:
+            signal.raise_signal(signal.SIGINT)
+            assert heard == [signal.SIGINT]
+        assert not select.select([slave], [], [], 0.3)[0], "what was typed is still there to read"
+        region.finish()
+        assert signal.getsignal(signal.SIGINT) is own
+    finally:
+        signal.signal(signal.SIGINT, previous)
+        terminal.close()
+        os.close(master)
+
+
+def test_in_the_background_the_region_neither_changes_the_terminals_settings_nor_takes_the_shells_as_its_own(
+    monkeypatch,
+):
+    # A shell put the run in the background (Ctrl-Z, then bg): the settings are the shell's, and a change of them would
+    # stop the run (SIGTTOU) or change the shell's under it. The region changes nothing there, and reads none of them as
+    # the settings to put back.
+    master, slave, terminal = _at_a_terminal_of_its_own(monkeypatch)
+    group = {"of": os.getpgrp()}
+    monkeypatch.setattr(os, "tcgetpgrp", lambda fd: group["of"])
+    made = termios.tcsetattr
+    changes = []
+
+    def recorded(fd, when, settings):
+        changes.append((when, settings[3]))
+        made(fd, when, settings)
+
+    try:
+        found = termios.tcgetattr(slave)
+        region, display, _ = _region(frame=lambda cols, rows, glyph: ["region"])
+        region.start()
+        quiet = termios.tcgetattr(slave)
+        assert not quiet[3] & termios.ECHO
+        monkeypatch.setattr(live.termios, "tcsetattr", recorded)
+        group["of"] = os.getpgrp() + 1
+        display.prompt_until("Code:")
+        region.finish()
+        assert changes == [] and termios.tcgetattr(slave) == quiet
+        # Started in the background, where a shell's line editor has its own settings up: none read as the run's,
+        # so none put back once the run is the foreground again.
+        made(slave, termios.TCSANOW, found)
+        shells = [found[0], found[1], found[2], found[3] & ~(termios.ICANON | termios.ECHO), *found[4:]]
+        made(slave, termios.TCSANOW, shells)
+        later, _, _ = _region(frame=lambda cols, rows, glyph: ["region"])
+        later.start()
+        made(slave, termios.TCSANOW, found)
+        group["of"] = os.getpgrp()
+        later.finish()
+        assert changes == [] and termios.tcgetattr(slave) == found
+    finally:
+        terminal.close()
+        os.close(master)
+
+
+@pytest.mark.parametrize("signum", [signal.SIGINT, signal.SIGTERM], ids=["a second Ctrl-C", "a SIGTERM"])
+def test_a_signal_that_lands_while_the_settings_go_back_is_delivered_once_they_are_back(monkeypatch, signum):
+    # The change back is made with the signals a program ends on held off: one whose handler raises, landing in the
+    # middle of it, is delivered once it is made, never leaving the echo off for the shell.
+    master, slave, terminal = _at_a_terminal_of_its_own(monkeypatch)
+    made = termios.tcsetattr
+
+    def landing(fd, when, settings):
+        if settings[3] & termios.ECHO:
+            signal.raise_signal(signum)
+        made(fd, when, settings)
+
+    def ends(signum, frame):
+        raise SystemExit(128 + signum)
+
+    previous = signal.signal(signum, signal.default_int_handler if signum == signal.SIGINT else ends)
+    try:
+        found = termios.tcgetattr(slave)
+        region, _, _ = _region(frame=lambda cols, rows, glyph: ["region"])
+        region.start()
+        monkeypatch.setattr(live.termios, "tcsetattr", landing)
+        with pytest.raises(KeyboardInterrupt if signum == signal.SIGINT else SystemExit):
+            region.finish()
+        assert termios.tcgetattr(slave) == found
+    finally:
+        signal.signal(signum, previous)
         terminal.close()
         os.close(master)
 

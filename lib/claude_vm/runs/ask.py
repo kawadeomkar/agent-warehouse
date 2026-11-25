@@ -36,11 +36,18 @@ event, no record and no line on the screen.
 
 The terminal's settings are put back as they were found once each question ends, however it ends, and each change of
 them is TCSAFLUSH's, as getpass makes it: the keys typed before are flushed by the change that sets the question's
-mode, and what was typed at the question and not read (the rest of a paste, a hidden answer's second line) is
-discarded by the change back, never left in the terminal's input for the shell once the run has ended. A change that
-a signal interrupts (the run's first Ctrl-C, a resize) is made again (tui/live_region.py's set_terminal), never left
-undone. A choice's words and note are one line of plain text (Choice), as the question's own words are: a name from
-Proxmox or a machine never reaches the terminal with its escapes. Standard library and the project's own modules only:
+mode, and what was typed at the question and not read (the rest of a paste, a hidden answer's second line, the part
+of a line a Ctrl-C kept) is discarded by the change back, never left in the terminal's input for the shell once the
+run has ended. The change back is made with the run's signals held off (tui/live_region.py's put_back): a second
+Ctrl-C, a SIGTERM or a SIGHUP meanwhile ends the run once it is made, never half way, and a run the ladder stopped
+puts the settings back once more at its end with what is unread discarded (runs/attached.py). A change that a signal
+interrupts (the run's first Ctrl-C, a resize) is made again (tui/live_region.py's set_terminal), never left undone;
+the change back is made only while the run is the terminal's foreground, so that a run a shell put in the background
+is not stopped again by it. The edges: a Ctrl-Z (SIGTSTP) or a Ctrl-\\ (SIGQUIT) at a line stops or ends the run with
+NOFLSH's keeping, so what was typed on its line is left for the shell.
+
+A choice's words and note are one line of plain text (Choice), as the question's own words are: a name from Proxmox or
+a machine never reaches the terminal with its escapes. Standard library and the project's own modules only:
 asyncio is imported inside the functions that use it.
 """
 
@@ -293,7 +300,8 @@ async def _line(context: Context, fd: int, out: IO[str], prompt: str, *, echo: b
     # TCSAFLUSH, as getpass sets and puts back: the keys typed before are flushed in the same call that sets the mode,
     # so none typed between a flush and the change is taken; and what is still unread once the line is read - the rest
     # of a paste, the line after a token - is discarded with the change back, never left for the shell after the run.
-    live_region.set_terminal(fd, termios.TCSAFLUSH, mode)
+    # Made at once: a run in the background waits for the terminal there (SIGTTOU), as the question needs it.
+    live_region.change(fd, termios.TCSAFLUSH, mode, wait=True)
     got = b""
     try:
         _write(out, prompt)
@@ -303,15 +311,19 @@ async def _line(context: Context, fd: int, out: IO[str], prompt: str, *, echo: b
                 break
             got += more
     finally:
-        try:
-            live_region.set_terminal(fd, termios.TCSAFLUSH, found)
-        finally:
-            # A hidden answer's Enter, the end of the input, and a read cut short (a Ctrl-C echoed as ^C, a SIGTERM)
-            # leave the cursor on the question's line, where the view's kept lines would otherwise be said. A terminal
-            # that has gone fails the write, which is never raised over the question's own end.
-            if not echo or not got.endswith(b"\n"):
-                with contextlib.suppress(OSError, ValueError):
-                    _write(out, "\n")
+        # The question's end with the run's signals held off till it is made (a second Ctrl-C, a SIGTERM, a SIGHUP
+        # delivered after): never half made. A hidden answer's Enter, the end of the input, and a read cut short (a
+        # Ctrl-C echoed as ^C, a SIGTERM) leave the cursor on the question's line, where the view's kept lines would
+        # otherwise be said: the line ended first, in the question's mode, whose NOFLSH keeps it at a Ctrl-C. A
+        # terminal that has gone fails the write, which is never raised over the question's own end. Then the settings
+        # as found (live_region.put_back: only while the run is the terminal's foreground).
+        with live_region.uninterrupted():
+            try:
+                if not echo or not got.endswith(b"\n"):
+                    with contextlib.suppress(OSError, ValueError):
+                        _write(out, "\n")
+            finally:
+                live_region.put_back(fd, termios.TCSAFLUSH, found)
     return got.decode(errors="replace").rstrip("\r\n")
 
 
@@ -321,7 +333,6 @@ async def _menu(context: Context, built: Question, fd: int, out: IO[str]) -> str
     import asyncio
 
     menu = built.menu()
-    _write(out, visible_text(built.text).rstrip("\n") + "\n")
     pending: asyncio.Future[bytes] | None = None
 
     async def read(seconds: float) -> bytes | None:
@@ -335,7 +346,10 @@ async def _menu(context: Context, built: Question, fd: int, out: IO[str]) -> str
         return finished.result()
 
     try:
-        value = await choose.asked(menu, read, sys.stdin, out, color=not os.environ.get("NO_COLOR"))
+        # The question's words written once the menu's raw mode is set, where a Ctrl-C is a key and throws nothing
+        # the terminal has not read away.
+        above = visible_text(built.text).rstrip("\n") + "\n"
+        value = await choose.asked(menu, read, sys.stdin, out, color=not os.environ.get("NO_COLOR"), above=above)
     except choose.Interrupted:
         # Ctrl-C read as a byte, the terminal already put back: the run's own Ctrl-C, as anywhere else in it.
         os.kill(os.getpid(), signal.SIGINT)

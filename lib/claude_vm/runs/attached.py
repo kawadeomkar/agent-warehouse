@@ -35,10 +35,13 @@ GNU `timeout` without --foreground): its step then waits in silence until its ow
 fails as a silence, not as a question. A child meant to outlive the run (children.outlive: the editor, a page's opener)
 is never ended: it is left out of every tree the ladder remembers and ends.
 
-On every path but SIGKILL the terminal is put back as it was found, its echo with it; every child of the registry has
-ended or been ended before the loop closes, since asyncio kills an `ansible-playbook` it still holds when its loop
-closes and leaves the playbook's detached task workers running; the body's asynchronous generators still suspended are
-closed, for SETTLE seconds at most; the run's directory is removed; and the exit record is written last. Then nothing
+On every path but SIGKILL every child of the registry has ended or been ended before the loop closes, since asyncio
+kills an `ansible-playbook` it still holds when its loop closes and leaves the playbook's detached task workers running;
+the body's asynchronous generators still suspended are closed, for SETTLE seconds at most; the run's directory is
+removed; the exit record is written, which has the live view say the run's last words; and then the terminal is put
+back as it was found, its echo with it, and for a run a Ctrl-C or the ladder stopped what was typed and not read is
+thrown away (TCSAFLUSH), never left for the shell. Each Ctrl-C the ladder handles throws away what was typed and not
+read yet, as the terminal's own Ctrl-C does where NOFLSH is off (tui/live_region.py's discard_typed). Then nothing
 holds the process: the engine's blocking calls (asyncio.to_thread) run on daemon threads of the ladder's own, the
 loop's default executor, which are never joined, and where one is still in a call the process ends at once (os._exit)
 once its streams are flushed, an error first said as Python says one, but a line the printer would not write (its
@@ -83,6 +86,7 @@ from claude_vm.runs import job as jobs
 from claude_vm.schema import printer
 from claude_vm.schema.words import EXITS
 from claude_vm.text import plain_text
+from claude_vm.tui import live_region
 
 if TYPE_CHECKING:
     import asyncio
@@ -346,37 +350,34 @@ def asked_line(program: str) -> str:
 
 
 def _terminal() -> tuple[int, list] | None:
-    """Standard input's terminal settings as the run found them, to put back at its end; None for no terminal."""
+    """Standard input's terminal settings as the run found them, to put back at its end; None for no terminal, and for
+    a run started in the background, where the settings are the shell's own of the moment, never the run's to put
+    back."""
     import termios
 
     try:
         fd = sys.stdin.fileno()
-        if os.isatty(fd):
+        if os.isatty(fd) and live_region.foreground(fd):
             return fd, termios.tcgetattr(fd)
     except (AttributeError, ValueError, OSError, termios.error):
         pass
     return None
 
 
-def _put_back(found: tuple[int, list] | None) -> None:
-    """The terminal's settings as the run found them, the echo among them, where anything changed them: SIGTTOU held
-    off, so that a run a shell put in the background is not stopped by its own end. A terminal that has gone, after a
-    hangup, is left."""
+def _put_back(found: tuple[int, list] | None, discard: bool) -> None:
+    """The terminal's settings as the run found them, the echo among them, after the run's last words: where anything
+    changed them, drained (TCSADRAIN), so that the terminal has read those words first; and for a run a Ctrl-C or the
+    ladder stopped (discard), flushed (TCSAFLUSH) whatever they are, so that the keys typed meanwhile and not read are
+    thrown away, never left for the shell. Only while the run is the terminal's foreground, SIGTTOU held off, so that a
+    run a shell put in the background leaves the shell's settings and is not stopped by its own end; and with the run's
+    signals held off till it is made (live_region.put_back). A terminal that has gone, after a hangup, is left."""
     if found is None:
         return
     import termios
 
     fd, settings = found
-    try:
-        if termios.tcgetattr(fd) == settings:
-            return
-        held = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTTOU})
-        try:
-            termios.tcsetattr(fd, termios.TCSANOW, settings)
-        finally:
-            signal.pthread_sigmask(signal.SIG_SETMASK, held)
-    except (OSError, termios.error):
-        pass
+    with contextlib.suppress(OSError, ValueError, termios.error):
+        live_region.put_back(fd, termios.TCSAFLUSH if discard else termios.TCSADRAIN, settings, last=True)
 
 
 def _flush() -> None:
@@ -495,6 +496,10 @@ class _Ladder:
             return
         ending = self.closing or (self.task is not None and self.task.done())
         if signum == signal.SIGINT:
+            # What was typed and not read yet thrown away, as the terminal's own Ctrl-C throws it away: a live region
+            # or a question keeps what the terminal has not written at a Ctrl-C (NOFLSH), and the kernel then keeps
+            # what was typed too.
+            live_region.discard_typed()
             self.interrupts += 1
             if self.interrupts == 1:
                 if not ending:
@@ -517,6 +522,9 @@ class _Ladder:
         # Only out of the loop: anywhere else the run's own code is about to take note of the end.
         if self.loop.is_running():
             raise Abandoned(signum)
+
+    # The hold of the terminal (tui/live_region.py) leaves this handler in place: it throws the keys typed away itself.
+    setattr(signalled, live_region.DISCARDS, True)
 
     def _soon(self, callback: Callable[[], None], what: str) -> None:
         with contextlib.suppress(RuntimeError):  # a loop already closed
@@ -819,7 +827,8 @@ class _Ladder:
         self.loop.close()
 
     def _end(self, outcome: str, status: int, why: str) -> None:
-        """The run's directory removed, then its exit record written: the last thing a run does."""
+        """The run's directory removed, then its exit record written: the last thing a run does, but for putting the
+        terminal's settings back (_put_back) once what the record's end said is on the screen."""
         try:
             if not rundir.remove(self.job):
                 _say(f"aw: the run's directory could not be removed whole (job {self.job.id})")
@@ -870,8 +879,11 @@ class _Ladder:
                 # handled once the record is written, which takes note of what to die of.
                 with self._held():
                     outcome, status, why, error = self.outcome()
-                    _put_back(found)
-                    self._end(outcome, status, why)
+                    try:
+                        self._end(outcome, status, why)
+                    finally:
+                        # After the run's last words, which its end said (the summary, NEXT STEPS).
+                        _put_back(found, outcome == "cancelled" or self.interrupts > 0)
             finally:
                 # Then the handlers the run found are put back.
                 for signum, handler in previous.items():

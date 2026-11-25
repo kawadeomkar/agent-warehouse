@@ -2673,13 +2673,20 @@ ladder:
 | The body returns | what it still holds of its children ended | `succeeded` for 0, `cancelled` for 130, else `failed` with the status, or `declined` with the status and why where the body said so by `decline(why)` (destroy's no): an exit status alone never makes it | exits with the status |
 | SIGKILL | nothing | none: the job reads `lost` once its lock is free | killed |
 
-On every path but SIGKILL, the terminal's settings are put back as the run found them, its echo among them (where
-anything changed them, SIGTTOU held off); every child of the registry has ended or been ended before the loop closes,
-since asyncio kills an `ansible-playbook` it still holds when its loop closes and leaves the playbook's detached task
-workers running; the body's asynchronous generators still suspended are closed, for `SETTLE` seconds at most, so that
-one whose `finally` does not return holds the run no longer; the run's directory is removed; and the exit record is
-written last, with the signals held off and then taken as notes only, so that a late one changes nothing but what the
-process dies of. "The tree" is everything under the run's process, ended by `proc.end_under(pid, remembered, signum)`,
+On every path but SIGKILL, every child of the registry has ended or been ended before the loop closes, since asyncio
+kills an `ansible-playbook` it still holds when its loop closes and leaves the playbook's detached task workers running;
+the body's asynchronous generators still suspended are closed, for `SETTLE` seconds at most, so that one whose `finally`
+does not return holds the run no longer; the run's directory is removed; the exit record is written, which has the live
+view say the run's last words, with the signals held off and then taken as notes only, so that a late one changes
+nothing but what the process dies of; and last the terminal's settings are put back as the run found them, its echo
+among them: where anything changed them, drained (`TCSADRAIN`), so that the terminal has read those words first, and for
+a run a Ctrl-C or the ladder stopped flushed (`TCSAFLUSH`) whatever they are, so that what was typed meanwhile and not
+read is thrown away, never left for the shell. Each change only while the run is the terminal's foreground, SIGTTOU
+held off, so that a run a shell put in the background leaves the shell's settings and is not stopped by its own end; a
+run started in the background reads none to put back. Each Ctrl-C the ladder handles throws away what was typed and
+not read yet (`live_region.discard_typed`, SIGTTOU held off, only while the run is the terminal's foreground), as the
+terminal's own Ctrl-C does where `NOFLSH` is off, since the live region and a question keep what the terminal has not
+written at a Ctrl-C. "The tree" is everything under the run's process, ended by `proc.end_under(pid, remembered, signum)`,
 which signals every process under a process and what was remembered of it, by each one's start, with their groups, and
 never the process, its group or the caller's: today's
 `end` signals the root too, which here is the run. A shared SSH master daemonises out of the tree, so no end reaches it,
@@ -2951,8 +2958,14 @@ stream through the one live region every live output shares (`tui/live_region.py
 since a run's questions are asked by a module of their own that steps the region aside): redrawn after each event and
 ten times a second for the spinner, the terminal's title saying where the run is, the echo off while it draws and at a
 Ctrl-C what the terminal has not read yet kept (`NOFLSH`), where it would throw away a line said above or part of a
-frame (keys typed unseen before it are then left for the next reader, as keys typed with no Ctrl-C are), and for a
-question and at the end the terminal's settings put back exactly as found; what is
+frame (keys typed unseen before it are thrown away all the same, by the ladder's Ctrl-C), and for a question the
+terminal's settings put back exactly as found; at the run's end `NOFLSH` alone kept on until its summary and NEXT STEPS
+are said, and then the settings exactly as found (`LiveRegion.finish(kept=True)`, then `release()`), so that a Ctrl-C
+the terminal has not read them by throws none of them away. Each change of the settings is made only while the run is
+the terminal's foreground, SIGTTOU held off (`live_region.change` and `put_back`), so that a run a shell put in the
+background leaves the shell's settings and is not stopped again by one; and each change back with the run's signals
+held off till it is made (`live_region.uninterrupted`), so that a second Ctrl-C, a SIGTERM or a SIGHUP never leaves it
+half made; what is
 said above (`View.above`: each report whole, each failure) printed above the region after each event; and while it
 draws, standard error said above the region too, a whole line at a time, so that the ladder's `stopping` line at a
 Ctrl-C, or a warning, never lands inside the region. Where the stream is no terminal, what is said above and a line as
@@ -3033,8 +3046,15 @@ as found once each question ends, however it ends, and each change of them, the 
 `TCSAFLUSH`'s, as `getpass` makes it: the keys typed before are flushed by the change that sets the mode, never one
 typed between a flush and the change, and what was typed at the question and not read (the rest of a paste, the line
 after a token, the part of a line a Ctrl-C kept) is discarded by the change back, never left in the terminal's input for
-the shell to run once the run
-has ended. A change that a signal interrupts is made again (`live_region.set_terminal`, which the region's own switch
+the shell to run once the run has ended. The question's line is ended before the change back, in the question's mode,
+whose `NOFLSH` keeps it at a Ctrl-C, and the menu's words above it are written once its raw mode is set, where a Ctrl-C
+is a key (`choose.asked`'s `above`); the change back is made with the run's signals held off till it is made
+(`live_region.put_back`, inside `uninterrupted`), so that a second Ctrl-C, a SIGTERM or a SIGHUP ends the run once it is
+made, never half way, and only while the run is the terminal's foreground, SIGTTOU held off, while the question's mode
+is made at once, where a run in the background waits for the terminal (SIGTTOU), as a question needs it. A run the
+ladder stopped puts the settings back once more at its end, what is unread discarded. The edges: a Ctrl-Z (SIGTSTP) or
+a `Ctrl-\` (SIGQUIT) at a line stops or ends the run with `NOFLSH`'s keeping, so what was typed on its line is left for
+the shell. A change that a signal interrupts is made again (`live_region.set_terminal`, which the region's own switch
 of the echo uses too): `TCSAFLUSH` and `TCSADRAIN` wait for the output to drain, and a signal whose handler raises
 nothing, the run's first Ctrl-C or a resize, ends that wait with `EINTR`.
 
@@ -3059,16 +3079,25 @@ left in the terminal's input, however a run ends the terminal's settings those i
 answer whose characters reach neither the screen, the record nor
 the run's events, two lines pasted at a line and at a hidden answer, the second never left in the terminal's input once
 the run has ended, the region gone while a question is up and back after it, Enter taking the default, Ctrl-C at a
-line, a hidden answer and the menu ending the run, and keys typed before the question not taken as its answer; with
+line, a hidden answer and the menu ending the run, keys typed before the question not taken as its answer, the run's
+summary and 150 lines of NEXT STEPS said with nobody reading and then keys typed unseen and a Ctrl-C, every line on the
+screen and the keys never left for the shell, and keys typed while a stopped run winds down never left either; with
 standard input on `/dev/null`, the default at once and the line that says so; and in its own process, every refusal of
 `Question`, a question with no default among them, a choice's words and note made plain, two questions asked at once
 taking turns, how the menu's keys are cut, what is typed at the menu after its answer never left, a question and the
 menu putting the terminal back through an `EINTR`, each change `TCSAFLUSH`'s, a question's mode with `NOFLSH` and the
-settings put back exactly as found, what the view says kept while a question
+settings put back exactly as found, a question's own words written while its mode is up, a signal landing as a
+question ends delivered once its line is ended and the settings are back, a question a shell puts in the background
+making no change of the settings there, what the view says kept while a question
 is up, a refused event's line among it, or said before the summary where the run's end cuts the question short, and the
 bell rung only after a quiet while. `tests/unit/test_live_region.py` holds the region's own switch of the echo to the
-same through an `EINTR`, `NOFLSH` beside the echo while it draws and the settings back exactly as found, and 300 lines
-said above the region with nobody reading and then a Ctrl-C, none of them lost.
+same through an `EINTR`, `NOFLSH` beside the echo while it draws and the settings back exactly as found, `NOFLSH` kept
+at a run's end till `release()`, a Ctrl-C throwing away what was typed unseen and handing the signal on, no change and
+no settings read in the background, a signal landing as the settings go back delivered once they are, and 300 lines
+said above the region with nobody reading and then a Ctrl-C, none of them lost; `tests/unit/test_aw_attached.py` a run
+started in the background reading no settings to put back. In every in-process test, a draining change of a
+pseudo-terminal's settings made with output unread at its master and nothing reading it fails the test
+(`tests/unit/conftest.py`'s `drainwatch`), as macOS would wait there for good.
 
 ## 16.9 `fleet/` — the fleet's files, the settings, the secrets and the fleet's mark
 
