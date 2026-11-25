@@ -20,18 +20,19 @@ identity, its one address, the account a run logs in as, this computer's `ssh_ex
 goes through the host and the machine brings no jump of its own - a `ProxyJump`, a `-J` or a `ProxyCommand` other than
 `none` among those options, or in what `ssh -G` resolves for its address from the person's own `~/.ssh/config` - the
 hop's `ProxyCommand` to its own address (connections.py's `target_for`), which marks each `Target` with the route it was
-given (`routed_as`: `direct`, `hop` or `own`): the runner connects to no machine's `Target` unmarked, nor to one marked
-through the hop that has lost it. Only a Proxmox VM (fleet.KIND) takes the hop. Before anything connects to one, each
-machine's own `ssh` is asked, with its whole line and no configuration file, which proxy it would take, and any other
-than the route's is refused (connections.py's `held`): every machine first, then the hop's login, then the forward.
-Where any takes the hop, the hop's login is made, once a run, and one forward of its own to the first of them by name
-checks that the host forwards to the machines (route.hop_forward, a connection of its own under its hard limit): a
-host that refuses to forward, or an `ssh` that cannot use it as a hop, stops the run, and every later `targets` of the
-run raises it again, as does one that waited on that forward; a machine that says nothing to it, or a login for the
-forward that does not finish, is said once and stops nothing, the machine failing alone when it is first reached.
-Nothing here dials a machine itself, and no module of the new engine but this one and ssh/'s own makes a `Target` or the
-connections that give one, or changes a `Target`'s route after it was made (tests/unit/test_aw_routes.py holds it, by a
-scan).
+given (`routed_as`: `direct`, `hop` or `own`) and what it was decided from (`routed_from`): the runner connects to no
+machine's `Target` unmarked, nor to one marked through the hop that has lost it, nor to one whose address, account,
+port, ssh program, options or hop changed since; a step that needs another takes it again from `targets`. Only a
+Proxmox VM (fleet.KIND) takes the hop. Before anything connects to one, each machine's own `ssh` is asked, with its
+whole line and no configuration file, which proxy it would take, and any other than the route's is refused
+(connections.py's `held`): every machine first, then the hop's login, then the forward. Where any takes the hop, the
+hop's login is made, once a run, and one forward of its own to the first of them by name checks that the host forwards
+to the machines (route.hop_forward, a connection of its own under its hard limit): a host that refuses to forward, or
+an `ssh` that cannot use it as a hop, stops the run, and every later `targets` of the run raises it again, as does one
+that waited on that forward; a machine that says nothing to it, or a login for the forward that does not finish, is
+said once and stops nothing, the machine failing alone when it is first reached. Nothing here dials a machine itself,
+and no module of the new engine but this one and ssh/'s own makes a `Target` or the connections that give one, or
+changes a `Target`'s route after it was made (tests/unit/test_aw_routes.py holds it, by a scan).
 
 `Route.ready()` makes sure of the hop's shared connection again before a step that reaches many machines at once, and
 after a wait on a person, wherever the login was made: `-O check`, and an open where none answers; it fails no
