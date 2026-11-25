@@ -18,9 +18,9 @@ The host's own certificates read over root SSH with nobody there are kept (the o
 tests/unit/test_aw_engine_certificate.py has one: a run through tools/aw reaches the host's own target only once the
 stand-in machine answers a host's first use (card F31). The invariant with a test of its own: after any run, no file
 under the test's home holds the fake secret in clear, and the vault on disk is sealed. And after every run, host.yml's
-made names only the engine's three default names (card E19, the owner's answer of 2026-11-23), a pool, user or token of
-the person's own never among them. And tests/unit/fleet_fixture.py, which gives other tests a whole fleet folder in one
-call.
+made names only the engine's own default names (card E19, the owner's answer of 2026-11-23; and the roles and their
+grants the offer makes, card E7), a pool, user or token of the person's own never among them. And
+tests/unit/fleet_fixture.py, which gives other tests a whole fleet folder in one call.
 
 At a terminal (card E5), `aw init` run at a pseudo-terminal of its own (aw_kit.aw_at_a_terminal, through
 harness._at_a_pseudo_terminal), its answers typed as each question appears: every answer typed writes the files - the
@@ -38,6 +38,23 @@ both before any question; one Ctrl-C at a question ending the run with nothing w
 asked first, then the token's ID, and an address nothing answers at writes nothing: the API's port is 8006 to an
 address typed, where a test's fake never listens. The invariants with tests of their own: no code of the engine or the
 fleet names /dev/tty or getpass, and every question init asks goes through runs/ask.py's ask.
+
+The offer (card E7), run in this process at a terminal: a person of the test's own answers each question (_Person,
+through _Asking's own steps), and the run's job reaches a stand-in Proxmox host of tests/unit/aw_machine.py's as root
+through B3's runner (offer_target, as root_ssh stands in for the certificate's read: a run through tools/aw reaches
+host.yml's address, where no stand-in machine is), the stand-in pveum, pvesh, hostname and id of
+tests/molecule/fake_pve_cli.py in its bin. A y makes every object of E1's list, the vault holds the secret the script
+printed, made records each object by this engine, and the same again asks nothing; n, Enter or Esc leave the host byte
+for byte as it was, and the secret is then asked; the dry run's commands are in the question, nothing changed on the
+host before the y; the plan says what the audit scope lets the token read; a bridge the node lists in place of the one
+in effect is asked; a vault that cannot be written, and a secret printed that is no UUID (refused by the host's script,
+or by the computer's own check), each have the token the run made deleted again; with the secret held the script runs
+with --no-token and makes only what is missing; a token there whose secret is held nowhere is never offered (until card
+E8); with nobody there the host is never reached; and a token of the person's own records the pool and the roles
+alone. The invariants with tests of their own: the secret is in no question, no line said, no command line, no log of
+the host's and no file in clear; nothing runs on Proxmox without a y, but the delete of the token the run made. And `aw
+init --print-commands` through tools/aw prints the script the offer runs and writes nothing, and that script, run by
+hand with --dry-run on a host with nothing yet, gives a command for each object of the list.
 """
 
 from __future__ import annotations
@@ -52,9 +69,11 @@ import json
 import os
 import re
 import select
+import shlex
 import shutil
 import socket
 import stat
+import subprocess
 import sys
 import tempfile
 import threading
@@ -64,7 +83,7 @@ from pathlib import Path
 
 import pytest
 from aw_kit import aw_at_a_terminal, run_aw, searched_for
-from aw_machine import unrouted
+from aw_machine import Machine, filed, machine, ssh_stand_in, target, unrouted
 from fleet_fixture import mark_pool, refusing_ssh, whole_fleet, with_port
 from harness import (
     ENGINE_POOL,
@@ -76,12 +95,16 @@ from harness import (
     _in_raw_mode,
     _json_lines,
     _pve,
+    _pve_cli,
+    _pve_cli_calls,
+    _pve_cli_writes,
     _pve_requests,
     engine_grant,
     engine_token,
     fake_fleet,
 )
 from pki import proxmox_pki
+from test_aw_access_script import _found
 from vt import VT
 
 from claude_vm import route, trust
@@ -94,6 +117,7 @@ from claude_vm.pve.client import Proxmox, Token
 from claude_vm.runs import job as jobs
 from claude_vm.schema import rules
 from claude_vm.secret import Secret
+from claude_vm.ssh import runner
 from claude_vm.tui import choose
 
 INIT = REPO / "lib" / "claude_vm" / "engine" / "init.py"
@@ -104,8 +128,10 @@ HOST_SETTINGS = "fleet/hosts/pve/settings.yml"
 EVERY = ("--storage", "local-lvm", "--bridge", "vmbr0", "--github-user", "octocat", "--tailscale", "off")
 # A secret the fake did not make: low in entropy, so that gitleaks takes it for no key.
 OTHER = "00000000-0000-4000-8000-000000000000"
-# What init may record as made where the secret was given: the engine's own default names, by what each is, and
-# nothing for a name the person gave (card E19, the owner's answer of 2026-11-23 on review 28's E4.md 4).
+# What init may record as made: the engine's own default names, by what each is, and nothing for a name the person
+# gave (card E19, the owner's answer of 2026-11-23 on review 28's E4.md 4); and of what the offer made (card E7, review
+# 55), a role of E1's three (engine/access.py's), and a grant of one of them to the engine's user or its token, on a
+# path of Proxmox's form, which may name a pool, a storage, a bridge or a node the person gave.
 DEFAULTS = {"pool": ENGINE_POOL, "user": ENGINE_USER, "token": f"{ENGINE_USER}!{ENGINE_TOKEN}"}
 # A pool, a user and a token of the person's own, whose names are not the engine's.
 OWN_POOL, OWN_USER, OWN_TOKEN = "dev-vms", "ops@pve", "tools"
@@ -195,14 +221,32 @@ def _init(fake: Fake, *words: str, env: dict | None = None, ssh: Path | None = N
     return ran
 
 
+def _the_engine_s_own(each: hosts.Made) -> bool:
+    """Whether an entry of made names one of the engine's own default names, by what it is (DEFAULTS): a role of E1's
+    three, a grant whose role is one of them, for the engine's user or its token, on a path of Proxmox's form, else the
+    pool, the user or the token of DEFAULTS."""
+    if each.what == "role":
+        return each.id in access.ROLES
+    if each.what == "grant":
+        words = each.id.split(" ")
+        return (
+            len(words) == 3
+            and access.ACL_PATH.fullmatch(words[0]) is not None
+            and words[1] in access.ROLES
+            and words[2] in (DEFAULTS["user"], DEFAULTS["token"])
+        )
+    return DEFAULTS.get(each.what) == each.id
+
+
 def _only_the_engine_s_names() -> None:
-    """After every run of this file (_init, _unattended, _asked and the three runs of their own): each entry of every
-    host's made is one of the engine's three default names, by what it is, where the host has a host.yml."""
+    """After every run of this file (_init, _unattended, _asked, _offered and the runs of their own): each entry of
+    every host's made is one of the engine's own default names, by what it is (_the_engine_s_own), where the host has a
+    host.yml."""
     layout = hosts.Layout(_home())
     for name in layout.folders():
         if (layout.hosts_dir / name / hosts.HOST_FILE).exists():
             made = layout.fields(name).made
-            assert all(DEFAULTS.get(each.what) == each.id for each in made), made
+            assert all(_the_engine_s_own(each) for each in made), made
 
 
 def _sealed(secret: str) -> None:
@@ -325,7 +369,7 @@ def test_every_value_given_writes_the_folder_and_the_same_again_changes_nothing(
 
 def test_the_engine_s_names_are_written_where_none_is_given_and_a_given_one_is_kept(fake, secret_file) -> None:
     # The fake's names are the engine's own (card E1; ruling B1, rule 1): init writes them where none is given.
-    assert (engine_init.TOKEN_USER, engine_init.TOKEN_ID, engine_init.POOL) == (ENGINE_USER, ENGINE_TOKEN, ENGINE_POOL)
+    assert (access.USER, access.TOKEN, access.POOL) == (ENGINE_USER, ENGINE_TOKEN, ENGINE_POOL)
     _first(fake, secret_file)
     assert overrides.read(_home(), "pve").host.settings["proxmox_pool"] == ENGINE_POOL
     # The node, the storage and the bridge given none are said to be the checks' to set.
@@ -749,10 +793,9 @@ def test_a_host_whose_anchor_a_hand_took_out_is_mended_by_init(fake, secret_file
     ("words", "said"),
     [
         (("--check",), "error: aw init --check is not built yet (card E6 builds it)"),
-        (("--print-commands",), "error: aw init --print-commands is not built yet (card E7 builds it)"),
         (("--machines",), "error: aw init --machines is not built yet (card J14 builds it)"),
     ],
-    ids=["check", "print-commands", "machines"],
+    ids=["check", "machines"],
 )
 def test_a_mode_another_card_builds_is_refused_by_name_and_nothing_is_made(fake, words, said) -> None:
     ran = _init(fake, "--no-prompt", *words)
@@ -1557,6 +1600,453 @@ def test_a_token_of_the_person_s_own_with_its_secret_typed_records_the_engine_s_
     assert fields.made == (hosts.Made("pool", ENGINE_POOL, "administrator"),)
     assert {entry: _revealed(value) for entry, value in _opened().items()} == {"token@pve": secret}
     _no_secret_said(raw, tmp_path, secret)
+
+
+# ---------------------------------------------------------------- the offer over root SSH (card E7) ----
+
+# The offer's question, as its label ends its text, and the secret's.
+SET_UP = engine_init.SET_UP
+SECRET_LABEL = "API token secret:"
+# The engine's own token, by its full ID, as host.yml's made names it.
+ENGINE_FULL = f"{ENGINE_USER}!{ENGINE_TOKEN}"
+# The commands root SSH runs on a host whose settings.yml names nothing yet, up to the question, all of them reads: the
+# node's name, the script's lists of storages and bridges, and its dry run.
+READS = ["hostname -s", "/bin/sh -s -- --list", "/bin/sh -s -- --dry-run"]
+
+
+@pytest.fixture
+def pve_host(engine_guard, fake, tmp_path) -> Machine:
+    """The Proxmox host as a stand-in machine of tests/unit/aw_machine.py's, reached as root through B3's runner with
+    the stand-in ssh first on this test's own PATH, as tests/unit/test_aw_engine_certificate.py's: its bin holds the
+    stand-in pveum, pvesh, hostname and id (tests/molecule/fake_pve_cli.py) of a host with nothing of the engine's yet,
+    whose next token's secret is the fake API's engine token's, so that the client the run opens after a y is the
+    fake's own token. The script runs there as root SSH runs it, /bin/sh reading it from its standard input in the
+    machine's home."""
+    machines = tmp_path / "machines"
+    host = machine(machines, "pve", account="root")
+    filed(host)
+    _pve_cli(host.bin, {"next_secret": fake.secret})
+    engine_guard.first_on_path(ssh_stand_in(machines, [host]))
+    return host
+
+
+@pytest.fixture
+def job(fake):
+    """A run's job in the fleet's home, whose children the offer's commands are, as a run of init's own."""
+    made = jobs.create(paths.jobs_dir(_home()), "init", "init", "pve", [], {"kind": "terminal"}, True)
+    yield made
+    jobs.drop(made)
+
+
+class _Said:
+    """What a run of init in this process emits, as its live view draws it: each event's kind, text and fields."""
+
+    def __init__(self) -> None:
+        self.events: list[tuple[str, str, dict]] = []
+
+    def emit(self, kind: str, _target: object, text: str, **fields: object) -> None:
+        self.events.append((kind, text, fields))
+
+
+class _Person(engine_init._Asking):
+    """The person at init's terminal, in this process: each question asked as init asks it, through _Asking's own
+    steps, and answered by the first of answers whose label ends its text (a callable is given the text, and gives the
+    answer), else its default, as Enter gives it back (and Esc at a menu). Every question asked is kept."""
+
+    def __init__(self, answers: dict | None = None) -> None:
+        super().__init__(_Said())  # type: ignore[arg-type]
+        self.answers = dict(answers or {})
+        self.asked: list[str] = []
+
+    async def ask(self, text, default, choices=(), hidden=False):
+        self.asked.append(text)
+        for label, answer in self.answers.items():
+            if text.endswith(label):
+                return answer(text) if callable(answer) else answer
+        return default
+
+    def question(self, label: str) -> list[str]:
+        """Every question asked whose label is label."""
+        return [text for text in self.asked if text.endswith(label)]
+
+    def said(self) -> str:
+        """Every line said above the region, in order."""
+        return "\n".join(text for kind, text, _ in self.running.events if kind == "report")
+
+
+def _offered(fake: Fake, person: _Person, job, host: Machine, typed: engine_init.Given | None = None) -> list[str]:
+    """init at a terminal, run in this process, the person answering: its job's root SSH reaches host for the offer,
+    the certificate given as its fingerprint, as --certificate gives it (root SSH's read of the host's files is
+    tests/unit/test_aw_engine_certificate.py's). What the run says once it has written."""
+    given = typed or engine_init.Given(certificate=trust.pem_fingerprint(fake.pki["node"]))
+    try:
+        return asyncio.run(
+            engine_init._run(
+                _home(),
+                given,
+                environ=dict(os.environ),
+                job=job,
+                root_ssh=_reader(),
+                asking=person,
+                offer_target=target(host),
+            )
+        )
+    finally:
+        _only_the_engine_s_names()
+
+
+def _ran(host: Machine) -> list[str]:
+    """Each command root SSH ran on host, as the runner hands it to ssh: one word, its last."""
+    return [call["argv"][-1] for call in host.calls()]
+
+
+def _state_of(host: Machine, **changes: object) -> dict:
+    """The stand-in host's state, changed first where changes are given, as a hand changes the host."""
+    path = host.bin / "pve-state.json"
+    state = json.loads(path.read_text())
+    if changes:
+        state.update(changes)
+        path.write_text(json.dumps(state))
+    return state
+
+
+def _engine_s(fleet: str, **changes: object) -> access.Host:
+    """The Host the offer renders the script for on the stand-in host, its node pve and the values in effect."""
+    return access.Host(**{"fleet": fleet, "node": "pve", "storage": "local-lvm", "bridges": ("vmbr0",), **changes})
+
+
+def _nothing_of(secret: str, tmp_path: Path, person: _Person, host: Machine, *more: str) -> None:
+    """The secret in no question, no line or event said, no command line root SSH ran and no pveum's or pvesh's words
+    on the host (each log of them), no line of more, and no file of the fleet's home in clear, the vault sealed."""
+    events = json.dumps(person.running.events, default=str)
+    shown = tmp_path / "shown.txt"
+    shown.write_text("\n".join([*person.asked, events, *more]))
+    assert searched_for([secret], shown, host.directory / "calls.log", host.bin / "calls.log") == []
+    _sealed(secret)
+
+
+def test_a_y_at_the_offer_makes_every_object_and_seals_the_secret_the_script_printed(
+    fake, pve_host, job, tmp_path
+) -> None:
+    # The host holds nothing of the engine's. The node is read over root SSH, settings.yml naming none, and the
+    # storage and the bridge in effect are those the node lists, unasked; the dry run's commands are in the question,
+    # and nothing is changed on the host before the y (the invariant: nothing runs on Proxmox without a y).
+    with_port(fake.port)
+    home = sorted(path.name for path in pve_host.home.iterdir())
+    at_the_question: list[list[str]] = []
+
+    def y(_text: str) -> str:
+        at_the_question.append(_pve_cli_writes(pve_host.bin))
+        return engine_init.YES
+
+    person = _Person({SET_UP: y})
+    lines = _offered(fake, person, job, pve_host)
+    assert at_the_question == [[]]
+    assert _ran(pve_host) == [*READS, "/bin/sh -s --"]
+    fleet = record.read(_home()).fleet
+    host = _engine_s(fleet)
+    state = _state_of(pve_host)
+    # Nothing of E1's list is missing now, and the pool carries the fleet's mark.
+    assert access.plan(access.objects(host), _found(state), host_flag="").steps == ()
+    assert mark.parse(state["pools"][ENGINE_POOL]["comment"]) == mark.Mark(fleet, mark.NONE)
+    # The question showed each command the run then ran, as the dry run quotes it, and each object with what it holds.
+    [question] = person.question(SET_UP)
+    calls = _pve_cli_calls(pve_host.bin)
+    writes = [each for each in calls if each[0] == "pveum" and each[1:3] != ["user", "permissions"]]
+    assert len(writes) == len(access.objects(host)), writes
+    for call in writes:
+        assert f"\n  {shlex.join(call)}\n" in question, (call, question)
+    assert f"the role {access.ROLE}, with " in question and f"the token {ENGINE_FULL}, with privilege" in question
+    assert "the token's secret goes straight into the encrypted vault" in question
+    # The secret the script printed, sealed in the vault before anything else, never asked for; no token deleted.
+    assert {entry: _revealed(value) for entry, value in _opened().items()} == {"token@pve": fake.secret}
+    assert person.question(SECRET_LABEL) == []
+    assert not any("token delete" in each for each in _pve_cli_writes(pve_host.bin))
+    # made records every object of the list, this engine its maker (its own names alone: _offered's check).
+    made = _reached().fields.made
+    assert sorted((each.what, each.id, each.by) for each in made) == sorted(
+        (obj.what, obj.id, "engine") for obj in access.objects(host)
+    )
+    assert dict(overrides.read(_home(), "pve").host.settings) == {
+        "proxmox_node": "pve",
+        "proxmox_storage": "local-lvm",
+        "proxmox_bridge": "vmbr0",
+        "proxmox_pool": ENGINE_POOL,
+    }
+    assert any(line.startswith(f"the access script ran {len(writes)} commands") for line in lines), lines
+    _nothing_of(fake.secret, tmp_path, person, pve_host, *lines)
+    # No copy of the script left on the host.
+    assert sorted(path.name for path in pve_host.home.iterdir()) == home
+    # The same again: the vault holds the secret, so the dry run is --no-token, and nothing is missing: no question,
+    # nothing changed on the host or in the fleet's folder.
+    files, done = _files(), len(_pve_cli_writes(pve_host.bin))
+    again = _Person({SET_UP: engine_init.YES})
+    _offered(fake, again, job, pve_host)
+    assert again.question(SET_UP) == [] and again.question(SECRET_LABEL) == []
+    assert _ran(pve_host)[-1] == "/bin/sh -s -- --dry-run --no-token"
+    assert len(_pve_cli_writes(pve_host.bin)) == done and _files() == files
+
+
+@pytest.mark.parametrize("answer", [engine_init.NO, None], ids=["n", "enter-or-esc"])
+def test_n_or_enter_at_the_offer_leaves_the_host_as_it_was_and_the_secret_is_then_asked(
+    fake, pve_host, job, answer
+) -> None:
+    with_port(fake.port)
+    before = (pve_host.bin / "pve-state.json").read_bytes()
+    person = _Person({} if answer is None else {SET_UP: answer})
+    _offered(fake, person, job, pve_host)
+    assert len(person.question(SET_UP)) == 1
+    # Only reads ran, and the host's state is byte for byte as it was.
+    assert _ran(pve_host) == READS
+    assert _pve_cli_writes(pve_host.bin) == [] and (pve_host.bin / "pve-state.json").read_bytes() == before
+    assert "Nothing was made on 127.0.0.1: to set it up yourself, run " in person.said()
+    assert " --print-commands | ssh root@127.0.0.1 sh -s -- --dry-run here" in person.said()
+    assert len(person.question(SECRET_LABEL)) == 1
+    assert _reached().fields.made == ()
+
+
+@pytest.mark.parametrize("scope", [access.NODE_SCOPE, "pool"])
+def test_the_plan_says_what_the_audit_scope_lets_the_token_read(fake, pve_host, job, scope) -> None:
+    # O15, item 2, and the owner's answer of 2026-11-24 to review 58's finding 5: the /vms line under the node's scope
+    # alone; under the pool's, what Sys.Audit on the node still reads.
+    with_port(fake.port)
+    if scope == "pool":
+        layers = overrides.read(_home(), "pve")
+        digest = layers.host.digest if layers.host is not None else overrides.MISSING
+        overrides.set(_home(), "proxmox_audit_scope", "pool", "pve", digest)
+    person = _Person({SET_UP: engine_init.NO})
+    _offered(fake, person, job, pve_host)
+    [question] = person.question(SET_UP)
+    other = "pool" if scope == access.NODE_SCOPE else access.NODE_SCOPE
+    assert engine_init.SCOPE_SAID[scope] in question and engine_init.SCOPE_SAID[other] not in question, question
+    assert ("VM.Audit on /vms" in question) == (scope == access.NODE_SCOPE)
+
+
+def test_a_bridge_the_node_lists_in_place_of_the_one_in_effect_is_asked_and_the_access_set_up_on_it(
+    fake, pve_host, job
+) -> None:
+    with_port(fake.port)
+    _state_of(pve_host, bridges=["vmbr1"])
+    person = _Person({"Use vmbr1?": engine_init.YES, SET_UP: engine_init.YES})
+    _offered(fake, person, job, pve_host)
+    # The storage in effect is one the node lists: unasked.
+    assert len(person.question("Use vmbr1?")) == 1 and person.question("Use local-lvm?") == []
+    assert overrides.read(_home(), "pve").host.settings["proxmox_bridge"] == "vmbr1"
+    host = _engine_s(record.read(_home()).fleet, bridges=("vmbr1",))
+    assert access.plan(access.objects(host), _found(_state_of(pve_host)), host_flag="").steps == ()
+
+
+def _vault_refuses(*_args, **_kwargs) -> None:
+    raise OSError(errno.ENOSPC, "No space left on device")
+
+
+def test_a_vault_that_cannot_be_written_has_the_token_the_run_made_deleted_again(
+    fake, pve_host, job, monkeypatch, tmp_path
+) -> None:
+    # As the playbook's rescue: the token the run made is deleted while the vault is unwritten, so none is left there
+    # whose secret is held nowhere. What it made before the token stays, recorded.
+    with_port(fake.port)
+    monkeypatch.setattr(sealed, "put", _vault_refuses)
+    person = _Person({SET_UP: engine_init.YES})
+    with pytest.raises(engine_init.Refused) as stopped:
+        _offered(fake, person, job, pve_host)
+    sentence = stopped.value.sentence
+    assert "the vault could not be written (No space left on device)" in sentence, sentence
+    assert f"the token {ENGINE_FULL} this run made was deleted on 127.0.0.1 again" in sentence, sentence
+    assert _state_of(pve_host)["tokens"] == {}
+    assert _pve_cli_writes(pve_host.bin)[-1] == f"pveum user token delete {ENGINE_USER} {ENGINE_TOKEN}"
+    assert _ran(pve_host)[-1] == f"pveum user token delete {ENGINE_USER} {ENGINE_TOKEN}"
+    made = {(each.what, each.id) for each in _reached().fields.made}
+    assert {("pool", ENGINE_POOL), ("user", ENGINE_USER)} <= made and ("token", ENGINE_FULL) not in made, made
+    assert not any(name.endswith(f" {ENGINE_FULL}") for what, name in made if what == "grant"), made
+    vault = sealed.path(_home())
+    assert not vault.exists() or "token@pve" not in _opened()
+    _nothing_of(fake.secret, tmp_path, person, pve_host, sentence)
+
+
+@pytest.mark.parametrize("where", ["host", "computer"])
+def test_a_secret_printed_that_is_no_uuid_is_never_kept_and_its_token_is_deleted(
+    fake, pve_host, job, monkeypatch, where
+) -> None:
+    # host: Proxmox answers a token whose value is no UUID, which the script refuses after the token was made; computer:
+    # the script's line on standard output is held to a UUID again here (review 62), a host that printed another line
+    # taken for one that printed none.
+    with_port(fake.port)
+    wrong = "not-a-secret-at-all"
+    if where == "host":
+        _state_of(pve_host, next_secret=wrong)
+    else:
+        real = engine_init._shell
+
+        def shell(*args, **kwargs):
+            run = real(*args, **kwargs)
+
+            async def changed(command, stdin, seconds):
+                result = await run(command, stdin, seconds)
+                if list(command) == list(engine_init.SH) and isinstance(result, runner.Done):
+                    return dataclasses.replace(result, lines=(wrong,))
+                return result
+
+            return changed
+
+        monkeypatch.setattr(engine_init, "_shell", shell)
+    person = _Person({SET_UP: engine_init.YES})
+    with pytest.raises(engine_init.Refused) as stopped:
+        _offered(fake, person, job, pve_host)
+    sentence = stopped.value.sentence
+    assert f"the token {ENGINE_FULL} this run made was deleted on 127.0.0.1 again" in sentence.lower(), sentence
+    if where == "computer":
+        assert "printed no secret of it" in sentence, sentence
+    assert _state_of(pve_host)["tokens"] == {}
+    assert _ran(pve_host)[-1] == f"pveum user token delete {ENGINE_USER} {ENGINE_TOKEN}"
+    assert wrong not in sentence and wrong not in person.said()
+    vault = sealed.path(_home())
+    assert not vault.exists() or "token@pve" not in _opened()
+
+
+def test_with_the_secret_held_the_offer_runs_with_no_token_and_makes_only_what_is_missing(fake, pve_host, job) -> None:
+    with_port(fake.port)
+    _offered(fake, _Person({SET_UP: engine_init.YES}), job, pve_host)
+    made, vault = _reached().fields.made, sealed.path(_home()).read_bytes()
+    # One grant to the token taken out on the host by hand.
+    host = _engine_s(record.read(_home()).fleet)
+    grant = next(obj for obj in access.objects(host) if isinstance(obj, access.Grant) and obj.subject == ENGINE_FULL)
+    state = _state_of(pve_host)
+    taken = (grant.path, grant.role, ENGINE_FULL)
+    acls = [acl for acl in state["acls"] if (acl["path"], acl["roleid"], acl["ugid"]) != taken]
+    assert len(acls) == len(state["acls"]) - 1
+    _state_of(pve_host, acls=acls)
+    done = len(_pve_cli_writes(pve_host.bin))
+    person = _Person({SET_UP: engine_init.YES})
+    _offered(fake, person, job, pve_host)
+    [question] = person.question(SET_UP)
+    assert "the token's secret goes straight into the encrypted vault" not in question
+    assert _ran(pve_host)[-2:] == ["/bin/sh -s -- --dry-run --no-token", "/bin/sh -s -- --no-token"]
+    assert _pve_cli_writes(pve_host.bin)[done:] == [
+        f"pveum acl modify {grant.path} --tokens {ENGINE_FULL} --roles {grant.role}"
+    ]
+    assert person.question(SECRET_LABEL) == []
+    assert sealed.path(_home()).read_bytes() == vault and _reached().fields.made == made
+
+
+def test_a_token_there_whose_secret_is_held_nowhere_here_is_never_offered(fake, pve_host, job) -> None:
+    # Review 58: until card E8 marks a token as its fleet's, one of the engine's ID there may be another fleet's.
+    with_port(fake.port)
+    state = _state_of(pve_host)
+    users = {**state["users"], ENGINE_USER: {}}
+    _state_of(pve_host, users=users, tokens={ENGINE_FULL: {"privsep": 1, "secret": OTHER}})
+    before = (pve_host.bin / "pve-state.json").read_bytes()
+    person = _Person({SET_UP: engine_init.YES})
+    _offered(fake, person, job, pve_host)
+    assert person.question(SET_UP) == []
+    assert f"The token {ENGINE_FULL} is on 127.0.0.1 already, and its secret is held nowhere here" in person.said()
+    assert _ran(pve_host) == READS
+    assert (pve_host.bin / "pve-state.json").read_bytes() == before
+    assert len(person.question(SECRET_LABEL)) == 1
+
+
+def test_with_nobody_there_no_offer_is_made_and_the_host_is_never_reached(fake, pve_host, job) -> None:
+    mark_pool(fake.base, record.new_id())
+    with_port(fake.port)
+    given = engine_init.Given(
+        certificate=trust.pem_fingerprint(fake.pki["node"]), secret=Secret(fake.secret), secret_from="the test's"
+    )
+    try:
+        asyncio.run(
+            engine_init._run(
+                _home(),
+                given,
+                environ=dict(os.environ),
+                job=job,
+                root_ssh=_reader(),
+                asking=None,
+                offer_target=target(pve_host),
+            )
+        )
+    finally:
+        _only_the_engine_s_names()
+    assert pve_host.calls() == [] and not (pve_host.bin / "calls.log").exists()
+
+
+def test_a_token_of_the_person_s_own_made_by_the_offer_records_the_engine_s_pool_and_roles_alone(
+    fake, pve_host, job
+) -> None:
+    # Card E19 on the offer (review 55): host.yml names the person's own token, ops@pve!tools, which the offer makes
+    # with its user and grants; made records the pool and the roles, the engine's own names, never the person's user,
+    # token or a grant for either.
+    with_port(fake.port)
+    layout = hosts.Layout(_home())
+    own = {"token_user": OWN_USER, "token_id": OWN_TOKEN}
+    hosts.write(layout, "pve", layout.state("pve").digest, change=lambda raw: raw.update(own))
+    _offered(fake, _Person({SET_UP: engine_init.YES}), job, pve_host)
+    host = _engine_s(record.read(_home()).fleet, user=OWN_USER, token=OWN_TOKEN)
+    roles = {("role", obj.name) for obj in access.objects(host) if isinstance(obj, access.Role)}
+    assert {(each.what, each.id) for each in _reached().fields.made} == {("pool", ENGINE_POOL), *roles}
+    assert f"{OWN_USER}!{OWN_TOKEN}" in _state_of(pve_host)["tokens"]
+    assert _revealed(_opened()["token@pve"]) == fake.secret
+
+
+@pytest.mark.parametrize("case", ["y", "y-and-the-vault-refuses", "n"])
+def test_proxmox_is_changed_only_by_the_script_after_a_y_and_by_deleting_the_token_the_run_made(
+    fake, pve_host, job, monkeypatch, case
+) -> None:
+    # The invariant, carried from tests/unit/test_init_settings.py's: no pveum that changes the host runs before the
+    # y; after it, each is a command the question showed, or the delete of the token the run made.
+    with_port(fake.port)
+    if case == "y-and-the-vault-refuses":
+        monkeypatch.setattr(sealed, "put", _vault_refuses)
+    at_the_question: list[int] = []
+
+    def answered(_text: str) -> str:
+        at_the_question.append(len(_pve_cli_writes(pve_host.bin)))
+        return engine_init.NO if case == "n" else engine_init.YES
+
+    person = _Person({SET_UP: answered})
+    with contextlib.suppress(engine_init.Refused):
+        _offered(fake, person, job, pve_host)
+    assert at_the_question == [0]
+    [question] = person.question(SET_UP)
+    shown = {line.strip() for line in question.splitlines() if line.startswith("  pveum ")}
+    deleted = f"pveum user token delete {ENGINE_USER} {ENGINE_TOKEN}"
+    calls = _pve_cli_calls(pve_host.bin)
+    writes = [shlex.join(each) for each in calls if each[0] == "pveum" and each[1:3] != ["user", "permissions"]]
+    assert all(each in shown or each == deleted for each in writes), (writes, shown)
+    assert (deleted in writes) == (case == "y-and-the-vault-refuses")
+    assert bool(writes) == (case != "n")
+
+
+def _jobs() -> list[str]:
+    folder = paths.jobs_dir(_home())
+    return sorted(path.name for path in folder.iterdir()) if folder.is_dir() else []
+
+
+def test_print_commands_prints_the_script_the_offer_runs_and_writes_nothing(fake, secret_file, tmp_path) -> None:
+    fleet = _first(fake, secret_file, *EVERY)
+    files, made, sent = _files(), _jobs(), len(fake.calls())
+    ran = _init(fake, "--print-commands")
+    assert ran.returncode == 0, ran
+    host = _engine_s(fleet)
+    assert ran.stdout == access.as_script(host, "", host_flag="")
+    said_now = " ".join(ran.stderr.split())
+    assert "--print-commands | ssh root@127.0.0.1 sh -s -- --dry-run to see each command" in said_now, said_now
+    # No request, no job, no file written.
+    assert (len(fake.calls()), _jobs(), _files()) == (sent, made, files)
+    # Run by hand with --dry-run on a host that holds nothing yet: a command for each object of E1's list.
+    pve = _pve_cli(tmp_path / "by-hand")
+    dry = subprocess.run(
+        ["/bin/sh", "-s", "--", "--dry-run"],
+        input=ran.stdout,
+        env={"PATH": os.pathsep.join([str(pve), "/usr/bin", "/bin"]), "LC_ALL": "C"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert dry.returncode == 0, dry.stderr
+    assert len(dry.stdout.splitlines()) == len(access.objects(host)), dry.stdout
+    # The script makes the token: the secret's file has no place beside it.
+    ran = _init(fake, "--print-commands", "--token-secret-file", str(secret_file))
+    assert ran.returncode == 1 and "it takes no --token-secret-file" in ran.stderr, ran
+    assert _files() == files
 
 
 # ---------------------------------------------------------------- the rules held by scans ----

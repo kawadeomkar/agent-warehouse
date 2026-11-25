@@ -233,9 +233,9 @@ def test_the_names_are_the_engine_s_own_and_one_set() -> None:
         "AgentWarehouseAudit",
         "AgentWarehouseClone",
     )
-    # init writes the same names into a fleet folder where none is given (card E4), and the harness makes the same
-    # objects in the fake: held equal here until init reads them from this module.
-    assert (engine_init.TOKEN_USER, engine_init.TOKEN_ID, engine_init.POOL) == (access.USER, access.TOKEN, access.POOL)
+    # init reads the same names from this module (card E7, E1's point 3), and the harness makes the same objects in the
+    # fake: held equal here.
+    assert engine_init.OWN_NAMES == {"pool": access.POOL, "user": access.USER, "token": f"{access.USER}!{access.TOKEN}"}
     harness = (ENGINE_USER, ENGINE_TOKEN, ENGINE_POOL, ENGINE_ROLE)
     assert harness == (access.USER, access.TOKEN, access.POOL, access.ROLE)
     host = _host()

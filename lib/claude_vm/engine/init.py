@@ -36,9 +36,26 @@ the folder itself is put in its place. Under the fleet's lock (the verb's row: `
    only where its name is the engine's own default (card E19, the owner's answer of 2026-11-23), never a name the
    person gave or set in host.yml, which may name an object of theirs that a cleanup by `made` would then remove.
 
-The names written where none is given are the engine's own (card E1; ruling B1, rule 1): the user `agent-warehouse@pve`,
-the token `aw` and the pool `aw-fleet`; and the first host is `pve`, as today's. The modes built by other cards are
-refused by name until they land: `--check` (E6), `--print-commands` (E7) and `--machines` (J14).
+The names written where none is given are the engine's own, engine/access.py's (card E1; ruling B1, rule 1): the user
+`agent-warehouse@pve`, the token `aw` and the pool `aw-fleet`; and the first host is `pve`, as today's. The modes built
+by other cards are refused by name until they land: `--check` (E6) and `--machines` (J14).
+
+**The offer** (card E7), at a terminal alone, between the token's ID and its secret, once the certificate is settled:
+the access script, engine/access.py's `as_script` rendered for the host's values and the fleet's ID (fleet.json's where
+there is one), is run on the host as root over root SSH in batch mode, `/bin/sh -s` reading it from its standard input,
+never a copy left there: its `--list` where no storage or bridge is given or set (the one in effect where the node lists
+it, else the person asked), the node read first where settings.yml names none (`hostname -s`), then its `--dry-run`,
+with `--no-token` where the vault holds the token's secret or one is given. Where something is missing, the plan (each
+object of the list with its privileges, and whether it is there), the dry run's commands and what the script said are
+shown, with today's question, "Set it up now? y or n", no first; and on y alone the script runs. Its standard output,
+the token's secret, is held to a UUID and sealed in the vault before anything else runs, then read back; where it is
+not there as printed, or the script printed none, or failed after it made the token, the token the run made is deleted
+again, and init stops. What it made of the engine's own names (the pool, the user, the token, the roles and their
+grants) is recorded in host.yml's made, with this engine its maker, from the commands it said it ran (its `+` lines).
+No, Esc, Enter, root SSH that does not answer, a script that refuses, nothing missing, and a token there whose secret
+is held nowhere here (until card E8 it may be another fleet's) leave the host as it was, said, and the secret is then
+asked for. With nobody there no offer is made. `--print-commands` prints the same script on standard output, and on
+standard error how to run it, reading the fleet's files alone, and writes nothing.
 
 **At a terminal** (standard input a terminal whose foreground the run is, as runs/ask.py's `terminal()` decides for each
 question, and no `--no-prompt`; card E5), `attended` runs the same steps and asks, in plain Python, each question whose
@@ -73,9 +90,10 @@ import dataclasses
 import errno
 import json
 import os
+import shlex
 import stat
 import sys
-from collections.abc import Mapping, MutableMapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, MutableMapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -102,24 +120,23 @@ if TYPE_CHECKING:
 # The tree of the program that runs, whose fleet's home init writes: this module's own checkout or release, which
 # tools/aw holds to the one it runs from (plugin.own), as cli/main.py's checkout works it out from tools/aw's path.
 PROGRAM_ROOT = Path(__file__).resolve().parents[3]
-# The names init writes for a host where none is given: the engine's own (card E1; ruling B1, rule 1), never one
-# today's product makes: its user, its token's ID and its pool; and the first host's name, today's first host's.
-TOKEN_USER = "agent-warehouse@pve"
-TOKEN_ID = "aw"
-POOL = "aw-fleet"
+# The names init writes for a host where none is given are the engine's own, engine/access.py's, their one home (card
+# E1; ruling B1, rule 1): access.USER, access.TOKEN and access.POOL. The first host's name is today's first host's.
 FIRST_HOST = "pve"
 # Where the token's secret is given when no file is: the environment, never the command line; the most of a file of
 # it read, more than a secret is.
 SECRET_VARIABLE = "AGENT_WAREHOUSE_TOKEN_SECRET"
 SECRET_MOST = 4096
-# Who made what init records, where the secret was given: the administrator, by hand, from the printed commands. Only
-# the engine's own default names are recorded so (card E19, the owner's answer of 2026-11-23): the pool, the token's
-# user and the token by its full ID, each where the run's name for it equals OWN_NAMES's, and nothing for a name the
-# person gave or host.yml sets, which may name an object of the person's own.
+# Who made what init records: the administrator, by hand, from the printed script, where the secret was given; this
+# engine, through the offer, of what the script made after a y (card E7). Only the engine's own default names are
+# recorded (card E19, the owner's answer of 2026-11-23): the pool, the token's user and the token by its full ID, each
+# where its name equals OWN_NAMES's, the roles of access.ROLES, and a grant of one of those roles to that user or that
+# token (_own_name); nothing for a name the person gave or host.yml sets, which may name an object of the person's own.
 BY_HAND = "administrator"
-OWN_NAMES = {"pool": POOL, "user": TOKEN_USER, "token": f"{TOKEN_USER}!{TOKEN_ID}"}
+BY_ENGINE = "engine"
+OWN_NAMES = {"pool": access.POOL, "user": access.USER, "token": f"{access.USER}!{access.TOKEN}"}
 # The modes of init built by other cards, refused by name until each lands.
-NOT_YET = {"check": "E6", "print_commands": "E7", "machines": "J14"}
+NOT_YET = {"check": "E6", "machines": "J14"}
 # The settings each host sets for itself that init writes where given or answered, in the order a sentence names them.
 HOST_OWN = ("proxmox_storage", "proxmox_bridge", "proxmox_pool", "proxmox_node")
 # The vault's entry of Tailscale's auth key, one for the fleet.
@@ -140,6 +157,7 @@ INIT = Declared(
                 Step("host", "Proxmox host"),
                 Step("token", "API token"),
                 Step("certificate", "certificate"),
+                Step("access", "API access"),
                 Step("secret", "secret"),
                 Step("node", "node"),
                 Step("storage", "storage"),
@@ -158,7 +176,7 @@ INIT = Declared(
 ASKED = "USER INPUT REQUIRED"
 LATER = "Enter to decide later."
 # The token the engine's own names make, which Enter keeps at the token's ID's question.
-OWN_TOKEN = f"{TOKEN_USER}!{TOKEN_ID}"
+OWN_TOKEN = OWN_NAMES["token"]
 # A yes or no, as a menu: yes first, as today's.
 YES, NO = "y", "n"
 
@@ -418,7 +436,7 @@ def given(
         raise Refused(f"--host ({host}) is no host's name: {refusal}")
     token_user, token_id = _text(values, "token_user"), _text(values, "token_id")
     if token_user or token_id:
-        token = f"{token_user or TOKEN_USER}!{token_id or TOKEN_ID}"
+        token = f"{token_user or access.USER}!{token_id or access.TOKEN}"
         if not answers.init_answer(token, "token_id"):
             raise Refused(f"--token-user and --token-id ({token}) are not {_rule('token_id')}")
     github_user = _text(values, "github_user")
@@ -976,6 +994,562 @@ def _written(home: paths.Home, path: Path) -> str:
         return plain_text(str(path))
 
 
+def _sealed_in(
+    home: paths.Home,
+    found: _Set,
+    seal: Sequence[tuple[str, Secret, str | None]],
+    fleet_id: str,
+    environ: Mapping[str, str],
+) -> tuple[Secret, list[str]]:
+    """The vault's writes, each where nothing is there yet: the vault's key, fleet.json and the vault, then each secret
+    of seal (its name, its value, the host it is of) put in it, the one way a secret goes into it. The key, and what
+    was written. The writers' own refusals, and OSError, as they raise them."""
+    wrote: list[str] = []
+    key = found.key
+    if key is None:
+        place = vaultkey.place(home, found.values["vault_key_file"].value, environ=environ)
+        key = vaultkey.make_key(place)
+        wrote.append(f"the vault's key ({_written(home, place)})")
+    if found.fleet is None:
+        record.write(home, record.first(fleet_id))
+        wrote.append(_written(home, record.path(home)))
+    if found.vault is None:
+        sealed.create(home, key)
+        wrote.append(f"the vault ({_written(home, sealed.path(home))})")
+    for secret_name, value, owner in seal:
+        sealed.put(home, key, secret_name, value, host=owner)
+        wrote.append(f"{SEALED[secret_name]}, sealed in the vault as {secrets.entry(secret_name, host=owner)}")
+    return key, wrote
+
+
+# What a writer refuses, which init says with what was written before it.
+WRITERS_REFUSE = (
+    sealed.Refused,
+    record.Refused,
+    hosts.Refused,
+    overrides.Refused,
+    fleet_files.Unsafe,
+    paths.Refused,
+)
+
+
+# ---------------------------------------------------------------- the offer over root SSH (card E7) ----
+
+# What runs one command on the host as root over root SSH, as a child of the run: its words, its standard input, and
+# the seconds it may take; the runner's result (_shell).
+Shell = Callable[[Sequence[str], str, float], Awaitable[runner.Result]]
+# The access script, read by the host's shell from its standard input, never a copy of it left there: its options
+# after these words.
+SH = ("/bin/sh", "-s", "--")
+# The host's own short name, which Proxmox names its node by, read where the host's settings.yml names no node: the
+# script is rendered for one node, as today's script took the node from hostname -s.
+NODE_COMMAND = ("hostname", "-s")
+# How long the script may take: a read (the node, --list, --dry-run), and the run, which makes each object with a pveum
+# of its own.
+READ_SECONDS = runner.SECONDS
+RUN_SECONDS = 600.0
+# The question, today's.
+SET_UP = "Set it up now?"
+# A dry run's own lines that say what the question says itself, left out of it: the script says them to a person who
+# runs it by hand.
+DRY_RUN_HEADS = ("The commands this would run", "the token's line prints JSON")
+# The script's line where nothing is missing.
+NOTHING_TO_DO = "Nothing to do"
+# init's own line, as a sentence names it.
+NEXT = {"init": Line("init")}
+# What proxmox_audit_scope lets the token read, a line of the plan of its own (O15, item 2; the owner's answer of
+# 2026-11-24 to review 58's finding 5).
+SCOPE_SAID = {
+    access.NODE_SCOPE: (
+        "VM.Audit on /vms, read only, lets status show the node's other VMs, as today; proxmox_audit_scope: pool"
+        " keeps the token to the pool"
+    ),
+    "pool": (
+        "proxmox_audit_scope is pool: the token's writes and its reads of single VMs stay in the pool, while"
+        " Sys.Audit on the node, for status's capacity, also reads the node's report, every guest's configuration"
+    ),
+}
+
+
+class _NotOffered(Exception):
+    """The offer is not made: why, the sentence said; the host is left as it was."""
+
+    def __init__(self, sentence: str) -> None:
+        super().__init__(sentence)
+        self.sentence = sentence
+
+
+@dataclasses.dataclass(frozen=True)
+class _Offered:
+    """What the offer did after a y: what the script made, by ID, this engine its maker, of the engine's own names
+    alone (_own_name); each command it ran, as it said it; the token's secret it printed, None where it made no token,
+    sealed in the vault before anything else ran; and what was written then."""
+
+    made: tuple[hosts.Made, ...]
+    ran: tuple[str, ...]
+    secret: Secret | None
+    wrote: tuple[str, ...]
+
+
+def _shell(
+    job: Job,
+    address: str,
+    fields: hosts.HostFile | None,
+    values: Mapping[str, overrides.Value],
+    environ: Mapping[str, str],
+    target: runner.Target | None = None,
+) -> Shell:
+    """A command run on the host as root over root SSH, as a child of job's run, with environ, which holds no secret
+    (taken): at the host's own Target as routes.host_target makes it (_root_ssh's), or at target where a caller gives
+    one, and with no bound on how long it says nothing, since the script prints only at its end. A target the runner
+    refuses is root SSH that did not answer."""
+
+    async def run(command: Sequence[str], stdin: str, seconds: float) -> runner.Result:
+        try:
+            reached = target or routes.host_target(
+                address,
+                fields.ssh_user if fields is not None else "root",
+                fields.ssh_port if fields is not None else 22,
+                values,
+                environ,
+            )
+            return await runner.run(job, reached, command, stdin, runner.Limits(seconds=seconds, silent=None), environ)
+        except (runner.Refused, paths.Refused) as error:
+            return runner.Unreachable(one_line(str(error), 300))
+
+    return run
+
+
+def _why(result: runner.Result) -> str:
+    """Why a command over root SSH gave nothing to use, in plain words."""
+    if isinstance(result, runner.Done):
+        return one_line(f"it ended with status {result.status}: {result.said}", 600)
+    if isinstance(result, runner.Cut):
+        return one_line(f"it sent more than was asked: {result.why}", 300)
+    if isinstance(result, runner.Silent):
+        return "it said nothing in time"
+    if isinstance(result, runner.TimedOut):
+        return "it did not end in time"
+    return one_line(result.said or "it could not be reached", 300)
+
+
+def _said_lines(result: runner.Result) -> list[str]:
+    """What the script said on its standard error, a line each, plain, none empty."""
+    return [one_line(each, None) for each in getattr(result, "said", "").splitlines() if each.strip()]
+
+
+def _by_hand(address: str, host_flag: str) -> str:
+    """How the person sets the access up by hand: the script printed, piped to the host's root."""
+    return said(
+        "to set it up yourself, run {print_commands} | ssh root@{address} sh -s -- --dry-run here to see each command"
+        " it would run there, then the same without --dry-run",
+        {"print_commands": Line("init", {"print_commands": True}, host_flag=host_flag), "address": address},
+    )
+
+
+def _object_of(words: Sequence[str]) -> tuple[str, str, bool] | None:
+    """The object one of the script's commands makes or changes, as host.yml's made names it: what it is, its ID, and
+    whether the command makes it (True), or changes one that is there (False: a pool taken, the fleet's mark added to
+    its comment; a role given what it lacks). None for a command that is none of the list's."""
+    match list(words):
+        case ["pveum", "pool", "add", name, *_]:
+            return ("pool", name, True)
+        case ["pveum", "pool", "modify", name, *_]:
+            return ("pool", name, False)
+        case ["pveum", "role", "add", name, *_]:
+            return ("role", name, True)
+        case ["pveum", "role", "modify", name, *_]:
+            return ("role", name, False)
+        case ["pveum", "user", "add", name, *_]:
+            return ("user", name, True)
+        case ["pveum", "user", "token", "add", user, name, *_]:
+            return ("token", f"{user}!{name}", True)
+        case ["pveum", "acl", "modify", path, "--users" | "--tokens", subject, "--roles", role]:
+            return ("grant", access.Grant(path, role, subject).id, True)
+    return None
+
+
+def _own_name(what: str, name: str) -> bool:
+    """Whether made may record an object by this name: one of the engine's own default names (card E19): the pool
+    aw-fleet, the user agent-warehouse@pve, its token aw by its full ID, a role of access.ROLES, and a grant of one of
+    those roles to that user or that token. A grant's own name is its role and whom it is for; its path may name a pool,
+    a storage, a bridge or a node the person gave, which the grant's removal leaves as it is."""
+    if what == "role":
+        return name in access.ROLES
+    if what == "grant":
+        path, _, rest = name.partition(" ")
+        role, _, subject = rest.partition(" ")
+        own = (OWN_NAMES["user"], OWN_NAMES["token"])
+        return role in access.ROLES and subject in own and access.ACL_PATH.fullmatch(path) is not None
+    return OWN_NAMES.get(what) == name
+
+
+def _script(
+    found: _Set,
+    *,
+    fleet_id: str,
+    user: str,
+    token: str,
+    node: str,
+    storage: str,
+    bridge: str,
+    pool: str,
+    host_flag: str,
+) -> tuple[access.Host, str]:
+    """The access script rendered for the host (engine/access.py's as_script), and the Host it was rendered for: the
+    host's settings as they are resolved, with the node, the storage, the bridge and the pool this run gives, the
+    fleet's ID (fleet.json's where there is one), the token's user and ID, and a person's own template by the name
+    proxmox_template_custom gives, which the script looks up on the host with the bridges of its network cards, as on
+    the road by hand (card E1's point 2: the lookup is the script's, never a second reader here). Refused, saying why,
+    where a value is none Proxmox makes an object by."""
+    settings = {name: value.value for name, value in found.values.items()}
+    settings.update(proxmox_node=node, proxmox_storage=storage, proxmox_bridge=bridge, proxmox_pool=pool)
+    custom = settings.get("proxmox_template_custom") or ""
+    try:
+        host = access.Host.of(settings, fleet=fleet_id, user=user, token=token)
+        return host, access.as_script(host, str(custom), host_flag=host_flag)
+    except access.Refused as error:
+        raise Refused(f"the access script cannot be rendered for the host {found.name}: {error}") from None
+
+
+def _described(obj: access.Object) -> str:
+    """One object of the list as the plan says it, with its privileges."""
+    if isinstance(obj, access.Pool):
+        return f"the pool {obj.name}, its comment the fleet's mark"
+    if isinstance(obj, access.Role):
+        return f"the role {obj.name}, with {', '.join(obj.privileges)}"
+    if isinstance(obj, access.User):
+        return f"the user {obj.name}, with no password"
+    if isinstance(obj, access.Token):
+        return f"the token {obj.id}, with privilege separation"
+    return f"{obj.role} on {obj.path} for {obj.subject}"
+
+
+def _plan(listed: Sequence[access.Object], commands: Sequence[Sequence[str]], scope: str) -> list[str]:
+    """E1's list rendered for people, in the order the script makes it: each object with its privileges, and what the
+    dry run says of it - there already, missing and made, or changed (a role given what it lacks, a pool taken, its
+    mark added); then what the script makes beyond the list, a person's own template's role and grants, which it looked
+    up on the host; then what proxmox_audit_scope lets the token read, a line of its own (SCOPE_SAID)."""
+    changes: dict[tuple[str, str], str] = {}
+    for words in commands:
+        named = _object_of(words)
+        if named is None:
+            continue
+        what, name, made = named
+        if made:
+            changes[(what, name)] = "missing, made"
+        elif what == "role":
+            changes[(what, name)] = f"lacks {words[-1]}, given it"
+        else:
+            changes[(what, name)] = "unmarked, taken: the fleet's mark added to its comment"
+    lines = [f"  {_described(obj)}: {changes.pop((obj.what, obj.id), 'there')}" for obj in listed]
+    lines += [f"  the {what} {name}: {state}" for (what, name), state in changes.items()]
+    return [*lines, f"  {SCOPE_SAID[scope]}"]
+
+
+async def _node(shell: Shell, address: str, host_flag: str) -> str:
+    """The node the host names itself, over root SSH: _NotOffered where root SSH did not answer, or not with a name
+    Proxmox gives a node."""
+    result = await shell(list(NODE_COMMAND), "", READ_SECONDS)
+    if not (isinstance(result, runner.Done) and result.status == 0):
+        raise _NotOffered(_unanswered(address, result, host_flag))
+    name = result.lines[0].strip() if len(result.lines) == 1 else ""
+    if not proxmox_name(name, "node"):
+        raise _NotOffered(
+            f"{address} gives no node's name over root SSH ({one_line(name, 60) or 'nothing'}), so init makes nothing"
+            f" there: {_by_hand(address, host_flag)}"
+        )
+    return name
+
+
+def _unanswered(address: str, result: runner.Result, host_flag: str) -> str:
+    return (
+        f"root SSH to {address} did not answer as asked ({_why(result)}), so init makes nothing there:"
+        f" {_by_hand(address, host_flag)}"
+    )
+
+
+async def _picked(asking: _Asking, what: str, names: Sequence[str], node: str) -> str:
+    """The storage or the bridge to set the access up on, of those the node lists as root sees them: a yes or no for
+    the only one, yes marked first, as E5's menus; a menu of several. "" where it was left."""
+    from claude_vm.runs.ask import Choice
+
+    title = LISTED[what][2]
+    text = (QUESTIONED[what].format(where=f"on {node}"), f"{node} lists, as root sees it:")
+    rows = [f"  {'-  ' if len(names) == 1 else f'{number}) '}{name}" for number, name in enumerate(names, 1)]
+    if len(names) == 1:
+        answer = await asking.ask(_question([*text, *rows], f"Use {names[0]}?", colon=False), "", _yes_no())
+        return names[0] if answer == YES else ""
+    choices = [Choice(name, name, "") for name in names]
+    return str(await asking.ask(_question([*text, *rows], title, colon=False), "", choices))
+
+
+async def _rescue(shell: Shell, user: str, token: str, address: str) -> str:
+    """The token this run made deleted on the host, its secret held nowhere: the vault could not be written, or the
+    script printed no secret, or failed after it made the token. Besides the script's run after a y, the one change
+    init makes on Proxmox; never where the vault holds the secret. The sentence that says it was, or the line that
+    deletes it where it could not be."""
+    words = ["pveum", "user", "token", "delete", user, token]
+    result = await shell(words, "", READ_SECONDS)
+    if isinstance(result, runner.Done) and result.status == 0:
+        return f"the token {user}!{token} this run made was deleted on {address} again, so none is left unheld"
+    return (
+        f"the token {user}!{token} this run made could not be deleted on {address} ({_why(result)}): as root there,"
+        f" {shlex.join(words)} deletes it"
+    )
+
+
+def _keep(home: paths.Home, found: _Set, secret: Secret, fleet_id: str, environ: Mapping[str, str]) -> list[str]:
+    """The token's secret the script printed, sealed in the vault at once, before anything else runs: the vault's key,
+    fleet.json and the vault where there are none, then the secret under the host's token; then read back, and held to
+    be the one printed. What was written. Refused where any of it fails, or the vault does not hold it: its caller then
+    deletes the token."""
+    name = found.name
+    try:
+        key, wrote = _sealed_in(home, found, [("token", secret, name)], fleet_id, environ)
+        held = (sealed.read(home, key) or {}).get(secrets.entry("token", host=name))
+    except WRITERS_REFUSE as error:
+        raise Refused(f"the vault could not be written ({str(error).removeprefix('error: ')})") from None
+    except OSError as error:
+        raise Refused(f"the vault could not be written ({error.strerror or error})") from None
+    if held is None or not _same(held, secret):
+        raise Refused("the vault does not hold the token's secret as it was written")
+    return wrote
+
+
+def _record(
+    home: paths.Home,
+    found: _Set,
+    address: str,
+    token_user: str,
+    token_id: str,
+    made: Sequence[hosts.Made],
+    environ: Mapping[str, str],
+) -> list[str]:
+    """host.yml's address, the token's user and ID, and what the script made, written at once after it ran, so that a
+    run stopped after it leaves made recording each object: through hosts.write, its anchor as it was (the run's own
+    writes it after the questions). What was written. Refused where it cannot be written."""
+    layout = hosts.Layout(home, environ)
+    try:
+        state = layout.state(found.name)
+        change = _change(address, token_user, token_id, made)
+        digest = hosts.write(layout, found.name, state.digest, change=change, anchor=hosts.UNCHANGED)
+    except WRITERS_REFUSE as error:
+        raise Refused(f"{str(error).removeprefix('error: ')}: what was written before it stays") from None
+    except OSError as error:
+        raise Refused(f"host.yml could not be written ({error.strerror or error})") from None
+    return [f"{hosts.HOSTS_REL}/{found.name}/{hosts.HOST_FILE}"] if digest != state.digest else []
+
+
+async def _offer(
+    asking: _Asking,
+    found: _Set,
+    typed: Given,
+    held: Secret | None,
+    *,
+    home: paths.Home,
+    environ: Mapping[str, str],
+    shell: Shell,
+    token_user: str,
+    token_id: str,
+    pool: str,
+    fleet_id: str,
+) -> tuple[Given, _Offered | None]:
+    """The offer (card E7), at a terminal, between the token's ID and its secret, the certificate settled: the access
+    script rendered for the host's values (_script), its node read over root SSH where settings.yml names none; where
+    no storage or bridge is given or set, the script's --list, and one in effect that the node lists, else the person
+    asked which; then the script's --dry-run, with --no-token where the vault holds the token's secret or one is given.
+    Where something is missing, the plan (E1's list rendered for people), the commands and what the script said are
+    shown, and the person asked "Set it up now? y or n", no first; on y alone, the script is run as root over root SSH,
+    /bin/sh reading it from its standard input. Its one line on standard output, the token's secret, held to a UUID and
+    sealed in the vault at once (_keep), then host.yml's record of what it made (_record); where the vault cannot be
+    written, or no secret was printed, the token the run made is deleted again (_rescue), and init stops. The given
+    values with what the offer settled: the storage and the bridge asked, and after a y the node, the storage and the
+    bridge the access was set up on, and the secret; and what the offer did, None where it ran nothing. Root SSH that
+    does not answer, a script that refuses, nothing missing, a token there whose secret is held nowhere here (until
+    card E8 marks a token as its fleet's, it may be another fleet's), no, Esc and Enter: each leaves the host as it
+    was, said, and the secret is then asked for."""
+    address = typed.address
+    own = {} if found.layers.host is None else found.layers.host.settings
+    full_id = f"{token_user}!{token_id}"
+    no_token = ["--no-token"] if typed.secret is not None or held is not None else []
+    host_flag = typed.host
+    asking.step("access")
+    try:
+        node = str(own.get("proxmox_node") or "") or await _node(shell, address, host_flag)
+        chosen = {
+            "storage": typed.storage or str(own.get("proxmox_storage") or ""),
+            "bridge": typed.bridge or str(own.get("proxmox_bridge") or ""),
+        }
+
+        def render(storage: str, bridge: str) -> tuple[access.Host, str]:
+            return _script(
+                found,
+                fleet_id=fleet_id,
+                user=token_user,
+                token=token_id,
+                node=node,
+                storage=storage,
+                bridge=bridge,
+                pool=pool,
+                host_flag=host_flag,
+            )
+
+        if not all(chosen.values()):
+            in_effect = {what: str(found.values[LISTED[what][0]].value) for what in chosen}
+            listed = render(**{what: chosen[what] or in_effect[what] for what in chosen})[1]
+            listing = await shell([*SH, "--list"], listed, READ_SECONDS)
+            if not (isinstance(listing, runner.Done) and listing.status == 0):
+                raise _NotOffered(_unanswered(address, listing, host_flag))
+            there: dict[str, list[str]] = {"storage": [], "bridge": []}
+            for each in listing.lines:
+                what, _, name = each.partition(" ")
+                if what in there and proxmox_name(name, what) and name not in there[what]:
+                    there[what].append(name)
+            for what in chosen:
+                if chosen[what]:
+                    continue
+                if in_effect[what] in there[what]:
+                    # The one in effect, and on the node: as today's offer settles it, unasked.
+                    chosen[what] = in_effect[what]
+                    continue
+                if not there[what]:
+                    raise _NotOffered(f"{node} lists no {what} root can use, so init makes nothing on {address}")
+                picked = await _picked(asking, what, there[what], node)
+                if not picked:
+                    raise _NotOffered(f"no {what} was chosen, so init makes nothing on {address}")
+                chosen[what] = picked
+                if what == "storage":
+                    typed = dataclasses.replace(typed, storage=picked)
+                else:
+                    typed = dataclasses.replace(typed, bridge=picked)
+        host, script = render(chosen["storage"], chosen["bridge"])
+        dry = await shell([*SH, "--dry-run", *no_token], script, READ_SECONDS)
+        if isinstance(dry, runner.Done) and dry.status != 0:
+            # The script refused, in its own words: a pool of another fleet's, a token made without privilege
+            # separation, a storage the node does not have, the token not there under --no-token.
+            raise _NotOffered(
+                f"the access script refused on {address}, and nothing was changed: {' '.join(_said_lines(dry))}"
+            )
+        if not isinstance(dry, runner.Done):
+            raise _NotOffered(_unanswered(address, dry, host_flag))
+        try:
+            commands = [shlex.split(each) for each in dry.lines]
+        except ValueError:
+            raise _NotOffered(_unanswered(address, dry, host_flag)) from None
+        sayings = [each for each in _said_lines(dry) if not each.startswith(DRY_RUN_HEADS)]
+        if not no_token and not any(_object_of(each) == ("token", full_id, True) for each in commands):
+            raise _NotOffered(
+                "\n".join(
+                    [
+                        f"The token {full_id} is on {address} already, and its secret is held nowhere here: init makes"
+                        " nothing there while it is, since it may be another fleet's. Type its secret at the next"
+                        " question, or delete it as the script says, and run init again:",
+                        *(f"  {each}" for each in sayings),
+                    ]
+                )
+            )
+        if not commands:
+            said_now = [each for each in sayings if not each.startswith(NOTHING_TO_DO)]
+            if said_now:
+                asking.say("\n".join([f"The API access is set up on {address} already:", *said_now]))
+            asking.step("access", "done")
+            return typed, None
+    except _NotOffered as why:
+        asking.say(why.sentence)
+        asking.step("access", "skipped")
+        return typed, None
+
+    appended = any((named := _object_of(each)) is not None and named[0] == "role" and not named[2] for each in commands)
+    lines = [
+        said(
+            "{init} can set up the API access the engine uses on {address}, as root over SSH.",
+            {"init": _init(), "address": address},
+        ),
+        "What it uses there, each object with its privileges, and what is there already:",
+        *_plan(access.objects(host), commands, host.audit_scope),
+        "It would run there, adding only what is missing:",
+        *(f"  {each}" for each in dry.lines),
+        *(["The script says:", *(f"  {each}" for each in sayings)] if sayings else []),
+        *(["What is added to a role reaches every user it is granted to, wherever it is granted."] if appended else []),
+        "Nothing else on the host changes"
+        + ("." if no_token else ", and the token's secret goes straight into the encrypted vault."),
+        f"n, or Enter, {_by_hand(address, host_flag).replace('to set it up yourself', 'to do it yourself', 1)}.",
+    ]
+    answer = await asking.ask(_question(lines, SET_UP, colon=False), NO, _yes_no())
+    if answer != YES:
+        asking.say(f"Nothing was made on {address}: {_by_hand(address, host_flag)}")
+        asking.step("access", "skipped")
+        return typed, None
+
+    # The y: the script runs, and nothing runs between its end and the vault's write of the secret it printed.
+    result = await shell([*SH, *no_token], script, RUN_SECONDS)
+    ran = [each[2:] for each in _said_lines(result) if each.startswith("+ ")]
+    words = []
+    for each in ran:
+        try:
+            words.append(shlex.split(each))
+        except ValueError:
+            words.append([])
+    finished = isinstance(result, runner.Done) and result.status == 0
+    # Of a run that did not finish, the last command said may not have run, or not to its end.
+    completed = words if finished else words[:-1]
+    made_now = [named for each in completed if (named := _object_of(each)) is not None and named[2]]
+    # The token's line said: the dry run found no token of that ID, so one there now is this run's own, its secret
+    # held nowhere unless the vault takes it.
+    token_said = any(_object_of(each) == ("token", full_id, True) for each in words)
+    secret: Secret | None = None
+    wrote: list[str] = []
+    stop = ""
+    if not finished:
+        stop = f"The access script did not finish on {address} ({_why(result)})."
+        if token_said and isinstance(result, runner.Done):
+            # The script ended by itself after the token's line (a later command refused, or no secret printed): the
+            # token deleted, as the playbook's rescue deletes it while the vault is unwritten.
+            rescued = await _rescue(shell, token_user, token_id, address)
+            stop += f" {rescued[:1].upper()}{rescued[1:]}."
+            made_now = [named for named in made_now if named[0] != "token" and not named[1].endswith(f" {full_id}")]
+        elif token_said:
+            # The connection was lost after the token's line: it may be there, its secret unsaid. Never run again here.
+            stop += (
+                f" The token {full_id} may be on {address} with its secret unsaid: as root there,"
+                f" {shlex.join(['pveum', 'user', 'token', 'delete', token_user, token_id])} deletes it."
+            )
+        stop += said(" What it made before that stays; the next {init} makes only what is still missing", NEXT)
+    elif token_said:
+        value = answers.init_answer(result.lines[0], "uuid") if len(result.lines) == 1 else ""
+        if not value:
+            sentence = await _rescue(shell, token_user, token_id, address)
+            stop = f"The access script made the token {full_id} on {address} and printed no secret of it: {sentence}."
+            made_now = [named for named in made_now if named[0] != "token" and not named[1].endswith(f" {full_id}")]
+        else:
+            secret = Secret(value)
+            try:
+                wrote = _keep(home, found, secret, fleet_id, environ)
+            except Refused as refused:
+                sentence = await _rescue(shell, token_user, token_id, address)
+                stop = f"{refused.sentence.removeprefix('error: ')}: {sentence}."
+                made_now = [named for named in made_now if named[0] != "token" and not named[1].endswith(f" {full_id}")]
+                secret = None
+    if ran:
+        asking.say("\n".join([f"Ran on {address}, as root:", *(f"+ {each}" for each in ran)]))
+    made = tuple(hosts.Made(what, name, BY_ENGINE) for what, name, _ in made_now if _own_name(what, name))
+    try:
+        wrote += _record(home, found, address, token_user, token_id, made, environ) if made else []
+    except Refused as refused:
+        if stop:
+            stop += f" Its record in made could not be written: {refused.sentence.removeprefix('error: ')}"
+        else:
+            raise
+    if stop:
+        raise Refused(stop)
+    asking.step("access", "done")
+    typed = dataclasses.replace(typed, node=node, storage=chosen["storage"], bridge=chosen["bridge"])
+    if secret is not None:
+        typed = dataclasses.replace(typed, secret=secret, secret_from="the token's secret the access script printed")
+    return typed, _Offered(made, tuple(ran), secret, tuple(wrote))
+
+
 async def unattended(
     home: paths.Home,
     typed: Given,
@@ -1024,9 +1598,10 @@ def _listed_words(words: Sequence[str]) -> str:
 
 @dataclasses.dataclass(frozen=True)
 class _Settled:
-    """What a run settled of the host, before anything is written: what its certificate is held to, the token's user
-    and ID, the fleet's ID, what the administrator made, by ID, where a secret was given or typed (the pool's mark read
-    with it), and what was given and answered."""
+    """What a run settled of the host, before anything but the offer's is written: what its certificate is held to,
+    the token's user and ID, the fleet's ID, what was made, by ID - by this engine, through the offer, and by the
+    administrator where a secret was given or typed (the pool's mark read with it) - what was given and answered, and
+    what the offer did, None where it ran nothing."""
 
     kept: certificate.Kept
     token_user: str
@@ -1034,6 +1609,7 @@ class _Settled:
     fleet_id: str
     made: tuple[hosts.Made, ...]
     typed: Given
+    offered: _Offered | None = None
 
 
 async def _run(
@@ -1044,10 +1620,13 @@ async def _run(
     job: Job | None,
     root_ssh: certificate.RootSsh | None,
     asking: _Asking | None,
+    offer_target: runner.Target | None = None,
 ) -> list[str]:
     """unattended's steps, and attended's with asking: what is set read and every value given held to it, the host's
-    part (its address, its token, its certificate, the pool's mark, and at a terminal its lists), at a terminal the
-    fleet's own questions, then the writes, each through its one writer, and what the run says of them."""
+    part (its address, its token, its certificate, at a terminal the offer, the pool's mark, and at a terminal its
+    lists), at a terminal the fleet's own questions, then the writes, each through its one writer, and what the run
+    says of them. What the offer wrote at once, the vault and host.yml, is read again before the writes, which then find
+    it set. offer_target: where the offer reaches root SSH, the host's own Target where None."""
     layout = hosts.Layout(home, environ)
     found = _read(home, layout, typed, environ)
     # Again under the fleet's lock, and for a caller that is not init's handler: before anything is sent or written.
@@ -1084,12 +1663,16 @@ async def _run(
             found,
             dataclasses.replace(typed, address=address),
             held,
+            home=home,
             environ=environ,
             job=job,
             root_ssh=root_ssh,
             asking=asking,
+            offer_target=offer_target,
         )
         typed = settled.typed
+        if settled.offered is not None:
+            found = _read(home, layout, typed, environ)
     elif asking is None:
         raise Refused(
             said(
@@ -1099,12 +1682,13 @@ async def _run(
         )
     else:
         # The host's address left: so is everything that needs the host, which the next run asks.
-        for key in ("token", "certificate", "secret", "node", "storage", "bridge"):
+        for key in ("token", "certificate", "access", "secret", "node", "storage", "bridge"):
             asking.passed(key, "skipped")
     if asking is not None:
         typed = await _the_fleet(asking, typed, found, environ)
         asking.step("write")
-    wrote = _write(home, layout, found, typed, settled, environ)
+    early = settled.offered.wrote if settled is not None and settled.offered is not None else ()
+    wrote = [*early, *_write(home, layout, found, typed, settled, environ)]
     if asking is not None:
         asking.step("write", "done")
     return _report(home, found, typed, settled, wrote, asking)
@@ -1115,19 +1699,23 @@ async def _the_host(
     typed: Given,
     held: Secret | None,
     *,
+    home: paths.Home,
     environ: Mapping[str, str],
     job: Job | None,
     root_ssh: certificate.RootSsh | None,
     asking: _Asking | None,
+    offer_target: runner.Target | None = None,
 ) -> _Settled:
     """The host's part of a run, at typed.address: the token's ID, asked where nothing names one yet; the certificate,
-    settled before any request that carries the token, a person asked where only one can vouch for it; the token's
-    secret, asked where none is held or given; the pool's mark, read with a secret given or typed, which is the
-    authority for the fleet's ID; and at a terminal the node, the storage and the bridge, from the host's lists."""
+    settled before any request that carries the token, a person asked where only one can vouch for it; at a terminal,
+    the offer to set the access up over root SSH (_offer); the token's secret, asked where none is held, given or
+    printed by the offer's script; the pool's mark, read with a secret given or typed, which is the authority for the
+    fleet's ID, the offer's script having made or checked the mark itself; and at a terminal the node, the storage and
+    the bridge, from the host's lists."""
     name, state, fields = found.name, found.state, found.state.fields
     address = typed.address
-    token_user = typed.token_user or (fields.token_user if fields is not None else TOKEN_USER)
-    token_id = typed.token_id or (fields.token_id if fields is not None else TOKEN_ID)
+    token_user = typed.token_user or (fields.token_user if fields is not None else access.USER)
+    token_id = typed.token_id or (fields.token_id if fields is not None else access.TOKEN)
     if asking is not None:
         if fields is None and held is None and typed.secret is None and not (typed.token_user or typed.token_id):
             # Enter keeps the engine's own, as a second answer that is not a token ID does: said, and written.
@@ -1138,8 +1726,11 @@ async def _the_host(
         else:
             asking.passed("token")
     own = {} if found.layers.host is None else found.layers.host.settings
-    pool = typed.pool or own.get("proxmox_pool") or POOL
+    pool = typed.pool or own.get("proxmox_pool") or access.POOL
     tls_ca_file = found.values["tls_ca_file"].value or None
+    # The fleet's own ID, or a new fleet's: the script is rendered with it (E4's builder: fleet.json's where there is
+    # one), and it is written unless the pool's mark, read with a secret given or typed, names the fleet.
+    fleet_id = found.fleet.fleet if found.fleet is not None else record.new_id()
 
     # The certificate, settled before any request that carries the token.
     if fields is not None:
@@ -1154,9 +1745,27 @@ async def _the_host(
     kept = await certificate.work_out(host, typed.certificate, reader, None if asking is None else asking.trusting())
     if isinstance(kept, certificate.Refusal):
         raise Refused(kept.said)
+    offered = None
     if asking is not None:
         asking.step("certificate", "done")
-        # The token's secret: given, held in the vault, or asked, hidden.
+        if job is None:
+            asking.passed("access", "skipped")
+        else:
+            shell = _shell(job, address, fields, found.values, environ, offer_target)
+            typed, offered = await _offer(
+                asking,
+                found,
+                typed,
+                held,
+                home=home,
+                environ=environ,
+                shell=shell,
+                token_user=token_user,
+                token_id=token_id,
+                pool=pool,
+                fleet_id=fleet_id,
+            )
+        # The token's secret: given, held in the vault, printed by the offer's script, or asked, hidden.
         if typed.secret is None and held is None:
             typed_secret = await asking.hidden("secret", SECRET)
             if typed_secret is not None:
@@ -1168,28 +1777,33 @@ async def _the_host(
     full_id = f"{token_user}!{token_id}"
     url = f"https://{host.endpoint}"
     secret = typed.secret if typed.secret is not None else held
-    made: tuple[hosts.Made, ...] = ()
+    made: tuple[hosts.Made, ...] = () if offered is None else offered.made
+    printed = offered is not None and offered.secret is not None
     client = None
     unlisted = [setting for setting, *_ in LISTED.values() if own.get(setting) in (None, "")]
     if secret is not None and (typed.secret is not None or (asking is not None and unlisted)):
         client = _connect(url, kept, full_id, secret, found.values["network_proxy"].value, environ)
     try:
-        if typed.secret is not None and client is not None:
+        if typed.secret is not None and client is not None and not printed:
             found_mark = await _mark(client, full_id, pool)
             rule = mark.may_change(found_mark, found.fleet or record.first(found_mark.fleet))
             if rule is not None:
                 raise Refused(f"{rule.removeprefix('error: ')}; nothing was written")
             fleet_id = found_mark.fleet
+            # What the administrator made by hand, where the offer did not make it now.
             names = {"pool": pool, "user": token_user, "token": full_id}
-            made = tuple(hosts.Made(what, name, BY_HAND) for what, name in names.items() if name == OWN_NAMES[what])
-        else:
-            fleet_id = found.fleet.fleet if found.fleet is not None else record.new_id()
+            by_engine = {(each.what, each.id) for each in made}
+            made += tuple(
+                hosts.Made(what, name, BY_HAND)
+                for what, name in names.items()
+                if _own_name(what, name) and (what, name) not in by_engine
+            )
         if asking is not None:
             typed = await _the_lists(asking, client, typed, own, address)
     finally:
         if client is not None:
             client.close()
-    return _Settled(kept, token_user, token_id, fleet_id, made, typed)
+    return _Settled(kept, token_user, token_id, fleet_id, made, typed, offered)
 
 
 async def _the_lists(
@@ -1203,8 +1817,8 @@ async def _the_lists(
     from ..pve.answers import ProxmoxError
     from ..vendors.transport import TransportError
 
-    node = str(own.get("proxmox_node") or "")
-    given_now = {"node": "", "storage": typed.storage, "bridge": typed.bridge}
+    node = str(own.get("proxmox_node") or typed.node)
+    given_now = {"node": typed.node, "storage": typed.storage, "bridge": typed.bridge}
     for what in ("node", "storage", "bridge"):
         setting, word, title, _path = LISTED[what]
         if given_now[what] or own.get(setting) not in (None, ""):
@@ -1322,23 +1936,9 @@ def _write(
     else:
         fleet_id = found.fleet.fleet if found.fleet is not None else record.new_id()
     wrote: list[str] = []
-    key_file = found.values["vault_key_file"].value
     try:
         if settled is not None or seal:
-            key = found.key
-            if key is None:
-                place = vaultkey.place(home, key_file, environ=environ)
-                key = vaultkey.make_key(place)
-                wrote.append(f"the vault's key ({_written(home, place)})")
-            if found.fleet is None:
-                record.write(home, record.first(fleet_id))
-                wrote.append(_written(home, record.path(home)))
-            if found.vault is None:
-                sealed.create(home, key)
-                wrote.append(f"the vault ({_written(home, sealed.path(home))})")
-            for secret_name, value, owner in seal:
-                sealed.put(home, key, secret_name, value, host=owner)
-                wrote.append(f"{SEALED[secret_name]}, sealed in the vault as {secrets.entry(secret_name, host=owner)}")
+            wrote += _sealed_in(home, found, seal, fleet_id, environ)[1]
         if settled is not None:
             kept = settled.kept
             if kept.anchor is None:
@@ -1351,7 +1951,7 @@ def _write(
                 wrote.append(f"{hosts.HOSTS_REL}/{name}/{hosts.HOST_FILE}")
             digest = found.layers.host.digest if found.layers.host is not None else overrides.MISSING
             before = digest
-            pool = typed.pool or own.get("proxmox_pool") or POOL
+            pool = typed.pool or own.get("proxmox_pool") or access.POOL
             for setting, value in zip(HOST_OWN, (typed.storage, typed.bridge, pool, typed.node), strict=True):
                 if value and own.get(setting) in (None, ""):
                     digest = overrides.set(home, setting, value, name, digest, environ=environ)
@@ -1370,14 +1970,7 @@ def _write(
         if settled is not None and not found.layers.client.own.get("current_host"):
             overrides.set_current(home, name, found.layers.client.digest, environ=environ)
             wrote.append(f"{paths.CLIENT} (its current host, {name})")
-    except (
-        sealed.Refused,
-        record.Refused,
-        hosts.Refused,
-        overrides.Refused,
-        fleet_files.Unsafe,
-        paths.Refused,
-    ) as error:
+    except WRITERS_REFUSE as error:
         said_now = str(error).removeprefix("error: ")
         raise Refused(f"{said_now}: what was written before it stays, and init goes on from it") from None
     except OSError as error:
@@ -1394,19 +1987,29 @@ def _report(
     wrote: Sequence[str],
     asking: _Asking | None,
 ) -> list[str]:
-    """What a run says once it has written: the certificate, the fleet, what was written, and what is left. The fleet's
-    line is said wherever the host was settled with a secret given or typed, whose token read the pool's mark: made may
-    record nothing then."""
+    """What a run says once it has written: the certificate, the fleet, what was written, what the offer made on the
+    Proxmox host, and what is left. The fleet's line is said wherever the host was settled with a secret given or typed,
+    whose token read the pool's mark (made may record nothing then), or printed by the offer's script, which made or
+    found the mark."""
     name = found.name
     own = {} if found.layers.host is None else found.layers.host.settings
     lines = [] if settled is None else [settled.kept.said]
-    if settled is not None and settled.typed.secret is not None:
+    offered = None if settled is None else settled.offered
+    if offered is not None and offered.secret is not None:
+        lines.append(f"the fleet {settled.fleet_id}, as the pool's mark names it, which the access script put there")
+    elif settled is not None and settled.typed.secret is not None:
         lines.append(f"the fleet {settled.fleet_id}, as the pool's mark names it, which the token given reads")
     lines.append(
         f"wrote {', '.join(wrote)}" if wrote else "nothing to write: the fleet's folder holds every value given already"
     )
     if asking is None:
         lines.append("nothing was made on the Proxmox host: with nobody there init makes nothing on it")
+    elif offered is not None and offered.ran:
+        lines.append(
+            f"the access script ran {len(offered.ran)} command{'s' if len(offered.ran) > 1 else ''} on the Proxmox"
+            f" host after your y, each said above: what it made of the engine's own names is recorded in"
+            f" {hosts.HOSTS_REL}/{name}/{hosts.HOST_FILE}'s made"
+        )
     else:
         lines.append("nothing was made on the Proxmox host")
     unset = [
@@ -1440,6 +2043,73 @@ def _report(
 def _refused(sentence: str) -> int:
     print(sentence, file=sys.stderr)
     return EXITS["refused"]
+
+
+# The one sentence init --print-commands says on standard error, beside the script on standard output.
+PRINTED = (
+    "The access script for {address}, rendered for its values: run it there as root, {print_commands} | ssh"
+    " root@{address} sh -s -- --dry-run to see each command it would run, then the same without --dry-run, which"
+    " prints the token's secret last, for {secret_file} to read from a file of your own"
+)
+
+
+def print_commands(run: Any, values: Mapping[str, object]) -> int:
+    """init --print-commands (card E7; V2-9): the access script (engine/access.py's as_script), rendered for this host's
+    values as the offer renders it (_script), on standard output, and on standard error the one sentence that says how
+    to run it on the host as root (PRINTED). The fleet's files are read - host.yml, the settings, fleet.json - never the
+    vault; no run, job or lock is made, no request is sent, and no file is written, the script's above all. A value
+    given that differs from the one set is refused, as init refuses it. The exit status."""
+    environ = dict(os.environ)
+    try:
+        if _text(values, "token_secret_file"):
+            raise Refused("--print-commands prints the script, which makes the token: it takes no --token-secret-file")
+        typed = given(values, getattr(run, "set", ()), cwd=os.getcwd(), environ=environ)
+        home = paths.home(PROGRAM_ROOT, environ)
+        _held(home)
+        layout = hosts.Layout(home, environ)
+        name = _host_name(layout, typed.host)
+        try:
+            state = layout.state(name)
+            layers = overrides.read(home, name, environ=environ)
+            fleet = record.read(home)
+            run_now = _run_values(typed.settings, [], environ)
+            resolved = overrides.resolve(home, name, run_now, environ=environ)
+        except (hosts.Refused, overrides.Refused, paths.Refused, record.Refused) as error:
+            raise Refused(str(error)) from None
+        found = _Set(name, state, layers, fleet, resolved, run_now, None, None)
+        differs = _differs(typed, found)
+        if differs:
+            never = said("{init} never writes over a value: edit the file to change it.", {"init": _init()})
+            raise Refused(" ".join([*differs, never]))
+        fields = state.fields
+        _host, text = _script(
+            found,
+            fleet_id=fleet.fleet if fleet is not None else record.new_id(),
+            user=typed.token_user or (fields.token_user if fields is not None else access.USER),
+            token=typed.token_id or (fields.token_id if fields is not None else access.TOKEN),
+            node=str(resolved["proxmox_node"].value),
+            storage=typed.storage or str(resolved["proxmox_storage"].value),
+            bridge=typed.bridge or str(resolved["proxmox_bridge"].value),
+            pool=typed.pool or str(resolved["proxmox_pool"].value or access.POOL),
+            host_flag=typed.host,
+        )
+    except Refused as refused:
+        return _refused(refused.sentence)
+    except paths.Refused as error:
+        return _refused(f"error: {error}")
+    address = typed.address or (fields.address if fields is not None else "<host>")
+    sys.stdout.write(text)
+    sys.stdout.flush()
+    sentence = said(
+        PRINTED,
+        {
+            "address": address,
+            "print_commands": Line("init", {"print_commands": True}, host_flag=typed.host),
+            "secret_file": Line("init", {"token_secret_file": PLACEHOLDER}, host_flag=typed.host),
+        },
+    )
+    print(sentence, file=sys.stderr)
+    return EXITS["done"]
 
 
 def _at_a_terminal() -> bool:
@@ -1482,6 +2152,8 @@ def init(run: Any, **values: object) -> int:
         if values.get(field) is True:
             mode = {"line": _init(**{field: True}), "card": card}
             return _refused(said("error: {line} is not built yet (card {card} builds it)", mode))
+    if values.get("print_commands") is True:
+        return print_commands(run, values)
     asks = values.get("no_prompt") is not True and _at_a_terminal()
     environ = dict(os.environ)
     try:
