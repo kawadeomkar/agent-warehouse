@@ -516,7 +516,13 @@ def test_a_ctrl_c_before_the_terminal_reads_the_lines_said_above_the_region_lose
         while writer.is_alive():
             drain(0.1)
         writer.join()
-        region.finish()
+        # finish() makes a draining change of the settings with the erase still unread here: macOS waits for that
+        # read (ttywait), so the master is read on while it runs.
+        ender = threading.Thread(target=region.finish, daemon=True)
+        ender.start()
+        while ender.is_alive():
+            drain(0.1)
+        ender.join()
         drain(0.3)
         assert termios.tcgetattr(slave) == found
     finally:
