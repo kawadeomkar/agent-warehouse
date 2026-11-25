@@ -12,9 +12,10 @@ and none of the shell's read as the ones to put back; a signal that lands while 
 are back, a Ctrl-Z coming back to them; a Ctrl-Z and a Ctrl-\\ at their default taken while it draws - the region
 erased, none drawn till the run goes on, and the settings put back as found, what was typed unseen thrown away with
 them, before the stop or the quit; after a stop the mode again - a handler of the program's own left in place, each
-given back at the end; from an interactive shell (harness._in_a_shell), nothing typed unseen left on the shell's line or
-in its history at either; and the Display it wraps is held to ansible-core's. Each live output's own tests run it for
-real: test_status_live.py and test_deploy_live.py, at a pseudo-terminal (docs/architecture/custom-code.md §7.8).
+given back at the end, the one it took where it ends with the signals held off; from an interactive shell
+(harness._in_a_shell), nothing typed unseen left on the shell's line or in its history at either; and the Display it
+wraps is held to ansible-core's. Each live output's own tests run it for real: test_status_live.py and
+test_deploy_live.py, at a pseudo-terminal (docs/architecture/custom-code.md §7.8).
 """
 
 from __future__ import annotations
@@ -723,6 +724,39 @@ def test_the_hold_takes_a_ctrl_z_its_continue_and_a_ctrl_backslash_only_from_the
         region.finish()
         back = {number: signal.getsignal(number) for number in STOP_AND_QUIT}
         assert back == {signal.SIGTSTP: signal.SIG_DFL, signal.SIGCONT: signal.SIG_DFL, signal.SIGQUIT: own}, back
+    finally:
+        for number, handler in previous.items():
+            signal.signal(number, handler)
+        terminal.close()
+        os.close(master)
+
+
+def test_a_hold_given_back_while_the_signals_are_held_off_puts_back_the_handlers_it_took(monkeypatch):
+    # As a question's end gives it back (runs/ask.py's _line): the settings put back as found inside uninterrupted,
+    # whose notes stand in place of the hold's handlers meanwhile. Once the signals are let through, each handler the
+    # hold took is back - the program's own Ctrl-C, the defaults of the rest - never the hold's own.
+    master, slave, terminal = _at_a_terminal_of_its_own(monkeypatch)
+
+    def own(signum, frame):
+        pass
+
+    previous = {number: signal.signal(number, signal.SIG_DFL) for number in STOP_AND_QUIT}
+    previous[signal.SIGINT] = signal.signal(signal.SIGINT, own)
+    try:
+        found = termios.tcgetattr(slave)
+        mode = [*found[:3], found[3] & ~termios.ECHO, *found[4:]]
+        live.change(slave, termios.TCSAFLUSH, mode)
+        assert signal.getsignal(signal.SIGINT) == live._HOLD._interrupted
+        with live.uninterrupted():
+            live.put_back(slave, termios.TCSAFLUSH, found)
+        handlers = {number: signal.getsignal(number) for number in (signal.SIGINT, *STOP_AND_QUIT)}
+        assert handlers == {
+            signal.SIGINT: own,
+            signal.SIGTSTP: signal.SIG_DFL,
+            signal.SIGCONT: signal.SIG_DFL,
+            signal.SIGQUIT: signal.SIG_DFL,
+        }, handlers
+        assert termios.tcgetattr(slave) == found
     finally:
         for number, handler in previous.items():
             signal.signal(number, handler)
