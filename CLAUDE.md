@@ -580,9 +580,10 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       was given (`routed_as`: `direct`, `hop` or `own`, by `connections.target_for` alone), every one held (`held`)
       before anything connects, then the hop's login, then one forward of its own to the first by name through the
       hop (`Connections.forward`, `route.hop_forward`): a host that refuses to forward or that `ssh` cannot use stops
-      the run (`routes.Unusable`), raised again by every later `targets`, and nothing dials a machine. The runner makes
-      no command line of a machine's `Target` unmarked, nor of one marked `hop` without its hop (a
-      `dataclasses.replace` that took it off is refused as it is made). `Route.ready()` makes sure of the shared
+      the run (`routes.Unusable`), raised again by every later `targets` and by one that waited on it, and nothing
+      dials a machine. The runner makes no command line of a machine's `Target` unmarked, nor of one marked `hop`
+      without its hop (a `dataclasses.replace` that took it off is refused as it is made). `Route.ready()` makes sure
+      of the shared
       connection again before a step that reaches many machines and after a wait on a person, failing none. No module
       of the new engine but `routes.py` and `ssh/`'s own makes a `Target` or changes one's route after it was made (a
       scan sees the runner under any name, a `replace` of a `Target`'s route and the mark); every fleet a test makes

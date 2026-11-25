@@ -731,7 +731,8 @@ configuration file which proxy it takes, and any other than the route's is refus
 the hop's login, then the forward. Where any takes the hop, its login is made, once a run, then one forward of its own
 to the first of them by name (`Connections.forward`): a host that refuses to forward there, or an `ssh` that cannot use
 it as a hop, stops the run, its sentence naming the account `host.yml`'s `jump` gives, and every later `targets` of the
-run raises it again, so a step that caught it for one machine hands out no hop through that host; a forward cut before
+run raises it again, as does one that waited on that forward, so a step that caught it for one machine, or reaches its
+machines at once, hands out no hop through that host; a forward cut before
 its verdict is made again; a machine that says nothing to the forward, or a login for it that does not finish, is said
 once and stops nothing, the machine failing alone when it is first reached. `Route.ready()` makes sure of the shared
 connection again wherever its login was made, before a step that reaches many machines at once and after a wait on a
@@ -755,8 +756,9 @@ computer's own for each host, one with no setting of its own reading the default
 taking the hop; the notes said once; each road on which the route cannot be settled stopping the run with nothing
 reached (a long home, an `ssh -G` past its limit, ended by a signal, or exiting with an error, the stand-in's `slow-G`
 and `killed-G` and a configuration whose `ControlPath` `ssh` refuses); every machine held before the login and the
-forward; a forward's verdict that stopped the run raised again, and one cut before its verdict made again; a `Target`
-the route did not mark, or marked through the hop and without it, refused by the runner. And two rules: every fleet a
+forward; a forward's verdict that stopped the run raised again, to a `targets` that waited on it too, and one cut
+before its verdict made again; a `Target` the route did not mark, or marked through the hop and without it, refused
+by the runner. And two rules: every fleet a
 test makes pins `vm_ssh_route: direct` before anything reads it (`tests/unit/fleet_fixture.py`'s `pinned`, each maker
 read back, `whole_fleet`'s as `aw init` starts); and no module of the new engine but `routes.py` and `ssh/`'s own makes
 a `Target` or changes one's route after it was made, by a scan that reads every subpackage and sees the runner under
