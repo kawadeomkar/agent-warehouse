@@ -27,6 +27,7 @@ login's marker on a VM is guest/states.py's and the ssh program the SSH runner's
 from __future__ import annotations
 
 import re
+import shlex
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final
@@ -268,9 +269,15 @@ def _vm(
 
 def _given(options: object) -> str:
     """The person's own ssh options for the VMs, as the words ssh is given after status's own (today's ssh common and
-    extra arguments, the two joined by a space): -o Name=value each, in their order."""
-    pairs = options.items() if isinstance(options, Mapping) else ()
-    common = " ".join(f"-o {name}={value}" for name, value in pairs)
+    extra arguments, the two joined by a space): held as the SSH runner holds them for every other verb
+    (runner._given: no option the product sets, such as HostKeyAlias, none that undoes what a connection holds, such
+    as LocalCommand, each value one line), then -o and the pair as one shell-quoted word, in their order, since today's
+    engine splits the line as a shell does. Refused in the runner's words, which name an option, never a value."""
+    try:
+        pairs = runner._given(options or {})
+    except runner.Refused as refused:
+        raise Refused(str(refused)) from None
+    common = " ".join(f"-o {shlex.quote(f'{name}={value}')}" for name, value in pairs)
     return f"{common} "
 
 

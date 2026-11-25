@@ -35,17 +35,18 @@ PROGRAM_ROOT = Path(__file__).resolve().parents[3]
 def main(
     run: Any,
     *,
-    vm_name: Sequence[str] = (),
+    names: Sequence[str] = (),
     default_vm: bool = False,
     host: str | None = None,
     only: str | None = None,
     json: bool = False,
 ) -> int:
-    """aw status: the report, on screen or as JSON with --json; its exit status (STATUS_EXITS). With no names it reads
-    every VM the fleet made, which is what default_vm false says for it (cli/habits.py)."""
+    """aw status: the report, on screen or as JSON with --json; its exit status (STATUS_EXITS). names are the VMs named,
+    under the field status's row of words.py gives them (cli/habits.py puts them there); with none it reads every VM
+    the fleet made, which is what default_vm false says for it."""
     environ = os.environ
     opts = status_inputs.Opts(
-        names=",".join(vm_name or ()),
+        names=",".join(names or ()),
         only=only or "",
         json=json is True,
         set=tuple(str(word) for word in getattr(run, "set", ())),

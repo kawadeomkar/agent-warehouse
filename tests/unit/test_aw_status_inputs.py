@@ -7,7 +7,8 @@ setting of each file's and each secret set, `load` gives what today's status/set
 inventory that says the same, path for path, but for the differences `_differences` names, each checked to be what it
 says, with why. Today's is asked in a Python of its own, as today's status asks it. A value given for one run with --set
 outranks every file; a secret's row, a name that is no setting's, a value of the wrong type and a value that is one of
-the vault's secrets are each refused, the word given never said back, the first three before any file is read. `load`
+the vault's secrets are each refused, the word given never said back, the first three before any file is read. The
+person's own ssh options reach ssh each pair one word, held to the SSH runner's rule for every other verb. `load`
 sends nothing, starts no ssh (a refusing one is first on PATH) and keeps nothing. What aw status imports is held by
 tests/unit/test_aw_cli_imports.py alone, its status lines skipped until the table names the handler (card G16).
 """
@@ -16,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -27,6 +29,7 @@ from fleet_fixture import HOST, refusing_ssh, whole_fleet
 from harness import ENGINE_POOL, ENGINE_TOKEN, ENGINE_USER, REPO, _env, fake_fleet
 from pki import proxmox_pki
 
+from claude_vm import route
 from claude_vm.cli import status_inputs
 from claude_vm.fleet import overrides, paths, registry, sealed, vaultkey
 from claude_vm.secret import Secret
@@ -345,6 +348,43 @@ def test_a_value_that_is_one_of_the_vault_s_secrets_is_refused_never_said(made) 
             status_inputs.load(where, None, status_inputs.Opts(set=(word,)), environ=os.environ)
         assert "is a secret the vault holds" in refused.value.sentence
         assert all(value not in refused.value.sentence for _, value in SECRETS.values())
+
+
+def test_a_vm_ssh_option_s_value_with_a_space_reaches_ssh_as_one_word(made) -> None:
+    # Today's engine splits reach's ssh_args as a shell does: each pair is one word there, so a ProxyCommand with spaces
+    # is the VM's own jump, as the engine reads one, never ssh's own -W and another host. The machine with options of
+    # its own has a reach of its own, which the run's outrank.
+    where = paths.home(REPO)
+    _put(where, "vm_ssh_options", MACHINE_SETTINGS["vm_ssh_options"], MACHINE)
+    jump = "ssh -W %h:%p unit-test-jumpbox"
+    word = f"vm_ssh_options={{ProxyCommand: '{jump}', LocalForward: '8080 localhost:80'}}"
+    config = status_inputs.load(where, None, status_inputs.Opts(set=(word,)), environ=os.environ)
+    assert sorted(config["per_vm"]) == [MACHINE]
+    for reach in (config["reach"], *(one["reach"] for one in config["per_vm"].values())):
+        given = shlex.split(reach["given"])
+        assert given == ["-o", f"ProxyCommand={jump}", "-o", "LocalForward=8080 localhost:80"]
+        assert shlex.split(reach["ssh_args"])[-4:] == given
+        assert route.ssh_jump(reach["given"]) == f"ProxyCommand {jump}"
+
+
+@pytest.mark.parametrize(
+    ("given", "machine", "said"),
+    [
+        ({"HostKeyAlias": "unit-test-other-vm"}, None, "vm_ssh_options sets HostKeyAlias, which only the product sets"),
+        ({"LocalCommand": "touch /tmp/unit-test-given"}, MACHINE, "vm_ssh_options sets LocalCommand, which undoes"),
+    ],
+    ids=["for-every-machine", "a-machine-s-own"],
+)
+def test_a_vm_ssh_option_the_runner_refuses_is_refused_as_for_every_other_verb(made, given, machine, said) -> None:
+    # The SSH runner's rule for every other verb (ssh/runner.py's _given): a HostKeyAlias before the product's own would
+    # check a VM's key as another's, and a LocalCommand runs a program here for each connection. Said by the option's
+    # name, never its value.
+    where = paths.home(REPO)
+    _put(where, "vm_ssh_options", given, machine)
+    with pytest.raises(status_inputs.Refused) as refused:
+        status_inputs.load(where, None, status_inputs.Opts(), environ=os.environ)
+    assert said in refused.value.sentence
+    assert "unit-test" not in refused.value.sentence
 
 
 def test_a_host_the_vault_holds_no_token_for_is_refused_with_how_to_put_it(made) -> None:

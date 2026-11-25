@@ -173,6 +173,18 @@ def test_aw_status_json_against_the_fake_prints_today_s_report(made, home, tmp_p
     assert [vm["state"] for vm in new["vms"]] == [vm["state"] for vm in old["vms"]]
 
 
+@pytest.mark.parametrize("names", [("alpha",), ("alpha", "beta")], ids=["one", "two"])
+def test_aw_status_given_names_reads_those_vms_alone(made, home, tmp_path, names) -> None:
+    # The names reach the handler under the field status's row gives them (names), as dispatch passes them.
+    checkout = _checkout(tmp_path / "made", {"status": "cli.status:main"})
+    refusing = (refusing_ssh(home),)
+    words = ("status", "--json", *names)
+    ran = run_launcher(*words, home=home, launcher=checkout / "aw", first_on_path=refusing, timeout=180)
+    assert ran.returncode in (0, 1, 2), ran.stderr[-2000:]
+    assert "Traceback" not in ran.stderr, ran.stderr[-2000:]
+    assert sorted(vm["name"] for vm in json.loads(ran.stdout)["vms"]) == sorted(names)
+
+
 def test_a_word_refused_ends_the_run_as_a_read_that_failed_before_anything_is_sent(made, home, tmp_path) -> None:
     calls = tmp_path / "fake" / "pve" / "calls.log"
     before = calls.read_bytes()
