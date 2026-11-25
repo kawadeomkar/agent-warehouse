@@ -34,7 +34,10 @@ what it lacks. The engine's role holding more is granted all the same, and said 
 the audit role and the clone role, each granted on guests outside the pool, are held to their privileges exactly: one
 that holds more is neither changed nor granted, and said with the line that fixes it, or, where its grants are there
 already, said to give each privilege now, since a role is one set of privileges granted on a path, and that role on
-`/vms` hands each privilege it holds over every VM of the node.
+`/vms` hands each privilege it holds over every VM of the node. A grant of one of the engine's roles to the list's user
+or token on a path the list does not make with these settings - `/vms` after `proxmox_audit_scope` went from `node` to
+`pool`, a template no longer named, a storage or a bridge given before - is left as it is, since init never takes a
+grant away, and said with the `pveum acl delete` line that removes it.
 
 `as_script(host, custom, host_flag=)` is the one rendering of the list: the script init runs on the host as root, over
 root SSH on a `y` (E7), or prints for the person to run there (`aw init --print-commands`), rendered each time and never
@@ -67,6 +70,7 @@ from ..schema.words import PLACEHOLDER, Line
 from ..text import one_line
 
 __all__ = [
+    "ACL_PATH",
     "ANSWERS",
     "AUDIT_ROLE",
     "CLONE_ROLE",
@@ -76,6 +80,7 @@ __all__ = [
     "POOL_NAME",
     "POOL_RULE",
     "ROLE",
+    "ROLES",
     "TOKEN",
     "USER",
     "Answer",
@@ -103,6 +108,9 @@ TOKEN = "aw"
 ROLE = "AgentWarehouse"
 AUDIT_ROLE = "AgentWarehouseAudit"
 CLONE_ROLE = "AgentWarehouseClone"
+# Every role a list of the engine's makes, under any scope or template: a grant of one to the list's user or token on a
+# path the list does not make is said, never taken away.
+ROLES = (ROLE, AUDIT_ROLE, CLONE_ROLE)
 POOL = "aw-fleet"
 # What the user's and the token's comments say in Proxmox's page: whose they are, as today's do. The pool's is the
 # fleet's mark.
@@ -124,6 +132,10 @@ USER_MOST = 64
 TOKEN_NAME = re.compile(r"[A-Za-z][A-Za-z0-9._-]+")
 # A guest's ID as Proxmox gives one.
 GUEST_ID = range(100, 1_000_000_000)
+# An ACL path as Proxmox writes one (PVE::AccessControl's normalize_path: letters, digits, ., -, _ and /), which a
+# grant init no longer makes is said with: an entry of any other path is not said, so nothing of the host's reaches a
+# person's terminal but a path of this form.
+ACL_PATH = re.compile(r"/[A-Za-z0-9_./-]*")
 # The most characters of what the host holds that a sentence says.
 SAID_MOST = 200
 # A person's own template, by the name proxmox_template_custom gives it: a name Proxmox gives a guest, a DNS name's
@@ -518,7 +530,9 @@ def plan(listed: Sequence[Object], found: Found, *, host_flag: str) -> Plan:
     """What a run makes of listed, objects(host)'s list, against what exists (found): each object that is missing made,
     and each role that lacks a privilege given it, none taken away. The engine's role holding more is granted all the
     same, and said; a role held exactly that holds more is neither changed nor granted, and said, as granted already
-    where its grants are there. A pool or a token that is not this fleet's is NotOwn before any step, its sentence's
+    where its grants are there. Then each grant of one of the engine's roles (ROLES) to the list's user or token on a
+    path of ACL_PATH's form that the list does not make is said, by its path, role and whom it is for, with the line
+    that removes it, and left. A pool or a token that is not this fleet's is NotOwn before any step, its sentence's
     line for the host host_flag names (check): nothing is made."""
     answered = [(obj, check(obj, found, host_flag=host_flag)) for obj in listed]
     beyond = {obj.name: answer.beyond for obj, answer in answered if isinstance(obj, Role) and answer.beyond}
@@ -530,6 +544,7 @@ def plan(listed: Sequence[Object], found: Found, *, host_flag: str) -> Plan:
             paths = list(dict.fromkeys(each.path for each in grants))
             granted = list(dict.fromkeys(each.path for each in grants if each in found.grants))
             said.append(_too_much(role, beyond[name], paths, granted))
+    said += [_granted_beyond(*left) for left in _grants_beyond(listed, found)]
     steps = []
     for obj, answer in answered:
         if (isinstance(obj, Role) and obj.name in withheld) or (isinstance(obj, Grant) and obj.role in withheld):
@@ -545,6 +560,35 @@ def _roles_of(listed: Sequence[Object]) -> dict[str, Role]:
     return {each.name: each for each in listed if isinstance(each, Role)}
 
 
+def _grants_beyond(listed: Sequence[Object], found: Found) -> list[tuple[Grant, str]]:
+    """Each grant of one of the engine's roles to listed's user or token that found holds and listed does not make, on
+    a path of ACL_PATH's form, once, in order of its path, its role and whom it is for; with the line that removes
+    it."""
+    kinds = {each.id: "users" for each in listed if isinstance(each, User)}
+    kinds |= {each.id: "tokens" for each in listed if isinstance(each, Token)}
+    made = {(each.path, each.role, each.subject) for each in listed if isinstance(each, Grant)}
+    there = {
+        (each.path, each.role, each.subject)
+        for each in found.grants
+        if each.role in ROLES and each.subject in kinds and ACL_PATH.fullmatch(each.path)
+    }
+    return [
+        (Grant(path, role, subject), shlex.join(["pveum", "acl", "delete", path, "--roles", role, kind, subject]))
+        for path, role, subject in sorted(there - made)
+        for kind in (f"--{kinds[subject]}",)
+    ]
+
+
+def _granted_beyond(grant: Grant, line: str) -> str:
+    """The sentence for a grant of one of the engine's roles that the list does not make, with the line that removes
+    it: init never does."""
+    return (
+        f"The role {grant.role} is granted to {grant.subject} on {grant.path}, which init does not grant with these"
+        f" settings, and is left there, since init never takes a grant away: there it gives {grant.subject} each of"
+        f" its privileges all the same. As root on the Proxmox host, {line} removes it."
+    )
+
+
 # ---------------------------------------------------------------- the script ----
 
 # The values the script takes as options, each its shell variable in the rendered calls: the list is made for a host of
@@ -557,6 +601,9 @@ _PLACES = {_POOL: "pool", _STORAGE: "storage", _BRIDGE: "each", _USER: "user", _
 # arguments of the script's `sentence`), and the fleet or control VM a mark names.
 _MORE, _PATHS, _GRANTED = "Z_more_1", "Z_paths_1", "Z_granted_1"
 _SAID = {_MORE: "2", _PATHS: "3", _GRANTED: "4"}
+# A grant the list does not make: its path, its role, whom it is for, and the line that removes it.
+_ACL_PATH, _ACL_ROLE, _ACL_SUBJECT, _ACL_LINE = "Z_path_1", "Z_role_1", "Z_subject_1", "Z_line_1"
+_BEYOND = {_ACL_PATH: "2", _ACL_ROLE: "3", _ACL_SUBJECT: "4", _ACL_LINE: "5"}
 _OTHERS = ("00000000-0000-4000-8000-000000000000", "00000000-0000-4000-8000-000000000001")
 # A role's ID, which the script keeps values under.
 _ROLE_ID = re.compile(r"[A-Za-z]+")
@@ -707,8 +754,9 @@ def _printed(text: str, places: Mapping[str, str] | None = None) -> str:
 
 
 def _sentence_function(host: Host, entries: Sequence[_Entry], *, host_flag: str) -> str:
-    """The script's `sentence <key> [more paths granted]`: each sentence it says that this module or fleet/mark.py
-    words, with the values it names its variables, and init's line in the token's for the host host_flag names."""
+    """The script's `sentence <key> [more paths granted]`, or `sentence granted-beyond <path> <role> <subject> <line>`:
+    each sentence it says that this module or fleet/mark.py words, with the values it names its variables, and init's
+    line in the token's for the host host_flag names."""
     listed = [entry.obj for entry in entries]
     cases = [
         (f"refused-{key}", _printed(_refusal(host, changed)))
@@ -745,6 +793,8 @@ def _sentence_function(host: Host, entries: Sequence[_Entry], *, host_flag: str)
             granted = _printed(_too_much(role, (_MORE,), [_PATHS], [_GRANTED]), _SAID)
             apart = f'if [ -n "${{4}}" ]; then {granted}; else {apart}; fi'
         cases.append((f"too-much-{role.name}", apart))
+    beyond = _granted_beyond(Grant(_ACL_PATH, _ACL_ROLE, _ACL_SUBJECT), _ACL_LINE)
+    cases.append(("granted-beyond", _printed(beyond, _BEYOND)))
     lines = ["sentence() {", '  case "$1" in', *(f"  {key}) {body} ;;" for key, body in cases), "  esac", "}"]
     return "\n".join([*lines, ""])
 
@@ -808,6 +858,8 @@ def as_script(host: Host, custom: str = "", *, host_flag: str) -> str:
         )
     custom_id = next(each for each in range(999_999_001, 999_999_999) if str(each) not in host.fleet + host.node)
     entries = _shape(host, custom_id)
+    if not {entry.obj.name for entry in entries if isinstance(entry.obj, Role)} <= set(ROLES):
+        raise RuntimeError("a role of the list is not one of ROLES, whose grants the script says where it makes none")
     places = {**_PLACES, str(custom_id): "custom_id"}
     head = said(
         _HEAD,
@@ -845,10 +897,12 @@ def as_script(host: Host, custom: str = "", *, host_flag: str) -> str:
         ("re_storage", PROXMOX_NAMES["storage"].pattern),
         ("re_bridge", PROXMOX_NAMES["bridge"].pattern),
         ("re_scope", "|".join(re.escape(scope) for scope in SCOPES)),
+        ("re_path", ACL_PATH.pattern),
+        ("engine_roles", ",".join(ROLES)),
     ]
     functions = _sentence_function(host, entries, host_flag=host_flag) + _objects_function(entries, places)
     text = script.render(head, [(name, shlex.quote(value)) for name, value in values], functions)
-    left = [place for place in (*places, *_SAID, *_OTHERS) if place in text and place not in host.fleet]
+    left = [place for place in (*places, *_SAID, *_BEYOND, *_OTHERS) if place in text and place not in host.fleet]
     if left:
         raise RuntimeError("a placeholder of the list is left in the script")
     return text

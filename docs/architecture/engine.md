@@ -629,7 +629,12 @@ role holding more is granted all the same and said, with `pveum role modify Agen
 the line that keeps it to them, so that a privilege a later table drops is said, never kept in silence. A role held
 exactly that holds more is neither changed nor granted, and said with the line that fixes it (`pveum role modify
 AgentWarehouseAudit --privs VM.Audit`, as root on the host), since on `/vms` it would hand each privilege it holds over
-every VM of the node; where its grants are there already, it is said to give each of them now.
+every VM of the node; where its grants are there already, it is said to give each of them now. A grant of one of the
+engine's three roles to the list's user or token on a path the list does not make with these settings - `/vms` once
+`proxmox_audit_scope` went from `node` to `pool`, a template no longer named, a storage or a bridge given before - is
+left, since init never takes a grant away, and said with the line that removes it (`pveum acl delete /vms --roles
+AgentWarehouseAudit --users agent-warehouse@pve`, as root on the host), once, in order of its path, its role and whom it
+is for; an entry whose path is not of the form Proxmox writes one (`ACL_PATH`) is not said.
 
 `tests/unit/test_aw_access_objects.py` holds it: the list, its order and its count, fifteen objects with the defaults
 and twelve under `pool`; no object but the pool with the mark, the roles, the user, the token and their grants, each of
@@ -643,7 +648,9 @@ another fleet's, of no mark or of a control VM refused with nothing planned, a r
 lacks and losing none and one holding more granted and said, a role held exactly that holds more, or lacks one and holds
 more, said and left ungranted, or said to give it now where its grants are there, and a token known by its full ID and
 its separation, another user's of the same ID missing and one made without separation refused, its init line naming the
-host its caller gives, which no caller of `check` or `plan` may leave out.
+host its caller gives, which no caller of `check` or `plan` may leave out; and a grant of the engine's roles that a
+host's settings no longer make said with its delete line and never taken away, once, and only for the list's user or
+token, one of the three roles and a path of Proxmox's form.
 
 **The script that makes them: `as_script`.** `as_script(host, custom, host_flag=)` renders the list as the script `init`
 runs on the host as root, `/bin/sh` run as `sh -s` with itself on standard input: over root SSH on a `y`, or printed by
@@ -668,12 +675,13 @@ Proxmox makes an object by is refused before any `pveum` and never said back; a 
 control VM and one whose mark cannot be read are refused; a pool with no mark is refused naming `--take-unmarked`, and
 taken only given `--pool <name> --take-unmarked`, the mark added at its comment's end and the rest kept, while
 `--take-unmarked` without `--pool`, or for a marked pool, is refused; a token made without privilege separation is
-refused with its delete line; and a role holding more than its own is said and granted, or withheld, as `plan` says. The
-script runs only as root, on Proxmox VE 9 or later, and refuses `root@pam` and any option it does not have, today's
-`--move` and `--template` among them. `--no-token` makes no token and changes nothing where the token is not there; a
-step that fails after the token was made says that it is there with its secret unsaid, and the line that deletes it,
-after which a run again makes it anew. The dry run prints the commands, one an object, every token ID quoted, the
-token's own line asking for JSON, whose `value` is the secret; `--list` prints the node's storages and bridges.
+refused with its delete line; a role holding more than its own is said and granted, or withheld, as `plan` says; and a
+grant of the engine's roles these settings do not make is said with its `pveum acl delete` line and left. The script
+runs only as root, on Proxmox VE 9 or later, and refuses `root@pam` and any option it does not have, today's `--move`
+and `--template` among them. `--no-token` makes no token and changes nothing where the token is not there; a step that
+fails after the token was made says that it is there with its secret unsaid, and the line that deletes it, after which a
+run again makes it anew. The dry run prints the commands, one an object, every token ID quoted, the token's own line
+asking for JSON, whose `value` is the secret; `--list` prints the node's storages and bridges.
 
 `tests/unit/test_aw_access_script.py` holds it, each case the rendered script run as `sh -s` under `/bin/sh` against the
 stand-in `pveum` and `pvesh`: a fresh host gets every object in the list's order and the secret alone on standard
@@ -681,18 +689,20 @@ output; a second run changes nothing and prints no secret; a role an older versi
 nothing; the dry run prints one line, quoted as `shlex` quotes it, for each step of `plan(objects(host), found)` and
 says each of `plan`'s sentences, the run makes those steps, and once made nothing is left to make, over a fresh host,
 `pool`, values of another host, a host an older version half made, a grant that does not propagate, roles holding more,
-`--no-token` and a person's template inside and outside the pool; `--no-token` with no token there, `--dry-run` and
-`--list` change nothing; under `pool` nothing is granted on a guest; every printed token ID is quoted and the token's
-line asks for JSON; a grant that fails after the token says its delete line and prints no secret; and each refusal
-leaves the stand-in's state byte for byte as it was: not root, Proxmox VE 8, a value of the wrong form before any call
-of the stand-in's, `root@pam`, an option it does not have, a token without privilege separation (its init line naming a
-further host's `--host`), a pool of another fleet's, a pool with no mark without `--take-unmarked`, `--take-unmarked`
-without `--pool` or for a marked pool, and a template that is not the one guest of its name on the node or has a network
-card on a bridge not there. A corpus of comments holds the script's reading of the mark to `fleet/mark.py`'s, separators
-and spaces of every kind among them. The header's lines are the printer's, a further host's flag in them. The rule of
-V2-9 has a test of its own: no file of the checkout, tracked or untracked and not ignored, holds a rendering, found by
-its header. The stand-in reads no guest's configuration, so a `pvesh` of the test's own, first on `PATH`, answers that
-one read and hands every other to the stand-in.
+`--no-token`, a person's template inside and outside the pool, a host set up under `node` and run under `pool`, and
+grants of the engine's roles these settings do not make beside some that are not said; `--no-token` with no token there,
+`--dry-run` and `--list` change nothing; under `pool` nothing is granted on a guest; every printed token ID is quoted
+and the token's line asks for JSON; a grant that fails after the token says its delete line and prints no secret; a host
+set up under `node` and run under `pool` says each `/vms` grant with its delete line, removes none, and a line run
+removes what it names; and each refusal leaves the stand-in's state byte for byte as it was: not root, Proxmox VE 8, a
+value of the wrong form before any call of the stand-in's, `root@pam`, an option it does not have, a token without
+privilege separation (its init line naming a further host's `--host`), a pool of another fleet's, a pool with no mark
+without `--take-unmarked`, `--take-unmarked` without `--pool` or for a marked pool, and a template that is not the one
+guest of its name on the node or has a network card on a bridge not there. A corpus of comments holds the script's
+reading of the mark to `fleet/mark.py`'s, separators and spaces of every kind among them. The header's lines are the
+printer's, a further host's flag in them. The rule of V2-9 has a test of its own: no file of the checkout, tracked or
+untracked and not ignored, holds a rendering, found by its header. The stand-in reads no guest's configuration, so a
+`pvesh` of the test's own, first on `PATH`, answers that one read and hands every other to the stand-in.
 
 **The API's certificate: `certificate.py`.** Before `init` sends a Proxmox host anything that carries a credential,
 `work_out(host, given, root_ssh, ask)` settles what its API's certificate is held to, by today's `trust.py`'s probes,

@@ -1143,7 +1143,8 @@ ADDED: tuple[Row, ...] = (
         "status shows the node's other VMs and a capacity made from all of them; pool, its writes and its reads of "
         "single VMs stay within its pool, and status then says the others are not read. Under both, Sys.Audit on the "
         "node, which status needs for the node's capacity, also reads the node's report, which holds every guest's "
-        "configuration.",
+        "configuration. Set to pool after node, the grants on every VM stay, since init never takes one away: init "
+        "says each, with the line that removes it.",
         choices=("node", "pool"),
     ),
     _fleet(
