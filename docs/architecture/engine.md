@@ -611,23 +611,27 @@ the token may not: a guest there that is no template of this engine's, outside t
 image's SHA-256 from its checksum list, verified by `vendors/downloads.py` (16.7) by Ubuntu's key or the person's own,
 from an unsigned list, or as the checksum gives it. On the host, each step one argument list of `pve/commands.py`'s
 through the SSH runner, nothing on its standard input: the image fetched by the host's `curl` into the engine's own
-image directory (`/var/lib/vz/aw-images`, or `proxmox_template_image_dir`) under a name of its own, held by the host's
-`sha256sum` to the digest verified here and removed, naming both, where it differs, then renamed into place, and left
-where it is already there with that digest; where the guest agent goes in, the image tool installed by apt where
+image directory (`/var/lib/vz/aw-images`, or `proxmox_template_image_dir`), made 0755 and read by `stat` as it is, never
+through a link, and refused unless it is a directory of the account that builds (root's, by `id -u`) that no other may
+write in, since any account that can would leave a link there for root to write through; under a name of its own,
+anything there cleared first, held by the host's `sha256sum` to the digest verified here and removed, naming both, where
+it differs, then renamed into place by `mv -T`, over a link with the image's name and never into where it leads, and
+left where it is already there with that digest; where the guest agent goes in, the image tool installed by apt where
 `proxmox_template_manage_libguestfs` is on and dpkg's own state of it (`${db:Status-Status}`) says it is not installed,
 one the administrator holds counted as there, and one neither installed nor absent, or whose state could not be read,
 refused, installing nothing; the image's system read with `virt-cat` and one outside the Debian family refused by name,
-and a copy customised with `virt-customize`; the template that differs removed only once judged again just before it is
-destroyed, the listing and the configuration read anew: still this engine's template that differs, with its record, its
-name, its node and the pool, under the SMBIOS UUID first judged (`Compared.identity`); one taken out of the pool,
-stripped of its record, renamed or replaced in the minutes the image took is left as it is and said with the judgement's
-sentence; a refusal of Proxmox's for a template a linked clone uses said with `proxmox_template_rebuild: false` as the
-way on; `qm create` with today's settings, the SMBIOS UUID made here, the record as its notes and the fleet's pool; the
-disk imported; the cloud-init drive, the boot order and DHCP, with no `ciupgrade`; `qm template`; and the template read
-back and judged again, which must find it as its settings would build it. The customised copy is removed whatever
-happens. What the build leaves on the host is recorded in `host.yml`'s `made` through `fleet/hosts.py`'s one writer as
-it is made (16.9): each image file it downloaded (`file`), the template by its ID, and each package of the image tool
-this run installed (`package`), none that was there before, so that a cleanup removes exactly that.
+and a copy, its name cleared first, customised with `virt-customize`; the template that differs removed only once judged
+again just before it is destroyed, the listing and the configuration read anew: still this engine's template that
+differs, with its record, its name, its node and the pool, under the SMBIOS UUID first judged (`Compared.identity`); one
+taken out of the pool, stripped of its record, renamed or replaced in the minutes the image took is left as it is and
+said with the judgement's sentence; a refusal of Proxmox's for a template a linked clone uses said with
+`proxmox_template_rebuild: false` as the way on; `qm create` with today's settings, the SMBIOS UUID made here, the
+record as its notes and the fleet's pool; the disk imported; the cloud-init drive, the boot order and DHCP, with no
+`ciupgrade`; `qm template`; and the template read back and judged again, which must find it as its settings would build
+it. The customised copy is removed whatever happens. What the build leaves on the host is recorded in `host.yml`'s
+`made` through `fleet/hosts.py`'s one writer as it is made (16.9): each image file it downloaded (`file`), the template
+by its ID, and each package of the image tool this run installed (`package`), none that was there before, so that a
+cleanup removes exactly that.
 
 `tests/unit/test_aw_engine_template.py` holds the build against a stand-in Proxmox host of `tests/unit/aw_machine.py`'s,
 reached as root through the stand-in ssh, whose `qm`, `virt-customize` and `virt-cat` are the role's scenario's fakes
@@ -635,8 +639,10 @@ reached as root through the stand-in ssh, whose `qm`, `virt-customize` and `virt
 the image and its signed checksum list served by `tests/molecule/fake_downloads.py`, the list signed by a key of the
 test's: the first build runs today's steps in their order, its `qm` calls, its customisation and its template's settings
 those of the role's scenario, and records the image file and the template in `made`, the copy and the download's own
-name gone; a second run reads and changes nothing; a list whose signature does not verify, or that names no image,
-fetches nothing on the host; an image whose digest differs is removed and both digests are said; every command is one of
+name gone; a link planted at the download's name, at the copy's or at the image's, to a directory, is never written
+through, and the directory a link, writable by another account or another account's stops the build before anything is
+fetched; a second run reads and changes nothing; a list whose signature does not verify, or that names no image, fetches
+nothing on the host; an image whose digest differs is removed and both digests are said; every command is one of
 `pve/commands.py`'s, nothing on its standard input, under the section's lock; a template a linked clone uses is said
 with the way on; a template with no record of the build and a guest outside the pool are never removed, and nor is a
 template that, after it was judged to differ, was taken out of the pool, moved to another, stripped of its record,

@@ -33,20 +33,23 @@ and so is one whose differences `proxmox_template_rebuild: false` keeps; a templ
 (`proxmox_template_custom`) is never built. Then, on this computer, the image's SHA-256 from its checksum list, verified
 by vendors/downloads.py (Ubuntu's signed list, or an unsigned list, or the digest itself). On the host, each step one
 command of pve/commands.py's through the SSH runner, nothing on its standard input: the image fetched by the host's curl
-into the engine's own image directory (`IMAGE_DIR`, or `proxmox_template_image_dir`) under a name of its own, held by
-the host's sha256sum to the digest verified here, removed and the build stopped, naming both, where it differs, and
-renamed into place; where the guest agent goes in, the image tool installed by apt where
+into the engine's own image directory (`IMAGE_DIR`, or `proxmox_template_image_dir`), made 0755 and refused unless it is
+a directory itself, never a link, of the account that builds and writable by no other, under a name of its own that
+anything there is cleared from first, held by the host's sha256sum to the digest verified here, removed and the build
+stopped, naming both, where it differs, and renamed into place over whatever has the image's name, never into where a
+link there leads; where the guest agent goes in, the image tool installed by apt where
 `proxmox_template_manage_libguestfs` is on and dpkg's own state of it is not installed (one held is there, and one
 neither installed nor absent, or whose state could not be read, stops the build), the image's system read and one
-outside the Debian family refused by name, a copy customised; the template that differs removed only once judged again
-just before, still this engine's template that differs, with its record, its name and the pool, under the UUID first
-judged (`Compared.identity`), and anything that changed in between left as it is, a refusal of Proxmox's - a linked
-clone's - said; `qm create` with the record as its description, its SMBIOS UUID made here so that the record names it
-from its first write, and the pool; the disk imported; the cloud-init drive, the boot order and DHCP, with no
-`ciupgrade`; `qm template`; and the template read back and judged again, which must find it as its settings would build
-it. The customised copy is removed whatever happens. What the build leaves on the host is recorded in host.yml's `made`
-through fleet/hosts.py's one writer as it is made: each image file it downloaded, the template by its ID, and each
-package of the image tool this run installed (none that was there before), so that a cleanup removes exactly that.
+outside the Debian family refused by name, a copy customised, its name cleared first; the template that differs removed
+only once judged again just before, still this engine's template that differs, with its record, its name and the pool,
+under the UUID first judged (`Compared.identity`), and anything that changed in between left as it is, a refusal of
+Proxmox's - a linked clone's - said; `qm create` with the record as its description, its SMBIOS UUID made here so that
+the record names it from its first write, and the pool; the disk imported; the cloud-init drive, the boot order and
+DHCP, with no `ciupgrade`; `qm template`; and the template read back and judged again, which must find it as its
+settings would build it. The customised copy is removed whatever happens. What the build leaves on the host is recorded
+in host.yml's `made` through fleet/hosts.py's one writer as it is made: each image file it downloaded, the template by
+its ID, and each package of the image tool this run installed (none that was there before), so that a cleanup removes
+exactly that.
 """
 
 from __future__ import annotations
@@ -183,6 +186,8 @@ def compare(client: Proxmox, settings: Mapping[str, object], *, pool: str, host_
 
 # The engine's own image directory on the host, where proxmox_template_image_dir names none: never today's role's.
 IMAGE_DIR = "/var/lib/vz/aw-images"
+# A mode as stat's %a says it: octal, with the set-ID and sticky bits where set.
+OCTAL = re.compile(r"[0-7]{3,4}")
 # The image tool, as today's role installs it: dhcpcd-base beside libguestfs-tools, which Proxmox VE 9 does not pull
 # in, and without which the tool's appliance has no DHCP and --install cannot resolve a mirror.
 IMAGE_TOOL = ("libguestfs-tools", "dhcpcd-base")
@@ -439,9 +444,11 @@ class _Made:
 async def _fetched(at: _Host, image: _Image, digest: str, made: _Made) -> None:
     """The image in the image directory, held to digest by the host's own sha256sum: left where it is already, else
     fetched by the host's curl under a name of its own, held, and renamed into place; one that differs is removed."""
-    await _must(at, commands.folder(image.directory), SHORT, "The image directory could not be made")
+    await _folder(at, image)
     if _first_word(await at(commands.digest_of(image.path), LONG)) == digest:
         return
+    # Whatever has the download's name goes first, a link above all, which curl would write through.
+    await _must(at, commands.removed(image.part), SHORT, "The image's download could not be cleared")
     fetched = await at(commands.fetch(image.url, image.part), LONG)
     if not _ok(fetched):
         await at(commands.removed(image.part))
@@ -458,6 +465,41 @@ async def _fetched(at: _Host, image: _Image, digest: str, made: _Made) -> None:
         )
     await _must(at, commands.put_in_place(image.part, image.path), SHORT, "The image could not be put in place")
     made.add("file", image.path)
+
+
+async def _folder(at: _Host, image: _Image) -> None:
+    """The image directory made where it is not there, and held to what no account but the one that builds may write
+    in, so that no name in it was planted by another to be written through: the building account's own (root's, over
+    root SSH), writable by no one else, and a directory itself, never a link to one."""
+    where = image.directory
+    await _must(at, commands.folder(where), SHORT, "The image directory could not be made")
+    builder = _first_word(await _must(at, commands.account(), SHORT, "The account that builds could not be read"))
+    found = await _must(at, commands.kind_of(where), SHORT, f"The image directory {where} could not be read")
+    words = "\n".join(found.lines).strip().split(" ", 2)
+    if len(words) != 3 or not builder.isdigit() or not words[0].isdigit() or not OCTAL.fullmatch(words[1]):
+        raise Refused(
+            f'The image directory {where} could not be read: stat said "{one_line(" ".join(words), SAID_MOST)}". The '
+            "base template was not built."
+        )
+    owner, mode, kind = words
+    if kind != "directory":
+        raise Refused(
+            f"The image directory {where} is a {one_line(kind, SAID_MOST)}, not a directory, and the build would write "
+            "where it leads: make it a directory of root's, or name another in proxmox_template_image_dir. The base "
+            "template was not built."
+        )
+    if owner != builder:
+        raise Refused(
+            f"The image directory {where} belongs to the account numbered {owner}, not to root, which builds: that "
+            "account could leave a link in it for root to write through. Give it to root, or name another in "
+            "proxmox_template_image_dir. The base template was not built."
+        )
+    if int(mode, 8) & 0o022:
+        raise Refused(
+            f"The image directory {where} may be written by accounts other than root (mode {mode}), any of which could "
+            "leave a link in it for root to write through: make it 0755, or name another in "
+            "proxmox_template_image_dir. The base template was not built."
+        )
 
 
 def _first_word(result: runner.Result) -> str:
@@ -487,6 +529,8 @@ async def _customised(at: _Host, image: _Image, made: _Made) -> None:
             f"{one_line(named, SAID_MOST)}\". A VM's configuration installs with apt, so only those can be a base. The "
             "base template was not built."
         )
+    # Whatever has the copy's name goes first, a link above all, which cp would write through.
+    await _must(at, commands.removed(image.copy), SHORT, "The image's copy could not be cleared")
     await _must(at, commands.copied(image.path, image.copy), LONG, "The image could not be copied")
     customised = commands.customised(image.copy, image.packages)
     await _must(at, customised, LONG, "The image tool could not put the guest agent into the image")

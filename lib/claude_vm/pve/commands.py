@@ -25,9 +25,11 @@ names the setting's part, never its value.
   the boot order and DHCP, with no `ciupgrade`, so that a clone's first boot upgrades its packages by Proxmox's own
   default (card O15, item 5), and the template made; `destroy` removes one, which Proxmox refuses while a linked clone
   uses it.
-- `fetch`, `digest_of`, `put_in_place`, `removed`, `folder` and `copied` are the image's: fetched by the host's curl to
-  a name of its own, held by the host's sha256sum, renamed into place; `os_release` and `customised` are the image
-  tool's; `installed` and `install` are apt's, `update` before them.
+- `folder`, `account`, `kind_of`, `fetch`, `digest_of`, `put_in_place`, `removed` and `copied` are the image's: its
+  directory made 0755 and read as it is, never through a link, beside the account the commands run as; fetched by the
+  host's curl to a name of its own, held by the host's sha256sum, renamed into place over whatever has the name, never
+  into a directory a link there leads to; `os_release` and `customised` are the image tool's; `installed` and `install`
+  are apt's, `update` before them.
 """
 
 from __future__ import annotations
@@ -41,6 +43,7 @@ from .template import SCSIHW, SERIAL0, VGA
 __all__ = [
     "LISTING",
     "OS_RELEASE",
+    "account",
     "cloud_init",
     "config",
     "copied",
@@ -53,6 +56,7 @@ __all__ = [
     "import_disk",
     "install",
     "installed",
+    "kind_of",
     "os_release",
     "put_in_place",
     "removed",
@@ -126,8 +130,20 @@ def config(node: str, guest: int) -> list[str]:
 
 
 def folder(path: str) -> list[str]:
-    """The image directory made, with its parents, where it is not there."""
-    return ["mkdir", "-p", _path(path, "the image directory")]
+    """The image directory made, with its parents, where it is not there: itself 0755 whatever the umask, as today's
+    role makes it."""
+    return ["mkdir", "-p", "-m", "0755", _path(path, "the image directory")]
+
+
+def account() -> list[str]:
+    """The number of the account the commands run as: root's, 0, over root SSH, which the image directory belongs to."""
+    return ["id", "-u"]
+
+
+def kind_of(path: str) -> list[str]:
+    """What the name itself is, never where a link there leads: its owner by number, its mode in octal and its kind, as
+    GNU's stat says them, `0 755 directory`."""
+    return ["stat", "--format=%u %a %F", _path(path, "the image directory")]
 
 
 def digest_of(path: str) -> list[str]:
@@ -150,8 +166,9 @@ def fetch(url: str, path: str) -> list[str]:
 
 
 def put_in_place(part: str, path: str) -> list[str]:
-    """The download renamed to the image's name, once its digest is the one verified."""
-    return ["mv", "-f", _path(part, "the image's download"), _path(path, "the image")]
+    """The download renamed to the image's name, once its digest is the one verified: over whatever has the name, a link
+    too (-T), never into a directory there or one a link leads to."""
+    return ["mv", "-fT", _path(part, "the image's download"), _path(path, "the image")]
 
 
 def removed(path: str) -> list[str]:
