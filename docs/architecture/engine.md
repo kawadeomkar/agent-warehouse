@@ -522,8 +522,9 @@ across fields, which `Record` holds here and each plain reader's judge holds for
   configuration in between, the write is refused and read and applied again, three times at most, so `change` is a
   function of the record it is given alone. Notes that, as Proxmox will give them back, are those it read send
   nothing, so a second run of the same change sends no write. It never writes a record that names a UUID other than
-  the VM's own, never rewrites a block it cannot read or a copy, and never sends notes past 8192 characters
-  (`TooLong`), each said before anything is sent.
+  the VM's own, nor one of another kind than the one read, a VM's for an `Owned` (so no write makes a VM of the
+  fleet a build VM or a golden, which `building`, 16.5, would take), never rewrites a block it cannot read or a
+  copy, and never sends notes past 8192 characters (`TooLong`), each said before anything is sent.
 - `label(client, vm, value)` gives a VM the one label it carries in Proxmox's list, the setting `vm_label`'s value,
   `agent-warehouse` by default, beside a person's tags, under the same digest. Nothing decides anything from it: what is
   the fleet's is its pool's members with a record.
@@ -537,11 +538,12 @@ any line break, or anything else that is not plain text on one line, is refused;
 characters; and `tests/unit/test_vm_repos.py`'s cases of a VM's own list are carried. Against the fake Proxmox under
 enforcement: a record written reads back field for field; of two writers the second is refused, reads again and lands
 with the first's change kept, as does a write a person's edit came between; a second write of the same record sends
-nothing; a block the engine cannot read, a copy's record, a record that names another VM's UUID and notes past the
-bound send nothing; a record of a template, a golden or a build that names no UUID is refused, made or read; and the
-label is `vm_label`'s value beside a person's tags. A syntax-tree scan holds that no module of the new engine names a
-description to send but this one, the client, its table, its reader of answers, and the template's judgement (16.5),
-which holds no client, each with why.
+nothing; a block the engine cannot read, a copy's record, a record that names another VM's UUID, a VM's record
+rewritten as a build's or a golden's (its first form's rest still written), any record over one of another kind read,
+and notes past the bound send nothing; a record of a template, a golden or a build that names no UUID is refused, made
+or read; and the label is `vm_label`'s value beside a person's tags. A syntax-tree scan holds that no module of the new
+engine names a description to send but this one, the client, its table, its reader of answers, and the template's
+judgement (16.5), which holds no client, each with why.
 
 **The base template: `template.py`.** Every VM is a full clone of the base template, so `deploy`, as its first link,
 asks whether the template is what its settings would build. `compare(client, settings, pool=, host_flag=)` reads it
@@ -1121,7 +1123,9 @@ record judged, whose job anyone may read), before it writes the rest; a VM with 
 UUID, both. `owned(member, job=, clone=)` returns an `Owned` where it passes, `NotOwned` with that sentence where it
 does not, and is the one maker of one: its name, node, VMID, SMBIOS UUID and the digest of the configuration it was
 owned on. Made by hand, or by `dataclasses.replace` or `copy.replace` of one, it is a `TypeError`. The client's writes
-of a VM above and `engine/record.py`'s writer take an `Owned` and nothing else. `building(member, job=, clone=)`
+of a VM above and `engine/record.py`'s writer take an `Owned` and nothing else, and the writer keeps the record a
+VM's, the kind an `Owned` is made of, so no write makes one a build VM or a golden: those records are written by a
+road of their own beside `owned` (card E18). `building(member, job=, clone=)`
 returns a `Building`, which nothing else makes either: the VM a golden image is built in (card E18), the one thing
 `to_template` takes, made from a fresh read of a VM that is no template, whose record is of kind `build`, or `golden`
 once the run has written the golden's record on it, and names its own UUID and the asking run's job, at the VMID the

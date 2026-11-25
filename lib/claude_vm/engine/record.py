@@ -22,8 +22,10 @@ hold none), renders the notes with that block alone changed, and writes them wit
 client's `edit_config`, so that where another writer, a person in Proxmox's page among them, changed the configuration
 in between, the write is refused and read and applied again, `client.EDITS` times at most. Notes as Proxmox will give
 them back that equal the notes read send nothing, so a second run of the same change sends no write. It never writes a
-record that names a UUID other than the VM's own, nor rewrites a block it cannot read, nor sends notes past Proxmox's
-8192 characters (`TooLong`, said before anything is sent).
+record that names a UUID other than the VM's own, nor one of another kind than the one read, a VM's for an Owned (so
+no write makes a VM of the fleet a build VM or a golden, which building() would take: their records have a road of
+their own, card E18), nor rewrites a block it cannot read, nor sends notes past Proxmox's 8192 characters (`TooLong`),
+each said before anything is sent.
 
 `label(client, vm, value)` writes the one label a VM carries in Proxmox's list, the setting `vm_label`'s value, beside
 whatever tags a person gave it, under the same digest; nothing decides anything from it.
@@ -43,7 +45,7 @@ from collections.abc import Callable, Mapping
 from ..pve import record as block
 from ..pve.answers import VmConfig
 from ..pve.client import TAG, Proxmox
-from ..pve.ownership import Owned
+from ..pve.ownership import KIND, Owned
 from ..pve.record import BUILD_FORM, Copy, TooLong, Unreadable
 from ..schema.patterns import full
 
@@ -215,7 +217,9 @@ def write(client: Proxmox, vm: Owned, change: Callable[[Record | None], Record |
     read, up to the client's EDITS times, after which the last DigestMismatch is raised. Nothing is sent where the
     notes, as Proxmox will give them back, would be what they are. TypeError where vm is no Owned; Unreadable, before
     anything is sent, where the notes hold a block this engine cannot read, and Copy where they hold another VM's
-    record, before change is applied; ValueError where change gives a record that names a UUID other than the VM's own;
+    record, before change is applied; ValueError where change gives a record that names a UUID other than the VM's own,
+    or one of another kind than the one read, which for an Owned is a VM's (kind vm: none read, where the notes lost
+    it since vm was owned, is taken as a VM's, and a record of another kind read now refuses any record given);
     TooLong where the notes would pass 8192 characters; the client's Changed where another VM holds vm's VMID now."""
     _owned(vm)
     if not callable(change):
@@ -234,6 +238,16 @@ def write(client: Proxmox, vm: Owned, change: Callable[[Record | None], Record |
             raise ValueError(
                 f"the record would name a UUID that is not {_whose(config)} own: a record is written only for the VM"
                 " it names"
+            )
+        # An Owned is a VM of the fleet, made of a record of kind vm alone, so the record read is a VM's (or none, where
+        # its notes lost it since): what is written keeps that kind. A build VM's or a golden's record written here
+        # would make the VM a Building (pve/ownership.py's building) that no build cloned as one (card G28).
+        had = KIND if current is None else current.kind
+        if new.kind != had or had != KIND:
+            raise ValueError(
+                f"{_whose(config)} record would be written as one of kind {new.kind} where one of kind {had} was read:"
+                f" an Owned's record is a VM's ({KIND}) and keeps that kind, never made a build's or a golden's, whose"
+                " record a road of its own writes (card E18)"
             )
         try:
             notes = block.render(config.description, new.fields())
