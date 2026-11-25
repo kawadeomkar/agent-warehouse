@@ -7,8 +7,10 @@ A refusal is one line on standard error, and exits 1 (words.py's EXITS), before 
 imports no Ansible and no module of the engine. Its sentence says no value typed but where today's does (the rules
 between options, lib/claude_vm/schema/rules.py). A line the printer will not write (schema/printer.py's Unwritten, a
 form whose one placeholder is a verb's names beside words the check takes among them), which only the code asks it for,
-is said the same way wherever it is raised, the handler's run included, as the code's own fault and never as a
-traceback, and exits 1. A Ctrl-C at deploy's question exits 130, as a cancelled run does.
+is said in one line too, as the code's own fault (the printer's own_fault), never as a traceback, and exits 1: here
+where it reaches main, and by the run where a handler's run ends the process at once with a call still in a thread
+(runs/attached.py's _end_now), which it then never reaches. A Ctrl-C at deploy's question exits 130, as a cancelled run
+does.
 `--version` alone answers with the checkout aw runs from. Every command it prints, and every sentence that names one, is
 the program as it was started: the launcher at the checkout's top says which in STARTED_AS (aw where aw on PATH is that
 launcher, else what the person typed to start it), which main takes out of the environment at once, so nothing the run
@@ -34,8 +36,6 @@ from claude_vm.schema.words import EXITS, VERBS
 STARTED_AS = "AGENT_WAREHOUSE_STARTED_AS"
 # A job's marker, which a run never inherits: runs/children.py's MARKER, held equal by tests/unit/test_aw_children.py.
 MARKER = "AGENT_WAREHOUSE_JOB"
-# What a line the printer would not write is said with, after the printer's own sentence: the code asked for it.
-OWN_FAULT = "a fault of the program's own, not of the words typed"
 
 
 def checkout(program: str) -> Path:
@@ -70,6 +70,7 @@ def main(argv: list[str]) -> int:
         return EXITS["refused"]
     except printer.Unwritten as unwritten:
         # A line the printer will not write, which only the code asks it for: said as the code's own fault, in the
-        # printer's sentence, which never says a value, and never as a traceback.
-        print(f"{unwritten} ({OWN_FAULT})", file=sys.stderr)
+        # printer's sentence, which never says a value, and never as a traceback. A run that ends the process at once
+        # with a call still in a thread says it the same way (runs/attached.py's _end_now).
+        print(printer.own_fault(unwritten), file=sys.stderr)
         return EXITS["refused"]
