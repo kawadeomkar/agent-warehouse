@@ -58,6 +58,8 @@ __all__ = [
     "MISSING",
     "OWN",
     "POOL",
+    "POOL_NAME",
+    "POOL_RULE",
     "ROLE",
     "TOKEN",
     "USER",
@@ -94,8 +96,10 @@ CLONE = "VM.Clone"
 # What the token may read beyond its pool: every VM of the node, or its pool's alone (the settings table's row).
 SCOPES = registry.row("proxmox_audit_scope").choices
 NODE_SCOPE = "node"
-# A pool's name as Proxmox makes one: from a letter (create_pool), no / (a nested pool on VE 9.2), no space or colon.
-POOL_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_.-]{0,63}")
+# A pool's name as Proxmox makes one, and that rule in words: the settings table's (fleet/registry.py's POOL_NAME),
+# which proxmox_pool's form holds a value to where it is written, as SCOPES is the table's.
+POOL_NAME = re.compile(registry.POOL_NAME.pattern)
+POOL_RULE = registry.POOL_NAME.said
 # A user as Proxmox names one, name@realm (verify_username: three to 64 characters), in today's script's characters.
 USER_NAME = re.compile(r"[A-Za-z0-9._-]+@[A-Za-z][A-Za-z0-9._-]+")
 USER_MOST = 64
@@ -140,10 +144,7 @@ class Host:
         if not isinstance(self.fleet, str) or not patterns.full("fleet_id", self.fleet):
             raise Refused("the fleet's ID is a UUID in its lowercase canonical form")
         if not isinstance(self.pool, str) or not POOL_NAME.fullmatch(self.pool):
-            raise Refused(
-                "the pool's name is not one Proxmox makes a pool by: letters, digits, _, . and -, from a letter, at"
-                " most 64 characters"
-            )
+            raise Refused(f"the pool's name is not one Proxmox makes a pool by: {POOL_RULE}")
         if not isinstance(self.user, str) or not USER_NAME.fullmatch(self.user) or len(self.user) > USER_MOST:
             raise Refused(
                 "the token's user is not one Proxmox names a user by: a name and its realm joined by @, letters,"
