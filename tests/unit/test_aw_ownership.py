@@ -8,8 +8,10 @@ the engine's typed reader refuses among them (card G28, review 51's 5); the firs
 run that cloned it, by its own job and its own clone's task, never by the job its record names (review 51's 3); an
 Owned made by owned() alone, and owned() and building() judging a Member a reader made alone, never one made by hand or
 changed after its read (review 51's 2); a Building made by building() alone, of a build VM of the asking run's own and
-nothing else (review 51's 4); and the rules with a test of their own: that a Member is marked read in its readers alone
-(a scan, which allows the kit's one helper by name), that the module the one check lives in imports nothing of the
+nothing else (review 51's 4); a Member read with the twins its reader read beside it, a keyword with no default
+(review 51b's M-A); and the rules with a test of their own: that a Member is marked read in its readers alone (a scan,
+which allows the kit's one helper by name), that Member.read is reached in lib/ by the reader of the pool alone,
+engine/fleet.py's (a scan, review 51b's M-A), that the module the one check lives in imports nothing of the
 client, and that it, and the one a host is opened by, import nothing of what status may not (card G15's boundary: the
 engine, pydantic, Ansible, Jinja2, the MCP SDK), so that status judges by the same rule and opens a host the same way.
 """
@@ -63,8 +65,8 @@ def _notes(**fields) -> str:
 
 
 def _read(notes: str = "", **config) -> Member:
-    """alpha as a reader read it, from its configuration with notes."""
-    return Member.read(_config(notes, **config))
+    """alpha as a reader read it, from its configuration with notes, no other member of the pool carrying its UUID."""
+    return Member.read(_config(notes, **config), twins=())
 
 
 def _alpha(**read) -> Member:
@@ -141,8 +143,8 @@ def test_a_record_is_judged_alike_whichever_reader_read_it_those_one_reader_refu
         typed = ""
     except engine_record.Unreadable as refused:
         typed = f"{refused}: it is never changed or deleted"
-    engine = refusal(Member.read(config, unread=typed), ANOTHER_JOB, CLONE)
-    status = refusal(Member.read(config), ANOTHER_JOB, CLONE)
+    engine = refusal(Member.read(config, unread=typed, twins=()), ANOTHER_JOB, CLONE)
+    status = refusal(Member.read(config, twins=()), ANOTHER_JOB, CLONE)
     assert (engine == "", status == "") == (ours, ours), (engine, status)
 
 
@@ -222,7 +224,26 @@ def test_a_member_no_reader_made_is_never_owned_nor_made_a_building() -> None:
             building(member, job=JOB, clone=CLONE)
     assert owned(copy.copy(_read(_notes()))).uuid == UUID
     with pytest.raises(TypeError, match="answers.VmConfig"):
-        Member.read({"digest": DIGEST, "smbios1": f"uuid={UUID}"})
+        Member.read({"digest": DIGEST, "smbios1": f"uuid={UUID}"}, twins=())
+
+
+def test_a_member_is_read_with_the_twins_its_reader_read_beside_it() -> None:
+    """The mark says a configuration was read, not the pool beside it (review 51b's M-A): owned(Member.read(config)) of
+    one configuration owned one of two VMs with one UUID. A reader says which other members carry the UUID, twins, a
+    keyword with no default, so that the road is a TypeError, and a twin it read is refused by both judges."""
+    config = _config(_notes())
+    for reading in (lambda: Member.read(config), lambda: Member.read(config, unread="")):
+        with pytest.raises(TypeError, match="twins"):
+            reading()
+    with pytest.raises(NotOwned, match="alpha \\(VMID 9010\\) carries one UUID with VMID 9011"):
+        owned(Member.read(config, twins=(9011,)))
+    built = _config(_notes(kind="build", stage=None, job=JOB))
+    with pytest.raises(NotOwned, match="carries one UUID with VMID 9011, 9014"):
+        building(Member.read(built, twins=(9011, 9014)), job=JOB, clone=CLONE)
+    for twins in ([9011], (9011, "9014"), None):
+        with pytest.raises(TypeError, match="the VMIDs that carry its UUID"):
+            Member.read(config, twins=twins)
+    assert owned(Member.read(config, twins=())).vmid == 9010
 
 
 def test_a_building_is_made_of_a_build_vm_of_the_asking_run_s_own_alone() -> None:
@@ -349,6 +370,93 @@ def test_a_member_is_marked_read_by_its_readers_alone() -> None:
 )
 def test_the_scan_sees_a_member_marked(source, found) -> None:
     assert _marking(source) == found
+
+
+# Where Member.read is reached in lib/, function by function, and why: the reader of a host's pool alone, which reads
+# every member's configuration first and gives each the twins it read beside it (review 51b's M-A). Status's reader of
+# the pool joins it when card G16 builds one. A workflow owns a VM again through that reader - requested, or members and
+# fleet.owned - never by Member.read of one configuration, which knows nothing of the pool.
+READERS = {
+    ("lib/claude_vm/engine/fleet.py", "_member"): "the fleet's reader of the pool, which gives each member its twins",
+}
+
+
+class _Reading(ast.NodeVisitor):
+    """The functions of a module, by name ("" for its top), that reach Member.read: read as an attribute of a class
+    named Member, by any name a `from` import gave it, or of an attribute named Member, called or not; or got by
+    getattr(<Member>, "read")."""
+
+    def __init__(self) -> None:
+        self.found: set[str] = set()
+        self.functions: list[str] = []
+        self.names = {"Member"}
+
+    def _function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        self.functions.append(node.name)
+        self.generic_visit(node)
+        self.functions.pop()
+
+    visit_FunctionDef = visit_AsyncFunctionDef = _function
+
+    def _take(self) -> None:
+        self.found.add(self.functions[-1] if self.functions else "")
+
+    def _member(self, node: ast.expr) -> bool:
+        return (isinstance(node, ast.Name) and node.id in self.names) or (
+            isinstance(node, ast.Attribute) and node.attr == "Member"
+        )
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        self.names |= {alias.asname or alias.name for alias in node.names if alias.name == "Member"}
+        self.generic_visit(node)
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        if node.attr == "read" and self._member(node.value):
+            self._take()
+        self.generic_visit(node)
+
+    def visit_Call(self, node: ast.Call) -> None:
+        got = node.args[1] if ast.unparse(node.func) == "getattr" and len(node.args) > 1 else None
+        if isinstance(got, ast.Constant) and got.value == "read" and self._member(node.args[0]):
+            self._take()
+        self.generic_visit(node)
+
+
+def _reading(source: str) -> set[str]:
+    visitor = _Reading()
+    visitor.visit(ast.parse(source))
+    return visitor.found
+
+
+def test_member_read_is_reached_in_lib_by_the_reader_of_the_pool_alone() -> None:
+    """So that no workflow owns a VM from one configuration (review 51b's M-A): G5 owns again after its stop through
+    requested, G3 its new member through members and fleet.owned, never through Member.read of what client.config
+    gave, which owned one of two twins and a VM outside the pool. engine/ above all, and every other package of lib/."""
+    found = {
+        (path.relative_to(REPO).as_posix(), function)
+        for path in sorted((REPO / "lib" / "claude_vm").rglob("*.py"))
+        for function in _reading(path.read_text())
+    }
+    assert found == set(READERS)
+
+
+@pytest.mark.parametrize(
+    ("source", "found"),
+    [
+        ("def f(c):\n    return ownership.Member.read(c, twins=())", {"f"}),
+        ("from ..pve.ownership import Member\ndef f(c):\n    return Member.read(c, twins=())", {"f"}),
+        ("from ..pve.ownership import Member as M\ndef f(c):\n    return M.read(c, twins=())", {"f"}),
+        ("def f(c):\n    read = ownership.Member.read\n    return read(c, twins=())", {"f"}),
+        ('def f(c):\n    return getattr(ownership.Member, "read")(c, twins=())', {"f"}),
+        ("class C:\n    def g(self, c):\n        return Member.read(c, twins=())", {"g"}),
+        ("reader = pve.ownership.Member.read", {""}),
+        ("def f(c):\n    return record.read(c)", set()),
+        ("def f(c):\n    return c.read()", set()),
+        ("def f(m):\n    return Member(m.name, m.node, m.vmid)", set()),
+    ],
+)
+def test_the_scan_sees_member_read_reached(source, found) -> None:
+    assert _reading(source) == found
 
 
 @pytest.mark.parametrize("module", ["claude_vm.pve.ownership", "claude_vm.fleet.opened"])

@@ -183,12 +183,13 @@ class Fleet:
 
     def building(self, vmid: int, clone: Task, job: str = JOB, kind: str = "build") -> Building:
         """The VM at vmid, given a record of kind (build) of its own UUID and job, as a run that clones a build VM
-        writes one, and judged from a read made now: the Building pve/ownership.py's building makes of it for the run
-        of JOB whose clone's task clone is. NotOwned where building refuses it."""
+        writes one, and judged from a read made now, no other VM carrying its UUID (twins=()): the Building
+        pve/ownership.py's building makes of it for the run of JOB whose clone's task clone is. NotOwned where building
+        refuses it."""
         config = self.read(vmid)
         fields = {"kind": kind, "uuid": config.identity, "job": job, "stage": "finished" if kind == "vm" else None}
         _pve(self.base, "PUT", f"nodes/pve/qemu/{vmid}/config", description=block.render("", fields))
-        return ownership.building(ownership.Member.read(self.read(vmid)), job=JOB, clone=clone)
+        return ownership.building(ownership.Member.read(self.read(vmid), twins=()), job=JOB, clone=clone)
 
     def tasks(self) -> dict:
         """Every task the fake made, by its UPID, as its tasks.json records them."""
@@ -1124,7 +1125,7 @@ def test_only_a_build_vm_of_the_run_s_own_is_made_a_template(fleet) -> None:
         assert fleet.asked()[before:] == []
         # The template, another run's build VM, a VM of the fleet's record, and a build VM at another clone's VMID.
         with pytest.raises(NotOwned, match="is a template already"):
-            ownership.building(ownership.Member.read(fleet.read(9000)), job=JOB, clone=clone)
+            ownership.building(ownership.Member.read(fleet.read(9000), twins=()), job=JOB, clone=clone)
         with pytest.raises(NotOwned, match="the build VM of another run's job"):
             fleet.building(9020, clone, job=ANOTHER_JOB)
         with pytest.raises(NotOwned, match="a VM of the fleet, which is never made a template"):

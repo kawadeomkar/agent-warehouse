@@ -258,11 +258,13 @@ def _running(host: Host, node: str, vmid: int) -> bool:
         return False
 
 
-def _member(host: Host, entry: Resource, config: VmConfig | None, unread: str, twins: tuple[int, ...] = ()) -> Target:
+def _member(host: Host, entry: Resource, config: VmConfig | None, unread: str, twins: tuple[int, ...]) -> Target:
     """The target a pool's member is, from its configuration where it was read (config), else from the listing alone,
-    unread saying why; twins, the VMIDs of the other members that carry its UUID. It carries the Member the one rule
-    judges: pve/ownership.py's Member.read of the configuration, the typed record's refusal passed to it as its own,
-    and for a member whose configuration was not read, one that says why, which the rule refuses."""
+    unread saying why; twins, the VMIDs of the other members that carry its UUID, which _members read beside it. It
+    carries the Member the one rule judges: pve/ownership.py's Member.read of the configuration with those twins, the
+    typed record's refusal passed to it as its own (the one call of Member.read in lib/, which a scan of
+    tests/unit/test_aw_ownership.py holds), and for a member whose configuration was not read, one that says why, which
+    the rule refuses."""
     if config is None:
         target = Target(
             kind=KIND,
