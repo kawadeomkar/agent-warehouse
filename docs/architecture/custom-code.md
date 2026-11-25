@@ -832,7 +832,13 @@ good, and runs at exit, Ctrl-C included.
   run's end with `NOFLSH` kept on until its summary and NEXT STEPS are said (`finish(kept=True)`, then
   `release()`). Each change is made only while the process is the terminal's foreground, SIGTTOU held off, so
   that a run a shell put in the background leaves the shell's settings and is not stopped again by one; and each
-  change back (`put_back`) with a Ctrl-C, a SIGTERM and a SIGHUP held off till it is made (`uninterrupted`). A
+  change back (`put_back`) with a Ctrl-C, a SIGTERM, a SIGHUP, a Ctrl-Z and a `Ctrl-\` held off till it is made
+  (`uninterrupted`). A Ctrl-Z while the region or a question holds the terminal, at its default, is the hold's too: the
+  region erased, the settings put back as found and what was typed and not read thrown away with them (`TCSAFLUSH`),
+  so that none of it reaches the shell's line or its history, then the stop; once the process goes on in the
+  foreground (`fg`) its mode is made again, the region drawn below the shell's lines and a question's words written
+  again. A `Ctrl-\` at its default the same before the quit; a handler of the program's own (the new engine's ladder,
+  which ends the run on it as on a SIGTERM) is left in place. A
   change of the terminal's settings that a signal interrupts is made again (`set_terminal`):
   `TCSADRAIN` waits for the output to drain, a signal whose handler raises nothing (a first Ctrl-C, a hold's note,
   a resize) ends the wait with `EINTR`, and `termios` does not try again itself; taken for no terminal, it dropped

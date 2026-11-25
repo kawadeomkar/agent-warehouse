@@ -660,6 +660,7 @@ STARTS = {
     "create_subprocess_shell",
     "run_path",
     "_at_a_pseudo_terminal",
+    "_in_a_shell",
     "_run_at_a_terminal",
     "_start",
     "_serve",

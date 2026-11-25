@@ -1,17 +1,20 @@
 """The live region every live output draws with: lib/claude_vm/tui/live_region.py, against a stand-in Display.
 
-What is printed goes above the region and the region is drawn again below it; a Ctrl-C, a kill or a hangup between a
-write and its count is held off till the count is right, each delivered after in the order it came, one ignored left
-ignored and one at its default still ending the process; a frame taller than the screen is cut
-and says how much; a prompt - pause's prompt_until or a vars_prompt's do_var_prompt - has the screen to itself; the
-route sends what it is given to the log alone; a screen too small gets no region; the echo is off while it draws,
-on a pseudo-terminal of the test's own, a change of it that a signal interrupts (EINTR) made again, never taken for no
-terminal; at a run's end NOFLSH kept till its last words are said, then the settings exactly as found; a Ctrl-C while
-it draws throwing away what was typed unseen and handing the signal on; in the background no change of the settings
-made and none of the shell's read as the ones to put back; a signal that lands while the settings go back delivered
-once they are back; and the Display it wraps is held to ansible-core's. Each live output's own
-tests run it for real: test_status_live.py and test_deploy_live.py, at a pseudo-terminal
-(docs/architecture/custom-code.md §7.8).
+What is printed goes above the region and the region is drawn again below it; a Ctrl-C, a kill, a hangup, a Ctrl-Z or a
+Ctrl-\\ between a write and its count is held off till the count is right, each delivered after in the order it came,
+one ignored left ignored and one at its default still ending the process; a frame taller than the screen is cut and says
+how much; a prompt - pause's prompt_until or a vars_prompt's do_var_prompt - has the screen to itself; the route sends
+what it is given to the log alone; a screen too small gets no region; the echo is off while it draws, on a
+pseudo-terminal of the test's own, a change of it that a signal interrupts (EINTR) made again, never taken for no
+terminal; at a run's end NOFLSH kept till its last words are said, then the settings exactly as found; a Ctrl-C while it
+draws throwing away what was typed unseen and handing the signal on; in the background no change of the settings made
+and none of the shell's read as the ones to put back; a signal that lands while the settings go back delivered once they
+are back, a Ctrl-Z coming back to them; a Ctrl-Z and a Ctrl-\\ at their default taken while it draws - the region
+erased, none drawn till the run goes on, and the settings put back as found, what was typed unseen thrown away with
+them, before the stop or the quit; after a stop the mode again - a handler of the program's own left in place, each
+given back at the end; from an interactive shell (harness._in_a_shell), nothing typed unseen left on the shell's line or
+in its history at either; and the Display it wraps is held to ansible-core's. Each live output's own tests run it for
+real: test_status_live.py and test_deploy_live.py, at a pseudo-terminal (docs/architecture/custom-code.md §7.8).
 """
 
 from __future__ import annotations
@@ -30,6 +33,7 @@ import threading
 import time
 from pathlib import Path
 
+import harness
 import pytest
 
 from claude_vm.tui import live_region as live
@@ -156,11 +160,16 @@ class Ended(BaseException):
     (lib/claude_vm/runs/attached.py's Abandoned)."""
 
 
-@pytest.mark.parametrize("signum", [signal.SIGTERM, signal.SIGHUP], ids=["SIGTERM", "SIGHUP"])
+@pytest.mark.parametrize(
+    "signum",
+    [signal.SIGTERM, signal.SIGHUP, signal.SIGTSTP, signal.SIGQUIT],
+    ids=["SIGTERM", "SIGHUP", "SIGTSTP", "SIGQUIT"],
+)
 @pytest.mark.parametrize("step", ["redraw", "finish"])
 def test_a_kill_or_a_hangup_between_a_write_and_its_count_leaves_the_count_right_too(step, signum):
     # A program that ends at once on SIGTERM or SIGHUP by raising from a handler of its own met the same gap as a
-    # Ctrl-C: a frame left on the screen above the run's end, or lines said above it wiped by the next erase.
+    # Ctrl-C: a frame left on the screen above the run's end, or lines said above it wiped by the next erase. A Ctrl-Z
+    # and a Ctrl-\ are held off the same way, whoever takes them.
     region, display, stream = _region(frame=lambda cols, rows, glyph: ["one", "two", "three"])
     region.start()
     if step == "finish":
@@ -582,34 +591,235 @@ def test_in_the_background_the_region_neither_changes_the_terminals_settings_nor
         os.close(master)
 
 
-@pytest.mark.parametrize("signum", [signal.SIGINT, signal.SIGTERM], ids=["a second Ctrl-C", "a SIGTERM"])
+@pytest.mark.parametrize(
+    "signum", [signal.SIGINT, signal.SIGTERM, signal.SIGTSTP], ids=["a second Ctrl-C", "a SIGTERM", "a Ctrl-Z"]
+)
 def test_a_signal_that_lands_while_the_settings_go_back_is_delivered_once_they_are_back(monkeypatch, signum):
-    # The change back is made with the signals a program ends on held off: one whose handler raises, landing in the
-    # middle of it, is delivered once it is made, never leaving the echo off for the shell.
+    # The change back is made with the signals a program ends or stops on held off: one whose handler raises, landing
+    # in the middle of it, is delivered once it is made, never leaving the echo off for the shell; a Ctrl-Z, once the
+    # run goes on, comes back to the settings put back, never to the mode they replaced.
     master, slave, terminal = _at_a_terminal_of_its_own(monkeypatch)
     made = termios.tcsetattr
+    landed = []
+    stops = []
 
     def landing(fd, when, settings):
-        if settings[3] & termios.ECHO:
+        if settings[3] & termios.ECHO and not landed:
+            landed.append(when)
             signal.raise_signal(signum)
         made(fd, when, settings)
 
     def ends(signum, frame):
         raise SystemExit(128 + signum)
 
-    previous = signal.signal(signum, signal.default_int_handler if signum == signal.SIGINT else ends)
+    def stopped(number):
+        # The stop, at the stop's default: the shell's line editor has its own settings up meanwhile.
+        stops.append(termios.tcgetattr(slave))
+        shells = termios.tcgetattr(slave)
+        shells[3] &= ~(termios.ICANON | termios.ECHO)
+        made(slave, termios.TCSANOW, shells)
+
+    handlers = {signal.SIGINT: signal.default_int_handler, signal.SIGTERM: ends, signal.SIGTSTP: signal.SIG_DFL}
+    previous = signal.signal(signum, handlers[signum])
+    monkeypatch.setattr(live, "_at_default", stopped)
     try:
         found = termios.tcgetattr(slave)
         region, _, _ = _region(frame=lambda cols, rows, glyph: ["region"])
         region.start()
         monkeypatch.setattr(live.termios, "tcsetattr", landing)
-        with pytest.raises(KeyboardInterrupt if signum == signal.SIGINT else SystemExit):
+        if signum == signal.SIGTSTP:
+            # Taken, or at its default it would stop pytest.
+            assert signal.getsignal(signum) == live._HOLD._stopped
             region.finish()
-        assert termios.tcgetattr(slave) == found
+            assert stops == [found]
+        else:
+            with pytest.raises(KeyboardInterrupt if signum == signal.SIGINT else SystemExit):
+                region.finish()
+        assert landed and termios.tcgetattr(slave) == found
     finally:
         signal.signal(signum, previous)
         terminal.close()
         os.close(master)
+
+
+# What the hold of the terminal takes from their default while the region draws, and the shell's own signal of a run
+# put back in the foreground.
+STOP_AND_QUIT = (signal.SIGTSTP, signal.SIGCONT, signal.SIGQUIT)
+
+
+@pytest.mark.parametrize("signum", [signal.SIGTSTP, signal.SIGQUIT], ids=["a Ctrl-Z", "a Ctrl-\\"])
+def test_a_ctrl_z_or_a_ctrl_backslash_while_the_region_draws_puts_the_terminal_back_as_found_before_its_default(
+    monkeypatch, signum
+):
+    # Each at its default, taken while the region holds the terminal: the region erased and none drawn after, the
+    # settings found put back and what was typed unseen thrown away with them, and then the default - here a stand-in,
+    # the shell's settings up meanwhile. After a stop, once the run goes on: the mode again, and the region drawn.
+    master, slave, terminal = _at_a_terminal_of_its_own(monkeypatch)
+    defaults = {number: signal.signal(number, signal.SIG_DFL) for number in STOP_AND_QUIT}
+    taken = []
+
+    def at_default(number):
+        region.redraw()
+        taken.append((number, termios.tcgetattr(slave), bool(select.select([slave], [], [], 0)[0]), region._drawn))
+        shells = termios.tcgetattr(slave)
+        shells[3] &= ~(termios.ICANON | termios.ECHO)
+        termios.tcsetattr(slave, termios.TCSANOW, shells)
+        if number == signal.SIGQUIT:
+            raise Ended(number)
+
+    monkeypatch.setattr(live, "_at_default", at_default)
+    try:
+        found = termios.tcgetattr(slave)
+        region, _, stream = _region(frame=lambda cols, rows, glyph: ["region"])
+        region.start()
+        quiet = termios.tcgetattr(slave)
+        region.redraw()
+        assert region._drawn == 1
+        os.write(master, b"typed unseen\n")
+        assert select.select([slave], [], [], 5)[0], "the line never reached the terminal's input"
+        # Taken, or at its default it would stop or end pytest.
+        own = {signal.SIGTSTP: live._HOLD._stopped, signal.SIGQUIT: live._HOLD._quit}
+        assert signal.getsignal(signum) == own[signum]
+        if signum == signal.SIGQUIT:
+            with pytest.raises(Ended):
+                signal.raise_signal(signum)
+        else:
+            signal.raise_signal(signum)
+        assert taken == [(signum, found, False, 0)], taken
+        assert stream.getvalue().endswith("\r\x1b[J"), stream.getvalue()
+        if signum == signal.SIGTSTP:
+            assert termios.tcgetattr(slave) == quiet
+            region.redraw()
+            assert region._drawn == 1
+        region.finish()
+        assert termios.tcgetattr(slave) == found
+    finally:
+        for number, handler in defaults.items():
+            signal.signal(number, handler)
+        terminal.close()
+        os.close(master)
+
+
+def test_the_hold_takes_a_ctrl_z_its_continue_and_a_ctrl_backslash_only_from_their_default_and_gives_them_back(
+    monkeypatch,
+):
+    # A handler of the program's own - the new engine's ladder takes SIGQUIT as it takes SIGTERM - is left in place.
+    master, slave, terminal = _at_a_terminal_of_its_own(monkeypatch)
+
+    def own(signum, frame):
+        pass
+
+    previous = {number: signal.signal(number, signal.SIG_DFL) for number in STOP_AND_QUIT}
+    signal.signal(signal.SIGQUIT, own)
+    try:
+        region, _, _ = _region(frame=lambda cols, rows, glyph: ["region"])
+        region.start()
+        held = {number: signal.getsignal(number) for number in STOP_AND_QUIT}
+        assert held == {
+            signal.SIGTSTP: live._HOLD._stopped,
+            signal.SIGCONT: live._HOLD._continued,
+            signal.SIGQUIT: own,
+        }, held
+        region.finish()
+        back = {number: signal.getsignal(number) for number in STOP_AND_QUIT}
+        assert back == {signal.SIGTSTP: signal.SIG_DFL, signal.SIGCONT: signal.SIG_DFL, signal.SIGQUIT: own}, back
+    finally:
+        for number, handler in previous.items():
+            signal.signal(number, handler)
+        terminal.close()
+        os.close(master)
+
+
+# A region drawn, its spinner going, at the terminal of a shell's job that a signal ends.
+DRAWS = r"""
+import sys, threading, time
+sys.path.insert(0, sys.argv[1])
+from claude_vm.tui import live_region as live
+
+
+class Display:
+    def __init__(self):
+        self._lock = threading.RLock()
+
+    def display(self, msg, **kwargs):
+        pass
+
+    def prompt_until(self, *args, **kwargs):
+        pass
+
+    def do_var_prompt(self, *args, **kwargs):
+        pass
+
+
+region = live.LiveRegion(Display(), frame=lambda cols, rows, glyph: ["a frame of the region"])
+region.start()
+region.spin()
+while True:
+    time.sleep(1)
+"""
+FRAME = b"a frame of the region"
+# Keys typed unseen while the region draws: before its Ctrl-Z, and before its Ctrl-\.
+BLIND = (b"blind42x", b"blind43x")
+# The region's erase of its one line.
+ERASE = b"\r\x1b[J"
+STATUSES = re.compile(rb"\b(stopped|ended)=(\d+)")
+
+
+def test_from_a_shell_a_ctrl_z_and_a_ctrl_backslash_while_the_region_draws_leave_nothing_typed_for_the_shell(
+    tmp_path,
+):
+    # Keys typed unseen while the region draws, then a Ctrl-Z: the region erased before the stop, the keys on neither
+    # the shell's line, where it would run them, nor in its history; fg, the echo off and NOFLSH on again and the region
+    # drawn below the shell's lines; keys again, then a Ctrl-\, the region erased before the run dies of it, the keys
+    # thrown away as at a Ctrl-C.
+    (tmp_path / "draws.py").write_text(DRAWS)
+    lib = str(Path(live.__file__).parents[2])
+    env = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "HOME": str(tmp_path),
+        "TERM": "xterm-256color",
+        "PY": sys.executable,
+        "LIB": lib,
+    }
+    mode = []
+
+    def quiet_again(master, output):
+        waited = time.monotonic() + 5
+        while True:
+            lflag = termios.tcgetattr(master)[3]
+            if (not lflag & termios.ECHO and lflag & termios.NOFLSH) or time.monotonic() > waited:
+                break
+            time.sleep(0.05)
+        mode.append(lflag)
+        os.write(master, BLIND[1])
+        time.sleep(0.2)
+        os.write(master, b"\x1c")
+
+    prompt = harness.SHELL_PROMPT
+    steps = [
+        (prompt, b"ulimit -c 0\n"),
+        (prompt, b'"$PY" -I -X utf8 draws.py "$LIB"\n'),
+        (FRAME, [BLIND[0], b"\x1a"]),
+        (b"Stopped", []),
+        (prompt, b'echo "stopped=$?"\n'),
+        (prompt, b"fg\n"),
+        (FRAME, quiet_again),
+        (b"Quit", []),
+        (prompt, b'echo "ended=$?"\n'),
+        (prompt, b"exit\n"),
+    ]
+    output, history = harness._in_a_shell(tmp_path, env, steps, timeout=60)
+    said = output.decode(errors="replace")
+    assert b"command not found" not in output, said
+    for word in BLIND:
+        assert word not in history, history
+    statuses = [(name.decode(), int(number)) for name, number in STATUSES.findall(output)]
+    assert statuses == [("stopped", 128 + signal.SIGTSTP), ("ended", 128 + signal.SIGQUIT)], said
+    for end in (b"Stopped", b"Quit"):
+        at = output.find(end)
+        assert output.rfind(ERASE, 0, at) > output.rfind(FRAME, 0, at), said
+    (lflag,) = mode
+    assert lflag & termios.ICANON and not lflag & termios.ECHO and lflag & termios.NOFLSH, lflag
 
 
 # How many lines the case below says above the region before its Ctrl-C, and how long it waits for them, reading
