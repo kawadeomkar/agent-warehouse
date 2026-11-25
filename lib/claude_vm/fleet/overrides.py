@@ -93,8 +93,6 @@ FALSE = ("false", "no", "off", "n", "f", "0")
 # A whole number typed: at most 18 digits, more than any setting takes, so that int() never meets Python's limit of
 # digits, whose error says the value.
 WHOLE = re.compile(r"[+-]?[0-9]{1,18}")
-# A size with its unit, as deploy's --disk reads one, the unit in either case: a whole number that starts with no 0.
-SIZE = re.compile(r"(?P<number>[1-9][0-9]{0,5})(?P<unit>[GTgt])")
 # One machine's name in a map's key, after its host's and a /.
 MACHINE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 # What each type takes, as a refusal says it.
@@ -262,10 +260,10 @@ def _held(row: Row, value: object, environ: Mapping[str, str]) -> object:
     if kind == "path":
         return _expanded(value, environ)
     if kind == "size":
-        size = SIZE.fullmatch(value)
-        if size is None:
-            raise takes
-        return size["number"] + size["unit"].upper()
+        try:
+            return capital("disk", value)
+        except ValueError:
+            raise takes from None
     if row.choices and value not in row.choices:
         raise takes
     if row.form is not None and not row.form.allows(value):
@@ -273,6 +271,33 @@ def _held(row: Row, value: object, environ: Mapping[str, str]) -> object:
     if row.name == NETWORK_PROXY:
         _proxy_held(value)
     return value
+
+
+# The kinds of size one reader reads, each by the table's own pattern (schema/patterns.py's): deploy's --memory, and
+# --disk and a size setting's value.
+SIZES = ("memory", "disk")
+# MiB in each unit a memory size may carry: none (MiB), M and G.
+MIB = {"": 1, "M": 1, "G": 1024}
+
+
+def capital(kind: str, text: str) -> str:
+    """A size as aw reads one, deploy's --memory and --disk and a size setting's value alike (the owner's answer of
+    2026-11-22): text held to the table's own pattern of kind, one of SIZES (schema/patterns.py's, a whole number that
+    starts with no 0 and its unit, capital or small), and given back with its unit capital - 16g and 16G are 16G - which
+    is all that comes after it: what Proxmox is sent, what a VM's record keeps of its size, and what status compares
+    with the settings. ValueError, which says the pattern's words and never the text, for one it does not take."""
+    if kind not in SIZES:
+        raise ValueError(f"{kind!r} is no kind of size: one of {', '.join(SIZES)}")
+    if not isinstance(text, str) or not text or not patterns.full(kind, text):
+        raise ValueError(f"a {kind} size is {patterns.PATTERNS[kind].words}")
+    return text[:-1] + text[-1].upper() if text[-1].isalpha() else text
+
+
+def mebibytes(memory: str) -> int:
+    """A memory size, as capital reads it, in MiB: 16G (or 16g) is 16384, 512M and 512 are 512."""
+    held = capital("memory", memory)
+    unit = held[-1] if held[-1].isalpha() else ""
+    return int(held.removesuffix(unit)) * MIB[unit]
 
 
 def _proxy_held(value: str) -> None:

@@ -613,6 +613,27 @@ def test_a_mark_goes_with_what_the_route_decided_it_from_and_nothing_else(tmp_pa
         assert runner.argv(kept, ["true"])[-1] == "true"
 
 
+def test_a_machine_s_target_made_the_host_s_in_place_is_refused_at_every_line(tmp_path) -> None:
+    # Review 56b's N1 (G29.md, its last section): options branched on is_host before the mark's check, so a machine's
+    # Target whose identity was set to None in place, by any spelling, dialled as the host's by first use, its
+    # known-hosts file and its mark skipped. The host's branch now refuses what making a host's Target refuses.
+    at = _machine(tmp_path)
+    lines = (
+        lambda target: runner.argv(target, ["true"]),
+        runner.ansible_vars,
+        lambda target: runner.forward_argv(target, ["127.0.0.1:5000:127.0.0.1:5000"], 60),
+        runner.options,
+    )
+    for changed in (copy.copy(at), dataclasses.replace(at)):
+        object.__setattr__(changed, "identity", None)
+        assert changed.is_host
+        for line in lines:
+            with pytest.raises(runner.Refused, match="the Proxmox host's key is the person's own known-hosts file's"):
+                line(changed)
+    # The host's own Target is untouched by the check.
+    assert "ControlPath=" in " ".join(runner.options(runner.proxmox_host("pve.example.test", "root", CONTROL)))
+
+
 def test_a_first_use_takes_the_key_into_its_scratch_file_under_the_identity_and_never_by_address(tmp_path) -> None:
     scratch = tmp_path / "scratch" / "known_hosts"
     words = runner.argv(_machine(tmp_path, known_hosts=scratch, first_use=True), ["true"])

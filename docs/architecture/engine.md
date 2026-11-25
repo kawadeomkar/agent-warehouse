@@ -149,7 +149,8 @@ command reference and a line that shows a command's form write it: lower case, i
 Today's verbs keep today's words and help, with `aw` where a sentence said `just`, but where a later card changed one:
 `mcp` takes the vault's key file as `--vault-key-file`, `init --host` names a host of the fleet alone, held to the
 pattern of a host's name, and `settings`' word may be `edit`, which opens the settings in your editor. Beside the
-table, `EXITS` names the exit status of every verb but `status` (0 done, 1 refused before anything ran, 130 cancelled)
+table, `EXITS` names the exit status of every verb but `status` (0 done, 1 refused before anything ran, 2 a run that
+began and failed, a machine of it or the whole, 130 cancelled)
 and `STATUS_EXITS` those of `status` (today's 0, 1, 2 and 3, and 3 for a read a person cancelled, as today's `status`
 gives it, in its run of one host and of several); within each, no meaning has two numbers and no number two meanings,
 but `status`'s 3, which today means a read that failed and one a person cancelled, and a script may read. A `status`
@@ -987,6 +988,65 @@ any name (an alias, an attribute chain, a bound name, `partial`, `type(target)(.
 `Target`'s route and the mark, or what it was decided from, set anywhere but `target_for`; a change the scan cannot
 see is the runner's to refuse.
 
+**A VM made: `create.py`, and `deploy`'s handler: `deploy.py`.** `aw deploy --only provision` makes or resumes each VM
+named, the default VM where none is (`vm_default_name`), side by side, under each VM's lock (C7's `machines`); every
+other stage of `deploy`, and `--check`, `--adopt`, `--take-over` and `--remove-key`, is refused naming the card that
+builds it. Before anything is created, the run reads the fleet (`fleet.requested`, a changing read, so a VM it may not
+change refuses the run), settles the route (`routes.settle`, whose hop that cannot be used stops the run), refuses a VM
+with no key in `vm_ssh_public_keys` and no console password in the vault (`vm_password`), and compares the base template
+(`template.compare`): only one it may clone from is cloned from, any other said with why, and none with no cloud-init
+drive, which a VM's user and keys reach it by (its configuration read once, as today's custom template check reads it;
+the comparison does not hold it). Then for each VM, each step an event of the run and each safe to run again:
+
+- **The clone.** Under the short section `nextid-<host>` the next free VMID is asked for and the clone sent onto it,
+  full, onto `proxmox_storage`, into the pool, carrying the record's first form (kind `vm`, stage `cloning`, the run's
+  job); `template-<host>` is held shared until its task ends, so a rebuild waits for it, and `nextid` is let go once
+  the call has answered. A VMID taken - at the call, or in the task by another run's clone that came first - is asked
+  for again, and nothing is deleted there. A clone whose answer was lost is settled by reading that VMID until no
+  clone's lock holds it; where this run's first form landed there, the VM fails, since no task of the run's owns it.
+  A clone joins the pool only once its task ends, so where the token may read no VM outside the pool (`VM.Audit` on
+  `/vms`, `proxmox_audit_scope: pool`) or that VMID's configuration is refused, the VM fails at once, saying to delete
+  the clone where it landed: nothing is cloned again. A clone cannot be undone, so from its send to its record's write
+  the run's shield holds a Ctrl-C off (`Context.shield`), its task followed with no stop; a second Ctrl-C still ends it.
+- **Its record and its label.** The new member is owned by the run's job and its own clone's task (`fleet.owned`), its
+  SMBIOS UUID read (a VM with none fails, saying what to set), its record written - stage `unfinished`, its own list of
+  repositories where `--repos` gives one, the agent's mark where the job's starter is an agent's - and then, in a call
+  of its own, `vm_label`. Its events, named by a stand-in key until then, are joined to its identity.
+- **Needs configuration.** `need_configuration(record, config, force)` decides alone whether the settings call, the
+  start and the record write after it are made: a VM with no cloud-init user, a record still the first form or not
+  `provisioned`, or a repair (`proxmox_vm_force_update`). It reads no ownership. A provisioned VM is otherwise left as
+  it is - a stopped one stays stopped unless `--start` - and a second run sends nothing but reads.
+- **The settings call** (`settings_call`), through the client's `edit_config`, holding the VM's UUID: the cloud-init
+  user, its keys, its network, the nameservers and search domain where set, the start at boot, the guest agent, the
+  cores, the memory and its minimum, `ciupgrade=0` only where `vm_first_boot_upgrade` is false, and `cipassword` only
+  where the vault holds `vm_password`. A repair of a VM created with a size of its own sends no part of it the run
+  does not give. The root disk is grown at the VM's create alone, a create resumed included, and only where it is
+  smaller than asked; a repair of a provisioned VM given a `--disk` larger than its disk is refused, as another size
+  for a VM that exists is.
+- **The start and the address.** The VM is started where it does not run, its task followed; its address is waited
+  for from its guest agent on its own network card, then held against every running member's; then one record write
+  sets `provisioned` and the size the run gave it, its unit in capital (`fleet/overrides.py`'s `capital`, the one
+  reader of a size, the settings' and the options' alike).
+- **The host key.** The VM's `Target` comes from `Route.targets`; for a VM the run created, or one resumed before its
+  first configure, with no key filed under its identity, `Route.first_use` gives the connection of its own that takes
+  the key into a fresh scratch file in the run's directory, tried again with the same `Target` while its `sshd` comes
+  up; the key is read back (`hostkeys.taken`) and filed under the identity (`hostkeys.file`, which refuses a second
+  one), and only then is the machine's master made sure of (`Route.ensure`).
+
+A step that fails fails its VM alone, said; the run then exits 2 (`EXITS`' `failed`). One after the record's write
+leaves the VM a member without `provisioned` that the next run resumes. One before it - a clone whose answer was lost,
+whose follow failed or whose record could not be written - leaves the clone, where it landed, in its first form, which
+no later run may own: each later run is refused, and the refusal (`pve/ownership.py`) says to delete that VMID in
+Proxmox, then run it again. A refusal before anything was created exits 1, and a lock another run holds is refused by
+`cli/main.py` in `runs/locks.py`'s `Held`'s sentence. `tests/unit/test_aw_create.py` holds it on a whole fleet folder
+against the fake, the VMs stand-in machines (16.10): two VMs made in one run, then a second run that sends nothing but
+reads; a VMID taken before the clone landed; a clone whose answer was lost sent once, under either audit scope; a failed
+start resumed, and a running VM resumed never started again; a Ctrl-C during the clone held until its record is written;
+a stopped VM left stopped, and started with `--start`; a size for a VM the run creates, kept on a repair and refused for
+one that exists, a larger disk on a repair too; `--repos` given, added to and refused; and, without the fake, the keys
+of today's settings call, `need_configuration`'s cases and that it reads no ownership, the one size reader, and each
+stage refused by its card.
+
 ## 16.5 `pve/` — the typed Proxmox client and the one table of privileges
 
 `lib/claude_vm/pve/` is where the typed client of the Proxmox VE API goes, with the one table that names each call's
@@ -1503,7 +1563,10 @@ hop is made by, whose socket's name it shares: a connection to it rides the hop'
 home so long that the hop's socket would pass `route.SOCKET_MOST` it is still made, and each connection to it logs in
 alone (`shared` false, `ControlPath=none`), as a machine's does: the hop's master is opened only by `ensure_hop`, only
 where the settled route goes through the host, and from such a home that route is refused (`LONG_HOP`), so no master
-could have been there to ride. Every line of the runner's carries `ControlMaster=no`, the host's among them.
+could have been there to ride. A `Target` with no identity that carries what only a machine's takes - a known-hosts file
+of the product's, a hop, the person's options, a first use or a route's mark - is refused as it is made and again at
+every line, so a machine's made the host's in place, its identity taken off a copy, reaches nothing. Every line of the
+runner's carries `ControlMaster=no`, the host's among them.
 
 - **A person's own options.** `vm_ssh_options` is a mapping of `ssh`'s option names to values, given as `-o Name=value`
   after the product's options: `ssh` keeps the first value it is given, so a person's option changes whatever the

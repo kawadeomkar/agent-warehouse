@@ -674,7 +674,7 @@ def test_each_exit_status_has_one_meaning_and_each_meaning_one_status_but_the_on
             if len(meanings) > 1:
                 shared[name, status] = meanings
     assert shared == {pair: meanings for pair, (meanings, _) in SHARED.items()}
-    assert (EXITS["done"], EXITS["refused"], EXITS["cancelled"]) == (0, 1, 130)
+    assert (EXITS["done"], EXITS["refused"], EXITS["failed"], EXITS["cancelled"]) == (0, 1, 2, 130)
     assert STATUS_EXITS == {"nothing_wrong": 0, "problem": 1, "unread": 2, "failed": 3, "cancelled": 3}
 
 

@@ -188,8 +188,9 @@ class Route:
     settled: Mapping[str, object]
     connections: connections.Connections
     home: paths.Home
-    values: Mapping[str, overrides.Value]
-    environ: Mapping[str, str]
+    # Kept out of its repr, as the Host's are: a proxy's password in HTTPS_PROXY, or a path a run's value expanded.
+    values: Mapping[str, overrides.Value] = dataclasses.field(repr=False)
+    environ: Mapping[str, str] = dataclasses.field(repr=False)
     lock: asyncio.Lock
     logged_in: bool = False
     forwarded: bool = False
@@ -284,6 +285,22 @@ class Route:
             return await self.connections.ensure_hop(self.settled)
         except connections.Unusable as unusable:
             return connections.Master(ok=False, opened=False, said=one_line(str(unusable), None))
+
+    # ------------------------------------------------------------ a machine's first use ----
+
+    def first_use(self, target: runner.Target) -> runner.Target:
+        """target, one targets made, as this run's first use of its machine where the product's known-hosts file holds
+        no key under its identity (connections.first_use: a fresh scratch file in the run's directory, taken under the
+        identity, never by address); target as it is where one is filed. Called once a machine a run: the Target it
+        gives is reused for every attempt while the machine's sshd comes up. The caller files the key it took
+        (hostkeys.taken, then hostkeys.file), and only then calls ensure."""
+        return connections.first_use(self.run.job, target)
+
+    async def ensure(self, target: runner.Target) -> connections.Master | None:
+        """target's master made sure of before anything rides it (Connections.ensure), never for a first use: once its
+        key is filed. None where it takes no shared connection; a Master, its `ok` false and `said` why, where none
+        answers."""
+        return await self.connections.ensure(self.run.job, target)
 
     # ------------------------------------------------------------ a machine's SSH arguments ----
 

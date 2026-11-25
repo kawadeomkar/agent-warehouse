@@ -328,18 +328,7 @@ class Target:
         return route.socket_fits(socket)
 
     def _as_the_host(self) -> None:
-        if (
-            self.known_hosts is not None
-            or self.hop is not None
-            or self.given
-            or self.first_use
-            or self.routed_as
-            or self.routed_from
-        ):
-            raise Refused(
-                "the Proxmox host's key is the person's own known-hosts file's, taken at first use, and it takes no"
-                " hop, no vm_ssh_options and no route's mark"
-            )
+        _host_refusal(self)
         try:
             # A socket past the length is no refusal of a setting: shared and options say it (route.socket_fits).
             settled = route.hop_settings(
@@ -411,6 +400,24 @@ def proxmox_host(
         identity_file=None if identity_file is None else Path(identity_file),
         ssh=ssh,
     )
+
+
+def _host_refusal(target: Target) -> None:
+    """Refused where target, the Proxmox host's (no identity), carries what only a machine's takes: a known-hosts file
+    of the product's, a hop, vm_ssh_options, a first use or a route's mark. The one check, which the Target's making
+    and every connection's options both call."""
+    if (
+        target.known_hosts is not None
+        or target.hop is not None
+        or target.given
+        or target.first_use
+        or target.routed_as
+        or target.routed_from
+    ):
+        raise Refused(
+            "the Proxmox host's key is the person's own known-hosts file's, taken at first use, and it takes no"
+            " hop, no vm_ssh_options and no route's mark"
+        )
 
 
 def _port(port: object) -> int:
@@ -607,6 +614,9 @@ def options(target: Target, forward: bool = False) -> list[str]:
     connections ride the hop's, and past its socket's length each logs in alone, as a machine's does. A machine's
     Target is one the route marked (_routed)."""
     if target.is_host:
+        # What made the Target a host's is held again: one whose identity was set to None in place after it was made
+        # a machine's would otherwise skip the route's mark and dial by its first use.
+        _host_refusal(target)
         socket = _host_socket(target)
         words = ["-o", "UpdateHostKeys=no", "-o", "ForwardAgent=no"]
     else:

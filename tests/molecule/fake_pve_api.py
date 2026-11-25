@@ -190,7 +190,11 @@ another node, where the source's disk is on a storage shared there - and storage
 it never lands on a VMID that is taken. One onto a VMID this node's VM holds is refused at the call; one onto a VMID a
 container or another node's VM holds passes it, as Proxmox's check reads this node's files alone, and fails in its
 task. Whether a clone takes its source's tags and description is PUT /api2/json/fake/clone-inherits?tags=&description=
-(1, as the fake always had it, until then); a storage a fixture lists as <name>:<type>:shared is shared. Each
+(1, as the fake always had it, until then); a storage a fixture lists as <name>:<type>:shared is shared. A clone's
+SMBIOS UUID is a new one, or the next PUT /api2/json/fake/clone-uuid?uuid= queued, each spent by one clone that passes
+its call, so that a test knows the identity a VM it has not made yet will have. PUT /api2/json/fake/nextid-taken?vmid=
+has the next GET of /cluster/nextid answer vmid, as Proxmox answers a VMID that another run's clone takes before this
+one's lands, once. Each
 refusal's status and words are the constants below the imports, for experiment 6 to correct (card A21).
 
 Where Proxmox takes two calls and fails the loser in its worker, PUT /api2/json/fake/clone-race has the next clone onto
@@ -449,6 +453,10 @@ TASK_FAIL = []
 TASK_WARN_NEXT = []
 # Whether a clone takes its source's tags and its description: PUT /api2/json/fake/clone-inherits?tags=&description=
 CLONE_INHERITS = {"tags": 1, "description": 1}
+# The SMBIOS UUIDs the next clones take, in order, each spent once: PUT /api2/json/fake/clone-uuid?uuid=
+CLONE_UUIDS = []
+# The VMIDs the next GETs of /cluster/nextid answer, taken or not, each once: PUT /api2/json/fake/nextid-taken?vmid=
+NEXTID_TAKEN = []
 # Whether the next clone onto a VMID this node's VM holds, and the next configuration POST with a stale digest, each
 # lost a race: its call's checks passed before the winner's change landed, and its task fails.
 # PUT /api2/json/fake/clone-race?clone=&config=, each 1 unless given 0
@@ -1536,6 +1544,14 @@ class Handler(BaseHTTPRequestHandler):
             for key in CLONE_INHERITS:
                 CLONE_INHERITS[key] = int(truthy(params.get(key, CLONE_INHERITS[key])))
             return self._reply(200, dict(CLONE_INHERITS))
+        if parts[:2] == ["fake", "nextid-taken"] and method == "PUT":
+            # Not a PVE endpoint: the VMID the next GET of /cluster/nextid answers, once, whatever holds it.
+            NEXTID_TAKEN.append(int(params["vmid"]))
+            return self._reply(200, list(NEXTID_TAKEN))
+        if parts[:2] == ["fake", "clone-uuid"] and method == "PUT":
+            # Not a PVE endpoint: the SMBIOS UUID the next clone that passes its call takes, queued after any before.
+            CLONE_UUIDS.append(str(uuid.UUID(params["uuid"])))
+            return self._reply(200, list(CLONE_UUIDS))
         if parts[:2] == ["fake", "notes-limit"] and method == "PUT":
             # Not a PVE endpoint: the most bytes a description may hold, 0 for no limit.
             NOTES_LIMIT["bytes"] = int(params.get("bytes", "0"))
@@ -1611,6 +1627,9 @@ class Handler(BaseHTTPRequestHandler):
                 if (scope is None or vm.get("pool") == scope) and self._sees("vm", f"/vms/{vm['vmid']}", True)
             ]
             return self._reply(200, lagged(entries))
+        if parts == ["cluster", "nextid"] and NEXTID_TAKEN:
+            # As Proxmox's answer to a run whose VMID another run took before its clone landed (fake/nextid-taken).
+            return self._reply(200, str(NEXTID_TAKEN.pop(0)))
         if parts == ["cluster", "nextid"]:
             return self._reply(200, str(next(i for i in range(NEXTID_LOWER, NEXTID_LOWER + 10000) if i not in VMS)))
         if parts[:2] == ["fake", "storages"] and method == "PUT":
@@ -1844,8 +1863,9 @@ class Handler(BaseHTTPRequestHandler):
                     "name": params.get("name"),
                     "scsi0": disk,
                     "net0": f"virtio={mac_for(newid)},bridge=vmbr0",
-                    # As Proxmox: every clone a SMBIOS UUID of its own, a VM made again at the same ID another.
-                    "smbios1": f"uuid={uuid.uuid4()}",
+                    # As Proxmox: every clone a SMBIOS UUID of its own, a VM made again at the same ID another; or the
+                    # one a fixture queued (fake/clone-uuid).
+                    "smbios1": f"uuid={CLONE_UUIDS.pop(0) if CLONE_UUIDS else uuid.uuid4()}",
                     # As Proxmox: the description given, in place of its source's.
                     **({"description": notes_kept(params["description"])} if "description" in params else {}),
                     # Locked until its task ends.
