@@ -680,6 +680,67 @@ def test_a_record_naming_another_vm_s_uuid_is_never_written(fleet) -> None:
     assert fleet.puts() == [] and block.parse(fleet.notes()) is None
 
 
+@pytest.mark.parametrize("kind", ["build", "golden"])
+def test_an_owned_vm_s_record_is_never_rewritten_as_a_build_s_or_a_golden_s(fleet, kind: str) -> None:
+    # Review 51c's M-C, as on G3's road: alpha holds the first form its run's clone carries, owned by that run; its
+    # record rewritten as a build's or a golden's of its own UUID and that run's job would make it a Building
+    # (pve/ownership.py's building), and converted. An Owned is a VM of the fleet, whose record stays a VM's.
+    identity, job = fleet.identity(), "3f9a0c1e7b2d4a58"
+    first = Record(kind="vm", stage="cloning", name="alpha", job=job)
+    with fleet.client() as client:
+        assert record.write(client, fleet.owned(), lambda current: first) == first
+        notes = fleet.notes()
+        for change in (
+            lambda current: Record(kind=kind, uuid=identity, job=job),
+            lambda current: dataclasses.replace(current, kind=kind, uuid=identity),
+        ):
+            with pytest.raises(ValueError, match=f"as one of kind {kind} where one of kind vm was read"):
+                record.write(client, fleet.owned(), change)
+        assert fleet.notes() == notes and len(fleet.puts()) == 1
+        # The same kind is still written: the run writes the rest of its first form.
+        rest = dataclasses.replace(first, uuid=identity, stage="unfinished")
+
+        def the_rest(current: Record | None) -> Record:
+            return dataclasses.replace(current, uuid=identity, stage="unfinished")
+
+        assert record.write(client, fleet.owned(), the_rest) == rest
+        assert record.read(client.config("pve", 9010)) == rest
+    assert len(fleet.puts()) == 2
+
+
+def test_where_the_notes_lost_their_record_since_the_vm_was_owned_only_a_vm_s_is_written(fleet) -> None:
+    # alpha's notes hold no record of the engine's (today's line alone), and its Owned was made of a VM's: none read is
+    # a VM's, never a road to a build's or a golden's.
+    identity = fleet.identity()
+    with fleet.client() as client:
+        for kind in ("build", "golden"):
+            with pytest.raises(ValueError, match=f"as one of kind {kind} where one of kind vm was read"):
+                record.write(client, fleet.owned(), lambda current, kind=kind: Record(kind=kind, uuid=identity))
+        assert fleet.puts() == []
+        assert record.write(client, fleet.owned(), lambda current: _made(identity)) == _made(identity)
+    assert len(fleet.puts()) == 1
+
+
+@pytest.mark.parametrize("kind", ["build", "golden"])
+def test_over_a_record_of_another_kind_read_since_the_vm_was_owned_nothing_is_written(fleet, kind: str) -> None:
+    # Root wrote alpha a build's or a golden's record of its own UUID after the run owned it: the VM is no longer the
+    # VM of the fleet it was owned as, so neither a VM's record nor that kind's is written over it.
+    identity = fleet.identity()
+    planted = block.render("mine", Record(kind=kind, uuid=identity, job="3f9a0c1e7b2d4a58").fields())
+    owned = fleet.owned()
+    fleet.plant(description=planted)
+    with fleet.client() as client:
+        for change, written in (
+            (lambda current: _made(identity), "vm"),
+            (lambda current: dataclasses.replace(current, build=2), kind),
+        ):
+            with pytest.raises(ValueError, match=f"as one of kind {written} where one of kind {kind} was read"):
+                record.write(client, owned, change)
+        # No change asked sends nothing, and is no write of another kind.
+        assert record.write(client, owned, lambda current: None).kind == kind
+    assert fleet.puts() == [] and fleet.notes() == planted
+
+
 def test_notes_past_8192_characters_are_refused_before_anything_is_sent(fleet) -> None:
     _pve(fleet.base, "PUT", "fake/notes-limit", bytes=block.MOST)
     fleet.plant(description="x" * (block.MOST - 20))
