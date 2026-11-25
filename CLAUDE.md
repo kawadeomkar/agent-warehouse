@@ -1113,20 +1113,28 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       them; it, the check and the rules import one another as modules, never a name from one, so any may come first.
     - The check's `command`, the program and a verb, is used only by the modules that refuse and by help's usage lines
       and closing paragraph, each named with why (`COMMAND_USERS`): never with words of a module's own joined after it
-      into a line. A line the printer made is never extended: never an operand of `+` or `%`, added to, or in what a
-      `join` or `format` takes, and in an f-string followed by its end, punctuation or prose, never a field; a sentence
-      `said` says is never built at its call, and a `Line`'s field in it is followed the same way. What no scan sees is
-      a line carried where that scan does not follow it (an attribute, a container, another module's function), a name
-      reached through `getattr`, and pieces joined that name no command: a line to run is the printer's whole line.
+      into a line. A line the printer made is never extended: never an operand of `+` or `%`, added to, in what a
+      `join` or `format` takes, or an argument of `print` but the last, never edited by its `replace`, and in an
+      f-string followed by its end, punctuation or prose, never a field; nor is an f-string that holds one, a `said`
+      whose sentence ends in a `Line`'s field, or what hands one on (`str`, a slice, `strip`, `textwrap`) extended.
+      Lines each on a line of its own are whole: a `"\n".join` whose every item is a line, `out.write(line + "\n")`. A
+      sentence `said` says is never built at its call, and a `Line`'s field in it is followed the same way. What no scan
+      sees is a line carried where that scan does not follow it (a parameter of a helper it is handed to, an attribute,
+      a container, another module's function), a form followed by a word of prose, which a person who copies the word
+      too hands the command as a value, a name reached through `getattr`, and pieces joined that name no command: a
+      line to run is the printer's whole line.
     - A placeholder is `<name>`, from `lib/claude_vm/schema/words.py`'s `placeholder`, in a line's form, a masked
       value and help's rows alike (`--cores <cores>`, `--set <name>=<value>`); a line with one is a form, never offered
       as the command to run, and the one check refuses a placeholder given back as a word or as JSON. A form writes
       its placeholders last, after every part with a real value (`aw host --remove <name>`), so pasted at a shell it is
       no line a shell reads, or, where its one placeholder is a verb's names (`<name>...`), leaves its real values,
       which the printer writes only where the one check refuses them (its `takes`): `aw deploy <name>...` alone, the
-      default VM's, is a `ValueError`. No form leaves a whole command, with no exception.
+      default VM's, is its `Unwritten`, as are `deploy --detach`'s, `login`'s, `status`'s and `destroy`'s names alone
+      (the printer's docstring lists them); a sentence names a real VM there, or another placeholder beside it. Only
+      the code asks for a line, so `cli/main.py` says an `Unwritten` as the program's own fault, in one sentence, exit
+      1, never a traceback. No form leaves a whole command, with no exception.
     - `host_flag` is given by every caller of a verb whose row has the shared `--host` and whose values give none
-      (`None` is a `ValueError` there), and taken only by a verb whose `--host` runs it against a host; `refused` is
+      (`None` is `Unwritten` there), and taken only by a verb whose `--host` runs it against a host; `refused` is
       keyword-only with no default, so every caller says whether a value of free text may be said back.
     - `tests/unit/test_aw_cli_printer.py` holds it: a syntax-tree scan of every string of the new subpackages for a
       command named anywhere in it (today's `just` only where it reads as a command), `dispatch.py`'s `not_built`
@@ -1135,7 +1143,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `command`, by any name, only by `COMMAND_USERS`; every use of `line` or `argv`, through any name or a
       `functools.partial`, saying `refused`; no printer's line extended, by a scan of its own; every form of the
       printer's whole domain (each verb, each placeholder beside the rest, masked and not) and help's usage lines,
-      pasted into `/bin/sh` and `bash`; each module of `schema/` imported alone, first.
+      pasted into `/bin/sh` and `bash`, a refused one said by `main.py`; each module of `schema/` imported alone,
+      first.
 - **One transport sends every HTTPS request of the engine, follows no redirect, reads no certificate variable, and
   takes a proxy only as an argument.** Read
   [§16.7](docs/architecture/engine.md#167-vendors--one-https-transport-tailscales-calls-verified-downloads) first.

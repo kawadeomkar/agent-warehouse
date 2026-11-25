@@ -248,22 +248,30 @@ writes. That one stops at its `<` where the folder holds no file named `name`, n
 holds one, the shell reads it, makes or empties `...`, and runs
 `aw` with the line's other words, its real values. So the printer writes it only where the one check, its rules among
 them, refuses those words (`aw deploy --tags claude_code <name>...` leaves `aw deploy --tags claude_code`, which
-`deploy.7` refuses), and raises `ValueError` where it takes them (`aw deploy <name>...` alone would leave `aw deploy`,
-the default VM's), asking the check's `takes`, which says no rule's sentence, since a rule's sentence names such a
-form. No form the printer writes leaves a whole command, with no exception. Given back to `aw` as a word or as JSON,
+`deploy.7` refuses), and raises its `Unwritten`, a `ValueError`, where it takes them (`aw deploy <name>...` alone
+would leave `aw deploy`, the default VM's), asking the check's `takes`, which says no rule's sentence, since a rule's
+sentence names such a form. The forms it so refuses are those of the four verbs whose words are several names, the
+names their one placeholder: `aw deploy <name>...`, `aw deploy --detach <name>...`, `aw login <name>...`,
+`aw login --only github <name>...`, `aw status <name>...` and `aw destroy <name>...`, each with any other word the
+check takes beside it (`aw status --json <name>...`, `aw login --host lab2 <name>...`); a sentence that would show one
+names a real VM in its place, or another placeholder beside it (`aw destroy <name>... --confirm <names>`), or a value
+the rules refuse there, and help's `aw deploy [<name>...]` is help's own. No form the printer writes leaves a whole
+command, with no exception. Only the code asks the printer for a line, so a line it will not write is the code's own
+fault: `cli/main.py` says an `Unwritten` that reaches it in its sentence and exits 1, never as a traceback (16.3).
+Given back to `aw` as a word or as JSON,
 each placeholder is refused by the one check, in `aw`'s own words. The values are the parser's or a handler's:
 `default_vm` is said by naming no VM, and a value that is off (a flag not given, a count of 0, an empty
 list) is not said. Each is held as the one check holds it but for the rules between options (`formed`), and one it
 refuses, a word that starts with `-`, or a value or word that holds a character of Unicode's categories Cc, Cf, Cs, Zl
 or Zp (a C1 control, a bidi override, a lone surrogate, a line separator), which a terminal would act on, not show as
-it is, or which no UTF-8 output can write, raises `ValueError` with the check's kind of sentence, which never says the
+it is, or which no UTF-8 output can write, raises `Unwritten` with the check's kind of sentence, which never says the
 value; a rule is the run's to say, so a line may name a run that one refuses, as `deploy`'s question names the stage
 before its answer meets the rules.
 
 `host_flag` is the host a line names. Every caller of a verb whose row has the shared `--host` (`deploy`, `code`,
 `login`, `status`, `destroy`) gives it where the values give no `--host`: a host's name, or `""` where the fleet has
-one host or the line names none, as a command's form said before any fleet is read does; `None` there is a
-`ValueError`, so no caller forgets it. Only the verbs whose `--host` runs them against a host take one: those, and
+one host or the line names none, as a command's form said before any fleet is read does; `None` there is
+`Unwritten`, so no caller forgets it. Only the verbs whose `--host` runs them against a host take one: those, and
 `settings`, `vault` and `init`. `refused`, keyword-only with no default, is said by every caller: where no run has taken
 the values, a refused run's or a question's, the two values of free text a person may paste a secret into, `--set`'s
 and `settings --value`'s, are printed as their placeholders; the table holds no option whose value is a secret.
@@ -281,22 +289,33 @@ printer and the check name a sentence's field `program`; the check's `command`, 
 the modules that refuse (the check, the printer, `cli/parse.py` and `cli/dispatch.py`) and by help, for its usage
 lines and the program its closing paragraph names, each named with why, by any name a module binds to the check, its
 package or the function; every use of `line` or `argv`, through any name or a `functools.partial`, says `refused`;
-and a printer's line is never extended: a call of `line` or `argv`, of `said` whose sentence is one field (`"{line}"`),
-of a function of the module's own that returns one, a name bound to one in the same function, or an f-string that ends
-in one, is never an operand of `+` or `%`, an element of what a `%` template takes, added to, or anywhere in what
-`join`, `format` or `format_map` takes, and in an f-string is followed by the string's end, punctuation or a word of
-prose (letters alone, no verb of the table's, no word that starts with `-` before the next punctuation), never by a
-field; and a sentence `said` says is never built at its call (by `+`, `%`, an f-string, `join` or `format`), and in a
-literal one, or a constant of its module's, each field a `Line` fills (given at the call, from `LINES`, or each field,
-where the call gives its values otherwise than as a mapping written there) is followed as a line in an f-string must
-be; the rules' and the table's sentences are held so through the Lines they are said with. The check's own `command`
-and `help_of`, which name the command a refusal is about with the option it refuses after it, are no line in its own
-module: the guard of the check's `command` holds them. What the scans cannot see is a command joined at run time from
-pieces that name none (`'aw' + ' cancel '`, a list joined), a path to the program other than `./aw` (`../aw deploy`),
-another case, a name reached through `getattr`, `vars` or `importlib`, and a printer's line carried where the scan of a
-line extended does not follow it (an attribute, a container, another module's function, a word of prose that is a
-value): a line to run is the printer's line, whole, and a sentence names its command as a `Line`, which is how such a
-line is made.
+and a printer's line is never extended: a call of `line` or `argv`, of `said` whose sentence is one field (`"{line}"`)
+or ends, but for spaces, in a field a `Line` fills (`"run {line}"`: one of `LINES`', or one given at the call in a
+mapping written there), of a function of the module's own that returns one, a name bound to one in the same function,
+an f-string that ends in one, what hands one on (`str` of it, a subscript or a slice of it, its `strip`, `lstrip`,
+`rstrip`, `ljust`, `rjust` or `center`, any function of `textwrap` given it first, by any name), and lines joined by a
+newline, which end in their last, is never an operand of `+` or `%`, an element of what a `%` template takes, added
+to, anywhere in what `join`, `format` or `format_map` takes, or an argument of `print` but the last (`print` joins its
+arguments with a space), is never edited by its `replace`, and in an f-string is followed by the string's end,
+punctuation or a word of prose (letters alone, no verb of the table's, no word that starts with `-` before the next
+punctuation), never by a field; an f-string that holds one anywhere is never an operand of `+` or `%` or an argument of
+`print` but the last, and a sentence that ends in one is a line, words before it or not. Lines each on a line of its
+own are whole: a `join` whose separator is a newline alone, of a list or tuple written there whose every item is a
+line, or of a comprehension of lines, and a line with a newline added, the one argument of a `write`
+(`out.write(line + "\n")`). And a sentence `said` says is never built at its call (by `+`, `%`, an f-string, `join` or
+`format`), and in a literal one, or a constant of its module's, each field a `Line` fills (given at the call, from
+`LINES`, or each field, where the call gives its values otherwise than as a mapping written there) is followed as a
+line in an f-string must be; the rules' and the table's sentences are held so through the Lines they are said with.
+The check's own `command` and `help_of`, which name the command a refusal is about with the option it refuses after
+it, are no line in its own module: the guard of the check's `command` holds them. What the scans cannot see is a
+command joined at run time from pieces that name none (`'aw' + ' cancel '`, a list joined), a path to the program
+other than `./aw` (`../aw deploy`), another case, a name reached through `getattr`, `vars` or `importlib`, and a
+printer's line carried where the scan of a line extended does not follow it (a parameter of a function of the
+module's own it is handed to, which then extends it; an attribute; a container, such as a list a value is appended to
+and then joined, or a mapping given to `said` otherwise than written at its call; another module's function; a word
+of prose that is a value, as after a form, which a person who copies the word too hands the command as a value): a
+line to run is the printer's line, whole, and a sentence names its command as a `Line`, which is how such a line is
+made.
 `tests/unit/test_aw_cli_printer.py` holds the printer: for every verb, its words, each option alone and beside them and
 each pair of options the rules allow come back from the line through the parser and the one check, and no verb or
 option lacks such a case; every example line the test gives, of every verb, comes back from its line, before the habits
@@ -309,14 +328,15 @@ whole domain (for every verb, each field a form may give as a placeholder and ea
 beside each other field given a value or a placeholder, and beside every other field at once, refused and not, with
 each host's flag the verb takes) and help's usage lines, each pasted into `/bin/sh` and `bash`, running nothing in a
 folder with no file of a placeholder's name, and in one with a file of each nothing or words `aw` refuses, with no
-exception, and the printer refusing only a form whose one placeholder is its names beside words the check takes; the
-host's flag; a value of free text is never said back from values no run took, and every call says
-`refused`; a value the check refuses is never printed; the program as it was started, quoted, in this process, from a
-path a shell would split and through the launcher, the check's sentences and help's among them; by scans of their
-syntax, the five guards above, which a module planted with the roads the reviews found fails, but for the roads the
-scans cannot see; that no sentence of the rules or the table holds a command as text; and that each module of
-`schema/` imports alone and first and nothing outside `schema/`, and `pve/` and `vendors/` import the printer when
-they are imported, none of them inside a function.
+exception, and the printer refusing only a form whose one placeholder is its names beside words the check takes, as
+its `Unwritten`, which `aw` says in one sentence as its own fault and exits 1 with, no traceback; the host's flag; a
+value of free text is never said back from values no run took, and every call says `refused`; a value the check
+refuses is never printed; the program as it was started, quoted, in this process, from a path a shell would split and
+through the launcher, the check's sentences and help's among them; by scans of their syntax, the five guards above,
+which a module planted with the roads the reviews found fails, but for the roads the scans cannot see, while lines
+joined by a newline and a line written with its end pass; that no sentence of the rules or the table holds a command
+as text; and that each module of `schema/` imports alone and first and nothing outside `schema/`, and `pve/` and
+`vendors/` import the printer when they are imported, none of them inside a function.
 
 ## 16.3 `cli/` — the `aw` program
 
@@ -326,7 +346,9 @@ it takes the program as it was started out of its environment at once, as the la
 `AGENT_WAREHOUSE_STARTED_AS`, so that nothing a run starts inherits it, and hands it to the printer of a command, which is
 `schema/`'s (16.2). Every command the program prints, and every command a sentence names, is the printer's, the program
 quoted as one word a shell reads back. A line with a placeholder (`aw code <name>`) is a form, which help, a refusal and
-a question show; a line offered as the command to run holds none.
+a question show; a line offered as the command to run holds none. A line the printer will not write, its `Unwritten`,
+which only the code asks it for, is said by `main.py` as a refusal is, in the printer's sentence and with the words
+that it is the program's own fault, and exits 1, wherever it is raised, a handler's run included: never a traceback.
 It imports `schema/` and what it needs to answer at once. It imports `engine/` only inside the function that dispatches
 a verb that changes something, so a refusal, help or a read never loads it. It never imports Ansible, which the engine
 only ever runs as a child, nor `control/` or pydantic. `tools/aw` imports it, and so does the agents' server's own entry
