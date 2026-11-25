@@ -1044,10 +1044,22 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       (short, `ansible.builtin.`, `ansible.legacy.`); a role the play names, one included or imported from anywhere, and
       one a role's `meta/main.yml` names among its dependencies; each role's files in every spelling Ansible takes
       (`main.yaml`, `main.json`, a `main/` folder of defaults or vars, a file an include's `_from` names); the play's
-      `vars_files`; the roles' templates. A road it does not follow - a playbook imported, an include in a handler, a
-      name only a run can say, a collection's role or a `collections` keyword, a role in the play's own roles folder,
-      a template outside a role or one that includes another - raises `Unfollowed` and fails every test: follow it in
-      the walk, never pass it over.
+      `vars_files`; the roles' templates and argument specs; and each file of a role's `files/` that a `copy`,
+      `unarchive`, `assemble` or `uri` sends from this computer. A road it does not follow - a playbook imported, an
+      include in a handler, a name only a run can say, a collection's role or a `collections` keyword, a role in the
+      play's own roles folder, a template outside a role or one that includes another (`{%+` too) - raises
+      `Unfollowed` and fails every test: follow it in the walk, never pass it over.
+    - So does a task file Ansible looks for elsewhere before the walk's: an `import_tasks` in a role's file that an
+      include or import brought in (looked for first under that file's own folder's `tasks/`, then the working
+      folder's), and any include or import two files below the play (looked for beside the play first). A file sent
+      from this computer outside a role, or that is no regular file of its own role's `files/` (a name under `files/`
+      and a folder too), is refused alike.
+    - So does what Ansible takes from the play's folder and a role's that the walk does not read: `group_vars/` or
+      `host_vars/` beside the play, read whenever the host joins a group; `collections/` beside it, searched whatever
+      the configuration names; a folder of any kind of plugin but the three `BESIDE_THE_PLAY` lists with its reason
+      (`library`, `action_plugins`, `module_utils`), whose names are held off Ansible's own - Ansible looks for its
+      own module, action or module_utils there first, and a local `normal.py` runs here for every module with no
+      action of its own; and any folder of plugins in a role. The kinds and Ansible's names are read from Ansible.
     - Every task it reaches is a module of `ansible.builtin` that converges a state, or a `command`, `shell`, `raw`,
       `script` or `expect` that `REASONS` lists with its reason and with its module and arguments as Ansible's own
       parser reads them: a changed command changes its entry in the same commit, and two such tasks of one file and
@@ -1057,8 +1069,14 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       var, fact (a templated name refused), register, loop variable, include's `apply` or `add_host`, and no
       `include_vars` at all.
     - Nothing it reaches runs or writes on this computer: no `delegate_to`, `local_action` or `connection` keyword, no
-      `fetch`, no play over any host but `all`, no `with_` loop, and no lookup but the five `LOOKUPS` lists by its file
-      and whole string, read in every file the walk read and in the templates.
+      `fetch`, no `group_by` or `add_host` (a group joined after the play's check), no play over any host but `all`,
+      no `with_` loop, and no lookup but the five `LOOKUPS` lists by its file and whole string, read in every file the
+      walk read (the roles' argument specs, which Ansible templates here, among them) and in the templates.
+    - The child runs in the run's own directory (`children.start`'s `cwd`), never the caller's folder, where Ansible
+      looks for a task file too; and its configuration names the engine's own filter folder,
+      `lib/claude_vm/guest/ansible/filter_plugins/`, whose one adapter gives `plain_text` and `sshd_match_spec`, the
+      two the roles call, never today's `filter_plugins/`, whose `proxmox_trust_holds` opens a connection from here.
+      A role that calls another filter adds it there, with the core's function of its name.
     - The play's opening tasks are `playbooks/configure.yml`'s, copied as they stand, and
       `tests/unit/test_aw_layer1_play.py` holds them equal: a change to one is made to both. Its first check reads the
       inventory back by `ansible_inventory_sources`, never by `inventory_file`, a host's variable that a file beside the
