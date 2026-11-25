@@ -559,19 +559,21 @@ across fields, which `Record` holds here and each plain reader's judge holds for
 - Both take the VM as an `Owned` (16.5), which the one check alone makes, and refuse anything else, a target a read gave
   above all, before anything is sent.
 
-No other module of the new engine sends a VM's description to Proxmox. `tests/unit/test_aw_record.py` holds it: every
-field round-trips; a person's lines beside the block are kept byte for byte, today's record lines among them; a block
-of a format this program does not read, and every other it cannot read, is refused and never rewritten; a value with
-any line break, or anything else that is not plain text on one line, is refused; the notes' bound is counted in
-characters; and `tests/unit/test_vm_repos.py`'s cases of a VM's own list are carried. Against the fake Proxmox under
-enforcement: a record written reads back field for field; of two writers the second is refused, reads again and lands
-with the first's change kept, as does a write a person's edit came between; a second write of the same record sends
-nothing; a block the engine cannot read, a copy's record, a record that names another VM's UUID, a VM's record
-rewritten as a build's or a golden's (its first form's rest still written), any record over one of another kind read,
-and notes past the bound send nothing; a record of a template, a golden or a build that names no UUID is refused, made
-or read; and the label is `vm_label`'s value beside a person's tags. A syntax-tree scan holds that no module of the new
-engine names a description to send but this one, the client, its table, its reader of answers, and the template's
-judgement (16.5), which holds no client, each with why.
+No other module of the new engine sends a VM's description to Proxmox, but the base template's first write: its build's
+`qm create` over root SSH (`pve/commands.py`, 16.5), which gives the template the record the build made, naming the UUID
+made for it, before the template exists, so that no client can send it. `tests/unit/test_aw_record.py` holds it: every
+field round-trips; a person's lines beside the block are kept byte for byte, today's record lines among them; a block of
+a format this program does not read, and every other it cannot read, is refused and never rewritten; a value with any
+line break, or anything else that is not plain text on one line, is refused; the notes' bound is counted in characters;
+and `tests/unit/test_vm_repos.py`'s cases of a VM's own list are carried. Against the fake Proxmox under enforcement: a
+record written reads back field for field; of two writers the second is refused, reads again and lands with the first's
+change kept, as does a write a person's edit came between; a second write of the same record sends nothing; a block the
+engine cannot read, a copy's record, a record that names another VM's UUID, a VM's record rewritten as a build's or a
+golden's (its first form's rest still written), any record over one of another kind read, and notes past the bound send
+nothing; a record of a template, a golden or a build that names no UUID is refused, made or read; and the label is
+`vm_label`'s value beside a person's tags. A syntax-tree scan holds that no module of the new engine names a description
+to send but this one, the client, its table, its reader of answers, the template's judgement (16.5), which holds no
+client, and the build's commands, whose `--description` it finds too, each with why.
 
 **The base template: `template.py`.** Every VM is a full clone of the base template, so `deploy`, as its first link,
 asks whether the template is what its settings would build. `compare(client, settings, pool=, host_flag=)` reads it
@@ -595,6 +597,46 @@ said with the `aw init` line that grants the token `VM.Audit` and `VM.Clone` on 
 and cloned from while it stays out of the pool; the judgement, given what `status`'s reads give and the record by the
 plain `parse`, says what `compare` says, a template's record that names no UUID and a copy of another's refused among
 them, and imports nothing of the engine and not the client; and `compare` sends nothing but GETs.
+
+`build(ctx, host, settings)` builds the base template where it is missing or differs, with today's role's steps, over
+root SSH to the host as `routes.host_target` reaches it, holding the host's `template` section exclusively (16.8), so
+that it waits for clones in flight and they for it. The image's checksum is held to its form first: an image with no
+checksum to hold it to, a custom image with the default's, and a signature with no list to sign are refused before
+anything is read. Then it reads, as root, the whole cluster's listing and the configuration of the guest at the
+template's ID (`pve/commands.py`'s `pvesh` reads, which give what the API gives, the configuration's digest and decoded
+notes among it, where `qm config` prints neither), and judges them by `pve/template.py`'s functions, root seeing what
+the token may not: a guest there that is no template of this engine's, outside the pool or on another node is refused as
+`compare` refuses it and never touched; the same template is left as it is, and so is one whose difference
+`proxmox_template_rebuild: false` keeps; a template of the person's own is never built. Then, on this computer, the
+image's SHA-256 from its checksum list, verified by `vendors/downloads.py` (16.7) by Ubuntu's key or the person's own,
+from an unsigned list, or as the checksum gives it. On the host, each step one argument list of `pve/commands.py`'s
+through the SSH runner, nothing on its standard input: the image fetched by the host's `curl` into the engine's own
+image directory (`/var/lib/vz/aw-images`, or `proxmox_template_image_dir`) under a name of its own, held by the host's
+`sha256sum` to the digest verified here and removed, naming both, where it differs, then renamed into place, and left
+where it is already there with that digest; where the guest agent goes in, the image tool installed by apt where
+`proxmox_template_manage_libguestfs` is on and it is missing, the image's system read with `virt-cat` and one outside
+the Debian family refused by name, and a copy customised with `virt-customize`; the template that differs removed only
+once the guest at the ID is still the one judged (`Compared.identity`, its SMBIOS UUID), a refusal of Proxmox's for a
+template a linked clone uses said with `proxmox_template_rebuild: false` as the way on; `qm create` with today's
+settings, the SMBIOS UUID made here, the record as its notes and the fleet's pool; the disk imported; the cloud-init
+drive, the boot order and DHCP, with no `ciupgrade`; `qm template`; and the template read back and judged again, which
+must find it as its settings would build it. The customised copy is removed whatever happens. What the build leaves on
+the host is recorded in `host.yml`'s `made` through `fleet/hosts.py`'s one writer as it is made (16.9): each image file
+it downloaded (`file`), the template by its ID, and each package of the image tool this run installed (`package`), none
+that was there before, so that a cleanup removes exactly that.
+
+`tests/unit/test_aw_engine_template.py` holds the build against a stand-in Proxmox host of `tests/unit/aw_machine.py`'s,
+reached as root through the stand-in ssh, whose `qm`, `virt-customize` and `virt-cat` are the role's scenario's fakes
+(`tests/molecule/`), its `pvesh` reading `qm`'s state, its `apt-get` and `dpkg-query` stand-ins of the test's own, and
+the image and its signed checksum list served by `tests/molecule/fake_downloads.py`, the list signed by a key of the
+test's: the first build runs today's steps in their order, its `qm` calls, its customisation and its template's settings
+those of the role's scenario, and records the image file and the template in `made`, the copy and the download's own
+name gone; a second run reads and changes nothing; a list whose signature does not verify, or that names no image,
+fetches nothing on the host; an image whose digest differs is removed and both digests are said; every command is one of
+`pve/commands.py`'s, nothing on its standard input, under the section's lock; a template a linked clone uses is said
+with the way on; a template with no record of the build, a guest outside the pool and a guest that changed after it was
+judged are never removed; an image outside the Debian family, a custom image with no checksum of its own and a template
+of the person's own build nothing; and the image tool's packages are recorded only where this run installed them.
 
 **What `init` makes on a host: `access.py`.** One list names every object a first `init` makes on a Proxmox host with
 its administrator's authority, and one check tells what is there of each; the script that makes them is their one
@@ -1315,6 +1357,19 @@ of `engine/` and not the client.
   said with the `aw init` line, since `init` grants the token `VM.Audit` and `VM.Clone` on that template's own path
   (16.4), never on the pool, whose role would reach it. Whether it is a template, and its name, are read from the
   guest's own configuration, never from the listing, which lags what a run just did.
+
+**The base template's commands over root SSH: `commands.py`.** What a build of the base template runs on the host
+(16.4), each an argument list, in plain code that runs nothing: `engine/template.py`'s `build` runs each through the SSH
+runner, which joins its words with `shlex.join`, so the host's shell reads each value as one word, and sends nothing on
+standard input. They are the host's own programs, by name as root's PATH finds them: `pvesh`'s two reads, the cluster's
+listing and a guest's configuration, as JSON as the API gives them; `qm create`, `set`, `template` and `destroy`;
+`curl`, `sha256sum` and coreutils for the image; `virt-cat` and `virt-customize` under libguestfs's own appliance;
+`dpkg-query` and `apt-get`. Every value is held to its form before a list is made, so no setting's word is read as
+another option, a second word or a path outside the one meant: a guest's ID in Proxmox's range, a path absolute and of
+plain parts, none `.` or `..` or beginning with a dash, a node, storage, bridge and pool as `checks.proxmox_name` holds
+them, a package as Debian names one, and a URL one word of http or https. `create`'s notes are the record
+`pve/record.py` renders, the template's first write, made before it exists so that its record names its UUID from the
+start; `test_aw_record.py`'s scan names this module for it.
 
 `status` moves onto the client in its own workstream. `tests/unit/test_aw_pve_reads.py` runs every read against the fake
 Proxmox, which serves a node's certificate from `tests/unit/pki.py` (`harness.fake_fleet`'s `certificate`), with the

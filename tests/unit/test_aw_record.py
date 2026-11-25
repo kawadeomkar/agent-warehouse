@@ -794,15 +794,18 @@ NAMES_A_DESCRIPTION = {
     "lib/claude_vm/pve/template.py": "a template's record handed to today's proxmox_template_drift as the line of notes"
     " it reads, in a configuration of its own: the judgement, which holds no client and sends nothing"
     " (tests/unit/test_aw_engine_template.py)",
+    "lib/claude_vm/pve/commands.py": "qm create of the base template over root SSH, the record its build made as its"
+    " first notes, rendered by pve/record.py: the template's first write, before it exists, so that no client can send"
+    " it (card E12, tests/unit/test_aw_engine_template.py)",
 }
 
 
 def _names_a_description(tree: ast.AST) -> list[int]:
-    """The lines of tree that name a description to send: the key as a string, or a keyword of a call."""
+    """The lines of tree that name a description to send: the key as a string, qm's option, or a keyword of a call."""
     return [
         node.lineno
         for node in ast.walk(tree)
-        if (isinstance(node, ast.Constant) and node.value == "description")
+        if (isinstance(node, ast.Constant) and node.value in ("description", "--description"))
         or (isinstance(node, ast.keyword) and node.arg == "description")
     ]
 
@@ -820,6 +823,7 @@ def test_no_module_but_engine_record_sends_a_description_to_proxmox() -> None:
         'client.edit_config("pve", 9010, lambda config: dict(description=notes))',
         'client.clone("pve", 9000, 9020, "delta", pool, description=notes)',
         'changes["description"] = notes',
+        '["qm", "create", "9000", "--description", notes]',
     ],
 )
 def test_the_scan_finds_a_description_named_to_send(source: str) -> None:

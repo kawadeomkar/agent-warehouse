@@ -121,6 +121,15 @@ OPTIONS: Mapping[str, object] = {
     "proxmox_template_customize_packages": ("qemu-guest-agent",),
     # The boot disk a VM is resized as, and a template of the person's own is held to having.
     "proxmox_vm_disk": "scsi0",
+    # What a build reads besides (card E12): the image's checksum, Ubuntu's signed list beside the default image; the
+    # template's cores and memory, which every clone is given unless it is sized; and whether the build installs the
+    # image tool on the host.
+    "proxmox_template_image_checksum": (
+        "sha256:https://cloud-images.ubuntu.com/minimal/releases/noble/release/SHA256SUMS"
+    ),
+    "proxmox_template_cores": 2,
+    "proxmox_template_memory_mb": 2048,
+    "proxmox_template_manage_libguestfs": True,
 }
 # The options that fall back to a row of the table, by the row.
 FROM_ROWS = {"proxmox_template_bridge": "proxmox_bridge", "proxmox_template_storage": "proxmox_storage"}
@@ -191,8 +200,9 @@ class Compared:
     where one was found, else None); the node VMs are cloned on and the fleet's pool; for different, a line for each
     difference and whether rebuilding is on; for refused, and custom where it lacks something, why, each a sentence;
     the line deploy --only template is said with where a difference is kept, or for a template of the person's own
-    that the token may not read, the init line that grants it; and whether the template is one of the person's own,
-    which proxmox_template_custom names."""
+    that the token may not read, the init line that grants it; whether the template is one of the person's own,
+    which proxmox_template_custom names; and the identity of the guest judged, the SMBIOS UUID its configuration gave
+    ("" where none was read), which a build holds the guest to before it acts on it (card E12)."""
 
     outcome: str
     name: str
@@ -204,6 +214,7 @@ class Compared:
     rebuild: bool = True
     line: Line | None = None
     custom: bool = False
+    identity: str = ""
 
     def __post_init__(self) -> None:
         if self.outcome not in OUTCOMES:
@@ -304,8 +315,8 @@ class Base:
             outcome, self.name, self.template_id, self.node, self.pool, rebuild=self.rebuild, line=self.line, **more
         )
 
-    def refused(self, why: str) -> Compared:
-        return self.compared(REFUSED, why=(why,))
+    def refused(self, why: str, identity: str = "") -> Compared:
+        return self.compared(REFUSED, why=(why,), identity=identity)
 
 
 def at(listing: tuple[Resource, ...], template_id: int) -> Resource | None:
@@ -395,7 +406,8 @@ def judge(
         what = f'a template named "{_plain(config.name)}"' if config.template else "a VM"
         return base.refused(
             f'ID {base.template_id} holds {what}, not the finished template "{base.name}": remove it (qm destroy '
-            f"{base.template_id}) or choose another proxmox_template_vmid."
+            f"{base.template_id}) or choose another proxmox_template_vmid.",
+            config.identity,
         )
     named = f'The template "{base.name}" ({base.template_id})'
     # Whichever reader made the record, it is this guest's only where it names the guest's own UUID: one that names
@@ -406,21 +418,23 @@ def judge(
     elif isinstance(found, Mapping) and copied(found, config.identity):
         found = Copy(whose)
     if isinstance(found, Unreadable):
-        return base.refused(f"{named} is never rebuilt or cloned: {found}.")
+        return base.refused(f"{named} is never rebuilt or cloned: {found}.", config.identity)
     if found is None:
         return base.refused(
             f"{named} keeps no record of this engine's build, so it is never rebuilt, which would destroy it, nor "
             "cloned: if it is yours, name it in proxmox_template_custom to clone it as it is; otherwise choose another "
-            "proxmox_template_vmid and proxmox_template_name."
+            "proxmox_template_vmid and proxmox_template_name.",
+            config.identity,
         )
     kind = found.get("kind")
     if kind != "template":
         return base.refused(
             f"{named} holds the record of a {_plain(str(kind))} of this engine's, not of its base template: it is left "
-            "as it is; choose another proxmox_template_vmid for the base template."
+            "as it is; choose another proxmox_template_vmid for the base template.",
+            config.identity,
         )
     differences = _differences(config, found, want)
-    return base.compared(DIFFERENT if differences else SAME, differences=differences)
+    return base.compared(DIFFERENT if differences else SAME, differences=differences, identity=config.identity)
 
 
 def named(listing: tuple[Resource, ...], name: str) -> tuple[Resource, ...]:

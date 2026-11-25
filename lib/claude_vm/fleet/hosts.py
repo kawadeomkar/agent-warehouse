@@ -97,9 +97,10 @@ FIELDS = (
 REQUIRED = ("address", "token_user", "token_id")
 # The two kinds of anchor a host keeps (card E3): its node's own certificate, or the CA that signed it.
 TRUST_KINDS = ("node", "ca")
-# What this fleet makes on a host, each by its ID (card E1's list, and E12's templates), and who made it: this engine
-# through init's offer or a build, or the administrator by hand from the commands init printed.
-MADE = ("pool", "role", "user", "token", "grant", "template")
+# What this fleet makes on a host, each by its ID (card E1's list, and E12's build: the template, each image file it
+# downloaded and each package it installed), and who made it: this engine through init's offer or a build, or the
+# administrator by hand from the commands init printed.
+MADE = ("pool", "role", "user", "token", "grant", "template", "file", "package")
 MADE_BY = ("engine", "administrator")
 MADE_KEYS = ("what", "id", "by")
 # A host's address as a run reaches it: a host's name or an IP address, one word, starting with a letter or a digit,
@@ -109,6 +110,17 @@ ADDRESS = re.compile(r"[A-Za-z0-9][A-Za-z0-9.:-]{0,252}")
 ACCOUNT = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,63}")
 # A thing made, by its ID: one line of text, no control character.
 MADE_ID = re.compile(r"[^\x00-\x1f\x7f-\x9f\u2028\u2029]{1,256}")
+# The form of a thing made by a build, by its kind, which a cleanup removes by: a template a guest's ID in Proxmox's
+# range, given as a decimal; a file an absolute path of plain parts, none of them . or ..; a package a Debian name.
+MADE_FORMS = {
+    "template": re.compile(r"[1-9][0-9]{2,8}"),
+    "file": re.compile(r"(?:/[A-Za-z0-9_+][A-Za-z0-9._+-]{0,254})+"),
+    "package": re.compile(r"[a-z0-9][a-z0-9+.-]{1,99}"),
+}
+FORMS_SAID = (
+    "a template's id is a guest's ID, a file's an absolute path of plain parts, none of them . or .., and a package's "
+    "a Debian package's name"
+)
 # The managed SSH config, under the user's home, where each VM's alias records its host: this computer's own.
 ALIASES = (".ssh", "agent-warehouse.conf")
 # hosts/choose.py says where a name came from in today's words: the one for the current host, said as this layout
@@ -283,6 +295,8 @@ def _made(value: object) -> tuple[Made, ...]:
             made_id = str(made_id)
         if what not in MADE or by not in MADE_BY or not isinstance(made_id, str) or not MADE_ID.fullmatch(made_id):
             raise ValueError(takes)
+        if what in MADE_FORMS and not MADE_FORMS[what].fullmatch(made_id):
+            raise ValueError(f"{takes}; {FORMS_SAID}")
         found.append(Made(what=what, id=made_id, by=by))
     return tuple(found)
 
