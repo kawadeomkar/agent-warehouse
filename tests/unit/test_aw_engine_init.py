@@ -597,8 +597,12 @@ def test_a_token_proxmox_does_not_take_for_the_pool_writes_nothing(fake, secret_
         (ENGINE_POOL, OWN_USER, OWN_TOKEN, ("pool",)),
         (ENGINE_POOL, ENGINE_USER, OWN_TOKEN, ("pool", "user")),
         (OWN_POOL, OWN_USER, OWN_TOKEN, ()),
+        # Review 55, E19.md 1: the person's own user with the token ID aw, whose full ID is not the engine's token; and
+        # a default name in another case, which to Proxmox is another object.
+        (ENGINE_POOL, OWN_USER, ENGINE_TOKEN, ("pool",)),
+        ("AW-FLEET", ENGINE_USER, ENGINE_TOKEN, ("user", "token")),
     ],
-    ids=["own-pool", "own-user-and-token", "own-token-id", "all-own"],
+    ids=["own-pool", "own-user-and-token", "own-token-id", "all-own", "own-user-token-aw", "pool-in-capitals"],
 )
 @pytest.mark.parametrize("source", ["given", "set"])
 def test_made_records_only_the_engine_s_default_names_and_the_report_still_names_the_fleet(
@@ -1516,6 +1520,43 @@ def test_a_token_id_typed_wrong_twice_keeps_the_engine_s_own_says_so_and_host_ym
     fields = hosts.Layout(_home()).state("pve").fields
     assert fields is not None, _files()
     assert (fields.address, f"{fields.token_user}!{fields.token_id}") == (address, kept)
+
+
+def test_a_token_of_the_person_s_own_with_its_secret_typed_records_the_engine_s_pool_alone(fake, tmp_path) -> None:
+    # Card E19 at a terminal (review 55, E19.md's "For the rebase onto E5"): where the secret is typed, the names are
+    # compared as where it is given. host.yml, as a person writes it before init, names the API's port and their own
+    # token, ops@pve!tools, made in the fake as an administrator makes it, the engine's role granted it and its user on
+    # the engine's pool, which is marked; its secret is typed at the question, and the pool's mark read with it. The
+    # fleet is named, and made records the pool alone, nothing of the person's user or token, which _asked's check
+    # after the run holds too. No forwarder at the API's own port: its one address and port are E5's token ID case's,
+    # which a second test would contend for on another worker.
+    _public_key("id_ed25519.pub", PUBLIC_KEY)
+    full_id = f"{OWN_USER}!{OWN_TOKEN}"
+    _pve(fake.base, "POST", "access/users", userid=OWN_USER)
+    secret = _pve(fake.base, "POST", f"access/users/{OWN_USER}/token/{OWN_TOKEN}", privsep=1)["data"]["value"]
+    _pve(fake.base, "PUT", "access/acl", path=f"/pool/{ENGINE_POOL}", roles=ENGINE_ROLE, users=OWN_USER, tokens=full_id)
+    fleet = record.new_id()
+    mark_pool(fake.base, fleet)
+    with_port(fake.port)
+    layout = hosts.Layout(_home())
+    own = {"token_user": OWN_USER, "token_id": OWN_TOKEN}
+    hosts.write(layout, "pve", layout.state("pve").digest, change=lambda raw: raw.update(own))
+    plan: Plan = [
+        (SECRET_ASKED, [secret.encode() + b"\n"], False),
+        (GITHUB_ASKED, [b"\n"], False),
+        (VPN_ASKED, [ESC], True),
+    ]
+    rc, raw = _asked(fake, plan, "--certificate", trust.pem_fingerprint(fake.pki["node"]))
+    said = _read(raw)
+    assert rc == 0, said
+    assert f"the fleet {fleet}, as the pool's mark names it" in said, said
+    assert record.read(_home()).fleet == fleet
+    fields = hosts.Layout(_home()).state("pve").fields
+    assert fields is not None, _files()
+    assert (fields.token_user, fields.token_id) == (OWN_USER, OWN_TOKEN)
+    assert fields.made == (hosts.Made("pool", ENGINE_POOL, "administrator"),)
+    assert {entry: _revealed(value) for entry, value in _opened().items()} == {"token@pve": secret}
+    _no_secret_said(raw, tmp_path, secret)
 
 
 # ---------------------------------------------------------------- the rules held by scans ----
