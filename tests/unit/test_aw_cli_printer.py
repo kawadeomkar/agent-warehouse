@@ -1205,6 +1205,9 @@ NAMED_IN_A_SENTENCE = {
     "when K14 takes the clause out: no command of aw's, so none the printer writes",
     ("lib/claude_vm/guest/layer1.py", "_unready"): "today's just install, which fills the checkout's Galaxy collections"
     " that layer 1 reads until F6a takes them and the sentence out: no command of aw's, so none the printer writes",
+    ("lib/claude_vm/cli/status_inputs.py", "_commands"): "today's just login and just deploy lines a VM's report says,"
+    " made as today's status settings make them and held equal to those, until G16 makes aw status's lines aw's: no"
+    " command of aw's, so none the printer writes",
 }
 # The printer's names of the program: as it was started (program, _program) and its constant (PROGRAM). Only the
 # printer names them: help says the program through the check's command, and main.py hands it on by started_as.

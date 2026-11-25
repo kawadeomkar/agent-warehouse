@@ -14,7 +14,8 @@ No context logs its session's keys under SSLKEYLOGFILE, or opens the file it nam
 two first calls at once each within their own deadline, and a host below 9 is refused before any other. A redirect is an
 answer; a 401 or a 403 is Denied by its status alone; a node that is down fails its own reads alone; an answer nested
 deeper than any of Proxmox's is Malformed. The rules at the end hold the token to one class: PVEAPIToken is written in
-one module of the new engine, no method returns the token, and no error says it.
+one module of the new engine (and, while today's status engine sends aw status's GETs, in the settings it is handed:
+HEADER_FOR_TODAY), no method returns the token, and no error says it.
 """
 
 from __future__ import annotations
@@ -782,9 +783,18 @@ def test_proxmox_s_loose_json_is_read_as_it_comes() -> None:
 # ------------------------------------------------------------------------------------------- the token ----
 
 
+# Each module of the new engine beside the client that writes the header, with why. Card G15's aw status runs today's
+# status engine, whose own reader (status/engine.py's Api) sends GETs alone, each with the header its settings give it.
+HEADER_FOR_TODAY = {
+    "lib/claude_vm/cli/status_inputs.py": "aw status's settings for today's status engine: the header made once a run,"
+    " in _fleet, of the vault's secret, until G16 moves status's reads to the client and the row goes",
+}
+
+
 def test_pveapitoken_is_written_in_one_module_of_the_new_engine() -> None:
     writing = [_rel(path) for path in _new_engine() if "PVEAPIToken" in path.read_text()]
-    assert writing == [_rel(CLIENT)]
+    assert sorted(writing) == sorted([_rel(CLIENT), *HEADER_FOR_TODAY])
+    assert all(why.strip() for why in HEADER_FOR_TODAY.values())
 
 
 def _returns_the_token(tree: ast.AST) -> list[int]:

@@ -56,6 +56,10 @@ REVEALS: dict[str, str] = {
     "lib/claude_vm/engine/init.py": "the token's secret given, compared in _same alone with the one the vault holds for"
     " its host, so that init never writes over it; and a hidden answer typed at init's question, held to its kind in"
     " _kind_of alone and wrapped again at once (card E5): never sent on, written or said",
+    "lib/claude_vm/cli/status_inputs.py": "aw status's settings, handed to today's status engine as its own were: the"
+    " token's secret in the API's one header (_fleet), the VM user's or a machine's own sudo password, read when the"
+    " engine asks for one and sent on the probe's standard input alone (password_of), and Tailscale's key read for its"
+    " kind alone (_vm), never kept or said",
 }
 
 # The fixtures of the engine's test files whose scope is wider than one test, each with why it may be: pytest makes

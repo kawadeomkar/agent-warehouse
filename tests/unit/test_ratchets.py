@@ -65,6 +65,9 @@ VSCODE_ELSEWHERE = {
     "inventory/group_vars/all/defaults.yml": 7,
     "inventory/group_vars/all/local.yml.example": 7,
     "justfile": 2,
+    # aw status's settings carry the editors' rows today's inventory defaults hold (claude_editors), for the probe's
+    # windows and the line under ACCESS, held equal to those by test_aw_status_inputs.py: data, by design (card G15).
+    "lib/claude_vm/cli/status_inputs.py": 4,
     "lib/claude_vm/editors/model.py": 1,
     "lib/claude_vm/editors/registry.py": 5,
     "lib/claude_vm/editors/zed.py": 1,
@@ -186,6 +189,8 @@ ZED_ELSEWHERE = {
     "inventory/group_vars/all/defaults.yml": 9,
     "inventory/group_vars/all/local.yml.example": 3,
     "justfile": 1,
+    # aw status's settings carry the editors' rows, as VS Code's table says (card G15).
+    "lib/claude_vm/cli/status_inputs.py": 6,
     "lib/claude_vm/editors/model.py": 1,
     "lib/claude_vm/editors/registry.py": 4,
     # The new engine's settings table names the editors as data, by design: editor's choices and its sentences.

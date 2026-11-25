@@ -1221,6 +1221,8 @@ def _names_ssh(source: str, kind_named: bool = False) -> list[str]:
 SSH_AS_A_VALUE = {
     "lib/claude_vm/fleet/registry.py": "the settings table: ssh is github_projects_clone_protocol's choice, as the "
     "github_projects role's argument spec gives it",
+    "lib/claude_vm/cli/status_inputs.py": "aw status's settings in today's shape: ssh is a VM's connection kind, as"
+    " Ansible names its plugin, and the key of Tailscale's SSH setting; the program is the runner's SSH_PROGRAM",
 }
 BARE = ": 'ssh'"
 

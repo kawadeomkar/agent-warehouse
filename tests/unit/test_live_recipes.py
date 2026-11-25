@@ -317,6 +317,9 @@ LIVE_TESTS = {
         '"claude_ssh_user_config"',
     ),
     "test_status_live.py": ("status_root",),
+    # aw status against the fake, on a fleet folder of the test's own, and tools/status beside it as test_status.py runs
+    # it: no playbook.
+    "test_aw_status_live.py": ("status_root",),
 }
 
 

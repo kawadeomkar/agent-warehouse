@@ -514,6 +514,32 @@ vault, `settings --all` and `status`. What a run loaded is `sys.modules` at its 
 own in the virtualenv it gives the launcher as `PYTHON`, since `-X importtime` lists no module the dispatch loads by
 `importlib`.
 
+`aw status` runs today's status engine, `lib/claude_vm/status/engine.py`, in the command's own process, with settings
+worked out from the fleet's files in place of the ones `status/settings.py` asks Ansible for or keeps.
+`cli/status_inputs.py`'s `load` gives the engine the dict `settings.load` gives it, key for key: the registry's
+defaults under the fleet's `settings.yml`, the host's own file and `client.yml`, with the run's `--set` values on top
+of them all, and the host's `host.yml`, its anchor and the vault's secrets. What `--set` gives is typed by
+`fleet/overrides.py`'s `run_values` before any file is read, so a name that is no setting's, a secret's row and a value
+of the wrong type are each refused first, never said back, and once the vault is open a value that is one of its
+secrets is refused too. The host is the one `fleet/hosts.py`'s `reach` picks; its token's secret is read from the vault
+at each run and goes into the API's one header, and its certificate is always checked: against the anchor the host
+keeps, else this computer's certificates. That header is the one the new engine writes outside the Proxmox client,
+for today's engine's reader, until G16 moves status's reads to the client. Status's own ssh options open no shared
+connection, where today's did: only the SSH runner's `ensure` opens a master, so a probe rides one that is open. Nothing
+of 1.x's is named, and nothing is kept but apt's answers for a VM, in the host's folder of the fleet's state
+(`fleet/paths.py`'s `status_cache`). `cli/status.py`'s `main` is the handler:
+a refusal is said before the engine starts, and the run then ends as a read that failed (3). The engine's `run` takes
+the loader as a parameter, today's `settings.load` unless given, so `tools/status` passes nothing new; and every wait
+of its main thread on the API's answers and on the probes takes slices, as `_off_main`'s does, so a Ctrl-C lands within
+one even where a signal wakes no wait of a lock (macOS). `status_inputs` imports nothing of today's status, and
+`cli/status.py` takes one name of it, `run`. Until card G16, the table names no handler for `status`, the lines a
+report says name `just`, and one host is read: reading every host at once, a child each as `tools/status` does, needs
+the word that starts the child. `tests/unit/test_aw_status_inputs.py` holds `load` equal to today's `settings.load`,
+difference by difference with why, for E4's fleet folder beside the example files and with a setting of each file's
+and each secret set, and the refusals; `tests/unit/test_aw_status_hosts.py` holds a fleet of two hosts, each read with
+its own API, token and settings; `tests/unit/test_aw_status_live.py` runs `aw status --json` against the fake beside
+`tools/status --json`, and a Ctrl-C while `read_fleet` waits on a probe and on the API's answers.
+
 ## 16.4 `engine/` — the workflows, one module a verb
 
 `lib/claude_vm/engine/` is where the workflows go, one module a verb. Each says what a run of `deploy`, `destroy`,

@@ -24,6 +24,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from typing import TYPE_CHECKING
 
+from claude_vm.fleet import paths
 from claude_vm.guest import bundle, remote
 from claude_vm.secret import Secret
 from claude_vm.ssh import runner
@@ -39,6 +40,9 @@ AS_ROOT = frozenset({"tailscale"})
 ALWAYS = ("user", "limit")
 # The view of status's (found.parts_wanted) that asks for each part: ssh_found reads the parts its sections want.
 SECTIONS = {"system": "system", "work": "work", "claude": "sign-ins", "github": "sign-ins", "tailscale": "access"}
+# The marker the github_projects role writes on a machine where gh's login is its own, holding the token's digest: the
+# probe's github part reads it (status's ask, github's marker) to tell that login from one made by hand.
+GITHUB_MARKER = paths.ON_A_MACHINE + "/gh-login"
 
 
 def _parts(parts: Iterable[str]) -> frozenset[str]:

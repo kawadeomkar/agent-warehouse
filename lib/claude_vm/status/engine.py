@@ -27,7 +27,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime
 from pathlib import Path
 
@@ -262,15 +262,27 @@ def _off_main(pool, call, *args, **kwargs):
     that starts an ssh of route.py's. Python raises a Ctrl-C's KeyboardInterrupt in the main thread alone, so it lands
     in this wait, never between an ssh's start and its record (route._started), and end_all ends that ssh with the
     rest."""
-    future = pool.submit(call, *args, **kwargs)
-    # Waited for a slice at a time: where Python's locks are a mutex and a condition (macOS), a signal wakes no wait
-    # without a limit, and the Ctrl-C would land only once the call had returned.
+    return _waited(pool.submit(call, *args, **kwargs))
+
+
+def _waited(future):
+    """``future``'s answer, waited for on the main thread a slice at a time: where Python's locks are a mutex and a
+    condition (macOS), a signal wakes no wait without a limit, and a Ctrl-C would land only once the future had ended
+    (a probe's 45 s at most)."""
     while not future.done():
         try:
             future.exception(timeout=OFF_MAIN_SLICE)
         except TimeoutError:
             pass
     return future.result()
+
+
+def _as_done(futures):
+    """Each of ``futures`` as it ends, as ``as_completed`` gives them, each wait a slice long (``_waited``)."""
+    pending = set(futures)
+    while pending:
+        done, pending = wait(pending, timeout=OFF_MAIN_SLICE, return_when=FIRST_COMPLETED)
+        yield from done
 
 
 def _data(result):
@@ -570,7 +582,7 @@ class Run:
                 _off_main(pool, routes.hop_stop, hop, "yes")
                 _off_main(pool, routes.hop_held, hop, "yes")
                 for job in [pool.submit(self.probe, one, *unanswered[one]) for one in names]:
-                    job.result()
+                    _waited(job)
                 # Each that still did not answer: the hop's words for it, as the others get them.
                 unanswered = dict(self.unanswered)
                 self.unanswered.clear()
@@ -602,7 +614,7 @@ class Run:
 
     def read_fleet(self, api):
         first = [api.later(path) for path in FIRST_WAVE]
-        listing = first[0].result()
+        listing = _waited(first[0])
         if listing["status"] != 200 or not isinstance(_data(listing), list):
             status = listing["status"]
             if status in (401, 403):
@@ -645,7 +657,7 @@ class Run:
             )
         )
         self.screen.land("localhost", {"fleet": early})
-        lists = [one.result() for one in first[1:]]
+        lists = [_waited(one) for one in first[1:]]
         template = proxmox_reads.built_template(data, self.fleet["template_name"]) or None
         storages = model.status_storages(lists, self.fleet["storage"])
         vms = [vm for vm in early["vms"] if vm.get("read")]
@@ -654,7 +666,7 @@ class Run:
         pool = self.probes(len(vms))
         try:
             denied, jobs = self.reach_each(vms, requested, items, futures, pool)
-            results = [] if denied else [future.result() for future in futures]
+            results = [] if denied else [_waited(future) for future in futures]
             denied = denied or _denied(results)
             if denied:
                 reach.end_all()
@@ -662,7 +674,7 @@ class Run:
                 return
             whole = self.fill(data, tagged, requested, lists, results, vms)
             for job in jobs:
-                job.result()
+                _waited(job)
             # The hop's login is made by the first VM that takes the hop, on a thread of the pool, and may fail after
             # fill landed the fleet: landed again here, once the probes are joined, so the hop's line is there for
             # each VM that points at it - never from the login's own thread, which could land before fill's copy.
@@ -702,7 +714,7 @@ class Run:
         waiting = {future: at for at, pair in enumerate(pairs) for future in pair.values()}
         left = [len(pair) for pair in pairs]
         jobs = []
-        for future in as_completed(waiting):
+        for future in _as_done(waiting):
             at = waiting[future]
             left[at] -= 1
             if left[at] or len(pairs[at]) < 2:
@@ -864,7 +876,7 @@ class Run:
                 for name, one in hosts.items()
             ]
             for job in jobs:
-                job.result()
+                _waited(job)
         except BaseException:
             reach.end_all()
             raise
@@ -891,8 +903,10 @@ def _end_for_an_interrupt(screen):
     os._exit(3)
 
 
-def run(opts) -> int:
-    """One just status: the report on screen and in the log, printed as JSON with ``--json``; its exit code."""
+def run(opts, loader=settings.load) -> int:
+    """One just status: the report on screen and in the log, printed as JSON with ``--json``; its exit code. loader
+    gives the run's settings, called as settings.load is, with opts and where Ansible's warnings are said: today's own,
+    or aw status's, which hands it the settings it worked out before the run."""
     try:
         sections = settings.sections(opts.only)
     except ValueError as error:
@@ -907,7 +921,7 @@ def run(opts) -> int:
     # A password script may ask at the terminal: the outline waits for its answer rather than being drawn over it.
     screen = None if settings.may_ask(opts) else drawn()
     try:
-        config = settings.load(opts, screen.display.display if screen else None)
+        config = loader(opts, screen.display.display if screen else None)
         screen = screen or drawn()
         if opts.emit:
             fleet = config["fleet"]

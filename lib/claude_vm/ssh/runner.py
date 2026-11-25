@@ -88,6 +88,8 @@ if TYPE_CHECKING:
 KNOWN_HOSTS = Path("~/.ssh/agent-warehouse.known_hosts")
 # The person's own known-hosts files, which a first use never writes: the Proxmox host's key alone is kept there.
 PERSONS_KNOWN_HOSTS = (Path("~/.ssh/known_hosts"), Path("~/.ssh/known_hosts2"))
+# The ssh program where ssh_executable names none: the one found on PATH. aw status hands it to today's status engine.
+SSH_PROGRAM = "ssh"
 # The policy of the two forms that take a key at first use - a machine's first connection, into a scratch file, and the
 # Proxmox host's, into the person's own file as ansible.cfg's ssh_args take it today - and of every other connection.
 ACCEPT_NEW = "accept-new"
@@ -256,7 +258,7 @@ class Target:
     hop: Hop | None = None
     given: tuple[tuple[str, str], ...] = ()
     first_use: bool = False
-    ssh: str = "ssh"
+    ssh: str = SSH_PROGRAM
     routed_as: str = ""
     routed_from: tuple[tuple[str, object], ...] = dataclasses.field(default=(), repr=False)
 
@@ -360,7 +362,7 @@ def machine(
     hop: Hop | None = None,
     given: Mapping[str, str] | Sequence[tuple[str, str]] = (),
     first_use: bool = False,
-    ssh: str = "ssh",
+    ssh: str = SSH_PROGRAM,
 ) -> Target:
     """A machine, named by its identity and reached at one IPv4 address: its key checked against the product's own
     known-hosts file, or with first_use taken into the scratch file known_hosts names."""
@@ -386,7 +388,7 @@ def proxmox_host(
     *,
     port: int = 22,
     identity_file: Path | str | None = None,
-    ssh: str = "ssh",
+    ssh: str = SSH_PROGRAM,
 ) -> Target:
     """The Proxmox host, for root SSH and as the hop: its account, port and address from the host's file (ssh_user,
     ssh_port, address), its key from this computer's own (ssh_identity_file), and the ssh program this computer names
