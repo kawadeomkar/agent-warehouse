@@ -21,7 +21,8 @@ docs/architecture/engine.md §16.10).
   one of `ALLOWED`'s reads or git_checkouts.py's, each open without a flag that writes, no write, no socket, no signal.
   And statically, over each carried file: the functions that start a program named, with what each starts, those the
   probe never reaches among them; the functions that reach past the machine's files and programs (a socket, a signal,
-  ctypes) named likewise, alive's os.kill alone, reached from running_claude alone; today's rule over the probe's own
+  ctypes) named likewise, alive's os.kill alone, reached from running_claude alone - each call read as it is spelt and
+  as what the name an import bound stands for (from os import kill as k: os.kill); today's rule over the probe's own
   literal reads; git's reads by their subcommand; and every open a read. The probe's root branch (a fork that becomes
   the machine's user) is held by the static rule alone: a test runs as no root.
 """
@@ -310,6 +311,17 @@ def _imports(source: str) -> list[tuple[int, str]]:
             found += [(0, alias.name) for alias in node.names]
         elif isinstance(node, ast.ImportFrom):
             found.append((node.level, node.module or ""))
+    return found
+
+
+def _imported(source: str) -> list[str]:
+    """Each module source imports, and each name it imports from one, by its whole dotted name."""
+    found = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            found += [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            found += [node.module, *(f"{node.module}.{alias.name}" for alias in node.names)]
     return found
 
 
@@ -745,10 +757,31 @@ def _qualified(tree: ast.Module) -> list[tuple[str, ast.AST]]:
     return found
 
 
+def _aliases(tree: ast.AST) -> dict[str, str]:
+    """Each name an import of tree binds to another than its own, wherever in the file it is, with the dotted name it
+    stands for: from M import n (as a) binds a, or n, to M.n; import M as a binds a to M."""
+    found = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            found |= {alias.asname or alias.name: f"{module}.{alias.name}".lstrip(".") for alias in node.names}
+        elif isinstance(node, ast.Import):
+            found |= {alias.asname: alias.name for alias in node.names if alias.asname}
+    return found
+
+
+def _resolved(called: str, aliases: dict[str, str]) -> str:
+    """called, a dotted name, its first part the name an import bound it to."""
+    first, dot, rest = called.partition(".")
+    return f"{aliases[first]}{dot}{rest}" if first in aliases else called
+
+
 def _starting_functions(source: str, scan=_starts) -> set[str]:
     """The innermost function of source (Class.method, '' outside one) around each call that starts a program, or that
-    scan finds otherwise."""
+    scan finds otherwise: by the callee as it is spelt, and as the name an import bound stands for (_aliases)."""
     found: set[str] = set()
+    tree = ast.parse(source)
+    aliases = _aliases(tree)
 
     def visit(node: ast.AST, function: str, prefix: str) -> None:
         for child in ast.iter_child_nodes(node):
@@ -757,11 +790,13 @@ def _starting_functions(source: str, scan=_starts) -> set[str]:
             elif isinstance(child, ast.ClassDef):
                 visit(child, function, f"{prefix}{child.name}.")
             else:
-                if isinstance(child, ast.Call) and scan(ast.unparse(child.func)):
-                    found.add(function)
+                if isinstance(child, ast.Call):
+                    called = ast.unparse(child.func)
+                    if scan(called) or scan(_resolved(called, aliases)):
+                        found.add(function)
                 visit(child, function, prefix)
 
-    visit(ast.parse(source), "", "")
+    visit(tree, "", "")
     return found
 
 
@@ -803,8 +838,9 @@ def test_each_carried_file_reaches_past_the_machine_s_files_and_programs_only_wh
         (module, function) for module, source in carried.items() for function in _starting_functions(source, _reaches)
     }
     assert reaching == set(REACHING_FUNCTIONS)
-    # None imports a module of REACHERS, and the one that reaches is called by what the probe never reaches alone.
-    imported = [(module, name) for module, source in carried.items() for _, name in _imports(source)]
+    # None imports a module of REACHERS, or a name from one (os's kill), and the one that reaches is called by what the
+    # probe never reaches alone.
+    imported = [(module, name) for module, source in carried.items() for name in _imported(source)]
     assert [(module, name) for module, name in imported if _reaches(f"import {name}")] == []
     for module, function in REACHING_FUNCTIONS:
         callers = _callers(carried, module, function)
@@ -932,5 +968,26 @@ def test_the_callers_scan_finds_a_call_by_name_and_by_import() -> None:
         "n": "from m import alive\ndef b():\n    alive(2)\ndef c():\n    thread.is_alive()\n",
         "o": "import m\ndef d():\n    m.alive(3)\n",
         "p": "def alive():\n    pass\ndef e():\n    alive()\n",
+        "q": "from m import alive as living\ndef g():\n    living(4)\n",
     }
-    assert _callers(carried, "m", "alive") == {("m", "a"), ("n", "b"), ("o", "d")}
+    assert _callers(carried, "m", "alive") == {("m", "a"), ("n", "b"), ("o", "d"), ("q", "g")}
+
+
+@pytest.mark.parametrize(
+    ("source", "scan", "found"),
+    [
+        ("from os import kill as _k\ndef f():\n    _k(1, 0)\n", _reaches, {"f"}),
+        ("from os import kill\ndef f():\n    kill(1, 0)\n", _reaches, {"f"}),
+        ("import os as o\ndef f():\n    o.killpg(1, 9)\n", _reaches, {"f"}),
+        ("def f():\n    from signal import pthread_kill as p\n    p(1, 9)\n", _reaches, {"f"}),
+        ("from socket import socket as s\nclass C:\n    def f(self):\n        s().connect(1)\n", _reaches, {"C.f"}),
+        ("from subprocess import run as _r\ndef f():\n    _r(['x'])\n", _starts, {"f"}),
+        ("import subprocess as sp\ndef f():\n    sp.Popen(['x'])\n", _starts, {"f"}),
+        ("from os import execvp as e\ndef f():\n    e('x', [])\n", _starts, {"f"}),
+        ("from os import path\ndef f():\n    path.join('a')\n", _reaches, set()),
+        ("from os import path\ndef f():\n    path.join('a')\n", _starts, set()),
+    ],
+)
+def test_the_scan_takes_a_name_an_import_bound_for_what_it_stands_for(source, scan, found) -> None:
+    # Review 70's 3: from os import kill as _k, in the probe's root branch, which the static rule alone holds, passed.
+    assert _starting_functions(source, scan) == found
