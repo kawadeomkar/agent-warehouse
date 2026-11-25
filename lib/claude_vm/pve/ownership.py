@@ -297,8 +297,9 @@ def refusal(member: Member, job: str = "", clone: Task | None = None) -> str:
         if not (job and member.job == job and _cloned(member, clone)):
             return (
                 f"{said}'s record is still the first form its clone carries, which names no UUID: only the run that"
-                " cloned it, by its own job and its own clone's task, writes the rest, and until then nothing tells it"
-                " from a copy"
+                " cloned it, by its own job and its own clone's task, writes the rest, and nothing else tells it from a"
+                f" copy. Once that run has ended, nothing will: delete VMID {member.vmid} in Proxmox, then run this"
+                " again"
             )
         if not member.uuid:
             return (

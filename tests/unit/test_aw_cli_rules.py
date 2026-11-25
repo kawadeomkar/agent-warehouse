@@ -36,6 +36,9 @@ from claude_vm.schema.printer import said
 from claude_vm.schema.words import VERBS
 
 DEPLOY = VERBS["deploy"]
+# How the dispatch refuses deploy, a verb that changes something, in a home with no fleet: the end of its line (the
+# folder before it is the test's own).
+NO_FLEET = " missing. Run: aw init"
 # A value a person may have typed where it does not belong: no sentence that need not say a value may say it.
 TYPED = "swordfish"
 # A --repos value of 21 names, 2079 characters: each name its pattern takes, the whole past check.repos.2's 2000.
@@ -522,8 +525,8 @@ def test_deploy_asks_and_takes_a_stage_word_for_a_vm_name_when_that_was_meant(ho
     assert "configure is a stage of aw deploy and also a name a VM could have. Did you mean" in said
     assert "s  the stage: aw deploy alpha --only configure" in said
     assert "v  a VM named configure, created if there is none: aw deploy alpha configure" in said
-    # The names as given reach the dispatch, which says deploy is not built yet.
-    assert rc == 1 and said.rstrip("\n").endswith(dispatch.not_built(DEPLOY)), said
+    # The names as given reach the dispatch, which refuses deploy here for want of a fleet.
+    assert rc == 1 and said.rstrip("\n").endswith(NO_FLEET), said
     values = {"names": ["alpha", "configure"]}
     assert habits.answered(DEPLOY, values, "v") == values
 
@@ -544,7 +547,7 @@ def test_deploy_runs_the_stage_when_that_was_meant(words, taken) -> None:
 def test_the_stage_chosen_from_the_menu_reaches_the_dispatch(home) -> None:
     rc, said = _at_the_question(home, ["deploy", "alpha", "configure"], b"s\r")
     assert "  s  the stage: aw deploy alpha --only configure" in said
-    assert rc == 1 and said.rstrip("\n").endswith(dispatch.not_built(DEPLOY)), said
+    assert rc == 1 and said.rstrip("\n").endswith(NO_FLEET), said
 
 
 def test_check_meant_as_the_stage_is_the_dry_run() -> None:
@@ -565,7 +568,7 @@ def test_deploy_runs_nothing_unless_the_question_is_answered(home, answer: str) 
 
 def test_ctrl_c_at_the_question_ends_it_and_runs_nothing(home) -> None:
     rc, said = _at_the_question(home, ["deploy", "configure"], b"\x03")
-    assert rc == 130 and habits.NOTHING_RUN not in said and dispatch.not_built(DEPLOY) not in said, said
+    assert rc == 130 and habits.NOTHING_RUN not in said and NO_FLEET not in said, said
 
 
 def test_two_stage_words_are_vm_names_or_nothing(home) -> None:
@@ -574,7 +577,7 @@ def test_two_stage_words_are_vm_names_or_nothing(home) -> None:
     assert _typed(["deploy", "configure", "check"], "v\n")[0] == {"names": ["configure", "check"]}
     rc, said = _at_the_question(home, ["deploy", "configure", "check"], b"v\r")
     assert "s  the stage" not in said and "v  VMs so named, each created if there is none" in said
-    assert rc == 1 and said.rstrip("\n").endswith(dispatch.not_built(DEPLOY)), said
+    assert rc == 1 and said.rstrip("\n").endswith(NO_FLEET), said
 
 
 def test_the_stage_meant_still_meets_the_rules(home) -> None:
@@ -1002,7 +1005,9 @@ def test_a_run_at_a_terminal_reaches_the_dispatch_unasked(home, args) -> None:
         # outcome alone is card C28's, and any other still fails here. Not strict, since it passed in the other run.
         pytest.xfail("card C28: on macOS the run's pseudo-terminal gave none of what it wrote, once in two runs")
     said = output.decode(errors="replace")
-    assert rc == 1 and dispatch.not_built(VERBS[args[0]]) in said and "Did you mean" not in said, said
+    # deploy is built (card G3), and refused here for want of a fleet; login is not built yet.
+    reached = NO_FLEET if VERBS[args[0]].handler else dispatch.not_built(VERBS[args[0]])
+    assert rc == 1 and reached in said and "Did you mean" not in said, said
 
 
 def test_destroy_confirm_answers_the_question_for_exactly_the_vms_named() -> None:

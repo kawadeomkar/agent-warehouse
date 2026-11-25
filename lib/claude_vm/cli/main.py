@@ -11,6 +11,8 @@ is said in one line too, as the code's own fault (the printer's own_fault), neve
 where it reaches main, and by the run where a handler's run ends the process at once with a call still in a thread
 (runs/attached.py's _end_now), which it then never reaches. A Ctrl-C at deploy's question exits 130, as a cancelled run
 does.
+A run refused for a lock another run holds (runs/locks.py's Held, raised out of runs.run before anything ran) is said
+in Held's sentence and exits 1 too, the class read from the module a handler loaded, never imported here.
 `--version` alone answers with the checkout aw runs from. Every command it prints, and every sentence that names one, is
 the program as it was started: the launcher at the checkout's top says which in STARTED_AS (aw where aw on PATH is that
 launcher, else what the person typed to start it), which main takes out of the environment at once, so nothing the run
@@ -74,3 +76,20 @@ def main(argv: list[str]) -> int:
         # with a call still in a thread says it the same way (runs/attached.py's _end_now).
         print(printer.own_fault(unwritten), file=sys.stderr)
         return EXITS["refused"]
+    except Exception as error:
+        sentence = _held(error)
+        if sentence is None:
+            raise
+        print(sentence, file=sys.stderr)
+        return EXITS["refused"]
+
+
+def _held(error: BaseException) -> str | None:
+    """error's sentence where it is runs/locks.py's Held - a run refused for a lock another run holds, raised out of
+    runs.run before anything ran - else None. Read from the module only where a handler loaded it: this module imports
+    none of a run's."""
+    locks = sys.modules.get("claude_vm.runs.locks")
+    held = getattr(locks, "Held", None)
+    if isinstance(held, type) and isinstance(error, held):
+        return str(getattr(error, "sentence", "")) or None
+    return None

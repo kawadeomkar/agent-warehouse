@@ -606,7 +606,7 @@ _VERBS: tuple[Verb, ...] = (
             "deploy.11",
             "deploy.12",
         ),
-        handler=None,
+        handler="engine.deploy:deploy",
         card="G3",
         locks="words",
         changes=True,
@@ -991,6 +991,9 @@ EXITS: dict[str, int] = {
     # Refused before anything ran: a value outside its pattern, an option the verb has not got, a rule between options,
     # or a check before the work.
     "refused": 1,
+    # A changing run that began and failed: a machine's step failed, the others going on, or the run stopped short of
+    # what was asked (card G3: the first changing verb settles it, as no contract of today's records one).
+    "failed": 2,
     # A run a person cancelled: Ctrl-C at its terminal, or aw cancel from any other.
     "cancelled": 130,
 }

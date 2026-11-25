@@ -82,6 +82,9 @@ class Host:
     fields: hosts.HostFile
     values: Mapping[str, overrides.Value] = dataclasses.field(repr=False)
     tokens: Mapping[str, Secret] = dataclasses.field(repr=False)
+    # The VMs' console password (the vault's vm_password), None where the vault holds none: sent as cloud-init's
+    # cipassword when a VM is created (card G3), never said.
+    password: Secret | None = dataclasses.field(default=None, repr=False)
 
     def __enter__(self) -> Host:
         return self
@@ -163,11 +166,13 @@ def connect(
     values: Mapping[str, overrides.Value] | None = None,
     *,
     environ: Mapping[str, str] | None = None,
+    vault: Mapping[str, Secret] | None = None,
 ) -> Host:
     """The host reached is, opened: see the module's docstring. values is every setting's value for the run against it
-    (overrides.resolve's), read here where it is not given. Refused, in one sentence, where the fleet has no record, the
-    vault cannot be opened or holds no token for the host, the host names no pool, or its files say no API that can be
-    reached. Sends nothing."""
+    (overrides.resolve's), read here where it is not given. vault is the vault's map where the caller opened it already
+    (a run that held its --set values to the vault's secrets first), so that its key is asked for once; read here where
+    it is not given. Refused, in one sentence, where the fleet has no record, the vault cannot be opened or holds no
+    token for the host, the host names no pool, or its files say no API that can be reached. Sends nothing."""
     env = os.environ if environ is None else environ
     name = reached.host.name
     layout = hosts.Layout(home, env)
@@ -179,13 +184,16 @@ def connect(
             raise Refused(
                 said("the fleet has no record of its own (fleet.json) yet: {init} writes it", {"init": Line("init")})
             )
-        key = vaultkey.open(
-            home,
-            key_file=values["vault_key_file"].value,
-            key_command=values["vault_key_command"].value,
-            environ=env,
-        )
-        tokens = _tokens(sealed.read(home, key) or {})
+        if vault is None:
+            key = vaultkey.open(
+                home,
+                key_file=values["vault_key_file"].value,
+                key_command=values["vault_key_command"].value,
+                environ=env,
+            )
+            vault = sealed.read(home, key) or {}
+        tokens = _tokens(vault)
+        password = vault.get(secrets.entry("vm_password"))
         named, reached_by = _named_hosts(layout)
     except (sealed.Refused, fleet_record.Refused, overrides.Refused, paths.Refused, hosts.Refused) as error:
         raise Refused(sentence(error)) from None
@@ -214,4 +222,5 @@ def connect(
         fields=reached.fields,
         values=MappingProxyType(dict(values)),
         tokens=MappingProxyType(tokens),
+        password=password if isinstance(password, Secret) else None,
     )
