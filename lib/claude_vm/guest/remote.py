@@ -244,12 +244,18 @@ def _struck(result: runner.Result, secret: Secret | None) -> runner.Result:
     is parsed, and in why it was cut; result itself where no password is held."""
     if secret is None:
         return result
-    struck: dict[str, object] = {"said": secret.struck(result.said)}
-    if not isinstance(result, runner.Silent):
-        struck["lines"] = tuple(secret.struck(line) for line in result.lines)
+    said = secret.struck(result.said)
+    if isinstance(result, runner.Silent):
+        return runner.Silent(said)
+    lines = tuple(secret.struck(line) for line in result.lines)
     if isinstance(result, runner.Cut):
-        struck["why"] = secret.struck(result.why)
-    return dataclasses.replace(result, **struck)
+        return runner.Cut(secret.struck(result.why), lines, said)
+    if isinstance(result, runner.TimedOut):
+        return runner.TimedOut(lines, said)
+    if isinstance(result, runner.Unreachable):
+        return runner.Unreachable(said, lines)
+    assert isinstance(result, runner.Done)
+    return runner.Done(result.status, lines, said)
 
 
 def command(python: str, become_exe: str | None, password: bool = False) -> list[str]:
