@@ -1057,8 +1057,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `unarchive`, `assemble` or `uri` sends from this computer. A road it does not follow - a playbook imported, an
       include in a handler, a name only a run can say, a name Ansible reads otherwise than the walk (one that starts
       with `~`, which Ansible takes from the person's home, holds a `$`, which it expands, or is quoted), a collection's
-      role or a `collections` keyword, a role in the play's own roles folder, a template outside a role - raises
-      `Unfollowed` and fails every test: follow it in the walk, never pass it over.
+      role or a `collections` keyword (an include's `apply` too, which Ansible loads as a block), a role in the play's
+      own roles folder, a template outside a role - raises `Unfollowed` and fails every test: follow it in the walk,
+      never pass it over.
     - So does what Ansible renders that the walk would read as text: a template, or any string of any file the walk
       read, that names another template (`include`, `import`, `from` or `extends`, with `{%-` and `{%+` too: in a
       task's string Ansible looks for it beside the play) or sets its own delimiters (a `#jinja2:` line, or one of the
@@ -1069,8 +1070,11 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - So does a task file Ansible looks for elsewhere before the walk's: an `import_tasks` in a role's file that an
       include or import brought in (looked for first under that file's own folder's `tasks/`, then the working
       folder's), and any include or import two files below the play (looked for beside the play first). A file sent
-      from this computer outside a role, or that is no regular file of its own role's `files/` (a name under `files/`
-      and a folder too), is refused alike.
+      from this computer outside a role, or that is no regular file of its own role's `files/` as the checkout holds
+      it (a name under `files/`, a folder, a link out), is refused alike; so is a role, or a folder of a role that
+      Ansible reads (`tasks/`, `files/`, `templates/` and the rest), that is a link, and any file the play reaches that
+      is a link out of the checkout: through a link Ansible reads a folder the test never saw, on the computer the play
+      runs on.
     - So does what Ansible takes from the play's folder and a role's that the walk does not read: `group_vars/` or
       `host_vars/` beside the play, read whenever the host joins a group; `collections/` beside it, searched whatever
       the configuration names; a folder of any kind of plugin but the three `BESIDE_THE_PLAY` lists with its reason
@@ -1091,12 +1095,20 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `include_vars` at all.
     - Nothing it reaches runs or writes on this computer: no `delegate_to`, `local_action` or `connection` keyword, no
       `fetch`, no `group_by` or `add_host` (a group joined after the play's check), no play over any host but `all`,
-      no `with_` loop, and no lookup but the five `LOOKUPS` lists by its file and whole string (`lookup`, `query` or
+      no `with_` loop and no private field of ansible-core's task, read from it (`loop_with` runs a `with_` loop's
+      lookup over `loop`), and no lookup but the five `LOOKUPS` lists by its file and whole string (`lookup`, `query` or
       `q` as a word, which Jinja calls wherever it is named), read in every file the walk read (the roles' argument
-      specs, which Ansible templates here, among them) and in the templates.
-    - Each road review 61 ran is run as Ansible runs it too: planted under the test's own folder, found by the four
-      tests, then run by `layer1.run` over the test-only local connection on a stand-in machine, where its decoy writes
-      a mark in the test's own folder: each is shown to be a road Ansible takes.
+      specs, which Ansible templates here, among them) and in the templates. Nor does it ask this computer of its paths
+      (whether one is there, its kind, its real name, its home or its environment): no test of ansible-core's `files`
+      tests but `abs` (`exists`, `file`, `link` and the rest, read from it), no `fileglob`, `realpath`, `relpath`,
+      `expanduser` or `expandvars` filter, written or named to `select`, `reject`, `selectattr`, `rejectattr` or `map`,
+      and none of those five given a name only a run can say; each read as Jinja's own parser reads a string Ansible
+      renders (a template, a string that opens one, or a `when`, `changed_when`, `failed_when`, `until`, `that` or
+      `var`), and a string it cannot read refused.
+    - Each road review 61 ran, and review 67's `loop_with` and linked `files/`, is run as Ansible runs it too: planted
+      under the test's own folder, found by the four tests, then run by `layer1.run` over the test-only local
+      connection on a stand-in machine, where its decoy writes a mark in the test's own folder: each is shown to be a
+      road Ansible takes.
     - The child runs in the run's own directory (`children.start`'s `cwd`), never the caller's folder, where Ansible
       looks for a task file too; and its configuration names the engine's own filter folder,
       `lib/claude_vm/guest/ansible/filter_plugins/`, whose one adapter gives `plain_text` and `sshd_match_spec`, the

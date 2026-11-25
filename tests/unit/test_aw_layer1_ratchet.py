@@ -61,6 +61,7 @@ import functools
 import json
 import os
 import re
+import shutil
 from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 
@@ -120,6 +121,8 @@ BESIDE_THE_PLAY = {
 ELSEWHERE = ("delegate_to", "local_action", "connection")
 # What makes a dict of a task list a block rather than a task, as Ansible's Block.is_block reads it.
 BLOCK = ("block", "rescue", "always")
+# The folders of a role that Ansible reads: none of them may be a link.
+ROLE_FOLDERS = ("tasks", "handlers", "defaults", "vars", "meta", "files", "templates")
 # An include of a role's: which of its folders each of its _from keys names a file of.
 FROM = {"tasks_from": "tasks", "vars_from": "vars", "defaults_from": "defaults", "handlers_from": "handlers"}
 # A role's name the walk follows: one of the roles' folder, never a collection's (a dot) or a path.
@@ -135,6 +138,13 @@ LOOKUP = re.compile(r"\b(?:lookup|query|q)\b")
 # A template that names another template, whose lookups the walk would not read: Jinja's {%- and {%+ too, read in a
 # template and in every string, each of which Ansible renders with the play's folder to load from.
 TEMPLATE_INCLUDE = re.compile(r"\{%[-+]?\s*(?:include|import|from|extends)\b")
+# Review 67's 4: the filters that read this computer where Ansible renders, here - its folders' names (fileglob), its
+# links and working folder (realpath, relpath), its home (expanduser) and the child's environment (expandvars) - beside
+# ansible-core's files tests (file_tests()); the filters that apply a test or a filter given by its name, and which of
+# their arguments names it; and the keys whose string Ansible renders as an expression, with no {{ }} around it.
+PATH_FILTERS = ("fileglob", "realpath", "relpath", "expanduser", "expandvars")
+BY_NAME = {"select": 0, "reject": 0, "selectattr": 1, "rejectattr": 1, "map": 0}
+EXPRESSIONS = ("when", "changed_when", "failed_when", "until", "that", "var")
 # What makes a string or a template set its own delimiters, under which an include reads as text: Ansible's prefix of
 # a template's first line (JINJA2_OVERRIDE), and the template action's six arguments.
 TEMPLATE_HEADER = "#jinja2:"
@@ -522,6 +532,76 @@ def not_builtin(action: str) -> str | None:
     return f"{action}, which is no action or module of ansible-core's"
 
 
+@functools.cache
+def private_fields() -> frozenset[str]:
+    """The fields ansible-core keeps for itself on a task, a handler or a block (a FieldAttribute's private), which it
+    takes from a task's YAML all the same: loop_with names the lookup a with_ loop runs, and runs it over loop."""
+    from ansible.playbook.block import Block
+    from ansible.playbook.handler import Handler
+    from ansible.playbook.task import Task
+
+    kinds = (Task, Handler, Block)
+    return frozenset(name for kind in kinds for name, field in kind.fattributes.items() if field.private)
+
+
+@functools.cache
+def file_tests() -> frozenset[str]:
+    """Jinja's tests that look at this computer's paths where Ansible renders, here: ansible-core's files test plugin,
+    read from it, but abs (and is_abs), which reads a name's text alone."""
+    from ansible.plugins.test.files import TestModule
+
+    return frozenset(name for name in TestModule().tests() if name not in ("abs", "is_abs"))
+
+
+def _builtin(name: str) -> str:
+    """A test's or a filter's name as ansible-core resolves one of its own: short, ansible.builtin. or
+    ansible.legacy."""
+    return name.removeprefix("ansible.builtin.").removeprefix("ansible.legacy.")
+
+
+def _reads_paths(text: str, expression: bool) -> list[str]:
+    """What text, which Ansible renders here (an expression where expression is true), asks of this computer's paths,
+    each said by its name, as Jinja reads it: a test of file_tests(), a filter of PATH_FILTERS, either named to a filter
+    of BY_NAME, or a name BY_NAME's filter is given that only a run can say. A text Jinja cannot read is said too."""
+    import jinja2
+    from jinja2 import nodes
+
+    source = f"{{{{ {text} }}}}" if expression and not any(opener in text for opener in TEMPLATE) else text
+    try:
+        tree = jinja2.Environment().parse(source)
+    except jinja2.TemplateSyntaxError as error:
+        return [f"a template Jinja cannot read, which the walk cannot hold ({error.message})"]
+    said = []
+    for node in tree.find_all((nodes.Test, nodes.Filter)):
+        name = _builtin(node.name)
+        test, path_filter = isinstance(node, nodes.Test), isinstance(node, nodes.Filter)
+        if (test and name in file_tests()) or (path_filter and name in PATH_FILTERS):
+            said.append(f"the {type(node).__name__.lower()} {node.name}, which reads this computer's paths")
+        at = BY_NAME.get(name) if path_filter else None
+        if at is None or len(node.args) <= at:
+            continue
+        given = node.args[at]
+        if not isinstance(given, nodes.Const) or not isinstance(given.value, str):
+            said.append(f"{node.name} given a test or a filter by a name only a run can say")
+        elif _builtin(given.value) in file_tests() | frozenset(PATH_FILTERS):
+            said.append(f"{node.name} given {given.value}, which reads this computer's paths")
+    return said
+
+
+def _rendered(value: object, key: object = None) -> Iterator[tuple[str, bool]]:
+    """Each string of a document that Ansible renders: one that opens a template, and one of EXPRESSIONS' values, an
+    expression; with whether it is one. A mapping's keys are names, never rendered."""
+    if isinstance(value, str):
+        if key in EXPRESSIONS or any(opener in value for opener in TEMPLATE):
+            yield value, key in EXPRESSIONS
+    elif isinstance(value, dict):
+        for name, each in value.items():
+            yield from _rendered(each, name)
+    elif isinstance(value, list):
+        for each in value:
+            yield from _rendered(each, key)
+
+
 def _beside_the_play(basedir: Path, repo: Path) -> None:
     """Unfollowed on what Ansible takes from the play's own folder that the walk does not read: group_vars/ and
     host_vars/, a folder of plugins but the three BESIDE_THE_PLAY lists, collections/ (searched whatever the
@@ -574,9 +654,9 @@ def _role_file(name: object, role: Path | None, said: str) -> None:
         raise Unfollowed(f"{said}: {source}, a file of this computer sent from outside a role, with no files/")
     if Path(source).parts[0] == "files":
         raise Unfollowed(f"{said}: {source}, a name under files/, which Ansible looks for under the role's own first")
-    files = role / "files"
-    path = files / source
-    if not path.is_file() or not path.resolve().is_relative_to(files.resolve()):
+    path = role / "files" / source
+    # Held to the role's own files/, never to where a link of that folder or one under it leads.
+    if not path.is_file() or not path.resolve().is_relative_to(role.resolve() / "files"):
         raise Unfollowed(f"{said}: {source}, which is no file of its role's files/")
 
 
@@ -619,6 +699,8 @@ def walk(play: Path = PLAY, repo: Path = REPO) -> Walk:
     def read(path: Path) -> object:
         if not path.is_file():
             raise Unfollowed(f"{path}, which the play reaches, is not a file")
+        if not path.resolve().is_relative_to(repo.resolve()):
+            raise Unfollowed(f"{_where(path, repo)}: a link out of the checkout, to a file the checkout does not hold")
         if path not in found.files:
             found.files.append(path)
         data = yaml.safe_load(path.read_text())
@@ -660,6 +742,12 @@ def walk(play: Path = PLAY, repo: Path = REPO) -> Walk:
             if handlers and action in TASK_INCLUDES | ROLE_INCLUDES:
                 raise Unfollowed(f"{said}: an include in a handler, which Ansible resolves otherwise")
             if action in TASK_INCLUDES | ROLE_INCLUDES and isinstance(args.get("apply"), dict):
+                # Ansible loads an include's apply as a block: a block's keywords are held there too.
+                if "collections" in args["apply"]:
+                    raise Unfollowed(
+                        f"{said}: a collections keyword in an include's apply, under which a short name can be a"
+                        " collection's"
+                    )
                 _no_defaults(args["apply"], f"{said}: an include's apply")
             if action in TASK_INCLUDES:
                 if role is not None and depth >= 1 and action in IMPORT_TASKS:
@@ -690,7 +778,7 @@ def walk(play: Path = PLAY, repo: Path = REPO) -> Walk:
                         " reads as text names another template"
                     )
                 template = role / "templates" / source
-                if not template.is_file() or not template.resolve().is_relative_to((role / "templates").resolve()):
+                if not template.is_file() or not template.resolve().is_relative_to(role.resolve() / "templates"):
                     raise Unfollowed(f"{said}: the template {source}, not in its role's templates/")
                 _one_template(template.read_text(), f"{_where(template, repo)}: a template")
                 if template not in found.templates:
@@ -717,6 +805,13 @@ def walk(play: Path = PLAY, repo: Path = REPO) -> Walk:
         root = repo / "roles" / name
         if not root.is_dir():
             raise Unfollowed(f"{said}: the role {name}, which the roles' folder does not hold")
+        # A role, or a folder of it Ansible reads, that is a link reads another folder, out of the checkout or into
+        # another role's: refused, as a folder link is a road to a file the checkout does not hold.
+        if root.resolve() != repo.resolve() / "roles" / name:
+            raise Unfollowed(f"{said}: the role {name}, a link to a folder elsewhere")
+        for folder in ROLE_FOLDERS:
+            if (root / folder).is_symlink():
+                raise Unfollowed(f"{_where(root / folder, repo)}: a role's folder that is a link to one elsewhere")
         for folder in sorted(plugin_folders()):
             if os.path.lexists(root / folder):
                 raise Unfollowed(f"{_where(root / folder, repo)}: a role's folder Ansible loads code from, run here")
@@ -874,9 +969,9 @@ def _strings(value: object) -> Iterator[str]:
 
 def reaching_this_computer(play: Path = PLAY, repo: Path = REPO, lookups: Iterable = LOOKUPS) -> list[str]:
     """Each thing the play reaches that would run or write on this computer, said by its file and where: a delegation,
-    a connection keyword, a fetch, a group_by or add_host, a play over any host but all, a with_ loop, a lookup in a
-    template, a lookup lookups does not list, by its file and whole string; and one lookups lists that is no longer
-    there."""
+    a connection keyword, a fetch, a group_by or add_host, a play over any host but all, a with_ loop or a private
+    field, a test or a filter that asks this computer of its paths, a lookup in a template, a lookup lookups does not
+    list, by its file and whole string; and one lookups lists that is no longer there."""
     from ansible.module_utils.common.sentinel import Sentinel
 
     found = walk(play, repo)
@@ -892,6 +987,10 @@ def reaching_this_computer(play: Path = PLAY, repo: Path = REPO, lookups: Iterab
         where = f"{_where(path, repo)}: {task.get('name', '')}"
         said += [f"{where}: {key}" for key in ELSEWHERE if key in task]
         said += [f"{where}: {key}, a lookup run here: loop over it instead" for key in task if key.startswith("with_")]
+        private = [key for key in task if key in private_fields()]
+        said += [
+            f"{where}: {key}, a private field of ansible-core's (loop_with runs its lookup here)" for key in private
+        ]
         if any(key in task for key in BLOCK):
             continue
         action, args, delegated = _parsed(task)
@@ -906,6 +1005,12 @@ def reaching_this_computer(play: Path = PLAY, repo: Path = REPO, lookups: Iterab
     for path in found.templates:
         if LOOKUP.search(path.read_text()):
             said.append(f"{_where(path, repo)}: a lookup in a template")
+        read_here = _reads_paths(path.read_text(), False)
+        said += [f"{_where(path, repo)}: {each}" for each in read_here]
+    for path in found.files:
+        for text, expression in _rendered(yaml.safe_load(path.read_text())):
+            read_here = _reads_paths(text, expression)
+            said += [f"{_where(path, repo)}: {each}: {text!r}" for each in read_here]
     seen = {
         (_where(path, repo), text)
         for path in found.files
@@ -1012,6 +1117,14 @@ def test_what_the_walk_holds_templates_and_names_to_is_ansible_s_own() -> None:
     taken = set(re.findall(r"self\._task\.args\.get\('(\w+)'", action))
     spacing = {"trim_blocks", "lstrip_blocks", "newline_sequence", "keep_trailing_newline"}
     assert taken & (overrides - spacing) == set(DELIMITERS)
+    # Review 67's 1 and 4: a task's one private field, which runs a with_ loop's lookup; the files tests, of which abs
+    # alone reads no path; and the path filters, each one of ansible-core's own.
+    from ansible.plugins.filter.core import FilterModule
+    from ansible.plugins.test.files import TestModule
+
+    assert private_fields() == {"loop_with"}
+    assert set(TestModule().tests()) - file_tests() == {"abs", "is_abs"}
+    assert set(PATH_FILTERS) <= set(FilterModule().filters())
     # The routing table, read from the installed package: hundreds of names of ansible.builtin are a collection's.
     away = {name for name, entry in routing()["modules"].items() if not_builtin(f"ansible.builtin.{name}") is not None}
     assert len(away) > 100 and {"synchronize", "patch", "npm", "sysctl", "authorized_key"} <= away
@@ -1063,6 +1176,8 @@ HEADER = "#jinja2: block_start_string:'[%', block_end_string:'%]'\n"
 # A copy with no src of its own, and the src a module_defaults would give it: a file of this computer.
 UNSOURCED = {"name": "c", "ansible.builtin.copy": {"dest": "/y"}}
 SECRET_SRC = {"src": "/etc/hostname"}
+# A collection a collections keyword names.
+ZR = ["zr.c"]
 
 
 def _with(**keys: object) -> list:
@@ -1460,6 +1575,25 @@ UNFOLLOWED_ROADS: dict[str, dict[str, object]] = {
             "module_defaults": {"ansible.builtin.set_fact": {NAME: LOOSE}},
         }
     ),
+    # Review 67's 6: module_defaults in the forms Ansible takes besides a mapping, a list of them and a template.
+    "module_defaults as a list on a task": _in_one(
+        {**UNSOURCED, "module_defaults": [{"ansible.builtin.copy": SECRET_SRC}]}
+    ),
+    "module_defaults as a template on the play": {
+        "playbooks/system.yml": _with(module_defaults="{{ md }}"),
+        **_in_one(UNSOURCED),
+    },
+    # Review 67's 3: an include's apply, which Ansible loads as a block, with a block's collections keyword, under which
+    # the short name of a role included below it is a collection's.
+    "collections in an include's apply": {
+        **_in_one({"name": "i", "ansible.builtin.include_tasks": {"file": "more.yml", "apply": {"collections": ZR}}}),
+        "roles/one/tasks/more.yml": [{"name": "r", "ansible.builtin.include_role": {"name": "two"}}],
+        **_role_two(main=[PING]),
+    },
+    "collections in an include_role's apply": {
+        **_in_one({"name": "r", "ansible.builtin.include_role": {"name": "two", "apply": {"collections": ZR}}}),
+        **_role_two(main=[PING]),
+    },
     "a copy's args given as one template": _in_one({**UNSOURCED, "args": "{{ given }}"}),
     "a fact's args given as one template": _in_one(
         {"name": "f", "ansible.builtin.set_fact": {"one_y": 1}, "args": "{{ given }}"}
@@ -1626,6 +1760,87 @@ def test_a_link_out_of_its_role_s_files_or_templates_is_refused(tmp_path: Path, 
         walk(play, root)
 
 
+def _folder_link(root: Path, name: str, elsewhere: Path) -> None:
+    """root's name made a link to the folder elsewhere, which takes what root held there unless it is there."""
+    link = root / name
+    link.parent.mkdir(parents=True, exist_ok=True)
+    if elsewhere.is_dir():
+        shutil.rmtree(link, ignore_errors=True)
+    elif link.is_dir():
+        link.rename(elsewhere)
+    else:
+        elsewhere.mkdir(parents=True)
+    link.symlink_to(elsewhere)
+
+
+COPY_X = {"name": "c", "ansible.builtin.copy": {"src": "x", "dest": "/y"}}
+TEMPLATE_X = {"name": "t", "ansible.builtin.template": {"src": "x.j2", "dest": "/x"}}
+# Review 67's 2: a role, or a folder of it, that is a link to a folder elsewhere, in or out of the checkout; and a file
+# the play reaches that is a link out of the checkout. Each is planted under repo, elsewhere beside it, and said so.
+LINK_ROADS = {
+    "a role's files/ a link to a folder out of the checkout": (
+        _in_one(COPY_X),
+        lambda root, out: _folder_link(root, "roles/one/files", out),
+        "a role's folder that is a link",
+    ),
+    "a role's templates/ a link to a folder out of the checkout": (
+        _in_one(TEMPLATE_X),
+        lambda root, out: _folder_link(root, "roles/one/templates", out),
+        "a role's folder that is a link",
+    ),
+    "a role's files/ a link to another role's": (
+        {**_in_one(COPY_X), "roles/two/files/x": "x\n"},
+        lambda root, out: _folder_link(root, "roles/one/files", root / "roles/two/files"),
+        "a role's folder that is a link",
+    ),
+    "a folder under a role's files/ that is a link out": (
+        _in_one({"name": "c", "ansible.builtin.copy": {"src": "sub/x", "dest": "/y"}}),
+        lambda root, out: _folder_link(root, "roles/one/files/sub", out),
+        "no file of its role's files/",
+    ),
+    "a folder under a role's templates/ that is a link out": (
+        _in_one({"name": "t", "ansible.builtin.template": {"src": "sub/x.j2", "dest": "/x"}}),
+        lambda root, out: _folder_link(root, "roles/one/templates/sub", out),
+        "not in its role's templates/",
+    ),
+    "a role's tasks/ a link to a folder out of the checkout": (
+        _in_one(PING),
+        lambda root, out: _folder_link(root, "roles/one/tasks", out),
+        "a role's folder that is a link",
+    ),
+    "a role that is a link to a folder out of the checkout": (
+        {},
+        lambda root, out: _folder_link(root, "roles/one", out),
+        "the role one, a link to a folder elsewhere",
+    ),
+    "a role that is a link to another role of the checkout": (
+        {
+            **_in_one({"name": "r", "ansible.builtin.include_role": {"name": "two"}}),
+            "roles/three/tasks/main.yml": [PING],
+        },
+        lambda root, out: (root / "roles/two").symlink_to(root / "roles/three"),
+        "the role two, a link to a folder elsewhere",
+    ),
+    "the play's folder of task files a link out of the checkout": (
+        {},
+        lambda root, out: _folder_link(root, "playbooks/tasks", out),
+        "a link out of the checkout",
+    ),
+}
+
+
+@pytest.mark.parametrize("road", sorted(LINK_ROADS))
+def test_a_role_or_a_folder_of_it_that_is_a_link_is_refused(tmp_path: Path, road: str) -> None:
+    changes, link, said = LINK_ROADS[road]
+    root = tmp_path / "repo"
+    files = {"roles/one/files/x": "x\n", "roles/one/files/sub/x": "x\n", "roles/one/templates/x.j2": "x\n"}
+    play = _planted(root, {**files, "roles/one/templates/sub/x.j2": "x\n", **changes})
+    link(root, tmp_path / "elsewhere")
+    for scan in SCANS:
+        with pytest.raises(Unfollowed, match=said):
+            scan(play, root)
+
+
 def test_a_name_stands_for_one_task_and_a_reason_for_its_arguments(tmp_path: Path) -> None:
     listed = {"name": "c", "ansible.builtin.command": {"argv": ["sudo", "-l"]}}
     reasons = {("roles/one/tasks/main.yml", "c"): ("a read", "ansible.builtin.command", {"argv": ["sudo", "-l"]})}
@@ -1761,6 +1976,14 @@ def test_a_variable_that_would_outrank_the_connection_is_found_wherever_it_is_se
 
 # Each road to this computer, and what the fourth test says of it.
 COPY = {"src": "x", "dest": "/tmp/y"}
+# The role's tasks file, where most roads are planted, and a debug task of a message.
+ONE = "roles/one/tasks/main.yml"
+
+
+def _debug_of(msg: str) -> dict[str, object]:
+    return {"name": "t", "ansible.builtin.debug": {"msg": msg}}
+
+
 # Review 61's 4: q named apart from its call, which Jinja calls all the same.
 Q_APART = "{{ (q)('ansible.builtin.pipe', 'id') }}"
 Q_SET = "{% set f = q %}{{ f('ansible.builtin.pipe', 'id') }}"
@@ -1829,6 +2052,15 @@ COMPUTER_ROADS: dict[str, tuple[dict[str, object], str]] = {
         _in_one({**PING, "with_pipe": ["id"]}),
         "roles/one/tasks/main.yml: t: with_pipe, a lookup run here: loop over it instead",
     ),
+    # Review 67's 1: the lookup a with_ loop runs, named by ansible-core's private field over loop.
+    "a loop's lookup named by loop_with": (
+        _in_one({**PING, "loop": ["id"], "loop_with": "pipe"}),
+        "roles/one/tasks/main.yml: t: loop_with, a private field of ansible-core's (loop_with runs its lookup here)",
+    ),
+    "a handler's loop_with": (
+        {"roles/one/handlers/main.yml": [{**PING, "loop": ["x"], "loop_with": "file"}]},
+        "roles/one/handlers/main.yml: t: loop_with, a private field of ansible-core's (loop_with runs its lookup here)",
+    ),
     "a pipe lookup in a role": (
         _in_one({"name": "t", "ansible.builtin.debug": {"msg": PIPE}}),
         f"roles/one/tasks/main.yml: a lookup LOOKUPS does not list, run here: {PIPE!r}",
@@ -1857,6 +2089,59 @@ COMPUTER_ROADS: dict[str, tuple[dict[str, object], str]] = {
         _in_one({**PING, "when": "(q)('ansible.builtin.pipe', 'id')"}),
         "roles/one/tasks/main.yml: a lookup LOOKUPS does not list, run here: \"(q)('ansible.builtin.pipe', 'id')\"",
     ),
+    # Review 67's 7: q handed on through a variable's value, and taken out of a list.
+    "q through a variable's value": (
+        _in_one({**_debug_of("{{ f('ansible.builtin.pipe', 'id') }}"), "vars": {"f": "{{ q }}"}}),
+        "roles/one/tasks/main.yml: a lookup LOOKUPS does not list, run here: '{{ q }}'",
+    ),
+    "q taken out of a list": (
+        _in_one({"name": "t", "ansible.builtin.debug": {"msg": "{{ [q][0]('ansible.builtin.pipe', 'id') }}"}}),
+        f"{ONE}: a lookup LOOKUPS does not list, run here: \"{{{{ [q][0]('ansible.builtin.pipe', 'id') }}}}\"",
+    ),
+    # Review 67's 4: Jinja's file tests and the path filters, which Ansible runs here, by name and named to a filter.
+    "a file test in a condition": (
+        _in_one({**PING, "when": "'/etc/hostname' is exists"}),
+        f"{ONE}: the test exists, which reads this computer's paths: \"'/etc/hostname' is exists\"",
+    ),
+    "a file test in an assert": (
+        _in_one({"name": "a", "ansible.builtin.assert": {"that": ["'/x' is not mount"]}}),
+        f"{ONE}: the test mount, which reads this computer's paths: \"'/x' is not mount\"",
+    ),
+    "a file test by its full name in a template": (
+        {**_in_one(TEMPLATE_TASK), "roles/one/templates/x.j2": "{% if '/x' is not ansible.builtin.file %}y{% endif %}"},
+        "roles/one/templates/x.j2: the test ansible.builtin.file, which reads this computer's paths",
+    ),
+    "a home filter in a message": (
+        _in_one({"name": "t", "ansible.builtin.debug": {"msg": "{{ '~' | expanduser }}"}}),
+        f"{ONE}: the filter expanduser, which reads this computer's paths: \"{{{{ '~' | expanduser }}}}\"",
+    ),
+    "a folder's names by fileglob": (
+        _in_one({"name": "t", "ansible.builtin.debug": {"msg": "{{ '/etc/*' | ansible.builtin.fileglob }}"}}),
+        f"{ONE}: the filter ansible.builtin.fileglob, which reads this computer's paths:"
+        " \"{{ '/etc/*' | ansible.builtin.fileglob }}\"",
+    ),
+    "realpath in a condition": (
+        _in_one({**PING, "when": "'/x' | realpath == '/x'"}),
+        f"{ONE}: the filter realpath, which reads this computer's paths: \"'/x' | realpath == '/x'\"",
+    ),
+    "select given a file test": (
+        _in_one({"name": "t", "ansible.builtin.debug": {"msg": "{{ ['/x'] | select('is_dir') }}"}}),
+        f"{ONE}: select given is_dir, which reads this computer's paths: \"{{{{ ['/x'] | select('is_dir') }}}}\"",
+    ),
+    "selectattr given a file test": (
+        _in_one(_debug_of("{{ [{'p': '/x'}] | selectattr('p', 'link_exists') }}")),
+        f"{ONE}: selectattr given link_exists, which reads this computer's paths:"
+        " \"{{ [{'p': '/x'}] | selectattr('p', 'link_exists') }}\"",
+    ),
+    "map given a path filter": (
+        _in_one({"name": "t", "ansible.builtin.debug": {"msg": "{{ ['$HOME'] | map('ansible.builtin.expandvars') }}"}}),
+        f"{ONE}: map given ansible.builtin.expandvars, which reads this computer's paths:"
+        " \"{{ ['$HOME'] | map('ansible.builtin.expandvars') }}\"",
+    ),
+    "a test chosen at run time": (
+        _in_one({"name": "t", "ansible.builtin.debug": {"msg": "{{ ['/x'] | reject(which) }}"}}),
+        f"{ONE}: reject given a test or a filter by a name only a run can say: \"{{{{ ['/x'] | reject(which) }}}}\"",
+    ),
     "q named apart in a template": (
         {**_in_one(TEMPLATE_TASK), "roles/one/templates/x.j2": f"{Q_APART}\n"},
         "roles/one/templates/x.j2: a lookup in a template",
@@ -1868,6 +2153,14 @@ COMPUTER_ROADS: dict[str, tuple[dict[str, object], str]] = {
 def test_what_would_run_or_write_on_this_computer_is_found(tmp_path: Path, road: str) -> None:
     changes, said = COMPUTER_ROADS[road]
     assert reaching_this_computer(_planted(tmp_path, changes), tmp_path, lookups={}) == [said]
+
+
+def test_a_rendered_string_jinja_cannot_read_is_refused(tmp_path: Path) -> None:
+    # Its tests and filters cannot be said, so the string is: the fourth test fails closed, whatever Jinja's words.
+    play = _planted(tmp_path, _in_one({**PING, "when": "'/x' is"}))
+    [said] = reaching_this_computer(play, tmp_path, lookups={})
+    assert said.startswith(f"{ONE}: a template Jinja cannot read, which the walk cannot hold (")
+    assert said.endswith(": \"'/x' is\"")
 
 
 def test_a_lookup_is_held_to_its_file_and_whole_string(tmp_path: Path) -> None:
@@ -2057,8 +2350,26 @@ def _two_below(mark: Path, alpha: Machine) -> dict[str, object]:
     }
 
 
-# Review 61's roads, each run as Ansible runs it: the tree it is planted as, given the mark its decoy leaves and the
-# stand-in machine, and what the four tests say of that tree.
+def _loop_with(mark: Path, alpha: Machine) -> dict[str, object]:
+    """A loop over one command, which the pipe lookup that loop_with names runs here."""
+    task = {"name": "d", "ansible.builtin.debug": {"msg": "{{ item }}"}, "loop": [f"touch {mark}"], "loop_with": "pipe"}
+    return _quick(tasks=[task])
+
+
+def _linked_files(mark: Path, alpha: Machine) -> dict[str, object]:
+    """A role whose files/ is a link to a folder of this computer's, in the test's own folder, whose file a copy
+    sends."""
+    elsewhere = mark.parent / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "secret").write_text("local-secret\n")
+    files = mark.parent / "tree" / "roles" / "one" / "files"
+    files.parent.mkdir(parents=True)
+    files.symlink_to(elsewhere)
+    return {**_quick(), **_in_one({"name": "c", "ansible.builtin.copy": {"src": "secret", "dest": str(mark)}})}
+
+
+# Review 61's roads, and review 67's that ran, each run as Ansible runs it: the tree it is planted as, given the mark
+# its decoy leaves and the stand-in machine, and what the four tests say of that tree.
 RUN_ROADS: dict[str, tuple[Callable[[Path, Machine], dict[str, object]], str]] = {
     "a task's module_defaults gives a copy its src": (_defaults_copy, "module_defaults"),
     "a block's module_defaults gives a copy its src": (_defaults_block, "module_defaults"),
@@ -2091,6 +2402,8 @@ RUN_ROADS: dict[str, tuple[Callable[[Path, Machine], dict[str, object]], str]] =
         "names another template",
     ),
     "an import two below the play, the file reached one below first": (_two_below, "two files below the play"),
+    "a loop's lookup named by loop_with": (_loop_with, "loop_with, a private field of ansible-core's"),
+    "a role's files/ a link to a folder elsewhere": (_linked_files, "a role's folder that is a link"),
 }
 
 
