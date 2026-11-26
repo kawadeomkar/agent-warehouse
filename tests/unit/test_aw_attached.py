@@ -1674,3 +1674,22 @@ def test_end_under_with_a_table_it_cannot_read_says_so_and_signals_nothing(tmp_p
         assert child.poll() is None
     finally:
         harness._end(child)
+
+
+@pytest.mark.parametrize("signum", [signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT])
+def test_an_end_that_raises_nothing_still_tells_the_terminals_hold_it_waits_no_more(signum, monkeypatch) -> None:
+    # The handler raises no end at once where the run is already closing; a question's hold still hears of the end
+    # (live_region.ending), so that one stopped in the background stops no more after the shell's SIGCONT (review 68's
+    # F1). Where the handler raises, the end unwinds the stop by itself; here nothing would.
+    told: list[bool] = []
+    monkeypatch.setattr(attached.live_region, "ending", lambda: told.append(True))
+    monkeypatch.setattr(attached.live_region, "discard_typed", lambda: None)
+    ended: list[int] = []
+    ladder = object.__new__(attached._Ladder)
+    ladder.holding, ladder.noted, ladder.interrupts = 0, [], 0
+    ladder.closing, ladder.task, ladder.dies_of, ladder.dies_at = True, None, None, None
+    ladder.loop = type("Loop", (), {"time": staticmethod(lambda: 1.0)})()
+    ladder.end_tree = ended.append
+    ladder.signalled(signum, None)
+    assert told == [True], told
+    assert ended == [signal.SIGTERM if signum == signal.SIGQUIT else signum] and ladder.dies_of == signum

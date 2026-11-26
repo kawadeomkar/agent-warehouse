@@ -3074,9 +3074,9 @@ change, whose stop the kernel would make again at each SIGCONT without coming ba
 the signals; before each stop it waits a moment (`ENDING_GRACE`), for a kill another of the run's threads took to reach
 the ladder. The SIGCONT's own handler never stops the run: Python runs a handler still due at the first line of
 another's, so a kill's SIGCONT can come there before its SIGTERM's handler has done anything. A run the shell ends while
-it is stopped, at a Ctrl-Z or after `bg` (`kill %1`: SIGTERM, then SIGCONT), ends at once, since the ladder's end tells
-the hold it waits for the terminal no more (`live_region.ending`): the SIGCONT changes nothing in the background, and
-the question stops no more. A `Ctrl-\` is the
+it is stopped, at a Ctrl-Z or after `bg` (`kill %1`: SIGTERM, then SIGCONT), ends at once: the kill's handler raises the
+end through the stop, and the ladder's end tells the hold it waits for the terminal no more (`live_region.ending`), so
+that an end that raises nothing, the run already closing, stops the question no more either. A `Ctrl-\` is the
 ladder's, as SIGTERM, what was typed thrown away first. The edges: at the menu, whose raw mode makes them keys, a
 Ctrl-Z and a
 `Ctrl-\` are keys it has no use for, and the menu goes on; a key between two questions, or while the region is aside
@@ -3134,8 +3134,9 @@ as found and what was typed unseen thrown away before the stop or the quit, the 
 the program's own left in place, the handlers the hold took put back where it ends with the signals held off (a
 question's end), and from an interactive shell, nothing typed unseen left on its line or in its history at either, and
 300 lines said above the region with nobody reading and then a Ctrl-C, none of them lost;
-`tests/unit/test_aw_attached.py` a run started in the background reading no settings to put back, and a `Ctrl-\` ending
-the run as a SIGTERM does, the tree ended with SIGTERM and the run dying of SIGQUIT. In every in-process test on
+`tests/unit/test_aw_attached.py` a run started in the background reading no settings to put back, a `Ctrl-\` ending
+the run as a SIGTERM does, the tree ended with SIGTERM and the run dying of SIGQUIT, and an end that raises nothing, the
+run already closing, still telling the terminal's hold it waits no more. In every in-process test on
 Linux, a draining change of a pseudo-terminal's settings made with output unread at its master and nothing reading it
 fails the test (`tests/unit/conftest.py`'s `drainwatch`), as macOS would wait there for good; off Linux it notes
 nothing, since `FIONREAD` on a master there counts what its slave has not read, never the slave's output.
