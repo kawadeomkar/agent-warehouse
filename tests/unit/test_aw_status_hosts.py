@@ -15,9 +15,7 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
-import tempfile
-from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from aw_kit import run_launcher
@@ -29,6 +27,9 @@ from test_aw_cli_imports import _checkout
 from claude_vm.cli import status_inputs
 from claude_vm.fleet import hosts, overrides, paths
 from claude_vm.schema.words import VERBS
+from claude_vm.status import engine
+from claude_vm.status.model import FIELD_LIMIT, status_clean
+from claude_vm.text import one_line
 
 OTHER = "nuc"
 
@@ -136,28 +137,38 @@ def _commands(value, key=""):
     return [value] if isinstance(value, str) and value and (key == "command" or key.endswith("_command")) else []
 
 
-def test_every_line_of_a_report_of_the_second_host_ends_with_its_host(two, home) -> None:
+def test_every_line_of_a_report_of_the_second_host_ends_with_its_host(two, home, tmp_path) -> None:
     # On nuc: delta a member with no record, whose line deletes it; alpha and beta running with no host key filed
     # here, whose line files it; and the model's own lines.
     _, nuc, _, _ = two
     _pve_vm(nuc.base, 9013, "delta")
     _pve(nuc.base, "PUT", "pools", poolid=ENGINE_POOL, vms="9013")
     _current(HOST)
-    # The checkout at a short path: a line names the program by the path it was started by, and the report cuts a
-    # field at status/model.py's FIELD_LIMIT, which a test's own folder would reach before the line's end.
-    short = Path(tempfile.mkdtemp(prefix="aw", dir="/tmp"))
+    # The checkout at a long path: a line names the program by the path it was started by, so every command of the
+    # report is longer than a field's limit (status/model.py's FIELD_LIMIT), and its --host, which comes last, is kept.
+    checkout = _checkout(tmp_path / ("a-checkout-at-a-long-path-" * 4), {"status": "cli.status:main"})
+    assert len(f"{checkout}/aw destroy delta") > FIELD_LIMIT
     named = []
-    try:
-        checkout = _checkout(short, {"status": "cli.status:main"})
-        for words in (("status", "--host", OTHER, "--json"), ("status", "--host", OTHER)):
-            first = (refusing_ssh(home),)
-            ran = run_launcher(*words, home=home, launcher=checkout / "aw", first_on_path=first, timeout=180)
-            assert ran.returncode in (0, 1, 2), ran.stderr[-2000:]
-            texts = _commands(json.loads(ran.stdout)) if "--json" in words else [ran.stdout]
-            lines = [line for text in texts for line in _lines(text)]
-            assert lines and [line for line in lines if f" --host {OTHER} " not in f"{line} "] == [], lines
-            named += lines
-    finally:
-        shutil.rmtree(short, ignore_errors=True)
+    for words in (("status", "--host", OTHER, "--json"), ("status", "--host", OTHER)):
+        first = (refusing_ssh(home),)
+        ran = run_launcher(*words, home=home, launcher=checkout / "aw", first_on_path=first, timeout=180)
+        assert ran.returncode in (0, 1, 2), ran.stderr[-2000:]
+        texts = _commands(json.loads(ran.stdout)) if "--json" in words else [ran.stdout]
+        lines = [line for text in texts for line in _lines(text)]
+        assert lines and [line for line in lines if f" --host {OTHER} " not in f"{line} "] == [], lines
+        named += lines
     for wanted in ("aw destroy delta", "aw deploy alpha --only provision", "aw deploy beta --only provision"):
         assert sum(wanted in line for line in named) >= 2, (wanted, named)
+
+
+def test_aw_s_printed_lines_and_commands_are_kept_whole_and_today_s_commands_cut_as_before() -> None:
+    # A command from a checkout at a long path: aw's run keeps it whole, today's cuts it at a field's limit, as before;
+    # any other field is cut on both roads, and aw's printed lines (settings' "lines") are kept whole.
+    long = f"/{'a-long-path/' * 12}aw deploy alpha --only configure --host nuc"
+    assert len(long) > FIELD_LIMIT
+    vm, cut = {"configure_command": long, "name": long}, one_line(long, FIELD_LIMIT)
+    opts, screen = SimpleNamespace(cache=None), SimpleNamespace(sections=["vms"])
+    config = {"fleet": {"settings": {}}, "run": {"names": []}}
+    assert engine.Run(opts, screen, config, program="aw").clean(vm) == {"configure_command": long, "name": cut}
+    assert engine.Run(opts, screen, config).clean(vm) == {"configure_command": cut, "name": cut}
+    assert status_clean({"lines": {"reconfigure": long}}) == {"lines": {"reconfigure": long}}
