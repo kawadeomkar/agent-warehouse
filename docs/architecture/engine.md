@@ -987,6 +987,29 @@ run it as root, reading `host.yml`, the settings and `fleet.json` alone: no vaul
 (card E8): with no `fleet.json`, the fleet's ID it renders is written there and said, so that a second print and the
 offer render the same ID, and a by-hand run again after a partial one is never refused as another fleet's.
 
+**The checks: `init_checks.py`.** Once `init` has written, at a terminal or with nobody there, it checks what a first
+`deploy` needs of the host and says each check as one of today's lines, `ok`, `!!`, `--` or `note` and its text, with
+the fix after a colon; it exits 1 exactly where it said a `!!` line, and `aw init --check` runs the same checks under
+the same lock, takes no value but `--host`, and writes nothing. The host is opened as every workflow opens it
+(`fleet/opened.py`'s `connect`, lenient as `settings` and `vault` are), through the anchor `init` kept, so no check runs
+before the certificate is settled. In today's order: the API answers, is Proxmox VE 9 or later and takes the token; the
+pool is there and its mark names this fleet with `controller=none` (`fleet/mark.py`'s sentence for any other); the node,
+settled where the host's own `settings.yml` sets none (the one node online, else the node root SSH's `hostname -s`
+names); the base template, by `template.py`'s `compare`; the permission check, `/access/permissions` read with no
+`userid` on the pool, the storage, each bridge a clone's source has a network card on and the node, each held to what
+`pve/privileges.py`'s `needed` says there and each missing privilege named with its path; `VM.Audit` on `/vms` under
+`proxmox_audit_scope: node` (a `--` line where it is not held) and anything more there, which changes every VM of the
+node (a `!!` line); a template of the person's own held to its clone grant; root SSH, where the template is missing or
+is to be rebuilt; the route, by `routes.py`'s `settle`, and the hop's login where it goes through the host; the storage
+and, before the template is built, the bridge, each as the node lists it; and that the machines get an SSH key. Every
+call is a read: the client's GETs, which follow no redirect, and `true` and `hostname -s` over root SSH. The node, the
+storage and the bridge settled are written, under `init`'s own rule, only where the host's `settings.yml` sets none and
+only with nobody there: at a terminal the person's answers are the rule, so what they left for later stays unset, and
+`--check` writes nothing. At a terminal the lines are one report of matter `init_check`, said through `report.py`'s
+`say` after `init_settings`' own, its NEXT STEPS line init's printer's line with what running it again does; with nobody
+there they are printed, a sentence after them saying what is left. `tests/unit/test_aw_engine_init_checks.py` holds them
+against the fake Proxmox and a refusing `ssh`.
+
 `tests/unit/test_aw_engine_init.py` holds `init` against the fake Proxmox, through `tools/aw` with a refusing `ssh`
 first on `PATH` and in this process with root SSH a reader of the test's own; its runs through `tools/aw` from a home
 short enough for the host's shared socket, so that root SSH starts its child with that socket, as from a person's home,

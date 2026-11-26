@@ -117,6 +117,7 @@ from claude_vm.pve import script as pve_script
 from claude_vm.pve.client import Proxmox, Token
 from claude_vm.runs import job as jobs
 from claude_vm.schema import rules
+from claude_vm.schema.words import EXITS
 from claude_vm.secret import Secret
 from claude_vm.ssh import runner
 from claude_vm.tui import choose
@@ -283,7 +284,7 @@ def _first(fake: Fake, secret: Path, *words: str) -> str:
     mark_pool(fake.base, fleet)
     with_port(fake.port)
     ran = _init(fake, *_given(fake, *words, secret=secret))
-    assert ran.returncode == 0, ran
+    assert ran.returncode == _due(ran.stdout), ran
     _sealed(fake.secret)
     return fleet
 
@@ -339,11 +340,13 @@ def test_every_value_given_writes_the_folder_and_the_same_again_changes_nothing(
         hosts.Made("token", f"{ENGINE_USER}!{ENGINE_TOKEN}", "administrator"),
     )
     # The host's overrides, the fleet's and client.yml's current host.
+    # The node, which no option gives, the checks settled (card E6): the only node online.
     layers = overrides.read(where, "pve")
     assert dict(layers.host.settings) == {
         "proxmox_storage": "local-lvm",
         "proxmox_bridge": "vmbr0",
         "proxmox_pool": ENGINE_POOL,
+        "proxmox_node": "pve",
     }
     assert dict(layers.fleet.settings) == {"github_username": "octocat", "vpn": "none"}
     assert layers.client.own.get("current_host") == "pve"
@@ -355,14 +358,14 @@ def test_every_value_given_writes_the_folder_and_the_same_again_changes_nothing(
     client = [at for at, entry in enumerate(sent) if entry["agent"] == pin.USER_AGENT]
     probes = [at for at, entry in enumerate(sent) if not entry["token"]]
     assert client and probes and max(probes) < min(client), sent
-    assert [(sent[at]["method"], sent[at]["path"], sent[at]["token"]) for at in client] == [
-        ("GET", "/api2/json/version", ENGINE_TOKEN),
-        ("GET", "/api2/json/pools", ENGINE_TOKEN),
-    ]
+    # init's own two reads, then the checks' (card E6), each a read too.
+    reads = [(sent[at]["method"], sent[at]["path"], sent[at]["token"]) for at in client]
+    assert reads[:2] == [("GET", "/api2/json/version", ENGINE_TOKEN), ("GET", "/api2/json/pools", ENGINE_TOKEN)]
+    assert {(method, token) for method, _, token in reads} == {("GET", ENGINE_TOKEN)}, reads
     # The same again changes nothing, and says so.
     files = _files()
     again = _init(fake, *_given(fake, *words, secret=secret_file))
-    assert again.returncode == 0, again
+    assert again.returncode == _due(again.stdout), again
     assert "nothing to write" in again.stdout
     assert _files() == files
     _sealed(fake.secret)
@@ -373,9 +376,11 @@ def test_the_engine_s_names_are_written_where_none_is_given_and_a_given_one_is_k
     assert (access.USER, access.TOKEN, access.POOL) == (ENGINE_USER, ENGINE_TOKEN, ENGINE_POOL)
     _first(fake, secret_file)
     assert overrides.read(_home(), "pve").host.settings["proxmox_pool"] == ENGINE_POOL
-    # The node, the storage and the bridge given none are said to be the checks' to set.
+    # The node given none is the checks' to settle (card E6): the first run wrote the only node online, which the
+    # next run's checks hold to the cluster's.
+    assert overrides.read(_home(), "pve").host.settings["proxmox_node"] == "pve"
     ran = _init(fake, *_given(fake))
-    assert "proxmox_node, proxmox_storage, proxmox_bridge are set for the host by init's checks" in ran.stdout
+    assert ran.returncode == _due(ran.stdout) and "  ok   node pve: deploy creates the VMs there" in ran.stdout, ran
 
 
 @pytest.mark.parametrize(
@@ -460,7 +465,7 @@ def test_the_secret_from_the_variable_writes_the_folder_as_the_file_does(fake) -
     mark_pool(fake.base, record.new_id())
     with_port(fake.port)
     ran = _init(fake, *_given(fake), env={engine_init.SECRET_VARIABLE: fake.secret.upper()})
-    assert ran.returncode == 0, ran
+    assert ran.returncode == _due(ran.stdout), ran
     # Held to its kind as today's init holds it: lower case.
     assert {entry: _revealed(value) for entry, value in _opened().items()} == {"token@pve": fake.secret}
     assert fake.secret not in ran.stdout + ran.stderr
@@ -486,12 +491,14 @@ def test_the_secret_from_the_variable_is_in_no_child_s_environment_root_ssh_s_am
     refused = _init(fake, "--no-prompt", env=env, ssh=recorder)
     assert refused.returncode == 1 and "root SSH to 127.0.0.1 did not answer" in refused.stderr, refused
     done = _init(fake, *_given(fake), env=env, ssh=recorder)
-    assert done.returncode == 0, done
+    assert done.returncode == _due(done.stdout), done
     assert {entry: _revealed(value) for entry, value in _opened().items()} == {"token@pve": fake.secret}
-    # The child started, once a run: root SSH's read of the host's certificate files, as root.
+    # The child started, once a run: root SSH's read of the host's certificate files, as root; and beside it, in the
+    # run that finished, the checks' root SSH (card E6), where the template is not on the host.
     calls = _json_lines(recorder / "calls.jsonl")
-    assert len(calls) == 2, calls
-    for call in calls:
+    reads = [call for call in calls if certificate.HOST_FILES["ca"] in call["argv"][-1]]
+    assert len(reads) == 2 and len(calls) > 2, calls
+    for call in reads:
         argv = call["argv"]
         assert argv[argv.index("-l") + 1] == "root" and certificate.HOST_FILES["ca"] in argv[-1], argv
     forms = (fake.secret, fake.secret.upper(), base64.b64encode(fake.secret.encode()).decode())
@@ -534,7 +541,7 @@ def test_a_secret_file_others_can_read_is_said(fake, secret_file) -> None:
     mark_pool(fake.base, record.new_id())
     with_port(fake.port)
     ran = _init(fake, *_given(fake, secret=secret_file))
-    assert ran.returncode == 0, ran
+    assert ran.returncode == _due(ran.stdout), ran
     assert f"note: {secret_file} can be read by others (mode 0644): chmod 600 it" in ran.stdout
 
 
@@ -555,12 +562,13 @@ def test_a_word_after_the_options_is_refused_unsaid_and_nothing_is_made(fake, ex
 def test_the_mark_s_fleet_id_is_adopted_and_kept(fake, secret_file) -> None:
     fleet = _first(fake, secret_file)
     assert record.read(_home()).fleet == fleet
-    # A run with no secret given keeps the fleet's ID, and reads no pool.
+    # A run with no secret given keeps the fleet's ID; what it sends with the token are its checks' reads (card E6),
+    # the pool's mark among them.
     sent = len(fake.calls())
     ran = _init(fake, *_given(fake))
-    assert ran.returncode == 0, ran
+    assert ran.returncode == _due(ran.stdout), ran
     assert record.read(_home()).fleet == fleet
-    assert not any(entry["token"] for entry in fake.calls()[sent:])
+    assert {entry["method"] for entry in fake.calls()[sent:] if entry["token"]} == {"GET"}
 
 
 @pytest.mark.parametrize(
@@ -689,7 +697,7 @@ def test_made_records_only_the_engine_s_default_names_and_the_report_still_names
         words = _given(fake, secret=secret_file)
     named = f"the fleet {fleet}, as the pool's mark names it, which the token given reads"
     ran = _init(fake, *words)
-    assert ran.returncode == 0, ran
+    assert ran.returncode == _due(ran.stdout), ran
     assert named in ran.stdout.splitlines(), ran.stdout
     assert record.read(_home()).fleet == fleet
     reached = _reached()
@@ -699,7 +707,7 @@ def test_made_records_only_the_engine_s_default_names_and_the_report_still_names
     # The same again changes nothing, and names the fleet as before.
     files = _files()
     again = _init(fake, *words)
-    assert again.returncode == 0, again
+    assert again.returncode == _due(again.stdout), again
     assert named in again.stdout.splitlines() and "nothing to write" in again.stdout, again.stdout
     assert _files() == files
     _sealed(secret)
@@ -736,8 +744,10 @@ def test_a_host_the_computer_s_certificates_verify_keeps_no_anchor_and_reaches_n
     overrides.set(where, "tls_ca_file", str(ca), None, overrides.MISSING)
     mark_pool(fake.base, record.new_id())
     with_port(fake.port)
-    ran = run_aw("init", "--no-prompt", "--token-secret-file", str(secret_file), home=where.root)
-    assert ran.returncode == 0, ran
+    ran = run_aw(
+        "init", "--no-prompt", "--token-secret-file", str(secret_file), home=where.root, first_on_path=(fake.ssh,)
+    )
+    assert ran.returncode == _due(ran.stdout), ran
     _only_the_engine_s_names()
     reached = _reached()
     assert reached.anchor is None and reached.fields.trust_kind is None
@@ -788,7 +798,7 @@ def test_a_host_whose_anchor_a_hand_took_out_is_mended_by_init(fake, secret_file
     with pytest.raises(hosts.Refused, match="aw init --host pve keeps the host's anchor again"):
         _reached()
     ran = _init(fake, *_given(fake, "--host", "pve"))
-    assert ran.returncode == 0, ran
+    assert ran.returncode == _due(ran.stdout), ran
     assert trust.pem_fingerprint(_reached().anchor) == trust.pem_fingerprint(fake.pki["node"])
 
 
@@ -798,10 +808,9 @@ def test_a_host_whose_anchor_a_hand_took_out_is_mended_by_init(fake, secret_file
 @pytest.mark.parametrize(
     ("words", "said"),
     [
-        (("--check",), "error: aw init --check is not built yet (card E6 builds it)"),
         (("--machines",), "error: aw init --machines is not built yet (card J14 builds it)"),
     ],
-    ids=["check", "machines"],
+    ids=["machines"],
 )
 def test_a_mode_another_card_builds_is_refused_by_name_and_nothing_is_made(fake, words, said) -> None:
     ran = _init(fake, "--no-prompt", *words)
@@ -884,7 +893,7 @@ def test_a_home_that_is_a_link_is_refused_with_nothing_written_and_the_same_comm
     link.unlink()
     target.rename(link)
     again = _init(fake, *words)
-    assert again.returncode == 0, again
+    assert again.returncode == _due(again.stdout), again
     assert {entry: _revealed(value) for entry, value in _opened().items()} == {"token@pve": fake.secret}
     _sealed(fake.secret)
 
@@ -1090,7 +1099,7 @@ def test_every_answer_typed_writes_the_files_and_the_same_again_asks_nothing(fak
     ]
     rc, raw = _asked(fake, plan)
     said = raw.decode(errors="replace")
-    assert rc == 0, said
+    assert rc == _due(said), said
     where = _home()
     # Each question under today's block, in the report's order, the host's first.
     order = [said.index(asked.decode()) for asked, _, _ in plan]
@@ -1124,17 +1133,22 @@ def test_every_answer_typed_writes_the_files_and_the_same_again_asks_nothing(fak
     # The hidden answer reached neither the screen nor any file of the fleet's home but sealed in the vault.
     _no_secret_said(raw, tmp_path, fake.secret)
     _sealed(fake.secret)
-    # Drawn live: the region's frames, a summary that says each step, done, and no NEXT STEPS, since nothing was left.
+    # Drawn live: the region's frames, a summary that says each step, and nothing left; the checks' one problem (card
+    # E6), root SSH, over which deploy builds the template the fake's host lacks, is NEXT STEPS' one matter, and init
+    # exits 1 for it.
     screen = _screen(raw)
     transcript = "\n".join(screen.transcript())
-    assert DRAWN in raw and "init · done in" in transcript, transcript
+    assert rc == 1 and "  !!   root SSH to 127.0.0.1 failed" in said, said
+    assert DRAWN in raw and "init · failed after" in transcript, transcript
     for step in ("Proxmox host", "certificate", "secret", "node", "storage", "bridge", "SSH key", "GitHub", "VPN"):
         assert re.search(rf"^ ✓ {re.escape(step)} ", transcript, re.M), (step, transcript)
-    assert "NEXT STEPS" not in transcript and screen.frame_wraps == 0
+    steps = transcript[transcript.index("NEXT STEPS") :]
+    assert "aw init   checks again once the problem marked !! above is fixed" in steps, steps
+    assert "asks again" not in steps and screen.frame_wraps == 0
     # The same again asks nothing, and writes nothing.
     files = _files()
     rc, raw = _asked(fake, [])
-    assert rc == 0, raw.decode(errors="replace")
+    assert rc == _due(raw.decode(errors="replace")), raw.decode(errors="replace")
     assert engine_init.ASKED.encode() not in raw and b"nothing to write" in raw
     assert _files() == files
 
@@ -1177,7 +1191,7 @@ def test_enter_at_the_only_one_s_yes_or_no_takes_yes_and_writes_the_name_the_hos
     ]
     rc, raw = _asked(fake, plan)
     said = raw.decode(errors="replace")
-    assert rc == 0, said
+    assert rc == _due(said), said
     assert f"Use {ONLY_ONE[at][1]}? yes" in _read(raw), said
     own = overrides.read(_home(), "pve").host.settings
     assert dict(own) == {**{setting: name for setting, name, _ in ONLY_ONE[: at + 1]}, "proxmox_pool": ENGINE_POOL}, own
@@ -1202,7 +1216,7 @@ def test_no_at_the_only_node_s_yes_or_no_writes_nothing_and_typed_enter_leaves_i
     ]
     rc, raw = _asked(fake, plan)
     said = raw.decode(errors="replace")
-    assert rc == 0, said
+    assert rc == _due(said), said
     asked = said[said.index("What your token can see:") : said.index("Use pve?")]
     assert engine_init.LATER not in asked, asked
     assert b"Use local-lvm?" not in raw and b"Use vmbr0?" not in raw, said
@@ -1214,7 +1228,7 @@ def test_no_at_the_only_node_s_yes_or_no_writes_nothing_and_typed_enter_leaves_i
     # the typed prompt says.
     rc, raw = _asked(fake, [(b"Use pve?", [], False), (TYPED_ASKED, [b"\n"], False)], term="dumb")
     said = raw.decode(errors="replace")
-    assert rc == 0, said
+    assert rc == _due(said), said
     assert b"Enter for left for later" in raw, said
     assert GITHUB_ASKED not in raw and TRUST_ASKED not in raw and SECRET_ASKED not in raw, said
     assert dict(overrides.read(_home(), "pve").host.settings) == {"proxmox_pool": ENGINE_POOL}
@@ -1251,7 +1265,7 @@ def test_the_token_s_secret_typed_wrong_twice_is_asked_again_with_the_rule_left_
     ]
     rc, raw = _asked(fake, plan)
     said = _read(raw)
-    assert rc == 0, said
+    assert rc == _due(said), said
     first = raw.index(SECRET_ASKED) + len(SECRET_ASKED)
     again = raw[first : raw.index(SECRET_ASKED, first)].decode(errors="replace")
     assert "That is not the 36-character secret pveum printed" in again and engine_init.LATER in again, again
@@ -1278,7 +1292,7 @@ def test_an_answer_outside_its_kind_is_asked_once_more_saying_the_rule_and_a_sec
     ]
     rc, raw = _asked(fake, plan)
     said = _read(raw)
-    assert rc == 0, said
+    assert rc == _due(said), said
     # The address, wrong twice, and the key, wrong twice, are left, said; the user name, right the second time, is kept.
     assert "either, so Proxmox host address is left as it was: the next aw init asks again" in said, said
     assert "either, so Tailscale auth key is left as it was" in said, said
@@ -1295,7 +1309,7 @@ def test_enter_leaves_each_question_for_the_next_run_and_writes_nothing(fake) ->
     plan: Plan = [(HOST_ASKED, [b"\n"], False), (GITHUB_ASKED, [b"\n"], False), (VPN_ASKED, [ESC], True)]
     rc, raw = _asked(fake, plan)
     said = _read(raw)
-    assert rc == 0, said
+    assert rc == _due(said), said
     assert _files() == files
     left = "Proxmox host address, GitHub username and VPN"
     assert f"left for later: {left}; the next aw init asks again" in said, said
@@ -1309,13 +1323,13 @@ def test_a_menu_picked_with_the_arrow_keys_writes_what_a_typed_answer_would(fake
     settings = paths.fleet_dir(_home()) / overrides.SETTINGS
     by_menu: Plan = [(HOST_ASKED, [b"\n"], False), (GITHUB_ASKED, [b"\n"], False), (VPN_ASKED, [DOWN, ENTER], True)]
     rc, raw = _asked(fake, [*by_menu, (KEY_ASKED, [b"\n"], False)])
-    assert rc == 0, raw.decode(errors="replace")
+    assert rc == _due(raw.decode(errors="replace")), raw.decode(errors="replace")
     picked = settings.read_bytes()
     settings.unlink()
     # Where the terminal cannot draw a menu, the same choice typed, by its name.
     typed: Plan = [(HOST_ASKED, [b"\n"], False), (GITHUB_ASKED, [b"\n"], False), (TYPED_ASKED, [b"tailscale\n"], False)]
     rc, raw = _asked(fake, [*typed, (KEY_ASKED, [b"\n"], False)], term="dumb")
-    assert rc == 0, raw.decode(errors="replace")
+    assert rc == _due(raw.decode(errors="replace")), raw.decode(errors="replace")
     assert choose.HINT.encode() not in raw
     assert settings.read_bytes() == picked and b"vpn: tailscale" in picked, picked
 
@@ -1333,7 +1347,7 @@ def test_the_vpn_is_a_menu_none_first_answered_by_its_letter_and_the_auth_key_af
     rc, raw = _asked(fake, plan)
     screen = _screen(raw)
     transcript = "\n".join(screen.transcript())
-    assert rc == 0, transcript
+    assert rc == _due(transcript), transcript
     # The menu: none first, its few words beside each answer; erased once answered, its answer said on one line; never
     # wrapped, and the region erased while it was up.
     menu = raw[raw.index(VPN_ASKED) :]
@@ -1355,7 +1369,7 @@ def test_the_vpn_is_a_menu_none_first_answered_by_its_letter_and_the_auth_key_af
     _sealed(AUTH_KEY)
     # Both set: neither is asked again.
     rc, raw = _asked(fake, [(HOST_ASKED, [b"\n"], False), (GITHUB_ASKED, [b"\n"], False)])
-    assert rc == 0, raw.decode(errors="replace")
+    assert rc == _due(raw.decode(errors="replace")), raw.decode(errors="replace")
     assert VPN_ASKED not in raw and KEY_ASKED not in raw
 
 
@@ -1372,7 +1386,7 @@ def test_the_auth_key_is_asked_once_tailscale_is_chosen_and_not_where_it_has_not
     plan: Plan = [(HOST_ASKED, [b"\n"], False), (GITHUB_ASKED, [b"\n"], False)]
     rc, raw = _asked(fake, [*plan, *([(KEY_ASKED, [b"\n"], False)] if asks_key else [])], *words)
     said = raw.decode(errors="replace")
-    assert rc == 0, said
+    assert rc == _due(said), said
     # The VPN is not asked: given, or set.
     assert VPN_ASKED not in raw and (KEY_ASKED in raw) is asks_key, said
     assert overrides.read(where, None).fleet.settings["vpn"] == "tailscale"
@@ -1418,7 +1432,7 @@ def test_with_standard_input_from_dev_null_nothing_is_asked(fake, secret_file) -
     mark_pool(fake.base, record.new_id())
     with_port(fake.port)
     ran = _init(fake, "--certificate", trust.pem_fingerprint(fake.pki["node"]), "--token-secret-file", str(secret_file))
-    assert ran.returncode == 0, ran
+    assert ran.returncode == _due(ran.stdout), ran
     assert engine_init.ASKED not in ran.stdout + ran.stderr and "not asked" not in ran.stdout + ran.stderr, ran
     assert {entry: _revealed(value) for entry, value in _opened().items()} == {"token@pve": fake.secret}
 
@@ -1478,7 +1492,7 @@ def test_a_fifo_or_a_link_in_ssh_is_never_read_and_only_a_key_file_of_its_own_is
     ]
     rc, raw = _asked(fake, plan)
     said = _read(raw)
-    assert rc == 0, said
+    assert rc == _due(said), said
     assert "laptop.pub" in said and "a-fifo.pub" not in said and "a-link.pub" not in said, said
     assert overrides.read(_home(), None).fleet.settings["vm_ssh_public_keys"] == [PUBLIC_KEY]
 
@@ -1556,7 +1570,7 @@ def test_a_token_id_typed_wrong_twice_keeps_the_engine_s_own_says_so_and_host_ym
     with _api_at_8006(fake) as address:
         rc, raw = _asked(fake, plan, "--address", address, "--certificate", fingerprint)
     said = _read(raw)
-    assert rc == 0, said
+    assert rc == _due(said), said
     kept = engine_init.OWN_TOKEN
     first = raw.index(asked) + len(asked)
     again = raw[first : raw.index(asked, first)].decode(errors="replace")
@@ -1597,7 +1611,7 @@ def test_a_token_of_the_person_s_own_with_its_secret_typed_records_the_engine_s_
     ]
     rc, raw = _asked(fake, plan, "--certificate", trust.pem_fingerprint(fake.pki["node"]))
     said = _read(raw)
-    assert rc == 0, said
+    assert rc == _due(said), said
     assert f"the fleet {fleet}, as the pool's mark names it" in said, said
     assert record.read(_home()).fleet == fleet
     fields = hosts.Layout(_home()).state("pve").fields
@@ -2236,6 +2250,12 @@ def test_proxmox_is_changed_only_by_the_script_after_a_y_and_by_deleting_the_tok
     assert bool(writes) == (case != "n")
 
 
+def _due(said: str) -> int:
+    """The exit init owes for what it said: 1 exactly where its checks said a problem, which each marks `!!` (card E6:
+    against a fake that is no whole host, the checks find problems), and 0 where they said none."""
+    return EXITS["refused"] if "!!" in said else EXITS["done"]
+
+
 def _jobs() -> list[str]:
     folder = paths.jobs_dir(_home())
     return sorted(path.name for path in folder.iterdir()) if folder.is_dir() else []
@@ -2245,7 +2265,7 @@ def test_print_commands_prints_the_script_the_offer_runs_and_writes_nothing(fake
     fleet = _first(fake, secret_file, *EVERY)
     files, made, sent = _files(), _jobs(), len(fake.calls())
     ran = _init(fake, "--print-commands")
-    assert ran.returncode == 0, ran
+    assert ran.returncode == _due(ran.stdout), ran
     host = _engine_s(fleet)
     assert ran.stdout == access.as_script(host, "", host_flag="")
     said_now = " ".join(ran.stderr.split())
