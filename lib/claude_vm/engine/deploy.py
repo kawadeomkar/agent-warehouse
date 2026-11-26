@@ -19,11 +19,11 @@ from __future__ import annotations
 
 import os
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ..fleet import hosts, overrides, paths, sealed, vaultkey
+from ..fleet import hosts, overrides, paths, sealed
 from ..hosts import model
 from ..schema.printer import line, said
 from ..schema.words import EXITS, Line
@@ -78,21 +78,6 @@ def not_yet(values: Mapping[str, object]) -> str | None:
         "error: {line} is not built yet (card {card} builds it)",
         {"line": Line("deploy", {"only": only}, host_flag=""), "card": card},
     )
-
-
-def _opened(home: paths.Home, reached: hosts.Reached, words: Sequence[str], environ: Mapping[str, str]) -> fleet.Host:
-    """The host the run is against, opened with the vault opened once: each --set value held to every secret the vault
-    holds (none of which the run's record may keep) before the settings are resolved with it."""
-    name = reached.host.name
-    first = overrides.run_values(words, secrets=(), environ=environ)
-    values = overrides.resolve(home, name, first, environ=environ)
-    key = vaultkey.open(
-        home, key_file=values["vault_key_file"].value, key_command=values["vault_key_command"].value, environ=environ
-    )
-    vault = sealed.read(home, key) or {}
-    run = overrides.run_values(words, secrets=tuple(vault.values()), environ=environ)
-    values = overrides.resolve(home, name, run, environ=environ)
-    return fleet.connect(home, reached, values, environ=environ, vault=vault)
 
 
 def _leaves(group: BaseExceptionGroup) -> list[BaseException]:
@@ -171,7 +156,7 @@ def deploy(run: Any, **values: object) -> int:
             host=host_name,
         )
         try:
-            host = await asyncio.to_thread(_opened, home, reached, words, environ)
+            host = await asyncio.to_thread(fleet.open_for_run, home, reached, words, environ)
         except (fleet.Refused, overrides.Refused, sealed.Refused, paths.Refused) as error:
             return _refused(f"error: {one_line(str(error), None).removeprefix('error: ')}")
         with host:

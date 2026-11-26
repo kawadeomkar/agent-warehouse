@@ -131,6 +131,9 @@ PROXMOX_ELSEWHERE = {
     # A VM made: the next VMID asked and cloned onto, the new member found at its task's VMID, and the sentences that
     # name a VM or the template by it, as today's role's do, the clone whose answer was lost among them.
     "lib/claude_vm/engine/create.py": 24,
+    # A VM deleted: its state read at its node and VMID, held to the VMID confirmed when owned again after its stop,
+    # and looked for at its VMID in the cluster's listing once its deletion's task has ended.
+    "lib/claude_vm/engine/destroy.py": 9,
     "lib/claude_vm/mcp/confirm.py": 4,
     "lib/claude_vm/refs.py": 3,
     "lib/claude_vm/run/model.py": 4,
