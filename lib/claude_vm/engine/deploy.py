@@ -1,18 +1,21 @@
-"""deploy's handler (cards G3 and E13; docs/architecture/engine.md §16.4): two stages so far, `--only provision`, which
-makes or resumes each VM named (engine/create.py), and `--only template`, which makes the base template what a VM may be
-cloned from (engine/template.py's ensure) and stops. Every other stage is refused with the card that builds it - `--only
-configure` and `--check` G4, `--only ssh-config` G8, and a bare deploy, the whole chain, G10 - so that each of those
-cards adds its own branch here and G10 composes them.
+"""deploy's handler (cards G3, E13 and G4; docs/architecture/engine.md §16.4): three stages so far, `--only provision`,
+which makes or resumes each VM named (engine/create.py), `--only template`, which makes the base template what a VM may
+be cloned from (engine/template.py's ensure) and stops, and `--only configure`, which configures each VM named, or every
+VM of the pool this fleet may change where none is (engine/configure.py); `--tags` beside VM names, with no `--only`, is
+`--only configure` (the one check's deploy.7 refuses it alone). Every other stage is refused with the card that builds
+it - `--only ssh-config` G8, and a bare deploy, the whole chain, G10 - and so are `--check` (G20) and a `--tags` that
+names a part of the VM's second layer (G9), so that each of those cards adds its own branch here and G10 composes them.
 
 Before the run: the size and the repositories held, the host chosen (fleet/hosts.py's reach) and the settings read for
-its locks: each VM's lock under the fleet's shared, the default VM's where none is named; `--only template`, which takes
-no names (schema/rules.py's deploy.9), names no machine, so it holds the fleet's lock exclusively, and whether a person
-is at the terminal is decided then, before the run draws (runs/ask.py's terminal). In the run: the live view made first,
-in the run's thread, then the vault opened once - each `--set` value held to its secrets - and the host, then
-create.provision, or template.ensure. Exits 0 where every VM was provisioned, or the template is one a VM may be cloned
-from, 2 (EXITS' failed) where one failed, the others gone on, or the template's build began and did not end well, 1 for
-a refusal before anything was created, and 130 for a run a person cancelled; a lock another run holds is refused by
-cli/main.py, in runs/locks.py's Held's sentence.
+its locks: each VM's lock under the fleet's shared, the default VM's where a provision names none; a configure that
+names none reaches every VM, and `--only template`, which takes no names (schema/rules.py's deploy.9), names no machine,
+so each of those holds the fleet's lock alone, exclusively; and whether a person is at the terminal is decided then,
+before the run draws (runs/ask.py's terminal). In the run: the live view made first, in the run's thread, then the vault
+opened once - each `--set` value held to its secrets - and the host, then the stage: create.provision, template.ensure
+or configure.configure. Exits 0 where every VM was provisioned or configured (or left stopped), or the template is one a
+VM may be cloned from, 2 (EXITS' failed) where one failed, the others gone on, or the template's build began and did not
+end well, 1 for a refusal before anything was created or reached, and 130 for a run a person cancelled; a lock another
+run holds is refused by cli/main.py, in runs/locks.py's Held's sentence.
 """
 
 from __future__ import annotations
@@ -28,16 +31,18 @@ from ..hosts import model
 from ..schema.printer import line, said
 from ..schema.words import EXITS, Line
 from ..text import one_line
-from . import create, fleet, routes, template
+from . import configure, create, fleet, routes, template
 
 if TYPE_CHECKING:
     from ..runs.attached import Context
 
 PROGRAM_ROOT = Path(__file__).resolve().parents[3]
 # Each stage not built yet, by --only's value, and the card that builds it; a bare deploy's (None) is the whole chain.
-NOT_YET = {"configure": "G4", "ssh-config": "G8", None: "G10"}
+NOT_YET = {"ssh-config": "G8", None: "G10"}
 # Each option of deploy's not built yet, by its field, the option as typed, and the card that builds it.
-OPTIONS_NOT_YET = {"adopt": ("adopt", "J7"), "take_over": ("take-over", "L25"), "remove_key": ("remove-key", "G4")}
+OPTIONS_NOT_YET = {"adopt": ("adopt", "J7"), "take_over": ("take-over", "L25"), "remove_key": ("remove-key", "F8")}
+# The card that builds deploy's dry run, --check.
+CHECK_CARD = "G20"
 STAGE = "provision"
 # The stages built, each --only's value.
 BUILT = (STAGE, template.STAGE)
@@ -48,23 +53,35 @@ def _refused(sentence: str) -> int:
     return EXITS["refused"]
 
 
+def stage_of(values: Mapping[str, object]) -> str | None:
+    """The stage a deploy runs: --only's value, else configure where --tags is given beside VM names (help's
+    tags_beside_names), else None, the whole chain."""
+    only = values.get("only") or None
+    if only is None and values.get("tags") and values.get("names"):
+        return configure.STAGE
+    return only if isinstance(only, str) else None
+
+
 def not_yet(values: Mapping[str, object]) -> str | None:
     """The sentence that refuses a stage of deploy no card has built yet, naming the card; None for --only provision
-    and --only template. It says none of the words given but the stage."""
+    and --only template and --only configure. It says none of the words given but the stage, and a --tags' parts of
+    layer 2."""
     if values.get("check") is True:
         return said(
             "error: {line} is not built yet (card {card} builds it)",
-            {"line": Line("deploy", {"check": True}, host_flag=""), "card": "G4"},
+            {"line": Line("deploy", {"check": True}, host_flag=""), "card": CHECK_CARD},
         )
     for field, (option, card) in OPTIONS_NOT_YET.items():
         if values.get(field) not in (None, False, ""):
             return said(
                 "error: deploy's --{option} is not built yet (card {card} builds it)", {"option": option, "card": card}
             )
-    only = values.get("only") or None
+    only = stage_of(values)
+    if only == configure.STAGE:
+        return configure.unbuilt(values.get("tags"))
     if only in BUILT:
         return None
-    card = NOT_YET.get(only if isinstance(only, str) else None, "G10")
+    card = NOT_YET.get(only, "G10")
     if only is None:
         return said(
             "error: {deploy} runs its whole chain once card {card} builds it: until then, {provision} makes a VM",
@@ -102,15 +119,18 @@ async def _template(ctx: Context, host: fleet.Host, terminal: bool) -> int:
 
 def deploy(run: Any, **values: object) -> int:
     """deploy's handler (words.py's row): the stages not built yet refused by name, then `--only provision` as its
-    run, under each VM's lock, or `--only template`, under the fleet's. The exit status."""
+    run, under each VM's lock, `--only configure` under each VM's or, naming none, the fleet's, or `--only template`,
+    under the fleet's. The exit status."""
     refused = not_yet(values)
     if refused is not None:
         return _refused(refused)
     environ = dict(os.environ)
+    stage = stage_of(values)
     names = tuple(str(name) for name in (values.get("names") or ()))
     words = tuple(str(word) for word in getattr(run, "set", ()) or ())
     try:
         size = create.Size.read(values.get("cores"), values.get("memory"), values.get("disk"))
+        configuring = configure.Plan.read(values.get("tags"), values.get("start"))
         repos = tuple(name for name in str(values.get("repos") or "").split(",") if name)
         home = paths.home(PROGRAM_ROOT, environ)
         asked = model.Request(host=str(values.get("host") or ""), names=names)
@@ -128,9 +148,16 @@ def deploy(run: Any, **values: object) -> int:
     from ..runs import ask, locks
 
     host_name = reached.host.name
-    templating = values.get("only") == template.STAGE
-    # --only template names no machine, so the fleet's lock is held exclusively: no clone runs while it builds.
-    chosen = () if templating else names or (str(settings["vm_default_name"].value),)
+    templating = stage == template.STAGE
+    # --only template names no machine, and a configure that names none reaches every VM, so each holds the fleet's
+    # lock exclusively: no clone runs while the template builds, and no run changes a VM a configure reaches. A
+    # provision names the default VM where none is named.
+    if templating:
+        chosen: tuple[str, ...] = ()
+    elif stage == configure.STAGE:
+        chosen = names
+    else:
+        chosen = names or (str(settings["vm_default_name"].value),)
     terminal = templating and ask.terminal() is not None
     detached = getattr(run, "detached_run", False) is True
     starter = {"kind": "detach" if detached else "terminal"}
@@ -149,7 +176,7 @@ def deploy(run: Any, **values: object) -> int:
 
         live.Live(
             ctx.job,
-            template.DECLARED if templating else create.DECLARED,
+            template.DECLARED if templating else configure.DECLARED if stage == configure.STAGE else create.DECLARED,
             verbosity=verbosity if isinstance(verbosity, int) else 0,
             cancelled=ctx.cancelled,
             title=title,
@@ -163,7 +190,11 @@ def deploy(run: Any, **values: object) -> int:
             if templating:
                 return await _template(ctx, host, terminal)
             try:
-                done = await create.provision(ctx, host, chosen, plan)
+                if stage == configure.STAGE:
+                    ended = await configure.configure(ctx, host, chosen, configuring)
+                    done = all(each.ok for each in ended)
+                else:
+                    done = await create.provision(ctx, host, chosen, plan)
             except (fleet.Refused, routes.Refused) as error:
                 return _refused(f"error: {one_line(getattr(error, 'sentence', None) or str(error), None)}")
             except BaseExceptionGroup as group:

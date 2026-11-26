@@ -327,12 +327,14 @@ def test_a_size_is_read_by_one_reader_into_its_capital_form(home) -> None:
     ("values", "card", "shown"),
     [
         ({"names": ["delta"]}, "G10", "aw deploy --only provision"),
-        ({"only": "configure"}, "G4", "aw deploy --only configure"),
         ({"only": "ssh-config"}, "G8", "aw deploy --only ssh-config"),
-        ({"check": True}, "G4", "aw deploy --check"),
+        ({"check": True}, "G20", "aw deploy --check"),
         ({"only": "provision", "adopt": True}, "J7", "deploy's --adopt"),
         ({"only": "provision", "take_over": True}, "L25", "deploy's --take-over"),
-        ({"only": "configure", "remove_key": "SHA256:" + "A" * 43}, "G4", "deploy's --remove-key"),
+        ({"only": "configure", "remove_key": "SHA256:" + "A" * 43}, "F8", "deploy's --remove-key"),
+        # A part of the VM's second layer (card G4): --only configure's, and --tags beside names, which is the same.
+        ({"only": "configure", "tags": "claude_code"}, "G9", "--tags claude_code"),
+        ({"names": ["delta"], "tags": "common,tailscale"}, "G9", "--tags tailscale"),
     ],
 )
 def test_each_stage_and_option_not_built_yet_is_refused_naming_its_card(values, card, shown) -> None:
@@ -342,6 +344,10 @@ def test_each_stage_and_option_not_built_yet_is_refused_naming_its_card(values, 
     assert deploy.not_yet({"only": "provision", "names": ["delta"]}) is None
     # --only template is card E13's branch (tests/unit/test_aw_engine_template.py).
     assert deploy.not_yet({"only": "template"}) is None
+    # Built: configure (card G4), with its parts of layer 1 or none, and --tags beside names, which is configure.
+    assert deploy.not_yet({"only": "configure"}) is None
+    assert deploy.not_yet({"only": "configure", "tags": "common,dev_tools"}) is None
+    assert deploy.not_yet({"names": ["delta"], "tags": "vscode_server"}) is None
 
 
 def test_deploy_is_built_by_this_card_and_its_handler_is_the_engine_s() -> None:

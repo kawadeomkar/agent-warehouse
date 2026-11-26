@@ -135,6 +135,8 @@ PROXMOX_ELSEWHERE = {
     # A VM deleted: its state read at its node and VMID, held to the VMID confirmed when owned again after its stop,
     # and looked for at its VMID in the cluster's listing once its deletion's task has ended.
     "lib/claude_vm/engine/destroy.py": 9,
+    # A VM configured: a stopped VM's sentence names it by its VMID, and its start waits for its address by it.
+    "lib/claude_vm/engine/configure.py": 3,
     "lib/claude_vm/mcp/confirm.py": 4,
     "lib/claude_vm/refs.py": 3,
     "lib/claude_vm/run/model.py": 4,
