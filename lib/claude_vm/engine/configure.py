@@ -291,10 +291,23 @@ class Configuring:
     # ------------------------------------------------------------ the whole ----
 
     async def run(self) -> Configured:
-        """The VM configured, and said. A cancellation, and a route that cannot be used, end the run."""
+        """The VM configured, and said. A cancellation, and a route that cannot be used, end the run; a stop that ends a
+        wait of the run's own (the guest agent's), which raises asyncio.CancelledError, ends the VM stopped, its stage
+        kept, as a step the stop ended does."""
+        import asyncio
+
         self.emit("stage", STAGE, name=self.name)
         try:
             await self._run()
+        except asyncio.CancelledError:
+            if not self.ctx.cancelled.is_set():
+                raise
+            self.emit("end", "stopped", outcome="cancelled")
+            task = asyncio.current_task()
+            if task is not None and task.cancelling():
+                # The run itself is cancelled (the grace's end, a second Ctrl-C): its end goes on, the VM's said.
+                raise
+            return self.outcome("cancelled")
         except Failed as failed:
             why = one_line(failed.sentence, None)
             if self.ctx.cancelled.is_set():
@@ -428,11 +441,22 @@ class Configuring:
             redacted=self.secrets,
         )
         sentence = self._failed(ended)
+        if sentence and self.ctx.cancelled.is_set() and not self._task_failed(ended):
+            # The run's own Ctrl-C ended the child (ansible-core's "User interrupted execution", exit 99) or the grace's
+            # end killed it: its exit status alone fails nothing. The step is left to the VM's cancelled end, which the
+            # model draws stopped.
+            raise Failed(sentence)
         if sentence:
             self.step("system", "failed", sentence)
             raise Failed(sentence)
         self.step("system", "done")
         return parts
+
+    def _task_failed(self, ended: layer1.Ended) -> bool:
+        """Whether layer 1 said a task of this VM failed or could not reach it: a failure of its own, never its exit
+        status alone."""
+        counts = ended.counts
+        return bool(counts.unreachable or counts.failed or self.key in self.failures.found)
 
     def _failed(self, ended: layer1.Ended) -> str:
         """Why layer 1's run failed the VM, in this engine's words, or "" where it went well."""

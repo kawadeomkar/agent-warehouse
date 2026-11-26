@@ -345,10 +345,23 @@ class Making:
 
     async def run(self) -> bool:
         """The VM made or resumed, and said: True where it is provisioned (or left stopped, as asked), False where a
-        step failed, said. A cancellation, and a route that cannot be used, end the run."""
+        step failed, said. A cancellation, and a route that cannot be used, end the run; a stop that ends a wait of the
+        run's own (the guest agent's, a shield not begun), which raises asyncio.CancelledError, ends the VM stopped, its
+        stage kept, as a step the stop ended does."""
+        import asyncio
+
         self.emit("stage", STAGE, name=self.name)
         try:
             await self._run()
+        except asyncio.CancelledError:
+            if not self.ctx.cancelled.is_set():
+                raise
+            self.emit("end", "stopped", outcome="cancelled")
+            task = asyncio.current_task()
+            if task is not None and task.cancelling():
+                # The run itself is cancelled (the grace's end, a second Ctrl-C): its end goes on, the VM's said.
+                raise
+            return False
         except Failed as failed:
             why = one_line(failed.sentence, None)
             if self.ctx.cancelled.is_set():
@@ -582,6 +595,10 @@ class Making:
         repos = self.plan.repos
         self.step("settings")
         await self.call(client.edit_config, owned, lambda _: changes)
+        if self.ctx.cancelled.is_set():
+            # A stop that came while the settings call's answer was outstanding: nothing more is written, the
+            # repositories and the resize left to the next run, which resumes a VM not yet provisioned from here.
+            raise Failed(f"{self.name}: stopped once its settings were sent")
         if repos:
             await self.call(record.write, client, owned, lambda now: _with_repos(now, repos))
         self.step("settings", "done")

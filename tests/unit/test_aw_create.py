@@ -21,7 +21,9 @@ password would reach, and a template with no cloud-init drive, refused before an
 took asked for again, the guest left as it was; a clone whose answer was lost sent once, the token reading every VM or
 the pool's alone; a start that failed, a resize or a start refused at its call, each resumed by the next run, and a
 running VM resumed never started again; a clone left in its first form refused to every later run, saying to delete it;
-a Ctrl-C during the clone held until it lands and is recorded; a VM with a console password and no key made; a stopped
+a Ctrl-C during the clone held until it lands and is recorded; a Ctrl-C during the agent's wait ending the VM stopped in
+the job's record, and one while the settings call's answer is held (the fake's hold) sending nothing after it, the next
+run resizing the VM (the first checkpoint's findings 1 and 2); a VM with a console password and no key made; a stopped
 VM left stopped, and started with --start; a size given at the create recorded in capital form, refused for the VM once
 it exists and kept on a repair, which never resizes and refuses a larger disk; --repos given, added to, and refused for
 a VM that follows the setting.
@@ -62,6 +64,7 @@ from claude_vm.hosts.model import Request
 from claude_vm.pve import answers, pin
 from claude_vm.pve import record as block
 from claude_vm.pve.client import Denied, Proxmox
+from claude_vm.runs import job as jobs
 from claude_vm.runs import locks
 from claude_vm.schema.words import EXITS, VERBS
 from claude_vm.secret import Secret
@@ -760,6 +763,83 @@ def test_a_stop_during_the_clone_waits_for_its_end_and_its_record(made) -> None:
     _ok(made.deploy("delta"))
     assert made.record(FIRST).provisioned and stand_in.line in made.filed()
     assert len([entry for entry in made.sent() if entry["path"].endswith("/clone")]) == 1
+
+
+def _last_job() -> dict:
+    """The record of the newest job of the fleet's home."""
+    [newest, *_] = jobs.listed(paths.jobs_dir(paths.home(REPO)))
+    return newest.read()
+
+
+def _stopped_at(made: Made, reached, after=None, words: tuple[str, ...] = ("--only", "provision")):
+    """aw deploy delta <words> at a terminal, sent a Ctrl-C (SIGINT, as the terminal sends its group one) once
+    reached() says its phase is reached; after(output), where given, is asked at each read once it was sent. Its exit
+    status, what it said, and how many requests the fake had had when the Ctrl-C was sent."""
+    folder = made.root / SSH_FOLDER
+    folder.mkdir(parents=True, exist_ok=True)
+    seen: dict[str, int] = {}
+
+    def act(chunk: bytes, output: bytes, master: int, process: subprocess.Popen) -> None:
+        if "sent" not in seen and reached():
+            seen["sent"] = len(made.sent())
+            os.kill(process.pid, signal.SIGINT)
+        elif "sent" in seen and after is not None:
+            after(output)
+
+    rc, output = aw_at_a_terminal(
+        "deploy", "delta", *words, home=made.home, first_on_path=(folder,), act=act, poll=0.05, timeout=180
+    )
+    said = output.decode(errors="replace")
+    assert "sent" in seen, said
+    return rc, said, seen["sent"]
+
+
+def _ends() -> list[tuple[str, str]]:
+    """Each machine's end in the newest job's record: its outcome and the stage it reached."""
+    return [(end["outcome"], end["stage"]) for end in (_last_job().get("machine_outcomes") or {}).values()]
+
+
+def test_a_stop_during_the_agent_s_wait_ends_the_vm_stopped_in_the_job_s_record(made) -> None:
+    # The first checkpoint's finding 1: the agent's wait ends on a stop by raising asyncio.CancelledError, which passed
+    # the VM's run by, so the job's record held no end for it.
+    stand_in = made.stand_in("one", FIRST)
+    _pve(made.base, "PUT", "fake/agent-ready-after", polls=10**6)
+
+    def polled() -> bool:
+        return any(entry["path"].endswith("/agent/network-get-interfaces") for entry in made.sent())
+
+    rc, said, _ = _stopped_at(made, polled)
+    assert rc == EXITS["cancelled"] and _last_job()["outcome"] == "cancelled", said
+    assert _ends() == [("cancelled", "provision")], _last_job()
+    assert made.record(FIRST).stage == "unfinished" and not made.record(FIRST).provisioned
+    _pve(made.base, "PUT", "fake/agent-ready-after", polls=0)
+    _ok(made.deploy("delta"))
+    assert made.record(FIRST).provisioned and stand_in.line in made.filed()
+
+
+def test_a_stop_while_the_settings_call_s_answer_is_outstanding_sends_nothing_after_it(made) -> None:
+    # The first checkpoint's finding 2: the settings call's answer held by the fake, a Ctrl-C meanwhile, the answer let
+    # through once the run says it stops. Nothing is written after it, the resize least of all; the next run resumes
+    # the VM from its settings.
+    stand_in = made.stand_in("one", FIRST)
+    state = made.directory / "pve"
+    _pve(made.base, "PUT", "fake/hold", suffix=f"qemu/{FIRST}/config", param="ciuser")
+
+    def released(output: bytes) -> None:
+        if b"aw: stopping" in output and not (state / "release").exists():
+            (state / "release").touch()
+
+    rc, said, at = _stopped_at(made, (state / "held").exists, released)
+    assert rc == EXITS["cancelled"], said
+    [settings] = [entry for entry in made.writes() if "ciuser" in entry["params"]]
+    assert made.sent().index(settings) < at, said
+    assert made.writes(at) == [], made.writes(at)
+    assert _ends() == [("cancelled", "provision")], _last_job()
+    assert not made.record(FIRST).provisioned
+    sent = len(made.sent())
+    _ok(made.deploy("delta"))
+    resent = [entry["path"].rsplit("/", 1)[-1] for entry in made.writes(sent)]
+    assert "resize" in resent and made.record(FIRST).provisioned and stand_in.line in made.filed(), resent
 
 
 def test_a_stopped_vm_is_left_stopped_unless_start_is_given(made) -> None:

@@ -24,6 +24,9 @@ syntax tree for one):
 - `aw_at_a_terminal(*words, home=...)`: the same at a pseudo-terminal of its own (`harness._at_a_pseudo_terminal`);
   with `background=True`, in a process group of its own that is never the terminal's foreground, as a shell's `aw init
   &` starts it, under a session leader of the kit's own that ends it, and fails the test, where the terminal stops it;
+  with `layer1=Layer1(play, connections)`, the run's system play swapped for a play of the test's own and each machine
+  reached over F3's test-only local connection, as test_aw_configure.py's Swapped does in the test's own process, so
+  that a stop of layer 1's child goes through the run's own ladder (`SWAPPED`, the kit's alone to start);
 - `run_launcher(*words, home=...)`: the launcher at the checkout's top, aw, which runs tools/aw, run by its path as a
   person runs it, in run_aw's environment and with the suite's own Python as PYTHON unless a test names another: this
   checkout's, a link to it, or a copy of it in a checkout a test made, and never this checkout's asked to install;
@@ -536,6 +539,46 @@ code = os.waitstatus_to_exitcode(status)
 sys.exit(code if code >= 0 else 128 - code)
 """
 STOPPED = re.compile(rb"aw_kit: the run in the background was stopped by signal (\d+)")
+# tools/aw run with its system play swapped and layer 1 handed F3's test-only local connection (Layer1): the words after
+# the given JSON are tools/aw's path and its own, which it is run with, as itself, once the two are patched in.
+SWAPPED = r"""
+import json, runpy, sys
+from pathlib import Path
+
+given, program = json.loads(sys.argv[1]), sys.argv[2]
+lib = str(Path(program).resolve().parents[1] / "lib")
+sys.path.insert(0, lib)
+from claude_vm import plugin
+
+plugin.own(lib)
+from claude_vm.guest import layer1, system
+
+play = Path(given["play"])
+system.PLAY = play
+layer1.PLAY_NAMES = {**layer1.PLAY_NAMES, play: system.NAMES}
+real = layer1.run
+
+
+async def run(job, target, play, variables_file=None, **more):
+    assert "test_connection" not in more and "test_collections" not in more, more
+    more["test_connection"] = given["connections"][target.identity]
+    return await real(job, target, play, variables_file, **more)
+
+
+layer1.run = run
+sys.argv = sys.argv[2:]
+runpy.run_path(program, run_name="__main__")
+"""
+
+
+@dataclasses.dataclass(frozen=True)
+class Layer1:
+    """Layer 1 as a run of aw_at_a_terminal takes it: play, a play of the test's own in its own folder, in the system
+    play's place, and by each machine's identity the host variables of F3's test-only local connection on it
+    (aw_machine.layer1_host). The real roles converge only in molecule/system/, never here."""
+
+    play: Path
+    connections: Mapping[str, Mapping[str, object]]
 
 
 def aw_at_a_terminal(
@@ -545,6 +588,7 @@ def aw_at_a_terminal(
     cwd: Path | None = None,
     first_on_path: Iterable[str | Path] = (),
     background: bool = False,
+    layer1: Layer1 | None = None,
     **terminal,
 ) -> tuple[int, bytes]:
     """Run tools/aw with words at a pseudo-terminal of its own, from cwd (home unless given), in run_aw's environment
@@ -552,10 +596,17 @@ def aw_at_a_terminal(
     harness._at_a_pseudo_terminal: the window's size, what to type (act), the timeout, the poll and what to explain of a
     run that hung. With background, the run is in a process group of its own, never the terminal's foreground, under a
     session leader of the kit's own (BACKGROUND): one the terminal stops (SIGTTOU, SIGTTIN) is ended, and fails the
-    test. One that reached a stand-in fails the test."""
+    test. With layer1, its system play and layer 1's connection are the test's (Layer1, SWAPPED). One that reached a
+    stand-in fails the test."""
     where = Path(cwd) if cwd is not None else home
     built = environment(home, env, first_on_path)
     argv = _argv(words, AW, where)
+    if layer1 is not None:
+        given = {
+            "play": str(layer1.play),
+            "connections": {key: dict(value) for key, value in layer1.connections.items()},
+        }
+        argv = [sys.executable, "-I", "-c", SWAPPED, json.dumps(given), *argv[2:]]
     if background:
         argv = [sys.executable, "-I", "-c", BACKGROUND, *argv]
     rc, output = harness._at_a_pseudo_terminal(argv, where, built, **terminal)

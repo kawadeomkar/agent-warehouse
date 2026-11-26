@@ -19,9 +19,11 @@ layer 2 named, its digest empty and nothing written, its user's home and workspa
 identity, its key checked strictly and the person's vm_ssh_options given; --tags common runs that part alone and --tags
 with no names finds every VM (tests/unit/test_configure_tags.py's case); a failed task fails the VM naming the task,
 cloud-init's in this engine's lines; a callback of the product's name beside the play, which ran in its place, refused;
-every secret the run holds struck from what layer 1 says; a stopped VM started where the plan says. And, over the
-stand-in's real SSH connection (as G7 proved its route), a configure through the stand-in hop reaches the VM only
-through it, and with the hop's login refused stops before the VM.
+every secret the run holds struck from what layer 1 says; a stopped VM started where the plan says, and a stop during
+its agent's wait ending it stopped. Through the kit at a terminal, the play swapped the same way in the run's own
+process (aw_kit.Layer1): a Ctrl-C in the middle of a task of layer 1's child drawn stopped, never failed (the first
+checkpoint's finding 3). And, over the stand-in's real SSH connection (as G7 proved its route), a configure through
+the stand-in hop reaches the VM only through it, and with the hop's login refused stops before the VM.
 """
 
 from __future__ import annotations
@@ -31,20 +33,24 @@ import contextlib
 import dataclasses
 import json
 import os
+import re
 import shutil
 import tempfile
 import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from aw_kit import run_aw
+from aw_kit import Layer1, aw_at_a_terminal, run_aw
 from aw_machine import LOOPBACK, SSH_FOLDER, Machine, hop, hop_modes, layer1_host
 from fleet_fixture import ROUTE
 from harness import REPO, _pve
+from live_kit import ESCAPES
 from pki import proxmox_pki
 from test_aw_create import FIRST, SECOND, Made, _making, _ok, _open
+from test_aw_create import _ends as _job_ends
 from test_aw_routes import _set
 
 from claude_vm.engine import configure, deploy, fleet, routes
@@ -532,6 +538,98 @@ def test_a_stopped_vm_is_started_first_where_the_plan_says(made, job, heard, swa
     [done] = _configured(("delta",), configure.Plan.read(None, True), job)
     assert done.outcome == "succeeded" and made.status(vmid) == "running"
     assert [entry["path"].rsplit("/", 2)[-2:] for entry in made.writes(sent)] == [["status", "start"]]
+
+
+def test_a_stop_during_the_agent_s_wait_of_a_vm_it_starts_ends_that_vm_stopped(made, job, heard, swapped) -> None:
+    # The first checkpoint's finding 1, in configure's own wait for the address of a VM it started: the stop's
+    # asyncio.CancelledError ends the VM stopped, its stage kept, never passing it by.
+    [(vmid, machine)] = _provisioned(made, "delta").values()
+    swapped.machines[machine.identity] = machine
+    _pve(made.base, "POST", f"nodes/pve/qemu/{vmid}/status/stop")
+    _pve(made.base, "PUT", "fake/agent-ready-after", polls=10**6)
+    where, since = paths.home(REPO), len(made.sent())
+
+    def polled() -> bool:
+        # This run's poll of the agent, not the provision's before it.
+        return any(entry["path"].endswith("/agent/network-get-interfaces") for entry in made.sent()[since:])
+
+    async def body() -> tuple[configure.Configured, ...]:
+        ctx = SimpleNamespace(
+            job=job, cancelled=asyncio.Event(), stopping=threading.Event(), emit=job.emit, shield=_open
+        )
+
+        async def stop() -> None:
+            # What a Ctrl-C does to the run's context (runs/attached.py's ladder), once the agent was asked.
+            while not polled():
+                await asyncio.sleep(0.05)
+            ctx.stopping.set()
+            ctx.cancelled.set()
+
+        with fleet.connect(where, hosts.reach(hosts.Layout(where), Request())) as opened:
+            stopping = asyncio.ensure_future(stop())
+            try:
+                return await configure.configure(ctx, opened, ("delta",), configure.Plan.read(None, True))
+            finally:
+                stopping.cancel()
+
+    [done] = asyncio.run(body())
+    assert done.outcome == "cancelled" and swapped.calls == [], done
+    assert _ends(heard) == [(machine.identity, "stopped", "cancelled")], _ends(heard)
+    ended = _fed(heard).outcomes[machine.identity]
+    assert (ended.outcome, ended.stage) == ("cancelled", "configure")
+
+
+def test_a_layer_1_child_a_ctrl_c_stopped_is_drawn_stopped_never_failed(made, tmp_path, installed) -> None:
+    # The first checkpoint's finding 3: the run's own Ctrl-C ends layer 1's child in the middle of a task, through the
+    # run's ladder, and its exit status alone fails nothing: the system layer is drawn stopped, as the VM's end says.
+    [(_, machine)] = _provisioned(made, "delta").values()
+    started, never = machine.home / "g31-started", machine.home / "g31-never"
+    tasks = [
+        {
+            "name": "Converge common, its first task",
+            "ansible.builtin.file": {"path": str(started), "state": "touch", "mode": "0600"},
+            "tags": ["common"],
+        },
+        {
+            "name": "Converge common, its long task",
+            "ansible.builtin.wait_for": {"path": str(never), "timeout": 300},
+            "tags": ["common"],
+        },
+    ]
+    play = tmp_path / "play" / "system.yml"
+    play.parent.mkdir()
+    play.write_text(json.dumps([{"hosts": "all", "gather_facts": False, "tasks": tasks}]))
+    seen: dict[str, float] = {}
+
+    def act(chunk: bytes, output: bytes, master: int, process) -> None:
+        # A Ctrl-C typed at the run's terminal half a second after the play's first task ran, its second task waiting.
+        if "started" not in seen and started.exists():
+            seen["started"] = time.monotonic()
+        elif "sent" not in seen and "started" in seen and time.monotonic() - seen["started"] > 0.5:
+            seen["sent"] = time.monotonic()
+            os.write(master, b"\x03")
+
+    rc, output = aw_at_a_terminal(
+        "deploy",
+        "delta",
+        "--only",
+        "configure",
+        home=made.home,
+        first_on_path=(made.root / SSH_FOLDER,),
+        layer1=Layer1(play, {machine.identity: layer1_host(machine)}),
+        act=act,
+        poll=0.05,
+        size=(160, 50),
+        timeout=180,
+    )
+    took = time.monotonic() - seen.get("sent", time.monotonic())
+    said = ESCAPES.sub("", output.decode(errors="replace")).replace("\r", "")
+    assert "sent" in seen and rc == EXITS["cancelled"], said
+    assert took < 10, f"{took:.1f} s from the Ctrl-C to the end\n{said}"
+    assert "✗" not in said and not re.search(r"system layer\s+failed", said), said
+    assert re.search(r"■ configure / system layer\s+stopped", said), said
+    assert re.search(r"stopped after [^·]+ at system layer", said), said
+    assert _job_ends() == [("cancelled", "configure")]
 
 
 # ---------------------------------------------------------------- through the hop, over the real connection ----

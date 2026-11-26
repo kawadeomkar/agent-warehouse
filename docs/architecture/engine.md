@@ -1183,7 +1183,9 @@ the comparison does not hold it). Then for each VM, each step an event of the ru
   where the vault holds `vm_password`. A repair of a VM created with a size of its own sends no part of it the run
   does not give. The root disk is grown at the VM's create alone, a create resumed included, and only where it is
   smaller than asked; a repair of a provisioned VM given a `--disk` larger than its disk is refused, as another size
-  for a VM that exists is.
+  for a VM that exists is. A stop that came while the settings call's answer was outstanding is looked at once it has
+  answered: nothing more is written, neither the repositories nor the resize, and the next run resumes the VM, not yet
+  `provisioned`, from its settings.
 - **The start and the address.** The VM is started where it does not run, its task followed; its address is waited
   for from its guest agent on its own network card, then held against every running member's; then one record write
   sets `provisioned` and the size the run gave it, its unit in capital (`fleet/overrides.py`'s `capital`, the one
@@ -1194,7 +1196,11 @@ the comparison does not hold it). Then for each VM, each step an event of the ru
   up; the key is read back (`hostkeys.taken`) and filed under the identity (`hostkeys.file`, which refuses a second
   one), and only then is the machine's master made sure of (`Route.ensure`).
 
-A step that fails fails its VM alone, said; the run then exits 2 (`EXITS`' `failed`). One after the record's write
+A step that fails fails its VM alone, said; the run then exits 2 (`EXITS`' `failed`). A step a stop ended ends its VM
+stopped (`cancelled` in the job's record, the stage it reached kept), never failed, and so does a wait of the run's own
+that a stop ends by raising `asyncio.CancelledError` - the guest agent's for the address, a shield not begun - which
+`Making.run` takes as the VM's end; where the run itself is being cancelled (the grace's end, a second Ctrl-C) the
+VM's end is written and the cancellation goes on. One after the record's write
 leaves the VM a member without `provisioned` that the next run resumes. One before it - a clone whose answer was lost,
 whose follow failed or whose record could not be written - leaves the clone, where it landed, in its first form, which
 no later run may own: each later run is refused, and the refusal (`pve/ownership.py`) says to delete that VMID in
@@ -1203,6 +1209,8 @@ Proxmox, then run it again. A refusal before anything was created exits 1, and a
 against the fake, the VMs stand-in machines (16.10): two VMs made in one run, then a second run that sends nothing but
 reads; a VMID taken before the clone landed; a clone whose answer was lost sent once, under either audit scope; a failed
 start resumed, and a running VM resumed never started again; a Ctrl-C during the clone held until its record is written;
+a Ctrl-C during the agent's wait ending the VM `cancelled` at `provision` in the job's record; a Ctrl-C while the
+settings call's answer is held by the fake (`fake/hold`) sending nothing after it, the next run resizing the VM;
 a stopped VM left stopped, and started with `--start`; a size for a VM the run creates, kept on a repair and refused for
 one that exists, a larger disk on a repair too; `--repos` given, added to and refused; and, without the fake, the keys
 of today's settings call, `need_configuration`'s cases and that it reads no ownership, the one size reader, and each
@@ -1287,7 +1295,12 @@ layer, home), and layer 1's own events lines of that machine's work:
   `--set configure_wait_for_cloud_init=false`, never today's `just` and `ANSIBLE_ARGS`; a VM layer 1 could not reach,
   and a child that ended otherwise before any task failed (a play that did not load among them), fail with its words;
   and a run that ended well with no recap heard from the product's callback fails too, since a callback of the same
-  name beside the play or in a role was loaded in its place.
+  name beside the play or in a role was loaded in its place. A child the run's own stop ended (ansible-core's "User
+  interrupted execution", or killed at the grace's end) fails nothing by its exit status alone: where the run is
+  stopping and layer 1 said no task of the VM failed and none could not reach it, the step is not ended failed but left
+  to the VM's `cancelled` end, which the model draws stopped (`runs/model.py`'s `BY_OUTCOME`), so the summary says
+  where it stopped and no failure is drawn. A task that failed is still that VM's failure. A wait of the run's own a
+  stop ends (the address of a VM it starts) ends the VM stopped, as `create.py`'s does.
 - **The home.** The VM user's real home is read from the password database through the runner (`getent passwd`) and
   the workspace made from it as every reader makes it (`sessions.projects_dir`): each VM's outcome (`Configured`)
   carries both only where it succeeded, for G8's alias.
@@ -1302,7 +1315,10 @@ process, the system play swapped for a play of one task a part over F3's test-on
 alone hands layer 1: the three parts run and the VM left `unfinished` with layer 2's named and nothing written, every
 connection by its identity, strict, with the person's `vm_ssh_options`; `--tags common` alone, and `--tags` with no
 names reaching every VM; a failed task, cloud-init's, a planted callback, the run's secrets struck; a stopped VM
-started where the plan says; and, over the stand-in's real connection, a configure through the stand-in hop, and a hop
+started where the plan says, and a stop during its agent's wait ending it `cancelled` at `configure`; through the kit
+at a terminal with the play swapped the same way (`aw_kit.Layer1`), a Ctrl-C in the middle of a task of the child
+ending the run 130 with the system layer drawn stopped and nothing drawn failed; and, over the stand-in's real
+connection, a configure through the stand-in hop, and a hop
 refused that stops before the VM.
 
 **What a run says, and NEXT STEPS: `report.py`.** `say(run, machine, matter, text, line)` is the one way a workflow or a
