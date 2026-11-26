@@ -8,17 +8,20 @@ machines begin in the order given, one as soon as another ends. A machine's fail
 caught and recorded, and ends no other machine; a body that raises `asyncio.CancelledError` by itself (a section's wait
 the run's stop ended) is that machine cancelled. Once the run is cancelled (`context.cancelled`, a person's Ctrl-C or
 `cancel`), no machine begins: each left is recorded cancelled, not begun, and those under way end by their own steps.
-Where `each` itself is cancelled (the stop's grace ended) or the runner's own record fails, no machine begins after it,
-every machine still under way is cancelled and waited for before it returns or raises (a `TaskGroup`), so that nothing
-of the run, a question among it, is left running past the loop's end.
+Where `each` itself is cancelled (the stop's grace ended, an enclosing group's or a timeout's cancel, no stop set) or
+the runner's own record fails, no machine begins after it, every machine still under way is cancelled and waited for
+before it returns or raises (a `TaskGroup`), so that nothing of the run, a question among it, is left running past the
+loop's end.
 
-Each machine's end is one `end` event, emitted here, with its outcome, its why and the stage its own last `stage`
-event named (a stand-in's moved to its identity by the join): what the job's record keeps in `machine_outcomes`, the
-exit record, and what `each` returns, by the machine's key at its end. The body emits its own `stage` events, the first
-of a stand-in with its name (`name=`) and before any `locks.section` for it, and its join; it returns what its end
-says where it went well, or nothing. A stand-in's end carries its name (`names`), so that one cancelled before its
-body began is said and kept by name. `one_at_a_time(context, machines, body)` is the same with a bound of one, for the
-sign-ins. `status(ended)` is the run's exit status from its machines' outcomes.
+Each machine's end is one `end` event, emitted here alone, with its outcome and its why; the stage is the record's, the
+one the machine's own last `stage` event named since the job was made (a stand-in's moved to its identity by the join,
+runs/job.py): what the job's record keeps in `machine_outcomes`, the exit record, and what `each` returns, by the
+machine's key at its end. A body that emits an end of its own is refused as its error: the machine is failed, saying so
+(OWN_END). The body emits its own `stage` events, the first of a stand-in with its name (`name=`) and before any
+`locks.section` for it, and its join; it returns what its end says where it went well, or nothing. A stand-in's end
+carries its name (`names`), so that one cancelled before its body began is said and kept by name.
+`one_at_a_time(context, machines, body)` is the same with a bound of one, for the sign-ins. `status(ended)` is the run's
+exit status from its machines' outcomes.
 
 The standard library alone, with runs/job.py and text.py; asyncio is imported where it is used.
 """
@@ -42,6 +45,8 @@ Body = Callable[[str], Awaitable[str | None]]
 # The why of a machine cancelled before its body began, and of one whose body was cancelled and said nothing.
 NOT_BEGUN = "not begun: the run is stopping"
 STOPPED = "stopped"
+# The why of a machine whose body emitted its own end, which is refused as the body's error.
+OWN_END = "its work emitted its own end: a machine's end is the runner's to emit"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -56,25 +61,35 @@ class Ended:
 
 class _Heard:
     """What a job's events have said of its machines since a runner first ran on it: each stand-in joined, with its
-    identity, and each machine's last stage, by the key its events name it by. A listener of the job's (runs/job.py)."""
+    identity, and each machine an end named, by the key its events name it by: reset as a machine begins and read before
+    the runner emits its end, so an end it holds then is the body's own. A listener of the job's (runs/job.py). The
+    stage a machine reached is the record's (job.py keeps it from every event since the job was made), never kept
+    here."""
 
     def __init__(self) -> None:
         self.joined: dict[str, str] = {}
-        self.stages: dict[str, str] = {}
+        self.ends: set[str] = set()
 
     def __call__(self, event: jobs.Event) -> None:
         if event.machine is None:
             return
         if event.kind == "join":
             self.joined[event.text] = event.machine
-            if event.text in self.stages:
-                self.stages[event.machine] = self.stages.pop(event.text)
-        elif event.kind == "stage":
-            self.stages[event.machine] = event.text
+        elif event.kind == "end":
+            self.ends.add(event.machine)
 
     def key(self, machine: str) -> str:
         """The key machine's events name it by now: its identity once a stand-in is joined."""
         return self.joined.get(machine, machine)
+
+    def began(self, machine: str) -> None:
+        """machine begins: no end of it heard yet."""
+        self.ends.discard(machine)
+        self.ends.discard(self.key(machine))
+
+    def ended_itself(self, machine: str) -> bool:
+        """Whether an end named machine, by its stand-in or its identity, since it began: its body's own."""
+        return machine in self.ends or self.key(machine) in self.ends
 
 
 # One listener a job, however many runners run on it.
@@ -125,14 +140,22 @@ async def each(
     given = _checked(machines, most, named)
     heard = _heard(context.job)
     gate = asyncio.Semaphore(most)
-    ended: dict[str, Ended] = {}
-    # Set once the runner's own record fails: from then on no machine begins, as after a cancel.
+    # The runner's own task: once it is being cancelled (an enclosing group's, a timeout's, the stop's grace), no
+    # machine begins, though no stop is set.
+    runner = asyncio.current_task()
+    # Set once the runner's own record fails: no machine begins from then on, its group's cancel of the runner not yet
+    # come, since the gate hands the next machine its turn before the failed task's end reaches the group.
     halted: list[BaseException] = []
+    # Each machine's outcome and why, as its end said them.
+    ended: dict[str, tuple[str, str]] = {}
 
     def end(machine: str, outcome: str, why: str) -> None:
+        if outcome != "cancelled" or why != NOT_BEGUN:
+            if heard.ended_itself(machine):
+                outcome, why = "failed", OWN_END
         key = heard.key(machine)
-        stage = heard.stages.get(key)
-        extra: dict[str, object] = {"outcome": outcome, "stage": stage}
+        # No stage given: the record's rule (job.py) names the stage the machine's own last stage event named.
+        extra: dict[str, object] = {"outcome": outcome}
         if jobs.is_stand_in(key):
             extra["name"] = named[key]
         try:
@@ -140,14 +163,18 @@ async def each(
         except BaseException as refused:
             halted.append(refused)
             raise
-        ended[machine] = Ended(outcome, stage, why)
+        ended[machine] = (outcome, why)
+
+    def stopping() -> bool:
+        return context.cancelled.is_set() or bool(halted) or (runner is not None and runner.cancelling() > 0)
 
     async def one(machine: str) -> None:
         try:
             async with gate:
-                if context.cancelled.is_set() or halted:
+                if stopping():
                     end(machine, "cancelled", NOT_BEGUN)
                     return
+                heard.began(machine)
                 try:
                     said = await body(machine)
                 except asyncio.CancelledError as stopped:
@@ -173,7 +200,17 @@ async def each(
     except BaseExceptionGroup as failed:
         # The runner's own error (its record refused): every other machine was cancelled and waited for first.
         raise failed.exceptions[0] from None
-    return {heard.key(machine): ended[machine] for machine in given}
+    # The stage each end reached, as the record kept it.
+    kept = context.job.read().get("machine_outcomes")
+    kept = kept if isinstance(kept, dict) else {}
+    result = {}
+    for machine in given:
+        key = heard.key(machine)
+        outcome, why = ended[machine]
+        found = kept.get(key)
+        stage = found.get("stage") if isinstance(found, dict) else None
+        result[key] = Ended(outcome, stage if isinstance(stage, str) else None, why)
+    return result
 
 
 async def one_at_a_time(

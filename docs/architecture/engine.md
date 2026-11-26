@@ -2795,25 +2795,29 @@ changes for one run, and which the verb passes. The machines begin in the order 
 machine's failure, an `Exception` its body raised, is caught and recorded, and ends no other machine; a body that raises
 `asyncio.CancelledError` by itself, as a section's wait the run's stop ended does, is that machine cancelled. Once the
 run is cancelled (`context.cancelled`), no machine begins: each left is recorded cancelled, "not begun", and those under
-way end by their own steps. Where the runner itself is cancelled, at the stop's grace's end, or its own record fails, no
-machine begins after it, every machine still under way is cancelled and waited for before it returns or raises, as an
-`asyncio.TaskGroup` does, so that nothing of the run, a question among it, runs on past the loop's end. Each machine's
-end is one `end` event the runner emits, with its outcome, its why (what the body returned where it went well, the
-error's sentence where it failed) and the stage its own last `stage` event named, moved to its identity by a join: what
-the record keeps in `machine_outcomes`, and what `each` returns, by the machine's key at its end. The body emits its own
-stages, the first of a stand-in with its name and before any section for it, and its join; a stand-in's end carries its
-name (`names`, refused before anything begins where one is missing), so that one cancelled before its body began is
-still said and kept by name. A machine named twice, or a bound under one, is refused before anything begins.
-`one_at_a_time` is the same with a bound of one, for the sign-ins, and `status` gives the run's exit status from the
-outcomes: 1 where a machine failed, 130 where one was cancelled and none failed, else 0. Whether layer 1 over a fleet is
-one Ansible child a machine or one child over every machine, and the bound's default, are experiment 62's (C18).
-`tests/unit/test_aw_fleet_run.py` holds it: thirty machines never more than twenty at once and every free turn taken,
-and a bound given as five holds five; one that fails leaves twenty-nine done, none of them cut short, and the run
-failed; a cancel lets no machine begin, those under way finishing, at a real Ctrl-C too, the run's record then
-`cancelled` with every machine's outcome; the runner cancelled, or its own record refused, cancels and waits for every
-machine before it raises, the error as itself; the exit record holds thirty outcomes, each with the stage it reached; a
-stand-in's end kept under its identity once joined, and by its name where it never began; one at a time never two at
-once; and what is refused before anything begins.
+way end by their own steps. Where the runner itself is cancelled, at the stop's grace's end or by an enclosing group's
+or a timeout's cancel with no stop set, or its own record fails, no machine begins after it, every machine still under
+way is cancelled and waited for before it returns or raises, as an `asyncio.TaskGroup` does, so that nothing of the run,
+a question among it, runs on past the loop's end. Each machine's end is one `end` event the runner alone emits, with its
+outcome and its why (what the body returned where it went well, the error's sentence where it failed); its stage is the
+record's rule's, the stage the machine's own last `stage` event named since the job was made, moved to its identity by a
+join (`job.py`): what the record keeps in `machine_outcomes`, and what `each` returns, by the machine's key at its end.
+A body that emits an end of its own is refused as its error, the machine failed and saying so, so that no machine has
+two ends. The body emits its own stages, the first of a stand-in with its name and before any section for it, and its
+join; a stand-in's end carries its name (`names`, refused before anything begins where one is missing), so that one
+cancelled before its body began is still said and kept by name. A machine named twice, or a bound under one, is refused
+before anything begins. `one_at_a_time` is the same with a bound of one, for the sign-ins, and `status` gives the run's
+exit status from the outcomes: 1 where a machine failed, 130 where one was cancelled and none failed, else 0. Whether
+layer 1 over a fleet is one Ansible child a machine or one child over every machine, and the bound's default, are
+experiment 62's (C18). `tests/unit/test_aw_fleet_run.py` holds it: thirty machines never more than twenty at once and
+every free turn taken, and a bound given as five holds five; one that fails leaves twenty-nine done, none of them cut
+short, and the run failed; a cancel lets no machine begin, those under way finishing, at a real Ctrl-C too, the run's
+record then `cancelled` with every machine's outcome; the runner's task cancelled at each turn of the loop with no stop
+set lets no machine begin after it; the runner cancelled, or its own record refused, cancels and waits for every machine
+before it raises, the error as itself; the exit record holds thirty outcomes, each with the stage it reached, one
+reached before the runner ran among them; a body's own end refused, the machine failed; a stand-in's end kept under its
+identity once joined, and by its name where it never began; one at a time never two at once; and what is refused before
+anything begins.
 
 **A run as a person reads it: `stages.py` and `model.py`.** A verb declares what its run is made of, and its workstream
 writes the declaration: `Declared(title, stages)`, each `Stage` with a key, which the run's events name, the label a

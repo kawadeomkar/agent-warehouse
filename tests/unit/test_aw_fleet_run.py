@@ -3,19 +3,22 @@
 
 In this process, each run on a job of the test's own, made in its fleet home, with the run's cancel flag the test's:
 thirty machines never more than twenty at once (the setting run_forks's default, as today's forks) and every free turn
-taken, and a bound given as five holds five; one that fails leaves twenty-nine done, none of them cut short, and the
-run failed; once the run is cancelled no machine begins and those under way finish, and with the run cancelled before
-it, none begins; the runner cancelled (the stop's grace ended) cancels every machine under way and waits for each
-before it raises, nothing left on the loop, and so does the runner's own record refused, the error raised as itself;
-the exit record holds thirty outcomes, each with the stage its own last stage event named; a stand-in's end kept under
-its identity once joined, and by its name where it failed at once or never began; one at a time never two at once; and
-a bound under one, a machine named twice and a stand-in with no name refused before anything begins. In a child
-process made by runs.run as a verb makes one: a real Ctrl-C while twenty machines are under way lets none of the other
-ten begin, and the run's record is cancelled with thirty outcomes.
+taken, and a bound given as five holds five; one that fails leaves twenty-nine done, none of them cut short, and the run
+failed; once the run is cancelled no machine begins and those under way finish, and with the run cancelled before it,
+none begins; the runner cancelled (the stop's grace ended) cancels every machine under way and waits for each before it
+raises, nothing left on the loop, and so does the runner's own record refused, the error raised as itself; the runner's
+task cancelled with no stop set, at each turn of the loop in turn, lets no machine begin after it; a stage reached
+before the runner ran is the one its end keeps; a body's own end is refused as its error, and the runner's own ends
+never are; the exit record holds thirty outcomes, each with the stage its own last stage event named; a stand-in's end
+kept under its identity once joined, and by its name where it failed at once or never began; one at a time never two at
+once; and a bound under one, a machine named twice and a stand-in with no name refused before anything begins. In a
+child process made by runs.run as a verb makes one: a real Ctrl-C while twenty machines are under way lets none of the
+other ten begin, and the run's record is cancelled with thirty outcomes.
 
-Every wait here is held to an event of the run's, never to a sleep: a wave of machines is let go only once as many as
-the bound lets in are under way, which is only seen once every task that was ready has had its turn, so that one let
-in past the bound is counted; a hang is failed by a bound of a minute that no run under load comes near.
+Every wait here is held to an event of the run's, never to a sleep (the cancel at each turn of the loop counts turns,
+never time): a wave of machines is let go only once as many as the bound lets in are under way, which is only seen once
+every task that was ready has had its turn, so that one let in past the bound is counted; a hang is failed by a bound of
+a minute that no run under load comes near.
 """
 
 from __future__ import annotations
@@ -305,6 +308,98 @@ def test_the_runner_s_own_record_refused_cancels_every_machine_and_waits_for_eac
         **{machine: Ended("cancelled", None, fleet_run.STOPPED) for machine in THIRTY[:19]},
         **{machine: Ended("cancelled", None, NOT_BEGUN) for machine in THIRTY[20:]},
     }
+
+
+def test_the_runner_s_task_cancelled_with_no_stop_set_lets_no_machine_begin_after_it(own) -> None:
+    # An enclosing group's cancel of the runner's task, or a timeout's, sets no stop: a machine whose turn was handed
+    # over in the loop's turn of the cancel must not begin (C15.md 1, the reviewer's P6). The cancel is tried at each
+    # turn of the loop in turn, the turns counted, never timed.
+    machines = THIRTY[:4]
+    for turns in range(40):
+
+        async def scenario(turns: int = turns) -> tuple[list[str], list[str]] | None:
+            ctx = _context(own)
+            begun: list[str] = []
+
+            async def body(machine: str) -> str:
+                begun.append(machine)
+                return "done"
+
+            running = asyncio.ensure_future(fleet_run.one_at_a_time(ctx, machines, body))  # type: ignore[arg-type]
+            for _ in range(turns):
+                await asyncio.sleep(0)
+            if running.done():
+                return None
+            running.cancel()
+            at_the_cancel = list(begun)
+            with pytest.raises(asyncio.CancelledError):
+                await running
+            return at_the_cancel, begun
+
+        ran = asyncio.run(scenario())
+        if ran is None:
+            break
+        at_the_cancel, begun = ran
+        assert begun == at_the_cancel, (turns, at_the_cancel, begun)
+    else:
+        pytest.fail("the run never ended within the turns tried")
+    assert turns > 4, turns
+
+
+def test_a_stage_reached_before_the_runner_ran_is_the_one_its_end_keeps(own) -> None:
+    # The record's rule names a machine's stage from every event since the job was made, never None over it (C15.md 2,
+    # the reviewer's P1).
+    async def scenario():
+        ctx = _context(own)
+        ctx.emit("stage", "m00", "provision")
+
+        async def body(machine: str) -> str:
+            if machine == "m01":
+                ctx.emit("stage", machine, "configure")
+            return "ok"
+
+        return await fleet_run.each(ctx, THIRTY[:3], body, 2)  # type: ignore[arg-type]
+
+    ended = asyncio.run(scenario())
+    assert ended == {
+        "m00": Ended("succeeded", "provision", "ok"),
+        "m01": Ended("succeeded", "configure", "ok"),
+        "m02": Ended("succeeded", None, "ok"),
+    }
+    assert _outcomes(own) == ended
+
+
+def test_a_body_s_own_end_is_refused_as_its_error_and_the_runner_s_own_ends_never_are(own) -> None:
+    # A machine's end is the runner's: a body that emits one fails, saying so, whatever it then returned or raised, so
+    # that a body's `cancelled` and then `return False` is never kept as succeeded (C15.md 3, the reviewer's P2).
+    heard: list[tuple[str | None, object]] = []
+    own.listen(lambda event: event.kind == "end" and heard.append((event.machine, event.data["outcome"])))
+
+    async def scenario():
+        ctx = _context(own)
+
+        async def own_end(machine: str) -> object:
+            ctx.emit("end", machine, "the clone failed", outcome="failed")
+            if machine == "m01":
+                raise asyncio.CancelledError()
+            if machine == "m02":
+                raise RuntimeError("m02: then it failed")
+            return False
+
+        first = await fleet_run.each(ctx, THIRTY[:3], own_end, 3)  # type: ignore[arg-type]
+
+        async def well(machine: str) -> str:
+            return f"{machine} done"
+
+        # A second run over the same machines: the runner's own ends of the first are no body's.
+        return first, await fleet_run.each(ctx, THIRTY[:3], well, 3)  # type: ignore[arg-type]
+
+    first, second = asyncio.run(scenario())
+    assert first == {machine: Ended("failed", None, fleet_run.OWN_END) for machine in THIRTY[:3]}
+    assert second == {machine: Ended("succeeded", None, f"{machine} done") for machine in THIRTY[:3]}
+    assert _outcomes(own) == second
+    # The body's end was heard, as it was emitted; then the runner's, which the record keeps.
+    assert heard[:6] == [(machine, "failed") for machine in THIRTY[:3] for _ in range(2)], heard
 
 
 # ---------------------------------------------------------------- machines not yet made ----
