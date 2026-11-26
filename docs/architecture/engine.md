@@ -689,7 +689,8 @@ Where it answers, `build` runs, at a terminal or with nobody there. Where it doe
 (`runs/ask.py`'s `terminal`, decided before the run draws) the sentence says what would give one (the account's key on
 the host, the agent, `ssh_identity_file`); with no terminal, `Compared.unbuilt`'s: what the template has and what is
 wanted, that this run cannot build it and why, and the `deploy --only template` line to run at a terminal. Every refusal
-of its own is also the run's NEXT STEPS line (matter `template`). It returns only a usable template, or raises, so no
+of its own is said as the stage's failure, and a report after it records the printer's `aw deploy --only template`
+line, with the host's flag, as the run's NEXT STEPS line (matter `template`, through `report.py`'s `say`). It returns only a usable template, or raises, so no
 run clones from a template that is to be built and was not. A refusal exits 1; a build begun that did not end well
 (`Failed`) exits 2. `tests/unit/test_aw_engine_template.py` holds it through `aw deploy --only template` against the fake
 with standard input `/dev/null` and a refusing `ssh`: missing, or differing, with root SSH refused, the sentence, exit 1,
