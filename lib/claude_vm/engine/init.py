@@ -44,7 +44,8 @@ by other cards are refused by name until they land: `--machines` (J14).
 checks the host as the fleet's files now open it and says one of today's `ok`, `!!`, `--` and `note` lines a check,
 settling the node, the storage and the bridge where the host's own settings.yml sets none, with nobody there alone (at
 a terminal the person's answers are the rule); it exits 1 exactly where a `!!` line was said. `aw init --check` runs
-the same checks under the same lock, takes no value but `--host`, and writes nothing.
+the same checks under the same lock, takes no value but `--host` (`--set` among those refused), and writes nothing.
+The checks read the fleet's files alone, never a `--set` value of the run.
 
 **The offer** (card E7), at a terminal alone, between the token's ID and its secret, once the certificate is settled:
 the access script, engine/access.py's `as_script` rendered for the host's values and the fleet's ID (fleet.json's where
@@ -2513,6 +2514,8 @@ def init(run: Any, **values: object) -> int:
         return print_commands(run, values)
     checking = values.get("check") is True
     given_too = [field for field in CHECK_REFUSES if checking and values.get(field) not in (None, False, "", ())]
+    # --set too, a value for this run alone, which the checks never read: they read the fleet's files (review 81, 2).
+    given_too += ["set"] if checking and getattr(run, "set", ()) else []
     if given_too:
         flags = ", ".join(f"--{field.replace('_', '-')}" for field in given_too)
         sentence = "error: {line} runs the checks alone and writes nothing: it takes no {flags}"

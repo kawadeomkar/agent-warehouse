@@ -10,15 +10,19 @@ problem since deploy refuses it, and root SSH that fails where the template is m
 key; the template's bridge without SDN.Use; the hop's login where the route goes through the host. And the pool's mark
 that names another fleet or a control VM, with D2's sentence; a pool that is not there, said, never a traceback;
 `VM.Audit` on `/vms` missing (a `--` line) or with more beside it (a problem); the node settled and written where the
-host's own settings.yml sets none, and `--check` writing nothing; a redirect, never followed. The exit status is 1
-exactly when a `!!` line was said. The invariants with tests of their own: every call the checks make is a read (the
-fake records each request's method, and anything but a GET fails), and no check runs while the certificate is not
-settled (an impostor's refusal among them): init stops before any request that carries the token.
+host's own settings.yml sets none, and `--check` writing nothing, nor taking `--set`; a redirect, never followed; a
+name the host reports outside Proxmox's own format (a template's bridge) never written and said as JSON, and one the
+client refuses a problem, never a traceback (review 81). The exit status is 1 exactly when a `!!` line was said. The
+invariants with tests of their own: every call the checks make is a read (the fake records each request's method, and
+the tests hold them to GETs alone), and no check runs while the certificate is not settled (an impostor's refusal among
+them): init stops before any request that carries the token.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import json
+import re
 from pathlib import Path
 
 import pytest
@@ -306,7 +310,61 @@ def test_check_takes_no_value_init_writes(lab) -> None:
     ran = run_aw("init", "--check", "--storage", "local", home=lab.made.home, first_on_path=(lab.ssh,))
     assert ran.returncode == 1 and ran.stdout == "", ran
     assert "error: aw init --check runs the checks alone and writes nothing: it takes no --storage" in ran.stderr
+    # Nor --set, a value for this run alone, which the checks, reading the fleet's files, would never read (review 81,
+    # E6.md 2).
+    ran = run_aw("init", "--check", "--set", "proxmox_storage=nope", home=lab.made.home, first_on_path=(lab.ssh,))
+    assert ran.returncode == 1 and ran.stdout == "", ran
+    assert "error: aw init --check runs the checks alone and writes nothing: it takes no --set" in ran.stderr, ran
     assert _files() == files
+
+
+# ---------------------------------------------------------------- names Proxmox reports, held to its format ----
+
+
+def _bridged(lab: Lab, bridge: str) -> None:
+    """The engine's template, its first network card on bridge, and proxmox_bridge unset, as the checks settle it."""
+    lab.set_up()
+    templates = lab.templates()
+    templates.plant(net0=re.sub(r"bridge=[^,]+", f"bridge={bridge}", templates.config()["net0"]))
+    where = paths.home(REPO)
+    overrides.unset(where, "proxmox_bridge", "pve", overrides.read(where, "pve").host.digest)
+
+
+def test_a_template_s_bridge_outside_proxmox_s_names_is_never_written_and_said_as_json(lab) -> None:
+    # Review 81, E6.md 1, the reviewer's probe A: a card's bridge that is no name Proxmox gives a bridge was written as
+    # proxmox_bridge with an ok line.
+    _bridged(lab, "vm@br:x")
+    ran = lab.aw("--no-prompt")
+    assert ran.returncode == 1 and "Traceback" not in ran.stderr, ran
+    refused = f"{PROBLEM}the template's network cards name {json.dumps('vm@br:x')}, no name Proxmox gives a bridge"
+    assert any(each.startswith(refused) for each in _lines(ran, PROBLEM)), ran.stdout
+    assert "proxmox_bridge" not in overrides.read(paths.home(REPO), "pve").host.settings
+    # No check says it as a bridge of the node's (E11's compare says the card's difference, bridge vm@br:x -> vmbr0).
+    assert not [each for each in ran.stdout.splitlines() if each.startswith(f"{OK}bridge vm@br:x")], ran.stdout
+
+
+def test_a_template_s_bridge_the_client_would_refuse_is_a_problem_never_a_traceback(lab) -> None:
+    # The reviewer's probe A2: vm{{x}} reached the client's ACL path, whose ValueError was a traceback.
+    _bridged(lab, "vm{{x}}")
+    files = _files()
+    ran = lab.aw("--check")
+    assert ran.returncode == 1 and "Traceback" not in ran.stderr, ran
+    assert any(json.dumps("vm{{x}}") in each for each in _lines(ran, PROBLEM)), ran.stdout
+    assert _files() == files
+
+
+def test_a_name_the_client_refuses_in_a_path_is_a_problem_said_as_json(lab) -> None:
+    # A storage of the person's own that the client refuses in an ACL path (a space is no part of one): its ValueError
+    # a !! line, the path as JSON.
+    lab.set_up()
+    where = paths.home(REPO)
+    overrides.set(where, "proxmox_storage", "vm x", "pve", overrides.read(where, "pve").host.digest)
+    ran = lab.aw("--check")
+    assert ran.returncode == 1 and "Traceback" not in ran.stderr, ran
+    said = f"{PROBLEM}Proxmox would not say what the token may do on {json.dumps('/storage/vm x')}"
+    assert any(each.startswith(said) for each in _lines(ran, PROBLEM)), ran.stdout
+    unseen = f"{PROBLEM}storage {json.dumps('vm x')}: the token cannot see it"
+    assert any(each.startswith(unseen) for each in _lines(ran, PROBLEM)), ran.stdout
 
 
 def test_no_check_runs_while_the_certificate_is_not_settled(home, tmp_path, pki) -> None:
