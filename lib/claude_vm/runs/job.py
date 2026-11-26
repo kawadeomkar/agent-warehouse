@@ -6,11 +6,11 @@ digits as today's MCP jobs have, opens its `lock` and takes `flock(LOCK_EX)` on 
 then writes `job.json`. The descriptor stays open, non-inheritable (PEP 446), for the life of the process that made the
 job: no child holds the lock, and the kernel lets it go when that process ends, however it ends. So a job's state is
 derived, never stored: `running` while that lock is held, `cancelling` while it is held and a stop is recorded, the
-outcome the record holds (`succeeded`, `failed` or `cancelled`), and `lost` where the record has none and the lock is
-free. Only a lock file that is gone is free: any other error reading the lock (a descriptor limit, a folder's mode, a
-disk's error) is raised as itself, never taken for a run that has ended. Nothing here keeps a pid to decide it, reads
-a process's start or reads the process table: the pid and the start in the record are information for a person and
-for a machine's `job` line.
+outcome the record holds (`succeeded`, `failed`, `cancelled` or `declined`), and `lost` where the record has none and
+the lock is free. Only a lock file that is gone is free: any other error reading the lock (a descriptor limit, a
+folder's mode, a disk's error) is raised as itself, never taken for a run that has ended. Nothing here keeps a pid to
+decide it, reads a process's start or reads the process table: the pid and the start in the record are information for a
+person and for a machine's `job` line.
 
 `emit` hands one event of the run to the listeners the run registered (the live view, the text log), in order and in
 the run's own process; no event is written to a file of its own. What an agent and `logs` need of a run while it runs
@@ -71,8 +71,9 @@ KINDS = ("stage", "step", "report", "waiting", "next", "join", "end")
 # A machine the run is making, named before it has an identity: `making:` and sixteen hex digits, a form no identity
 # (agent-warehouse-<SMBIOS UUID>, checks.HOST_KEY_ALIAS_RE) and no VM's name (no colon) takes. Held whole (fullmatch).
 STAND_IN = re.compile(r"making:[0-9a-f]{16}")
-# The outcomes a run or a machine ends with, written; and every state a reader tells, derived.
-OUTCOMES = ("succeeded", "failed", "cancelled")
+# The outcomes a run or a machine ends with, written; and every state a reader tells, derived. `declined`: the person's
+# answer ended it (runs/attached.py's Context.decline), never a failure.
+OUTCOMES = ("succeeded", "failed", "cancelled", "declined")
 STATES = ("running", "cancelling", *OUTCOMES, "lost")
 # What started a run: a terminal, `--detach`, or an MCP server, named by that server's own ID.
 STARTERS = ("terminal", "detach", "mcp")

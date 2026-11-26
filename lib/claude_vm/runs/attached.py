@@ -18,7 +18,9 @@ and a kill (docs/architecture/engine.md §16.8).
   signal is what the record says, and what ignores it is killed SETTLE seconds after it, not at the Ctrl-C's grace.
 - An error the body did not handle: the tree is ended, the record says `failed`, and the error is raised again.
 - A body that returns: what it still holds of its children is ended, and the record says `succeeded` for 0, `failed`
-  for any other status, and `cancelled` for 130.
+  for any other status, and `cancelled` for 130; but `declined` for one that said, by `Context.decline`, that the
+  person's answer ended it, and then returned a status other than 0 and 130 (destroy's no, exit 1): a body says it
+  declined, and an exit status alone never makes it.
 - SIGKILL: nothing is written, and the job reads `lost` once its lock is free (runs/job.py).
 
 While the run lives, a child the terminal stopped for asking a question there (runs/children.py's asking: SIGTTIN or
@@ -212,7 +214,7 @@ class _Up:
 
 class Context:
     """What a verb's body is given: its job (for the SSH runner and children.start), `cancelled` and `stopping`,
-    `shield`, `typed`, `emit`, the children the run still holds, and the run's directory."""
+    `shield`, `typed`, `emit`, `decline`, the children the run still holds, and the run's directory."""
 
     def __init__(self, job: jobs.Job, directory: Path | None, ladder: _Ladder) -> None:
         import asyncio
@@ -229,6 +231,15 @@ class Context:
     def emit(self, kind: str, machine: str | None, text: str, **data: object) -> jobs.Event:
         """One event of the run (runs/job.py)."""
         return self.job.emit(kind, machine, text, **data)
+
+    def decline(self, why: str) -> None:
+        """The person's answer ends the run, why said as its end: once the body returns a status other than 0 and 130
+        (exit 1, as today's), the record says `declined`, never `failed`, and the view says it as the answer it is. A
+        Ctrl-C, a signal or an error the body raises ends the run as it would have, and a body that goes on and returns
+        0 succeeded."""
+        if not isinstance(why, str):
+            raise TypeError(f"a run declined says why in a str, not a {type(why).__name__}")
+        self._ladder.declined = why
 
     def live(self, kind: str | None = None) -> list[children.Child]:
         """The children the run started that still run, of that kind or of every kind (runs/children.py)."""
@@ -443,6 +454,8 @@ class _Ladder:
             raise
         self.task: asyncio.Task | None = None
         self.interrupts = 0
+        # Why the person's answer ended the run, where the body said so (Context.decline).
+        self.declined: str | None = None
         # The signal that ended the run at once while its body ran: SIGINT for a second Ctrl-C, SIGTERM or SIGHUP.
         self.cut: int | None = None
         # SIGTERM or SIGHUP, whenever it came, and when: what the process dies of once its record is written.
@@ -782,6 +795,8 @@ class _Ladder:
             return "succeeded", 0, DONE, None
         if status == cancelled:
             return "cancelled", cancelled, BY_CTRL_C, None
+        if self.declined is not None:
+            return "declined", status, self.declined, None
         return "failed", status, f"exit {status}", None
 
     def outcome(self) -> tuple[str, int, str, BaseException | None]:

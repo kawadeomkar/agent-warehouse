@@ -22,7 +22,8 @@ was not confirmed.` - before any job is made, exit 1 (EXITS' refused), as today'
    line, their disks, and the host where the fleet has more than one, then `Type yes to continue`, whose safe answer is
    "" (no). `yes` takes it, and today's `true`, in any case; under `destroy_confirm: names`, the stricter opt-in, the
    names of the VMs typed in its place, held by `confirm.names`. `--confirm` answers it. Anything else is the person's
-   answer, said in today's words, and the run ends refused (exit 1): nothing is deleted.
+   answer, said in today's words, and the run ends declined (`Context.decline`, exit 1), never failed: nothing is
+   deleted.
 3. Each VM side by side, every one said in one line. Read again from its own endpoint whether it runs (`current`); one
    that runs is stopped (the client's `stop`, followed with the run's stopping event, so a Ctrl-C leaves it stopped and
    undeleted; sent once more where Proxmox's file lock refused it, as a stop sent seconds after a start may meet), then
@@ -285,9 +286,11 @@ async def delete(ctx: Context, host: fleet.Host, names: Sequence[str], how: How)
         answer = await ask.ask(ctx, question(shown, how.host, how.takes), "")
         why = answered(str(answer), names, how.takes)
         if why is not None:
-            # The person's answer, said in today's words and never as a failure: the check done, nothing deleted.
+            # The person's answer, said in today's words and never as a failure: the check done, nothing deleted, and
+            # the run declined, exit 1.
             ctx.emit("stage", None, CHECK, outcome="done")
             report.say(ctx, None, MATTER, DECLINED + why, "")
+            ctx.decline(DECLINED + why)
             return EXITS["refused"]
     ctx.emit("stage", None, CHECK, outcome="done")
     import asyncio

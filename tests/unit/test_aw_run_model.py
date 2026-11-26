@@ -393,6 +393,25 @@ def test_a_run_waiting_for_a_sign_in_waits_for_you_there_until_its_wait_ends() -
     assert run.waited(100.0) == 65.0 == run.waited(100.0, "sign-in", "claude") and run.waited(100.0, "configure") == 0.0
 
 
+def test_a_declined_run_says_no_failure_and_what_is_open_reads_stopped_at_its_end() -> None:
+    # C38: the person's answer ended the run (destroy's no, exit 1): no failure is said of it, its own why among them,
+    # where a run that fails with exit 1 says its why as one.
+    why = "the deletion was not confirmed"
+    for outcome, failures in (("declined", []), ("failed", [("configure", why)])):
+        run = model.Run(DEPLOY, 0.0, ["alpha"])
+        run.feed(_event("stage", None, "configure"), 1.0)
+        run.feed(_event("waiting", "alpha", SIGN_IN, page=PAGE), 2.0)
+        run.feed(_event("end", None, why, outcome=outcome, exit=1), 3.0)
+        assert [(failure.stage, failure.why) for failure in run.failures] == failures
+        assert _states(run) == {"configure": "stopped"} and run.waiting() == []
+        assert (run.outcome, run.exit, run.why) == (outcome, 1, why)
+    run = model.Run(DEPLOY, 0.0, ["alpha", "beta"])
+    run.feed(_event("stage", "alpha", "configure"), 1.0)
+    run.feed(_event("end", "alpha", "not confirmed", outcome="declined"), 2.0)
+    assert run.outcomes["alpha"] == model.MachineEnd("declined", "configure", "not confirmed", 2.0)
+    assert run.failures == [] and run.marks("configure")["alpha"] == "stopped"
+
+
 def test_a_cancelled_run_ends_its_waits_at_the_cancel_and_what_is_open_reads_stopped_at_its_end() -> None:
     run = model.Run(DEPLOY, 0.0, ["alpha"])
     run.feed(_event("stage", "alpha", "configure"), 1.0)
@@ -722,7 +741,8 @@ def test_a_report_is_kept_whole_and_in_order_each_time_it_is_said() -> None:
 
 
 @pytest.mark.parametrize(
-    ("outcome", "closed"), [("succeeded", "done"), ("failed", "stopped"), ("cancelled", "stopped")]
+    ("outcome", "closed"),
+    [("succeeded", "done"), ("failed", "stopped"), ("cancelled", "stopped"), ("declined", "stopped")],
 )
 def test_the_runs_end_ends_every_stage_still_open_the_hosts_and_the_quiet_ones_too(outcome, closed) -> None:
     # C8.md 3: nothing runs once the run has ended, the template, the golden template and the quiet finish among them.
@@ -738,7 +758,10 @@ def test_the_runs_end_ends_every_stage_still_open_the_hosts_and_the_quiet_ones_t
     assert run.state("sign-in", "claude") == closed and run.marks("sign-in", "claude") == {"alpha": closed}
 
 
-@pytest.mark.parametrize(("outcome", "closed"), [("succeeded", "done"), ("failed", "failed"), ("cancelled", "stopped")])
+@pytest.mark.parametrize(
+    ("outcome", "closed"),
+    [("succeeded", "done"), ("failed", "failed"), ("cancelled", "stopped"), ("declined", "stopped")],
+)
 def test_a_machines_end_ends_its_open_steps_as_its_outcome_says(outcome, closed) -> None:
     # C8.md 3: what of a machine is open ends at its end, its steps too; another machine's are left as they are.
     run = model.Run(DEPLOY, 0.0, ["alpha", "beta"])

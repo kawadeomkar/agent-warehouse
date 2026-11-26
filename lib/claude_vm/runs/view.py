@@ -39,7 +39,7 @@ from claude_vm.tui import screen
 # How many lines of work a running stage or step shows, the newest at the bottom; one once a frame is folded tight.
 WINDOW = 5
 # The run's outcome, as the title and the summary say it.
-ENDED = {"succeeded": "done", "failed": "failed", "cancelled": "stopped"}
+ENDED = {"succeeded": "done", "failed": "failed", "cancelled": "stopped", "declined": "declined"}
 # The states in which a stage or a step has ended.
 OVER = ("done", "skipped", "failed", "stopped")
 # The said column of a line off a terminal, as today's: each machine's mark there, or their count when they do not fit.
@@ -444,7 +444,8 @@ class View:
         return f" at {steps[-1] if steps else stage.label}"
 
     def _head(self, now: float) -> Segments:
-        """The summary's first line: done; done, with the machines that failed; failed, and where; or stopped."""
+        """The summary's first line: done; done, with the machines that failed; failed, and where; stopped; or declined,
+        the person's answer, as today's: no failure."""
         run = self.run
         total = run.seconds(now)
         minutes, seconds = divmod(round(total), 60)
@@ -454,7 +455,9 @@ class View:
         failed = [self._name(machine) for machine, end in run.outcomes.items() if end.outcome == "failed"]
         succeeded = any(end.outcome == "succeeded" for end in run.outcomes.values())
         own = any(failure.machine is None for failure in run.failures)
-        if run.outcome == "cancelled":
+        if run.outcome == "declined":
+            said, style = f"declined · {took}", "y"
+        elif run.outcome == "cancelled":
             said, style = f"stopped after {took}{self._stopped_at()}", "y"
         elif not run.failures and run.outcome != "failed":
             said, style = f"done in {took}", ""
@@ -487,9 +490,12 @@ class View:
         """The summary at the run's end: how it ended; each stage's mark and time, with each machine's mark where there
         are several, and its steps' times with your time in them; what it never reached, where it failed or stopped;
         the last word of each report on each machine, but what NEXT STEPS will say whole (next_steps, by default the
-        run's); and the totals. Each line cut to cols - 1, the head losing its clock first."""
+        run's); and the totals. A run the person declined is its head alone, as today's: its answer was said above.
+        Each line cut to cols - 1, the head losing its clock first."""
         run = self.run
         limit = cols - 1
+        if run.outcome == "declined":
+            return [screen.render(drawn.Run._cut_head(self._head(now), limit), color)]
         left_to_do = {one_line(line, None) for line in (run.next_steps() if next_steps is None else next_steps)}
         lines: list[Segments] = [self._head(now), []]
         flat = self._flat()
