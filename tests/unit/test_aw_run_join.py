@@ -6,13 +6,18 @@ A run that makes a VM: its events under the stand-in from the first, the first w
 the identity's, read as one row with its parts, its times and one outcome; at every event the model holds exactly what
 the same run keyed by the identity from its first event holds, each thing the join moves (JOINED) in its place, for a
 run that goes on, one whose failure is said before the join and its failed end after it (said once, by B2's rule and by
-the end's "nothing of it failed" alike), and one that ended before its join; each refused join, and each event that
-names a stand-in wrongly, changes nothing, the names and the order of the events counted included. The job's record
-keeps a machine not yet made in `making`, by its stand-in with its name, and `machines` identities alone; the join moves
-what the record keeps under the stand-in to the identity, written and read back across it, each refusal writing nothing
-and heard by nobody; a run killed before its join leaves a record that says what it was making. The live view draws the
-VM's row by its name from its first event (from the record's `making` where it is made later), the join changes nothing
-it draws, frame for frame and line for line off a terminal, and nothing is drawn twice.
+the end's "nothing of it failed" alike), one that ended before its join, and one whose NEXT STEPS lines and reports
+stand among another machine's, with a section's wait open across the join; each refused join, and each event that names
+a stand-in wrongly, changes nothing, the names and the order of the events counted included, and a join to an identity
+the run keeps anything for is refused whichever of what a join moves keeps it. The job's record keeps a machine not yet
+made in `making`, by its stand-in with its name, and `machines` identities alone; the join moves what the record keeps
+under the stand-in to the identity, in its place, a section's wait among it, and keeps the VM's name under its identity
+in `names`, written and read back across it, at each event the record of the same run keyed by the identity; each
+refusal writes nothing and is heard by nobody, a stand-in's nameless first wait among them; a run killed before its join
+leaves a record that says what it was making. The live view draws the VM's row by its name from its first event (from
+the record's `making` where it is made later, and from its `names` after the join), the join changes nothing it draws,
+frame for frame and line for line off a terminal, and nothing is drawn twice; its refusal line and its -v stream say the
+VM by its name alone, never a key.
 """
 
 from __future__ import annotations
@@ -52,6 +57,8 @@ DELTA = "agent-warehouse-4f1c0000-0000-4000-8000-0000000000d4"
 # alpha's stand-in, and another machine's, as job.stand_in() makes them.
 MADE = "making:5e1f0000000000a1"
 OTHER = "making:5e1f0000000000c3"
+# The section of the next VMID on the host pve (runs/locks.py's section), whose wait a run that makes a VM may meet.
+NEXTID = "nextid-pve"
 
 # A deploy whose provision is said step by step, as the workflow that makes a VM says it.
 MAKING = Declared(
@@ -134,11 +141,33 @@ ENDED_BEFORE = [
     (4.0, "stage", None, "template", {"outcome": "done"}),
     (5.0, "end", None, "", {"outcome": "cancelled", "exit": 130}),
 ]
+# alpha's NEXT STEPS lines and reports among beta's, and a section's wait of alpha's open across the join: the join
+# keeps each where it stood, never moved to the end, and moves the section's wait too.
+INTERLEAVED = [
+    (1.0, "stage", BETA, "provision", {}),
+    (1.0, "stage", MADE, "provision", {"name": "alpha"}),
+    (1.5, "next", BETA, "aw login beta --only claude", {"matter": "claude"}),
+    (1.5, "next", MADE, "aw login alpha --only claude", {"matter": "claude"}),
+    (1.5, "next", BETA, "aw login beta --only github", {"matter": "github"}),
+    (2.0, "report", BETA, "beta is cloned", {}),
+    (2.0, "report", MADE, "alpha is cloned", {}),
+    (2.0, "report", BETA, "beta is up at 192.0.2.62", {}),
+    (2.5, "waiting", MADE, "waiting for another run to leave the next VMID", {"section": "nextid-pve"}),
+    (3.0, "join", ALPHA, MADE, {}),
+    (3.5, "waiting", ALPHA, "", {"section": "nextid-pve"}),
+    (4.0, "next", ALPHA, "aw login alpha --only github", {"matter": "github"}),
+    (5.0, "stage", ALPHA, "provision", {"outcome": "done"}),
+    (5.0, "stage", BETA, "provision", {"outcome": "done"}),
+    (6.0, "end", ALPHA, "ready", {"outcome": "succeeded"}),
+    (6.0, "end", BETA, "ready", {"outcome": "succeeded"}),
+    (7.0, "end", None, "", {"outcome": "succeeded", "exit": 0}),
+]
 RUNS = {
     "made-and-configured": MADE_AND_CONFIGURED,
     "step-failed-before": STEP_FAILED_BEFORE,
     "stage-failed-before": STAGE_FAILED_BEFORE,
     "ended-before": ENDED_BEFORE,
+    "interleaved": INTERLEAVED,
 }
 
 
@@ -242,6 +271,22 @@ def test_at_each_event_a_joined_run_holds_what_the_run_keyed_by_its_identity_fro
     assert _whole(joined) == _whole(keyed) and not joined._holds(MADE)
 
 
+def test_the_join_keeps_a_vms_next_steps_lines_and_reports_where_they_stood_among_another_machines() -> None:
+    run = model.Run(MAKING, 0.0, {BETA: "beta"})
+    for now, event in _keyed(INTERLEAVED, joined=True):
+        run.feed(event, now)
+        if event.kind == "join":
+            break
+    assert [(record["machine"], record["matter"]) for record in run.next_records()] == [
+        (BETA, "claude"),
+        (ALPHA, "claude"),
+        (BETA, "github"),
+    ]
+    assert [report.text for report in run.reports] == ["beta is cloned", "alpha is cloned", "beta is up at 192.0.2.62"]
+    assert [report.machine for report in run.reports] == [BETA, ALPHA, BETA]
+    assert [(wait.machine, wait.section, wait.until) for wait in run.waits] == [(ALPHA, "nextid-pve", None)]
+
+
 @pytest.mark.parametrize("script", [STEP_FAILED_BEFORE, STAGE_FAILED_BEFORE], ids=["a-step", "a-stage"])
 def test_a_failure_said_before_the_join_is_not_said_again_at_the_machines_failed_end_after_it(script) -> None:
     run = model.Run(MAKING, 0.0)
@@ -301,6 +346,8 @@ def _primed() -> model.Run:
         # A stand-in's first event with no name.
         (_event("stage", OTHER, "provision"), "for the first time"),
         (_event("report", OTHER, "made", name=""), "for the first time"),
+        # A section's wait as its first event (runs/locks.py's section, where another run holds the section).
+        (_event("waiting", OTHER, "waiting for another run to leave the next VMID", section=NEXTID), "first time"),
     ],
 )
 def test_a_join_or_a_stand_ins_event_refused_before_the_join_changes_nothing(event, refusal) -> None:
@@ -338,6 +385,85 @@ def test_a_join_or_an_event_of_a_stand_in_refused_after_its_join_changes_nothing
     assert _held(run) == before
 
 
+def _out_of(found: list, key: str) -> None:
+    """key's own taken out of found, a list of what is kept by machine, each with its `machine`; it was there."""
+    left = [each for each in found if each.machine != key]
+    assert len(left) < len(found), key
+    found[:] = left
+
+
+def _parts_out(run: model.Run, key: str) -> None:
+    taken = [progress.parts.pop(key) for progress in run._progresses() if key in progress.parts]
+    assert taken, key
+
+
+def _next_out(run: model.Run, key: str) -> None:
+    taken = [run._next.pop(found) for found in list(run._next) if found[0] == key]
+    assert taken, key
+
+
+# How a test takes a key out of each of what a join moves (model.JOINED), that one alone; each fails where the run did
+# not keep the key there, so the run below is held to keep it in every one.
+TAKEN_OUT = {
+    "machines": lambda run, key: run.machines.remove(key),
+    "names": lambda run, key: run.names.pop(key),
+    "parts": _parts_out,
+    "ends": lambda run, key: run._book.ends.pop(key),
+    "reached": lambda run, key: run._reached.pop(key),
+    "waits": lambda run, key: _out_of(run.waits, key),
+    "reports": lambda run, key: _out_of(run.reports, key),
+    "failures": lambda run, key: _out_of(run.failures, key),
+    "outcomes": lambda run, key: run.outcomes.pop(key),
+    "latest": lambda run, key: run.latest.pop(key),
+    "next": _next_out,
+}
+
+
+def _keeping_delta() -> model.Run:
+    """A run making alpha, beside delta, which it keeps in every one of what a join moves: its row and name, its parts,
+    the stage it reached, a wait, a report, a failure, its latest line, a NEXT STEPS line and its end."""
+    run = model.Run(MAKING, 0.0)
+    run.feed(_event("stage", DELTA, "provision", name="delta"), 1.0)
+    run.feed(_event("step", DELTA, "clone", stage="provision"), 1.0)
+    run.feed(_event("step", DELTA, "Cloning from the template"), 1.5)
+    run.feed(_event("waiting", DELTA, "Approve the clone"), 1.5)
+    run.feed(_event("report", DELTA, "delta is cloned"), 1.5)
+    run.feed(_event("next", DELTA, "aw login delta --only claude", matter="claude"), 1.5)
+    run.feed(_event("step", DELTA, "clone", stage="provision", outcome="failed", why="the clone's task failed"), 2.0)
+    run.feed(_event("end", DELTA, "the clone's task failed", outcome="failed"), 2.0)
+    run.feed(_event("stage", MADE, "provision", name="alpha"), 3.0)
+    return run
+
+
+def _kept_in(run: model.Run, kept: str | None) -> model.Run:
+    """run with delta taken out of every one of what a join moves but kept (None: all of them)."""
+    for name, take in TAKEN_OUT.items():
+        if name != kept:
+            take(run, DELTA)
+    return run
+
+
+def test_a_test_takes_a_key_out_of_each_of_what_a_join_moves_and_out_of_them_all_the_run_keeps_nothing_of_it() -> None:
+    assert set(TAKEN_OUT) == set(model.JOINED)
+    run = _kept_in(_keeping_delta(), None)
+    assert not run._holds(DELTA)
+    # Then delta may be alpha's identity: nothing of the run's would be two machines' (the join is taken).
+    run.feed(_event("join", DELTA, MADE), 4.0)
+    assert run._joined == {MADE: DELTA} and run.name(DELTA) == "alpha"
+
+
+@pytest.mark.parametrize("kept", model.JOINED)
+def test_a_join_to_an_identity_the_run_keeps_anything_for_is_refused_whichever_of_what_a_join_moves_keeps_it(
+    kept,
+) -> None:
+    run = _kept_in(_keeping_delta(), kept)
+    assert run._holds(DELTA), kept
+    before = _held(run)
+    with pytest.raises(ValueError, match="for another machine"):
+        run.feed(_event("join", DELTA, MADE), 4.0)
+    assert _held(run) == before
+
+
 # ---------------------------------------------------------------- the job's record ----
 
 
@@ -368,9 +494,9 @@ def test_the_record_keeps_a_vm_not_yet_made_in_making_and_its_join_moves_it_to_i
     with _job() as made:
         heard: list[jobs.Event] = []
         made.listen(heard.append)
-        assert (_read_back(made)["machines"], _read_back(made)["making"]) == ([BETA], {})
+        assert [_read_back(made)[field] for field in ("machines", "making", "names")] == [[BETA], {}, {}]
         made.emit("stage", MADE, "provision", name="alpha")
-        assert (_read_back(made)["machines"], _read_back(made)["making"]) == ([BETA], {MADE: "alpha"})
+        assert [_read_back(made)[field] for field in ("machines", "making", "names")] == [[BETA], {MADE: "alpha"}, {}]
         made.emit("next", BETA, "aw login beta --only claude", matter="claude")
         made.emit("next", MADE, "aw login alpha --only claude", matter="claude")
         made.emit("next", MADE, "aw login alpha --only github", matter="github")
@@ -382,6 +508,8 @@ def test_the_record_keeps_a_vm_not_yet_made_in_making_and_its_join_moves_it_to_i
         made.emit("join", ALPHA, MADE)
         after = _read_back(made)
         assert after["machines"] == [BETA, ALPHA] and after["making"] == {}
+        # The VM's name, which `making` kept, kept under its identity: a reader after the join says it by its name.
+        assert after["names"] == {ALPHA: "alpha"}
         assert after["waiting"] == {**before["waiting"], "machine": ALPHA}
         assert after["next"] == [
             {"machine": BETA, "matter": "claude", "line": "aw login beta --only claude"},
@@ -397,7 +525,8 @@ def test_the_record_keeps_a_vm_not_yet_made_in_making_and_its_join_moves_it_to_i
         assert [step["matter"] for step in ended["next"] if step["machine"] == ALPHA] == ["github"]
         assert ended["waiting"] is None and list(ended["machine_outcomes"]) == [BETA, ALPHA]
         assert ended["machine_outcomes"][ALPHA] == {"outcome": "succeeded", "stage": "provision", "why": "ready"}
-        assert MADE not in repr(ended) and [event.kind for event in heard].count("join") == 1
+        assert ended["names"] == {ALPHA: "alpha"} and MADE not in repr(ended)
+        assert [event.kind for event in heard].count("join") == 1
 
 
 def test_a_vm_that_ended_before_its_join_moves_its_outcome_and_one_never_joined_stays_under_its_stand_in(home) -> None:
@@ -409,10 +538,55 @@ def test_a_vm_that_ended_before_its_join_moves_its_outcome_and_one_never_joined_
         made.emit("join", ALPHA, MADE)
         record = _read_back(made)
         assert record["machines"] == [ALPHA] and record["making"] == {OTHER: "gamma"}
+        assert record["names"] == {ALPHA: "alpha"}
         assert list(record["machine_outcomes"].items()) == [
             (ALPHA, {"outcome": "cancelled", "stage": "provision", "why": "stopped"}),
             (OTHER, {"outcome": "failed", "stage": "provision", "why": "no VMID was free"}),
         ]
+
+
+def _kept_by_machine(record: dict, renamed: dict[str, str]) -> dict[str, object]:
+    """What the record keeps by machine, in its order, each key renamed where asked; a wait's time, the wall clock's,
+    left out."""
+
+    def key(found: object) -> object:
+        return renamed.get(found, found) if isinstance(found, str) else found
+
+    waiting = record["waiting"]
+    return {
+        "waiting": None if waiting is None else {**waiting, "machine": key(waiting["machine"]), "since": None},
+        "next": [{**step, "machine": key(step["machine"])} for step in record["next"]],
+        "machine_outcomes": [(key(machine), ended) for machine, ended in record["machine_outcomes"].items()],
+        "end": [record.get(field) for field in ("outcome", "exit", "why")],
+    }
+
+
+def _recorded(script, *, joined: bool) -> tuple[list[dict[str, object]], dict]:
+    """script emitted through a job's emit: after each event, what the record keeps by machine, by the stand-in's key
+    read as the identity's until the join (never after it); and the record at the end."""
+    seen = []
+    with _job() as made:
+        renamed = {MADE: ALPHA}
+        for _, event in _keyed(script, joined=joined):
+            made.emit(event.kind, event.machine, event.text, **event.data)
+            if event.kind == "join":
+                renamed = {}
+            seen.append(_kept_by_machine(_read_back(made), renamed))
+        return seen, _read_back(made)
+
+
+@pytest.mark.parametrize("script", RUNS.values(), ids=RUNS.keys())
+def test_at_each_event_a_joined_runs_record_keeps_what_the_record_of_the_run_keyed_by_its_identity_keeps(
+    script, home
+) -> None:
+    joined, last = _recorded(script, joined=True)
+    keyed, same = _recorded(script, joined=False)
+    for at, (found, expected) in enumerate(zip(joined, keyed, strict=True)):
+        assert found == expected, f"after {script[at]}"
+    # But for the machines a join names and the names it keeps: the identity among the job's machines, its name kept.
+    assert (last["machines"], last["making"], last["names"]) == ([BETA, ALPHA], {}, {ALPHA: "alpha"})
+    assert (same["machines"], same["making"], same["names"]) == ([BETA], {}, {})
+    assert MADE not in repr(last)
 
 
 def test_a_job_names_its_machines_by_identity_never_by_a_stand_in(home) -> None:
@@ -423,6 +597,8 @@ def test_a_job_names_its_machines_by_identity_never_by_a_stand_in(home) -> None:
 
 BEFORE_THE_JOIN = [
     ("stage", OTHER, "provision", {}, "for the first time"),
+    # A section's wait as its first event, as runs/locks.py's section emits it where another run holds the section.
+    ("waiting", OTHER, "waiting for another run to leave the next VMID", {"section": NEXTID}, "for the first time"),
     ("stage", OTHER, "provision", {"name": ""}, "for the first time"),
     ("join", BETA, MADE, {}, "has named already"),
     ("join", GAMMA, MADE, {}, "has named already"),
@@ -515,7 +691,7 @@ def test_a_run_killed_before_its_join_leaves_a_record_that_says_what_it_was_maki
                 stream.close()
     record = found.read()
     assert jobs.state(found) == "lost"
-    assert record["machines"] == [BETA] and record["making"] == {MADE: "alpha"}
+    assert record["machines"] == [BETA] and record["making"] == {MADE: "alpha"} and record["names"] == {}
     assert (record["waiting"]["machine"], record["waiting"]["section"]) == (MADE, "nextid-pve")
 
 
@@ -601,5 +777,76 @@ def test_a_view_made_after_a_vm_being_made_was_first_named_draws_it_by_its_name_
     assert errors.getvalue() == ""
 
 
-def test_with_a_v_the_join_is_one_line_of_its_own() -> None:
-    assert live.streamed(_event("join", ALPHA, MADE)) == f"join {ALPHA}: {MADE}"
+def test_a_view_made_after_the_join_draws_the_vm_by_the_name_the_record_keeps_under_its_identity(home) -> None:
+    with _job() as made:
+        made.emit("stage", MADE, "provision", name="alpha")
+        made.emit("join", ALPHA, MADE)
+        view = live.Live(made, MAKING, io.StringIO(), names={BETA: "beta"}, clock=Clock())
+        assert view.run.machines == [BETA, ALPHA] and view.run.names == {BETA: "beta", ALPHA: "alpha"}
+        made.emit("end", None, "", outcome="succeeded", exit=0)
+
+
+def _said_through_a_join(monkeypatch: pytest.MonkeyPatch, events, *, verbosity: int) -> tuple[str, str]:
+    """events emitted through a job of this process's that a live view says off a terminal: what it said on its stream
+    and on standard error."""
+    stream, errors = io.StringIO(), io.StringIO()
+    monkeypatch.setattr(sys, "stderr", errors)
+    with _job() as made:
+        live.Live(made, MAKING, stream, verbosity=verbosity, names={BETA: "beta"}, clock=Clock())
+        for kind, machine, text, data in events:
+            made.emit(kind, machine, text, **data)
+    return stream.getvalue(), errors.getvalue()
+
+
+# A step of alpha's its stage does not declare, before its join and after it: emit takes each, the model refuses each.
+UNDECLARED = [
+    ("stage", MADE, "provision", {"name": "alpha"}),
+    ("step", MADE, "resize", {"stage": "provision"}),
+    ("join", ALPHA, MADE, {}),
+    ("step", ALPHA, "resize", {"stage": "provision"}),
+    ("end", ALPHA, "ready", {"outcome": "succeeded"}),
+    ("end", None, "", {"outcome": "succeeded", "exit": 0}),
+]
+
+
+@pytest.mark.parametrize("verbosity", [0, 1], ids=["lines", "v"])
+def test_the_line_of_an_event_the_view_left_out_says_the_vm_by_its_name_before_its_join_and_after_it(
+    verbosity, home, monkeypatch
+) -> None:
+    _, errors = _said_through_a_join(monkeypatch, UNDECLARED, verbosity=verbosity)
+    refused = errors.splitlines()
+    assert len(refused) == 2, errors
+    for line in refused:
+        assert line.startswith("aw: the live view left out an event it could not take (step alpha: resize): "), line
+    assert MADE not in errors and ALPHA not in errors
+
+
+def test_with_a_v_each_line_through_a_join_says_the_vm_by_its_name_alone(home, monkeypatch) -> None:
+    events = [
+        ("stage", BETA, "provision", {}),
+        ("stage", MADE, "provision", {"name": "alpha"}),
+        ("step", MADE, "clone", {"stage": "provision"}),
+        ("join", ALPHA, MADE, {}),
+        ("step", ALPHA, "clone", {"stage": "provision", "outcome": "done"}),
+        ("end", ALPHA, "ready", {"outcome": "succeeded"}),
+        ("end", BETA, "ready", {"outcome": "succeeded"}),
+        ("end", None, "", {"outcome": "succeeded", "exit": 0}),
+    ]
+    said, errors = _said_through_a_join(monkeypatch, events, verbosity=1)
+    assert said.splitlines()[: len(events)] == [
+        "stage beta: provision",
+        "stage alpha: provision · name=alpha",
+        "step alpha: clone · stage=provision",
+        "join alpha",
+        "step alpha: clone · stage=provision · outcome=done",
+        "end alpha: ready · outcome=succeeded",
+        "end beta: ready · outcome=succeeded",
+        "end · outcome=succeeded · exit=0",
+    ]
+    assert errors == "" and MADE not in said and ALPHA not in said and BETA not in said
+
+
+def test_with_a_v_the_join_is_one_line_of_its_own_and_never_says_the_stand_in() -> None:
+    assert live.streamed(_event("join", ALPHA, MADE), "alpha") == "join alpha"
+    # With no name known, the key the event names: the identity, never the stand-in its text is.
+    assert live.streamed(_event("join", ALPHA, MADE)) == f"join {ALPHA}"

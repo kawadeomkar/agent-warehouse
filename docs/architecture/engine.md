@@ -2192,6 +2192,7 @@ fleet's folders (`fleet/files.py`).
 | `starter` | What started it: `{"kind": "terminal"}`, `{"kind": "detach"}`, or `{"kind": "mcp", "server": <id>}`, that server's own ID |
 | `host`, `machines` | The host the run is on, and the machines it names, by identity |
 | `making` | The machines it is making that have no identity yet, each by its stand-in key with the name a person chose, until its join |
+| `names` | The name of each machine joined from `making`, by its identity, `{identity: name}`: the join keeps it there |
 | `locks` | The names of the locks it holds |
 | `attached` | Whether it runs at a terminal |
 | `pid`, `started` | Its process and when it started: information for a person and for a machine's `job` line, never read to decide a state |
@@ -2250,9 +2251,10 @@ taken for either. Its first event carries the name a person chose (`name=`), as 
 record keeps it in `making`, the stand-in with that name, so that a run killed before the clone, read by `logs` or an
 agent, says what it was making, and `machines` keeps identities alone (`create` refuses a stand-in there). One `join`
 event, its machine the identity and its text the stand-in, joins the two: the identity joins `machines`, the stand-in
-leaves `making`, and what the record keeps under the stand-in moves to the identity, in its place: its outcome in
-`machine_outcomes`, its lines of `next`, and the run's `waiting` where it is the machine's. From then on the stand-in
-names nothing. Refused before anything is written or heard: a stand-in's first event with no name; an event that names a
+leaves `making` and its name is kept under the identity in `names`, so that a view made after the join, `logs` or an
+agent still says the VM by its name, and what the record keeps under the stand-in moves to the identity, in its place:
+its outcome in `machine_outcomes`, its lines of `next` where they stood among the other machines', and the run's
+`waiting` where it is the machine's, a section's wait among them. From then on the stand-in names nothing. Refused before anything is written or heard: a stand-in's first event with no name; an event that names a
 stand-in joined already; a join with no identity, or a stand-in for one; a join of a key that is no stand-in, of a
 stand-in joined already, or of one the run is not making; and a join to an identity the run has named before, given or
 in an event, which would make two machines one.
@@ -2668,8 +2670,11 @@ already or of one the run does not know, a join to an identity the run keeps any
 row), and anything after the run's end are refused before anything is kept, the order of the events counted included.
 `tests/unit/test_aw_run_join.py` holds the stand-in and its join: a run that makes a VM, its events under the stand-in
 from the first, the join, then the identity's, read as one row with its parts, its times and one outcome, equal at each
-event to the same run keyed by the identity from its first event; each thing the join moves, each refusal leaving the
-model as it was, the record across the join, and the live view through it, nothing drawn twice.
+event to the same run keyed by the identity from its first event; each thing the join moves, in its place among another
+machine's, a join to an identity kept in any one of them refused, each refusal leaving the model as it was; the record
+across the join, at each event the record of the run keyed by the identity, the VM's name kept in `names`, a section's
+wait moved and a stand-in's nameless first wait refused; and the live view through it, nothing drawn twice, its refusal
+line and its `-v` lines saying the VM by its name.
 
 What a drawer reads: `state(stage, step)` (to come, running, waiting, done, skipped, failed, stopped), `mark(machine,
 stage, step)` and `marks(stage, step)` (each machine's, none for a stage that is not each machine's), `running()` and
@@ -2749,12 +2754,16 @@ the `#` block every run ends with (`text.banner`, in the palette's yellow); with
 that begins rings the bell, and so does the end. A person's stop (the run's `Context.cancelled`, which the first Ctrl-C
 sets and no event carries) reaches the model at the next event or frame (`Run.cancel`), so the footer says the run is
 stopping. An event the model refuses (an undeclared step, a malformed end) is said in one line on standard error and
-left out: the run goes on, and every listener after the view still hears it. Nothing in `runs/` writes an escape
+left out: the run goes on, and every listener after the view still hears it. That line and each line under `-v` say a
+machine by its name, as the frame does (the model's name for its key, a join's by the stand-in it joins, else the
+`name` the event carries), never by its key, a stand-in or an identity, but where no name is known; a join's text, the
+stand-in, is never said. Nothing in `runs/` writes an escape
 sequence or reads the terminal itself: the region, the palette, the title and the echo are `tui/`'s. The model's
 machines are the job's own, `job.json`'s `machines`, by identity, the key every event of a machine names, each with the
 name a person chose where the caller gives it (`names`): the record keeps identities alone, and the view says a machine
 by its name. A row is keyed by the machine's identity, or, for a VM the run is making, by its stand-in key until its
-join: drawn by its name from its first event (from `job.json`'s `making` where the view is made after that event), and
+join: drawn by its name from its first event (from `job.json`'s `making` where the view is made after that event, and
+from its `names` where it is made after the join), and
 the join changes nothing drawn, one row before and after, the identity's events going on in it. A job has one view: a
 second is refused (`RuntimeError`), the first keeping it. What the view says in the run's thread, each event's lines and
 standard error's lines above the region, is said whole, a Ctrl-C, a SIGTERM and a SIGHUP held off meanwhile and each
