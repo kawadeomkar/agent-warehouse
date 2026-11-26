@@ -942,9 +942,15 @@ token's secret is held or given and the comment carries a mark with no control V
 its token there, `init` asks which of two things is meant and does neither unasked: taking the fleet over (where
 `fleet.json` names no fleet or the mark's) runs the script with the mark's ID and `--regenerate`, every other copy of the
 token's secret then failing, and `fleet.json` keeps the mark's ID; using another pool (where `settings.yml` names none)
-asks its name and, where no token was named, the token's full ID, and makes a fleet of this computer's own there. Enter
-or Esc does neither; a mark naming a control VM is the script's refusal, nothing asked. `aw init --print-commands` prints the same script on standard output, and on standard error how to
-run it as root, reading `host.yml`, the settings and `fleet.json` alone: no vault, run, lock, request or write.
+asks its name and, where no token was named, the token's full ID, and makes a fleet of this computer's own there. Where
+the mark's ID is `fleet.json`'s, a run of this computer's cut before the secret was kept or another computer of the
+fleet's, the first is asked as making the fleet's own token's secret again, never as a take-over. A token whose secret
+was made again is never deleted where the vault cannot be written: the run did not make it, and deleting it would leave
+the fleet with none; the next `init` asks again. Enter or Esc does neither; a mark naming a control VM is the script's
+refusal, nothing asked. `aw init --print-commands` prints the same script on standard output, and on standard error how to
+run it as root, reading `host.yml`, the settings and `fleet.json` alone: no vault, run, lock or request. Its one write
+(card E8): with no `fleet.json`, the fleet's ID it renders is written there and said, so that a second print and the
+offer render the same ID, and a by-hand run again after a partial one is never refused as another fleet's.
 
 `tests/unit/test_aw_engine_init.py` holds `init` against the fake Proxmox, through `tools/aw` with a refusing `ssh`
 first on `PATH` and in this process with root SSH a reader of the test's own; its runs through `tools/aw` from a home
