@@ -20,10 +20,11 @@ identity, its key checked strictly and the person's vm_ssh_options given; --tags
 with no names finds every VM (tests/unit/test_configure_tags.py's case); a failed task fails the VM naming the task,
 cloud-init's in this engine's lines; a callback of the product's name beside the play, which ran in its place, refused;
 every secret the run holds struck from what layer 1 says; a stopped VM started where the plan says, and a stop during
-its agent's wait ending it stopped. Through the kit at a terminal, the play swapped the same way in the run's own
-process (aw_kit.Layer1): a Ctrl-C in the middle of a task of layer 1's child drawn stopped, never failed (the first
-checkpoint's finding 3). And, over the stand-in's real SSH connection (as G7 proved its route), a configure through
-the stand-in hop reaches the VM only through it, and with the hop's login refused stops before the VM.
+its agent's wait ending it stopped; a task that failed as the stop came still the VM's failure, drawn failed (review
+83's finding 3). Through the kit at a terminal, the play swapped the same way in the run's own process (aw_kit.Layer1):
+a Ctrl-C in the middle of a task of layer 1's child drawn stopped, never failed (the first checkpoint's finding 3). And,
+over the stand-in's real SSH connection (as G7 proved its route), a configure through the stand-in hop reaches the VM
+only through it, and with the hop's login refused stops before the VM.
 """
 
 from __future__ import annotations
@@ -351,16 +352,18 @@ def swapped(monkeypatch, tmp_path, installed, made, engine_guard) -> Swapped:
 
 
 def _configured(
-    names: tuple[str, ...], plan: configure.Plan, job: jobs.Job, short: Path | None = None
+    names: tuple[str, ...], plan: configure.Plan, job: jobs.Job, short: Path | None = None, kept: list | None = None
 ) -> tuple[configure.Configured, ...]:
     """The frame run in this process, against the fleet's host as a run opens it: its environment's HOME short where
-    given, short enough for a shared connection's socket in its .ansible/cp."""
+    given, short enough for a shared connection's socket in its .ansible/cp; its context put in kept, where given."""
     where = paths.home(REPO)
 
     async def body() -> tuple[configure.Configured, ...]:
         ctx = SimpleNamespace(
             job=job, cancelled=asyncio.Event(), stopping=threading.Event(), emit=job.emit, shield=_open
         )
+        if kept is not None:
+            kept.append(ctx)
         with fleet.connect(where, hosts.reach(hosts.Layout(where), Request())) as opened:
             environ = opened.environ if short is None else {**opened.environ, "HOME": str(short)}
             host = dataclasses.replace(opened, environ=environ)
@@ -577,6 +580,38 @@ def test_a_stop_during_the_agent_s_wait_of_a_vm_it_starts_ends_that_vm_stopped(m
     assert _ends(heard) == [(machine.identity, "stopped", "cancelled")], _ends(heard)
     ended = _fed(heard).outcomes[machine.identity]
     assert (ended.outcome, ended.stage) == ("cancelled", "configure")
+
+
+def test_a_task_that_failed_as_the_stop_came_is_still_the_vm_s_failure_drawn_failed(
+    made, job, heard, swapped, monkeypatch
+) -> None:
+    # Review 83's finding 3: layer 1's child ends as a task of the VM's failed, and the stop comes then. The failure is
+    # the VM's own: its step and its end failed, and the model draws them failed, never stopped.
+    [(_, machine)] = _provisioned(made, "delta").values()
+    swapped.machines[machine.identity] = machine
+    swapped.write([{"name": "Check the disk", "ansible.builtin.fail": {"msg": "the disk is full"}, "tags": ["common"]}])
+    contexts: list = []
+    inner = layer1.run
+
+    async def stopped_as_it_ends(*args, **given):
+        ended = await inner(*args, **given)
+        for ctx in contexts:
+            # What a Ctrl-C does to the run's context (runs/attached.py's ladder), as the child's end is read.
+            ctx.stopping.set()
+            ctx.cancelled.set()
+        return ended
+
+    monkeypatch.setattr(layer1, "run", stopped_as_it_ends)
+    [done] = _configured(("delta",), configure.Plan.read(), job, kept=contexts)
+    assert contexts[0].cancelled.is_set() and done.outcome == "failed", done
+    [(_, why, outcome)] = _ends(heard)
+    assert outcome == "failed" and 'the task "Check the disk" failed' in why, why
+    [step] = [event for event in heard if event.kind == "step" and event.text == "system"][-1:]
+    assert step.data.get("outcome") == "failed", step
+    fed = _fed(heard)
+    assert fed.outcomes[machine.identity].outcome == "failed"
+    assert fed.mark(machine.identity, "configure", "system") == "failed"
+    assert fed.mark(machine.identity, "configure") == "failed"
 
 
 def test_a_layer_1_child_a_ctrl_c_stopped_is_drawn_stopped_never_failed(made, tmp_path, installed) -> None:

@@ -11,13 +11,14 @@ is Exists, at the call or in its task in each of Proxmox's three sentences, and 
 configuration's write sends the digest of the read its Owned was made on, and takes none of its caller's, and a stale
 one is DigestMismatch with nothing written; edit_config reads and applies again, three times at most. No write of an
 Owned reaches another VM at its VMID (card G28): every other write reads the configuration first and holds its SMBIOS
-UUID to the Owned's, Changed with nothing sent, a resize sending that read's digest. A conversion to a template is made
-on a Building alone, a build VM of the asking run's own, and held to its UUID and digest as a deletion is; a VM of the
-fleet, a template, another run's build VM and one at another clone's VMID are refused. Card E18's order makes a golden:
-the golden's record written on the build VM and read back, the Building made from that read and converted; one made
-before the write is Changed, and neither the golden nor a clone of it is made a template again. A write to a VM a clone
-or a deletion holds is Locked, and tried once; so is one that meets its configuration's file lock, and a clone's task
-that meets its source's lock names the source. A write whose answer is cut is the transport's Unknown, sent once. A
+UUID to the Owned's, Changed with nothing sent, a resize sending that read's digest; edit_config, resize and start,
+given the run's stop, are Unsent with nothing sent once that read finds it set (card G31). A conversion to a template is
+made on a Building alone, a build VM of the asking run's own, and held to its UUID and digest as a deletion is; a VM of
+the fleet, a template, another run's build VM and one at another clone's VMID are refused. Card E18's order makes a
+golden: the golden's record written on the build VM and read back, the Building made from that read and converted; one
+made before the write is Changed, and neither the golden nor a clone of it is made a template again. A write to a VM a
+clone or a deletion holds is Locked, and tried once; so is one that meets its configuration's file lock, and a clone's
+task that meets its source's lock names the source. A write whose answer is cut is the transport's Unknown, sent once. A
 task that fails raises with the last lines of its log, made plain; one that ends with warnings is a success, its
 warnings' lines kept; one that runs past its deadline raises then, and is not waited for longer, each poll held to what
 is left of it; one whose run stops before its end is read is Stopped, between polls or during one, and goes on on
@@ -30,10 +31,10 @@ POST to a configuration's path with no digest, or with one that is not a digest,
 read with its %-escapes decoded and sent as it was given, every one the fake was sent carried it (harness.fake_fleet's
 end, for every test of the new engine, reading the path decoded too), and every method that sends one sends digest (a
 syntax-tree test of the module); a configuration's write sends only the keys the table covers for it; both ways, every
-row of the table is one the fake decided a request of the client's by and every call the client makes has its rows,
-each method of the client driven against the fake under enforcement, its requests read from the fake's log and the rows
-each was decided by from its decided.log; and no error of a write, nor of a read,
-says the token's secret, even where Proxmox's words echo it.
+row of the table is one the fake decided a request of the client's by and every call the client makes has its rows, each
+method of the client driven against the fake under enforcement, its requests read from the fake's log and the rows each
+was decided by from its decided.log; and no error of a write, nor of a read, says the token's secret, even where
+Proxmox's words echo it.
 """
 
 from __future__ import annotations
@@ -94,6 +95,7 @@ from claude_vm.pve.client import (
     Token,
     TooOld,
     Unknown,
+    Unsent,
     Unverified,
     _file_locked,
     _taken,
@@ -1106,6 +1108,30 @@ def test_no_write_of_an_owned_vm_reaches_another_vm_at_its_vmid(fleet, write) ->
     else:
         assert "is another VM than the one owned" in str(refused.value)
         assert fleet.writes() == []
+    assert fleet.raw(9010) == there
+
+
+@pytest.mark.parametrize("write", ["edit_config", "resize", "start"])
+def test_a_write_given_the_run_s_stop_sends_nothing_once_its_read_finds_it_set(fleet, write) -> None:
+    """edit_config, resize and start read the configuration before they send (card G31, review 83's finding 1): a
+    Ctrl-C during that read is asked after it, so the stop, set by then, is Unsent with nothing sent but the read, and
+    the VM as it was. Without the stop the same write goes out (the tests above)."""
+    owned = fleet.owned(9010)
+    there = fleet.raw(9010)
+    stop = threading.Event()
+    stop.set()
+    call = {
+        "edit_config": lambda client: client.edit_config(owned, lambda config: {"description": "late"}, stop),
+        "resize": lambda client: client.resize(owned, "scsi0", "+1G", stop),
+        "start": lambda client: client.start(owned, stop),
+    }[write]
+    with fleet.client() as client:
+        with pytest.raises(Unsent) as unsent:
+            call(client)
+    assert unsent.value.vmid == 9010 and "nothing was sent" in str(unsent.value)
+    read = [entry["path"] for entry in fleet.asked() if entry["method"] == "GET"]
+    assert read[-1:] == ["/api2/json/nodes/pve/qemu/9010/config"], read
+    assert fleet.writes() == []
     assert fleet.raw(9010) == there
 
 

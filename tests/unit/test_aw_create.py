@@ -23,10 +23,12 @@ the pool's alone; a start that failed, a resize or a start refused at its call, 
 running VM resumed never started again; a clone left in its first form refused to every later run, saying to delete it;
 a Ctrl-C during the clone held until it lands and is recorded; a Ctrl-C during the agent's wait ending the VM stopped in
 the job's record, and one while the settings call's answer is held (the fake's hold) sending nothing after it, the next
-run resizing the VM (the first checkpoint's findings 1 and 2); a VM with a console password and no key made; a stopped
-VM left stopped, and started with --start; a size given at the create recorded in capital form, refused for the VM once
-it exists and kept on a repair, which never resizes and refuses a larger disk; --repos given, added to, and refused for
-a VM that follows the setting.
+run resizing the VM (the first checkpoint's findings 1 and 2); a Ctrl-C during the resize's own read, and during the
+read before the start, sending neither, and a second Ctrl-C or a SIGTERM at the agent's wait ending the VM stopped all
+the same, by the ladder's end (review 83's findings 1 and 2); a VM with a console password and no key made; a stopped VM
+left stopped, and started with --start; a size given at the create recorded in capital form, refused for the VM once it
+exists and kept on a repair, which never resizes and refuses a larger disk; --repos given, added to, and refused for a
+VM that follows the setting.
 """
 
 from __future__ import annotations
@@ -771,10 +773,16 @@ def _last_job() -> dict:
     return newest.read()
 
 
-def _stopped_at(made: Made, reached, after=None, words: tuple[str, ...] = ("--only", "provision")):
-    """aw deploy delta <words> at a terminal, sent a Ctrl-C (SIGINT, as the terminal sends its group one) once
-    reached() says its phase is reached; after(output), where given, is asked at each read once it was sent. Its exit
-    status, what it said, and how many requests the fake had had when the Ctrl-C was sent."""
+def _stopped_at(
+    made: Made,
+    reached,
+    after=None,
+    words: tuple[str, ...] = ("--only", "provision"),
+    signum: int = signal.SIGINT,
+):
+    """aw deploy delta <words> at a terminal, sent a Ctrl-C (SIGINT, as the terminal sends its group one), or signum,
+    once reached() says its phase is reached; after(output, process), where given, is asked at each read once it was
+    sent. Its exit status, what it said, and how many requests the fake had had when the signal was sent."""
     folder = made.root / SSH_FOLDER
     folder.mkdir(parents=True, exist_ok=True)
     seen: dict[str, int] = {}
@@ -782,9 +790,9 @@ def _stopped_at(made: Made, reached, after=None, words: tuple[str, ...] = ("--on
     def act(chunk: bytes, output: bytes, master: int, process: subprocess.Popen) -> None:
         if "sent" not in seen and reached():
             seen["sent"] = len(made.sent())
-            os.kill(process.pid, signal.SIGINT)
+            os.kill(process.pid, signum)
         elif "sent" in seen and after is not None:
-            after(output)
+            after(output, process)
 
     rc, output = aw_at_a_terminal(
         "deploy", "delta", *words, home=made.home, first_on_path=(folder,), act=act, poll=0.05, timeout=180
@@ -811,6 +819,8 @@ def test_a_stop_during_the_agent_s_wait_ends_the_vm_stopped_in_the_job_s_record(
     rc, said, _ = _stopped_at(made, polled)
     assert rc == EXITS["cancelled"] and _last_job()["outcome"] == "cancelled", said
     assert _ends() == [("cancelled", "provision")], _last_job()
+    # The VM's own end, never the ladder's for a machine left without one (runs/attached.py's UNENDED).
+    assert [end["why"] for end in _last_job()["machine_outcomes"].values()] == ["stopped"], _last_job()
     assert made.record(FIRST).stage == "unfinished" and not made.record(FIRST).provisioned
     _pve(made.base, "PUT", "fake/agent-ready-after", polls=0)
     _ok(made.deploy("delta"))
@@ -825,7 +835,7 @@ def test_a_stop_while_the_settings_call_s_answer_is_outstanding_sends_nothing_af
     state = made.directory / "pve"
     _pve(made.base, "PUT", "fake/hold", suffix=f"qemu/{FIRST}/config", param="ciuser")
 
-    def released(output: bytes) -> None:
+    def released(output: bytes, _process: subprocess.Popen) -> None:
         if b"aw: stopping" in output and not (state / "release").exists():
             (state / "release").touch()
 
@@ -840,6 +850,95 @@ def test_a_stop_while_the_settings_call_s_answer_is_outstanding_sends_nothing_af
     _ok(made.deploy("delta"))
     resent = [entry["path"].rsplit("/", 1)[-1] for entry in made.writes(sent)]
     assert "resize" in resent and made.record(FIRST).provisioned and stand_in.line in made.filed(), resent
+
+
+def _holding(state: Path, let_through: str, hold: str):
+    """reached for _stopped_at: the request held first, of method let_through, answered at once; true once the one held
+    after it, of method hold, is held."""
+
+    let: list[str] = []
+
+    def reached() -> bool:
+        held = state / "held"
+        now = held.read_text() if held.is_file() else ""
+        if now.startswith(f"{let_through} ") and not let:
+            # Once: a release made again after the fake took the first would answer the next hold at once.
+            let.append(now)
+            (state / "release").touch()
+        return now.startswith(f"{hold} ")
+
+    return reached
+
+
+def _released(state: Path):
+    """after for _stopped_at: the answer held let through once the run says it stops."""
+
+    let: list[bool] = []
+
+    def after(output: bytes, _process: subprocess.Popen) -> None:
+        if b"aw: stopping" in output and not let:
+            let.append(True)
+            (state / "release").touch()
+
+    return after
+
+
+@pytest.mark.parametrize(
+    ("before", "suffix", "write"),
+    [
+        ("the resize's read", f"qemu/{FIRST}/config", "resize"),
+        ("the read before the start", f"qemu/{FIRST}/status/current", "status/start"),
+    ],
+    ids=["resize", "start"],
+)
+def test_a_stop_during_a_write_s_own_read_sends_nothing_after_it(made, before, suffix, write) -> None:
+    # Review 83's finding 1: the resize and the start each read the VM first, and a Ctrl-C during that read was followed
+    # by the write. The settings call let through, then the read held by the fake while the run is stopped: the read's
+    # answer let through once the run says it stops, nothing is written after it.
+    made.stand_in("one", FIRST)
+    state = made.directory / "pve"
+    # The settings call's held and let through at once, so that the read held is the first after it of its path: the
+    # resize's own, or, the resize sent and followed, the read of whether the VM runs, then the start's own read.
+    _pve(made.base, "PUT", "fake/hold", suffix=f"qemu/{FIRST}/config", param="ciuser")
+    _pve(made.base, "PUT", "fake/hold", suffix=suffix, methods="GET")
+    rc, said, at = _stopped_at(made, _holding(state, "PUT", "GET"), _released(state))
+    assert rc == EXITS["cancelled"], said
+    [settings] = [entry for entry in made.writes() if "ciuser" in entry["params"]]
+    assert made.sent().index(settings) < at, said
+    resized = [entry for entry in made.writes() if entry["path"].endswith("/resize")]
+    assert (write == "status/start") == bool(resized and made.sent().index(resized[0]) < at), (before, resized)
+    assert made.writes(at) == [], (before, made.writes(at))
+    assert not [entry for entry in made.writes() if entry["path"].endswith(f"/{write}")], before
+    assert _ends() == [("cancelled", "provision")], _last_job()
+    assert not made.record(FIRST).provisioned
+
+
+@pytest.mark.parametrize("end", ["a second Ctrl-C", "a SIGTERM"])
+def test_an_end_at_once_at_the_agent_s_wait_still_ends_the_vm_stopped(made, end) -> None:
+    # Review 83's finding 2: a second Ctrl-C right after the run says it stops, or a SIGTERM, raises the ladder's
+    # Abandoned wherever the loop's thread is, so the VM's own handler may never run: the ladder's end ends it.
+    made.stand_in("one", FIRST)
+    _pve(made.base, "PUT", "fake/agent-ready-after", polls=10**6)
+    seconds: list[int] = []
+
+    def polled() -> bool:
+        return any(entry["path"].endswith("/agent/network-get-interfaces") for entry in made.sent())
+
+    def again(output: bytes, process: subprocess.Popen) -> None:
+        if b"aw: stopping" in output and not seconds:
+            seconds.append(process.pid)
+            os.kill(process.pid, signal.SIGINT)
+
+    if end == "a SIGTERM":
+        rc, said, _ = _stopped_at(made, polled, signum=signal.SIGTERM)
+        assert rc == -signal.SIGTERM, said
+        assert (_last_job()["outcome"], _last_job()["why"]) == ("cancelled", "SIGTERM"), said
+    else:
+        rc, said, _ = _stopped_at(made, polled, again)
+        assert seconds and rc == EXITS["cancelled"], said
+        assert (_last_job()["outcome"], _last_job()["why"]) == ("cancelled", "Ctrl-C twice"), said
+    assert _ends() == [("cancelled", "provision")], _last_job()
+    assert not made.record(FIRST).provisioned
 
 
 def test_a_stopped_vm_is_left_stopped_unless_start_is_given(made) -> None:

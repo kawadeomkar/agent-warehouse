@@ -118,11 +118,14 @@ NO_HOME = "{name}: the home of its user {user} could not be read: {why}"
 
 
 class Failed(Exception):
-    """One VM's step failed: the sentence that says why. The VM is left as the step found it, for the next run."""
+    """One VM's step failed: the sentence that says why. The VM is left as the step found it, for the next run. own: a
+    failure of the VM's own (a layer-1 task that failed, or could not reach it), which stays the VM's failure though the
+    run is stopping; any other ends the VM stopped once the run is."""
 
-    def __init__(self, sentence: str) -> None:
+    def __init__(self, sentence: str, *, own: bool = False) -> None:
         super().__init__(sentence)
         self.sentence = sentence
+        self.own = own
 
 
 # ---------------------------------------------------------------- what a run asks ----
@@ -310,7 +313,7 @@ class Configuring:
             return self.outcome("cancelled")
         except Failed as failed:
             why = one_line(failed.sentence, None)
-            if self.ctx.cancelled.is_set():
+            if self.ctx.cancelled.is_set() and not failed.own:
                 self.emit("end", "stopped", outcome="cancelled")
                 return self.outcome("cancelled")
             self.emit("stage", STAGE, outcome="failed", why=why)
@@ -379,7 +382,7 @@ class Configuring:
         assert owned is not None
         client = self.host.client
         self.step("start")
-        task = await self.call(client.start, owned)
+        task = await self.call(client.start, owned, self.ctx.stopping)
         await self.call(client.follow, task, None, self.ctx.stopping)
         if target.mac:
             cancelled = self.ctx.cancelled
@@ -448,7 +451,8 @@ class Configuring:
             raise Failed(sentence)
         if sentence:
             self.step("system", "failed", sentence)
-            raise Failed(sentence)
+            # A task that failed is the VM's failure, the run stopping or not.
+            raise Failed(sentence, own=True)
         self.step("system", "done")
         return parts
 

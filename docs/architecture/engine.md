@@ -1199,8 +1199,11 @@ the comparison does not hold it). Then for each VM, each step an event of the ru
 A step that fails fails its VM alone, said; the run then exits 2 (`EXITS`' `failed`). A step a stop ended ends its VM
 stopped (`cancelled` in the job's record, the stage it reached kept), never failed, and so does a wait of the run's own
 that a stop ends by raising `asyncio.CancelledError` - the guest agent's for the address, a shield not begun - which
-`Making.run` takes as the VM's end; where the run itself is being cancelled (the grace's end, a second Ctrl-C) the
-VM's end is written and the cancellation goes on. One after the record's write
+`Making.run` takes as the VM's end; where the run itself is being cancelled (the grace's end, a second Ctrl-C that
+comes while the run waits) the VM's end is written and the cancellation goes on. Where a second Ctrl-C, a SIGTERM or a
+SIGHUP ends the run before the VM's handler runs, the ladder's end writes it, `cancelled` at the stage it reached
+(16.8). Each of the VM's writes, its settings, its resize and its start, is given the run's stop and sends nothing
+once a stop came during its own read (`Unsent`, 16.5). One after the record's write
 leaves the VM a member without `provisioned` that the next run resumes. One before it - a clone whose answer was lost,
 whose follow failed or whose record could not be written - leaves the clone, where it landed, in its first form, which
 no later run may own: each later run is refused, and the refusal (`pve/ownership.py`) says to delete that VMID in
@@ -1210,7 +1213,9 @@ against the fake, the VMs stand-in machines (16.10): two VMs made in one run, th
 reads; a VMID taken before the clone landed; a clone whose answer was lost sent once, under either audit scope; a failed
 start resumed, and a running VM resumed never started again; a Ctrl-C during the clone held until its record is written;
 a Ctrl-C during the agent's wait ending the VM `cancelled` at `provision` in the job's record; a Ctrl-C while the
-settings call's answer is held by the fake (`fake/hold`) sending nothing after it, the next run resizing the VM;
+settings call's answer is held by the fake (`fake/hold`) sending nothing after it, the next run resizing the VM; a
+Ctrl-C during the resize's own read, and during the read before the start, sending neither; a second Ctrl-C right after
+the first, and a SIGTERM, at the agent's wait still ending the VM `cancelled` at `provision`;
 a stopped VM left stopped, and started with `--start`; a size for a VM the run creates, kept on a repair and refused for
 one that exists, a larger disk on a repair too; `--repos` given, added to and refused; and, without the fake, the keys
 of today's settings call, `need_configuration`'s cases and that it reads no ownership, the one size reader, and each
@@ -1299,7 +1304,8 @@ layer, home), and layer 1's own events lines of that machine's work:
   interrupted execution", or killed at the grace's end) fails nothing by its exit status alone: where the run is
   stopping and layer 1 said no task of the VM failed and none could not reach it, the step is not ended failed but left
   to the VM's `cancelled` end, which the model draws stopped (`runs/model.py`'s `BY_OUTCOME`), so the summary says
-  where it stopped and no failure is drawn. A task that failed is still that VM's failure. A wait of the run's own a
+  where it stopped and no failure is drawn. A task that failed, or could not reach the VM, is still that VM's failure:
+  its step ended failed and the VM's end `failed`, the run stopping or not (`Failed`'s `own`). A wait of the run's own a
   stop ends (the address of a VM it starts) ends the VM stopped, as `create.py`'s does.
 - **The home.** The VM user's real home is read from the password database through the runner (`getent passwd`) and
   the workspace made from it as every reader makes it (`sessions.projects_dir`): each VM's outcome (`Configured`)
@@ -1315,7 +1321,8 @@ process, the system play swapped for a play of one task a part over F3's test-on
 alone hands layer 1: the three parts run and the VM left `unfinished` with layer 2's named and nothing written, every
 connection by its identity, strict, with the person's `vm_ssh_options`; `--tags common` alone, and `--tags` with no
 names reaching every VM; a failed task, cloud-init's, a planted callback, the run's secrets struck; a stopped VM
-started where the plan says, and a stop during its agent's wait ending it `cancelled` at `configure`; through the kit
+started where the plan says, a stop during its agent's wait ending it `cancelled` at `configure`, and a task that
+failed as the stop came drawn and ended `failed`, its step with it; through the kit
 at a terminal with the play swapped the same way (`aw_kit.Layer1`), a Ctrl-C in the middle of a task of the child
 ending the run 130 with the system layer drawn stopped and nothing drawn failed; and, over the stand-in's real
 connection, a configure through the stand-in hop, and a hop
@@ -1458,7 +1465,10 @@ so that a host, or a proxy the computer's certificates trust, that echoes what i
   its SMBIOS UUID to the `Owned`'s; and `delete`, since Proxmox's `DELETE` takes no digest and cannot be undone, holds
   its SMBIOS UUID and its digest: another VM at the VMID now, or before a deletion a configuration changed since the
   read the VM was owned on, a stop that applied pending changes among them, is `Changed`, with nothing sent, and the
-  workflow owns it again from a read made after. A conversion to a template is made on a `Building` alone, a build VM
+  workflow owns it again from a read made after. `edit_config`, `resize` and `start` take the run's `stop` too
+  (`Context.stopping`, as `follow` does), asked once that read is made and before the write is sent: where it is set,
+  a Ctrl-C during the read among them, the call is `Unsent`, with nothing sent but the read (card G31). A conversion to
+  a template is made on a `Building` alone, a build VM
   of the asking run's own (`ownership.py`'s `building`, below), and holds its SMBIOS UUID and digest as a deletion does,
   for the same reasons; nothing else is ever made a template. Each write answers a `Task`
   (its node, UPID, kind and VM; a clone's, the new VM's, with its `source`). A clone whose answer was lost is `Unknown`
@@ -2750,29 +2760,31 @@ stays ignored. The ladder:
 On every path but SIGKILL, every child of the registry has ended or been ended before the loop closes, since asyncio
 kills an `ansible-playbook` it still holds when its loop closes and leaves the playbook's detached task workers running;
 the body's asynchronous generators still suspended are closed, for `SETTLE` seconds at most, so that one whose `finally`
-does not return holds the run no longer; the run's directory is removed; the exit record is written, which has the live
-view say the run's last words, with the signals held off and then taken as notes only, so that a late one changes
-nothing but what the process dies of; and last the terminal's settings are put back as the run found them, its echo
-among them: where anything changed them, drained (`TCSADRAIN`), so that the terminal has read those words first, and for
-a run a Ctrl-C or the ladder stopped flushed (`TCSAFLUSH`) whatever they are, so that what was typed meanwhile and not
-read is thrown away, never left for the shell. Each change only while the run is the terminal's foreground, SIGTTOU
-held off, so that a run a shell put in the background leaves the shell's settings and is not stopped by its own end; a
-run started in the background reads none to put back. Each Ctrl-C and `Ctrl-\` the ladder handles throws away what was
-typed and not read yet (`live_region.discard_typed`, SIGTTOU held off, only while the run is the terminal's
-foreground), as the terminal's own key does where `NOFLSH` is off, since the live region and a line keep what the
-terminal has not written at one. A Ctrl-Z is no end of the ladder's: the terminal's hold takes it, below. "The tree" is
-everything under the run's process, ended by `proc.end_under(pid, remembered, signum)`,
-which signals every process under a process and what was remembered of it, by each one's start, with their groups, and
-never the process, its group or the caller's: today's
-`end` signals the root too, which here is the run. A shared SSH master daemonises out of the tree, so no end reaches it,
-and its open, while it runs - a machine's, `ensure`'s, or the hop's, `route.py`'s - is left out of what is remembered
-(`children.opening`), since the master it leaves keeps
-its `ProxyCommand` in the open's group; a second Ctrl-C during an open ends that open, and the master it was making. A
-child meant to outlive the run (`children.outliving`, the editor, a page's opener) is left out of both, of what is
-remembered and of what is ended, with what is under it: no end of the run reaches it. No child subreaper and no systemd
-scope are adopted, since under a subreaper one run's end would cut another run's connection through the host. The ladder
-is built against stand-ins; experiment 37 tries it with real children, and if a foreground run cannot end its tree by
-itself, `runs.run` is where a small watcher would go.
+does not return holds the run no longer; the run's directory is removed; for a run cancelled, each machine its events
+gave a stage and no end has one, `cancelled` at that stage (`attached.UNENDED`, from `job.unended()`), since Ctrl-C
+twice, a SIGTERM or a SIGHUP raises `Abandoned` wherever the loop's thread is and a machine's own handler may never
+run, and one that has an end, a runner's (`fleet_run.py`) or its body's, is never given a second; the exit record is
+written, which has the live view say the run's last words, with the signals held off and then taken as notes only, so
+that a late one changes nothing but what the process dies of; and last the terminal's settings are put back as the run
+found them, its echo among them: where anything changed them, drained (`TCSADRAIN`), so that the terminal has read those
+words first, and for a run a Ctrl-C or the ladder stopped flushed (`TCSAFLUSH`) whatever they are, so that what was
+typed meanwhile and not read is thrown away, never left for the shell. Each change only while the run is the terminal's
+foreground, SIGTTOU held off, so that a run a shell put in the background leaves the shell's settings and is not stopped
+by its own end; a run started in the background reads none to put back. Each Ctrl-C and `Ctrl-\` the ladder handles
+throws away what was typed and not read yet (`live_region.discard_typed`, SIGTTOU held off, only while the run is the
+terminal's foreground), as the terminal's own key does where `NOFLSH` is off, since the live region and a line keep what
+the terminal has not written at one. A Ctrl-Z is no end of the ladder's: the terminal's hold takes it, below. "The tree"
+is everything under the run's process, ended by `proc.end_under(pid, remembered, signum)`, which signals every process
+under a process and what was remembered of it, by each one's start, with their groups, and never the process, its group
+or the caller's: today's `end` signals the root too, which here is the run. A shared SSH master daemonises out of the
+tree, so no end reaches it, and its open, while it runs - a machine's, `ensure`'s, or the hop's, `route.py`'s - is left
+out of what is remembered (`children.opening`), since the master it leaves keeps its `ProxyCommand` in the open's group;
+a second Ctrl-C during an open ends that open, and the master it was making. A child meant to outlive the run
+(`children.outliving`, the editor, a page's opener) is left out of both, of what is remembered and of what is ended,
+with what is under it: no end of the run reaches it. No child subreaper and no systemd scope are adopted, since under a
+subreaper one run's end would cut another run's connection through the host. The ladder is built against stand-ins;
+experiment 37 tries it with real children, and if a foreground run cannot end its tree by itself, `runs.run` is where a
+small watcher would go.
 
 **A child the terminal stopped.** While the run lives it looks, every 0.2 seconds, for a child the terminal has stopped
 (`children.asking`): one in a group of its own, `route.py`'s `ssh` among them, that asked a question at the terminal,

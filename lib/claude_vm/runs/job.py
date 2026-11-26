@@ -189,6 +189,8 @@ class Job:
         self._making: dict[str, str] = {}
         self._joined: dict[str, str] = {}
         self._named: set[str] = set()
+        # Every machine an end of this run's has named, by the key it named it by.
+        self._ended: set[str] = set()
 
     def __repr__(self) -> str:
         return f"Job({str(self.folder)!r})"
@@ -273,6 +275,12 @@ class Job:
         assert isinstance(given, dict)
         return self._change(lambda record: {**record, **given})
 
+    def unended(self) -> list[str]:
+        """The machines this run's events gave a stage that no end of its has named, by the key their events name them
+        by now (a stand-in joined, by its identity), in the order of their first stage: what the run's end at once
+        leaves without an end of its own (runs/attached.py)."""
+        return [machine for machine in self._stages if machine not in self._ended]
+
     def listen(self, listener: Listener) -> None:
         """listener is handed every event this job's run emits from now on, after those registered before it."""
         if self._held_here() is None:
@@ -316,6 +324,8 @@ class Job:
             self._named.add(event.machine)
         if kind == "stage" and event.machine is not None:
             self._stages[event.machine] = event.text
+        if kind == "end" and event.machine is not None:
+            self._ended.add(event.machine)
         for listener in self._listeners:
             listener(event)
         return event

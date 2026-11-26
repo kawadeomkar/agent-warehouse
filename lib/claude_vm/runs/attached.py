@@ -41,16 +41,19 @@ is never ended: it is left out of every tree the ladder remembers and ends.
 On every path but SIGKILL every child of the registry has ended or been ended before the loop closes, since asyncio
 kills an `ansible-playbook` it still holds when its loop closes and leaves the playbook's detached task workers running;
 the body's asynchronous generators still suspended are closed, for SETTLE seconds at most; the run's directory is
-removed; the exit record is written, which has the live view say the run's last words; and then the terminal is put
-back as it was found, its echo with it, and for a run a Ctrl-C or the ladder stopped what was typed and not read is
-thrown away (TCSAFLUSH), never left for the shell. Each Ctrl-C the ladder handles throws away what was typed and not
-read yet, as the terminal's own Ctrl-C does where NOFLSH is off (tui/live_region.py's discard_typed). Then nothing
-holds the process: the engine's blocking calls (asyncio.to_thread) run on daemon threads of the ladder's own, the
-loop's default executor, which are never joined, and where one is still in a call the process ends at once (os._exit)
-once its streams are flushed, an error first said as Python says one, but a line the printer would not write (its
-Unwritten), said in one line as cli/main.py says it, never a traceback. A signal ignored on the way in, as `nohup` or a
-shell's `&` leaves one, stays ignored. No child subreaper and no systemd scope: a shared connection's master daemonises
-out of the tree, so no end here reaches it, where under a subreaper one run's end would cut another run's connection.
+removed; for a run cancelled, each machine its events gave a stage and no end is ended `cancelled` at that stage
+(UNENDED), since a second Ctrl-C, a SIGTERM or a SIGHUP can end the body before a machine's own end, and one that has an
+end is never given a second; the exit record is written, which has the live view say the run's last words; and then the
+terminal is put back as it was found, its echo with it, and for a run a Ctrl-C or the ladder stopped what was typed and
+not read is thrown away (TCSAFLUSH), never left for the shell. Each Ctrl-C the ladder handles throws away what was typed
+and not read yet, as the terminal's own Ctrl-C does where NOFLSH is off (tui/live_region.py's discard_typed). Then
+nothing holds the process: the engine's blocking calls (asyncio.to_thread) run on daemon threads of the ladder's own,
+the loop's default executor, which are never joined, and where one is still in a call the process ends at once
+(os._exit) once its streams are flushed, an error first said as Python says one, but a line the printer would not write
+(its Unwritten), said in one line as cli/main.py says it, never a traceback. A signal ignored on the way in, as `nohup`
+or a shell's `&` leaves one, stays ignored. No child subreaper and no systemd scope: a shared connection's master
+daemonises out of the tree, so no end here reaches it, where under a subreaper one run's end would cut another run's
+connection.
 
 The tree is the process table's (claude_vm.proc), read with the interrupts held off, and only to end it: nothing here
 decides a job's state from it. No thread blocks a signal: a process forked from a thread starts with that thread's
@@ -136,6 +139,8 @@ OWN_ERROR = "aw: the run's own {what} failed: {error}"
 BY_CTRL_C = "Ctrl-C"
 BY_CTRL_C_TWICE = "Ctrl-C twice"
 DONE = "done"
+# Why a machine the run began and never ended is, at a cancelled run's end (_end): its own end never came.
+UNENDED = "stopped: the run ended before this machine's own end"
 # Who stopped a run, in its record's stop.
 BY_TERMINAL = "terminal"
 
@@ -851,6 +856,15 @@ class _Ladder:
                 _say(f"aw: the run's directory could not be removed whole (job {self.job.id})")
         except (OSError, ValueError, RuntimeError) as error:
             _say(f"aw: the run's directory was left (job {self.job.id}): {plain_text(str(error))}")
+        if outcome == "cancelled":
+            # A second Ctrl-C, a SIGTERM or a SIGHUP raises Abandoned wherever the loop's thread is, so a machine's own
+            # handler may never have run: each machine begun and not ended is ended stopped at the stage it reached,
+            # and none that has an end is given a second (a runner's, runs/fleet_run.py, is the one the record keeps).
+            for machine in self.job.unended():
+                try:
+                    self.job.emit("end", machine, UNENDED, outcome="cancelled")
+                except Exception as error:
+                    _say(f"aw: the end of {machine} could not be written into job {self.job.id}'s record: {error}")
         try:
             self.job.emit("end", None, why, outcome=outcome, exit=status)
         except Exception as error:

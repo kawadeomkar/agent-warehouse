@@ -1118,9 +1118,10 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
 - A call whose answer is outstanding, as a slow host's is: `PUT /api2/json/fake/hold?suffix=&methods=&param=` has the
   next request of those methods (`PUT` by default) to a path ending with `suffix`, carrying `param` where one is given,
   done as any other and its answer held back: the fake writes `held` in its state directory once the request is done,
-  and answers when the test makes `release` there (60 s at most), removing both. Since the fake answers one request at
-  a time, nothing else is answered meanwhile; a run stopped while the answer is held is what
-  `tests/unit/test_aw_create.py` shows with it.
+  its method and path in it, and answers when the test makes `release` there (60 s at most), removing both. Holds armed
+  one after another are taken in order, each looked for once the one before has held its request, so that a test lets
+  one call through and holds the read after it. Since the fake answers one request at a time, nothing else is answered
+  meanwhile; a run stopped while the answer is held is what `tests/unit/test_aw_create.py` shows with it.
 - What `just status` reads is shaped by that version, as Proxmox VE's own: from 9 the listing carries
   `memhost` and `rrddata` the `pressure*` fields, and a day is 1440 points; on 8 it is 70. A clone's config
   carries the template's meta `ctime`, as a real one does; its disk's `ctime` in the storage's content is when it

@@ -220,9 +220,11 @@ is answered as stopped and OK, with an empty log, as before.
 
 PUT /api2/json/fake/hold?suffix=&methods=&param= has the next request of methods (PUT by default) to a path ending with
 suffix, and carrying param where one is given, done as any other is and its answer held back: the fake writes
-<state_dir>/held once the request is done, and answers it when a test makes <state_dir>/release (HOLD_MOST seconds at
-most), removing both. The fake answers one request at a time, so nothing else is answered meanwhile: a call whose
-answer is outstanding, as a slow host's is, during which a test can stop the run that sent it.
+<state_dir>/held, the request's method and path, once the request is done, and answers it when a test makes
+<state_dir>/release (HOLD_MOST seconds at most), removing both. Holds armed one after another are taken in order, each
+looked for once the one before has held its request. The fake answers one request at a time, so nothing else is
+answered meanwhile: a call whose answer is outstanding, as a slow host's is, during which a test can stop the run that
+sent it.
 
 A HEAD is answered 501, as pveproxy answers it, token or not. PUT /api2/json/fake/tokenless?answer=none has every
 request with no token go unanswered from then on, the connection closed with nothing said: something answering in the
@@ -1045,12 +1047,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.holding = False
         held, release = STATE_DIR / "held", STATE_DIR / "release"
-        held.write_text(self.routed)
+        held.write_text(f"{self.command} {self.routed}")
         end = time.monotonic() + HOLD_MOST
         while not release.exists() and time.monotonic() < end:
             time.sleep(0.02)
-        release.unlink(missing_ok=True)
         held.unlink(missing_ok=True)
+        release.unlink(missing_ok=True)
 
     def _reply_empty(self, status, reason):
         self._held()
