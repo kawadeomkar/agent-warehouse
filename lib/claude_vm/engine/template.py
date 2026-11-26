@@ -61,8 +61,9 @@ unseen, or a difference to rebuild) a standing way to build is asked for: root S
 connection that runs nothing but `true` (every ssh the runner starts carries BatchMode=yes). Where it answers, `build`
 runs, at a terminal or with nobody there; where it does not, nothing is created: at a terminal, the sentence says what
 would give one; with no terminal, `Compared.unbuilt`'s, with what the template has and what is wanted, why this run
-cannot build it, and the `deploy --only template` line to run at a terminal. Every refusal of ensure's own is also the
-run's NEXT STEPS line (matter `template`), and no run clones from a template that is to be built and was not: ensure
+cannot build it, and the `deploy --only template` line to run at a terminal. Every refusal of ensure's own is said as
+the stage's failure, and a report after it records `aw deploy --only template` as the run's NEXT STEPS line (matter
+`template`, engine/report.py's say), and no run clones from a template that is to be built and was not: ensure
 returns only a usable template, or raises. Refused before anything is built; Failed where the build began and did not
 end well.
 """
@@ -702,6 +703,8 @@ async def build(
 
 # The template's stage of deploy, as runs/stages.py's DEPLOY declares it: the host's work, no machine's.
 STAGE = "template"
+# What a refused template stage reports after its failure, which says why: the line to run is NEXT STEPS'.
+NOT_MADE = "The base template on {host} was not made, for the reason said above."
 DECLARED = Declared("deploy", tuple(stage for stage in DEPLOY.stages if stage.key == STAGE))
 # Root SSH asked whether it answers in batch mode: one connection that runs nothing but `true`, which says nothing.
 STANDING = runner.Limits(seconds=30.0, silent=None)
@@ -749,7 +752,7 @@ async def _ensured(
     if not drive:
         raise Refused(found.without_drive(str(option(settings, "proxmox_template_storage"))))
     if found.usable:
-        ctx.emit("report", None, found.said())
+        report.say(ctx, None, STAGE, found.said(), "")
         return found
     if found.refused or found.custom:
         raise Refused(found.said())
@@ -771,14 +774,17 @@ async def ensure(
     docstring): the run's settings against host, every row's value, as compare takes them; terminal, whether a person
     is there to read what would give a standing way to build (runs/ask.py's terminal, decided before the run draws);
     target the host's root SSH, routes.py's unless given. Returns the template as it is now: usable. Refused, with the
-    sentence, which is also the run's NEXT STEPS line, before anything is built; Failed where the build began."""
+    sentence, before anything is built, said as the stage's failure, and after it a report that points to it with the
+    run's NEXT STEPS line, the printer's `aw deploy --only template` with the host's flag; Failed where the build
+    began."""
     ctx.emit("stage", None, STAGE)
     try:
         found = await _ensured(ctx, host, settings, terminal, target)
     except Refused as error:
-        if not isinstance(error, Failed):
-            ctx.emit("next", None, str(error), matter=STAGE)
         ctx.emit("stage", None, STAGE, outcome="failed", why=str(error))
+        if not isinstance(error, Failed):
+            again = printer.line("deploy", {"only": STAGE}, refused=False, host_flag=host.host_flag)
+            report.say(ctx, None, STAGE, NOT_MADE.format(host=host.name), again)
         raise
     ctx.emit("stage", None, STAGE, outcome="done")
     return found

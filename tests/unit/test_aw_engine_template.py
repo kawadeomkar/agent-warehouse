@@ -1690,9 +1690,10 @@ def test_a_run_with_no_terminal_and_no_root_ssh_refuses_before_anything_is_creat
     assert deploying.writes() == [] and deploying.sent()
     asked = deploying.asked()
     assert len(asked) == 1 and asked[0][-1] == "true" and "BatchMode=yes" in asked[0], asked
-    # The same line is NEXT STEPS', and the run held the fleet's lock alone, exclusively: it names no machine.
+    # NEXT STEPS' line is the command the sentence ends with, the printer's whole line (G6, review 77), and the run
+    # held the fleet's lock alone, exclusively: it names no machine.
     record = deploying.record()
-    assert record["next"] == [{"machine": None, "matter": "template", "line": sentence}]
+    assert record["next"] == [{"machine": None, "matter": "template", "line": "aw deploy --only template"}]
     assert record["locks"] == ["fleet:exclusive"]
 
 
@@ -1732,7 +1733,7 @@ def test_a_cut_build_s_vm_at_the_id_is_handed_on_as_the_run_s_line_never_built_o
     output = _ran(deploying.deploy(*DEPLOY_TEMPLATE), EXITS["refused"])
     assert f'ID 9010 holds a VM, not the finished template "{NAME}": remove it (qm destroy 9010)' in output
     [step] = deploying.record()["next"]
-    assert step["matter"] == "template" and step["line"].startswith("ID 9010 holds a VM")
+    assert (step["matter"], step["line"]) == ("template", "aw deploy --only template")
     assert deploying.writes() == [] and deploying.asked() == []
 
 
