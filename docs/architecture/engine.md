@@ -3068,12 +3068,15 @@ at its default) is taken by the terminal's hold as the region's is: the settings
 and not read thrown away with them (`TCSAFLUSH`), and then the stop, so that nothing typed reaches the shell's line or
 its history; once the run goes on in the foreground (`fg`) the question's mode is made again and its words written again
 below the shell's lines, where the answer is typed afresh (`change`'s `back`); a run the shell goes on with in the
-background (`bg`) stops at the question till it is the foreground - SIGTTOU at its default, raised from Python in a loop and never left to the terminal inside the change (`_once_foreground`), whose stop the
-kernel would make again at each SIGCONT without coming back to Python where another thread took the signals - and
-before each stop it waits a moment (`ENDING_GRACE`), for a kill another of the run's threads took to reach the ladder.
-A run the shell ends while it is stopped, at a Ctrl-Z or after `bg` (`kill %1`: SIGTERM, then SIGCONT), ends at
-once, since the ladder's end tells the hold it waits for the terminal no more (`live_region.ending`): the SIGCONT
-changes nothing in the background, and the question stops no more. A `Ctrl-\` is the
+background (`bg`) stops at the question till it is the foreground: once it goes on, the hold's own Ctrl-Z raises
+SIGTTOU at its default from Python, in a loop (`_once_foreground`), and never leaves the stop to the terminal inside the
+change, whose stop the kernel would make again at each SIGCONT without coming back to Python where another thread took
+the signals; before each stop it waits a moment (`ENDING_GRACE`), for a kill another of the run's threads took to reach
+the ladder. The SIGCONT's own handler never stops the run: Python runs a handler still due at the first line of
+another's, so a kill's SIGCONT can come there before its SIGTERM's handler has done anything. A run the shell ends while
+it is stopped, at a Ctrl-Z or after `bg` (`kill %1`: SIGTERM, then SIGCONT), ends at once, since the ladder's end tells
+the hold it waits for the terminal no more (`live_region.ending`): the SIGCONT changes nothing in the background, and
+the question stops no more. A `Ctrl-\` is the
 ladder's, as SIGTERM, what was typed thrown away first. The edges: at the menu, whose raw mode makes them keys, a
 Ctrl-Z and a
 `Ctrl-\` are keys it has no use for, and the menu goes on; a key between two questions, or while the region is aside
@@ -3125,7 +3128,7 @@ bell rung only after a quiet while. `tests/unit/test_live_region.py` holds the r
 same through an `EINTR`, `NOFLSH` beside the echo while it draws and the settings back exactly as found, `NOFLSH` kept
 at a run's end till `release()`, a Ctrl-C throwing away what was typed unseen and handing the signal on, no change and
 no settings read in the background, a question going on in the background letting an end another thread took land
-before its change, a signal landing as the settings go back delivered once they are, a Ctrl-Z coming back to them,
+before its change and stopped there by the hold's Ctrl-Z alone, never by the SIGCONT's handler, a signal landing as the settings go back delivered once they are, a Ctrl-Z coming back to them,
 a Ctrl-Z and a `Ctrl-\` at their default taken while it draws - the region erased, the settings put back
 as found and what was typed unseen thrown away before the stop or the quit, the mode again after a stop - a handler of
 the program's own left in place, the handlers the hold took put back where it ends with the signals held off (a
