@@ -388,10 +388,13 @@ def _once_foreground(fd, when, settings, waiting, *, changed=False) -> bool:
     terminal - with changed, only where the terminal is not in them - and till then the process stopped, as the
     terminal stops it (SIGTTOU at its default), but from Python, SIGTTOU held off at the change (_unstopped): each time
     the process goes on it is back here, where a handler of a signal that came meanwhile runs, and stops again only
-    while waiting() holds, after ENDING_GRACE. The kernel's own stop inside tcsetattr restarts the call at a SIGCONT
-    without coming back to Python where another thread took the signals, so a kill would never end the run (review
-    68's F8). Where SIGTTOU is ignored, the change is made at once, as the terminal would make it. Whether they were
-    made; False once waiting() no longer holds."""
+    while waiting() holds and the process is still not the foreground, after ENDING_GRACE. The kernel's own stop inside
+    tcsetattr restarts the call at a SIGCONT without coming back to Python where another thread took the signals, so a
+    kill would never end the run (review 68's F8). A process whose parent is not in its session (its group maybe
+    orphaned, its shell gone) is never stopped, since Linux throws that stop away and the question would loop for good:
+    termios.error EIO instead, as the kernel's own change says there (review 68's F11). Where SIGTTOU is ignored, the
+    change is made at once, as the terminal would make it. Whether they were made; False once waiting() no longer
+    holds."""
     ignored = signal.getsignal(signal.SIGTTOU) == signal.SIG_IGN
     if ignored or threading.current_thread() is not threading.main_thread():
         # Ignored, the change goes through; off the main thread, which sets no handler, the terminal stops it there.
@@ -406,7 +409,21 @@ def _once_foreground(fd, when, settings, waiting, *, changed=False) -> bool:
         time.sleep(ENDING_GRACE)
         if not waiting():
             return False
+        if foreground(fd):
+            # Made the foreground in the wait (fg): the change, never a stop.
+            continue
+        if not _parent_in_session():
+            raise termios.error(errno.EIO, os.strerror(errno.EIO))
         _at_default(signal.SIGTTOU)
+
+
+def _parent_in_session() -> bool:
+    """Whether this process's parent is in its session, there to go on with it after a stop: otherwise its group may be
+    orphaned, where Linux throws a stop at SIGTTOU's default away."""
+    try:
+        return os.getsid(os.getppid()) == os.getsid(0)
+    except OSError:
+        return False
 
 
 def put_back(fd, when, settings, *, last=False) -> bool:

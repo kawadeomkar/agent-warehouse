@@ -967,6 +967,7 @@ def test_a_question_the_shell_goes_on_with_in_the_background_lets_an_end_another
             patch.setattr(os, "tcgetpgrp", lambda fd: os.getpgrp() + 1)
             patch.setattr(live, "set_terminal", lambda *args: made.append(args))
             patch.setattr(live, "_at_default", stopped)
+            patch.setattr(live, "_parent_in_session", lambda: True)
             thread = threading.Thread(target=late)
             thread.start()
             try:
@@ -1010,6 +1011,7 @@ def test_a_question_in_the_background_is_stopped_by_the_holds_ctrl_z_and_never_b
             patch.setattr(os, "tcgetpgrp", lambda fd: os.getpgrp() + 1)
             patch.setattr(live, "set_terminal", lambda *args: made.append(args))
             patch.setattr(live, "_at_default", stopped)
+            patch.setattr(live, "_parent_in_session", lambda: True)
             live._HOLD._continued(signal.SIGCONT, None)
             assert made == [] and stops == [], (made, stops)
             with pytest.raises(_Stopped):
@@ -1121,3 +1123,98 @@ def test_without_to_log_everything_reaches_the_screen():
     display.display("a line")
     out.finish()
     assert stream.getvalue() == "a line\n" and display.logged == ["a line"]
+
+
+def _in_the_background_at_a_question(patch, made):
+    """A pseudo-terminal whose mode a question made (live.change, wait), then this process no longer its foreground, and
+    the change stood in for; the terminal and the settings found."""
+    master, slave = os.openpty()
+    found = termios.tcgetattr(slave)
+    mode = list(found)
+    mode[3] &= ~termios.ECHO
+    live.change(slave, termios.TCSAFLUSH, mode, wait=True)
+    patch.setattr(os, "tcgetpgrp", lambda fd: os.getpgrp() + 1)
+    patch.setattr(live, "set_terminal", lambda *args: made.append(args))
+    return master, slave, found
+
+
+def _closed(master, slave, found):
+    live.put_back(slave, termios.TCSANOW, found, last=True)
+    os.close(master)
+    os.close(slave)
+
+
+def test_a_question_in_the_background_of_an_orphaned_group_is_never_stopped_and_says_eio(monkeypatch):
+    # Linux throws a stop at SIGTTOU's default away in an orphaned process group (its shell gone): the question would
+    # loop for good with its lock held (review 68's F11). With no parent in its session, no stop is raised, and the
+    # change says EIO, as the kernel's own change says there.
+    made: list[tuple] = []
+    stops: list[int] = []
+
+    def stopped(signum):
+        stops.append(signum)
+        raise _Stopped
+
+    with monkeypatch.context() as patch:
+        master, slave, found = _in_the_background_at_a_question(patch, made)
+        try:
+            patch.setattr(live, "_at_default", stopped)
+            patch.setattr(os, "getppid", lambda: 1)
+            patch.setattr(os, "getsid", lambda pid: 1 if pid == 1 else 4242)
+            with pytest.raises(termios.error) as raised:
+                live._once_foreground(slave, termios.TCSANOW, found, lambda: True)
+            assert raised.value.args[0] == errno.EIO and made == [] and stops == [], (raised.value, made, stops)
+        finally:
+            patch.undo()
+            _closed(master, slave, found)
+
+
+def test_a_question_whose_end_comes_at_its_first_stop_stops_no_more(monkeypatch):
+    # The end told the hold (live.ending) while the question was stopped in the background: once it goes on, it is back
+    # in the loop, and stops no more, nor changes the terminal (review 68's F13).
+    made: list[tuple] = []
+    stops: list[int] = []
+
+    def stopped(signum):
+        stops.append(signum)
+        if len(stops) > 1:
+            raise _Stopped
+        live.ending()
+
+    with monkeypatch.context() as patch:
+        master, slave, found = _in_the_background_at_a_question(patch, made)
+        try:
+            patch.setattr(live, "_at_default", stopped)
+            patch.setattr(live, "_parent_in_session", lambda: True)
+            assert live._once_foreground(slave, termios.TCSANOW, found, live._HOLD._waiting) is False
+            assert made == [] and stops == [signal.SIGTTOU], (made, stops)
+        finally:
+            patch.undo()
+            _closed(master, slave, found)
+
+
+def test_a_question_made_the_foreground_in_the_wait_before_its_stop_is_changed_and_never_stopped(monkeypatch):
+    # fg in the wait before the stop (ENDING_GRACE): the change is made, and no stop raised (review 68's F12).
+    made: list[tuple] = []
+    stops: list[int] = []
+    asked: list[bool] = []
+
+    def stopped(signum):
+        stops.append(signum)
+        raise _Stopped
+
+    def foreground(fd):
+        asked.append(True)
+        return len(asked) > 1
+
+    with monkeypatch.context() as patch:
+        master, slave, found = _in_the_background_at_a_question(patch, made)
+        try:
+            patch.setattr(live, "_at_default", stopped)
+            patch.setattr(live, "_parent_in_session", lambda: True)
+            patch.setattr(live, "foreground", foreground)
+            assert live._once_foreground(slave, termios.TCSANOW, found, lambda: True) is True
+            assert len(made) == 1 and stops == [], (made, stops)
+        finally:
+            patch.undo()
+            _closed(master, slave, found)

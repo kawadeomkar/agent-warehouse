@@ -815,8 +815,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       held off; a Ctrl-Z puts the settings back as found, what was typed thrown away, before the stop, and `fg` brings
       the question back in its mode, its words written again; in the background (`bg`) it stops at the question
       from Python (`_once_foreground`), by the hold's Ctrl-Z and never the SIGCONT's handler nor inside the change,
-      and one stopped, then killed, ends at once (the ladder's `live_region.ending`); a `Ctrl-\` is the ladder's, as SIGTERM; the run's last
-      words are said with `NOFLSH` still on, the settings put back as found after them, flushed for a run a Ctrl-C
+      never where its parent is not in its session (`EIO`: Linux drops an orphaned group's stop), and one stopped,
+      then killed, ends at once (the ladder's `live_region.ending`); a `Ctrl-\` is the ladder's, as SIGTERM; the run's
+      last words are said with `NOFLSH` still on, the settings put back as found after them, flushed for a run a Ctrl-C
       stopped; every read is the run's `Context.typed` - never
       `/dev/tty`, `getpass` or a thread - the menu is `choose.asked`, a choice's words and note are made one line of
       plain text, and a hidden answer is a `Secret`, in no event. `tests/unit/test_aw_ask.py` holds it.
