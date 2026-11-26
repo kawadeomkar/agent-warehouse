@@ -221,11 +221,12 @@ async def one_at_a_time(
 
 
 def status(ended: Mapping[str, Ended]) -> int:
-    """The exit status of a run over several machines from their outcomes: 1 where one failed, 130 where one was
-    cancelled and none failed, else 0."""
-    outcomes = {each.outcome for each in ended.values()}
-    if "failed" in outcomes:
-        return 1
-    if "cancelled" in outcomes:
+    """The exit status of a run over several machines from their outcomes: 0 only where every machine succeeded, 130
+    where those that did not were all cancelled, else 1: a machine failed, or declined (a person's answer, C38's
+    outcome, which exits 1 as a run declined does), or ended with an outcome this does not know."""
+    outcomes = {each.outcome for each in ended.values()} - {"succeeded"}
+    if not outcomes:
+        return 0
+    if outcomes == {"cancelled"}:
         return 130
-    return 0
+    return 1

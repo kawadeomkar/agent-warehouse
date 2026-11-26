@@ -11,9 +11,10 @@ task cancelled with no stop set, at each turn of the loop in turn, lets no machi
 before the runner ran is the one its end keeps; a body's own end is refused as its error, and the runner's own ends
 never are; the exit record holds thirty outcomes, each with the stage its own last stage event named; a stand-in's end
 kept under its identity once joined, and by its name where it failed at once or never began; one at a time never two at
-once; and a bound under one, a machine named twice and a stand-in with no name refused before anything begins. In a
-child process made by runs.run as a verb makes one: a real Ctrl-C while twenty machines are under way lets none of the
-other ten begin, and the run's record is cancelled with thirty outcomes.
+once; the run's exit status from each mix of outcomes, C38's declined among them; and a bound under one, a machine named
+twice and a stand-in with no name refused before anything begins. In a child process made by runs.run as a verb makes
+one: a real Ctrl-C while twenty machines are under way lets none of the other ten begin, and the run's record is
+cancelled with thirty outcomes.
 
 Every wait here is held to an event of the run's, never to a sleep (the cancel at each turn of the loop counts turns,
 never time): a wave of machines is let go only once as many as the bound lets in are under way, which is only seen once
@@ -442,6 +443,25 @@ def test_a_stand_in_s_end_is_kept_under_its_identity_once_joined_and_by_its_name
 
 
 # ---------------------------------------------------------------- refused before anything begins ----
+
+
+@pytest.mark.parametrize(
+    ("outcomes", "exits"),
+    [
+        (["succeeded", "succeeded"], 0),
+        ([], 0),
+        (["succeeded", "failed", "cancelled"], 1),
+        (["succeeded", "cancelled", "cancelled"], 130),
+        # C38's outcome: a person's answer ended the machine, which exits 1 as a run declined does, never 0.
+        (["succeeded", "declined"], 1),
+        (["cancelled", "declined"], 1),
+        # An outcome it does not know is never read as success.
+        (["succeeded", "lost"], 1),
+    ],
+)
+def test_the_run_s_exit_status_from_its_machines_outcomes(outcomes: list[str], exits: int) -> None:
+    ended = {f"m{n:02}": Ended(outcome, None, "") for n, outcome in enumerate(outcomes)}
+    assert fleet_run.status(ended) == exits
 
 
 @pytest.mark.parametrize(
