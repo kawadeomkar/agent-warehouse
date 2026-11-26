@@ -193,13 +193,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       by its own packet's fingerprint, never revoked or expired by its own self-signature, a signature no later than a
       day ahead. `tests/unit/test_pins.py` holds every armored block of each vendored key file to its vendor's
       fingerprints; `test_signed_downloads.py` runs both task files against `fake_downloads.py` with keys of its own.
-    - The new engine verifies both in `lib/claude_vm/vendors/downloads.py` alone, which only returns a release's
-      version and digests, or an image's digest (`signed_digest`: a list and its signature from URLs of their own, over
-      https, the key a `keys.Key` or its armored text with its fingerprint; `listed_digest` for an unsigned list, by the
-      same line reader), once the signature verifies - decided by whether `openpgp.verify` returned, never by a
-      refusal's words - with the caps and checks of the two task files. It alone reaches `openpgp`, by an import, by
-      its own `openpgp` or `verify` taken from it, or read off a name, and only `lib/claude_vm/vendors/keys.py` names
-      a key file, which `test_pins.py` holds to the same fingerprints (`tests/unit/test_aw_downloads.py`).
+    - The new engine verifies both in `lib/claude_vm/vendors/downloads.py`, the one module that reaches `openpgp`,
+      once `openpgp.verify` returns; only `vendors/keys.py` names a key file (`tests/unit/test_aw_downloads.py`,
+      [§16.7](docs/architecture/engine.md#167-vendors--one-https-transport-tailscales-calls-verified-downloads)).
 - **Idempotence.** Molecule's idempotence stage re-runs converge and fails on any `changed` task.
 - **An API key and Remote Control are mutually exclusive.** `ANTHROPIC_API_KEY` outranks the
   claude.ai login in Claude Code's credential precedence, and only that login can establish a
@@ -408,16 +404,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - `tests/unit/test_hosts.py` runs the resolver on made-up layouts, the token rule through ansible-playbook, and
       the project's playbooks through an overlay against two fake Proxmox hosts with different secrets; the
       `provision` scenario's `second_host.yml` provisions, aliases and destroys a VM through one.
-    - The new engine's hosts are a folder each, the first included, `fleet/hosts/<name>/` with its `host.yml`,
-      `settings.yml` and anchor, read by `lib/claude_vm/fleet/hosts.py` as a second layout that today's core
-      (`hosts/choose.py`, `hosts/model.py`) reads as it stands; the current host is `client.yml`'s `current_host`,
-      written by `overrides.set_current` alone. `host.yml` and the anchor are written by `hosts.write` alone, a
-      compare-and-swap under the folder's lock, the anchor with its `trust_kind` and `fingerprint` in an order a run
-      stopped after any step leaves readable (`tests/unit/test_aw_fleet_host_writer.py`); what the anchor is, `init`'s
-      `lib/claude_vm/engine/certificate.py` works out with no credential sent, by today's `trust.py`'s probes, and makes
-      no TLS context but through `pin.kept` (`tests/unit/test_aw_engine_certificate.py`). `host.yml` holds no field of one computer's (a key's path is
-      `client.yml`'s, for that host), held by a literal list of its fields, and no module of the new engine reads a
-      `Host`'s `local_file`, `vault_file`, `hosts_file` or `sources`: `tests/unit/test_aw_fleet_hosts.py` holds both.
+    - The new engine's hosts are `fleet/hosts/<name>/`, read by `lib/claude_vm/fleet/hosts.py`; `host.yml` and its
+      anchor are written by `hosts.write` alone and hold no field of one computer's (`test_aw_fleet_hosts.py`,
+      [§16.9](docs/architecture/engine.md#169-fleet--the-fleets-files-the-settings-the-secrets-and-the-fleets-mark)).
 - **The project writes exactly four things outside the repo on the controller, and has VS Code's own CLI
   write a fifth, and Claude Code's own CLI a sixth.** Read [On the controller](docs/architecture/security-model.md#on-the-controller) and
   [§4.8](docs/architecture/lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml) first.
@@ -462,9 +451,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `vm_control_name`; `just status`'s too), so a VM that reports a sibling's address is refused there, never
       riding the sibling's open connection; two VMs that report one address are both left out (`guest_addresses`).
       Deleting a VM keeps its key: under an identity no VM made later has, it can only match that VM again, and
-      refuses any other given it. `~/.ssh/known_hosts` is never edited. The new engine keeps every machine's key in
-      that file under its identity, and files a key there through `lib/claude_vm/ssh/hostkeys.py` alone
-      (`tests/unit/test_aw_hostkeys.py`).
+      refuses any other given it. `~/.ssh/known_hosts` is never edited. The new engine files a machine's key
+      in the product's file, under its identity, through `lib/claude_vm/ssh/hostkeys.py` alone
+      (`tests/unit/test_aw_hostkeys.py`, [§16.6](docs/architecture/engine.md#166-ssh--the-runner-over-openssh)).
     - A key kept there by address before 2.6 is copied in under the VM's identity once, before anything connects -
       in check mode too, whose connections take keys on first use - by `playbooks/tasks/host_keys.yml`, which every
       publisher and `just deploy --only ssh-config` import: then a comment, `# agent-warehouse carried <identity>`,
@@ -536,12 +525,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       scenarios' vars and the Vagrantfile: `auto` would ask this machine's ssh, through the developer's own config,
       where it dials a test's host. `test_vm_route.py` reads back what each writes and fails if one stops; a test of
       the route sets its own, its sockets in a directory of the test's.
-    - The new engine settles a run's route once, through `lib/claude_vm/engine/routes.py` alone (`settle`), over
-      `route.py` as it stands (`lib/claude_vm/ssh/connections.py`): `Route.targets` alone makes a machine's `Target`,
-      marked with its route, and the runner refuses one unmarked or changed since; a hop that cannot be used stops the
-      run, and nothing dials a machine. No run ends a master (never `-O exit`), nothing in `ssh/` tries a connection
-      again, and every fleet a test makes pins `vm_ssh_route: direct` (`tests/unit/fleet_fixture.py`'s `pinned`).
-      `tests/unit/test_aw_ssh_connections.py` and `tests/unit/test_aw_routes.py` hold it.
+    - The new engine settles a run's route once, in `lib/claude_vm/engine/routes.py` alone, over `route.py` as it
+      stands, and nothing dials a machine past a hop that cannot be used (`tests/unit/test_aw_routes.py`,
+      [§16.4](docs/architecture/engine.md#164-engine--the-workflows-one-module-a-verb)).
 - **`just code` writes in one directory of its own on the VM, the session copies, the rest of Claude Code it
   carries and one fast-forward aside, and never answers VS Code's, Zed's or Claude Code's security questions.** Read
   [§4.9](docs/architecture/lifecycle.md#49-playbookscodeyml),
@@ -700,13 +686,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       and a nested recipe joins its parent's run through the `live_run` setting, never the environment.
     - The region draws one write per redraw in synchronized output, up exactly the lines drawn, so no line may
       wrap (`tests/unit/vt.py` counts them); steps aside for every prompt (`prompt_until`, and a `vars_prompt`'s
-      `do_var_prompt`), back only half a second after it; keeps the echo off while it is up, and at a Ctrl-C what
-      the terminal has not read (`NOFLSH`), what was typed thrown away at it all the same (`discard_typed`), the
-      settings put back exactly as found, each change only in the terminal's foreground and each change back with
-      the signals held off (`put_back`); at a Ctrl-Z (or a `Ctrl-\` at its default) the region erased and the
-      settings put back as found, what was typed thrown away with them, before the stop, its mode again at `fg`, and
-      what was typed before a Ctrl-Z held off as the settings go back thrown away before its stop; and never hides
-      the cursor.
+      `do_var_prompt`), back only half a second after it; keeps the echo off while it is up; and never hides the
+      cursor.
     - A question with a few answers - `just init`'s yes or no, a storage, a bridge - is a menu picked with the
       arrow keys (`lib/claude_vm/tui/choose.py`), drawn with `screen.py` while the region steps aside, never a second
       way of drawing. Its answers ride in `prompt_until`'s `complete_input` as built-in bytes (Enter's two and
@@ -714,22 +695,10 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       cannot import it kills Ansible's results thread on the prompt and hangs the run. The engine's hook
       (`engine.choosing`) asks it under `Display`'s lock, reads stdin, never `/dev/tty`, and hands anything else to
       Ansible's own prompt; a hidden question never carries its answers.
-    - The new engine asks every question through `lib/claude_vm/runs/ask.py`: each has a default, its safe answer,
-      taken with a line said wherever standard input is no terminal whose foreground the run is (`--attended` changes
-      nothing); at one, one question at a time (a second waits till the first has ended, never nests), the run's view,
-      `Live.of(context.job)`, steps aside (`aside()`, back half a second after the answer) and keeps its own lines and
-      standard error's till the question ends, each change of the terminal's settings is `TCSAFLUSH`'s (the keys typed
-      before flushed, the rest of a paste never left for the shell) and a Ctrl-C keeps what was typed on a line
-      (`NOFLSH`, never a hidden answer's), the line ended before the change back, which is made with the run's signals
-      held off; a Ctrl-Z puts the settings back as found, what was typed thrown away, before the stop, and `fg` brings
-      the question back in its mode, its words written again; in the background (`bg`) it stops at the question
-      from Python (`_once_foreground`), by the hold's Ctrl-Z and never the SIGCONT's handler nor inside the change,
-      never where its parent is not in its session (`EIO`: Linux drops an orphaned group's stop), and one stopped,
-      then killed, ends at once (the ladder's `live_region.ending`); a `Ctrl-\` is the ladder's, as SIGTERM; the run's
-      last words are said with `NOFLSH` still on, the settings put back as found after them, flushed for a run a Ctrl-C
-      stopped; every read is the run's `Context.typed` - never
-      `/dev/tty`, `getpass` or a thread - the menu is `choose.asked`, a choice's words and note are made one line of
-      plain text, and a hidden answer is a `Secret`, in no event. `tests/unit/test_aw_ask.py` holds it.
+    - The new engine asks each question through `lib/claude_vm/runs/ask.py`, one at a time, its default taken where
+      no terminal is the run's, never from `/dev/tty`, `getpass` or a thread, a hidden answer a `Secret`; a Ctrl-C or
+      a Ctrl-Z puts the terminal's settings back as found, the region's too (`tests/unit/test_aw_ask.py`,
+      [§16.8](docs/architecture/engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run)).
     - What the callbacks, engines and tools share is one package, `claude_vm` in `lib/`, imported, never loaded
       by path ([§7.10](docs/architecture/custom-code.md#710-libclaude_vm--the-controllers-python-as-one-package)),
       and every test that runs something at a terminal opens it through `harness._at_a_pseudo_terminal`.
@@ -1129,10 +1098,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   `inject_facts_as_vars = false`, and the JSON callback shows custom stats, which `_left_to_do` reads
   ([§7.5](docs/architecture/custom-code.md#75-callback_pluginsagent_warehousepy--the-waits-and-next-steps)).
     - In the new engine, `lib/claude_vm/engine/report.py`'s `say` is the one way a workflow or a layer-2 step says
-      something: the `report` event, then straight after it the `next` record of that machine and matter (one of
-      `MATTERS`), the printer's whole line or `""`, never a form. `tests/unit/test_aw_report.py` fails on a `report` or
-      `next` event emitted any other way in `engine/` or `guest/`, and on a line that names a VM and not its host with
-      two hosts ([§16.4](docs/architecture/engine.md#164-engine--the-workflows-one-module-a-verb)).
+      something, its `next` record straight after its `report` (`tests/unit/test_aw_report.py`,
+      [§16.4](docs/architecture/engine.md#164-engine--the-workflows-one-module-a-verb)).
 - **Discovery is a playbook, not the `community.proxmox` inventory plugin.** Decided, not open
   ([§15.1](docs/architecture/decisions.md#151-discovery-stays-a-playbook-not-the-inventory-plugin)).
 - **Fleet listings read `/cluster/resources`, never an unfiltered `proxmox_vm_info`**, which fails for every VM
@@ -1243,25 +1210,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   (`lib/claude_vm/ansible/parts.py`) do; every pytest process takes SIGTERM and SIGHUP as a Ctrl-C, once
   (`tests/unit/interrupts.py`). `test_processes.py` holds all three, under xdist too
   ([§11.1](docs/architecture/testing.md#111-unit--just-test-unit)). The new engine's run ends its own tree with
-  `proc.end_under`, which signals everything under a process and what was remembered of it, and never the process, its
-  group or the caller's: `lib/claude_vm/runs/attached.py`'s ladder, on Ctrl-C, a hangup, a kill and an error, before
-  its loop closes, since asyncio kills an `ansible-playbook` it still holds and leaves its task workers
-  ([§16.8](docs/architecture/engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run)). Then nothing
-  holds the process: the engine's blocking calls run on daemon threads of the ladder's own, the loop's default
-  executor, never joined, and where one is still in a call once the record is written the process ends by `os._exit`,
-  since Python joins a `ThreadPoolExecutor`'s threads at exit. No thread blocks a signal - each call runs with none
-  blocked, whatever its maker held - since a program a call in a thread starts (`route.py`'s `ssh`) keeps its thread's
-  mask through `exec`; while the run reads the process table and signals what it leads to, and while it takes its
-  outcome and writes its record, the handler, which runs in the run's thread whatever thread the kernel handed the
-  signal to, only takes note, and each signal noted is handled in the order it came once the outermost hold is done
-  (`_held`). No hold runs the loop: the close's loop, where a body's generators are closed (for `SETTLE` at most), runs
-  unheld, so nothing of the body's runs with the interrupts blocked. An error of the ladder's own callbacks is said in
-  a line of `aw`'s own, never dropped with the loop's reports. A call in a thread that waits is handed the run's
-  `Context.stopping` (the Proxmox client's `follow`), set at a first Ctrl-C, at an end at once (a second, a SIGTERM, a
-  SIGHUP), at the grace's end and at the close, never a phase inside a shield; a question reads on the loop
-  (`Context.typed`), never in a thread, from a terminal or a pipe alone (`/dev/null` or a file refused before it waits,
-  in `aw`'s own words), one at a time, and one Ctrl-C there ends the run. `tests/unit/test_aw_attached.py` holds it,
-  each rule by a test that fails without it.
+  `proc.end_under`, never the process, its group or the caller's, at every end and before its loop closes
+  (`lib/claude_vm/runs/attached.py`, `tests/unit/test_aw_attached.py`,
+  [§16.8](docs/architecture/engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run)).
 - **A scenario's container is still booting when Molecule's create returns.** The boot empties `/tmp`
   (`systemd-tmpfiles-setup.service`, from `D /tmp` in the image's `tmp.conf`), where a module's payload is unpacked
   and read from while it runs: on a busy CI round five scenarios failed at their first fact gathering,
