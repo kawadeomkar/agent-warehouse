@@ -260,7 +260,9 @@ lib/claude_vm/engine/             the workflows, one module a verb, in place of 
                                   what init makes on a host, the check of each against what is there, and the script
                                   that makes them, rendered; create.py, a VM made or resumed: cloned, recorded, set,
                                   started, its host key filed; deploy.py, deploy's handler, each stage refused but those
-                                  built
+                                  built; destroy.py, destroy's handler: the names confirmed, each VM read again and
+                                  deleted with its disks; confirm.py, the one validator of the names that confirm a
+                                  deletion
 lib/claude_vm/pve/                the typed Proxmox VE client, and the one table of each call's privilege; client.py,
                                   Proxmox, the one class that sends the token, and its reads and writes; answers.py,
                                   each answer's frozen record and its parsing function; pin.py, the connection the token

@@ -1151,6 +1151,53 @@ one that exists, a larger disk on a repair too; `--repos` given, added to and re
 of today's settings call, `need_configuration`'s cases and that it reads no ownership, the one size reader, and each
 stage refused by its card.
 
+**A VM deleted: `destroy.py`, and the names confirmed: `confirm.py`.** `aw destroy` deletes each VM named, the default
+VM where none is (`vm_default_name`), with its disks, under each VM's lock (C7's `machines`). Before any job is made:
+`--confirm=<names>` is held to the VMs given again in the command's own process, by `confirm.names`, the one validator
+of a confirmation by names, which takes both as sets, each name with - for _, and says which name differs (the parse's
+rule destroy.2 refused it first); the run is refused while `destroy_save_sessions` or `destroy_release` is on (both are
+by default), naming cards G13 and G14, which save a VM's sessions and release it, and the two settings, so that no run
+loses what only a VM holds; and with no terminal to ask at (`runs/ask.py`'s `terminal()`) and no `--confirm`, the answer
+is no, said as the person's: the question not asked, then `Nothing was deleted: the deletion was not confirmed.` and the
+line that answers it, exit 1. In the run, the live view made first:
+
+- **The read.** The host is opened by `fleet.open_for_run` (the vault opened once, each `--set` value held to its
+  secrets: deploy's way too), and the VMs read by `fleet.requested`'s deletion read: changing, so a name two members
+  carry, a name no member carries (naming the pool: a VM outside it is out of the token's reach) and a VM the fleet
+  does not own are refused; `whole`, refused while any member of the pool cannot be read, since one unread may carry a
+  target's UUID; and `addresses=False`, no guest agent asked. `destroy_allow_unrecorded` is `unrecorded`, which lifts
+  pve/ownership.py's one refusal of a member with no record, said for each such VM before the question, and no other:
+  never a template, a VM whose record names another UUID or is of another kind, one with no SMBIOS UUID, which its
+  deletion is held to, or twins. Only `engine/destroy.py` asks for it in `lib/`.
+- **The question**, today's: a `CONFIRM DELETION` block naming the VMs by the names Proxmox gives them, each made one
+  line, their disks and, where the fleet has more than one host, the host; then `Type yes to continue:`, whose safe
+  answer is "" (no). `yes`, or today's `true`, in any case, takes it; under `destroy_confirm: names` the VMs' names are
+  typed in its place, held by `confirm.names`. Anything else is the person's answer, said in today's words (a report
+  of the run), its check stage done and nothing deleted, and the run ends refused, exit 1: runs/model.py has no end of
+  its own for a declined run, so its record reads failed, `exit 1`.
+- **Each VM, side by side.** Whether it runs is read from its own endpoint; one that runs is stopped (`stop`, its task
+  followed with the run's stopping event, so that a Ctrl-C leaves it stopped and undeleted; sent once more where
+  Proxmox's file lock refused it, as a stop seconds after a start may meet), then owned again through
+  `fleet.requested`, since a stop may apply pending changes, and held to the VM confirmed, its identity and VMID. Then,
+  in the run's shield (a Ctrl-C lets it finish and says so): the client's `delete` (the configuration read again and
+  held to the Owned's identity and digest, `destroy-unreferenced-disks` alone, no `purge`), its task followed with no
+  stop, and the VM confirmed gone from `resources("vm")` - no VM at its VMID, or another's - never from a refusal's
+  words; a deletion whose answer was lost, or whose task's end could not be read, is decided there too. A task that
+  ended `WARNINGS: <n>` is a success whose lines are said.
+
+Every VM is said in one line, which the view draws under its name: `deleted, with its disks.`, or `not deleted - <why>,
+so it is still there: run aw destroy <name> again once that is fixed.` The run exits 0 where every VM was deleted, 2
+(`EXITS`' `failed`) where one was not, the others gone on, and 130 where a person stopped it. The VM's line in the
+product's known-hosts file stays, the tombstone of its identity; nothing here writes a record, an alias (card G8) or a
+session. `tests/unit/test_aw_destroy.py` holds it on a whole fleet folder against the fake: a VM and its disks deleted
+after its stop, a stopped one with none; the refusal while either setting is on, and the declined deletion with no
+terminal, each before anything is sent; `--confirm` naming another VM refused, in the handler too; an unrecorded member
+refused and deleted under the override, and a template, a VM outside the pool and another's record refused whatever is
+given; a name two VMs carry; a member the token may not read; one VM of two failing, both lines and exit 2; a stop the
+file lock refused sent once more, and one that failed otherwise never; the question at a terminal, yes and no, and the
+names typed; a Ctrl-C during the deletion; a VM owned again after a stop that changed it, held to the VM confirmed; and,
+without the fake, the names' validator, the question's words and what takes it, and the override's rule.
+
 ## 16.5 `pve/` — the typed Proxmox client and the one table of privileges
 
 `lib/claude_vm/pve/` is where the typed client of the Proxmox VE API goes, with the one table that names each call's

@@ -2,7 +2,8 @@
 and every machine the product must not touch refused before anything changes (docs/architecture/engine.md §16.4).
 
 A host is opened by fleet/opened.py's `connect(home, reached)`, which status opens one by too (card G16): `Host`,
-`connect` and `Refused` are that module's, given here as this one's.
+`connect` and `Refused` are that module's, given here as this one's. A run that takes `--set` opens its host by
+`open_for_run`, which opens the vault once and holds each value given to its secrets first (deploy's and destroy's).
 
 **What is the fleet's.** Ownership is pool membership and a valid record (engine/record.py), never a label: nothing here
 reads a VM's tags for a decision. The one rule is pve/ownership.py's, which status judges by too: each target a read
@@ -62,10 +63,10 @@ from __future__ import annotations
 
 import dataclasses
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from .. import checks
-from ..fleet import hosts, mark, overrides, paths
+from ..fleet import hosts, mark, overrides, paths, sealed, vaultkey
 from ..fleet.opened import LOCALHOST, Host, Refused, client_for, connect, sentence
 from ..hosts import model
 from ..pve import agent, ownership
@@ -96,6 +97,7 @@ __all__ = [
     "connect",
     "count_made_by_agent",
     "members",
+    "open_for_run",
     "owned",
     "refusal",
     "requested",
@@ -215,23 +217,41 @@ def _kept(target: Target, *, address: str, shared: str, owned: Owned | None) -> 
     return changed
 
 
-def refusal(target: Target, job: str = "", clone: Task | None = None) -> str:
+def refusal(target: Target, job: str = "", clone: Task | None = None, *, unrecorded: bool = False) -> str:
     """Why target is not the fleet's to change, "" where it is: pve/ownership.py's one check, of what its read read.
-    job and clone: the run's own job and its own clone's task, which own the first form of the clone it made."""
-    return ownership.refusal(_read(target), job, clone)
+    job and clone: the run's own job and its own clone's task, which own the first form of the clone it made;
+    unrecorded, destroy's override alone (destroy_allow_unrecorded), which lifts the refusal of a member with no
+    record and no other."""
+    return ownership.refusal(_read(target), job, clone, unrecorded=unrecorded)
 
 
-def owned(target: Target, *, job: str = "", clone: Task | None = None) -> Owned:
+def owned(target: Target, *, job: str = "", clone: Task | None = None, unrecorded: bool = False) -> Owned:
     """The Owned a change on target is made through, made by pve/ownership.py's owned alone, of what its read read:
     NotOwned, saying why, where refusal() says the fleet may not change it; TypeError for a target no read made. job and
     clone: the run's own job and its own clone's task (the clone call's answer, or its job record's), which own the
-    first form of the clone it made, so that it writes the rest: never read from the record judged. The one gate
-    every change passes."""
+    first form of the clone it made, so that it writes the rest: never read from the record judged; unrecorded,
+    destroy's override alone (refusal()). The one gate every change passes."""
     member = _read(target)
     try:
-        return ownership.owned(member, job=job, clone=clone)
+        return ownership.owned(member, job=job, clone=clone, unrecorded=unrecorded)
     except ownership.NotOwned as refused:
         raise NotOwned(refused.sentence) from None
+
+
+def open_for_run(home: paths.Home, reached: hosts.Reached, words: Sequence[str], environ: Mapping[str, str]) -> Host:
+    """The host a run is against, opened with the vault opened once: each of the run's --set values (words) held to
+    every secret the vault holds, none of which the run's record may keep, before the settings are resolved with them
+    (deploy's and destroy's way: cards G3 and G5). Refused as connect() is, and overrides', sealed's and paths' own."""
+    name = reached.host.name
+    first = overrides.run_values(words, secrets=(), environ=environ)
+    values = overrides.resolve(home, name, first, environ=environ)
+    key = vaultkey.open(
+        home, key_file=values["vault_key_file"].value, key_command=values["vault_key_command"].value, environ=environ
+    )
+    vault = sealed.read(home, key) or {}
+    run = overrides.run_values(words, secrets=tuple(vault.values()), environ=environ)
+    values = overrides.resolve(home, name, run, environ=environ)
+    return connect(home, reached, values, environ=environ, vault=vault)
 
 
 # ----------------------------------------------------------------------------------------- the members ----
@@ -500,7 +520,9 @@ def _named_after_a_host(host: Host, targets: Sequence[Target]) -> tuple[list[Tar
     ]
 
 
-def _every(host: Host, everyone: Sequence[Target], change: bool) -> tuple[list[Target], list[str]]:
+def _every(
+    host: Host, everyone: Sequence[Target], change: bool, unrecorded: bool = False
+) -> tuple[list[Target], list[str]]:
     """Every VM of the pool but the templates, with no names given: one named after a host, one whose name another
     member carries, and, for a changing run, one the run may not change, each left out and said."""
     candidates, lines = _named_after_a_host(host, [target for target in everyone if not target.template])
@@ -513,9 +535,9 @@ def _every(host: Host, everyone: Sequence[Target], change: bool) -> tuple[list[T
             " found by its name. Rename one of each in Proxmox."
         )
     if change:
-        for target in [target for target in candidates if refusal(target)]:
+        for target in [target for target in candidates if refusal(target, unrecorded=unrecorded)]:
             candidates.remove(target)
-            lines.append(f"Left out: {refusal(target)}.")
+            lines.append(f"Left out: {refusal(target, unrecorded=unrecorded)}.")
     return candidates, lines
 
 
@@ -692,15 +714,32 @@ def _elsewhere(host: Host, names: Sequence[str]) -> list[str]:
 # ------------------------------------------------------------------------------------------- the request ----
 
 
-def requested(host: Host, names: Sequence[str] = (), *, create: bool = False, change: bool = True) -> Requested:
+def requested(
+    host: Host,
+    names: Sequence[str] = (),
+    *,
+    create: bool = False,
+    change: bool = True,
+    unrecorded: bool = False,
+    whole: bool = False,
+    addresses: bool = True,
+) -> Requested:
     """The targets a run against host asks for by names, each with its address where it runs: see the module's
     docstring. create: a deploy that may create (names default to the default VM's; a name no member carries is one to
     create), which is a changing run (ValueError without change). change: a run that changes something, which reads
     the pool's mark by D2's rule before anything else and gives each target its Owned through owned(); a read that
-    changes nothing gives targets for reading alone. Refused, Missing or NotOwned, in one sentence, before anything is
-    changed."""
+    changes nothing gives targets for reading alone. A deletion's read (card G5) asks three things more: unrecorded,
+    destroy's override (destroy_allow_unrecorded), which owns a member with no record and refuses all else owned()
+    refuses, a changing read's alone that creates nothing (ValueError otherwise); whole, refused while any member of
+    the pool could not be read, since one unread may carry a target's UUID and nothing would tell the two apart; and
+    addresses=False, no guest agent asked, for a run that reaches no VM. Refused, Missing or NotOwned, in one sentence,
+    before anything is changed."""
     if create and not change:
         raise ValueError("a deploy that would create changes something: create is asked with change")
+    if unrecorded and (create or not change):
+        raise ValueError(
+            "the override of a member with no record is a deletion's, a changing read that creates nothing"
+        )
     chosen = tuple(names) or ((host.default_name,) if create else ())
     _hold(host, chosen, create)
     lines: list[str] = []
@@ -717,18 +756,31 @@ def requested(host: Host, names: Sequence[str] = (), *, create: bool = False, ch
         if chosen:
             targets, new = _by_name(host, everyone, chosen, create)
         else:
-            (targets, lines), new = _every(host, everyone, change), []
+            (targets, lines), new = _every(host, everyone, change, unrecorded), []
         if change:
             targets = [
-                _kept(target, address=target.address, shared=target.shared, owned=owned(target)) for target in targets
+                _kept(
+                    target,
+                    address=target.address,
+                    shared=target.shared,
+                    owned=owned(target, unrecorded=True) if unrecorded else owned(target),
+                )
+                for target in targets
             ]
+        unread = [target for target in everyone if target.unread]
+        if whole and unread:
+            raise Refused(
+                f"{unread[0].unread}; and while a member of the pool {host.pool} on {host.name} cannot be read, it may"
+                " carry the UUID of a VM asked for, so nothing is deleted: let the token read it, or take it out of the"
+                " pool in Proxmox"
+            )
         outside = True
         if new:
             outside, more = _outside(host, everyone, new)
             lines += more
         if create:
             lines += _elsewhere(host, chosen)
-        addressed, more = _addressed(host, targets, everyone)
+        addressed, more = _addressed(host, targets, everyone) if addresses else (tuple(targets), [])
         lines += more
     except (ProxmoxError, TransportError) as error:
         raise Refused(f"{host.name} could not be read: {sentence(error)}") from None
