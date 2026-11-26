@@ -921,11 +921,13 @@ it is there), the dry run's commands and what the script said are shown with tod
 no first, and the script runs on a `y` alone. On the `y`, `fleet.json` is written first where there is none, with the
 ID the script marks the pool with, so that a run cut after it finds the same ID; the script, the vault's write, `made`'s
 record and any deletion then run as one shielded phase (a Ctrl-C lets it finish), and where the run is ended inside it
-anyway the token's delete line is said. Its standard output, the token's secret, is held to a UUID and sealed in the
+anyway the token's delete line is said (a token whose secret the dry run makes again excepted, card E8: then that the
+next `init` asks again). Its standard output, the token's secret, is held to a UUID and sealed in the
 vault before anything else runs, then read back; where it is not there as printed, where the script printed none, or
 where it failed after it made the token, the token the run made is deleted again and `init` stops, and where the
 connection is lost after the token, the delete line is said. The token is the run's own only where the script said a
-command after its line, finished, or said it made it: its line is said before the add, so a run that ended by itself on
+command after its line, finished, or said it made it (in an `error:` line of its own, never a `+` line, which may quote
+a pool's comment): its line is said before the add, so a run that ended by itself on
 that line had its add refused, and nothing is deleted. What it made of the engine's own names, the pool, the user,
 the token, the three roles and their grants for the engine's user or token, is recorded in `host.yml`'s `made` with
 this engine its maker, read from the commands the script said it ran (its `+` lines). No, Esc, Enter, root SSH that
@@ -945,8 +947,9 @@ token's secret then failing, and `fleet.json` keeps the mark's ID; using another
 asks its name and, where no token was named, the token's full ID, and makes a fleet of this computer's own there. Where
 the mark's ID is `fleet.json`'s, a run of this computer's cut before the secret was kept or another computer of the
 fleet's, the first is asked as making the fleet's own token's secret again, never as a take-over. A token whose secret
-was made again is never deleted where the vault cannot be written: the run did not make it, and deleting it would leave
-the fleet with none; the next `init` asks again. Enter or Esc does neither; a mark naming a control VM is the script's
+the dry run said it makes again (`token modify`) is never deleted where the vault cannot be written: the run did not
+make it, and deleting it would leave the fleet with none; the next `init` asks again. One a take-over adds, the token
+gone, is the run's own, and deleted as any token the run made (review 76). Enter or Esc does neither; a mark naming a control VM is the script's
 refusal, nothing asked. `aw init --print-commands` prints the same script on standard output, and on standard error how to
 run it as root, reading `host.yml`, the settings and `fleet.json` alone: no vault, run, lock or request. Its one write
 (card E8): with no `fleet.json`, the fleet's ID it renders is written there and said, so that a second print and the
