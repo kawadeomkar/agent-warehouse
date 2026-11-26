@@ -51,11 +51,12 @@ visible: a tab, a line break and Unicode's format characters stay here):
 - `next`, a line of NEXT STEPS for its machine and `matter`; an empty line removes it.
 - `join`, its machine the identity and its text the stand-in key it joins to it: everything kept under the stand-in is
   kept under the identity from then on (JOINED), and the stand-in names nothing more.
-- `end`: with a machine, that machine's outcome (succeeded, failed or cancelled), the stage it reached (`stage`, else
-  the last of its own `stage` events, as the job's record keeps it) and why; what of it is still open in the stages that
-  are each machine's ends as its outcome says (done, failed, stopped), and so do its waits. With none, the run's end:
-  whatever is still open ends, done where the run succeeded and stopped where it failed or was cancelled (cut short,
-  never failed), every wait with it, and the run takes no event after it.
+- `end`: with a machine, that machine's outcome (succeeded, failed, cancelled or declined), the stage it reached
+  (`stage`, else the last of its own `stage` events, as the job's record keeps it) and why; what of it is still open in
+  the stages that are each machine's ends as its outcome says (done, failed, stopped), and so do its waits. With none,
+  the run's end: whatever is still open ends, done where the run succeeded and stopped where it failed, was cancelled or
+  declined (cut short, never failed), every wait with it, and the run takes no event after it. A declined end, the
+  person's answer, is no failure: nothing of it is said as one.
 
 An event of a stage the declaration does not have, a step its stage does not declare, a kind the job has not, an
 ending that is not done, skipped or failed, a NEXT STEPS line with no matter, a name that is no str, an event that
@@ -90,10 +91,10 @@ if TYPE_CHECKING:
 # How a stage or a step ends, as its event says.
 ENDS = ("done", "skipped", "failed")
 # What of a machine is still open when it ends ends as its outcome says.
-BY_OUTCOME = {"succeeded": "done", "failed": "failed", "cancelled": "stopped"}
+BY_OUTCOME = {"succeeded": "done", "failed": "failed", "cancelled": "stopped", "declined": "stopped"}
 # What is still open when the run ends: done where it succeeded, else cut short - stopped, never failed: what failed
 # said so itself, and the run's own why is said once as its failure.
-BY_RUN_OUTCOME = {"succeeded": "done", "failed": "stopped", "cancelled": "stopped"}
+BY_RUN_OUTCOME = {"succeeded": "done", "failed": "stopped", "cancelled": "stopped", "declined": "stopped"}
 # Every state a stage, a step or a machine's mark in one reads: not begun, at it, at it and waiting for the person, and
 # each way of ending.
 STATES = ("to come", "running", "waiting", *ENDS, "stopped")
@@ -303,7 +304,7 @@ class Failure:
 
 @dataclass(frozen=True)
 class MachineEnd:
-    """A machine's outcome: succeeded, failed or cancelled, the stage it reached, why, and when."""
+    """A machine's outcome: succeeded, failed, cancelled or declined, the stage it reached, why, and when."""
 
     outcome: str
     stage: str | None

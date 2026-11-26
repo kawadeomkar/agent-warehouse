@@ -1176,8 +1176,8 @@ line that answers it, exit 1. In the run, the live view made first:
   line, their disks and, where the fleet has more than one host, the host; then `Type yes to continue:`, whose safe
   answer is "" (no). `yes`, or today's `true`, in any case, takes it; under `destroy_confirm: names` the VMs' names are
   typed in its place, held by `confirm.names`. Anything else is the person's answer, said in today's words (a report
-  of the run), its check stage done and nothing deleted, and the run ends refused, exit 1: runs/model.py has no end of
-  its own for a declined run, so its record reads failed, `exit 1`.
+  of the run), its check stage done and nothing deleted, and the run ends declined (`Context.decline`), exit 1: its
+  record reads `declined`, and the view's head says `declined`, with no ✗ and no failed count (section 16.8).
 - **Each VM, side by side.** Whether it runs is read from its own endpoint; one that runs is stopped (`stop`, its task
   followed with the run's stopping event, so that a Ctrl-C leaves it stopped and undeleted; sent once more where
   Proxmox's file lock refused it, as a stop seconds after a start may meet), then owned again through
@@ -2375,7 +2375,7 @@ fleet's folders (`fleet/files.py`).
 | `waiting` | What it waits for, such as a page in the browser, or nothing |
 | `next` | NEXT STEPS, records `{machine, matter, line}`, a line removed once nothing is left |
 | `machine_outcomes` | Each machine's outcome, the stage it reached, and why |
-| `outcome`, `exit`, `ended`, `why` | At the end: `succeeded`, `failed` or `cancelled`, the exit status, when, and why |
+| `outcome`, `exit`, `ended`, `why` | At the end: `succeeded`, `failed`, `cancelled` or `declined` (the person's answer ended it, never a failure), the exit status, when, and why |
 
 `update(**fields)` reads the record, merges the fields and replaces it whole with `store.replace` under
 `store.locked`, so the run and another process recording a stop lose neither change. A name `FIELDS` lacks is refused,
@@ -2668,7 +2668,7 @@ ladder:
 | Ctrl-C, twice | the tree ended at once from the signal's handler itself, then `Abandoned`, a `KeyboardInterrupt`, raised there while the loop runs, so that a step stuck in it cannot hold the end | `cancelled`, `Ctrl-C twice` | exits 130 |
 | SIGHUP or SIGTERM | the tree ended with that signal from the handler, as above; what ignores it is killed after five seconds (`SETTLE`), after a Ctrl-C too, never at the Ctrl-C's grace | `cancelled`, the signal's name, exit 128 and its number, over a Ctrl-C that came first | its handler put back to the default, and dies of it |
 | An error the body did not handle | the tree ended | `failed`, the error | the error raised again |
-| The body returns | what it still holds of its children ended | `succeeded` for 0, `cancelled` for 130, else `failed` with the status | exits with the status |
+| The body returns | what it still holds of its children ended | `succeeded` for 0, `cancelled` for 130, else `failed` with the status, or `declined` with the status and why where the body said so by `decline(why)` (destroy's no): an exit status alone never makes it | exits with the status |
 | SIGKILL | nothing | none: the job reads `lost` once its lock is free | killed |
 
 On every path but SIGKILL, the terminal's settings are put back as the run found them, its echo among them (where
@@ -2823,7 +2823,7 @@ makes it (a tab, a line break and Unicode's format characters stay, and a drawer
 | `waiting` | Opens the wait of its machine and its `section`, in place of one open; an empty text ends that wait alone |
 | `next` | A line of NEXT STEPS for its machine and `matter`; an empty line removes it |
 | `join`, its machine the identity, its text the stand-in | Everything kept under the stand-in is kept under the identity from then on, each in its place (`JOINED`); the stand-in names nothing more |
-| `end` | With a machine: its outcome, the stage it reached (`stage`, else its own last `stage` event, as the job's record keeps it), why, and what of it is open ends (done, failed, stopped). With none: the run's end; everything open ends, done where the run succeeded and stopped where it failed or was cancelled, and no event is taken after it |
+| `end` | With a machine: its outcome, the stage it reached (`stage`, else its own last `stage` event, as the job's record keeps it), why, and what of it is open ends (done, failed, stopped). With none: the run's end; everything open ends, done where the run succeeded and stopped where it failed, was cancelled or declined, and no event is taken after it; a declined end says no failure |
 
 A `stage` or a `step` is for one machine, or with no machine for every machine of the run: a machine with no part of its
 own in a stage or a step reads every machine's part where that began before the machine's own end, by the order the
@@ -2881,7 +2881,7 @@ window of tasks stood) and each wait for another run's section, with the time si
 with what the run waits for, whose and since when; folded to the height as today's (the steps to come, then the stages to
 come, on a line each); a run of one stage drawn as its steps; and a footer (the run's clock, the stage or step it is at,
 waiting for you, stopping once a person stopped it, the log). `title_text(now)` says where the run is, waiting for you, or
-how it ended (done, failed, stopped), with no percentage, since nothing counts tasks. `ended_lines(now)` gives a line as
+how it ended (done, failed, stopped, declined), with no percentage, since nothing counts tasks. `ended_lines(now)` gives a line as
 each step and stage ends, and as each wait begins, for output that is no terminal, in today's columns and the order they
 happened: a stage of each machine's work is said once every machine of the run is through it or ended (or the run is
 over), so a fleet whose machines reach a stage one after another says it once; a wait is said once, with its stage and
@@ -2890,7 +2890,8 @@ sign-in in your browser`), a short section's in its own words. `above(cols, colo
 since its last call, in the order said: each report whole, under its machine, wrapped and never cut, and each failure
 with where, whose, why and the log, the run's own among them. `summary(now, cols, color, next_steps)` gives how the run
 ended (done; done with the machines that failed; failed, and where, with the run's own why in place of the clock where
-it failed of its own error; stopped, and where), each stage's mark and time with each machine's mark and its steps' times and your time in
+it failed of its own error; stopped, and where; or `declined · <time>`, a run the person declined, its head alone, as
+today's, with no ✗ and no failed count), each stage's mark and time with each machine's mark and its steps' times and your time in
 them, what it never reached, each machine's reports a line each (the run's own under THIS MACHINE) but what NEXT STEPS
 says whole, and the totals; NEXT STEPS itself is the caller's to print after it, as today's run prints it. No line of a
 frame or a summary is wider than `cols - 1`. A machine is said by the name a person chose (the model's `name`), never by

@@ -31,6 +31,7 @@ import ast
 import contextlib
 import dataclasses
 import os
+import re
 import signal
 import subprocess
 import threading
@@ -53,6 +54,7 @@ from claude_vm.hosts.model import Request
 from claude_vm.pve import ownership, pin
 from claude_vm.pve import record as block
 from claude_vm.pve.client import Proxmox
+from claude_vm.runs import job as run_jobs
 from claude_vm.schema.words import EXITS, VERBS
 
 DESTROY = REPO / "lib" / "claude_vm" / "engine" / "destroy.py"
@@ -65,6 +67,8 @@ FILE_LOCK = "can't lock file '/var/lock/qemu-server/lock-{vmid}.conf' - got time
 UUID = "9a0e1c2d-3b4f-4a5b-8c6d-7e8f90a1b2c4"
 # A window wide enough that no line of the run's is wrapped: (columns, rows).
 WINDOW = (160, 50)
+# A terminal's control sequences, which a run's live view writes between its lines.
+CSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 
 
 # ---------------------------------------------------------------- the names confirmed ----
@@ -476,6 +480,29 @@ def test_at_a_terminal_the_question_names_the_vms_and_anything_but_yes_deletes_n
     assert "## CONFIRM DELETION" in said and "This deletes alpha, beta and their disks." in said, said
     assert "Type yes to continue:" in said
     assert "Nothing was deleted: the deletion was not confirmed." in said
+    assert fake.writes() == [] and {ALPHA, BETA} <= fake.listed()
+
+
+@pytest.mark.parametrize(
+    ("typed", "settings"),
+    [(b"no\n", OFF), (b"\n", OFF), (b"\x1b\n", OFF), (b"alpha\n", (*OFF, "--set", "destroy_confirm=names"))],
+    ids=["no", "Enter", "Esc", "a names list that differs"],
+)
+def test_at_a_terminal_a_no_ends_the_run_declined_never_failed(fake, typed, settings) -> None:
+    # C38 (review 73's Later 1): the record reads declined, the view's head and summary say the person's answer with no
+    # ✗ and no failed count, as today's, and the exit status stays 1.
+    folder = paths.jobs_dir(paths.home(REPO))
+    before = {job.id for job in run_jobs.listed(folder)} if folder.exists() else set()
+    rc, said = fake.at_a_terminal("alpha", "beta", typed=typed, settings=settings)
+    assert rc == EXITS["refused"] == 1, said
+    made = [job for job in run_jobs.listed(folder) if job.id not in before]
+    assert len(made) == 1, made
+    record = made[0].read()
+    assert (record["outcome"], record["exit"]) == ("declined", 1) and run_jobs.state(made[0]) == "declined", record
+    assert record["why"].startswith(destroy.DECLINED), record
+    shown = _flat(CSI.sub("", said))
+    assert re.search(r"agent-warehouse aw destroy alpha beta(?: · \S+)? · declined · \d+ s", shown), shown
+    assert "✗" not in shown and "failed" not in shown and "STAGES" not in shown, shown
     assert fake.writes() == [] and {ALPHA, BETA} <= fake.listed()
 
 

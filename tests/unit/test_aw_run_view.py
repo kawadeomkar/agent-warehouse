@@ -655,6 +655,42 @@ def test_a_stopped_run_says_where_it_stopped_as_todays() -> None:
     assert " not run  SSH aliases · editor · golden template" in ours
 
 
+DECLINED = "Nothing was deleted: the deletion was not confirmed."
+# destroy's no at a terminal, as engine/destroy.py's delete() says it: the check done, its answer, the run declined.
+DESTROY = Declared("destroy", (Stage("check", "check", each_machine=False), Stage("delete", "delete")))
+SAID_NO = [
+    (0.0, _event("stage", None, "check")),
+    (1.0, _event("stage", None, "check", outcome="done")),
+    (1.0, _event("report", None, DECLINED)),
+]
+
+
+@pytest.mark.parametrize("outcome", ["declined", "failed"])
+def test_a_run_the_person_declined_is_said_as_the_answer_never_as_a_failure_as_todays(outcome) -> None:
+    # C38 (review 73's Later 1): today's head, `declined`, alone, with no ✗ and no failed count; exit 1 alone, a body
+    # that fails with it, is still failed.
+    today = todays._destroy()
+    today.task("check", "k1", "Abort unless confirmed", hosts=("localhost",), outcome="declined")
+    today.run.decline(DECLINED)
+    today.run.end(today.now, failed=True)
+    theirs = today.run.summary(today.now, 100, color=False, failed_hosts=["localhost"])
+    ended = (1.0, _event("end", None, DECLINED, outcome=outcome, exit=1))
+    view = _fed([*SAID_NO, ended], ("alpha", "beta"), declared=DESTROY, title="destroy alpha beta")
+    above = [line for _, line in view.above(100, color=False)]
+    ours = view.summary(1.0, 100, color=False)
+    if outcome == "failed":
+        assert ours[0].startswith("agent-warehouse  destroy alpha beta · failed after 1 s"), ours
+        assert any("✗" in line for line in above) and "1 failed" in "\n".join(ours), (above, ours)
+        assert view.title_text(1.0) == "destroy alpha beta · failed"
+        return
+    assert ours == theirs and ours[0].startswith("agent-warehouse  destroy alpha beta · declined · 1 s · "), ours
+    assert view.title_text(1.0) == today.run.title_text(today.now) == "destroy alpha beta · declined"
+    assert ["  " + DECLINED] == above and not any("✗" in line or "failed" in line for line in above + ours), (
+        above,
+        ours,
+    )
+
+
 def test_the_summary_of_a_fleet_marks_each_machine_and_leaves_out_the_host_s_work() -> None:
     ours = _fed(THREE, ("alpha", "beta", "gamma")).summary(85.0, 100, color=False)
     assert ours[0].startswith("agent-warehouse  deploy alpha beta gamma · done in 1 min 25 s · ")

@@ -534,6 +534,10 @@ async def body(ctx):
         raise SystemExit(4)
     if way == "cancel":
         raise asyncio.CancelledError
+    if way.startswith("declined"):
+        # The person's answer, said by the body: exit 1 as destroy's no, or 0 where the body went on.
+        ctx.decline("the person said no")
+        return int(way[len("declined"):])
     if way == "unwritable":
         os.chmod(ctx.job.folder, 0o500)
         return 0
@@ -637,6 +641,12 @@ WAYS = {
     "an error": Way("error", (), 60, "failed", 1, UNHANDLED, 1),
     "returns 0": Way("0", (), 60, "succeeded", 0, "done", 0),
     "returns 3": Way("3", (), 60, "failed", 3, "exit 3", 3),
+    # A body that fails with exit 1 is failed: an exit status alone never makes a run declined (C38).
+    "returns 1": Way("1", (), 60, "failed", 1, "exit 1", 1),
+    # One that said the person's answer ended it, and returned 1, is declined, its why the body's (C38); one that said
+    # it and went on to return 0 succeeded.
+    "declined": Way("declined1", (), 60, "declined", 1, "the person said no", 1),
+    "declined, then 0": Way("declined0", (), 60, "succeeded", 0, "done", 0),
     "returns 130": Way("130", (), 60, "cancelled", 130, "Ctrl-C", 130),
     "a KeyboardInterrupt of the body's own": Way("keyboard", (), 60, "cancelled", 130, "Ctrl-C", 130),
     "a SystemExit of the body's own": Way("exit4", (), 60, "failed", 4, "exit 4", 4),
