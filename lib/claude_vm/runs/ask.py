@@ -46,12 +46,12 @@ while the run is the terminal's foreground, so that a run a shell put in the bac
 Ctrl-Z (SIGTSTP) at a line or a hidden answer puts the settings back as found, what was typed and not read thrown away
 with them, before the run stops (tui/live_region.py's hold of the terminal); once it goes on (fg) the question's mode is
 made again and its words written again, below the shell's lines, and a run continued in the background (bg) stops again
-there (SIGTTOU, raised from Python: tui/live_region.py's _once_foreground) till fg; but one killed while it is stopped
-(kill %1: SIGTERM, then SIGCONT), at a Ctrl-Z or after bg, ends at once, the ladder's end telling the hold it waits no
-more (live_region.ending). A Ctrl-\\ (SIGQUIT) is the ladder's, as a SIGTERM is: the
-run is cancelled, and the change back throws away what was typed. The edges: at the menu, whose keys are raw, Ctrl-Z
-and Ctrl-\\ are keys it has no use for; and a key that lands between two questions, with the settings as found, is the
-terminal's own, which throws away what was typed itself.
+there (SIGTTOU, raised from Python by the hold's Ctrl-Z, never by the SIGCONT's handler: tui/live_region.py's
+_once_foreground) till fg; but one killed while it is stopped (kill %1: SIGTERM, then SIGCONT), at a Ctrl-Z or after
+bg, ends at once, the ladder's end telling the hold it waits no more (live_region.ending). A Ctrl-\\ (SIGQUIT) is the
+ladder's, as a SIGTERM is: the run is cancelled, and the change back throws away what was typed. The edges: at the
+menu, whose keys are raw, Ctrl-Z and Ctrl-\\ are keys it has no use for; and a key that lands between two questions,
+with the settings as found, is the terminal's own, which throws away what was typed itself.
 
 A choice's words and note are one line of plain text (Choice), as the question's own words are: a name from Proxmox or
 a machine never reaches the terminal with its escapes. Standard library and the project's own modules only:

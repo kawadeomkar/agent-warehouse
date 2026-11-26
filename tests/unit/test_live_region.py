@@ -971,7 +971,7 @@ def test_a_question_the_shell_goes_on_with_in_the_background_lets_an_end_another
             thread.start()
             try:
                 with pytest.raises(_Ended):
-                    live._HOLD._continued()
+                    live._HOLD._again(stop=True)
             finally:
                 while thread.is_alive():
                     try:
@@ -981,6 +981,41 @@ def test_a_question_the_shell_goes_on_with_in_the_background_lets_an_end_another
         assert landed == [signal.SIGTERM] and made == [] and stops == [], (landed, made, stops)
     finally:
         signal.signal(signal.SIGTERM, previous)
+        live.put_back(slave, termios.TCSANOW, found, last=True)
+        os.close(master)
+        os.close(slave)
+
+
+def test_a_question_in_the_background_is_stopped_by_the_holds_ctrl_z_and_never_by_the_handler_of_its_continue(
+    monkeypatch,
+):
+    # Python runs a handler still due at the first line of another's: a shell's kill of a run stopped at its question
+    # (kill %1: SIGTERM, then SIGCONT) runs the SIGCONT's handler before the SIGTERM's has done anything. In the
+    # background that handler neither stops the run nor changes the terminal - a stop there kept the kill's handler,
+    # and the end, from ever going on (review 68's F8) - and the hold's own Ctrl-Z is what stops the question again.
+    master, slave = os.openpty()
+    found = termios.tcgetattr(slave)
+    made: list[tuple] = []
+    stops: list[int] = []
+
+    def stopped(signum):
+        stops.append(signum)
+        raise _Stopped
+
+    try:
+        mode = list(found)
+        mode[3] &= ~termios.ECHO
+        live.change(slave, termios.TCSAFLUSH, mode, wait=True)
+        with monkeypatch.context() as patch:
+            patch.setattr(os, "tcgetpgrp", lambda fd: os.getpgrp() + 1)
+            patch.setattr(live, "set_terminal", lambda *args: made.append(args))
+            patch.setattr(live, "_at_default", stopped)
+            live._HOLD._continued(signal.SIGCONT, None)
+            assert made == [] and stops == [], (made, stops)
+            with pytest.raises(_Stopped):
+                live._HOLD._again(stop=True)
+        assert made == [] and stops == [signal.SIGTTOU], (made, stops)
+    finally:
         live.put_back(slave, termios.TCSANOW, found, last=True)
         os.close(master)
         os.close(slave)

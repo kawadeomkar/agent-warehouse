@@ -275,7 +275,8 @@ class _Hold:
 
     def _stopped(self, signum, _frame):
         """A Ctrl-Z: the terminal as found, then the stop at SIGTSTP's default; once the process goes on, what stepped
-        away told so (away(False)), foreground or not, and the mode again (_continued)."""
+        away told so (away(False)), foreground or not, and the mode again (_again): a question in the background stops
+        there, from here, till it is the foreground."""
         away = self.away if self.ours() else None
         if self.ours():
             self._as_found()
@@ -284,18 +285,25 @@ class _Hold:
         if away is not None:
             with contextlib.suppress(Exception):
                 away(False)
-        self._continued()
+        self._again(stop=True)
 
-    def _continued(self, _signum=None, _frame=None):
-        """The process goes on (SIGCONT): the mode made last made again where the terminal is no longer in it - the
-        shell put its own settings back at the stop - only while this process is the terminal's foreground, but for a
-        question (waits), which in the background stops there (SIGTTOU) till it is; then, after a stop, back told,
-        once."""
+    def _continued(self, _signum, _frame):
+        """The process goes on (SIGCONT), from the signal's handler: the mode made again only in the foreground, never a
+        stop here (_again). Python runs a handler still due at the first line of another's, so a shell's kill of a run
+        stopped at a question (kill %1: SIGTERM, then SIGCONT) can come here before the kill's own handler has done
+        anything: a stop here would keep that handler, and the end, from ever going on (review 68's F8). The hold's
+        own Ctrl-Z stops a question again in the background (_stopped)."""
+        self._again(stop=False)
+
+    def _again(self, *, stop):
+        """The mode made last made again where the terminal is no longer in it - the shell put its own settings back at
+        the stop - only while this process is the terminal's foreground, but with stop for a question (waits), which in
+        the background stops there (SIGTTOU) till it is; then, after a stop, back told, once."""
         if not self.ours() or self.made is None:
             return
         when, settings = self.made
         try:
-            if self.waits:
+            if self.waits and stop:
                 # A question in the background stops till it is the foreground (_once_foreground).
                 if not _once_foreground(self.fd, when, settings, self._waiting, changed=True):
                     return
