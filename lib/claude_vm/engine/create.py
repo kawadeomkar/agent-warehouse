@@ -59,7 +59,6 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
-import re
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING
 
@@ -108,8 +107,6 @@ SETTLING = 600.0
 # How long VMID newid is looked for in the cluster's listing before nothing is taken to be there: the listing lags what
 # a run just changed by up to ten seconds (pvestatd's poll).
 LISTING_LAG = 15.0
-# A drive of a VM's configuration, by its key: what a cloud-init drive is among (today's custom template check).
-DRIVE = re.compile(r"(ide|scsi|sata|virtio)\d+")
 
 UNREACHABLE = (
     "The VM would be unreachable: set vm_ssh_public_keys (it defaults to ~/.ssh/id_ed25519.pub) or vm_password, in the"
@@ -691,7 +688,7 @@ def _has_cloud_init(host: fleet.Host, source: template.Compared) -> bool:
         config = host.client.config(source.node, source.template_id, host.nic)
     except (ProxmoxError, TransportError) as error:
         raise fleet.Refused(f"the template on {host.name} could not be read: {fleet.sentence(error)}") from None
-    return any("cloudinit" in str(value) for key, value in config.values.items() if DRIVE.fullmatch(key))
+    return template.cloud_init(config)
 
 
 # ---------------------------------------------------------------- the run ----

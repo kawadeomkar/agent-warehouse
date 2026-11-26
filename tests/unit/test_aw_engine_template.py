@@ -43,6 +43,18 @@ clone uses is said with the way on; a template with no record of the build, a gu
 changed after it was judged - out of the pool, its record stripped, renamed, another guest - are never removed; an image
 outside the Debian family, a custom image with no checksum of its own and a template of the person's own build nothing;
 and every value a command takes is held to its form.
+
+ensure is deploy's template stage (card E13), and `aw deploy --only template` reaches it through G3's handler, against
+a whole fleet folder and the fake, standard input /dev/null and a refusing ssh first on PATH. The invariants with tests
+of their own: a run with no terminal that finds the template missing, or differing under proxmox_template_rebuild:
+true, and root SSH refusing, refuses before anything is created - the report's sentence, exit 1, the fake sent no write,
+root SSH asked once, in batch mode, to run nothing, the sentence the run's NEXT STEPS line, the fleet's lock held
+exclusively; and no run clones from a template that differs, since ensure returns only a usable template or raises. The
+same template, and a difference kept under rebuild false, are said and left, root SSH never asked; this engine's
+template with no cloud-init drive is never called the same; a cut build's VM at the ID is handed on as the run's line,
+never built over; any other --only value still refused by G3's sentence. In process, on the stand-in host: with root SSH
+answering, a run with no terminal builds, after one connection that runs nothing; at a terminal with root SSH refused,
+the sentence says what would give a standing way, and nothing is read or run on the host.
 """
 
 from __future__ import annotations
@@ -53,6 +65,7 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
 import sys
 import urllib.parse
 from pathlib import Path
@@ -60,9 +73,9 @@ from types import SimpleNamespace
 
 import pytest
 import yaml
-from aw_kit import imports_of
+from aw_kit import imports_of, run_aw
 from aw_machine import SYSTEM_PATH, Machine, filed, machine, ssh_stand_in, target
-from fleet_fixture import pinned, with_port
+from fleet_fixture import HOST, STORAGE, pinned, refusing_ssh, whole_fleet, with_port
 from harness import (
     ENGINE_POOL,
     FAKES,
@@ -78,7 +91,7 @@ from pki import proxmox_pki
 from signing import Signer
 
 from claude_vm import proxmox
-from claude_vm.engine import template
+from claude_vm.engine import deploy, template
 from claude_vm.engine.record import Record
 from claude_vm.fleet import hosts, overrides, paths
 from claude_vm.pve import commands, pin
@@ -87,7 +100,7 @@ from claude_vm.pve import template as judging
 from claude_vm.pve.client import Proxmox, Token
 from claude_vm.runs import job as jobs
 from claude_vm.runs import locks
-from claude_vm.schema.words import Line
+from claude_vm.schema.words import EXITS, Line
 from claude_vm.secret import Secret
 from claude_vm.ssh import runner
 
@@ -1577,3 +1590,217 @@ CREATE = {
 def test_each_value_a_command_takes_is_held_to_its_form(made, words) -> None:
     with pytest.raises(ValueError, match=words):
         made()
+
+
+# ------------------------------------------------------------------------------------------- ensure (card E13) ----
+
+# The run's lines, as run_aw gives them: what it says above its view and at its end.
+DEPLOY_TEMPLATE = ("deploy", "--only", "template")
+
+
+@dataclasses.dataclass
+class Deploying:
+    """A whole fleet against the fake (tests/unit/fleet_fixture.py), the engine's token held to its table with VM.Audit
+    on /vms, its template the one this version builds, in the pool; and a refusing ssh first on a run's PATH, which
+    answers no address and logs each call (tests/unit/aw_machine.py's unrouted.log)."""
+
+    fleet: Fleet
+    home: Path
+    ssh: Path
+    # The requests the fake had been sent, and the calls of the ssh, once the fleet was made: aw init's.
+    since: int
+    ssh_since: int
+
+    def deploy(self, *words: str) -> subprocess.CompletedProcess[str]:
+        """aw deploy <words>, standard input /dev/null: a run with no terminal, as an agent's or a script's."""
+        return run_aw(*words, home=self.home, first_on_path=(self.ssh,), timeout=120)
+
+    def sent(self) -> list[dict]:
+        """Every request the engine's client sent the fake since the fleet was made."""
+        return self.fleet.sent()[self.since :]
+
+    def writes(self) -> list[dict]:
+        return [entry for entry in self.sent() if entry["method"] != "GET"]
+
+    def asked(self) -> list[list[str]]:
+        """Each ssh the run started, its words."""
+        log = self.ssh / "unrouted.log"
+        lines = log.read_text().splitlines()[self.ssh_since :] if log.exists() else []
+        return [json.loads(line)["argv"] for line in lines]
+
+    def setting(self, name: str, value: object, *, layer: str = "fleet") -> None:
+        """A setting written through its one writer into the layer its row keeps it in (the fleet's settings.yml, or
+        the host's), as aw settings writes it."""
+        where = paths.home(REPO)
+        overrides.set(where, name, value, HOST, getattr(overrides.read(where, HOST), layer).digest)
+
+    def record(self) -> dict:
+        """The deploy's job's record."""
+        found = [job.read() for job in jobs.listed(paths.jobs_dir(paths.home(REPO)))]
+        made = [record for record in found if record["verb"] == "deploy"]
+        assert len(made) == 1, found
+        return made[0]
+
+
+@pytest.fixture
+def deploying(home, tmp_path, pki):
+    directory = tmp_path / "fake"
+    directory.mkdir()
+    for base in fake_fleet(directory, engine=True, certificate=(pki["cert"], pki["key"]), enforce=True):
+        whole_fleet(home, base, directory, pki)
+        engine_grant(base, "/vms", "VM.Audit")
+        token_id, secret = engine_token(directory)
+        found = Fleet(base, directory, Token(token_id, Secret(secret)), pki)
+        found.built()
+        ssh = refusing_ssh(home)
+        log = ssh / "unrouted.log"
+        yield Deploying(found, home, ssh, len(found.sent()), len(log.read_text().splitlines()) if log.exists() else 0)
+
+
+def _ran(ran: subprocess.CompletedProcess[str], status: int) -> str:
+    assert ran.returncode == status, f"exit {ran.returncode}\n--- stdout\n{ran.stdout}\n--- stderr\n{ran.stderr}"
+    return ran.stdout + ran.stderr
+
+
+@pytest.mark.parametrize(
+    ("planted", "said"),
+    [
+        pytest.param(
+            {"proxmox_template_vmid": FREE},
+            f'The base template "{NAME}" is not on the host: no guest has its ID, {FREE}.',
+        ),
+        pytest.param(
+            {"cpu": "kvm64"}, f'The base template "{NAME}" ({TEMPLATE}) differs from its settings: cpu kvm64 →'
+        ),
+    ],
+    ids=["missing", "different"],
+)
+def test_a_run_with_no_terminal_and_no_root_ssh_refuses_before_anything_is_created(deploying, planted, said) -> None:
+    if "cpu" in planted:
+        deploying.fleet.plant(cpu=planted["cpu"])
+    else:
+        deploying.setting("proxmox_template_vmid", FREE, layer="host")
+    output = _ran(deploying.deploy(*DEPLOY_TEMPLATE), EXITS["refused"])
+    # The report's one sentence: what it has and what is wanted, that this run cannot build it and why, and the line.
+    sentence = next(line.removeprefix("error: ") for line in output.splitlines() if line.startswith("error: "))
+    assert sentence.startswith(said), sentence
+    assert "This run cannot build it on pve: root SSH to the host does not answer with nobody asked (" in sentence
+    assert sentence.endswith("and there is no terminal here to ask at. Run aw deploy --only template at a terminal.")
+    # Nothing was created: the fake saw no write, and root SSH was asked once, in batch mode, to run nothing.
+    assert deploying.writes() == [] and deploying.sent()
+    asked = deploying.asked()
+    assert len(asked) == 1 and asked[0][-1] == "true" and "BatchMode=yes" in asked[0], asked
+    # The same line is NEXT STEPS', and the run held the fleet's lock alone, exclusively: it names no machine.
+    record = deploying.record()
+    assert record["next"] == [{"machine": None, "matter": "template", "line": sentence}]
+    assert record["locks"] == ["fleet:exclusive"]
+
+
+def test_the_same_template_is_said_and_left_and_root_ssh_never_asked(deploying) -> None:
+    output = " ".join(_ran(deploying.deploy(*DEPLOY_TEMPLATE), EXITS["done"]).split())
+    assert f'The base template "{NAME}" ({TEMPLATE}) is as its settings would build it.' in output
+    assert deploying.writes() == [] and deploying.asked() == []
+
+
+def test_a_difference_kept_under_rebuild_false_is_said_not_built_and_nothing_cloned(deploying) -> None:
+    deploying.fleet.plant(cpu="kvm64")
+    deploying.setting("proxmox_template_rebuild", False)
+    # The report as the run's summary says it, its lines wrapped.
+    output = " ".join(_ran(deploying.deploy(*DEPLOY_TEMPLATE), EXITS["done"]).split())
+    assert "differs from its settings: cpu kvm64 → host." in output
+    assert (
+        "It is kept as it is, since proxmox_template_rebuild is false: with it true, aw deploy --only template"
+        in output
+    )
+    assert deploying.writes() == [] and deploying.asked() == []
+
+
+def test_the_engine_s_template_with_no_cloud_init_drive_is_never_called_the_same(deploying) -> None:
+    # A drive taken off by hand, which the judgement does not read (review 66 of G3, and E12's L4).
+    deploying.fleet.plant(delete="ide2")
+    output = _ran(deploying.deploy(*DEPLOY_TEMPLATE), EXITS["refused"])
+    assert f'The base template "{NAME}" ({TEMPLATE}) has no cloud-init drive' in output
+    assert "is as its settings would build it" not in output
+    assert f"qm set {TEMPLATE} --ide2 {STORAGE}:cloudinit" in output and "run aw deploy --only template" in output
+    assert deploying.writes() == [] and deploying.asked() == []
+
+
+def test_a_cut_build_s_vm_at_the_id_is_handed_on_as_the_run_s_line_never_built_over(deploying) -> None:
+    # alpha, in the pool, is no template: as a build cut before qm template left it.
+    deploying.fleet.member(9010)
+    deploying.setting("proxmox_template_vmid", 9010, layer="host")
+    output = _ran(deploying.deploy(*DEPLOY_TEMPLATE), EXITS["refused"])
+    assert f'ID 9010 holds a VM, not the finished template "{NAME}": remove it (qm destroy 9010)' in output
+    [step] = deploying.record()["next"]
+    assert step["matter"] == "template" and step["line"].startswith("ID 9010 holds a VM")
+    assert deploying.writes() == [] and deploying.asked() == []
+
+
+def test_another_stage_this_card_does_not_build_is_still_refused_by_g3_s_sentence(deploying) -> None:
+    assert deploy.not_yet({"only": "template"}) is None
+    output = _ran(deploying.deploy("deploy", "--only", "configure"), EXITS["refused"])
+    assert "error: aw deploy --only configure is not built yet (card G4 builds it)" in output
+    assert deploying.sent() == [] and deploying.asked() == []
+
+
+class _Unlisted:
+    """The engine's client where nothing is listed at the template's ID and the token may read it there: compare finds
+    the template missing, by GETs alone, and nothing else is asked of it."""
+
+    def resources(self, kind: str) -> tuple:
+        return ()
+
+    def permissions(self, path: str) -> SimpleNamespace:
+        return SimpleNamespace(privileges=frozenset({judging.AUDIT}))
+
+    def config(self, *_: object) -> None:
+        raise AssertionError("nothing listed is read")
+
+
+def _ensure(lab: Lab, at: runner.Target, *, terminal: bool) -> template.Compared:
+    ctx = SimpleNamespace(job=lab.job, emit=lab.job.emit, cancelled=asyncio.Event())
+    host = SimpleNamespace(
+        name="lab",
+        client=_Unlisted(),
+        pool=ENGINE_POOL,
+        nic="net0",
+        host_flag="",
+        layout=hosts.Layout(paths.home(REPO)),
+        environ=dict(os.environ),
+        fields=SimpleNamespace(ssh_user="root"),
+    )
+    ensured = template.ensure(ctx, host, lab.settings(), terminal=terminal, target=at)  # type: ignore[arg-type]
+    return asyncio.run(ensured)
+
+
+def test_with_root_ssh_answering_a_run_with_no_terminal_builds_it(lab, monkeypatch) -> None:
+    seen: list[list[str]] = []
+    real = runner.run
+
+    async def recording(job, at, command, *more, **named):
+        seen.append(list(command))
+        return await real(job, at, command, *more, **named)
+
+    monkeypatch.setattr(runner, "run", recording)
+    built = _ensure(lab, target(lab.host), terminal=False)
+    assert (built.outcome, built.identity) == (template.SAME, lab.identity())
+    # One connection that runs nothing, then the build's own commands: the template created and converted.
+    programs = [next(word for word in command if word != "env" and "=" not in word) for command in seen]
+    assert programs[:2] == ["true", "pvesh"], programs
+    assert [call[:2] for call in lab.qm_calls()][0] == ["create", str(TEMPLATE)]
+    assert ["template", str(TEMPLATE)] in [call[:2] for call in lab.qm_calls()]
+    assert lab.job.read()["next"] == []
+
+
+def test_at_a_terminal_with_no_root_ssh_it_says_what_would_give_one_and_builds_nothing(lab, tmp_path) -> None:
+    # An address no stand-in machine has: ssh answers "No route to host" with status 255.
+    nowhere = runner.proxmox_host("203.0.113.250", "root", tmp_path / "cp")
+    with pytest.raises(template.Refused) as refused:
+        _ensure(lab, nowhere, terminal=True)
+    sentence = str(refused.value)
+    assert not isinstance(refused.value, template.Failed)
+    assert sentence.startswith(f'The base template "{NAME}" is not on the host: no guest has its ID, {TEMPLATE}.')
+    assert "It is not built: root SSH to lab as root does not answer with nobody asked (" in sentence
+    assert "ssh-copy-id" in sentence and "ssh-agent" in sentence and "ssh_identity_file" in sentence
+    assert sentence.endswith("then run aw deploy --only template again.") and "at a terminal" not in sentence
+    assert lab.qm_calls() == [] and lab.reads() == [] and lab.fetched() == [] and lab.asked() == []

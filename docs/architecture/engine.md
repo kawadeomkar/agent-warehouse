@@ -678,6 +678,26 @@ template of the person's own build nothing; and the image tool's packages are re
 them: a package held is left as it is, one dpkg says is not installed is installed, and one half configured or whose
 read failed stops the build before apt runs.
 
+`ensure(ctx, host, settings, terminal=)` is `deploy`'s first link and the whole of `deploy --only template`, as the run's
+`template` stage. It compares first. A template a VM may be cloned from as it is (`usable`: the same, a difference
+`proxmox_template_rebuild: false` keeps, a person's own lacking nothing) is said and left; this engine's, where its
+configuration has no cloud-init drive, which the judgement does not read (`pve/template.py`'s `cloud_init`, the check
+`create.py` makes before a clone), is refused with the way on rather than called the same. A refused template, a cut
+build's VM at the ID among them, is refused with the judgement's sentence, never built over or retried. Otherwise it
+asks for a standing way to build: root SSH that answers in batch mode, one connection that runs nothing but `true`.
+Where it answers, `build` runs, at a terminal or with nobody there. Where it does not, nothing is created: at a terminal
+(`runs/ask.py`'s `terminal`, decided before the run draws) the sentence says what would give one (the account's key on
+the host, the agent, `ssh_identity_file`); with no terminal, `Compared.unbuilt`'s: what the template has and what is
+wanted, that this run cannot build it and why, and the `deploy --only template` line to run at a terminal. Every refusal
+of its own is also the run's NEXT STEPS line (matter `template`). It returns only a usable template, or raises, so no
+run clones from a template that is to be built and was not. A refusal exits 1; a build begun that did not end well
+(`Failed`) exits 2. `tests/unit/test_aw_engine_template.py` holds it through `aw deploy --only template` against the fake
+with standard input `/dev/null` and a refusing `ssh`: missing, or differing, with root SSH refused, the sentence, exit 1,
+no write, one connection in batch mode, NEXT STEPS and the fleet's lock exclusive; the same template and a kept
+difference said and left, root SSH never asked; a template with no drive refused; a cut build's VM handed on; another
+stage still refused; and in process, on the stand-in host, the build run where root SSH answers, and at a terminal with
+it refused, what would give one, nothing run on the host.
+
 **What `init` makes on a host: `access.py`.** One list names every object a first `init` makes on a Proxmox host with
 its administrator's authority, and one check tells what is there of each; the script that makes them is their one
 rendering, `as_script`'s, run over root SSH on a `y` or printed for a person to run, and this module runs nothing.
@@ -1015,9 +1035,10 @@ any name (an alias, an attribute chain, a bound name, `partial`, `type(target)(.
 see is the runner's to refuse.
 
 **A VM made: `create.py`, and `deploy`'s handler: `deploy.py`.** `aw deploy --only provision` makes or resumes each VM
-named, the default VM where none is (`vm_default_name`), side by side, under each VM's lock (C7's `machines`); every
-other stage of `deploy`, and `--check`, `--adopt`, `--take-over` and `--remove-key`, is refused naming the card that
-builds it. Before anything is created, the run reads the fleet (`fleet.requested`, a changing read, so a VM it may not
+named, the default VM where none is (`vm_default_name`), side by side, under each VM's lock (C7's `machines`); `aw
+deploy --only template` is `template.ensure` and nothing after it (above), under the fleet's lock held exclusively, since
+it names no machine; every other stage of `deploy`, and `--check`, `--adopt`, `--take-over` and `--remove-key`, is
+refused naming the card that builds it. Before anything is created, the run reads the fleet (`fleet.requested`, a changing read, so a VM it may not
 change refuses the run), settles the route (`routes.settle`, whose hop that cannot be used stops the run), refuses a VM
 with no key in `vm_ssh_public_keys` and no console password in the vault (`vm_password`), and compares the base template
 (`template.compare`): only one it may clone from is cloned from, any other said with why, and none with no cloud-init
