@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import dataclasses
 import os
+import re
+from collections.abc import Iterable
 from pathlib import Path
 
 from aw_kit import run_aw
@@ -32,7 +34,9 @@ from aw_machine import ssh_stand_in
 from harness import ENGINE_POOL, ENGINE_TOKEN, ENGINE_USER, REPO, _pve, engine_token
 
 from claude_vm import trust
+from claude_vm.engine.record import Record
 from claude_vm.fleet import hosts, mark, overrides, paths, record
+from claude_vm.pve import record as block
 
 # The host init sets up, unless a test names another; and its node, storage and bridge, the fake's.
 HOST = "pve"
@@ -62,6 +66,36 @@ class Fleet:
 def mark_pool(base: str, fleet: str, pool: str = ENGINE_POOL, controller: str = mark.NONE) -> None:
     """The pool's comment in the fake at base given the fleet's mark, as the administrator's script writes it."""
     _pve(base, "PUT", "pools", poolid=pool, comment=mark.Mark(fleet, controller).line)
+
+
+def recorded(
+    base: str,
+    vmids: Iterable[int],
+    *,
+    pool: str = ENGINE_POOL,
+    node: str = NODE,
+    down: Iterable[int] = (),
+    **fields: object,
+) -> dict[int, str]:
+    """Each VM of vmids in the fake at base made a member of pool, its notes given the engine's record of it as a
+    finished deploy leaves one - its kind, its SMBIOS UUID, its name, the stage finished and provisioned - with fields
+    beside them (engine/record.py's Record): what the fleet's own VMs are to a reader of the pool. Each of down, a VM on
+    a node that is down (whole_fleet's nameless 8001, on pve2), made a member as it is, since nothing of it can be read
+    or written. Each recorded one's UUID, by its VMID."""
+    uuids = {}
+    for vmid in vmids:
+        config = _pve(base, "GET", f"nodes/{node}/qemu/{vmid}/config")["data"]
+        found = re.search(r"(?:^|,)uuid=([^,]+)", str(config.get("smbios1", "")))
+        assert found, f"VM {vmid} of the fake has no SMBIOS UUID"
+        made = Record(kind="vm", uuid=found[1], name=str(config["name"]), stage="finished", provisioned=True, **fields)
+        notes = block.render(str(config.get("description", "")), made.fields())
+        _pve(base, "PUT", f"nodes/{node}/qemu/{vmid}/config", description=notes)
+        uuids[vmid] = found[1]
+    listed = _pve(base, "GET", "pools", poolid=pool)["data"][0]["members"]
+    joining = [vmid for vmid in [*uuids, *down] if vmid not in {member.get("vmid") for member in listed}]
+    if joining:
+        _pve(base, "PUT", "pools", poolid=pool, vms=",".join(str(vmid) for vmid in joining))
+    return uuids
 
 
 def pinned(host: str = HOST) -> None:

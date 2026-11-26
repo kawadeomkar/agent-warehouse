@@ -402,11 +402,13 @@ def test_the_scan_sees_a_member_marked(source, found) -> None:
 
 
 # Where Member.read is reached in lib/, function by function, and why: the reader of a host's pool alone, which reads
-# every member's configuration first and gives each the twins it read beside it (review 51b's M-A). Status's reader of
-# the pool joins it when card G16 builds one. A workflow owns a VM again through that reader - requested, or members and
+# every member's configuration first and gives each the twins it read beside it (review 51b's M-A), and status's, which
+# does the same (card G16). A workflow owns a VM again through that reader - requested, or members and
 # fleet.owned - never by Member.read of one configuration, which knows nothing of the pool.
 READERS = {
     ("lib/claude_vm/engine/fleet.py", "_member"): "the fleet's reader of the pool, which gives each member its twins",
+    ("lib/claude_vm/cli/status_pool.py", "members"): "status's reader of the pool, which reads every member's"
+    " configuration before it judges one and gives each the twins it read beside it",
 }
 
 

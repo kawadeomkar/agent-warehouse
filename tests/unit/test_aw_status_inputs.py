@@ -10,7 +10,9 @@ outranks every file; a secret's row, a name that is no setting's, a value of the
 the vault's secrets are each refused, the word given never said back, the first three before any file is read. The
 person's own ssh options reach ssh each pair one word, held to the SSH runner's rule for every other verb. `load`
 sends nothing, starts no ssh (a refusing one is first on PATH) and keeps nothing. What aw status imports is held by
-tests/unit/test_aw_cli_imports.py alone, its status lines skipped until the table names the handler (card G16).
+tests/unit/test_aw_cli_imports.py alone. The lines a VM's report says are aw's, each the printer's whole line, where
+today's are just's (each such difference below), and `load` gives under "pool" what aw status's reader of the fleet
+reads by (lib/claude_vm/cli/status_pool.py, tests/unit/test_aw_status_pool.py), which today's has no key of.
 """
 
 from __future__ import annotations
@@ -186,6 +188,13 @@ def _todays(root: Path, inventory: Path, machines: list[str]) -> dict:
 def _new(where: paths.Home, machines: list[str]) -> dict:
     config = status_inputs.load(where, None, status_inputs.Opts(), environ=os.environ)
     config["password"] = {name: config["password"](name) for name in ["", *machines]}
+    # What aw status's reader of the fleet reads by, which today's has no key of (tests/unit/test_aw_status_pool.py).
+    pool = config.pop("pool")
+    assert (pool["pool"], pool["host"], pool["host_flag"]) == (ENGINE_POOL, HOST, "")
+    # Every command the model and its drawing name, printed whole, which today's makes in the model: aw's, with no
+    # host's flag where the fleet has one host (tests/unit/test_aw_status_pool.py holds each in a report).
+    printed = config["fleet"]["settings"].pop("lines")
+    assert printed == status_inputs.lines("") and all(line.startswith("aw ") for line in printed.values())
     return json.loads(json.dumps(config, sort_keys=True, default=str))
 
 
@@ -228,7 +237,36 @@ def _differences(fleet, root: Path) -> dict[str, tuple[object, object, str]]:
             "pve/template.py's wanted gives each field as a string, as proxmox_template_drift compares them",
         ),
         "hop.port": ("", 22, "host.yml's ssh_port is 22 unless set; today's port was ssh's own where none was set"),
+        **_aw_lines(),
     }
+
+
+# Each line a VM's report says to run, by its path under a VM's block, and its words after the program and the VM.
+LINES = {
+    "claude.login_command": "login {vm} --only claude",
+    "github.login_command": "login {vm} --only github",
+    "github.configure_command": "deploy {vm} --tags github_projects",
+    "tailscale.login_command": "login {vm} --only tailscale",
+    "tailscale.configure_command": "deploy {vm} --tags tailscale",
+}
+
+
+def _aw_lines(at: str = "vm", vm: str = status_inputs.PLACEHOLDER) -> dict[str, tuple[object, object, str]]:
+    """Each line the block at at of VM vm says (the placeholder's, which each VM's name replaces, unless given): aw's,
+    the printer's whole line, where today's is just's; and the program Tailscale's line names, which today's leaves to
+    tailscale_report's default (just)."""
+    why = "every line aw status says names aw, the printer's whole line"
+    found = {
+        f"{at}.{path}": (f"just {words}", f"aw {words}", why)
+        for path, words in ((path, words.format(vm=vm)) for path, words in LINES.items())
+    }
+    found[f"{at}.tailscale.program"] = (ABSENT, "aw", "the program tailscale_report's line names, aw status's")
+    found[f"{at}.tailscale.reconfigure_command"] = (
+        ABSENT,
+        f"aw deploy {vm} --only configure",
+        "the line tailscale_report names to configure it again, printed whole, where today's writes its own",
+    )
+    return found
 
 
 def _own_differences(new: dict, machines: list[str]) -> dict[str, tuple[object, object, str]]:
@@ -294,6 +332,7 @@ def test_a_setting_of_each_file_and_each_secret_set_is_today_s_settings_path_for
     forks = "run_forks is client.yml's; today's is the forks of Ansible's configuration"
     differences["fleet.forks"] = (20, SETTINGS["run_forks"], forks)
     differences.update(_own_differences(new, [MACHINE]))
+    differences.update(_aw_lines(f"per_vm.{MACHINE}.vm", MACHINE))
     _compare(today, new, differences, [MACHINE])
 
 

@@ -98,6 +98,12 @@ CONFIG = "/nodes/{node}/qemu/{vmid}/config"
 
 # Filled from N-14's table of calls for Proxmox VE 9, with the calls the base makes once they are built: the client's
 # reads (card B2), its writes (card B4) and the guest agent's (card B6), each privilege read from Proxmox's source.
+# What a storage's listing of its disks needs on a VM to list one of that VM's (PVE/API2/Storage/Content.pm's index,
+# which leaves out each volume of a guest the token may not configure the disks of): VM.Config.Disk on /vms/<vmid>,
+# which the grant on /vms (VM.Audit) does not give. So status counts the disks of a VM outside the pool by its
+# configuration (lib/claude_vm/cli/status_pool.py), and the fake lists them so (tests/molecule/fake_pve_api.py).
+LISTS_A_DISK = "VM.Config.Disk"
+
 CALLS = (
     # The reads every workflow makes (client.py).
     Call("version", "GET", "/version", None, None),

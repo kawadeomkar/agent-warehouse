@@ -236,7 +236,12 @@ def tailscale_found(part, settings, name, joined_before):
             "admin_page": settings["admin_page"],
             "configure_command": settings["configure_command"],
             "login_command": settings["login_command"],
-        }
+            # The line that configures it again, where the settings give it printed whole (aw status's): else
+            # tailscale_report writes today's.
+            **({"reconfigure_command": settings["reconfigure_command"]} if settings.get("reconfigure_command") else {}),
+        },
+        # The program the line names where it names one of its own: today's just, unless the settings say (aw status's).
+        settings.get("program") or "just",
     )
     case = report["case"] if wanted else "unmanaged" if unmanaged else "off"
     return {
