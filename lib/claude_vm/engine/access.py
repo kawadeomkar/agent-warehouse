@@ -7,7 +7,8 @@ role, whose privileges are what pve/privileges.py's one table needs on every kin
 table says both what the client calls and what init grants; under `proxmox_audit_scope: node`, its default (O15, item
 2), the audit role, `VM.Audit` alone; where `proxmox_template_custom` names a template of the person's own outside the
 pool, the clone role, `VM.Audit` and `VM.Clone`; the user; the user's grants; the token, with privilege separation, on
-the user; and the token's grants, the same as the user's, since a token with privilege separation holds what both
+the user, its comment the fleet's mark as the pool's (card E8: two fleets on one host share the user, never a token);
+and the token's grants, the same as the user's, since a token with privilege separation holds what both
 hold. The grants: the engine's role on the pool, on the storage for VM disks, on each bridge a clone's source has a
 network card on (a clone asks `SDN.Use` on each), and on the node; the audit role on every guest (`/vms`), read only,
 so that `status` shows the node's other VMs and a capacity made from all of them; and the clone role on the person's
@@ -27,7 +28,9 @@ object is made of it: a pool's name starts with a letter and holds no `/`, which
 `found` is what one read of the host gives of the kinds the list makes (`Found`); host_flag is the host a line of its
 sentences names, as the printer of a command takes it, given by every caller (a further host's name, "" with one). A
 pool whose comment does not carry this fleet's mark, and a token of the list's ID made without privilege separation,
-which holds every privilege of its user, are `NotOwn`, each refused with its sentence, never a third answer; a role is
+which holds every privilege of its user, or whose comment carries a mark that is not this fleet's (another fleet's,
+one naming a control VM, or one that does not read), are `NotOwn`, each refused with its sentence, never a third answer
+(a token whose comment carries no mark is a person's own, made by hand, and taken as it is); a role is
 told with what it lacks, which is appended and never taken away, and with what it holds beyond its privileges.
 `plan(objects, found, host_flag=)` is what a run makes of the list: each object that is missing made and each role given
 what it lacks. The engine's role holding more is granted all the same, and said with the line that keeps it to its own;
@@ -112,8 +115,8 @@ CLONE_ROLE = "AgentWarehouseClone"
 # path the list does not make is said, never taken away.
 ROLES = (ROLE, AUDIT_ROLE, CLONE_ROLE)
 POOL = "aw-fleet"
-# What the user's and the token's comments say in Proxmox's page: whose they are, as today's do. The pool's is the
-# fleet's mark.
+# What the user's comment says in Proxmox's page: whose it is, as today's does. The pool's and the token's are the
+# fleet's mark (card E8): one user serves every fleet on a host, each fleet's token its own.
 COMMENT = mark.WORD
 # The privilege a template is cloned with (pve/privileges.py's clone row on its source).
 CLONE = "VM.Clone"
@@ -138,6 +141,10 @@ GUEST_ID = range(100, 1_000_000_000)
 ACL_PATH = re.compile(r"/[A-Za-z0-9_./-]*")
 # The most characters of what the host holds that a sentence says.
 SAID_MOST = 200
+# The most characters of a pool's comment the script writes, the mark added to a comment nobody marked (card E8):
+# Proxmox declares no length for one (review 19), and X6 found a VM's notes held to 8192 characters on a write, so this
+# card's own bound is half of that, which no comment a person writes beside the mark comes near.
+COMMENT_MOST = 4096
 # A person's own template, by the name proxmox_template_custom gives it: a name Proxmox gives a guest, a DNS name's
 # characters, from and to a letter or a digit, at most 63.
 TEMPLATE_NAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9.-]{0,61}[A-Za-z0-9])?")
@@ -348,7 +355,7 @@ def objects(host: Host) -> tuple[Object, ...]:
         roles.append(Role(CLONE_ROLE, tuple(sorted((AUDIT, CLONE))), exact=True))
         granted.append((_path("vm", str(host.custom_template)), CLONE_ROLE))
     user = User(host.user, COMMENT)
-    token = Token(host.user, host.token, COMMENT)
+    token = Token(host.user, host.token, pool.comment)
     return (
         pool,
         *roles,
@@ -366,14 +373,15 @@ def objects(host: Host) -> tuple[Object, ...]:
 class Found:
     """What exists on a host of the kinds the list makes, as one read of it gives them: each pool's comment by its name
     ("" for one with none), each role's privileges by its ID, the users' IDs, each token's privilege separation by its
-    full ID (True for a token made with it), and the ACL's entries, each a Grant. An empty Found is a host with none of
-    them."""
+    full ID (True for a token made with it), the ACL's entries, each a Grant, and each token's comment by its full ID
+    ("" for one with none, and for a token not named there). An empty Found is a host with none of them."""
 
     pools: Mapping[str, str] = field(default_factory=dict)
     roles: Mapping[str, Iterable[str]] = field(default_factory=dict)
     users: Iterable[str] = ()
     tokens: Mapping[str, bool] = field(default_factory=dict)
     grants: Iterable[Grant] = ()
+    token_comments: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         pools = dict(self.pools)
@@ -387,6 +395,9 @@ class Found:
         tokens = dict(self.tokens)
         if not all(isinstance(name, str) and isinstance(privsep, bool) for name, privsep in tokens.items()):
             raise TypeError("a token's privilege separation is a bool, by the token's full ID")
+        comments = dict(self.token_comments)
+        if not all(isinstance(name, str) and isinstance(comment, str) for name, comment in comments.items()):
+            raise TypeError("a token's comment is a str, by the token's full ID")
         users, grants = frozenset(self.users), frozenset(self.grants)
         if not all(isinstance(each, str) for each in users):
             raise TypeError("a user's ID is a str")
@@ -397,6 +408,7 @@ class Found:
         object.__setattr__(self, "users", users)
         object.__setattr__(self, "tokens", MappingProxyType(tokens))
         object.__setattr__(self, "grants", grants)
+        object.__setattr__(self, "token_comments", MappingProxyType(comments))
 
 
 @dataclass(frozen=True)
@@ -454,6 +466,22 @@ def _token(token: Token, found: Found, *, host_flag: str) -> Answer:
                 {"token": token.name, "user": token.user, "line": beside},
             )
         )
+    try:
+        theirs = mark.parse(found.token_comments.get(token.id, ""))
+        another = theirs is not None and theirs != mark.parse(token.comment)
+    except mark.Refused:
+        another = True
+    if another:
+        beside = Line("init", {"token_id": PLACEHOLDER}, host_flag=host_flag)
+        raise NotOwn(
+            said(
+                "The token {token} of {user} carries a mark in its comment that is not this fleet's: another"
+                " fleet's, one naming a control VM, or one that does not read, and init never grants it on this"
+                " fleet's pool, since two fleets never share a token. {line}, with an ID of the fleet's own, makes one"
+                " beside it.",
+                {"token": token.name, "user": token.user, "line": beside},
+            )
+        )
     return Answer(OWN)
 
 
@@ -462,9 +490,10 @@ def check(obj: Object, found: Found, *, host_flag: str) -> Answer:
     where its comment carries this fleet's mark, controller=none; any other pool of its name is NotOwn, with
     fleet/mark.py's sentence. A token is OWN only where its full ID is there with privilege separation; one made
     without it is NotOwn, its sentence naming init's line for the host host_flag names, as the printer of a command
-    takes it: a further host's name, "" with one host, never left out. A role is told with what it lacks and what it
-    holds beyond its privileges. A grant is OWN only where the entry is there as the list makes it, its propagation
-    included, so that one made otherwise is made again as the list makes it."""
+    takes it: a further host's name, "" with one host, never left out; and so is one whose comment carries a mark
+    that is not this fleet's (card E8), while one whose comment carries none is a person's own, taken as it is. A role
+    is told with what it lacks and what it holds beyond its privileges. A grant is OWN only where the entry is there as
+    the list makes it, its propagation included, so that one made otherwise is made again as the list makes it."""
     if not isinstance(found, Found):
         raise TypeError(f"what exists is a Found, not a {type(found).__name__}")
     if isinstance(obj, Pool):
@@ -787,6 +816,13 @@ def _sentence_function(host: Host, entries: Sequence[_Entry], *, host_flag: str)
         cases.append(("token-not-own", _printed(str(not_own), {_USER: "user", _TOKEN: "token"})))
     else:
         raise RuntimeError("a token of the list's ID made otherwise is taken for the engine's own")
+    marked = mark.Mark(other, mark.NONE).line
+    try:
+        check(token, Found(tokens={token.id: token.privsep}, token_comments={token.id: marked}), host_flag=host_flag)
+    except NotOwn as not_own:
+        cases.append(("token-other", _printed(str(not_own), {_USER: "user", _TOKEN: "token"})))
+    else:
+        raise RuntimeError("a token another fleet marked is taken for the engine's own")
     for role in _roles_of(listed).values():
         apart = _printed(_too_much(role, (_MORE,), [_PATHS], []), _SAID)
         if role.exact:
@@ -813,8 +849,8 @@ _HEAD = """#!/bin/sh
 # It makes whichever of the objects init makes is missing, in their order, and changes nothing that is there but a
 # role of the engine's own, to which it adds a privilege it lacks, never taking one away: the pool, its comment the
 # fleet's mark; the roles; the user; the user's grants; the token, with privilege separation; and the token's grants.
-# A pool another fleet marked, or with no mark, and a token made without privilege separation are refused, and
-# nothing is changed.
+# A pool another fleet marked, or with no mark, and a token made without privilege separation or carrying another
+# fleet's mark are refused, and nothing is changed.
 #
 # Options:
 #   --storage <id>           the storage for VM disks: {storage}
@@ -825,6 +861,8 @@ _HEAD = """#!/bin/sh
 #   --audit-scope {scopes}  what the token may read of single VMs beyond its pool: {scope}
 #   --take-unmarked          with --pool: take that pool, whose comment carries no mark, the mark added at its end
 #   --no-token               make no token: the token must be there, or nothing changes
+#   --regenerate             make the token's secret again where it is there, its comment this fleet's mark, so that
+#                            every other copy of it stops working (init's take-over of the fleet); made where it is not
 #   --dry-run                print the commands it would run, one an object, and run none
 #   --list                   print this node's storages for VM disks and its bridges, and change nothing
 #
@@ -890,6 +928,7 @@ def as_script(host: Host, custom: str = "", *, host_flag: str) -> str:
         ("custom", custom),
         ("mark_line", mark.Mark(host.fleet, mark.NONE).line),
         ("said_most", str(SAID_MOST)),
+        ("comment_most", str(COMMENT_MOST)),
         ("user_most", str(USER_MOST)),
         ("re_pool", POOL_NAME.pattern),
         ("re_user", USER_NAME.pattern),

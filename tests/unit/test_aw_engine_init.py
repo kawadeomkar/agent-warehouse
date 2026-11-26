@@ -113,6 +113,7 @@ from claude_vm.engine import init as engine_init
 from claude_vm.fleet import hosts, mark, overrides, paths, record, registry, sealed, vaultkey
 from claude_vm.hosts.model import Request
 from claude_vm.pve import pin
+from claude_vm.pve import script as pve_script
 from claude_vm.pve.client import Proxmox, Token
 from claude_vm.runs import job as jobs
 from claude_vm.schema import rules
@@ -572,9 +573,9 @@ def test_the_mark_s_fleet_id_is_adopted_and_kept(fake, secret_file) -> None:
         ),
         (
             "a pool of the person's own",
-            "error: the pool aw-fleet carries no fleet's mark in its comment, so it is not shown to be the pool the"
-            " administrator's commands made for this fleet: with nobody there no pool is taken over, and nothing was"
-            " written",
+            # Card E8: both ways it is taken are said, the by-hand road in the script's own form.
+            "error: the pool aw-fleet on 127.0.0.1 carries no fleet's mark in its comment, and init takes a pool nobody"
+            " marked only where it is named and a y says so: at a terminal, ",
         ),
         (
             "agent-warehouse fleet=not-an-id controller=none",
@@ -592,6 +593,11 @@ def test_a_pool_whose_mark_does_not_make_the_fleet_this_one_is_refused_and_nothi
     ran = _init(fake, *_given(fake, secret=secret_file))
     assert (ran.returncode, ran.stdout) == (1, ""), ran
     assert ran.stderr.startswith(said), ran.stderr
+    if "nobody marked" in said:
+        assert "--print-commands --pool aw-fleet | ssh root@127.0.0.1 sh -s -- --pool aw-fleet --take-unmarked" in (
+            " ".join(ran.stderr.split())
+        ), ran.stderr
+        assert "init --pool aw-fleet shows its comment and its members and asks" in ran.stderr, ran.stderr
     assert _files() == files
     _sealed(fake.secret)
 
@@ -1610,8 +1616,9 @@ SECRET_LABEL = "API token secret:"
 # The engine's own token, by its full ID, as host.yml's made names it.
 ENGINE_FULL = f"{ENGINE_USER}!{ENGINE_TOKEN}"
 # The commands root SSH runs on a host whose settings.yml names nothing yet, up to the question, all of them reads: the
-# node's name, the script's lists of storages and bridges, and its dry run.
-READS = ["hostname -s", "/bin/sh -s -- --list", "/bin/sh -s -- --dry-run"]
+# node's name, the script's lists of storages and bridges, the pool as root reads it (card E8), and the dry run.
+POOL_READ = shlex.join(pve_script.pool_read(ENGINE_POOL))
+READS = ["hostname -s", "/bin/sh -s -- --list", POOL_READ, "/bin/sh -s -- --dry-run"]
 
 
 @pytest.fixture
@@ -2144,7 +2151,7 @@ def test_with_the_secret_held_the_offer_runs_with_no_token_and_makes_only_what_i
 
 
 def test_a_token_there_whose_secret_is_held_nowhere_here_is_never_offered(fake, pve_host, job) -> None:
-    # Review 58: until card E8 marks a token as its fleet's, one of the engine's ID there may be another fleet's.
+    # Review 58: in a pool nothing shows is this fleet's (none there here), one of the engine's ID may be another's.
     with_port(fake.port)
     state = _state_of(pve_host)
     users = {**state["users"], ENGINE_USER: {}}
@@ -2261,6 +2268,175 @@ def test_print_commands_prints_the_script_the_offer_runs_and_writes_nothing(fake
     ran = _init(fake, "--print-commands", "--token-secret-file", str(secret_file))
     assert ran.returncode == 1 and "it takes no --token-secret-file" in ran.stderr, ran
     assert _files() == files
+
+
+# ---------------------------------------------------------------- the pool's mark on the offer (card E8) ----
+
+# The questions card E8 adds: which of two things is meant, and the other pool's name and token.
+WHICH = engine_init.WHICH
+POOL_LABEL, TOKEN_LABEL = "Pool:", "API token ID:"
+NOTE = "the person's own pool"
+CONTROLLER = "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b"
+
+
+def _another_fleet_s(host: Machine, fleet: str, controller: str = mark.NONE) -> bytes:
+    """The stand-in host set up by another fleet's script: its pool and its token marked as that fleet's, the token
+    the engine's own ID, its secret held by that fleet alone. The state's bytes, as they are now."""
+    line = mark.Mark(fleet, controller).line
+    state = _state_of(host)
+    _state_of(
+        host,
+        pools={ENGINE_POOL: {"comment": line}},
+        users={**state["users"], ENGINE_USER: {}},
+        tokens={ENGINE_FULL: {"privsep": 1, "secret": OTHER, "comment": line}},
+    )
+    return (host.bin / "pve-state.json").read_bytes()
+
+
+@pytest.mark.parametrize("answer", [engine_init.YES, engine_init.NO])
+def test_an_unmarked_pool_named_is_shown_and_taken_on_a_y_alone_its_comment_kept(fake, pve_host, job, answer) -> None:
+    # The safety rule (R2 C-1): a pool nobody marked is taken only where the person named it and said y to the
+    # question that shows its comment and its members; the mark is added at the comment's end, the rest kept.
+    with_port(fake.port)
+    _state_of(
+        pve_host,
+        pools={ENGINE_POOL: {"comment": NOTE}},
+        guests=[{"vmid": 150, "pool": ENGINE_POOL, "name": "keep-me"}],
+    )
+    before = (pve_host.bin / "pve-state.json").read_bytes()
+    person = _Person({SET_UP: answer})
+    given = engine_init.Given(certificate=trust.pem_fingerprint(fake.pki["node"]), pool=ENGINE_POOL)
+    _offered(fake, person, job, pve_host, given)
+    [question] = person.question(SET_UP)
+    assert f"comment: {NOTE}" in question and "qemu/150 keep-me" in question, question
+    taking = ["/bin/sh -s -- --dry-run --pool aw-fleet --take-unmarked"]
+    if answer != engine_init.YES:
+        assert _ran(pve_host) == [*READS[:-1], *taking]
+        assert (pve_host.bin / "pve-state.json").read_bytes() == before
+        return
+    assert _ran(pve_host) == [*READS[:-1], *taking, "/bin/sh -s -- --pool aw-fleet --take-unmarked"]
+    fleet = record.read(_home()).fleet
+    comment = _state_of(pve_host)["pools"][ENGINE_POOL]["comment"]
+    assert comment == f"{NOTE} {mark.Mark(fleet, mark.NONE).line}"
+    assert _state_of(pve_host)["guests"] == [{"vmid": 150, "pool": ENGINE_POOL, "name": "keep-me"}]
+    assert access.plan(access.objects(_engine_s(fleet)), _found(_state_of(pve_host)), host_flag="").steps == ()
+
+
+def test_an_unmarked_pool_not_named_is_never_taken_and_both_ways_are_said(fake, pve_host, job) -> None:
+    with_port(fake.port)
+    _state_of(pve_host, pools={ENGINE_POOL: {"comment": NOTE}})
+    before = (pve_host.bin / "pve-state.json").read_bytes()
+    person = _Person({SET_UP: engine_init.YES, WHICH: engine_init.TAKE})
+    _offered(fake, person, job, pve_host)
+    assert person.question(SET_UP) == [] and person.question(WHICH) == []
+    assert _ran(pve_host) == READS[:-1]
+    assert (pve_host.bin / "pve-state.json").read_bytes() == before
+    said_now = " ".join(person.said().split())
+    assert "The pool aw-fleet on 127.0.0.1 carries no fleet's mark in its comment" in said_now, said_now
+    assert "init --pool aw-fleet shows its comment and its members and asks" in said_now, said_now
+    assert "--print-commands --pool aw-fleet | ssh root@127.0.0.1 sh -s -- --pool aw-fleet --take-unmarked" in said_now
+    assert len(person.question(SECRET_LABEL)) == 1
+
+
+@pytest.mark.parametrize("answer", [engine_init.TAKE, "", None], ids=["take", "enter", "esc"])
+def test_a_pool_another_fleet_marked_is_taken_over_only_when_chosen(fake, pve_host, job, tmp_path, answer) -> None:
+    # The safety rule: a marked pool is never taken over unasked. Taken over, the token is made again, so that the
+    # other copy of its secret stops working, and fleet.json takes the mark's ID.
+    with_port(fake.port)
+    other = record.new_id()
+    before = _another_fleet_s(pve_host, other)
+    person = _Person({WHICH: answer, SET_UP: engine_init.YES} if answer is not None else {SET_UP: engine_init.YES})
+    _offered(fake, person, job, pve_host)
+    [which] = person.question(WHICH)
+    assert f"carries the mark of the fleet {other}" in which and "init does neither of these unasked" in which
+    assert f"the token {ENGINE_FULL} is made again" in which and "use another pool" in which
+    if answer != engine_init.TAKE:
+        assert person.question(SET_UP) == []
+        assert _ran(pve_host) == READS[:-1]
+        assert (pve_host.bin / "pve-state.json").read_bytes() == before
+        assert "Neither was chosen, so nothing was made on 127.0.0.1." in person.said()
+        assert len(person.question(SECRET_LABEL)) == 1
+        return
+    [question] = person.question(SET_UP)
+    assert "there, its secret made again: every other copy of it stops working" in question, question
+    assert _ran(pve_host) == [*READS[:-1], "/bin/sh -s -- --dry-run --regenerate", "/bin/sh -s -- --regenerate"]
+    state = _state_of(pve_host)
+    assert state["tokens"][ENGINE_FULL]["secret"] == fake.secret != OTHER
+    assert state["pools"][ENGINE_POOL]["comment"] == mark.Mark(other, mark.NONE).line
+    assert record.read(_home()).fleet == other
+    assert access.plan(access.objects(_engine_s(other)), _found(state), host_flag="").steps == ()
+    assert {entry: _revealed(value) for entry, value in _opened().items()} == {"token@pve": fake.secret}
+    assert person.question(SECRET_LABEL) == []
+    _nothing_of(fake.secret, tmp_path, person, pve_host)
+
+
+def test_another_pool_makes_a_fleet_of_this_computer_s_own_beside_the_other_with_its_own_token(
+    fake, pve_host, job
+) -> None:
+    # Two fleets never share a token (E1's point 1, ruled 2026-11-24): the second's is asked, and the user is shared.
+    with_port(fake.port)
+    other = record.new_id()
+    _another_fleet_s(pve_host, other)
+    person = _Person(
+        {
+            WHICH: engine_init.ANOTHER,
+            POOL_LABEL: "dev-vms",
+            TOKEN_LABEL: f"{ENGINE_USER}!second",
+            SET_UP: engine_init.YES,
+        }
+    )
+    _offered(fake, person, job, pve_host)
+    assert len(person.question(POOL_LABEL)) == 1 and len(person.question(TOKEN_LABEL)) == 1
+    pooled = shlex.join(pve_script.pool_read("dev-vms"))
+    assert _ran(pve_host) == [*READS[:-1], pooled, "/bin/sh -s -- --dry-run", "/bin/sh -s --"]
+    fleet = record.read(_home()).fleet
+    assert fleet != other
+    state = _state_of(pve_host)
+    assert state["pools"] == {
+        ENGINE_POOL: {"comment": mark.Mark(other, mark.NONE).line},
+        "dev-vms": {"comment": mark.Mark(fleet, mark.NONE).line},
+    }
+    # The other fleet's token is as it was; this fleet's is its own, marked as this fleet's.
+    assert state["tokens"][ENGINE_FULL] == {"privsep": 1, "secret": OTHER, "comment": mark.Mark(other, mark.NONE).line}
+    assert state["tokens"][f"{ENGINE_USER}!second"]["comment"] == mark.Mark(fleet, mark.NONE).line
+    fields = _reached().fields
+    assert (fields.token_user, fields.token_id) == (ENGINE_USER, "second")
+    assert overrides.read(_home(), "pve").host.settings["proxmox_pool"] == "dev-vms"
+
+
+def test_this_fleet_s_own_pool_with_its_token_there_and_no_secret_here_asks_before_the_token_is_made_again(
+    fake, pve_host, job
+) -> None:
+    # A second computer with the fleet's folder and not its vault: the token is this fleet's, and its secret is held
+    # nowhere here, so the take-over is asked, never done unasked.
+    with_port(fake.port)
+    fleet = record.new_id()
+    record.write(_home(), record.first(fleet))
+    before = _another_fleet_s(pve_host, fleet)
+    nothing = _Person({SET_UP: engine_init.YES})
+    _offered(fake, nothing, job, pve_host)
+    assert len(nothing.question(WHICH)) == 1 and nothing.question(SET_UP) == []
+    assert (pve_host.bin / "pve-state.json").read_bytes() == before
+    person = _Person({WHICH: engine_init.TAKE, SET_UP: engine_init.YES})
+    _offered(fake, person, job, pve_host)
+    [which] = person.question(WHICH)
+    assert f"carries the mark of the fleet {fleet}" in which
+    assert _ran(pve_host)[-3:] == [POOL_READ, "/bin/sh -s -- --dry-run --regenerate", "/bin/sh -s -- --regenerate"]
+    assert _state_of(pve_host)["tokens"][ENGINE_FULL]["secret"] == fake.secret
+    assert record.read(_home()).fleet == fleet
+
+
+def test_a_pool_whose_mark_names_a_control_vm_is_refused_and_nothing_asked(fake, pve_host, job) -> None:
+    # This fleet's mark, naming a control VM (D2): no question, the script's refusal said.
+    with_port(fake.port)
+    fleet = record.new_id()
+    record.write(_home(), record.first(fleet))
+    before = _another_fleet_s(pve_host, fleet, CONTROLLER)
+    person = _Person({WHICH: engine_init.TAKE, SET_UP: engine_init.YES})
+    _offered(fake, person, job, pve_host)
+    assert person.question(WHICH) == [] and person.question(SET_UP) == []
+    assert f"this fleet has a control VM ({CONTROLLER}): change it there, or retire it" in person.said()
+    assert (pve_host.bin / "pve-state.json").read_bytes() == before
 
 
 # ---------------------------------------------------------------- the rules held by scans ----

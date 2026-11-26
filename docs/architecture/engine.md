@@ -775,12 +775,18 @@ last, the one line on standard output, everything said to a person going to stan
 every sentence the script says of the list is this module's or `fleet/mark.py`'s, rendered: a value of another form than
 Proxmox makes an object by is refused before any `pveum` and never said back; a pool another fleet marked, one naming a
 control VM and one whose mark cannot be read are refused; a pool with no mark is refused naming `--take-unmarked`, and
-taken only given `--pool <name> --take-unmarked`, the mark added at its comment's end and the rest kept, while
+taken only given `--pool <name> --take-unmarked`, the mark added at its comment's end and the rest kept (a comment
+it would take past `COMMENT_MOST` characters refused by name, Proxmox declaring no length for one: card E8), while
 `--take-unmarked` without `--pool`, or for a marked pool, is refused; a token made without privilege separation is
-refused with its delete line; a role holding more than its own is said and granted, or withheld, as `plan` says; and a
+refused with its delete line, and one whose comment carries a mark that is not this fleet's (another fleet's, a control
+VM's, one that does not read) with `check`'s sentence naming `--token-id`, since two fleets share the user and never a
+token, whose comment carries the fleet's mark as the pool's does, a token whose comment carries none taken as it is; a role holding more than its own is said and granted, or withheld, as `plan` says; and a
 grant of the engine's roles these settings do not make is said with its `pveum acl delete` line and left. The script
 runs only as root, on Proxmox VE 9 or later, and refuses `root@pam` and any option it does not have, today's `--move`
-and `--template` among them. `--no-token` makes no token and changes nothing where the token is not there; a step that
+and `--template` among them. `--regenerate` (card E8's take-over) makes the token's secret again, `pveum user token
+modify <user> <id> --regenerate --output-format json`, whose `value` is printed as a new token's is, only of a token
+whose comment carries this fleet's mark, and makes the token where it is not there; with `--no-token` it is refused.
+`--no-token` makes no token and changes nothing where the token is not there; a step that
 fails after the token was made says that it is there with its secret unsaid, and the line that deletes it, after which a
 run again makes it anew. The dry run prints the commands, one an object, every token ID quoted, the token's own line
 asking for JSON, whose `value` is the secret; `--list` prints the node's storages and bridges.
@@ -800,8 +806,12 @@ removes what it names; and each refusal leaves the stand-in's state byte for byt
 value of the wrong form before any call of the stand-in's, `root@pam`, an option it does not have, a token without
 privilege separation (its init line naming a further host's `--host`), a pool of another fleet's, a pool with no mark
 without `--take-unmarked`, `--take-unmarked` without `--pool` or for a marked pool, and a template that is not the one
-guest of its name on the node or has a network card on a bridge not there. A corpus of comments holds the script's
-reading of the mark to `fleet/mark.py`'s, separators and spaces of every kind among them. The header's lines are the
+guest of its name on the node or has a network card on a bridge not there. Card E8's: a token another mark names is
+refused under every option and one with no mark taken, over the same corpus; `--regenerate` prints the one line and the
+new secret, makes a missing token, and refuses with `--no-token` and for a token no mark names; and two fleets on one
+host share the user, granted on both pools, each token's own entries on its own pool alone, the second fleet's default
+token ID refused naming `--token-id`, and a token without privilege separation refused. A corpus of comments holds the
+script's reading of the mark to `fleet/mark.py`'s, separators and spaces of every kind among them. The header's lines are the
 printer's, a further host's flag in them. The rule of V2-9 has a test of its own: no file of the checkout, tracked or
 untracked and not ignored, holds a rendering, found by its header. The stand-in reads no guest's configuration, so a
 `pvesh` of the test's own, first on `PATH`, answers that one read and hands every other to the stand-in.
@@ -919,9 +929,21 @@ command after its line, finished, or said it made it: its line is said before th
 that line had its add refused, and nothing is deleted. What it made of the engine's own names, the pool, the user,
 the token, the three roles and their grants for the engine's user or token, is recorded in `host.yml`'s `made` with
 this engine its maker, read from the commands the script said it ran (its `+` lines). No, Esc, Enter, root SSH that
-does not answer, a script that refuses, nothing missing, and a token there whose secret is held nowhere here (until
-the pool's mark settles whose it is) leave the host as it was, said, and the secret is then asked. With nobody there
-no offer is made. `aw init --print-commands` prints the same script on standard output, and on standard error how to
+does not answer, a script that refuses, nothing missing, and a token there whose secret is held nowhere here, in a
+pool nothing shows is this fleet's, leave the host as it was, said, and the secret is then asked. With nobody there
+no offer is made.
+
+**The pool's mark on the offer** (card E8). Before the dry run the pool is read as root reads it (`pvesh get /pools
+--poolid`, `pve/script.py`'s `pool_read`); it decides only what is asked, and the script decides again. A pool whose
+comment carries no mark is taken only where it is named (`--pool`, or the host's `proxmox_pool`), its comment and its
+members shown in the question and the script run on the `y` with `--pool <name> --take-unmarked`; else it is refused
+naming both ways, the by-hand road in that same form, as it is where a secret given reads it with nobody there. Where no
+token's secret is held or given and the comment carries a mark with no control VM, another fleet's, or this fleet's with
+its token there, `init` asks which of two things is meant and does neither unasked: taking the fleet over (where
+`fleet.json` names no fleet or the mark's) runs the script with the mark's ID and `--regenerate`, every other copy of the
+token's secret then failing, and `fleet.json` keeps the mark's ID; using another pool (where `settings.yml` names none)
+asks its name and, where no token was named, the token's full ID, and makes a fleet of this computer's own there. Enter
+or Esc does neither; a mark naming a control VM is the script's refusal, nothing asked. `aw init --print-commands` prints the same script on standard output, and on standard error how to
 run it as root, reading `host.yml`, the settings and `fleet.json` alone: no vault, run, lock, request or write.
 
 `tests/unit/test_aw_engine_init.py` holds `init` against the fake Proxmox, through `tools/aw` with a refusing `ssh`
@@ -1595,11 +1617,13 @@ itself on standard input, so each command it starts reads `/dev/null` or a pipe,
 VE host, never by grep or sed: a role's privileges it lacks and those it holds beyond its own; a pool's state by the
 fleet's mark, read as `fleet/mark.py` reads it, white space being what Python reads as such (Perl's, and the separators
 `\x1c` to `\x1f`); the comment taking an unmarked pool gives it; whether an ACL entry is there, propagating; a token's
-privilege separation; a person's template, the one guest of its name and a template on the node, and the bridges its
+privilege separation and the mark in its comment, read as a pool's is (card E8); a person's template, the one guest of its name and a template on the node, and the bridges its
 network cards are on; a new token's secret, held to the form of one; and a command's words, quoted as Python's
 `shlex.quote` quotes them, for each line the script prints. Its one cut of what the host holds, of the privileges a role
 holds beyond its own, makes each run of characters outside printable ASCII one space where `text.py`'s `one_line` keeps
-what it can print: Proxmox names a privilege in ASCII alone. It imports nothing of the project's.
+what it can print: Proxmox names a privilege in ASCII alone. `pool_read(pool)` is the one read `init`'s offer makes of the pool over root SSH before the
+script's dry run (card E8), `pvesh get /pools --poolid <pool>` as JSON, its comment and members read by
+`pve/answers.py`'s `pool`. It imports nothing of the project's.
 
 ## 16.6 `ssh/` — the runner over OpenSSH
 

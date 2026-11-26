@@ -213,7 +213,8 @@ def test_no_object_is_outside_the_pool_the_roles_the_user_the_token_the_grants_a
     # The pool's comment is the fleet's mark and nothing beside it, controller=none.
     assert pool.comment == f"agent-warehouse fleet={host.fleet} controller=none"
     assert mark.parse(pool.comment) == mark.Mark(host.fleet, mark.NONE)
-    assert (user.comment, token.comment) == ("agent-warehouse", "agent-warehouse")
+    # The user, which fleets share, is the engine's; the token, which they never share, carries the fleet's mark (E8).
+    assert (user.comment, token.comment) == ("agent-warehouse", pool.comment)
     assert {grant.subject for grant in _grants(listed)} == {user.id, token.id}
     assert {grant.role for grant in _grants(listed)} == set(_roles(listed))
     # Every role holds privileges of the one table alone: none of the list's own.

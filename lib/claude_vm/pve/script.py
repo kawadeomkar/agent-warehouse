@@ -8,8 +8,9 @@ JSON::PP, core Perl, which every Proxmox VE host has, Proxmox being Perl: never 
 (`PERL`) answers one question a call: a role's privileges it lacks, or holds beyond its own; the pool's state by the
 fleet's mark, read as fleet/mark.py reads it (white space as Python reads it, Perl's and the separators \\x1c to
 \\x1f); the comment taking an unmarked pool gives it; whether an ACL entry is there; a token's privilege
-separation; a person's own template by its name, and the bridges its network cards are on; a new token's secret; and
-a command's words, quoted as Python's shlex.quote quotes them, for the lines the script prints.
+separation and the mark in its comment, read as the pool's; a person's own template by its name, and the bridges its
+network cards are on; a new token's secret; and a command's words, quoted as Python's shlex.quote quotes them, for the
+lines the script prints.
 
 The calls of the list (engine/access.py's `objects`) are each one of `Pool`, `Role`, `User`, `Grant` and `Token`,
 defined here, run twice: first to read what is there and decide, each object's decision kept by its place in the list,
@@ -26,7 +27,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-__all__ = ["PERL", "render"]
+__all__ = ["PERL", "pool_read", "render"]
 
 # The one Perl program: `perl -e "$pl" -- <question> <words...>`, the JSON on standard input where the question reads
 # one. No single quote in it, since the script holds it in one: chr 39 is the quote.
@@ -67,6 +68,20 @@ sub quoted {
     return $word if $word =~ m{\A[A-Za-z0-9_\@%+=:,./-]+\z};
     $word =~ s/$q/$q"$q"$q/g;
     return $q . $word . $q;
+}
+# The state of a comment by the mark of a fleet, as the parse of fleet/mark.py reads it: unmarked, doubled, unreadable,
+# of another fleet (other <its fleet>), naming a control VM (controlled <its ID>), or of this fleet (own); then a word.
+sub marked {
+    my ($comment, $fleet) = @_;
+    my $begun = () = $comment =~ /agent-warehouse$space+(?:fleet|controller)=/gu;
+    return "unmarked -" if $begun == 0;
+    return "doubled -" if $begun > 1;
+    return "unreadable -"
+        unless $comment =~ /(?<!$nonspace)agent-warehouse fleet=($uuid) controller=(none|$uuid)(?!$nonspace)/u;
+    my ($found, $controller) = ($1, $2);
+    return "other $found" if $found ne $fleet;
+    return "controlled $controller" if $controller ne "none";
+    return "own -";
 }
 sub comment_of {
     my ($name) = @_;
@@ -114,25 +129,18 @@ if ($question eq "pool") {
     my ($name, $fleet) = @words;
     my $comment = comment_of($name);
     if (!defined $comment) { print "missing -\n"; exit 0; }
-    my $begun = () = $comment =~ /agent-warehouse$space+(?:fleet|controller)=/gu;
-    if ($begun == 0) { print "unmarked -\n"; exit 0; }
-    if ($begun > 1) { print "doubled -\n"; exit 0; }
-    if ($comment !~ /(?<!$nonspace)agent-warehouse fleet=($uuid) controller=(none|$uuid)(?!$nonspace)/u) {
-        print "unreadable -\n";
-        exit 0;
-    }
-    my ($found, $controller) = ($1, $2);
-    if ($found ne $fleet) { print "other $found\n"; exit 0; }
-    if ($controller ne "none") { print "controlled $controller\n"; exit 0; }
-    print "own -\n";
+    print marked($comment, $fleet), "\n";
     exit 0;
 }
 if ($question eq "taken") {
-    my ($name, $line) = @words;
+    my ($name, $line, $most) = @words;
     my $comment = comment_of($name);
     die "no such pool\n" unless defined $comment;
+    my $taken = ($comment eq "" || $comment =~ /$space\z/u) ? $comment . $line : "$comment $line";
+    # Longer than the script writes: said by the shell, by its status alone.
+    exit 3 if length($taken) > $most;
     as_text();
-    print(($comment eq "" || $comment =~ /$space\z/u) ? $comment . $line : "$comment $line");
+    print($taken);
     exit 0;
 }
 if ($question eq "acl") {
@@ -173,11 +181,14 @@ if ($question eq "grants") {
     }
     exit 0;
 }
-if ($question eq "privsep") {
+if ($question eq "token") {
+    my ($fleet) = @words;
     my $token = answer();
     die "not a token\n" unless ref $token eq "HASH";
     my $privsep = $token->{privsep};
-    print((defined $privsep && !ref $privsep && "$privsep" eq "1") ? "1\n" : "0\n");
+    my $comment = defined $token->{comment} && !ref $token->{comment} ? "$token->{comment}" : "";
+    my ($state) = split / /, marked($comment, $fleet);
+    print((defined $privsep && !ref $privsep && "$privsep" eq "1") ? "1" : "0", " $state\n");
     exit 0;
 }
 if ($question eq "template") {
@@ -238,7 +249,7 @@ plain() { perl -e "$pl" -- "$@" </dev/null; }
 put() { eval "$1=\$2"; }
 got() { eval "got=\${$1-}"; }
 
-mode=apply no_token=0 take=0 pool_given=0
+mode=apply no_token=0 take=0 pool_given=0 regenerate=0
 while [ $# -gt 0 ]; do
   case "$1" in
   --storage | --bridge | --user | --token | --pool | --audit-scope)
@@ -261,6 +272,10 @@ while [ $# -gt 0 ]; do
     no_token=1
     shift
     ;;
+  --regenerate)
+    regenerate=1
+    shift
+    ;;
   --dry-run)
     mode=dry-run
     shift
@@ -281,6 +296,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ "$take" = 0 ] || [ "$pool_given" = 1 ] || die "--take-unmarked takes the pool --pool names: give --pool <name> too"
+[ "$regenerate" = 0 ] || [ "$no_token" = 0 ] \
+  || die "--regenerate makes the token's secret again, and --no-token makes no token: give one of them"
 
 perl -MJSON::PP -e 1 </dev/null >/dev/null 2>&1 \
   || die "there is no Perl with JSON::PP here: run it on the Proxmox VE host, whose Perl has it"
@@ -413,7 +430,12 @@ Pool() { # Pool <name> <comment>
       refuse "To make pool $1 this fleet's, its comment kept and the fleet's mark added at its end, run this" \
         "again with --pool $1 --take-unmarked."
     fi
-    taken=$(printf '%s' "$pools" | answer taken "$1" "$mark_line") || die "Proxmox's pools could not be read"
+    taken=$(printf '%s' "$pools" | answer taken "$1" "$mark_line" "$comment_most") || {
+      [ "$?" = 3 ] || die "Proxmox's pools could not be read"
+      die "pool $1's comment, the fleet's mark added at its end, would be longer than $comment_most characters, the" \
+        "most this script writes in a pool's comment, since Proxmox declares no length for one: nothing was changed;" \
+        "shorten the comment and run this again"
+    }
     decide take
     ;;
   *)
@@ -515,12 +537,25 @@ Token() { # Token <user> <ID> <comment> <privilege separation: 1, or 0>
   n=$((n + 1))
   if [ "$phase" = make ]; then
     got "d_$n"
-    [ "$got" != add ] || make_token "$@"
+    case "$got" in
+    add) make_token "$@" ;;
+    regenerate) make_token "$@" again ;;
+    esac
     return 0
   fi
   if record=$(pvesh get "/access/users/$1/token/$2" --output-format json </dev/null 2>/dev/null); then
-    privsep=$(printf '%s' "$record" | answer privsep) || die "Proxmox's token could not be read"
-    [ "$privsep" = "$4" ] || refuse "$(sentence token-not-own)"
+    state=$(printf '%s' "$record" | answer token "$fleet") || die "Proxmox's token could not be read"
+    [ "${state%% *}" = "$4" ] || refuse "$(sentence token-not-own)"
+    # Its comment: this fleet's mark, or none (a token of the person's own, made by hand); any other is another's.
+    case "${state#* }" in own | unmarked) ;; *) refuse "$(sentence token-other)" ;; esac
+    if [ "$regenerate" = 1 ]; then
+      [ "${state#* }" = own ] \
+        || die "--regenerate makes again only a token whose comment carries this fleet's mark, and the token" \
+          "$(plain quote "$1!$2")'s carries none: nothing was changed"
+      token_to_make=1
+      decide regenerate
+      return 0
+    fi
     [ "$no_token" = 1 ] || token_there=1
     decide none
   elif [ "$no_token" = 1 ]; then
@@ -532,19 +567,26 @@ Token() { # Token <user> <ID> <comment> <privilege separation: 1, or 0>
     decide add
   fi
 }
-make_token() { # make_token <user> <ID> <comment> <privilege separation>
+# make_token <user> <ID> <comment> <privilege separation> [again]: the token made, or with again, its secret made again
+# (--regenerate), which every other copy of the secret then lacks. Either answers JSON whose value is the new secret.
+make_token() {
+  if [ "${5-}" = again ]; then
+    set -- pveum user token modify "$1" "$2" --regenerate --output-format json
+  else
+    set -- pveum user token add "$1" "$2" --privsep "$4" --comment "$3" --output-format json
+  fi
   if [ "$mode" = dry-run ]; then
-    run pveum user token add "$1" "$2" --privsep "$4" --comment "$3" --output-format json
+    run "$@"
     return 0
   fi
   steps=$((steps + 1))
-  line=$(plain quote pveum user token add "$1" "$2" --privsep "$4" --comment "$3" --output-format json)
+  line=$(plain quote "$@")
   say "+ $line"
-  made=$(pveum user token add "$1" "$2" --privsep "$4" --comment "$3" --output-format json </dev/null) || fail "$line"
-  made_user=$1 made_name=$2
+  made=$("$@" </dev/null) || fail "$line"
+  made_user=$5 made_name=$6
   secret=$(printf '%s' "$made" | answer secret) \
     || die "$line made the token and printed no secret: it is there with its secret unsaid. As root here," \
-      "$(plain quote pveum user token delete "$1" "$2") deletes it, and this run again then makes it anew."
+      "$(plain quote pveum user token delete "$5" "$6") deletes it, and this run again then makes it anew."
 }
 """
 
@@ -590,6 +632,13 @@ if [ -n "$secret" ]; then
   printf '%s\n' "$secret"
 fi
 """
+
+
+def pool_read(pool: str) -> list[str]:
+    """The one read init makes of the host over root SSH beside the script's own (card E8): pool's comment and members,
+    as JSON, which pvesh answers as the API answers `GET /pools?poolid=` (pve/answers.py's `pool` reads either). It
+    decides only which question init asks before its offer; the script decides again, and refuses on its own."""
+    return ["pvesh", "get", "/pools", "--poolid", pool, "--output-format", "json"]
 
 
 def render(head: str, values: Sequence[tuple[str, str]], functions: str) -> str:

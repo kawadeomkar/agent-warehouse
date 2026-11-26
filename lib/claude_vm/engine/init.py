@@ -53,8 +53,22 @@ not there as printed, or the script printed none, or failed after it made the to
 again, and init stops. What it made of the engine's own names (the pool, the user, the token, the roles and their
 grants) is recorded in host.yml's made, with this engine its maker, from the commands it said it ran (its `+` lines).
 No, Esc, Enter, root SSH that does not answer, a script that refuses, nothing missing, and a token there whose secret
-is held nowhere here (until card E8 it may be another fleet's) leave the host as it was, said, and the secret is then
-asked for. With nobody there no offer is made. `--print-commands` prints the same script on standard output, and on
+is held nowhere here, in a pool nothing shows is this fleet's, leave the host as it was, said, and the secret is then
+asked for. With nobody there no offer is made.
+
+**The pool's mark** (card E8). Before the dry run the pool is read over root SSH (pve/script.py's `pool_read`), which
+decides only what is asked; the script decides again. A pool whose comment carries no mark is taken only where it is
+named (`--pool`, or the host's `proxmox_pool`): the question then shows its comment and its members, and its y runs
+the script with `--pool <name> --take-unmarked`, the mark added at the comment's end and the rest kept. By default it is
+refused, naming both ways, the by-hand road in that same form (`_take_unmarked`), as is a pool with no mark that a
+secret given reads with nobody there. Where no token's secret is held or given and the pool's comment carries a mark
+with `controller=none`, another fleet's, or this fleet's with its token there, init asks which of two things is meant
+(WHICH) and does neither unasked: taking the fleet over (where fleet.json names no fleet or the mark's) renders the
+script with the mark's ID and runs it with `--regenerate`, so that the token is made again and every other copy of its
+secret stops working, and fleet.json keeps the mark's ID; using another pool (where settings.yml names none) takes its
+name and, where no token was named, the token's full ID, two fleets never sharing one, and starts a fleet of this
+computer's own there. A mark that names a control VM is refused by the script with fleet/mark.py's sentence, and
+neither is offered; Enter or Esc does neither. `--print-commands` prints the same script on standard output, and on
 standard error how to run it, reading the fleet's files alone, and writes nothing.
 
 **At a terminal** (standard input a terminal whose foreground the run is, as runs/ask.py's `terminal()` decides for each
@@ -679,9 +693,11 @@ def _connect(
     return Proxmox(url, kept.pinned, Token(token_id, secret), through)
 
 
-async def _mark(client: Proxmox, token_id: str, pool: str) -> mark.Mark:
+async def _mark(client: Proxmox, token_id: str, pool: str, address: str, host_flag: str) -> mark.Mark:
     """The mark in the pool's comment, read with the token given, through client: Refused where Proxmox does not take
-    the token for the pool, the pool is not there, or its comment carries no mark, or one that does not read."""
+    the token for the pool, the pool is not there, or its comment carries no mark, or one that does not read. A pool
+    with no mark is refused naming the two ways it is taken (card E8): named at a terminal, on a y, or by hand with the
+    script's --pool and --take-unmarked, on address, for the host host_flag names."""
     import asyncio
 
     from ..pve.answers import ProxmoxError
@@ -702,11 +718,7 @@ async def _mark(client: Proxmox, token_id: str, pool: str) -> mark.Mark:
     except mark.Refused as error:
         raise Refused(f"{str(error).removeprefix('error: ')}: nothing was written") from None
     if found_mark is None:
-        raise Refused(
-            f"the pool {pool} carries no fleet's mark in its comment, so it is not shown to be the pool the"
-            " administrator's commands made for this fleet: with nobody there no pool is taken over, and nothing was"
-            " written"
-        )
+        raise Refused(f"{_take_unmarked(pool, address, host_flag)}; nothing was written")
     return found_mark
 
 
@@ -878,6 +890,19 @@ class _Asking:
                 self._said_left(words, keeps)
         self._left(key, words, bool(answer or keeps))
         return answer
+
+    async def typed(self, words: _Words, held: Callable[[str], str], rule: str) -> str:
+        """A typed answer asked within another question's step (card E8's, in the offer's): held by held, which gives
+        its plain form or "", asked once more saying rule where it does not fit; "" where it was left or a second does
+        not fit. Nothing is left for the next run: the offer says what it did."""
+        for again in (False, True):
+            lines = words.text if not again else (f"That is not {rule}.", words.text[-1])
+            answer = str(await self.ask(_question(lines, words.label), "")).strip()
+            if not answer:
+                return ""
+            if kept := held(answer):
+                return kept
+        return ""
 
     async def hidden(self, key: str, words: _Words) -> Secret | None:
         """A hidden answer held to its kind, a Secret, None where it was left: never echoed, said or kept in clear."""
@@ -1058,6 +1083,12 @@ DRY_RUN_HEADS = ("The commands this would run", "the token's line prints JSON")
 NOTHING_TO_DO = "Nothing to do"
 # The script's own words that it made the token, in a run that then stopped (pve/script.py's make_token and fail).
 TOKEN_MADE = ("after the token was made", "made the token and printed no secret")
+# Card E8: the question asked of a pool another fleet's mark names, or of this fleet's pool whose token is there with
+# its secret held nowhere here, where no token's secret is held or given; its two answers.
+WHICH = "Take the fleet over, or use another pool?"
+TAKE, ANOTHER = "take", "another"
+# The most of an unmarked pool's members the question names.
+MEMBERS_SAID = 10
 # init's own line, as a sentence names it.
 NEXT = {"init": Line("init")}
 # What proxmox_audit_scope lets the token read, a line of the plan of its own (O15, item 2; the owner's answer of
@@ -1086,12 +1117,14 @@ class _NotOffered(Exception):
 class _Offered:
     """What the offer did after a y: what the script made, by ID, this engine its maker, of the engine's own names
     alone (_own_name); each command it ran, as it said it; the token's secret it printed, None where it made no token,
-    sealed in the vault before anything else ran; and what was written then."""
+    sealed in the vault before anything else ran; what was written then; and the fleet's ID the script was rendered
+    with, the pool's mark's where the fleet was taken over (card E8)."""
 
     made: tuple[hosts.Made, ...]
     ran: tuple[str, ...]
     secret: Secret | None
     wrote: tuple[str, ...]
+    fleet: str
 
 
 def _shell(
@@ -1153,7 +1186,8 @@ def _by_hand(address: str, host_flag: str) -> str:
 def _object_of(words: Sequence[str]) -> tuple[str, str, bool] | None:
     """The object one of the script's commands makes or changes, as host.yml's made names it: what it is, its ID, and
     whether the command makes it (True), or changes one that is there (False: a pool taken, the fleet's mark added to
-    its comment; a role given what it lacks). None for a command that is none of the list's."""
+    its comment; a role given what it lacks; the token's secret made again on a take-over, card E8). None for a command
+    that is none of the list's."""
     match list(words):
         case ["pveum", "pool", "add", name, *_]:
             return ("pool", name, True)
@@ -1167,6 +1201,8 @@ def _object_of(words: Sequence[str]) -> tuple[str, str, bool] | None:
             return ("user", name, True)
         case ["pveum", "user", "token", "add", user, name, *_]:
             return ("token", f"{user}!{name}", True)
+        case ["pveum", "user", "token", "modify", user, name, *_]:
+            return ("token", f"{user}!{name}", False)
         case ["pveum", "acl", "modify", path, "--users" | "--tokens", subject, "--roles", role]:
             return ("grant", access.Grant(path, role, subject).id, True)
     return None
@@ -1243,11 +1279,133 @@ def _plan(listed: Sequence[access.Object], commands: Sequence[Sequence[str]], sc
             changes[(what, name)] = "missing, made"
         elif what == "role":
             changes[(what, name)] = f"lacks {words[-1]}, given it"
+        elif what == "token":
+            changes[(what, name)] = "there, its secret made again: every other copy of it stops working"
         else:
             changes[(what, name)] = "unmarked, taken: the fleet's mark added to its comment"
     lines = [f"  {_described(obj)}: {changes.pop((obj.what, obj.id), 'there')}" for obj in listed]
     lines += [f"  the {what} {name}: {state}" for (what, name), state in changes.items()]
     return [*lines, f"  {SCOPE_SAID[scope]}"]
+
+
+def _token_line(words: Sequence[str], full_id: str) -> bool:
+    """Whether one of the script's commands makes the token, or makes its secret again (card E8)."""
+    named = _object_of(words)
+    return named is not None and named[:2] == ("token", full_id)
+
+
+def _take_unmarked(pool: str, address: str, host_flag: str) -> str:
+    """The two ways a pool whose comment carries no mark is taken (card E8; R2 C-1): named, at a terminal, on a y to the
+    question that shows its comment and its members; or by hand, the script run there with --pool and --take-unmarked,
+    which an administrator confirms by running."""
+    return said(
+        "the pool {pool} on {address} carries no fleet's mark in its comment, and init takes a pool nobody marked only"
+        " where it is named and a y says so: at a terminal, {named} shows its comment and its members and asks; or, to"
+        " set it up yourself, run {print_commands} | ssh root@{address} sh -s -- --pool {pool} --take-unmarked",
+        {
+            "pool": pool,
+            "address": address,
+            "named": Line("init", {"pool": pool}, host_flag=host_flag),
+            "print_commands": Line("init", {"print_commands": True, "pool": pool}, host_flag=host_flag),
+        },
+    )
+
+
+async def _pool_there(shell: Shell, pool: str) -> Any:
+    """The pool as root reads it over root SSH (pve/script.py's pool_read), its comment and its members, read as the
+    API's answer is (pve/answers.py's pool); None where it is not there or could not be read: the script then decides
+    on its own, as it does of every pool."""
+    from ..pve import answers as read
+    from ..pve import script
+
+    result = await shell(script.pool_read(pool), "", READ_SECONDS)
+    if not (isinstance(result, runner.Done) and result.status == 0):
+        return None
+    try:
+        return read.pool(json.loads("\n".join(result.lines)), pool)
+    except (ValueError, read.ProxmoxError):
+        return None
+
+
+def _unmarked_lines(there: Any, address: str) -> list[str]:
+    """What the offer's question shows of a pool whose comment carries no mark, which a y takes: its comment and its
+    members, each plain."""
+    members = [one_line(" ".join(part for part in (each.id, each.name) if part), 80) for each in there.members]
+    more = len(members) - MEMBERS_SAID
+    listed = ", ".join(members[:MEMBERS_SAID]) + (f", and {more} more" if more > 0 else "")
+    return [
+        f"The pool {there.poolid} is on {address} already, and its comment carries no fleet's mark: a y makes it this"
+        " fleet's, its comment kept and the fleet's mark added at its end.",
+        f"  its comment: {one_line(there.comment, access.SAID_MOST) or '(none)'}",
+        f"  its members: {listed or '(none)'}",
+    ]
+
+
+async def _which(
+    asking: _Asking, *, pool: str, address: str, found: mark.Mark, full_id: str, take: bool, another: bool, refused: str
+) -> str:
+    """Card E8: which of two things is meant, of a pool another fleet's mark names (or this fleet's, its token there
+    with its secret held nowhere here), where no token's secret is held or given: TAKE, the fleet taken over, its ID the
+    mark's and its token made again (--regenerate), so that every other copy of its secret stops working; ANOTHER, a
+    fleet of this computer's own in another pool; "" for neither, at Enter or Esc. take: where fleet.json names no
+    fleet or the mark's; another: where the host's settings.yml names no pool. Neither of them: _NotOffered with
+    refused, mark.may_change's sentence."""
+    from claude_vm.runs.ask import Choice
+
+    if not (take or another):
+        raise _NotOffered(f"{refused.removeprefix('error: ')}; nothing was made on {address}")
+    taking = (
+        f"  take the fleet over: this computer drives the fleet {found.fleet}, and the token {full_id} is made again,"
+        " its secret new, so that every other copy of it stops working;"
+    )
+    other = "  use another pool: a fleet of this computer's own, in a pool you name, beside that one."
+    lines = [
+        f"The pool {pool} on {address} carries the mark of the fleet {found.fleet}, and no secret of a token of it is"
+        " held here. init does neither of these unasked:",
+        *([taking] if take else []),
+        *([other] if another else []),
+        "Enter, or Esc, does neither, and nothing on the host changes.",
+    ]
+    choices = [
+        *([Choice(TAKE, "take the fleet over")] if take else []),
+        *([Choice(ANOTHER, "use another pool")] if another else []),
+    ]
+    return str(await asking.ask(_question(lines, WHICH, colon=False), "", choices))
+
+
+async def _another(asking: _Asking, pool: str, full_id: str, token_named: bool) -> tuple[str, str]:
+    """Card E8's second answer: the pool for a fleet of this computer's own, a name Proxmox makes a pool by and not
+    pool, and, where no token was named (given, or host.yml's other than the engine's own), the token's full ID, Enter
+    keeping full_id: two fleets never share a token, and the other pool's fleet has its own. _NotOffered where no pool
+    was named."""
+    rule = access.POOL_RULE
+    name = await asking.typed(
+        _Words(
+            "Pool",
+            (
+                f"The pool for this fleet's VMs, beside {pool}: one that is not there is made, and one whose comment",
+                f"carries no mark is shown and taken on a y. {rule[:1].upper()}{rule[1:]}. Enter leaves it.",
+            ),
+        ),
+        lambda typed: typed if _pool_name(typed) and typed != pool else "",
+        f"a pool's name other than {pool}",
+    )
+    if not name:
+        raise _NotOffered("no other pool was named, so init makes nothing there")
+    if token_named:
+        return name, full_id
+    token = await asking.typed(
+        _Words(
+            "API token ID",
+            (
+                "The API token this fleet uses there, as user@realm!name: two fleets never share a token, and the",
+                f"fleet of {pool} has its own. Enter keeps {full_id}.",
+            ),
+        ),
+        lambda typed: answers.init_answer(typed, "token_id"),
+        _rule("token_id"),
+    )
+    return name, token or full_id
 
 
 async def _node(shell: Shell, address: str, host_flag: str) -> str:
@@ -1390,14 +1548,19 @@ async def _offer(
     written, or no secret was printed, the token the run made (its add said, then a later command, the run's end or
     the script's words that it made it) is deleted again (_rescue), and init stops. The given
     values with what the offer settled: the storage and the bridge asked, and after a y the node, the storage and the
-    bridge the access was set up on, and the secret; and what the offer did, None where it ran nothing. Root SSH that
-    does not answer, a script that refuses, nothing missing, a token there whose secret is held nowhere here (until
-    card E8 marks a token as its fleet's, it may be another fleet's), no, Esc and Enter: each leaves the host as it
-    was, said, and the secret is then asked for."""
+    bridge the access was set up on, and the secret, and the pool and the token another pool was named with (card E8);
+    and what the offer did, None where it ran nothing. Before the dry run the pool is read as root sees it, and a pool
+    nobody marked, or a fleet's pool with no token's secret held or given, is asked about as the module's docstring
+    says (card E8). Root SSH that does not answer, a script that refuses, nothing missing, a token there whose secret
+    is held nowhere here in a pool nothing shows is this fleet's, no, Esc and Enter: each leaves the host as it was,
+    said, and the secret is then asked for."""
     address = typed.address
     own = {} if found.layers.host is None else found.layers.host.settings
     full_id = f"{token_user}!{token_id}"
     no_token = ["--no-token"] if typed.secret is not None or held is not None else []
+    # Whether the token was named, given or by host.yml, which the offer never changes: else a fleet of its own in
+    # another pool asks for one (card E8), the engine's own ID there being likely the other fleet's.
+    token_named = bool(typed.token_user or typed.token_id) or full_id != OWN_TOKEN
     host_flag = typed.host
     asking.step("access")
     try:
@@ -1448,28 +1611,78 @@ async def _offer(
                     typed = dataclasses.replace(typed, storage=picked)
                 else:
                     typed = dataclasses.replace(typed, bridge=picked)
-        host, script = render(chosen["storage"], chosen["bridge"])
-        dry = await shell([*SH, "--dry-run", *no_token], script, READ_SECONDS)
-        if isinstance(dry, runner.Done) and dry.status != 0:
-            # The script refused, in its own words: a pool of another fleet's, a token made without privilege
-            # separation, a storage the node does not have, the token not there under --no-token.
-            raise _NotOffered(
-                f"the access script refused on {address}, and nothing was changed: {' '.join(_said_lines(dry))}"
-            )
-        if not isinstance(dry, runner.Done):
-            raise _NotOffered(_unanswered(address, dry, host_flag))
-        try:
-            commands = [shlex.split(each) for each in dry.lines]
-        except ValueError:
-            raise _NotOffered(_unanswered(address, dry, host_flag)) from None
-        sayings = [each for each in _said_lines(dry) if not each.startswith(DRY_RUN_HEADS)]
-        if not no_token and not any(_object_of(each) == ("token", full_id, True) for each in commands):
+        # Card E8: the pool as root reads it decides which question is asked; the script decides again. pending: the
+        # dry run found this fleet's own token there, its secret held nowhere here.
+        again: list[str] = []
+        pending = False
+        while True:
+            full_id = f"{token_user}!{token_id}"
+            extra: list[str] = []
+            shown: list[str] = []
+            pooled = await _pool_there(shell, pool)
+            try:
+                found_mark = None if pooled is None else mark.parse(pooled.comment)
+            except mark.Refused:
+                # One that does not read: the script refuses it, in fleet/mark.py's words.
+                pooled = found_mark = None
+            own_mark = found_mark == mark.Mark(fleet_id, mark.NONE)
+            unheld = not no_token and found_mark is not None and found_mark.controller == mark.NONE
+            if pooled is not None and found_mark is None:
+                # A pool nobody marked: taken only where it is named, on a y to the question that shows it.
+                if not (typed.pool or own.get("proxmox_pool")):
+                    sentence = _take_unmarked(pool, address, host_flag)
+                    raise _NotOffered(f"{sentence[:1].upper()}{sentence[1:]}. Nothing was made on {address}.")
+                extra = ["--pool", pool, "--take-unmarked"]
+                shown = _unmarked_lines(pooled, address)
+            elif unheld and not again and (pending or not own_mark):
+                # A fleet's pool, and no token's secret held or given: which of two things is meant, neither unasked.
+                assert found_mark is not None
+                answer = await _which(
+                    asking,
+                    pool=pool,
+                    address=address,
+                    found=found_mark,
+                    full_id=full_id,
+                    take=found.fleet is None or found.fleet.fleet == found_mark.fleet,
+                    another=not own.get("proxmox_pool"),
+                    refused=str(mark.may_change(found_mark, found.fleet or record.first(fleet_id))),
+                )
+                if answer == ANOTHER:
+                    pool, full_id = await _another(asking, pool, full_id, token_named)
+                    token_user, _, token_id = full_id.partition("!")
+                    typed = dataclasses.replace(typed, pool=pool, token_user=token_user, token_id=token_id)
+                    pending = False
+                    continue
+                if answer != TAKE:
+                    raise _NotOffered(f"Neither was chosen, so nothing was made on {address}.")
+                fleet_id, again = found_mark.fleet, ["--regenerate"]
+            host, script = render(chosen["storage"], chosen["bridge"])
+            dry = await shell([*SH, "--dry-run", *extra, *again, *no_token], script, READ_SECONDS)
+            if isinstance(dry, runner.Done) and dry.status != 0:
+                # The script refused, in its own words: a pool of another fleet's, a token made without privilege
+                # separation or another fleet's, a storage the node does not have, the token not there under
+                # --no-token.
+                raise _NotOffered(
+                    f"the access script refused on {address}, and nothing was changed: {' '.join(_said_lines(dry))}"
+                )
+            if not isinstance(dry, runner.Done):
+                raise _NotOffered(_unanswered(address, dry, host_flag))
+            try:
+                commands = [shlex.split(each) for each in dry.lines]
+            except ValueError:
+                raise _NotOffered(_unanswered(address, dry, host_flag)) from None
+            sayings = [each for each in _said_lines(dry) if not each.startswith(DRY_RUN_HEADS)]
+            if no_token or any(_token_line(each, full_id) for each in commands):
+                break
+            if unheld and own_mark and not again and not pending:
+                pending = True
+                continue
             raise _NotOffered(
                 "\n".join(
                     [
                         f"The token {full_id} is on {address} already, and its secret is held nowhere here: init makes"
-                        " nothing there while it is, since it may be another fleet's. Type its secret at the next"
-                        " question, or delete it as the script says, and run init again:",
+                        " nothing there while it is, since nothing shows it is this fleet's. Type its secret at the"
+                        " next question, or delete it as the script says, and run init again:",
                         *(f"  {each}" for each in sayings),
                     ]
                 )
@@ -1491,6 +1704,7 @@ async def _offer(
             "{init} can set up the API access the engine uses on {address}, as root over SSH.",
             {"init": _init(), "address": address},
         ),
+        *shown,
         "What it uses there, each object with its privileges, and what is there already:",
         *_plan(access.objects(host), commands, host.audit_scope),
         "It would run there, adding only what is missing:",
@@ -1529,7 +1743,7 @@ async def _offer(
         f" held nowhere. As root there, {delete} deletes it."
     )
     async with asking.running.shield(f"setting up the API access on {address}"), _said_if_ended(asking, ended, held):
-        result = await shell([*SH, *no_token], script, RUN_SECONDS)
+        result = await shell([*SH, *extra, *again, *no_token], script, RUN_SECONDS)
         ran = [each[2:] for each in _said_lines(result) if each.startswith("+ ")]
         words = []
         for each in ran:
@@ -1545,7 +1759,8 @@ async def _offer(
         # so one the run made is its own, its secret held nowhere unless the vault takes it. The line is said before
         # the add runs: made where a later command was said after it, the run finished, or the script says it made
         # it; last in a run that ended by itself, none of that said, Proxmox refused the add, and nothing is its own.
-        said_at = [number for number, each in enumerate(words) if _object_of(each) == ("token", full_id, True)]
+        # Card E8: the take-over's line, which makes the token's secret again, is read as the add is.
+        said_at = [number for number, each in enumerate(words) if _token_line(each, full_id)]
         token_said = bool(said_at)
         told = "\n".join(_said_lines(result))
         later = token_said and said_at[-1] < len(words) - 1
@@ -1607,7 +1822,7 @@ async def _offer(
     typed = dataclasses.replace(typed, node=node, storage=chosen["storage"], bridge=chosen["bridge"])
     if secret is not None:
         typed = dataclasses.replace(typed, secret=secret, secret_from="the token's secret the access script printed")
-    return typed, _Offered(made, tuple(ran), secret, tuple(wrote))
+    return typed, _Offered(made, tuple(ran), secret, tuple(wrote), fleet_id)
 
 
 async def unattended(
@@ -1825,6 +2040,11 @@ async def _the_host(
                 pool=pool,
                 fleet_id=fleet_id,
             )
+            # Card E8: another pool named, with its token, or the fleet taken over, its ID the pool's mark's.
+            token_user, token_id = typed.token_user or token_user, typed.token_id or token_id
+            pool = typed.pool or pool
+            if offered is not None:
+                fleet_id = offered.fleet
         # The token's secret: given, held in the vault, printed by the offer's script, or asked, hidden.
         if typed.secret is None and held is None:
             typed_secret = await asking.hidden("secret", SECRET)
@@ -1845,7 +2065,7 @@ async def _the_host(
         client = _connect(url, kept, full_id, secret, found.values["network_proxy"].value, environ)
     try:
         if typed.secret is not None and client is not None and not printed:
-            found_mark = await _mark(client, full_id, pool)
+            found_mark = await _mark(client, full_id, pool, address, typed.host)
             rule = mark.may_change(found_mark, found.fleet or record.first(found_mark.fleet))
             if rule is not None:
                 raise Refused(f"{rule.removeprefix('error: ')}; nothing was written")
