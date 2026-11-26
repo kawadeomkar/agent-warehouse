@@ -735,8 +735,9 @@ def test_a_half_typed_answer_reaches_neither_the_shells_line_nor_its_history_at_
     assert ends == [("cancelled", 130, "Ctrl-C"), ("cancelled", quit, "SIGQUIT"), ("succeeded", 0, "done")], ends
 
 
-# How each run a shell stops at a question is then ended from the shell, by the run's folder: SIGTERM, then SIGHUP.
-KILLS = {"term": b"kill", "hup": b"kill -HUP"}
+# How each run a shell stops at a question is then ended from the shell, by the run's folder: SIGTERM, then SIGHUP,
+# then SIGTERM once the shell has gone on with it in the background (bg), where it stops at the question again.
+KILLS = {"term": b"kill", "hup": b"kill -HUP", "bg": b"kill"}
 
 
 @pytest.mark.parametrize("hidden", [True, False], ids=["a hidden answer", "a line"])
@@ -746,8 +747,11 @@ def test_a_question_stopped_and_then_killed_from_the_shell_ends_at_once_and_free
     # From an interactive shell, a run asks the question, a Ctrl-Z stops it, and the shell kills it (`kill %1`, then
     # `kill -HUP %1` for a second run): bash sends the signal and then SIGCONT, which in the question's hold would set
     # its mode again from the background and stop the run there (SIGTTOU) for good, its machine's lock held (review
-    # 68's F1). Each run is gone within five seconds, dead of the signal (the shell's Terminated and Hangup, the
-    # records' 143 and 129), and a third run of the same machine asks and ends as it should: the lock is free.
+    # 68's F1). A third run is stopped, gone on with in the background (`bg`), where it stops at the question again,
+    # and then killed: stopped inside the change of the settings, the kernel would make the change again at the
+    # SIGCONT and stop it again, never back in Python where the kill ends it (review 68's F8). Each run is gone
+    # within five seconds, dead of the signal (the shell's Terminated and Hangup, the records' 143 and 129), and a
+    # last run of the same machine asks and ends as it should: the lock is free.
     asked = b"Tailscale auth key: " if hidden else b"Proxmox host address: "
     way = "hidden" if hidden else "line"
     jobs_dir = paths.jobs_dir(paths.home(REPO))
@@ -773,8 +777,16 @@ def test_a_question_stopped_and_then_killed_from_the_shell_ends_at_once_and_free
 
     prompt = harness.SHELL_PROMPT
     steps = [(prompt, b"ulimit -c 0\n")]
+    # Up to five seconds for the run gone on with in the background to be stopped again, then whether it is.
+    held = (
+        b'for i in $(seq 100); do ps -o stat= -p "$(cat bg/pid)" | grep -q T && break; sleep 0.05; done; '
+        b'if ps -o stat= -p "$(cat bg/pid)" | grep -q T; then echo "held=$((1))"; else echo "held=$((0))"; fi\n'
+    )
     for folder in KILLS:
-        steps += [(prompt, run(folder)), (asked, [HALF["stop"], b"\x1a"]), (b"Stopped", []), (prompt, killed(folder))]
+        steps += [(prompt, run(folder)), (asked, [HALF["stop"], b"\x1a"]), (b"Stopped", [])]
+        if folder == "bg":
+            steps += [(prompt, b"bg\n"), (prompt, held)]
+        steps += [(prompt, killed(folder))]
     steps += [
         (prompt, run("after")),
         (asked, AFRESH + b"\n"),
@@ -784,15 +796,16 @@ def test_a_question_stopped_and_then_killed_from_the_shell_ends_at_once_and_free
     output, history = harness._in_a_shell(tmp_path, env, steps)
     harness._fail_if_the_desktop_was_reached(stand_ins(home))
     said = output.decode(errors="replace")
-    assert b"stuck=1" not in output and output.count(b"gone=1") == 2, said
-    assert b"Terminated" in output and b"Hangup" in output, said
+    assert b"stuck=1" not in output and output.count(b"gone=1") == 3 and b"held=1" in output, said
+    assert output.count(b"Terminated") == 2 and b"Hangup" in output, said
     assert b"command not found" not in output and HALF["stop"] not in history, said
     statuses = [(name.decode(), int(number)) for name, number in STATUSES.findall(output)]
     term, hup = 128 + signal.SIGTERM, 128 + signal.SIGHUP
     assert statuses == [("ended", 0)], said
     records = [job.read() for job in jobs.listed(jobs_dir)]
     ends = sorted((record["outcome"], record["exit"], record["why"]) for record in records)
-    assert ends == [("cancelled", hup, "SIGHUP"), ("cancelled", term, "SIGTERM"), ("succeeded", 0, "done")], ends
+    ended_by = [("cancelled", hup, "SIGHUP"), ("cancelled", term, "SIGTERM"), ("cancelled", term, "SIGTERM")]
+    assert ends == [*ended_by, ("succeeded", 0, "done")], ends
 
 
 # What a person types unseen under the region while the run's last words are said, before a Ctrl-Z.
