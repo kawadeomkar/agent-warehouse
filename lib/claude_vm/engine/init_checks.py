@@ -33,10 +33,12 @@ at import; asyncio inside the coroutines.
 from __future__ import annotations
 
 import dataclasses
+import json
 import re
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
+from ..checks import proxmox_name, proxmox_names, proxmox_names_refused
 from ..fleet import hosts, mark, opened, overrides, paths
 from ..hosts import model
 from ..pve import privileges
@@ -150,6 +152,18 @@ class _Said:
 
     def emit(self, _kind: str, _machine: str | None, _text: str = "", **_data: object) -> None:
         return None
+
+
+def _name(value: object, kind: str) -> str:
+    """value as a line says it: as it is where it is a name Proxmox gives a kind (checks.proxmox_name, the rule E5
+    holds the names the host reports to), else as JSON, so that whatever it holds is shown and never acted on."""
+    text = str(value)
+    return text if proxmox_name(text, kind) else json.dumps(text)
+
+
+def _listed(values: Sequence[str], kind: str, empty: str = "none listed") -> str:
+    """The names Proxmox listed, each as _name says it."""
+    return ", ".join(_name(each, kind) for each in values) or empty
 
 
 def _error(error: BaseException) -> str:
@@ -270,7 +284,7 @@ async def _api(at: _Run) -> bool:
             ),
         )
         return False
-    except (ProxmoxError, TransportError) as error:
+    except (ProxmoxError, TransportError, ValueError) as error:
         at.say(PROBLEM, f"nothing that reads as Proxmox answered at https://{where} ({_error(error)})")
         return False
     at.say(OK, f"Proxmox VE {one_line(version.version, 40)} at {where} accepted {at.token}")
@@ -293,7 +307,7 @@ async def _pool(at: _Run) -> None:
             at.fix("{init} at a terminal, with root SSH to the host, grants it there (answer y)"),
         )
         return
-    except (ProxmoxError, TransportError) as error:
+    except (ProxmoxError, TransportError, ValueError) as error:
         at.say(
             PROBLEM,
             f"the pool {pool} could not be read ({_error(error)})",
@@ -326,19 +340,26 @@ async def _node(at: _Run) -> str:
 
     try:
         listed = await at.call(at.client.resources, "node")
-    except (ProxmoxError, TransportError) as error:
+    except (ProxmoxError, TransportError, ValueError) as error:
         at.say(PROBLEM, f"Proxmox would not list its nodes ({_error(error)})")
         return ""
-    every = [each.node for each in listed if each.node]
-    online = [each.node for each in listed if each.node and each.status == ONLINE]
-    names = ", ".join(every) or "none"
+    # Each name the cluster lists held to Proxmox's own format before it is settled, written, put in a path or said
+    # as it is: one outside it is said as JSON alone, and never offered or written.
+    reported = [each.node for each in listed if each.node]
+    every = proxmox_names(reported, "node")
+    online = proxmox_names([each.node for each in listed if each.node and each.status == ONLINE], "node")
+    names = _listed(reported, "node", "none")
+    refused = proxmox_names_refused(reported, "node")
+    if refused:
+        listing = ", ".join(refused)
+        at.say(NOTE, f"the cluster lists {listing}, no name Proxmox gives a node: it is never offered or written")
     set_now = at.own.get("proxmox_node")
     if set_now not in (None, ""):
         node = str(set_now)
         if node not in every:
             at.say(
                 PROBLEM,
-                f"the cluster has no node {node} ({names})",
+                f"the cluster has no node {_name(node, 'node')} ({names})",
                 f"set proxmox_node in {at.settings_file} to the node that holds the template",
             )
             return ""
@@ -352,16 +373,23 @@ async def _node(at: _Run) -> str:
     else:
         address = at.host.fields.address
         result = await at.root_ssh(NODE_COMMAND)
-        reported = result.lines[0].strip() if isinstance(result, runner.Done) and result.status == 0 else ""
-        if reported not in online:
-            seen = f"root SSH to {address} says it is {one_line(reported, 60)}" if reported else _why(result)
+        done = isinstance(result, runner.Done) and result.status == 0
+        # One line, one name: held to the online nodes, which are held to Proxmox's format, as E5 holds it.
+        named = result.lines[0].strip() if done and len(result.lines) == 1 else ""
+        if named not in online:
+            if named:
+                seen = f"root SSH to {address} says it is {_name(one_line(named, 60), 'node')}"
+            elif done:
+                seen = f"root SSH to {address} gave no one line for {' '.join(NODE_COMMAND)}"
+            else:
+                seen = _why(result)
             at.say(
                 PROBLEM,
                 f"which node {address} is cannot be told ({seen}), and the cluster has {names} online",
                 f"set proxmox_node in {at.settings_file}",
             )
             return ""
-        node, why = reported, f"root SSH to {address} says it is that node"
+        node, why = named, f"root SSH to {address} says it is that node"
     if at.settle("proxmox_node", node):
         at.say(OK, f"node {node}: written into {at.settings_file} as proxmox_node, since {why}")
     elif not at.write:
@@ -406,16 +434,27 @@ async def _template(at: _Run) -> tuple[judging.Compared | None, tuple[str, ...]]
         found = await at.call(lambda: template.compare(at.client, at.settings, pool=at.host.pool, host_flag=at.flag))
         there = _there(found) and not found.refused
         bridges = await at.call(_bridges, at.client, found, at.host.nic) if there else planned
-    except (ProxmoxError, TransportError) as error:
+    except (ProxmoxError, TransportError, ValueError) as error:
         at.say(PROBLEM, f"the base template could not be read ({_error(error)})")
         return None, planned
+    if there:
+        # The bridges its cards name, held to Proxmox's format before any is written, put in a path or said as it is.
+        refused = proxmox_names_refused(bridges, "bridge")
+        bridges = tuple(proxmox_names(bridges, "bridge"))
+        if refused:
+            at.say(
+                PROBLEM,
+                f"the template's network cards name {', '.join(refused)}, no name Proxmox gives a bridge, so it is"
+                " never written nor checked",
+                "set each card's bridge in Proxmox to one the node lists",
+            )
     if found.refused:
         at.say(PROBLEM, found.said())
     elif found.usable:
         at.say(OK, f"{found.said()} So deploy needs no root SSH for it")
     else:
         at.say(OK, f"{found.said()} So deploy builds it, over root SSH")
-    return found, bridges or planned
+    return found, bridges
 
 
 async def _root_ssh(at: _Run, found: judging.Compared | None) -> None:
@@ -457,8 +496,9 @@ async def _privileges(at: _Run, node: str, bridges: Sequence[str]) -> None:
         needed = privileges.needed(kind)
         try:
             held = await at.call(_held, at.client, path)
-        except (ProxmoxError, TransportError) as error:
-            at.say(PROBLEM, f"Proxmox would not say what the token may do on {path} ({_error(error)})")
+        except (ProxmoxError, TransportError, ValueError) as error:
+            shown = json.dumps(path) if isinstance(error, ValueError) else path
+            at.say(PROBLEM, f"Proxmox would not say what the token may do on {shown} ({_error(error)})")
             continue
         missing = sorted(needed - held)
         if not missing:
@@ -497,7 +537,7 @@ async def _every_guest(at: _Run, found: judging.Compared | None) -> None:
     scope = str(at.settings["proxmox_audit_scope"])
     try:
         held = await at.call(_held, at.client, judging.GUESTS)
-    except (ProxmoxError, TransportError) as error:
+    except (ProxmoxError, TransportError, ValueError) as error:
         at.say(PROBLEM, f"Proxmox would not say what the token may do on {judging.GUESTS} ({_error(error)})")
         return
     beyond = sorted(held - {judging.AUDIT})
@@ -525,7 +565,7 @@ async def _every_guest(at: _Run, found: judging.Compared | None) -> None:
     path = f"{judging.GUESTS}/{found.template_id}"
     try:
         lacking = sorted({judging.AUDIT, access.CLONE} - await at.call(_held, at.client, path))
-    except (ProxmoxError, TransportError) as error:
+    except (ProxmoxError, TransportError, ValueError) as error:
         at.say(PROBLEM, f"Proxmox would not say what the token may do on {path} ({_error(error)})")
         return
     if lacking:
@@ -565,17 +605,18 @@ async def _storage(at: _Run, node: str) -> None:
 
     storage = str(at.settings["proxmox_storage"])
     if not node:
-        at.say(UNCHECKED, f"the storage {storage} is not checked: the node is not known")
+        at.say(UNCHECKED, f"the storage {_name(storage, 'storage')} is not checked: the node is not known")
         return
     try:
-        listed = [each.storage for each in await at.call(at.client.storages, node)]
-    except (ProxmoxError, TransportError) as error:
+        reported = [each.storage for each in await at.call(at.client.storages, node)]
+    except (ProxmoxError, TransportError, ValueError) as error:
         at.say(PROBLEM, f"Proxmox would not list the storages on {node} ({_error(error)})")
         return
+    listed = proxmox_names(reported, "storage")
     if storage not in listed:
         at.say(
             PROBLEM,
-            f"storage {storage}: the token cannot see it on {node} ({', '.join(listed) or 'none listed'})",
+            f"storage {_name(storage, 'storage')}: the token cannot see it on {node} ({_listed(reported, 'storage')})",
             f"set proxmox_storage in {at.settings_file} to one it can use",
         )
         return
@@ -590,23 +631,25 @@ async def _bridge(at: _Run, node: str, found: judging.Compared | None, bridges: 
     from ..vendors.transport import TransportError
 
     if _there(found) and found is not None and not found.refused:
-        written = at.settle("proxmox_bridge", bridges[0])
+        # bridges holds the names of Proxmox's format alone: where the cards name none, nothing is settled.
+        written = bool(bridges) and at.settle("proxmox_bridge", bridges[0])
         if written:
             at.say(OK, f"bridge {bridges[0]}, the template's: written into {at.settings_file}")
         return
     bridge = str(at.settings["proxmox_bridge"])
     if not node:
-        at.say(UNCHECKED, f"the bridge {bridge} is not checked: the node is not known")
+        at.say(UNCHECKED, f"the bridge {_name(bridge, 'bridge')} is not checked: the node is not known")
         return
     try:
-        listed = [each.iface for each in await at.call(at.client.bridges, node)]
-    except (ProxmoxError, TransportError) as error:
+        reported = [each.iface for each in await at.call(at.client.bridges, node)]
+    except (ProxmoxError, TransportError, ValueError) as error:
         at.say(PROBLEM, f"Proxmox would not list the bridges on {node} ({_error(error)})")
         return
+    listed = proxmox_names(reported, "bridge")
     if bridge not in listed:
         at.say(
             PROBLEM,
-            f"bridge {bridge}: the token cannot see it on {node} ({', '.join(listed) or 'none listed'})",
+            f"bridge {_name(bridge, 'bridge')}: the token cannot see it on {node} ({_listed(reported, 'bridge')})",
             f"set proxmox_bridge in {at.settings_file} to one it can use, before the template is built",
         )
         return
