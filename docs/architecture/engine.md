@@ -290,7 +290,8 @@ that a value, an option or a closing mark follows. Its one exception is `cli/dis
 constant (`program`, `_program`, `PROGRAM`), by any name a module binds to the printer or imports from it; only the
 printer and the check name a sentence's field `program`; the check's `command`, the program and a verb, is used only by
 the modules that refuse (the check, the printer, `cli/parse.py` and `cli/dispatch.py`) and by help, for its usage
-lines and the program its closing paragraph names, each named with why, by any name a module binds to the check, its
+lines and the program its closing paragraph names, each named with why (`COMMAND_USERS`), by any name a module binds
+to the check, its
 package or the function; every use of `line` or `argv`, through any name or a `functools.partial`, says `refused`;
 and a printer's line is never extended: a call of `line` or `argv`, of `said` whose sentence is one field (`"{line}"`)
 or ends, but for spaces, in a field a `Line` fills (`"run {line}"`: one of `LINES`', or one given at the call in a
@@ -1875,7 +1876,8 @@ runner's carries `ControlMaster=no`, the host's among them.
 - **A person's own options.** `vm_ssh_options` is a mapping of `ssh`'s option names to values, given as `-o Name=value`
   after the product's options: `ssh` keeps the first value it is given, so a person's option changes whatever the
   product leaves, a `ProxyJump` or a `ProxyCommand` among them, and never a value it pins. What the product writes
-  itself is refused by name - `HostKeyAlias`, `UserKnownHostsFile`, `CheckHostIP`, `UpdateHostKeys`, `BatchMode`,
+  itself is refused by name (`REFUSED_OPTIONS`) - `HostKeyAlias`, `UserKnownHostsFile`, `CheckHostIP`,
+  `UpdateHostKeys`, `BatchMode`,
   `ControlPath`, `ControlMaster`, `ForwardAgent` (`claude_ssh_forward_agent`'s), `IdentityFile`
   (`claude_ssh_identity_file`'s), and `HostName`, `User` and `Port`, where and as whom it connects - and
   `StrictHostKeyChecking` may be given only as `yes`; with them `IdentityFile2`, `ssh`'s old name for
@@ -3300,12 +3302,13 @@ fleet's folders but `paths.py`.
 
 **Tests never reach the developer's.** An autouse fixture in `tests/unit/conftest.py`, `aw_home`, sets
 `AGENT_WAREHOUSE_HOME` to a folder in each test's own directory, a directory of the session's own stands in before it
-for a module's run, and `harness.PASSED_ON` passes it to every run. The session reads the names `paths` owns in the
+for a module's run, and `harness.PASSED_ON` passes it to every run. It is never session-scoped: a session-scoped
+autouse fixture would join every test into one xdist group. The session reads the names `paths` owns in the
 developer's fleet folders before the first test and after the last, from their metadata alone, and fails if one was
 made, changed or removed. Those folders (`developers_folders`) are the installed program's three, the checkout's own
 `.aw/` and, where the suite runs from a worktree, the main worktree's (git's common directory), and the
 `AGENT_WAREHOUSE_HOME` the developer exported, read before the session replaces it. In a checkout's `.aw/` only
-`client.yml`, `fleet/` and the key are watched, never `state/`: the developer's own `aw` run from that checkout writes
+`client.yml`, `fleet/` and the key are watched (`CHECKOUT`), never `state/`: the developer's own `aw` run from that checkout writes
 its jobs there while a suite runs, and state can be made again. No file there is opened, so no `fleet_home` is
 followed. `tests/unit/test_aw_fleet_paths.py` holds the homes, the pointer, the key's place, the names,
 the scans for who names the folders and the key, and the guard, a child `pytest` among its tests.
