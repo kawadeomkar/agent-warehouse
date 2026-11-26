@@ -218,6 +218,12 @@ warning: a success, as Proxmox counts it, its change made, its exit status "WARN
 "WARN: <warning>", then "TASK WARNINGS: <n>", as Proxmox's worker logs them (TASK_WARNINGS). A UPID the fake never made
 is answered as stopped and OK, with an empty log, as before.
 
+PUT /api2/json/fake/hold?suffix=&methods=&param= has the next request of methods (PUT by default) to a path ending with
+suffix, and carrying param where one is given, done as any other is and its answer held back: the fake writes
+<state_dir>/held once the request is done, and answers it when a test makes <state_dir>/release (HOLD_MOST seconds at
+most), removing both. The fake answers one request at a time, so nothing else is answered meanwhile: a call whose
+answer is outstanding, as a slow host's is, during which a test can stop the run that sent it.
+
 A HEAD is answered 501, as pveproxy answers it, token or not. PUT /api2/json/fake/tokenless?answer=none has every
 request with no token go unanswered from then on, the connection closed with nothing said: something answering in the
 host's place, which can tell the probes just init sends with no token from the request that carries one. PUT
@@ -482,6 +488,12 @@ LISTING_LAG = {"listings": 0}
 # Requests to fail, once each and in the order given: the next write, or request of methods (GET,PUT), to a path ending
 # with suffix. PUT /api2/json/fake/refuse?suffix=&methods=
 REFUSE_NEXT = []
+# Requests whose answers are held back, once each and in the order given (see the docstring): the next request of
+# methods to a path ending with suffix, carrying param where one is given.
+# PUT /api2/json/fake/hold?suffix=&methods=&param=
+HOLD_NEXT = []
+# The most seconds an answer is held for, released or not.
+HOLD_MOST = 60.0
 # VMs another run deletes once this one has listed them: gone from the next listing on, so that a delete finds nothing.
 # PUT /api2/json/fake/vanish?vmid=
 VANISH = {}
@@ -1026,7 +1038,22 @@ class Handler(BaseHTTPRequestHandler):
         self.form.update({k: v[0] for k, v in parse_qs(query, keep_blank_values=True).items()})
         return params
 
+    def _held(self):
+        """Where this request's answer is to be held (HOLD_NEXT): said done in <state_dir>/held, then held until
+        <state_dir>/release is made, HOLD_MOST seconds at most; both removed."""
+        if not self.holding:
+            return
+        self.holding = False
+        held, release = STATE_DIR / "held", STATE_DIR / "release"
+        held.write_text(self.routed)
+        end = time.monotonic() + HOLD_MOST
+        while not release.exists() and time.monotonic() < end:
+            time.sleep(0.02)
+        release.unlink(missing_ok=True)
+        held.unlink(missing_ok=True)
+
     def _reply_empty(self, status, reason):
+        self._held()
         self.send_response(status, reason)
         self.send_header("Content-Length", "0")
         self.end_headers()
@@ -1038,6 +1065,7 @@ class Handler(BaseHTTPRequestHandler):
         # so the fake has to say what Proxmox says. A parameter it refuses is
         # named in the answer's errors, with why.
         payload = json.dumps({"data": data, **({"errors": errors} if errors else {})}).encode()
+        self._held()
         self.send_response(status, reason)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
@@ -1366,6 +1394,8 @@ class Handler(BaseHTTPRequestHandler):
         return self._reply(200, answer)
 
     def _handle(self, method):
+        # A handler answers every request of its connection: a hold is one request's (HOLD_NEXT).
+        self.holding = False
         path = urlparse(self.path).path
         params = self._params()
         token = TOKEN_RE.match(self.headers.get("Authorization", ""))
@@ -1480,6 +1510,16 @@ class Handler(BaseHTTPRequestHandler):
             # Not a PVE endpoint: a fixture's one write that fails.
             REFUSE_NEXT.append((params["suffix"], params.get("methods", "PUT,POST,DELETE").split(",")))
             return self._reply(200, len(REFUSE_NEXT))
+        if parts[:2] == ["fake", "hold"] and method == "PUT":
+            # Not a PVE endpoint: a fixture's one request whose answer is held back.
+            methods = params.get("methods", "PUT").split(",")
+            HOLD_NEXT.append((params["suffix"], methods, params.get("param", "")))
+            return self._reply(200, len(HOLD_NEXT))
+        if HOLD_NEXT and parts[:1] != ["fake"] and method in HOLD_NEXT[0][1]:
+            suffix, _, param = HOLD_NEXT[0]
+            if "/".join(parts).endswith(suffix) and (not param or param in params):
+                HOLD_NEXT.pop(0)
+                self.holding = True
         if parts[:2] == ["fake", "vanish"] and method == "PUT":
             # Not a PVE endpoint: another run deleted this VM just after it was read.
             VANISH[int(params["vmid"])] = False

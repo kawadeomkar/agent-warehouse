@@ -132,7 +132,9 @@ sets `PATH`, `HOME`, `BROWSER`, `AGENT_WAREHOUSE_HOME` or an `XDG_` variable, wh
 of the test's own, a stand-in `ssh` say, goes first on `PATH` by `first_on_path=(dir, ...)`, a folder of the test's own
 directory, ahead of the stand-ins, which stay. An `aw` command a test file names, in a NEXT STEPS line say, is held to
 the one table of verbs and options by `test_commands.py`, so a made-up option fails the suite. `aw_at_a_terminal` runs
-it at a pseudo-terminal of its own; `run_launcher` runs the launcher at the checkout's top, `aw`, by its path in the
+it at a pseudo-terminal of its own, and with `layer1=Layer1(play, connections)` with its system play swapped for a play
+of the test's own and each machine reached over F3's test-only local connection, patched in by the kit's own start
+(`SWAPPED`) before the program runs as itself, so that a Ctrl-C reaches layer 1's child through the run's own ladder; `run_launcher` runs the launcher at the checkout's top, `aw`, by its path in the
 same environment: this checkout's with the suite's own Python as `PYTHON` and never asked to install, or a copy of it in
 a checkout the test made; `imports_of` lists the modules a run loaded (`-X importtime`), or with `module=` what
 importing that one module of the checkout's `lib/` loaded, and `searched_for` is the canary search for a canned secret
@@ -1113,6 +1115,12 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
   success, as Proxmox counts it, its change made: its exit status `WARNINGS: <n>`, its log each as `WARN:` and then
   `TASK WARNINGS: <n>` (`TASK_WARNINGS_STATUS`, `TASK_WARN`, `TASK_WARNINGS`, from Proxmox's source, for experiment 6 to
   confirm). Today's own tests of the fake and the scenarios that run it hold it for today's product.
+- A call whose answer is outstanding, as a slow host's is: `PUT /api2/json/fake/hold?suffix=&methods=&param=` has the
+  next request of those methods (`PUT` by default) to a path ending with `suffix`, carrying `param` where one is given,
+  done as any other and its answer held back: the fake writes `held` in its state directory once the request is done,
+  and answers when the test makes `release` there (60 s at most), removing both. Since the fake answers one request at
+  a time, nothing else is answered meanwhile; a run stopped while the answer is held is what
+  `tests/unit/test_aw_create.py` shows with it.
 - What `just status` reads is shaped by that version, as Proxmox VE's own: from 9 the listing carries
   `memhost` and `rrddata` the `pressure*` fields, and a day is 1440 points; on 8 it is 70. A clone's config
   carries the template's meta `ctime`, as a real one does; its disk's `ctime` in the storage's content is when it
