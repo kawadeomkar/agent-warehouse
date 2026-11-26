@@ -1163,12 +1163,14 @@ line that answers it, exit 1. In the run, the live view made first:
 
 - **The read.** The host is opened by `fleet.open_for_run` (the vault opened once, each `--set` value held to its
   secrets: deploy's way too), and the VMs read by `fleet.requested`'s deletion read: changing, so a name two members
-  carry, a name no member carries (naming the pool: a VM outside it is out of the token's reach) and a VM the fleet
-  does not own are refused; `whole`, refused while any member of the pool cannot be read, since one unread may carry a
-  target's UUID; and `addresses=False`, no guest agent asked. `destroy_allow_unrecorded` is `unrecorded`, which lifts
-  pve/ownership.py's one refusal of a member with no record, said for each such VM before the question, and no other:
-  never a template, a VM whose record names another UUID or is of another kind, one with no SMBIOS UUID, which its
-  deletion is held to, or twins. Only `engine/destroy.py` asks for it in `lib/`.
+  carry, a name no member carries (naming the pool: a VM outside it is out of the token's reach) and a VM the fleet does
+  not own are refused; `whole`, refused while any member of the pool cannot be read, since one unread may carry a
+  target's UUID (a member that the pool, listed once more, no longer names is gone, not unread: a sibling's deletion
+  that ended between the listing and its configuration's read); and `addresses=False`, no guest agent asked.
+  `destroy_allow_unrecorded` is `unrecorded`, which lifts pve/ownership.py's one refusal of a member with no record,
+  said for each such VM before the question, and no other: never a template, a VM whose record names another UUID or is
+  of another kind, one with no SMBIOS UUID, which its deletion is held to, or twins. Only `engine/destroy.py` asks for
+  it in `lib/`.
 - **The question**, today's: a `CONFIRM DELETION` block naming the VMs by the names Proxmox gives them, each made one
   line, their disks and, where the fleet has more than one host, the host; then `Type yes to continue:`, whose safe
   answer is "" (no). `yes`, or today's `true`, in any case, takes it; under `destroy_confirm: names` the VMs' names are
