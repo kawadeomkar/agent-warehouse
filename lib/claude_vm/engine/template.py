@@ -50,6 +50,21 @@ settings would build it. The customised copy is removed whatever happens. What t
 in host.yml's `made` through fleet/hosts.py's one writer as it is made: each image file it downloaded, the template by
 its ID, and each package of the image tool this run installed (none that was there before), so that a cleanup removes
 exactly that.
+
+`ensure(ctx, host, settings, terminal=)` is the first link of `deploy`, and the whole of `deploy --only template` (card
+E13), as the run's `template` stage: `compare` first. A template a VM may be cloned from as it is (`usable`: the same,
+a difference `proxmox_template_rebuild: false` keeps, a person's own lacking nothing) is said and left, never built;
+this engine's, where its configuration has no cloud-init drive, which the judgement does not read (`cloud_init`), is
+refused rather than called the same. A refused template, a cut build's VM at the ID among them, and a person's own that
+cannot be cloned or read, are refused with the judgement's sentence, never built over or retried. Otherwise (missing,
+unseen, or a difference to rebuild) a standing way to build is asked for: root SSH that answers in batch mode, one
+connection that runs nothing but `true` (every ssh the runner starts carries BatchMode=yes). Where it answers, `build`
+runs, at a terminal or with nobody there; where it does not, nothing is created: at a terminal, the sentence says what
+would give one; with no terminal, `Compared.unbuilt`'s, with what the template has and what is wanted, why this run
+cannot build it, and the `deploy --only template` line to run at a terminal. Every refusal of ensure's own is also the
+run's NEXT STEPS line (matter `template`), and no run clones from a template that is to be built and was not: ensure
+returns only a usable template, or raises. Refused before anything is built; Failed where the build began and did not
+end well.
 """
 
 from __future__ import annotations
@@ -69,7 +84,7 @@ from ..pve import answers, commands
 from ..pve import record as block
 from ..pve import template as judging
 from ..pve.answers import Resource, VmConfig
-from ..pve.client import Proxmox
+from ..pve.client import Proxmox, ProxmoxError
 from ..pve.template import (
     BUILD,
     CUSTOM,
@@ -81,13 +96,17 @@ from ..pve.template import (
     SAME,
     UNSEEN,
     Compared,
+    cloud_init,
     option,
     wanted,
 )
 from ..runs import lock_sets, locks
+from ..runs.stages import DEPLOY, Declared
+from ..schema import printer
 from ..ssh import runner
 from ..text import one_line
 from ..vendors import downloads, proxy, trust
+from ..vendors.transport import TransportError
 from . import record, routes
 
 if TYPE_CHECKING:
@@ -97,6 +116,7 @@ if TYPE_CHECKING:
 __all__ = [
     "BUILD",
     "CUSTOM",
+    "DECLARED",
     "DIFFERENT",
     "IMAGE_DIR",
     "MISSING",
@@ -106,9 +126,12 @@ __all__ = [
     "SAME",
     "UNSEEN",
     "Compared",
+    "Failed",
     "Refused",
     "build",
+    "cloud_init",
     "compare",
+    "ensure",
     "wanted",
 ]
 
@@ -215,6 +238,10 @@ SAID_MOST = 300
 class Refused(Exception):
     """The base template not built, said in a sentence a person reads: what stopped the build, and that nothing past
     it was done."""
+
+
+class Failed(Refused):
+    """The build ensure began did not end well (build's Refused): what it made is in host.yml's made."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -669,3 +696,89 @@ async def build(
             )
         ctx.emit("report", None, f'The base template "{base.name}" ({base.template_id}) was built.')
         return built
+
+
+# ------------------------------------------------------------------------------------------- ensure ----
+
+# The template's stage of deploy, as runs/stages.py's DEPLOY declares it: the host's work, no machine's.
+STAGE = "template"
+DECLARED = Declared("deploy", tuple(stage for stage in DEPLOY.stages if stage.key == STAGE))
+# Root SSH asked whether it answers in batch mode: one connection that runs nothing but `true`, which says nothing.
+STANDING = runner.Limits(seconds=30.0, silent=None)
+
+
+def _no_way(found: Compared, host: Host, why: str) -> str:
+    """What a run at a terminal says where root SSH gives it no standing way to build (why): what would give one."""
+    line = printer.said("{line}", {"line": found.line})
+    account = one_line(host.fields.ssh_user, SAID_MOST)
+    return (
+        f"{found.said()} It is not built: root SSH to {host.name} as {account} does not answer with nobody asked "
+        f"({why}), and the build runs over it. Give that account this computer's public key on the host "
+        "(ssh-copy-id), load the key into ssh-agent where it has a passphrase, or name it in ssh_identity_file; then "
+        f"run {line} again."
+    )
+
+
+def _drive(host: Host, found: Compared) -> bool:
+    """Whether the template found has a cloud-init drive, its configuration read once through the API."""
+    assert found.template_id is not None
+    return cloud_init(host.client.config(found.node, found.template_id, host.nic))
+
+
+async def _standing(ctx: Context, host: Host, target: runner.Target | None) -> tuple[runner.Target | None, str]:
+    """Root SSH to host as a standing way to build: its Target, and "" where one connection that runs nothing answers
+    in batch mode; else why not, in plain words."""
+    try:
+        at = target if target is not None else _target(host)
+        answered = await _Host(ctx, at, host.environ)(["true"], STANDING)
+    except Refused as error:
+        return None, one_line(str(error), SAID_MOST).removesuffix(".")
+    return at, "" if _ok(answered) else _why(answered)
+
+
+async def _ensured(
+    ctx: Context, host: Host, settings: Mapping[str, object], terminal: bool, target: runner.Target | None
+) -> Compared:
+    import asyncio
+
+    try:
+        found = await asyncio.to_thread(compare, host.client, settings, pool=host.pool, host_flag=host.host_flag)
+        drive = found.custom or not found.usable or await asyncio.to_thread(_drive, host, found)
+    except (ProxmoxError, TransportError) as error:
+        raise Refused(f"The base template on {host.name} could not be read: {one_line(str(error), None)}") from None
+    if not drive:
+        raise Refused(found.without_drive(str(option(settings, "proxmox_template_storage"))))
+    if found.usable:
+        ctx.emit("report", None, found.said())
+        return found
+    if found.refused or found.custom:
+        raise Refused(found.said())
+    at, why = await _standing(ctx, host, target)
+    if why and not terminal:
+        raise Refused(found.unbuilt(host.name, why))
+    if why or at is None:
+        raise Refused(_no_way(found, host, why))
+    try:
+        return await build(ctx, host, settings, target=at)
+    except Refused as error:
+        raise Failed(str(error)) from None
+
+
+async def ensure(
+    ctx: Context, host: Host, settings: Mapping[str, object], *, terminal: bool, target: runner.Target | None = None
+) -> Compared:
+    """The base template on host made what a VM may be cloned from, as the run's template stage (see the module's
+    docstring): the run's settings against host, every row's value, as compare takes them; terminal, whether a person
+    is there to read what would give a standing way to build (runs/ask.py's terminal, decided before the run draws);
+    target the host's root SSH, routes.py's unless given. Returns the template as it is now: usable. Refused, with the
+    sentence, which is also the run's NEXT STEPS line, before anything is built; Failed where the build began."""
+    ctx.emit("stage", None, STAGE)
+    try:
+        found = await _ensured(ctx, host, settings, terminal, target)
+    except Refused as error:
+        if not isinstance(error, Failed):
+            ctx.emit("next", None, str(error), matter=STAGE)
+        ctx.emit("stage", None, STAGE, outcome="failed", why=str(error))
+        raise
+    ctx.emit("stage", None, STAGE, outcome="done")
+    return found
