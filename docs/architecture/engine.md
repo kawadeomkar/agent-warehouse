@@ -908,10 +908,15 @@ values and the fleet's ID (`fleet.json`'s where there is one) is run there as ro
 where the node lists it, else a question); then its `--dry-run`, with `--no-token` where the vault holds the token's
 secret or one is given. Where something is missing, the plan (each object of the list with its privileges, and whether
 it is there), the dry run's commands and what the script said are shown with today's question, "Set it up now? y or n",
-no first, and the script runs on a `y` alone. Its standard output, the token's secret, is held to a UUID and sealed in
-the vault before anything else runs, then read back; where it is not there as printed, where the script printed none,
-or where it failed after it made the token, the token the run made is deleted again and `init` stops, and where the
-connection is lost after the token, the delete line is said. What it made of the engine's own names, the pool, the user,
+no first, and the script runs on a `y` alone. On the `y`, `fleet.json` is written first where there is none, with the
+ID the script marks the pool with, so that a run cut after it finds the same ID; the script, the vault's write, `made`'s
+record and any deletion then run as one shielded phase (a Ctrl-C lets it finish), and where the run is ended inside it
+anyway the token's delete line is said. Its standard output, the token's secret, is held to a UUID and sealed in the
+vault before anything else runs, then read back; where it is not there as printed, where the script printed none, or
+where it failed after it made the token, the token the run made is deleted again and `init` stops, and where the
+connection is lost after the token, the delete line is said. The token is the run's own only where the script said a
+command after its line, finished, or said it made it: its line is said before the add, so a run that ended by itself on
+that line had its add refused, and nothing is deleted. What it made of the engine's own names, the pool, the user,
 the token, the three roles and their grants for the engine's user or token, is recorded in `host.yml`'s `made` with
 this engine its maker, read from the commands the script said it ran (its `+` lines). No, Esc, Enter, root SSH that
 does not answer, a script that refuses, nothing missing, and a token there whose secret is held nowhere here (until
