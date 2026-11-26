@@ -2497,6 +2497,44 @@ def test_a_token_a_take_over_adds_is_deleted_where_the_vault_cannot_be_written(
     _nothing_of(fake.secret, tmp_path, person, pve_host, sentence)
 
 
+@pytest.mark.parametrize("race", ["deleted after a modify", "made after an add"])
+def test_the_rescue_reads_the_run_s_own_token_line_where_the_host_changed_while_the_question_waited(
+    fake, pve_host, job, monkeypatch, race
+) -> None:
+    # Review 76b, 1b (its probes Q1 and Q2): the script decides again at the y. A token deleted after a dry run that
+    # made its secret again is added by the run, the run's own, and deleted; one made with the fleet's mark after a dry
+    # run that added it has its secret made again by the run, was there before, and is never deleted.
+    with_port(fake.port)
+    other = record.new_id()
+    _another_fleet_s(pve_host, other)
+    if race == "made after an add":
+        _state_of(pve_host, tokens={})
+    line = mark.Mark(other, mark.NONE).line
+
+    def y(_text: str) -> str:
+        there = {ENGINE_FULL: {"privsep": 1, "secret": OTHER, "comment": line}}
+        _state_of(pve_host, tokens={} if race == "deleted after a modify" else there)
+        return engine_init.YES
+
+    monkeypatch.setattr(sealed, "put", _vault_refuses)
+    person = _Person({WHICH: engine_init.TAKE, SET_UP: y})
+    with pytest.raises(engine_init.Refused) as stopped:
+        _offered(fake, person, job, pve_host)
+    sentence = stopped.value.sentence
+    [question] = person.question(SET_UP)
+    deleted = f"pveum user token delete {ENGINE_USER} {ENGINE_TOKEN}"
+    if race == "deleted after a modify":
+        assert f"pveum user token modify {ENGINE_USER} {ENGINE_TOKEN} --regenerate" in question, question
+        assert f"the token {ENGINE_FULL} this run made was deleted on 127.0.0.1 again" in sentence, sentence
+        assert _state_of(pve_host)["tokens"] == {} and _ran(pve_host)[-1] == deleted
+    else:
+        assert f"pveum user token add {ENGINE_USER} {ENGINE_TOKEN}" in question, question
+        assert f"the token {ENGINE_FULL} was there before this run, which made its secret again" in sentence, sentence
+        assert _state_of(pve_host)["tokens"][ENGINE_FULL]["secret"] == fake.secret
+        assert not any("token delete" in each for each in _pve_cli_writes(pve_host.bin))
+    assert ("token", ENGINE_FULL) not in {(each.what, each.id) for each in _reached().fields.made}
+
+
 @pytest.mark.parametrize("pool_set", [False, True], ids=["no pool set", "proxmox_pool set"])
 def test_a_take_over_is_never_offered_where_fleet_json_names_another_fleet(fake, pve_host, job, pool_set) -> None:
     # Review 76, 2 (its probe P2): fleet.json names fleet B and the pool carries fleet A's mark: no take-over, which
