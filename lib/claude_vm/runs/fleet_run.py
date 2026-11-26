@@ -8,9 +8,9 @@ machines begin in the order given, one as soon as another ends. A machine's fail
 caught and recorded, and ends no other machine; a body that raises `asyncio.CancelledError` by itself (a section's wait
 the run's stop ended) is that machine cancelled. Once the run is cancelled (`context.cancelled`, a person's Ctrl-C or
 `cancel`), no machine begins: each left is recorded cancelled, not begun, and those under way end by their own steps.
-Where `each` itself is cancelled (the stop's grace ended) or the runner's own record fails, every machine still under
-way is cancelled and waited for before it returns or raises (a `TaskGroup`), so that nothing of the run, a question
-among it, is left running past the loop's end.
+Where `each` itself is cancelled (the stop's grace ended) or the runner's own record fails, no machine begins after it,
+every machine still under way is cancelled and waited for before it returns or raises (a `TaskGroup`), so that nothing
+of the run, a question among it, is left running past the loop's end.
 
 Each machine's end is one `end` event, emitted here, with its outcome, its why and the stage its own last `stage`
 event named (a stand-in's moved to its identity by the join): what the job's record keeps in `machine_outcomes`, the
@@ -126,6 +126,8 @@ async def each(
     heard = _heard(context.job)
     gate = asyncio.Semaphore(most)
     ended: dict[str, Ended] = {}
+    # Set once the runner's own record fails: from then on no machine begins, as after a cancel.
+    halted: list[BaseException] = []
 
     def end(machine: str, outcome: str, why: str) -> None:
         key = heard.key(machine)
@@ -133,13 +135,17 @@ async def each(
         extra: dict[str, object] = {"outcome": outcome, "stage": stage}
         if jobs.is_stand_in(key):
             extra["name"] = named[key]
-        context.emit("end", key, why, **extra)
+        try:
+            context.emit("end", key, why, **extra)
+        except BaseException as refused:
+            halted.append(refused)
+            raise
         ended[machine] = Ended(outcome, stage, why)
 
     async def one(machine: str) -> None:
         try:
             async with gate:
-                if context.cancelled.is_set():
+                if context.cancelled.is_set() or halted:
                     end(machine, "cancelled", NOT_BEGUN)
                     return
                 try:
