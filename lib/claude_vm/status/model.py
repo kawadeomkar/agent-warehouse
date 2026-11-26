@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import functools
 import re
+import shlex
 import time
 from datetime import UTC, datetime
 
@@ -68,6 +69,21 @@ CONFIG_KEYS = (
 
 
 # ------------------------------------------------------------------------------------------------- cleaning ----
+
+
+# The VM's name in a line the settings give printed whole (aw status's, cli/status_inputs.py's): each VM's put in its
+# place, as status/settings.py's PLACEHOLDER is.
+LINE_NAME = "status_placeholder.vm"
+
+
+def printed_line(settings, key, today, name=""):
+    """The line key names: the one the settings give under "lines", printed whole with its host's flag by aw's printer
+    (cli/status_inputs.py's LINES), the VM called name put in for LINE_NAME; else today, today's line, as just status
+    says it. A name a shell would read otherwise is quoted."""
+    printed = (settings.get("lines") or {}).get(key)
+    if printed is None:
+        return today
+    return printed.replace(LINE_NAME, shlex.quote(str(name))) if name else printed
 
 
 def _host_flag(settings):
@@ -337,6 +353,7 @@ def status_fleet(
             [e for e in listing if isinstance(e, dict) and e.get("type", "qemu") in ("qemu", "lxc")],
             settings.get("api_user") or "",
             _host_flag(settings),
+            printed_line(settings, "init", ""),
         ),
         "template": template
         if template
@@ -364,7 +381,7 @@ def status_fleet(
     }
 
 
-def status_capacity(nodes, entries, user="", host_flag=""):
+def status_capacity(nodes, entries, user="", host_flag="", init=""):
     """Each node's CPU threads and memory beside what the guests on it hold - every VM and container, this project's and
     others' - for
     the size of the next one: how much memory is in use now and free, and how much the running VMs could take of it
@@ -372,7 +389,7 @@ def status_capacity(nodes, entries, user="", host_flag=""):
     with Sys.Audit; without it Proxmox lists the node alone, ``read`` is false, and ``grant`` says how to give it to
     ``user``, the API token's: the lines the report prints, and an agent reads in the JSON - just init's run, ending
     with ``host_flag``, on a host of one node, and the commands in a cluster, where that run grants it on
-    one node only."""
+    one node only. init is that run's line where the caller printed it (aw status's), else today's."""
     named = sorted((n for n in nodes or [] if isinstance(n, dict) and n.get("node")), key=lambda n: n["node"])
     shown = []
     for node in named:
@@ -405,7 +422,7 @@ def status_capacity(nodes, entries, user="", host_flag=""):
                 **held,
                 "grant": []
                 if read or node.get("status", "") not in ("online", "")
-                else grant(node["node"], user, host_flag, cluster=len(named) > 1),
+                else grant(node["node"], user, host_flag, cluster=len(named) > 1, init=init),
             }
         )
     return shown
@@ -632,6 +649,10 @@ def _drift_item(vm, drift, settings):
     text = ". ".join(parts)
     command = f"just ANSIBLE_ARGS='-e proxmox_vm_force_update=true' deploy {name} --only provision{on}"
     note = f"(this also resets {name}'s tags, and starts it if it is stopped"
+    if "repair" in (settings.get("lines") or {}):
+        # The repair one run's --set gives (card G3's), which keeps the VM's tags as they are.
+        command = printed_line(settings, "repair", command, name)
+        note = "(this also starts it if it is stopped"
     if cloud_init:
         note += "; its next boot then runs as a new cloud-init instance, which regenerates its SSH host keys"
     return _item("todo", name, text, f"{command} {note})")
@@ -666,7 +687,8 @@ def _vm_items(vm, settings, live):
     if skipped == "nameless":
         return items
     if vm.get("unfinished"):
-        add("todo", "its first deploy did not finish", f"just deploy {name}{on}")
+        deploy = printed_line(settings, "deploy", f"just deploy {name}{on}", name)
+        add("todo", "its first deploy did not finish", deploy)
 
     api = vm.get("api")
     # A VM of the inventory's, with discovery off, is never asked of Proxmox.
@@ -705,7 +727,7 @@ def _vm_items(vm, settings, live):
             )
     aliases = settings.get("aliases_enabled")
     if aliases and vm.get("address") and vm.get("alias") is False and status == "running":
-        add("todo", "it has no SSH alias", f"just deploy --only ssh-config{on}")
+        add("todo", "it has no SSH alias", printed_line(settings, "ssh_config", f"just deploy --only ssh-config{on}"))
     return items
 
 
@@ -795,6 +817,7 @@ def _ssh_refusal(vm, ssh, settings):
     user = settings.get("vm_user") or "dev"
     on = _host_flag(settings)
     said = ssh.get("unreachable") or ""
+    configure = printed_line(settings, "configure", f"just deploy {name} --only configure{on}", name)
     kind = ssh.get("refusal") or status_refusal(said)
     alias = vm.get("key_alias") or ""
     held = f"{alias} in {settings.get('known_hosts') or 'the project known_hosts file'}" if alias else address
@@ -807,15 +830,15 @@ def _ssh_refusal(vm, ssh, settings):
             f"not read: the SSH host key at {address} is not the one this machine holds for {name}. {name} was"
             " renamed, another machine answers at that address, or another VM has its identity (a backup restored"
             " without --unique)",
-            f"find out which first. If {name} was renamed, its host keys are new: {forget}, then just deploy"
-            f" {name} --only configure{on}",
+            f"find out which first. If {name} was renamed, its host keys are new: {forget}, then {configure}",
         )
     if kind == "unknown":
         return (
             f"not read: this machine holds no SSH host key for {name} ({held}), and status adds none. Nothing here"
-            f" has connected to it since its key was filed under its identity: just deploy {name} --only"
-            f" ssh-config{on} carries over one this machine kept by its address before 2.6",
-            f"just deploy {name} --only configure{on} takes a new VM's key, as every run does",
+            " has connected to it since its key was filed under its identity: "
+            + printed_line(settings, "ssh_config_one", f"just deploy {name} --only ssh-config{on}", name)
+            + " carries over one this machine kept by its address before 2.6",
+            f"{configure} takes a new VM's key, as every run does",
         )
     # By a jump it is given, ssh's words are the jump's as much as the VM's, and the route is none of the project's:
     # said, with where such a jump comes from - one exported for another command reads as any other.
@@ -834,8 +857,9 @@ def _ssh_refusal(vm, ssh, settings):
     if kind == "timeout" and hop:
         return (
             f"not read: through {hop}, it did not answer in time: {one_line(said, 120)}",
-            f"over a slow link to the Proxmox host a read can take longer than status waits: just status {name}{on}"
-            f" again, then {console}",
+            "over a slow link to the Proxmox host a read can take longer than status waits: "
+            + printed_line(settings, "status_one", f"just status {name}{on}", name)
+            + f" again, then {console}",
         )
     # Straight to its address with a Proxmox host to go through: the setting that would, as the playbooks say it.
     direct = routes.vm_unanswered({"route": "direct"}, "", "") if settings.get("direct_route") else ""
@@ -898,6 +922,9 @@ def _ssh_items(vm, settings, live, now):
     add = functools.partial(_add, items, name)
     user = settings.get("vm_user") or "dev"
     on = _host_flag(settings)
+    ssh_config = printed_line(settings, "ssh_config", f"just deploy --only ssh-config{on}")
+    claude_code = printed_line(settings, "claude_code", f"just deploy {name} --tags claude_code{on}", name)
+    tailscale_line = printed_line(settings, "tailscale", f"just deploy {name} --tags tailscale{on}", name)
     ssh = vm.get("ssh")
     if not vm.get("needs_ssh"):
         return items
@@ -948,9 +975,9 @@ def _ssh_items(vm, settings, live, now):
             add(
                 "todo",
                 text,
-                f"restart it from Proxmox once they are done, then just deploy --only ssh-config{on}"
+                f"restart it from Proxmox once they are done, then {ssh_config}"
                 if busy
-                else f"restart it from Proxmox, then just deploy --only ssh-config{on}",
+                else f"restart it from Proxmox, then {ssh_config}",
             )
         if isinstance(system.get("security"), int) and system["security"] > 0:
             waits = "waits" if system["security"] == 1 else "wait"
@@ -962,7 +989,7 @@ def _ssh_items(vm, settings, live, now):
     claude = ssh.get("claude")
     if claude:
         if not claude.get("installed"):
-            add("todo", "Claude Code is not installed", f"just deploy {name} --tags claude_code{on}")
+            add("todo", "Claude Code is not installed", claude_code)
         elif not claude.get("api_key") and not claude.get("login_stored"):
             add(
                 "todo",
@@ -977,16 +1004,16 @@ def _ssh_items(vm, settings, live, now):
             add(
                 "problem",
                 f"Remote Control is not running: {unit} is {said}",
-                f"ssh{via} {user}@{vm.get('address') or name} journalctl -u {unit} -n 50, then just deploy {name}"
-                f" --tags claude_code{on} starts it again",
+                f"ssh{via} {user}@{vm.get('address') or name} journalctl -u {unit} -n 50, then {claude_code} starts"
+                " it again",
             )
         elif state == "not-set-up":
-            add("todo", "Remote Control is not set up", f"just deploy {name} --tags claude_code{on}")
+            add("todo", "Remote Control is not set up", claude_code)
         elif state == "stopped" and claude.get("login_stored"):
             add(
                 "todo",
                 "Remote Control is stopped",
-                f"just deploy {name} --tags claude_code{on} starts it, or says what stops it",
+                f"{claude_code} starts it, or says what stops it",
             )
     github = ssh.get("github")
     if github:
@@ -998,14 +1025,14 @@ def _ssh_items(vm, settings, live, now):
     if tailscale and tailscale.get("enabled"):
         case = tailscale.get("case")
         if case == "check-daemon-down":
-            add("problem", "tailscaled is not running", f"just deploy {name} --tags tailscale{on} starts it")
+            add("problem", "tailscaled is not running", f"{tailscale_line} starts it")
         elif case == "check-no-package":
-            add("todo", "Tailscale is not installed", f"just deploy {name} --tags tailscale{on} installs it")
+            add("todo", "Tailscale is not installed", f"{tailscale_line} installs it")
         elif case == "would-join":
             add(
                 "todo",
                 "Tailscale is not signed in; vault_tailscale_auth_key joins it",
-                f"just deploy {name} --tags tailscale{on}",
+                tailscale_line,
             )
         elif tailscale.get("left") and tailscale.get("line"):
             add("todo", tailscale["line"], source="tailscale")
@@ -1029,7 +1056,8 @@ def _pool_items(fleet, settings):
             f"the token may not read which guests are members of pool {pool} (Pool.Audit on /pool/{pool}), so what of"
             " the fleet is outside it cannot be said"
         )
-        return [_item("todo", "proxmox", text, f"just init{_host_flag(settings)} at a terminal offers to add it")]
+        command = printed_line(settings, "init", f"just init{_host_flag(settings)}") + " at a terminal offers to add it"
+        return [_item("todo", "proxmox", text, command)]
     outside = fleet.get("pool_outside") or [] if pool else []
     items = []
     for guest in outside:
@@ -1057,21 +1085,25 @@ def _pool_items(fleet, settings):
     return items
 
 
-def _template_items(template, on=""):
+def _template_items(template, on="", settings=None):
     """The template, when the next just deploy rebuilds it: it differs from what its settings would build, and
-    proxmox_template_rebuild leaves rebuilding on. Kept as it is, it is only said on its line."""
+    proxmox_template_rebuild leaves rebuilding on. Kept as it is, it is only said on its line. settings give its lines
+    where they give them printed (printed_line)."""
+    settings = settings or {}
     drift = template.get("drift") or []
     if template.get("missing") or not drift or not template.get("rebuild", True):
         return []
+    deploy = printed_line(settings, "deploy_all", "just deploy")
     if NO_TEMPLATE_RECORD in drift:
-        text = f"the template {template.get('name')} keeps no record of its build, so the next just deploy refuses it"
+        text = f"the template {template.get('name')} keeps no record of its build, so the next {deploy} refuses it"
         fix = "remove it in Proxmox if it is an old build of this project's, else set proxmox_template_rebuild to false"
         return [_item("todo", "template", text, fix)]
     text = (
-        f"the template {template.get('name')} differs from its settings ({'; '.join(drift)}), so the next just"
-        " deploy rebuilds it, over root SSH"
+        f"the template {template.get('name')} differs from its settings ({'; '.join(drift)}), so the next {deploy}"
+        " rebuilds it, over root SSH"
     )
-    return [_item("todo", "template", text, f"just deploy --only template{on} rebuilds it now")]
+    rebuilds = printed_line(settings, "template", f"just deploy --only template{on}")
+    return [_item("todo", "template", text, f"{rebuilds} rebuilds it now")]
 
 
 def _storage_items(storages):
@@ -1198,7 +1230,7 @@ def status_report(found, read_at="", now=None, live=False):
             "proxmox",
             "todo",
             "the API's certificate is not checked, so the token goes to whatever answers at the host's address",
-            f"just init{_host_flag(settings)} sets checking up",
+            printed_line(settings, "init", f"just init{_host_flag(settings)}") + " sets checking up",
         )
     # Through the Proxmox host: a hop that could not be used, once, the VMs then each not read for its sake.
     if settings.get("hop_said") and ssh_wanted:
@@ -1209,12 +1241,13 @@ def status_report(found, read_at="", now=None, live=False):
         if nameless:
             vmids = ", ".join(str(n.get("vmid")) for n in nameless)
             text += f"; Proxmox lists {plural(len(nameless), 'VM')} without a name, on a node that is down: {vmids}"
-        _add(items, name, "unread", text, "just status lists every VM this project created")
+        lists = printed_line(settings, "status", "just status") + " lists every VM this project created"
+        _add(items, name, "unread", text, lists)
     for vm in vms:
         items += _vm_items(vm, settings, live)
         items += _ssh_items(vm, settings, live, now)
     items += _storage_items(fleet.get("storages") or [])
-    items += _template_items(fleet.get("template") or {}, _host_flag(settings))
+    items += _template_items(fleet.get("template") or {}, _host_flag(settings), settings)
     items += _pool_items(fleet, settings)
     # Two VMs of one name each say the same thing about it: once is enough.
     seen = set()

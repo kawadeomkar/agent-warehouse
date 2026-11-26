@@ -524,7 +524,8 @@ of the wrong type are each refused first, never said back, and once the vault is
 secrets is refused too. The host is the one `fleet/hosts.py`'s `reach` picks; its token's secret is read from the vault
 at each run and goes into the API's one header, and its certificate is always checked: against the anchor the host
 keeps, else this computer's certificates. That header is the one the new engine writes outside the Proxmox client,
-for today's engine's reader, until G16 moves status's reads to the client. Status's own ssh options open no shared
+for today's engine's reader, whose GETs alone, with no redirect followed, are every read aw status makes. Status's own
+ssh options open no shared
 connection, where today's did: only the SSH runner's `ensure` opens a master, so a probe rides one that is open. Nothing
 of 1.x's is named, and nothing is kept but apt's answers for a VM, in the host's folder of the fleet's state
 (`fleet/paths.py`'s `status_cache`). `cli/status.py`'s `main` is the handler:
@@ -532,9 +533,38 @@ a refusal is said before the engine starts, and the run then ends as a read that
 the loader as a parameter, today's `settings.load` unless given, so `tools/status` passes nothing new; and every wait
 of its main thread on the API's answers and on the probes takes slices, as `_off_main`'s does, so a Ctrl-C lands within
 one even where a signal wakes no wait of a lock (macOS). `status_inputs` imports nothing of today's status, and
-`cli/status.py` takes one name of it, `run`. Until card G16, the table names no handler for `status`, the lines a
-report says name `just`, and one host is read: reading every host at once, a child each as `tools/status` does, needs
-the word that starts the child. `tests/unit/test_aw_status_inputs.py` holds `load` equal to today's `settings.load`,
+`cli/status.py` takes one name of it, `run`. One host is read: reading every host at once, a child each as
+`tools/status` does, needs the table's word that starts the child, and is not built.
+
+The engine takes the reader of the fleet as a parameter beside the loader, today's `Tagged` unless given, and the
+program its own messages name, `just` unless given, so `tools/status` passes nothing new and prints what it prints. aw
+status gives it `cli/status_pool.py`'s `Pool` and `aw`, and its settings give every command the model and the drawing
+name printed whole by the printer, with the host's flag (`status_inputs.lines`, read by `status/model.py`'s
+`printed_line`, each VM's name put in its place), so that no line of aw's is written by hand. The fleet is the pool's
+members, never a tag: each one's configuration is read before a VM is drawn and judged by `pve/ownership.py`'s one rule
+(`Member.read`, `refusal`), with the members that carry its UUID as its twins, templates among them, found by
+`ownership.twins`, the one function the engine's reader calls too, so that status and every verb that changes a VM never
+part; a member on a node that is down cannot be read, so it is never judged and never a VM of the report, only one
+"unread" line; a member the rule refuses is a line of its own (one with no record says it is not this fleet's, never
+changed, and gives the `destroy` line that deletes it under `destroy_allow_unrecorded`), and one whose configuration the
+token may not read is not read. A record's job that is no job's ID is a problem line, never a `logs` line. Its record
+gives what today's tags gave: its stage, its own repositories, whether it joined the tailnet, whether it was made with a
+size of its own; an unapplied change is shown "not known" while the record keeps no digest to compare, and the template
+is judged by `pve/template.py`'s `judge`. A VM this computer has filed no host key for is never dialled (status takes
+none): its SSH sections are one line, naming the run that files its key. A job a VM's record names that this computer
+has no record of is said as another computer's run, and one of this computer's that was lost as lost, each with its `aw
+logs` line. Under `proxmox_audit_scope: node` a storage lists another VM's disk only where the token holds
+`VM.Config.Disk` on it, which the grant on `/vms` does not give: so each VM outside the pool's configuration is read,
+after every read of the fleet's and only where the storage or capacity section is asked for, and only each disk's
+storage and size are kept of it, so the storage's figure is a floor, and says so. Under `pool` they are not read at all,
+the node's other VMs are shown empty and one line says so. Every line a report says names `aw`, each the printer's; the
+JSON document gains `known_at`, the run's own time.
+`tests/unit/test_aw_status_pool.py` holds it against the fake: the same report as `tools/status` on the same VMs, one
+fleet by its tags and the other by its pool and records, but for the commands, `known_at` and `unapplied`; GETs alone;
+each new line; two hosts; both scopes; and nothing of a VM outside the pool but its disks' sizes in the report, the
+JSON or the log.
+
+`tests/unit/test_aw_status_inputs.py` holds `load` equal to today's `settings.load`,
 difference by difference with why, for E4's fleet folder beside the example files and with a setting of each file's
 and each secret set, and the refusals; `tests/unit/test_aw_status_hosts.py` holds a fleet of two hosts, each read with
 its own API, token and settings; `tests/unit/test_aw_status_live.py` runs `aw status --json` against the fake beside
@@ -1572,9 +1602,10 @@ carry its UUID. `Member.read(config, unread=, twins=)` makes one from a VM's con
 and `dataclasses.replace` and `copy.replace` leave unset: what `owned` and `building` judge is a member a reader made,
 never one made by hand or changed after its read, which is a `TypeError` to both (a record written into a member's
 fields would be its verdict). The mark says a configuration was read, not the pool beside it, so `twins`, the other
-members its reader read that carry its UUID, is a keyword with no default, and in `lib/` only the reader of the pool
-calls `Member.read`, `engine/fleet.py`'s (and `status`'s, card G16): a workflow owns a VM again through that reader,
-never through `Member.read` of one configuration, which would own one of two twins, or a VM outside the pool.
+members its reader read that carry its UUID, is a keyword with no default, made by `twins(configs)` over every member
+read, templates too (the one rule both readers call), and in `lib/` only the reader of the pool calls
+`Member.read`, `engine/fleet.py`'s (and `status`'s, card G16): a workflow owns a VM again through that reader, never
+through `Member.read` of one configuration, which would own one of two twins, or a VM outside the pool.
 `refusal(member, job="", clone=None)` says why it is not the fleet's to change, "" where it is: a guest that is no
 VM; a template; one that could not be read; one with no record of this engine's, whatever tags it carries; a record
 of a template, a golden or a build on a VM that is no template, or one that names another VM's UUID (`copied`), each a

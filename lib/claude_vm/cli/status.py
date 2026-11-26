@@ -2,15 +2,16 @@
 this process with the settings cli/status_inputs.py works out from the fleet's files, in place of the ones today's
 status/settings.py asks Ansible for or keeps.
 
-`main` is the handler words.py's row of status names (the card that fills it, G16, names it there): the VMs named, the
+`main` is the handler words.py's row of status names: the VMs named, the
 host, the sections and --json, and the run's --set words as the top layer of the settings. A refusal is said before the
 engine starts, so nothing is drawn or sent first, and the run ends as a read that failed (STATUS_EXITS' 3); then the
 engine reads and draws as tools/status does, and its exit status is the run's. apt's answers for a VM are kept in the
 host's folder of the fleet's state (fleet/paths.py's status_cache), as tools/status keeps them in its --cache; nothing
 else is kept.
 
-The run reads the host status_inputs picks. Today's tools/status reads every host of a checkout at once, a child each;
-here that waits for the table to give status the word that starts the child (card G16), the child being this program.
+The engine reads the fleet through cli/status_pool.py's reader, the pool's members and their records, where
+tools/status reads a tag, and every line it says names aw (the engine's program). The run reads the host status_inputs
+picks: reading every host at once, a child each as tools/status does, is a card's of its own (G16's Notes).
 
 Of today's status it takes one name, run, never the module whole (tests/unit/test_aw_vendor_trust.py's CONTEXTS).
 """
@@ -23,7 +24,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from claude_vm.cli import status_inputs
+from claude_vm.cli import status_inputs, status_pool
 from claude_vm.fleet import paths
 from claude_vm.schema.words import STATUS_EXITS
 from claude_vm.status.engine import run as read
@@ -62,7 +63,8 @@ def main(
         return _refused(str(error))
     kept = paths.status_cache(home) / config["hop"]["name"]
     opts = status_inputs.Opts(names=opts.names, only=opts.only, json=opts.json, cache=str(kept))
-    return read(opts, loader=lambda _opts, _say=None: config)
+    reader = status_pool.Pool(config.pop("pool"))
+    return read(opts, loader=lambda _opts, _say=None: config, reader=reader, program=status_inputs.PROGRAM)
 
 
 def _noted(note: Any) -> None:

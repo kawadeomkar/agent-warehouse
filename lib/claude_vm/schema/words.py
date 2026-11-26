@@ -705,7 +705,7 @@ _VERBS: tuple[Verb, ...] = (
             SET,
         ),
         rules=(),
-        handler=None,
+        handler="cli.status:main",
         card="G16",
         locks="none",
         changes=False,

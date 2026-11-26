@@ -20,7 +20,9 @@ read reads by the engine's own readers, refuses at its first check where the fle
 fails its line against that fleet by Jinja2 and against a fleet of its record alone by its exit status. The card that
 fills a read's handler gives `_fleet` what its read reads beyond this (a run's text log, an API to reach: the hosts are
 on loopback at port 1, which no test can bind, so a read that reaches for one is refused at once, never kept waiting on
-the network).
+the network). status reads its host's API whole, so its fleet is another: E4's whole fleet against the fake Proxmox,
+as aw init leaves it (fleet_fixture.whole_fleet), its host's anchor kept, so that its certificate is checked against
+that anchor and nothing else is loaded for it, its pool holding none of the fake's VMs, so that nothing is dialled.
 
 What a run loaded is read from sys.modules at the exit of each Python it ran, never from python's -X importtime, which
 lists no module loaded through importlib.import_module, as the dispatch loads a verb's handler. A hook of the test's
@@ -53,8 +55,9 @@ from typing import NamedTuple
 import harness
 import pytest
 from aw_kit import ENTRY, LAUNCHER, run_launcher
-from fleet_fixture import pinned
-from harness import REPO
+from fleet_fixture import pinned, whole_fleet
+from harness import REPO, fake_fleet
+from pki import proxmox_pki
 
 from claude_vm.fleet import hosts, overrides, paths, record, sealed, vaultkey
 from claude_vm.schema.words import EXITS, STATUS_EXITS, VERBS, Verb
@@ -175,8 +178,9 @@ SITE_OWN = "aw_site_own"
 FLEET = "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b"
 # The fleet's hosts and their addresses, the first the current host. Each is on loopback at port 1, a privileged port
 # no test can bind and nothing answers on: a read that reaches for a host's API is refused at once, never kept waiting
-# on the network, until the card that fills it gives _fleet a fake to reach.
-HOSTS = {"lab": "127.0.0.1", HOST: "127.0.0.2"}
+# on the network (127.0.0.1, which refuses at once on every system, where 127.0.0.2 waits on macOS). status's fleet
+# reaches a fake (_fleet).
+HOSTS = {"lab": "127.0.0.1", HOST: "127.0.0.1"}
 CLOSED_PORT = 1
 TOKEN = {"token_user": "aw@pve", "token_id": "aw"}
 # Every setting each host sets for itself but its node, as init writes them, and one of the fleet's, which a read of
@@ -536,13 +540,25 @@ def _job(jobs: Path, running: bool) -> subprocess.Popen[str]:
 
 
 @contextlib.contextmanager
-def _fleet(words: tuple[str, ...], *, whole: bool = True) -> Iterator[tuple[str, ...]]:
+def _fleet(
+    words: tuple[str, ...], *, whole: bool = True, home: Path | None = None, made: Path | None = None
+) -> Iterator[tuple[str, ...]]:
     """The test's own fleet, in the home AGENT_WAREHOUSE_HOME names, and the line's words, its JOB the ID of the job
     made for it. Whole, as init and the runs before a read leave one, each written by its one writer: the fleet's
     record; HOSTS, each with its host.yml and the settings it sets for itself, and the route to its VMs pinned direct
     (fleet_fixture.pinned), the first the current host; a setting of the fleet's; the vault, with its key, holding each
     host's token; and for logs a job that has ended, for cancel one that runs until cancel stops it, ended once the
-    line is done if it did not. Not whole, its record alone."""
+    line is done if it did not. For status, which reads its host's API, E4's whole fleet against the fake Proxmox in
+    made, a folder of the test's own, home being the test's home, the fake's pool holding none of its VMs. Not whole,
+    its record alone."""
+    if whole and words[:1] == ("status",) and made is not None:
+        assert home is not None, "status's fleet is a fake's, made in the test's home"
+        (made / "fake").mkdir(parents=True)
+        pki = proxmox_pki(made / "pki", key_usage=True)
+        for base in fake_fleet(made / "fake", engine=True, certificate=(pki["cert"], pki["key"])):
+            whole_fleet(home, base, made / "fake", pki)
+            yield words
+        return
     where = paths.home(REPO)
     record.write(where, record.first(FLEET))
     if not whole:
@@ -585,7 +601,7 @@ def test_a_quick_command_imports_nothing_heavy(home, tmp_path, quick: Quick) -> 
     verb = _verb(quick.words)
     if not quick.refusal and verb is not None and verb.handler is None:
         pytest.skip(f"{verb.name} has no handler yet: card {verb.card} fills it, and this line runs then")
-    with _fleet(quick.words) as words:
+    with _fleet(quick.words, home=home, made=tmp_path / "fleet") as words:
         run = modules_of(*words, home=home, where=tmp_path)
     assert faults(quick, run) == []
 
@@ -598,7 +614,7 @@ def test_a_read_is_held_to_its_work_past_its_first_check(home, tmp_path, quick: 
     # its check, so its work is counted and Jinja2 fails the line; against a fleet of its record alone it stops at its
     # check, and its exit status fails the line, where a line held only to loading the handler's module passed it.
     verb = quick.words[0]
-    with _fleet(quick.words, whole=whole) as words:
+    with _fleet(quick.words, whole=whole, home=home, made=tmp_path / "fleet") as words:
         run = modules_of(*words, home=home, where=tmp_path, handlers={verb: f"made_up:{verb}"})
     found = {fault.kind for fault in faults(quick, run)}
     if whole:

@@ -53,6 +53,7 @@ alone; nothing of engine/, and not the client, which imports it (tests/unit/test
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Iterable
 
 from . import record as block
 from .answers import Task, VmConfig
@@ -262,6 +263,22 @@ def _twins(member: Member) -> str:
         f"{member.said} carries one UUID with VMID {others}, as a restore without unique leaves them, so nothing tells"
         " them apart: none of them is changed"
     )
+
+
+def twins(configs: Iterable[VmConfig]) -> dict[int, tuple[int, ...]]:
+    """Each VMID of configs, the members of the pool read beside it, templates too, with the VMIDs of the others that
+    carry its UUID, which Member.read takes as its twins: () for one that carries its own alone or none. The one rule of
+    which members are twins, which every reader of the pool calls (engine/fleet.py's targets, aw status's reader), so
+    that status and every changing verb never part."""
+    read = list(configs)
+    return {
+        config.vmid: tuple(
+            other.vmid
+            for other in read
+            if config.identity and other.identity == config.identity and other.vmid != config.vmid
+        )
+        for config in read
+    }
 
 
 def refusal(member: Member, job: str = "", clone: Task | None = None, *, unrecorded: bool = False) -> str:

@@ -13,11 +13,17 @@ address and port host.yml gives, its certificate checked against the anchor the 
 computer's certificates (tls_ca_file's file where it names one), and always checked.
 
 Where today's settings named something of 1.x's - a tag a VM of 1.x carried, its markers on a VM, its managed SSH
-config - this names none (the clean slate). And today's settings.py builds the lines a VM's report says with `just`:
-so do these, until the card that fills aw status's handler (G16) makes them aw's. Status's own ssh options open no
-shared connection, where today's did (OWN_SSH): the new engine opens a master in one place. The header that carries
-the token, which the Proxmox client alone writes but for this, is made here for today's engine's reader, until G16
+config - this names none (the clean slate). The lines a VM's report says to run are aw's, each the printer's whole
+line (schema/printer.py), where today's settings.py builds them with `just`; and the program Tailscale's line names
+is aw's (status/lines.py's tailscale_report, which takes it). Status's own ssh options open no shared connection, where
+today's did (OWN_SSH): the new engine opens a master in one place. The header that carries the token, which the Proxmox
+client alone writes but for this, is made here for today's engine's reader, which aw status still reads through
 (tests/unit/test_aw_pve_reads.py's HEADER_FOR_TODAY).
+
+Beside today's settings, `load` gives under "pool" what aw status's reader of the fleet reads by
+(lib/claude_vm/cli/status_pool.py): the host's pool, which init writes and without which nothing is read, what the
+token may read beyond it (proxmox_audit_scope), the base template the settings name, the fleet's home, for this
+computer's jobs, and the host a line names.
 
 Of today's status it imports nothing: what it shares with it - the placeholder each VM's name replaces in what is
 known of one VM, and the editors' rows - is held equal to today's by tests/unit/test_aw_status_inputs.py. The gh
@@ -37,6 +43,7 @@ from claude_vm.fleet import hosts, overrides, paths, registry, sealed, secrets, 
 from claude_vm.guest import states
 from claude_vm.hosts import model
 from claude_vm.pve import template
+from claude_vm.schema import printer
 from claude_vm.schema.printer import said
 from claude_vm.schema.words import Line
 from claude_vm.secret import Secret
@@ -78,6 +85,8 @@ BECOME_EXE: Final = "/usr/bin/sudo"
 # SSH runner's ensure opens a master (ssh/connections.py), so a probe rides a connection that is open and opens none.
 OWN_SSH: Final = "-o StrictHostKeyChecking=yes -o UpdateHostKeys=no"
 ASKED_LIMIT: Final = 25
+# The program every line a report says names, aw from the new engine (the owner's word 1).
+PROGRAM: Final = "aw"
 SYSTEM_ROOT: Final = "/"
 SYSTEM_TIMEOUT: Final = 5
 REMOTE_CONTROL_UNIT: Final = "claude-remote-control"
@@ -160,14 +169,50 @@ def _set(found: Mapping[tuple[str, str | None], Secret], name: str) -> bool:
 # ------------------------------------------------------------------------------------- what one VM is known as ----
 
 
-def _commands(name: str, host_flag: str) -> dict[str, str]:
-    """The lines a VM's report says to run, as today's roles make them (just, until G16)."""
+# Each command today's model and drawing name, by the key status/model.py's _line and tui/status.py read it under: its
+# verb and values, the VM's name status/model.py's LINE_NAME where it names one, so that each VM's is put in its place.
+LINES: Final = {
+    "deploy": ("deploy", {"names": [PLACEHOLDER]}),
+    "deploy_all": ("deploy", {}),
+    "repair": ("deploy", {"names": [PLACEHOLDER], "only": "provision", "set": ["proxmox_vm_force_update=true"]}),
+    "ssh_config": ("deploy", {"only": "ssh-config"}),
+    "ssh_config_one": ("deploy", {"names": [PLACEHOLDER], "only": "ssh-config"}),
+    "configure": ("deploy", {"names": [PLACEHOLDER], "only": "configure"}),
+    "claude_code": ("deploy", {"names": [PLACEHOLDER], "tags": "claude_code"}),
+    "tailscale": ("deploy", {"names": [PLACEHOLDER], "tags": "tailscale"}),
+    "template": ("deploy", {"only": "template"}),
+    "status": ("status", {}),
+    "status_one": ("status", {"names": [PLACEHOLDER]}),
+    "help_status": ("help", {"command": "status"}),
+    "code_form": ("code", dict.fromkeys(("name", "project", "session"), printer.PLACEHOLDER)),
+}
+
+
+def lines(host: str) -> dict[str, str]:
+    """LINES, each the printer's whole line, ending --host <host> where host is not "" (a fleet of more than one host);
+    init's names the host by its own --host."""
+    printed = {
+        key: printer.line(verb, values, refused=False, host_flag=host if verb in ("deploy", "status", "code") else "")
+        for key, (verb, values) in LINES.items()
+    }
+    printed["init"] = printer.line("init", {"host": host} if host else {}, refused=False, host_flag="")
+    return printed
+
+
+def _commands(name: str, host: str) -> dict[str, str]:
+    """The lines a VM's report says to run, as today's roles make them, in aw's words: each the printer's whole line,
+    ending --host <host> where the fleet has more than one host (host "" where it has one)."""
+
+    def line(verb: str, values: Mapping[str, object]) -> str:
+        return printer.line(verb, {"names": [name], **values}, refused=False, host_flag=host)
+
     return {
-        "claude_login": f"just login {name} --only claude{host_flag}",
-        "github_login": f"just login {name} --only github{host_flag}",
-        "github_configure": f"just deploy {name} --tags github_projects{host_flag}",
-        "tailscale_login": f"just login {name} --only tailscale{host_flag}",
-        "tailscale_configure": f"just deploy {name} --tags tailscale{host_flag}",
+        "claude_login": line("login", {"only": "claude"}),
+        "github_login": line("login", {"only": "github"}),
+        "github_configure": line("deploy", {"tags": "github_projects"}),
+        "tailscale_login": line("login", {"only": "tailscale"}),
+        "tailscale_configure": line("deploy", {"tags": "tailscale"}),
+        "reconfigure": line("deploy", {"only": "configure"}),
     }
 
 
@@ -175,13 +220,13 @@ def _vm(
     values: Mapping[str, overrides.Value],
     name: str,
     hostname: str,
-    host_flag: str,
+    host: str,
     found: Mapping[tuple[str, str | None], Secret],
 ) -> dict:
     """What is known of the VM called name, whose tailnet name is hostname: today's VM block, made of the settings and
-    whether each secret is set, never a secret itself."""
+    whether each secret is set, never a secret itself; its lines end --host <host> where host is not ""."""
     value = {key: one.value for key, one in values.items()}
-    lines = _commands(name, host_flag)
+    lines = _commands(name, host)
     api_key = _set(found, "anthropic_api_key")
     token_set = _set(found, "github_token")
     key = found.get(("tailscale_auth_key", None))
@@ -240,6 +285,9 @@ def _vm(
             "admin_page": "your control server" if value["tailscale_login_server"] else TAILSCALE_ADMIN,
             "configure_command": lines["tailscale_configure"],
             "login_command": lines["tailscale_login"],
+            "reconfigure_command": lines["reconfigure"],
+            # The program the line's own words name (status/lines.py's tailscale_report).
+            "program": PROGRAM,
         },
         "vpn": vpn,
         "projects_dir": projects,
@@ -379,6 +427,8 @@ def _fleet(
             "editor_name": str(EDITORS.get(editor, {}).get("name") or editor),
             "editor_names": {key: str(row.get("name", "")) for key, row in EDITORS.items()},
             "host_flag": host_flag,
+            # Every command the report and its drawing name, printed whole for this host (status/model.py's _line).
+            "lines": lines(reached.host.name if reached.others else ""),
         },
     }
 
@@ -468,6 +518,16 @@ def load(
             )
         )
     host_flag = f" --host {name}" if reached.others else ""
+    host_named = name if reached.others else ""
+    pool = values["proxmox_pool"].value
+    if not pool:
+        # As fleet/opened.py's connect refuses it: the fleet's VMs are its pool's members, so nothing can be read.
+        raise Refused(
+            said(
+                "{name} names no pool (proxmox_pool), and the fleet's VMs are its members: {init} writes it",
+                {"name": name, "init": Line("init", {"host": name})},
+            )
+        )
     per_vm = {}
     for machine in machines:
         try:
@@ -476,7 +536,7 @@ def load(
             raise Refused(_words(error)) from None
         hostname = own["tailscale_hostname"].value or registry.tailnet_label(machine=machine)
         per_vm[machine] = {
-            "vm": _vm(own, machine, str(hostname), host_flag, found),
+            "vm": _vm(own, machine, str(hostname), host_named, found),
             "reach": _reach(own, known_hosts, control_dir),
         }
     password = found.get(("vm_password", None))
@@ -489,11 +549,32 @@ def load(
 
     return {
         "fleet": _fleet(layout, reached, values, token, host_flag, known_hosts),
-        "vm": _vm(values, PLACEHOLDER, registry.tailnet_label(machine=PLACEHOLDER), host_flag, found),
+        "vm": _vm(values, PLACEHOLDER, registry.tailnet_label(machine=PLACEHOLDER), host_named, found),
         "reach": _reach(values, known_hosts, control_dir),
         "hop": _hop(reached, values, control_dir),
         "per_vm": per_vm,
         "inventory": {},
         "run": {"names": list(names), "only": opts.only},
         "password": password_of,
+        "pool": _pool(fleet, name, host_named, values, known_hosts),
+    }
+
+
+def _pool(
+    home: paths.Home, name: str, host: str, values: Mapping[str, overrides.Value], known_hosts: str
+) -> dict[str, object]:
+    """What aw status's reader of the fleet reads by (lib/claude_vm/cli/status_pool.py): the host's pool, what the token
+    may read beyond it, the base template the settings name with what a build of it makes, this computer's known-hosts
+    file and its folder of jobs, and the host a line names ("" where the fleet has one host)."""
+    value = {key: one.value for key, one in values.items()}
+    return {
+        "host": name,
+        "host_flag": host,
+        "pool": str(value["proxmox_pool"]),
+        "scope": str(value["proxmox_audit_scope"]),
+        "base": template.Base.of(value, pool=str(value["proxmox_pool"]), host_flag=host),
+        "want": template.wanted(value),
+        "custom": bool(value["proxmox_template_custom"]),
+        "known_hosts": known_hosts,
+        "jobs": str(paths.jobs_dir(home)),
     }

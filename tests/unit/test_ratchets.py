@@ -144,6 +144,9 @@ PROXMOX_ELSEWHERE = {
     # status read them there. With them, the internals made from the run's host that no settings file may set, the
     # two that say how its certificate is checked among them.
     "lib/claude_vm/hosts/kinds.py": 12,
+    # aw status's reader of the pool: the pool's members, each one's configuration and the node's other VMs, read
+    # from Proxmox's API by design, and the VM each answer is of (card G16).
+    "lib/claude_vm/cli/status_pool.py": 31,
     "lib/claude_vm/status/engine.py": 16,
     "lib/claude_vm/status/model.py": 18,
     # With whether the API's certificate is checked, which the report says of each host whether or not it reads it.

@@ -787,7 +787,8 @@ def test_proxmox_s_loose_json_is_read_as_it_comes() -> None:
 # status engine, whose own reader (status/engine.py's Api) sends GETs alone, each with the header its settings give it.
 HEADER_FOR_TODAY = {
     "lib/claude_vm/cli/status_inputs.py": "aw status's settings for today's status engine: the header made once a run,"
-    " in _fleet, of the vault's secret, until G16 moves status's reads to the client and the row goes",
+    " in _fleet, of the vault's secret: aw status reads through today's engine's GET-only reader (card G16 kept its"
+    " reads there, its reader of the pool beside them), until a card moves them to the client and the row goes",
 }
 
 

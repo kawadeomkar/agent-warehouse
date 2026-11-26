@@ -166,7 +166,8 @@ rrddata (a day of points), pending, and the agent's get-osinfo and get-fsinfo
 answer as Proxmox VE does. memhost and the pressure figures are VE 9's: the fake
 reports them only once /version says 9 or later, and a day of rrddata is 1440
 points then, 70 on 8. /nodes/<node>/storage/<id>/content lists the disks on a
-storage. Pending lists a VM's config with nothing waiting for a restart, and
+storage (a made token's, only the disks of the VMs it holds VM.Config.Disk on, as
+Proxmox's content index checks each volume). Pending lists a VM's config with nothing waiting for a restart, and
 every VM's root disk is 11 GiB used of 31. A clone's config carries the
 template's meta ctime, as Proxmox VE 9.2's did when it was checked against a real
 clone; the moment it was made is its disk's ctime, in the storage's content, which
@@ -1681,6 +1682,11 @@ class Handler(BaseHTTPRequestHandler):
             volumes = []
             for vm in VMS.values():
                 volid = str(vm["config"].get("scsi0", "")).split(",", 1)[0]
+                # A made token sees a VM's disk only where it holds VM.Config.Disk on the VM, which VM.Audit on /vms
+                # does not give (PVE/API2/Storage/Content.pm's index): its pool's members' alone, under the engine's
+                # grant (docs/architecture/engine.md, "16.4"). Today's tokens keep today's answer.
+                if self.made and table().LISTS_A_DISK not in acl_privileges(self.owner, f"/vms/{vm['vmid']}"):
+                    continue
                 if vm["node"] == parts[1] and volid.startswith(storage + ":"):
                     volumes.append(
                         {
