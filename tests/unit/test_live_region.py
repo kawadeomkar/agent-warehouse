@@ -924,6 +924,58 @@ def test_a_ctrl_c_before_the_terminal_reads_the_lines_said_above_the_region_lose
     assert interrupted == []
 
 
+class _Ended(Exception):
+    """The run's end at once, as the ladder raises it (Abandoned)."""
+
+
+def test_a_question_the_shell_goes_on_with_in_the_background_lets_an_end_another_thread_took_land_first(monkeypatch):
+    # A shell's kill of a run stopped at a question (kill %1): SIGTERM, then SIGCONT. The kernel may hand the SIGTERM to
+    # a thread other than the main one, whose handler passes it on to Python only once that thread runs; here it lands
+    # 50 ms after the SIGCONT, from a thread of the test's. The question goes on in the background: in the wait before
+    # it makes its mode there (ENDING_GRACE), the run's handler of the end runs - the ladder's, which tells the hold
+    # (live.ending) and raises - and no change is made, which would stop the run (SIGTTOU) for good.
+    master, slave = os.openpty()
+    found = termios.tcgetattr(slave)
+    landed: list[int] = []
+    made: list[tuple] = []
+
+    def ended(signum, _frame):
+        landed.append(signum)
+        live.ending()
+        if len(landed) == 1:
+            raise _Ended
+
+    def late():
+        time.sleep(0.05)
+        signal.pthread_kill(threading.get_ident(), signal.SIGTERM)
+
+    previous = signal.signal(signal.SIGTERM, ended)
+    try:
+        mode = list(found)
+        mode[3] &= ~termios.ECHO
+        live.change(slave, termios.TCSAFLUSH, mode, wait=True)
+        with monkeypatch.context() as patch:
+            patch.setattr(os, "tcgetpgrp", lambda fd: os.getpgrp() + 1)
+            patch.setattr(live, "set_terminal", lambda *args: made.append(args))
+            thread = threading.Thread(target=late)
+            thread.start()
+            try:
+                with pytest.raises(_Ended):
+                    live._HOLD._continued()
+            finally:
+                while thread.is_alive():
+                    try:
+                        thread.join()
+                    except _Ended:
+                        pass
+        assert landed == [signal.SIGTERM] and made == [], (landed, made)
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+        live.put_back(slave, termios.TCSANOW, found, last=True)
+        os.close(master)
+        os.close(slave)
+
+
 @pytest.mark.skipif(sys.platform != "linux", reason="off Linux, a draining change with output unread waits for good")
 def test_off_linux_the_drain_watch_notes_nothing(drainwatch, monkeypatch):
     # On macOS FIONREAD on a master counts what its slave has not read, never the slave's output: conftest.py's

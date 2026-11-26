@@ -3070,7 +3070,9 @@ its history; once the run goes on in the foreground (`fg`) the question's mode i
 below the shell's lines, where the answer is typed afresh (`change`'s `back`); a run the shell goes on with in the
 background (`bg`) stops again at the question (SIGTTOU) till it is the foreground - but one the shell ends while it
 is stopped (`kill %1`: SIGTERM, then SIGCONT) ends at once, since the ladder's end tells the hold it waits for the
-terminal no more (`live_region.ending`) and the SIGCONT then changes nothing in the background. A `Ctrl-\` is the
+terminal no more (`live_region.ending`) and the SIGCONT then changes nothing in the background; a question going on
+there waits a moment first (`ENDING_GRACE`), for a kill another of the run's threads took to reach the ladder.
+A `Ctrl-\` is the
 ladder's, as SIGTERM, what was typed thrown away first. The edges: at the menu, whose raw mode makes them keys, a
 Ctrl-Z and a
 `Ctrl-\` are keys it has no use for, and the menu goes on; a key between two questions, or while the region is aside
@@ -3120,8 +3122,9 @@ is up, a refused event's line among it, or said before the summary where the run
 bell rung only after a quiet while. `tests/unit/test_live_region.py` holds the region's own switch of the echo to the
 same through an `EINTR`, `NOFLSH` beside the echo while it draws and the settings back exactly as found, `NOFLSH` kept
 at a run's end till `release()`, a Ctrl-C throwing away what was typed unseen and handing the signal on, no change and
-no settings read in the background, a signal landing as the settings go back delivered once they are, a Ctrl-Z coming
-back to them, a Ctrl-Z and a `Ctrl-\` at their default taken while it draws - the region erased, the settings put back
+no settings read in the background, a question going on in the background letting an end another thread took land
+before its change, a signal landing as the settings go back delivered once they are, a Ctrl-Z coming back to them,
+a Ctrl-Z and a `Ctrl-\` at their default taken while it draws - the region erased, the settings put back
 as found and what was typed unseen thrown away before the stop or the quit, the mode again after a stop - a handler of
 the program's own left in place, the handlers the hold took put back where it ends with the signals held off (a
 question's end), and from an interactive shell, nothing typed unseen left on its line or in its history at either, and
