@@ -142,7 +142,7 @@ async def each(
     gate = asyncio.Semaphore(most)
     # The runner's own task: once it is being cancelled (an enclosing group's, a timeout's, the stop's grace), no
     # machine begins, though no stop is set.
-    runner = asyncio.current_task()
+    this_run = asyncio.current_task()
     # Set once the runner's own record fails: no machine begins from then on, its group's cancel of the runner not yet
     # come, since the gate hands the next machine its turn before the failed task's end reaches the group.
     halted: list[BaseException] = []
@@ -166,7 +166,7 @@ async def each(
         ended[machine] = (outcome, why)
 
     def stopping() -> bool:
-        return context.cancelled.is_set() or bool(halted) or (runner is not None and runner.cancelling() > 0)
+        return context.cancelled.is_set() or bool(halted) or (this_run is not None and this_run.cancelling() > 0)
 
     async def one(machine: str) -> None:
         try:
