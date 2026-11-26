@@ -2810,10 +2810,10 @@ is one Ansible child a machine or one child over every machine, and the bound's 
 `tests/unit/test_aw_fleet_run.py` holds it: thirty machines never more than twenty at once and every free turn taken,
 and a bound given as five holds five; one that fails leaves twenty-nine done, none of them cut short, and the run
 failed; a cancel lets no machine begin, those under way finishing, at a real Ctrl-C too, the run's record then
-`cancelled` with every machine's outcome; the runner cancelled cancels and waits for every machine before it raises;
-the exit record holds thirty outcomes, each with the stage it reached; a stand-in's end kept under its identity once
-joined, and by its name where it never began; one at a time never two at once; and what is refused before anything
-begins.
+`cancelled` with every machine's outcome; the runner cancelled, or its own record refused, cancels and waits for
+every machine before it raises, the error as itself; the exit record holds thirty outcomes, each with the stage it
+reached; a stand-in's end kept under its identity once joined, and by its name where it never began; one at a time
+never two at once; and what is refused before anything begins.
 
 **A run as a person reads it: `stages.py` and `model.py`.** A verb declares what its run is made of, and its workstream
 writes the declaration: `Declared(title, stages)`, each `Stage` with a key, which the run's events name, the label a
