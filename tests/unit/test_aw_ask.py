@@ -735,6 +735,119 @@ def test_a_half_typed_answer_reaches_neither_the_shells_line_nor_its_history_at_
     assert ends == [("cancelled", 130, "Ctrl-C"), ("cancelled", quit, "SIGQUIT"), ("succeeded", 0, "done")], ends
 
 
+# How each run a shell stops at a question is then ended from the shell, by the run's folder: SIGTERM, then SIGHUP.
+KILLS = {"term": b"kill", "hup": b"kill -HUP"}
+
+
+@pytest.mark.parametrize("hidden", [True, False], ids=["a hidden answer", "a line"])
+def test_a_question_stopped_and_then_killed_from_the_shell_ends_at_once_and_frees_its_lock(
+    hidden, home, tmp_path
+) -> None:
+    # From an interactive shell, a run asks the question, a Ctrl-Z stops it, and the shell kills it (`kill %1`, then
+    # `kill -HUP %1` for a second run): bash sends the signal and then SIGCONT, which in the question's hold would set
+    # its mode again from the background and stop the run there (SIGTTOU) for good, its machine's lock held (review
+    # 68's F1). Each run is gone within five seconds, dead of the signal (the shell's Terminated and Hangup, the
+    # records' 143 and 129), and a third run of the same machine asks and ends as it should: the lock is free.
+    asked = b"Tailscale auth key: " if hidden else b"Proxmox host address: "
+    way = "hidden" if hidden else "line"
+    jobs_dir = paths.jobs_dir(paths.home(REPO))
+    (tmp_path / "run.py").write_text(RUN)
+    for folder in [*KILLS, "after"]:
+        (tmp_path / folder).mkdir()
+    temporary = tmp_path / "tmp"
+    temporary.mkdir()
+    given = {"TERM": "xterm-256color", "PYTHONUTF8": "1", "TMPDIR": str(temporary)}
+    env = environment(home, {**given, "PY": sys.executable, "LIB": str(LIB), "JOBS": str(jobs_dir)})
+
+    def run(folder: str) -> bytes:
+        return f'"$PY" -I -X utf8 run.py "$LIB" "$JOBS" {folder} {way}\n'.encode()
+
+    def killed(folder: str) -> bytes:
+        # The signal, then up to five seconds for the run to be gone, said in words its line, which the shell echoes,
+        # does not hold; one still there is killed. How it ended is its record's: the shell has reaped the job by then.
+        alive = f'kill -0 "$(cat {folder}/pid)" 2>/dev/null'
+        return (
+            f"{KILLS[folder].decode()} %1; for i in $(seq 100); do {alive} || break; sleep 0.05; done; "
+            f'if {alive}; then echo "stuck=$((1))"; kill -9 %1; else echo "gone=$((1))"; fi\n'
+        ).encode()
+
+    prompt = harness.SHELL_PROMPT
+    steps = [(prompt, b"ulimit -c 0\n")]
+    for folder in KILLS:
+        steps += [(prompt, run(folder)), (asked, [HALF["stop"], b"\x1a"]), (b"Stopped", []), (prompt, killed(folder))]
+    steps += [
+        (prompt, run("after")),
+        (asked, AFRESH + b"\n"),
+        (prompt, b'echo "ended=$?"\n'),
+        (prompt, b"exit\n"),
+    ]
+    output, history = harness._in_a_shell(tmp_path, env, steps)
+    harness._fail_if_the_desktop_was_reached(stand_ins(home))
+    said = output.decode(errors="replace")
+    assert b"stuck=1" not in output and output.count(b"gone=1") == 2, said
+    assert b"Terminated" in output and b"Hangup" in output, said
+    assert b"command not found" not in output and HALF["stop"] not in history, said
+    statuses = [(name.decode(), int(number)) for name, number in STATUSES.findall(output)]
+    term, hup = 128 + signal.SIGTERM, 128 + signal.SIGHUP
+    assert statuses == [("ended", 0)], said
+    records = [job.read() for job in jobs.listed(jobs_dir)]
+    ends = sorted((record["outcome"], record["exit"], record["why"]) for record in records)
+    assert ends == [("cancelled", hup, "SIGHUP"), ("cancelled", term, "SIGTERM"), ("succeeded", 0, "done")], ends
+
+
+# What a person types unseen under the region while the run's last words are said, before a Ctrl-Z.
+BLIND = b"blind42x"
+
+
+def test_keys_typed_unseen_and_a_ctrl_z_at_the_runs_last_words_reach_neither_the_shells_line_nor_its_history(
+    home, tmp_path
+) -> None:
+    # From an interactive shell, the "last" way: keys typed unseen under the region while the summary and NEXT STEPS
+    # are said, NOFLSH on, and then a Ctrl-Z, which the hold of the run's last words holds off till the settings are
+    # back as found and the terminal's hold is given back, and then raises at its default. What was typed is thrown
+    # away before that stop (review 68's F2), as the hold's own Ctrl-Z throws it away; fg ends the run as it should.
+    folder = tmp_path / "last"
+    folder.mkdir()
+    jobs_dir = paths.jobs_dir(paths.home(REPO))
+    (tmp_path / "run.py").write_text(RUN)
+    temporary = tmp_path / "tmp"
+    temporary.mkdir()
+    given = {"TERM": "xterm-256color", "PYTHONUTF8": "1", "TMPDIR": str(temporary)}
+    env = environment(home, {**given, "PY": sys.executable, "LIB": str(LIB), "JOBS": str(jobs_dir)})
+
+    def stopped_at_the_last_words(master: int, output: bytes) -> None:
+        waited = time.monotonic() + 20
+        while not (folder / "ending").is_file() and time.monotonic() < waited:
+            time.sleep(0.02)
+        (folder / "quiet").write_text("")
+        while not (folder / "said").is_file() and time.monotonic() < waited:
+            time.sleep(0.02)
+        os.write(master, BLIND + b"\n")
+        time.sleep(0.1)
+        os.write(master, b"\x1a")
+        time.sleep(0.3)
+        (folder / "interrupted").write_text("")
+
+    prompt = harness.SHELL_PROMPT
+    steps = [
+        (prompt, b'"$PY" -I -X utf8 run.py "$LIB" "$JOBS" last last\n'),
+        (b"sign in", stopped_at_the_last_words),
+        (b"Stopped", []),
+        (prompt, b'echo "stopped=$?"\n'),
+        (prompt, b"fg\n"),
+        (prompt, b'echo "ended=$?"\n'),
+        (prompt, b"exit\n"),
+    ]
+    output, history = harness._in_a_shell(tmp_path, env, steps)
+    said = output.decode(errors="replace")
+    assert (folder / "said").is_file(), said
+    assert b"command not found" not in output and BLIND not in history, said
+    statuses = [(name.decode(), int(number)) for name, number in STATUSES.findall(output)]
+    assert statuses == [("stopped", 128 + signal.SIGTSTP), ("ended", 0)], said
+    (record,) = [job.read() for job in jobs.listed(jobs_dir)]
+    assert (record["outcome"], record["exit"]) == ("succeeded", 0), record
+
+
 def test_where_the_menu_cannot_be_drawn_a_choice_is_typed_and_asked_once_more(home, tmp_path) -> None:
     prompt = b"A number or a name, Enter for none: "
     plan = [(prompt, [b"2\n"], False), (prompt, [b"wireguard\n"], False), (prompt, [b"vpn\n"], False)]

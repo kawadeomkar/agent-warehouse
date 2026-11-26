@@ -528,6 +528,9 @@ class _Ladder:
             self.dies_at = self.loop.time()
             # A quit ends the tree as a kill does: SIGQUIT's default would have each child write a core.
             self.end_tree(signal.SIGTERM if signum == signal.SIGQUIT else signum)
+        # An end at once, which the terminal's hold waits for no more: the SIGCONT a shell sends after its kill of a
+        # stopped run sets no question's mode from the background, where it would stop the run (SIGTTOU) for good.
+        live_region.ending()
         if ending:
             return
         if self.cut is None:
