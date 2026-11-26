@@ -924,6 +924,26 @@ def test_a_ctrl_c_before_the_terminal_reads_the_lines_said_above_the_region_lose
     assert interrupted == []
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="off Linux, a draining change with output unread waits for good")
+def test_off_linux_the_drain_watch_notes_nothing(drainwatch, monkeypatch):
+    # On macOS FIONREAD on a master counts what its slave has not read, never the slave's output: conftest.py's
+    # drainwatch would fail a test that leaves what was typed unread there, and never see the output it is for (review
+    # 68's F3). Here, on Linux, where a draining change returns at once, with the platform said to be macOS: a
+    # TCSADRAIN with output unread at the master and nothing reading it is noted not at all.
+    master, slave = os.openpty()
+    try:
+        os.write(slave, b"said and unread\n")
+        # At the master once it can be read there: Linux hands what the slave writes on to the master a moment later.
+        assert select.select([master], [], [], 5)[0], "nothing reached the master"
+        with monkeypatch.context() as patch:
+            patch.setattr(sys, "platform", "darwin")
+            termios.tcsetattr(slave, termios.TCSADRAIN, termios.tcgetattr(slave))
+        assert drainwatch == [], drainwatch
+    finally:
+        os.close(master)
+        os.close(slave)
+
+
 def test_a_change_of_the_settings_that_fails_otherwise_goes_through():
     # Only EINTR is tried again: a descriptor that is no terminal is termios.error as it was.
     master, slave = os.openpty()
