@@ -65,6 +65,11 @@ FRAME_SECONDS = 0.1
 # init's, show no frame between them.
 SETTLE_SECONDS = 0.5
 MIN_ROWS, MIN_COLS = 4, 20
+# How long a question the shell goes on with in the background waits before it makes its mode there, which stops it
+# (SIGTTOU): a shell's kill of a stopped run comes with the SIGCONT (kill %1), and the kernel may hand the kill to
+# another of the run's threads, whose handler passes it on to Python only once that thread runs. Within the wait the
+# run's own handler of it (the ladder's, which calls ending) comes first, and the question stops for nothing.
+ENDING_GRACE = 0.2
 # What a program ends or stops on, held off for a write to the terminal and its count (uninterrupted): a Ctrl-C, a
 # kill and a hangup, which a program may end on by raising from a handler of its own; and a Ctrl-Z (SIGTSTP) and a
 # Ctrl-\ (SIGQUIT), which the hold of the terminal (_Hold) takes, the region erased before the stop or the quit.
@@ -291,6 +296,11 @@ class _Hold:
         when, settings = self.made
         try:
             if self.waits:
+                if not foreground(self.fd):
+                    # An end that came with the SIGCONT given the time to land first (ENDING_GRACE).
+                    time.sleep(ENDING_GRACE)
+                    if not self.waits or not self.ours():
+                        return
                 # SIGTTOU let through, wherever the stop came: a question in the background stops here.
                 held = signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGTTOU})
                 try:
@@ -397,7 +407,8 @@ def ending():
     """The run ends at once (the ladder's end, runs/attached.py): the hold waits for the terminal no more. A question
     stopped and then killed from its shell (kill %1: SIGTERM, then SIGCONT) would set its mode again from the
     background at the SIGCONT and stop there (SIGTTOU) for good, its machines' lock held; now the SIGCONT changes
-    nothing in the background, and the end goes on."""
+    nothing in the background, and the end goes on - where another thread took the kill, once its handler has run,
+    which the question waits for (ENDING_GRACE)."""
     _HOLD.waits = False
 
 
