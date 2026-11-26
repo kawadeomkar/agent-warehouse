@@ -795,8 +795,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       the terminal has not read (`NOFLSH`), what was typed thrown away at it all the same (`discard_typed`), the
       settings put back exactly as found, each change only in the terminal's foreground and each change back with
       the signals held off (`put_back`); at a Ctrl-Z (or a `Ctrl-\` at its default) the region erased and the
-      settings put back as found, what was typed thrown away with them, before the stop, its mode again at `fg`; and
-      never hides the cursor.
+      settings put back as found, what was typed thrown away with them, before the stop, its mode again at `fg`, and
+      what was typed before a Ctrl-Z held off as the settings go back thrown away before its stop; and never hides
+      the cursor.
     - A question with a few answers - `just init`'s yes or no, a storage, a bridge - is a menu picked with the
       arrow keys (`lib/claude_vm/tui/choose.py`), drawn with `screen.py` while the region steps aside, never a second
       way of drawing. Its answers ride in `prompt_until`'s `complete_input` as built-in bytes (Enter's two and
@@ -812,7 +813,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       before flushed, the rest of a paste never left for the shell) and a Ctrl-C keeps what was typed on a line
       (`NOFLSH`, never a hidden answer's), the line ended before the change back, which is made with the run's signals
       held off; a Ctrl-Z puts the settings back as found, what was typed thrown away, before the stop, and `fg` brings
-      the question back in its mode, its words written again; a `Ctrl-\` is the ladder's, as SIGTERM; the run's last
+      the question back in its mode, its words written again, and one stopped, then killed, ends at once (the
+      ladder's `live_region.ending`); a `Ctrl-\` is the ladder's, as SIGTERM; the run's last
       words are said with `NOFLSH` still on, the settings put back as found after them, flushed for a run a Ctrl-C
       stopped; every read is the run's `Context.typed` - never
       `/dev/tty`, `getpass` or a thread - the menu is `choose.asked`, a choice's words and note are made one line of

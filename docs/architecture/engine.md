@@ -2971,7 +2971,9 @@ held off till it is made (`live_region.uninterrupted`), so that a second Ctrl-C,
 terminal's hold (`live_region`'s `_Hold`): the region erased and none drawn, the settings put back as found and what was
 typed unseen thrown away with them (`TCSAFLUSH`), and then the stop; once the run goes on (SIGCONT, a shell's `fg`) the
 mode made again and the region drawn below the shell's lines. A `Ctrl-\` while it draws is the ladder's, as SIGTERM;
-where its default is in place instead, the hold does the same as at a Ctrl-Z before the quit. What is
+where its default is in place instead, the hold does the same as at a Ctrl-Z before the quit. A Ctrl-Z or a `Ctrl-\`
+held off while the settings go back is raised at its default once they are back, what was typed unseen thrown away
+first (`uninterrupted`), as the region's `NOFLSH` kept it from the terminal's own key. What is
 said above (`View.above`: each report whole, each failure) printed above the region after each event; and while it
 draws, standard error said above the region too, a whole line at a time, so that the ladder's `stopping` line at a
 Ctrl-C, or a warning, never lands inside the region. Where the stream is no terminal, what is said above and a line as
@@ -3066,8 +3068,11 @@ at its default) is taken by the terminal's hold as the region's is: the settings
 and not read thrown away with them (`TCSAFLUSH`), and then the stop, so that nothing typed reaches the shell's line or
 its history; once the run goes on in the foreground (`fg`) the question's mode is made again and its words written again
 below the shell's lines, where the answer is typed afresh (`change`'s `back`); a run the shell goes on with in the
-background (`bg`) stops again at the question (SIGTTOU) till it is the foreground. A `Ctrl-\` is the ladder's, as
-SIGTERM, what was typed thrown away first. The edges: at the menu, whose raw mode makes them keys, a Ctrl-Z and a
+background (`bg`) stops again at the question (SIGTTOU) till it is the foreground - but one the shell ends while it
+is stopped (`kill %1`: SIGTERM, then SIGCONT) ends at once, since the ladder's end tells the hold it waits for the
+terminal no more (`live_region.ending`) and the SIGCONT then changes nothing in the background. A `Ctrl-\` is the
+ladder's, as SIGTERM, what was typed thrown away first. The edges: at the menu, whose raw mode makes them keys, a
+Ctrl-Z and a
 `Ctrl-\` are keys it has no use for, and the menu goes on; a key between two questions, or while the region is aside
 and no question is up yet, is the terminal's own. A change that a signal interrupts is made again
 (`live_region.set_terminal`, which the region's own switch
@@ -3094,12 +3099,15 @@ ended where it was cut and what was typed on it kept there (`192^C`, the keys an
 left in the terminal's input, however a run ends the terminal's settings those it had before the run; from an
 interactive shell (`harness._in_a_shell`), a line and a hidden answer half typed and then a Ctrl-Z (`fg` bringing the
 question back in its mode, its words written again), a `Ctrl-\` or a Ctrl-C, what was typed never on the shell's line
-or in its history; a line, a hidden answer whose characters reach neither the screen, the record nor
+or in its history, and a Ctrl-Z there and then `kill %1` or `kill -HUP %1`, the run ended at once, of the signal,
+and its lock free for the next; a line, a hidden answer whose characters reach neither the screen, the record nor
 the run's events, two lines pasted at a line and at a hidden answer, the second never left in the terminal's input once
 the run has ended, the region gone while a question is up and back after it, Enter taking the default, Ctrl-C at a
 line, a hidden answer and the menu ending the run, keys typed before the question not taken as its answer, the run's
 summary and 150 lines of NEXT STEPS said with nobody reading and then keys typed unseen and a Ctrl-C, every line on the
-screen and the keys never left for the shell, and keys typed while a stopped run winds down never left either; with
+screen and the keys never left for the shell, and from an interactive shell keys typed unseen there and a Ctrl-Z in
+place of the Ctrl-C, never on the shell's line or in its history, and keys typed while a stopped run winds down never
+left either; with
 standard input on `/dev/null`, the default at once and the line that says so; and in its own process, every refusal of
 `Question`, a question with no default among them, a choice's words and note made plain, two questions asked at once
 taking turns, how the menu's keys are cut, what is typed at the menu after its answer never left, a question and the

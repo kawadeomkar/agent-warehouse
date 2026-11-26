@@ -82,7 +82,7 @@ def uninterrupted():
     spinner), and Python runs its handler in the main thread all the same. Only the main thread may set a handler, and
     only it is ever interrupted, so anywhere else nothing is held. A signal ignored (nohup's SIGHUP) stays ignored, and
     one whose handler no Python set is left as it is. Holds nest: one inside another hands what it held to the one
-    around it."""
+    around it. A Ctrl-Z or a Ctrl-\\ raised at its default throws away what was typed first (discard_typed)."""
     if threading.current_thread() is not threading.main_thread():
         yield
         return
@@ -112,6 +112,10 @@ def uninterrupted():
                     raised = raised or error
         for signum in held:
             try:
+                if signum in (signal.SIGTSTP, signal.SIGQUIT) and signal.getsignal(signum) == signal.SIG_DFL:
+                    # A stop or a quit at its default throws away what was typed, as the hold's would (_as_found): a
+                    # region's NOFLSH, given back meanwhile, kept it from the terminal's own key.
+                    discard_typed()
                 signal.raise_signal(signum)
             except BaseException as error:
                 raised = raised or error
@@ -387,6 +391,14 @@ def put_back(fd, when, settings, *, last=False) -> bool:
     finally:
         if _HOLD.ours() and _HOLD.fd == fd and (last or list(settings) == _HOLD.found):
             _HOLD.give_back()
+
+
+def ending():
+    """The run ends at once (the ladder's end, runs/attached.py): the hold waits for the terminal no more. A question
+    stopped and then killed from its shell (kill %1: SIGTERM, then SIGCONT) would set its mode again from the
+    background at the SIGCONT and stop there (SIGTTOU) for good, its machines' lock held; now the SIGCONT changes
+    nothing in the background, and the end goes on."""
+    _HOLD.waits = False
 
 
 def discard_typed(fd=None) -> bool:
