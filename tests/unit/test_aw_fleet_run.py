@@ -6,11 +6,12 @@ thirty machines never more than twenty at once (the setting run_forks's default,
 taken, and a bound given as five holds five; one that fails leaves twenty-nine done, none of them cut short, and the
 run failed; once the run is cancelled no machine begins and those under way finish, and with the run cancelled before
 it, none begins; the runner cancelled (the stop's grace ended) cancels every machine under way and waits for each
-before it raises, nothing left on the loop; the exit record holds thirty outcomes, each with the stage its own last
-stage event named; a stand-in's end kept under its identity once joined, and by its name where it failed at once or
-never began; one at a time never two at once; and a bound under one, a machine named twice and a stand-in with no name
-refused before anything begins. In a child process made by runs.run as a verb makes one: a real Ctrl-C while twenty
-machines are under way lets none of the other ten begin, and the run's record is cancelled with thirty outcomes.
+before it raises, nothing left on the loop, and so does the runner's own record refused, the error raised as itself;
+the exit record holds thirty outcomes, each with the stage its own last stage event named; a stand-in's end kept under
+its identity once joined, and by its name where it failed at once or never began; one at a time never two at once; and
+a bound under one, a machine named twice and a stand-in with no name refused before anything begins. In a child
+process made by runs.run as a verb makes one: a real Ctrl-C while twenty machines are under way lets none of the other
+ten begin, and the run's record is cancelled with thirty outcomes.
 
 Every wait here is held to an event of the run's, never to a sleep: a wave of machines is let go only once as many as
 the bound lets in are under way, which is only seen once every task that was ready has had its turn, so that one let
@@ -264,6 +265,46 @@ def test_the_runner_cancelled_cancels_every_machine_under_way_and_waits_for_each
         **{machine: Ended("cancelled", None, NOT_BEGUN) for machine in THIRTY[20:]},
     }
     assert _outcomes(own) == expected
+
+
+def test_the_runner_s_own_record_refused_cancels_every_machine_and_waits_for_each_before_it_raises_it(own) -> None:
+    # A machine's end the record refuses (the job dropped under the run) is the runner's error, not the machine's: every
+    # other machine under way is cancelled and waited for, and the error raised as itself, never a group of errors.
+    closed: list[str] = []
+    refused = jobs.Gone("the job was dropped")
+
+    async def scenario():
+        def emit(kind: str, machine: str | None, text: str, **data: object) -> jobs.Event:
+            if kind == "end" and machine == "m19":
+                raise refused
+            return own.emit(kind, machine, text, **data)
+
+        ctx = SimpleNamespace(job=own, emit=emit, cancelled=asyncio.Event())
+        never = asyncio.Event()
+        begun: list[str] = []
+
+        async def body(machine: str) -> None:
+            begun.append(machine)
+            # The twentieth to begin ends at once, every other under way by then.
+            if len(begun) == 20:
+                return None
+            try:
+                await never.wait()
+            finally:
+                closed.append(machine)
+
+        with pytest.raises(jobs.Gone) as raised:
+            await asyncio.wait_for(fleet_run.each(ctx, THIRTY, body, 20), HANG)  # type: ignore[arg-type]
+        assert raised.value is refused
+        # Already, with no turn of the loop's since: every machine under way ended, and no task but this one left.
+        assert sorted(closed) == THIRTY[:19]
+        assert asyncio.all_tasks() == {asyncio.current_task()}
+
+    asyncio.run(scenario())
+    assert _outcomes(own) == {
+        **{machine: Ended("cancelled", None, fleet_run.STOPPED) for machine in THIRTY[:19]},
+        **{machine: Ended("cancelled", None, NOT_BEGUN) for machine in THIRTY[20:]},
+    }
 
 
 # ---------------------------------------------------------------- machines not yet made ----
