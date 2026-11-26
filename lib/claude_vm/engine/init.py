@@ -67,9 +67,13 @@ with `controller=none`, another fleet's, or this fleet's with its token there, i
 script with the mark's ID and runs it with `--regenerate`, so that the token is made again and every other copy of its
 secret stops working, and fleet.json keeps the mark's ID; using another pool (where settings.yml names none) takes its
 name and, where no token was named, the token's full ID, two fleets never sharing one, and starts a fleet of this
-computer's own there. A mark that names a control VM is refused by the script with fleet/mark.py's sentence, and
-neither is offered; Enter or Esc does neither. `--print-commands` prints the same script on standard output, and on
-standard error how to run it, reading the fleet's files alone, and writes nothing.
+computer's own there. Where the mark's ID is fleet.json's, the first is asked as making this fleet's own token's
+secret again (AGAIN), never as a take-over (review 72). A token whose secret was made again is never deleted where the
+vault cannot be written (`_rescue`): it was not this run's, and deleting it would leave the fleet with none. A mark
+that names a control VM is refused by the script with fleet/mark.py's sentence, and neither is offered; Enter or Esc
+does neither. `--print-commands` prints the same script on standard output, and on standard error how to run it,
+reading the fleet's files alone; its one write, with no fleet.json, is the fleet's ID it renders, there (card E8), so
+that two prints and the offer render one ID.
 
 **At a terminal** (standard input a terminal whose foreground the run is, as runs/ask.py's `terminal()` decides for each
 question, and no `--no-prompt`; card E5), `attended` runs the same steps and asks, in plain Python, each question whose
@@ -1086,6 +1090,9 @@ TOKEN_MADE = ("after the token was made", "made the token and printed no secret"
 # Card E8: the question asked of a pool another fleet's mark names, or of this fleet's pool whose token is there with
 # its secret held nowhere here, where no token's secret is held or given; its two answers.
 WHICH = "Take the fleet over, or use another pool?"
+# The same two, of this fleet's own pool (its mark's ID fleet.json's), its token there with its secret held nowhere
+# here: a run of this computer's cut before the secret was kept, or another computer of the fleet. Never a take-over.
+AGAIN = "Make the token's secret again, or use another pool?"
 TAKE, ANOTHER = "take", "another"
 # The most of an unmarked pool's members the question names.
 MEMBERS_SAID = 10
@@ -1342,35 +1349,59 @@ def _unmarked_lines(there: Any, address: str) -> list[str]:
 
 
 async def _which(
-    asking: _Asking, *, pool: str, address: str, found: mark.Mark, full_id: str, take: bool, another: bool, refused: str
+    asking: _Asking,
+    *,
+    pool: str,
+    address: str,
+    found: mark.Mark,
+    full_id: str,
+    take: bool,
+    another: bool,
+    refused: str,
+    own: bool,
 ) -> str:
     """Card E8: which of two things is meant, of a pool another fleet's mark names (or this fleet's, its token there
     with its secret held nowhere here), where no token's secret is held or given: TAKE, the fleet taken over, its ID the
     mark's and its token made again (--regenerate), so that every other copy of its secret stops working; ANOTHER, a
     fleet of this computer's own in another pool; "" for neither, at Enter or Esc. take: where fleet.json names no
     fleet or the mark's; another: where the host's settings.yml names no pool. Neither of them: _NotOffered with
-    refused, mark.may_change's sentence."""
+    refused, mark.may_change's sentence. own: the mark's ID is fleet.json's (review 72), so the first is asked as making
+    this fleet's own token's secret again (AGAIN), never as a take-over."""
     from claude_vm.runs.ask import Choice
 
     if not (take or another):
         raise _NotOffered(f"{refused.removeprefix('error: ')}; nothing was made on {address}")
-    taking = (
-        f"  take the fleet over: this computer drives the fleet {found.fleet}, and the token {full_id} is made again,"
-        " its secret new, so that every other copy of it stops working;"
-    )
+    if own:
+        head = (
+            f"The pool {pool} on {address} carries this fleet's own mark, and its token {full_id} is there with its"
+            " secret held nowhere here: a run of this computer's cut before the secret was kept, or another computer"
+            " of the fleet's. init does neither of these unasked:"
+        )
+        taking = (
+            f"  make the token's secret again: the token {full_id} is made again, its secret new, so that every other"
+            " copy of it stops working;"
+        )
+    else:
+        head = (
+            f"The pool {pool} on {address} carries the mark of the fleet {found.fleet}, and no secret of a token of it"
+            " is held here. init does neither of these unasked:"
+        )
+        taking = (
+            f"  take the fleet over: this computer drives the fleet {found.fleet}, and the token {full_id} is made"
+            " again, its secret new, so that every other copy of it stops working;"
+        )
     other = "  use another pool: a fleet of this computer's own, in a pool you name, beside that one."
     lines = [
-        f"The pool {pool} on {address} carries the mark of the fleet {found.fleet}, and no secret of a token of it is"
-        " held here. init does neither of these unasked:",
+        head,
         *([taking] if take else []),
         *([other] if another else []),
         "Enter, or Esc, does neither, and nothing on the host changes.",
     ]
     choices = [
-        *([Choice(TAKE, "take the fleet over")] if take else []),
+        *([Choice(TAKE, "make its secret again" if own else "take the fleet over")] if take else []),
         *([Choice(ANOTHER, "use another pool")] if another else []),
     ]
-    return str(await asking.ask(_question(lines, WHICH, colon=False), "", choices))
+    return str(await asking.ask(_question(lines, AGAIN if own else WHICH, colon=False), "", choices))
 
 
 async def _another(asking: _Asking, pool: str, full_id: str, token_named: bool) -> tuple[str, str]:
@@ -1445,11 +1476,19 @@ async def _picked(asking: _Asking, what: str, names: Sequence[str], node: str) -
     return str(await asking.ask(_question([*text, *rows], title, colon=False), "", choices))
 
 
-async def _rescue(shell: Shell, user: str, token: str, address: str) -> str:
+async def _rescue(shell: Shell, user: str, token: str, address: str, again: bool = False) -> str:
     """The token this run made deleted on the host, its secret held nowhere: the vault could not be written, or the
     script printed no secret, or failed after it made the token. Besides the script's run after a y, the one change
     init makes on Proxmox; never where the vault holds the secret. The sentence that says it was, or the line that
-    deletes it where it could not be."""
+    deletes it where it could not be. again: the run made the token's secret again (--regenerate, card E8), and never
+    made the token, so it is never deleted (review 72): it stays with its grants, its secret held nowhere, as the next
+    init finds it and asks to make the secret again; deleting it would leave the fleet with no token at all."""
+    if again:
+        return said(
+            "the token {token} was there before this run, which made its secret again, and it is never deleted: it is"
+            " on {address} with its secret held nowhere, and the next {init} asks to make its secret again",
+            {"token": f"{user}!{token}", "address": address, "init": _init()},
+        )
     words = ["pveum", "user", "token", "delete", user, token]
     result = await shell(words, "", READ_SECONDS)
     if isinstance(result, runner.Done) and result.status == 0:
@@ -1646,6 +1685,7 @@ async def _offer(
                     take=found.fleet is None or found.fleet.fleet == found_mark.fleet,
                     another=not own.get("proxmox_pool"),
                     refused=str(mark.may_change(found_mark, found.fleet or record.first(fleet_id))),
+                    own=own_mark,
                 )
                 if answer == ANOTHER:
                     pool, full_id = await _another(asking, pool, full_id, token_named)
@@ -1742,6 +1782,13 @@ async def _offer(
         f"The run was ended while the access was set up on {address}: the token {full_id} may be there with its secret"
         f" held nowhere. As root there, {delete} deletes it."
     )
+    if again:
+        # Card E8: a token whose secret is made again was there before, and is never deleted (review 72's note owed).
+        ended = said(
+            "The run was ended while the access was set up on {address}: the token {token} may have its secret made"
+            " again, held nowhere; the next {init} asks to make it again.",
+            {"address": address, "token": full_id, "init": _init()},
+        )
     async with asking.running.shield(f"setting up the API access on {address}"), _said_if_ended(asking, ended, held):
         result = await shell([*SH, *extra, *again, *no_token], script, RUN_SECONDS)
         ran = [each[2:] for each in _said_lines(result) if each.startswith("+ ")]
@@ -1775,7 +1822,7 @@ async def _offer(
             if token_made and isinstance(result, runner.Done):
                 # The script ended by itself after it made the token (a later command refused, or no secret
                 # printed): the token deleted, as the playbook's rescue deletes it while the vault is unwritten.
-                rescued = await _rescue(shell, token_user, token_id, address)
+                rescued = await _rescue(shell, token_user, token_id, address, bool(again))
                 held[0] = True
                 stop += f" {rescued[:1].upper()}{rescued[1:]}."
                 made_now = _but_token(made_now, full_id)
@@ -1790,7 +1837,7 @@ async def _offer(
         elif token_made:
             value = answers.init_answer(result.lines[0], "uuid") if len(result.lines) == 1 else ""
             if not value:
-                sentence = await _rescue(shell, token_user, token_id, address)
+                sentence = await _rescue(shell, token_user, token_id, address, bool(again))
                 held[0] = True
                 stop = f"The access script made the token {full_id} on {address} and printed no secret of it:"
                 stop += f" {sentence}."
@@ -1801,7 +1848,7 @@ async def _offer(
                     wrote += _keep(home, found, secret, fleet_id, environ)
                     held[0] = True
                 except Refused as refused:
-                    sentence = await _rescue(shell, token_user, token_id, address)
+                    sentence = await _rescue(shell, token_user, token_id, address, bool(again))
                     held[0] = True
                     stop = f"{refused.sentence.removeprefix('error: ')}: {sentence}."
                     made_now = _but_token(made_now, full_id)
@@ -2333,12 +2380,22 @@ PRINTED = (
 )
 
 
+# What --print-commands says of its one write (card E8).
+WROTE_ID = (
+    "Wrote {file}: the fleet {fleet}, whose ID this script marks the pool with, so that the next print and {init}"
+    " render the same ID."
+)
+
+
 def print_commands(run: Any, values: Mapping[str, object]) -> int:
     """init --print-commands (card E7; V2-9): the access script (engine/access.py's as_script), rendered for this host's
     values as the offer renders it (_script), on standard output, and on standard error the one sentence that says how
     to run it on the host as root (PRINTED). The fleet's files are read - host.yml, the settings, fleet.json - never the
-    vault; no run, job or lock is made, no request is sent, and no file is written, the script's above all. A value
-    given that differs from the one set is refused, as init refuses it. The exit status."""
+    vault; no run, job or lock is made, and no request is sent. Its one write (card E8, the coordinator's ruling on
+    review 72's Later medium): with no fleet.json, the fleet's ID it renders is written there, through record.py's
+    writer, and said (WROTE_ID), so that a second print and the offer render the same ID and a by-hand run again is
+    never refused as another fleet's; no other file is written, the script's above all. A value given that differs
+    from the one set is refused, as init refuses it. The exit status."""
     environ = dict(os.environ)
     try:
         if _text(values, "token_secret_file"):
@@ -2362,9 +2419,10 @@ def print_commands(run: Any, values: Mapping[str, object]) -> int:
             never = said("{init} never writes over a value: edit the file to change it.", {"init": _init()})
             raise Refused(" ".join([*differs, never]))
         fields = state.fields
+        fleet_id = fleet.fleet if fleet is not None else record.new_id()
         _host, text = _script(
             found,
-            fleet_id=fleet.fleet if fleet is not None else record.new_id(),
+            fleet_id=fleet_id,
             user=typed.token_user or (fields.token_user if fields is not None else access.USER),
             token=typed.token_id or (fields.token_id if fields is not None else access.TOKEN),
             node=str(resolved["proxmox_node"].value),
@@ -2373,6 +2431,16 @@ def print_commands(run: Any, values: Mapping[str, object]) -> int:
             pool=typed.pool or str(resolved["proxmox_pool"].value or access.POOL),
             host_flag=typed.host,
         )
+        wrote = ""
+        if fleet is None:
+            try:
+                record.write(home, record.first(fleet_id))
+            except WRITERS_REFUSE as error:
+                raise Refused(f"{str(error).removeprefix('error: ')}: nothing was printed") from None
+            except OSError as error:
+                wrong = error.strerror or error
+                raise Refused(f"fleet.json could not be written ({wrong}): nothing was printed") from None
+            wrote = said(WROTE_ID, {"file": _written(home, record.path(home)), "fleet": fleet_id, "init": _init()})
     except Refused as refused:
         return _refused(refused.sentence)
     except paths.Refused as error:
@@ -2389,6 +2457,8 @@ def print_commands(run: Any, values: Mapping[str, object]) -> int:
         },
     )
     print(sentence, file=sys.stderr)
+    if wrote:
+        print(wrote, file=sys.stderr)
     return EXITS["done"]
 
 

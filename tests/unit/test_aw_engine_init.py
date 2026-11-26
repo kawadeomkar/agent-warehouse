@@ -2270,10 +2270,34 @@ def test_print_commands_prints_the_script_the_offer_runs_and_writes_nothing(fake
     assert _files() == files
 
 
+def test_print_commands_with_no_fleet_json_writes_the_id_it_renders_and_a_second_print_agrees(
+    fake, secret_file
+) -> None:
+    # Card E8, the coordinator's ruling on review 72's Later medium: its one write, said, so that two prints and the
+    # offer render one ID and a by-hand run again after a partial one is never refused as another fleet's.
+    fleet = _first(fake, secret_file, *EVERY)
+    name = str(record.path(_home()).relative_to(_home().root))
+    record.path(_home()).unlink()
+    files = _files()
+    first = _init(fake, "--print-commands")
+    assert first.returncode == 0, first
+    written = record.read(_home()).fleet
+    assert written != fleet
+    assert first.stdout == access.as_script(_engine_s(written), "", host_flag="")
+    assert f"Wrote {name}: the fleet {written}, whose ID this script marks the pool with" in (
+        " ".join(first.stderr.split())
+    ), first.stderr
+    second = _init(fake, "--print-commands")
+    assert (second.returncode, second.stdout) == (0, first.stdout), second
+    assert "Wrote" not in second.stderr
+    assert set(_files()) == {*files, name}
+    assert {each: data for each, data in _files().items() if each != name} == files
+
+
 # ---------------------------------------------------------------- the pool's mark on the offer (card E8) ----
 
 # The questions card E8 adds: which of two things is meant, and the other pool's name and token.
-WHICH = engine_init.WHICH
+WHICH, AGAIN = engine_init.WHICH, engine_init.AGAIN
 POOL_LABEL, TOKEN_LABEL = "Pool:", "API token ID:"
 NOTE = "the person's own pool"
 CONTROLLER = "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b"
@@ -2319,6 +2343,8 @@ def test_an_unmarked_pool_named_is_shown_and_taken_on_a_y_alone_its_comment_kept
     comment = _state_of(pve_host)["pools"][ENGINE_POOL]["comment"]
     assert comment == f"{NOTE} {mark.Mark(fleet, mark.NONE).line}"
     assert _state_of(pve_host)["guests"] == [{"vmid": 150, "pool": ENGINE_POOL, "name": "keep-me"}]
+    # Review 72: a pool taken is not one the engine made, so made never records it.
+    assert ("pool", ENGINE_POOL) not in {(each.what, each.id) for each in _reached().fields.made}
     assert access.plan(access.objects(_engine_s(fleet)), _found(_state_of(pve_host)), host_flag="").steps == ()
 
 
@@ -2415,15 +2441,37 @@ def test_this_fleet_s_own_pool_with_its_token_there_and_no_secret_here_asks_befo
     before = _another_fleet_s(pve_host, fleet)
     nothing = _Person({SET_UP: engine_init.YES})
     _offered(fake, nothing, job, pve_host)
-    assert len(nothing.question(WHICH)) == 1 and nothing.question(SET_UP) == []
+    assert len(nothing.question(AGAIN)) == 1 and nothing.question(SET_UP) == []
     assert (pve_host.bin / "pve-state.json").read_bytes() == before
-    person = _Person({WHICH: engine_init.TAKE, SET_UP: engine_init.YES})
+    # Review 72: the mark's ID is fleet.json's, so it is never offered as a take-over of what is this fleet's own.
+    assert nothing.question(WHICH) == []
+    person = _Person({AGAIN: engine_init.TAKE, SET_UP: engine_init.YES})
     _offered(fake, person, job, pve_host)
-    [which] = person.question(WHICH)
-    assert f"carries the mark of the fleet {fleet}" in which
+    [which] = person.question(AGAIN)
+    assert "carries this fleet's own mark" in which and "take the fleet over" not in which, which
     assert _ran(pve_host)[-3:] == [POOL_READ, "/bin/sh -s -- --dry-run --regenerate", "/bin/sh -s -- --regenerate"]
     assert _state_of(pve_host)["tokens"][ENGINE_FULL]["secret"] == fake.secret
     assert record.read(_home()).fleet == fleet
+
+
+def test_a_token_made_again_is_never_deleted_where_the_vault_cannot_be_written(
+    fake, pve_host, job, monkeypatch
+) -> None:
+    # Review 72's note owed: the take-over made the token's secret again and never made the token, so the rescue leaves
+    # it, with its grants; deleting it would leave the fleet with none. The next run asks to make its secret again.
+    with_port(fake.port)
+    other = record.new_id()
+    _another_fleet_s(pve_host, other)
+    monkeypatch.setattr(sealed, "put", _vault_refuses)
+    person = _Person({WHICH: engine_init.TAKE, SET_UP: engine_init.YES})
+    with pytest.raises(engine_init.Refused) as stopped:
+        _offered(fake, person, job, pve_host)
+    sentence = stopped.value.sentence
+    assert "the vault could not be written (No space left on device)" in sentence, sentence
+    assert f"the token {ENGINE_FULL} was there before this run, which made its secret again" in sentence, sentence
+    assert not any("token delete" in each for each in _pve_cli_writes(pve_host.bin))
+    assert _state_of(pve_host)["tokens"][ENGINE_FULL]["secret"] == fake.secret
+    assert ("token", ENGINE_FULL) not in {(each.what, each.id) for each in _reached().fields.made}
 
 
 def test_a_pool_whose_mark_names_a_control_vm_is_refused_and_nothing_asked(fake, pve_host, job) -> None:
