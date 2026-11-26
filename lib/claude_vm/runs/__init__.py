@@ -2,8 +2,8 @@
 generated files, the kernel's file locks it holds, its end on a signal, a run detached as the same program in a
 session of its own, and the run as a person reads it, from its verb's declared stages and its events (stages.py,
 model.py), drawn with tui/ (view.py), live in the run's own process as it emits them (live.py), and the questions it
-asks the person at its terminal, with the safe answer where nobody is there (ask.py) (docs/architecture/engine.md
-§16.8).
+asks the person at its terminal, with the safe answer where nobody is there (ask.py), and a run over several machines,
+side by side under a bound, each with its own outcome (fleet_run.py) (docs/architecture/engine.md §16.8).
 
 `run(draft, body)` is the one entry a verb whose run is a job calls (the table's column `changes`): it makes the job the
 draft describes (job.py), which takes the job's own lock, makes the run's directory (rundir.py), takes the locks the

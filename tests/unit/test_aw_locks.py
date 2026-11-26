@@ -8,12 +8,13 @@ first's job, its command, its start and the line that cancels it as the printer 
 makes alpha and one that configures it take one lock; a VM, an adopted machine and one name on two hosts take
 different locks, and Alpha and alpha one; a run that names no machine and the runs that name one refuse each other;
 two runs over the same two machines in opposite orders never both refuse; the sections wait, a build for the clones and
-the clones for it, two creates one after the other, a wait ends at the run's stop, a section's clear clears its own wait
-alone, and a section is let go when its block raises; a holder killed with SIGKILL holds nothing and nothing is
-cleared; twenty runs at once on one machine let exactly one through; run_lock: fleet refuses any second run; exclusive
-and the runs refuse each other, and nothing is left held after its block. A refusal never fails on what it reads, a
-holder's start no clock can say among it, and names no exclusive's command, which its record may hold after it. A signal
-between the job and the ladder's handlers ends the run as the ladder says, and what a refused run's drop left is said.
+the clones for it, two creates one after the other, a wait ends at the run's stop and is cleared on its way out, a
+section's clear clears its own wait alone, and a section is let go when its block raises; a holder killed with SIGKILL
+holds nothing and nothing is cleared; twenty runs at once on one machine let exactly one through; run_lock: fleet
+refuses any second run; exclusive and the runs refuse each other, and nothing is left held after its block. A refusal
+never fails on what it reads, a holder's start no clock can say among it, and names no exclusive's command, which its
+record may hold after it. A signal between the job and the ladder's handlers ends the run as the ladder says, and what
+a refused run's drop left is said.
 
 The rules with a test of their own: no child of a run holds a lock (the child of a killed run, and C2's refusal of each
 lock's descriptor); no module of runs/ keeps a pid or reads a process to decide a lock; only this module and job.py
@@ -683,6 +684,32 @@ def test_a_section_s_clear_clears_its_own_wait_alone(own_job, home, state) -> No
     own_job.emit("waiting", "b", sign_in)
     own_job.emit("waiting", None, "")
     assert own_job.read()["waiting"] is None
+
+
+def test_a_section_s_wait_the_run_s_stop_ended_is_cleared_before_the_stop_leaves_it(own_job, home, state) -> None:
+    # A wait ended by the run's stop is cleared on its way out, never left in the record through the stop's grace, on a
+    # job that reads cancelling while another machine of the run goes on (C7.md 6).
+    ctx = SimpleNamespace(job=own_job, emit=own_job.emit, cancelled=asyncio.Event())
+    heard: list[jobs.Event] = []
+    own_job.listen(heard.append)
+    with _held_by_hand(home, state / paths.LOCKS / TEMPLATE, b"{}\n"):
+
+        async def enter() -> None:
+            async with locks.section(ctx, TEMPLATE, machine="a"):  # type: ignore[arg-type]
+                pytest.fail("the section was entered while another held it")
+
+        async def scenario() -> None:
+            entering = asyncio.ensure_future(enter())
+            await asyncio.wait_for(_until_waiting(state, own_job.id, TEMPLATE), 30)
+            ctx.cancelled.set()
+            with pytest.raises(asyncio.CancelledError):
+                await entering
+            # Cleared by the time the stop leaves the section, the run's own end not yet come.
+            assert own_job.read()["waiting"] is None
+
+        asyncio.run(scenario())
+    waits = [(event.machine, event.text, event.data) for event in heard if event.kind == "waiting"]
+    assert waits[-1] == ("a", "", {"section": TEMPLATE}) and len(waits) == 2, waits
 
 
 def test_a_section_is_let_go_when_its_block_raises(own_job, home, state) -> None:
