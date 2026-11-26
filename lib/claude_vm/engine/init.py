@@ -38,7 +38,13 @@ the folder itself is put in its place. Under the fleet's lock (the verb's row: `
 
 The names written where none is given are the engine's own, engine/access.py's (card E1; ruling B1, rule 1): the user
 `agent-warehouse@pve`, the token `aw` and the pool `aw-fleet`; and the first host is `pve`, as today's. The modes built
-by other cards are refused by name until they land: `--check` (E6) and `--machines` (J14).
+by other cards are refused by name until they land: `--machines` (J14).
+
+**The checks** (card E6, engine/init_checks.py): once the run has written, at a terminal or with nobody there, init
+checks the host as the fleet's files now open it and says one of today's `ok`, `!!`, `--` and `note` lines a check,
+settling the node, the storage and the bridge where the host's own settings.yml sets none, with nobody there alone (at
+a terminal the person's answers are the rule); it exits 1 exactly where a `!!` line was said. `aw init --check` runs
+the same checks under the same lock, takes no value but `--host`, and writes nothing.
 
 **The offer** (card E7), at a terminal alone, between the token's ID and its secret, once the certificate is settled:
 the access script, engine/access.py's `as_script` rendered for the host's values and the fleet's ID (fleet.json's where
@@ -129,7 +135,7 @@ from ..schema.words import EXITS, PLACEHOLDER, Line
 from ..secret import Secret
 from ..ssh import runner
 from ..text import banner, one_line, plain_text
-from . import access, certificate, report, routes
+from . import access, certificate, init_checks, report, routes
 
 if TYPE_CHECKING:
     from ..pve.client import Proxmox
@@ -156,7 +162,12 @@ BY_HAND = "administrator"
 BY_ENGINE = "engine"
 OWN_NAMES = {"pool": access.POOL, "user": access.USER, "token": f"{access.USER}!{access.TOKEN}"}
 # The modes of init built by other cards, refused by name until each lands.
-NOT_YET = {"check": "E6", "machines": "J14"}
+NOT_YET = {"machines": "J14"}
+# What init --check refuses beside it: every value init writes, and the other modes.
+CHECK_REFUSES = (
+    "address", "token_user", "token_id", "token_secret_file", "github_user", "storage", "bridge", "tailscale",
+    "certificate", "pool", "print_commands", "machines",
+)  # fmt: skip
 # The settings each host sets for itself that init writes where given or answered, in the order a sentence names them.
 HOST_OWN = ("proxmox_storage", "proxmox_bridge", "proxmox_pool", "proxmox_node")
 # The vault's entry of Tailscale's auth key, one for the fleet.
@@ -2328,7 +2339,6 @@ def _report(
     whose token read the pool's mark (made may record nothing then), or printed by the offer's script, which made or
     found the mark."""
     name = found.name
-    own = {} if found.layers.host is None else found.layers.host.settings
     lines = [] if settled is None else [settled.kept.said]
     offered = None if settled is None else settled.offered
     if offered is not None and offered.secret is not None:
@@ -2348,21 +2358,6 @@ def _report(
         )
     else:
         lines.append("nothing was made on the Proxmox host")
-    unset = [
-        setting
-        for setting, value in (
-            ("proxmox_node", typed.node),
-            ("proxmox_storage", typed.storage),
-            ("proxmox_bridge", typed.bridge),
-        )
-        if not value and own.get(setting) in (None, "")
-    ]
-    if settled is not None and unset and asking is None:
-        lines.append(
-            f"{', '.join(unset)} {'is' if len(unset) == 1 else 'are'} set for the host by init's checks on it (card E6,"
-            f" not built yet): until then write {'it' if len(unset) == 1 else 'them'} in"
-            f" {hosts.HOSTS_REL}/{name}/{overrides.SETTINGS}"
-        )
     if asking is not None and asking.left:
         lines.append(
             said(
@@ -2485,8 +2480,9 @@ async def _asked(
     running: Context, home: paths.Home, typed: Given, environ: Mapping[str, str], verbosity: object
 ) -> int:
     """init at a terminal, its run's body: drawn live from its events (INIT), what attended says of its writes said
-    above the region as one report (attended's own), and a refusal said as the stage's failure, with nothing written.
-    The exit status."""
+    above the region as one report (attended's own), and a refusal said as the stage's failure, with nothing written;
+    then the checks (card E6), their lines one report of matter init_check, its NEXT STEPS line what is left of them.
+    The exit status: the checks' where attended finished."""
     from claude_vm.runs import live
 
     counted = verbosity if isinstance(verbosity, int) and not isinstance(verbosity, bool) else 0
@@ -2496,7 +2492,10 @@ async def _asked(
     except Refused as refused:
         running.emit("stage", None, SETTINGS, outcome="failed", why=refused.sentence.removeprefix("error: "))
         return EXITS["refused"]
-    return EXITS["done"]
+    # At a terminal the person's answers are init's writing rule: the checks settle nothing they left for later.
+    checked, flag = await init_checks.check(home, typed.host, environ=environ, job=running.job, write=False)
+    report.say(running, None, "init_check", "\n".join(each.line for each in checked.checks), checked.next_line(flag))
+    return checked.exit
 
 
 def init(run: Any, **values: object) -> int:
@@ -2510,8 +2509,14 @@ def init(run: Any, **values: object) -> int:
         if values.get(field) is True:
             mode = {"line": _init(**{field: True}), "card": card}
             return _refused(said("error: {line} is not built yet (card {card} builds it)", mode))
-    if values.get("print_commands") is True:
+    if values.get("print_commands") is True and values.get("check") is not True:
         return print_commands(run, values)
+    checking = values.get("check") is True
+    given_too = [field for field in CHECK_REFUSES if checking and values.get(field) not in (None, False, "", ())]
+    if given_too:
+        flags = ", ".join(f"--{field.replace('_', '-')}" for field in given_too)
+        sentence = "error: {line} runs the checks alone and writes nothing: it takes no {flags}"
+        return _refused(said(sentence, {"line": _init(check=True), "flags": flags}))
     asks = values.get("no_prompt") is not True and _at_a_terminal()
     environ = dict(os.environ)
     try:
@@ -2527,15 +2532,18 @@ def init(run: Any, **values: object) -> int:
     from claude_vm.runs import locks
 
     async def body(running: Context) -> int:
-        if asks:
+        if asks and not checking:
             return await _asked(running, home, typed, environ, getattr(run, "verbosity", 0))
-        try:
-            lines = await unattended(home, typed, environ=environ, job=running.job)
-        except Refused as refused:
-            return _refused(refused.sentence)
-        for each in lines:
+        lines = []
+        if not checking:
+            try:
+                lines = await unattended(home, typed, environ=environ, job=running.job)
+            except Refused as refused:
+                return _refused(refused.sentence)
+        checked, flag = await init_checks.check(home, typed.host, environ=environ, job=running.job, write=not checking)
+        for each in [*lines, *checked.lines(flag)]:
             print(each)
-        return EXITS["done"]
+        return checked.exit
 
     detached = getattr(run, "detached_run", False) is True
     draft = runs.Draft(

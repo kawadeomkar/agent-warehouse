@@ -11,10 +11,12 @@ computer's ssh. Two things are written before and after it, each through its one
 fake's port, which no option of init's gives (a person with a port of their own writes it so), and with it the route
 to the host's VMs pinned to `vm_ssh_route: direct` (`pinned`), before init or anything else reads it, as every fleet a
 test makes pins it: under auto a run would ask this computer's ssh where it dials the host (engine/routes.py), and a
-test that reaches VMs through the host sets the route itself; and the host's node, which init's checks settle on the
-host (card E6) and which no option gives either. What it returns says where each thing is: the fleet's home, the host,
-the fleet's ID, the fake's address and port, the token's ID and secret (the fake's, made for the test), and the
-fingerprint kept.
+test that reaches VMs through the host sets the route itself; and the host's node, which no option gives either, and
+which init's checks (card E6) settle only where they can tell it. init ends with those checks, which against the fake,
+no whole host (the role on the pool alone, no template of the engine's, no SSH key), say problems: init then exits 1,
+exactly where they said a `!!` line, and the folder is written all the same. What it returns says where each thing is:
+the fleet's home, the host, the fleet's ID, the fake's address and port, the token's ID and secret (the fake's, made
+for the test), and the fingerprint kept.
 
 The folder is the test's own: AGENT_WAREHOUSE_HOME (tests/unit/conftest.py's aw_home), so a test calls it with the kit's
 `home` fixture made. Nothing here reaches a network but the fake on loopback, nor this computer's ssh, ~/.ssh or
@@ -34,6 +36,8 @@ from aw_machine import ssh_stand_in
 from harness import ENGINE_POOL, ENGINE_TOKEN, ENGINE_USER, REPO, _pve, engine_token
 
 from claude_vm import trust
+from claude_vm.engine.init_checks import PREFIX
+from claude_vm.engine.init_checks import PROBLEM as PROBLEM_STATE
 from claude_vm.engine.record import Record
 from claude_vm.fleet import hosts, mark, overrides, paths, record
 from claude_vm.pve import record as block
@@ -45,6 +49,8 @@ ROUTE = "vm_ssh_route"
 NODE = "pve"
 STORAGE = "local-lvm"
 BRIDGE = "vmbr0"
+# The prefix of a line of init's checks that says a problem for deploy.
+PROBLEM = PREFIX[PROBLEM_STATE]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -163,7 +169,7 @@ def whole_fleet(
         home=home,
         first_on_path=(refusing_ssh(home),),
     )
-    assert ran.returncode == 0, ran
+    assert ran.returncode == (1 if PROBLEM in ran.stdout else 0), ran
     where = paths.home(REPO)
     overrides.set(where, "proxmox_node", node, host, overrides.read(where, host).host.digest)
     return Fleet(where.root, host, fleet, base, port, token, secret, fingerprint)
