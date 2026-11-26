@@ -55,7 +55,7 @@ from ..schema.printer import line, said
 from ..schema.words import EXITS, Line
 from ..text import banner, one_line
 from ..vendors.transport import TransportError, Unknown
-from . import confirm, fleet
+from . import confirm, fleet, report
 
 if TYPE_CHECKING:
     from ..runs.attached import Context
@@ -82,6 +82,8 @@ DECLINED = "Nothing was deleted: the deletion was not confirmed."
 UNASKED = "Nothing was deleted: the deletion was not confirmed. With no terminal to ask at, {line} answers it."
 # A VM's line where it was deleted: the view says it under the VM's name.
 DELETED = "deleted, with its disks."
+# NEXT STEPS' matter of every report destroy says (engine/report.py's say): today's, a VM not deleted leaving its line.
+MATTER = "destroy"
 # The settings whose work this card does not do yet, each with the card that does it.
 NOT_YET = {"destroy_save_sessions": "G13", "destroy_release": "G14"}
 
@@ -264,15 +266,17 @@ async def delete(ctx: Context, host: fleet.Host, names: Sequence[str], how: How)
     ctx.emit("stage", None, CHECK)
     found = await _call(_read, host, names, how)
     for said_line in found.said:
-        ctx.emit("report", None, said_line)
+        report.say(ctx, None, MATTER, said_line, "")
     targets = found.targets
     for target in targets:
         if target.record is None:
-            ctx.emit(
-                "report",
+            report.say(
+                ctx,
                 None,
+                MATTER,
                 f"{target.said} has no record of this fleet's: it is deleted only because destroy_allow_unrecorded"
                 " is on.",
+                "",
             )
     if how.confirmed:
         ctx.emit("step", None, f"confirmed by --confirm: {', '.join(names)}")
@@ -283,7 +287,7 @@ async def delete(ctx: Context, host: fleet.Host, names: Sequence[str], how: How)
         if why is not None:
             # The person's answer, said in today's words and never as a failure: the check done, nothing deleted.
             ctx.emit("stage", None, CHECK, outcome="done")
-            ctx.emit("report", None, DECLINED + why)
+            report.say(ctx, None, MATTER, DECLINED + why, "")
             return EXITS["refused"]
     ctx.emit("stage", None, CHECK, outcome="done")
     import asyncio
@@ -302,7 +306,7 @@ def _warned(ctx: Context, key: str, status: object) -> None:
         lines = " | ".join(getattr(status, "lines", ()) or ())
         kind = getattr(getattr(status, "task", None), "kind", "") or "its"
         ended = f"Proxmox's {kind} task ended with {warnings} warning(s)"
-        ctx.emit("report", key, ended + (f": {lines}" if lines else ""))
+        report.say(ctx, key, MATTER, ended + (f": {lines}" if lines else ""), "")
 
 
 async def _stop(ctx: Context, host: fleet.Host, owned: fleet.Owned, key: str) -> None:
@@ -402,7 +406,7 @@ async def _one(ctx: Context, host: fleet.Host, target: fleet.Target, how: How) -
         why = f"its deletion failed ({one_line(fleet.sentence(error), None).rstrip('.')})"
         return _not_deleted(ctx, key, why, again)
     ctx.emit("stage", key, DELETE, outcome="done")
-    ctx.emit("report", key, DELETED)
+    report.say(ctx, key, MATTER, DELETED, "")
     ctx.emit("end", key, "deleted", outcome="succeeded")
     return "deleted"
 
@@ -414,7 +418,7 @@ def _not_deleted(ctx: Context, key: str, why: str, again: Line) -> str:
         {"why": why, "line": again},
     )
     if ctx.cancelled.is_set():
-        ctx.emit("report", key, text)
+        report.say(ctx, key, MATTER, text, line(again.verb, again.values, refused=False, host_flag=again.host_flag))
         ctx.emit("end", key, "stopped", outcome="cancelled")
         return "cancelled"
     ctx.emit("stage", key, DELETE, outcome="failed", why=text)

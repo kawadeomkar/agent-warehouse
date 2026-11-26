@@ -1190,7 +1190,9 @@ line that answers it, exit 1. In the run, the live view made first:
 
 Every VM is said in one line, which the view draws under its name: `deleted, with its disks.`, or `not deleted - <why>,
 so it is still there: run aw destroy <name> again once that is fixed.` The run exits 0 where every VM was deleted, 2
-(`EXITS`' `failed`) where one was not, the others gone on, and 130 where a person stopped it. The VM's line in the
+(`EXITS`' `failed`) where one was not, the others gone on, and 130 where a person stopped it. Each report goes
+through `report.py`'s `say`, matter `destroy`: a VM a stopped run left records `aw destroy <name>`, with the host's
+flag, as its NEXT STEPS line; every other report, none. The VM's line in the
 product's known-hosts file stays, the tombstone of its identity; nothing here writes a record, an alias (card G8) or a
 session. `tests/unit/test_aw_destroy.py` holds it on a whole fleet folder against the fake: a VM and its disks deleted
 after its stop, a stopped one with none; the refusal while either setting is on, and the declined deletion with no
