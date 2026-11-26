@@ -5,7 +5,10 @@ One definition for both who say it: the roles' own reports (roles/github_project
 roles/tailscale/tasks/report.yml, through filter_plugins/status.py), and just status, which reads the same state its
 own way (claude_vm.status.found) and shows the same line. NEXT STEPS and the report never say two things of one VM.
 
-Nothing here reads or writes anything, and no token or key reaches it: each takes whether one is set.
+Nothing here reads or writes anything, and no token or key reaches it: each takes whether one is set. A command a
+line names is given in its facts (configure_command, login_command), made by the caller with the host's flag; where a
+sentence names the program itself, its name is the parameter program: just for today's roles and just status, by
+default, so that what they say does not change, and aw from the new engine, until the cutover removes the default.
 """
 
 from __future__ import annotations
@@ -160,10 +163,10 @@ def _tailscale_expired(facts):
     )
 
 
-def _tailscale_needs_login(facts):
+def _tailscale_needs_login(facts, program):
     configure, login, method = facts["configure_command"], facts["login_command"], facts["auth_method"]
     if facts["sign_in_follows"] and method != "key":
-        return "Tailscale is installed; just deploy signs it in next, in this run."
+        return f"Tailscale is installed; {program} deploy signs it in next, in this run."
     if method == "key" and facts["key_held_back"]:
         return (
             "Tailscale is installed but not signed in, and vault_tailscale_auth_key is not sent again to a VM that"
@@ -178,11 +181,11 @@ def _tailscale_needs_login(facts):
     if facts["key_held_back"]:
         after = "; vault_tailscale_auth_key is not sent again to a VM that joined before."
     elif method == "auto":
-        after = "; vault_tailscale_auth_key joins it on the next just deploy --only configure."
+        after = f"; vault_tailscale_auth_key joins it on the next {program} deploy --only configure."
     return f"Tailscale is installed but not signed in. {login} signs it in from your browser{after}"
 
 
-def _tailscale_line(case, facts):
+def _tailscale_line(case, facts, program):
     """One line: how the VM is on Tailscale, and the command that does the next thing where there is one. What the VM
     reports - its name, its tailnet - goes through plain_text, since the VM's user chooses it. The tailnet is said so
     that a login someone else approved first shows by a name the user knows; not under a control server of the user's
@@ -195,7 +198,7 @@ def _tailscale_line(case, facts):
     where = f"{tailnet}as {shown} ({facts['ipv4'] or 'no IPv4 address yet'})"
     configure, login, admin = facts["configure_command"], facts["login_command"], facts["admin_page"]
     # Check mode's alone: just status reads no run in check mode, and names no such command.
-    again = facts.get("reconfigure_command") or f"just deploy {vm} --only configure"
+    again = facts.get("reconfigure_command") or f"{program} deploy {vm} --only configure"
     if case == "check-no-package":
         return f"Tailscale is not installed, and check mode installs nothing; {again} installs it."
     if case == "check-daemon-down":
@@ -256,18 +259,19 @@ def _tailscale_line(case, facts):
             f" approve it; {login} gives a fresh page."
         )
     if case == "NeedsLogin":
-        return _tailscale_needs_login(facts)
+        return _tailscale_needs_login(facts, program)
     return f"Tailscale is {backend}."
 
 
-def tailscale_report(facts):
+def tailscale_report(facts, program="just"):
     """How the VM is on Tailscale, as {"case", "line", "left"}. ``left`` is whether NEXT STEPS records the line: a page
     waiting, a login expired, a key refused, a node stopped or still connecting, an approval or a sign-in to come, a
-    name taken or tags missing; never a node that runs as it should, or a Tailscale this role leaves alone."""
+    name taken or tags missing; never a node that runs as it should, or a Tailscale this role leaves alone. program is
+    the name the line's own words give the program (the module's docstring)."""
     case = _tailscale_case(facts)
     left = (
         case in TAILSCALE_OPEN
         or (case == "NeedsLogin" and not (facts["sign_in_follows"] and facts["auth_method"] != "key"))
         or (case == "Running" and bool(facts["name_taken"] or facts["tags_missing"]))
     )
-    return {"case": case, "line": _tailscale_line(case, facts), "left": left}
+    return {"case": case, "line": _tailscale_line(case, facts, program), "left": left}

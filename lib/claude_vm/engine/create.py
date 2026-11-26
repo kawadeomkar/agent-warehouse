@@ -70,14 +70,14 @@ from ..pve.answers import Task, VmConfig
 from ..pve.client import Exists, ProxmoxError
 from ..runs import lock_sets
 from ..runs.stages import Declared, Stage, Step
-from ..schema import patterns
+from ..schema import patterns, printer
 from ..schema.printer import said
 from ..schema.words import Line
 from ..secret import Secret
 from ..ssh import hostkeys, runner
 from ..text import one_line
 from ..vendors.transport import TransportError, Unknown
-from . import fleet, record, routes, template
+from . import fleet, record, report, routes, template
 
 if TYPE_CHECKING:
     from ..runs.attached import Context
@@ -485,7 +485,7 @@ class Making:
         if warnings:
             lines = " | ".join(getattr(status, "lines", ()) or ())
             ended = f"{self.name}: Proxmox's task ended with {warnings} warning(s)"
-            self.emit("report", ended + (f": {lines}" if lines else ""))
+            report.say(self.ctx, self.key, "vm", ended + (f": {lines}" if lines else ""), "")
 
     async def _own(self, task: Task) -> None:
         """Step 4: the new member owned by this run's job and its own clone's task, its record and its label written,
@@ -558,8 +558,10 @@ class Making:
         running = (await self.call(client.current, target.node, target.vmid)).status == "running"
         if not running and not needs:
             if not self.plan.start:
-                filled = {"name": self.name, "vmid": target.vmid, "line": self.line(start=True)}
-                self.emit("report", said(LEFT_STOPPED, filled))
+                start = self.line(start=True)
+                filled = {"name": self.name, "vmid": target.vmid, "line": start}
+                left = printer.line(start.verb, start.values, refused=False, host_flag=start.host_flag)
+                report.say(self.ctx, self.key, "vm", said(LEFT_STOPPED, filled), left)
                 self.ended_as = "left stopped"
                 return
             await self._start(owned)
@@ -635,7 +637,7 @@ class Making:
             raise Failed(" ".join(requested.said) or f"{self.name} reported no address")
         self.target = read
         self.step("address", "done")
-        self.emit("report", f"{self.name} is up at {read.address}")
+        report.say(self.ctx, self.key, "vm", f"{self.name} is up at {read.address}", "")
         return read.address
 
     async def _key(self, address: str) -> None:
@@ -704,7 +706,7 @@ async def provision(ctx: Context, host: fleet.Host, names: Sequence[str], plan: 
 
     requested = await asyncio.to_thread(fleet.requested, host, tuple(names), create=True, change=True)
     for line in requested.said:
-        ctx.emit("report", None, line)
+        report.say(ctx, None, "fleet", line, "")
     route = await routes.settle(ctx, host)
     source = None
     if requested.new:

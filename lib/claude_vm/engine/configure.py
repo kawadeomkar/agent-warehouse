@@ -52,6 +52,7 @@ from .. import sessions
 from ..guest import layer1, system, wiring
 from ..pve.client import ProxmoxError
 from ..runs.stages import Declared, Stage, Step
+from ..schema import printer
 from ..schema.printer import said
 from ..schema.rules import CONFIGURE_ROLES
 from ..schema.words import Line
@@ -59,7 +60,7 @@ from ..secret import Secret
 from ..ssh import runner
 from ..text import one_line
 from ..vendors.transport import TransportError
-from . import fleet, record, routes
+from . import fleet, record, report, routes
 
 if TYPE_CHECKING:
     from ..runs import job as jobs
@@ -334,13 +335,10 @@ class Configuring:
             raise Failed(said(NOT_PROVISIONED, filled))
         if not target.running:
             if not self.plan.start:
-                filled = {
-                    "name": self.name,
-                    "vmid": target.vmid,
-                    "start": self.provision_line(start=True),
-                    "line": self.line(),
-                }
-                self.emit("report", said(LEFT_STOPPED, filled))
+                start = self.provision_line(start=True)
+                filled = {"name": self.name, "vmid": target.vmid, "start": start, "line": self.line()}
+                left = printer.line(start.verb, start.values, refused=False, host_flag=start.host_flag)
+                report.say(self.ctx, self.key, "vm", said(LEFT_STOPPED, filled), left)
                 self.ended_as = "left stopped"
                 return
             await self._start()
@@ -352,7 +350,8 @@ class Configuring:
         await self._home(reached)
         stage = stage_after(ran)
         if self.plan.unrun:
-            self.emit("report", NOT_RUN.format(name=self.name, parts=_listed(self.plan.unrun), card=LAYER_2_CARD))
+            unrun = NOT_RUN.format(name=self.name, parts=_listed(self.plan.unrun), card=LAYER_2_CARD)
+            report.say(self.ctx, self.key, "configure", unrun, "")
         if stage is not None and stage != self.stage:
             await self._record(stage)
         self.ended_as = f"configured, {self.stage}" if self.stage else "configured"
@@ -517,7 +516,7 @@ async def configure(ctx: Context, host: fleet.Host, names: Sequence[str], plan: 
 
     requested = await asyncio.to_thread(fleet.requested, host, tuple(names), change=True)
     for line in requested.said:
-        ctx.emit("report", None, line)
+        report.say(ctx, None, "fleet", line, "")
     route = await routes.settle(ctx, host)
     failures = Failures()
     ctx.job.listen(failures)

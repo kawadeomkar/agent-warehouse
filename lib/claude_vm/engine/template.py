@@ -107,7 +107,7 @@ from ..ssh import runner
 from ..text import one_line
 from ..vendors import downloads, proxy, trust
 from ..vendors.transport import TransportError
-from . import record, routes
+from . import record, report, routes
 
 if TYPE_CHECKING:
     from ..runs.attached import Context
@@ -642,7 +642,7 @@ async def build(
         if found.outcome == SAME or (found.outcome == DIFFERENT and not found.rebuild):
             return found
         if found.outcome == DIFFERENT:
-            ctx.emit("report", None, f"{found.said()} It is rebuilt, at the same ID.")
+            report.say(ctx, None, "template", f"{found.said()} It is rebuilt, at the same ID.", "")
         digest = await _digest(settings, image, host.environ)
         made = _Made(host.layout, host.name)
         made_uuid = str(uuid.uuid4())
@@ -694,7 +694,7 @@ async def build(
                 f'The template "{base.name}" ({base.template_id}) was built but reads back as other than its settings '
                 f"would build it - {built.said()} - so every run would rebuild it."
             )
-        ctx.emit("report", None, f'The base template "{base.name}" ({base.template_id}) was built.')
+        report.say(ctx, None, "template", f'The base template "{base.name}" ({base.template_id}) was built.', "")
         return built
 
 

@@ -129,7 +129,7 @@ from ..schema.words import EXITS, PLACEHOLDER, Line
 from ..secret import Secret
 from ..ssh import runner
 from ..text import banner, one_line, plain_text
-from . import access, certificate, routes
+from . import access, certificate, report, routes
 
 if TYPE_CHECKING:
     from ..pve.client import Proxmox
@@ -860,8 +860,9 @@ class _Asking:
         self.step(key, outcome)
 
     def say(self, text: str) -> None:
-        """A line said above the region, whole."""
-        self.running.emit("report", None, text)
+        """A line said above the region, whole: init's settings, which leaves NEXT STEPS nothing until the run's
+        last lines say what was left."""
+        report.say(self.running, None, "init_settings", text, "")
 
     async def ask(
         self, text: str, default: str | Secret, choices: Sequence[Choice | str] = (), hidden: bool = False
@@ -1909,18 +1910,16 @@ async def attended(
     """The fleet's folder written at the run's terminal, its caller holding the fleet's lock: each question whose value
     is unset asked through runs/ask.py, as the module's docstring says, every answer then a value given, as unattended
     takes one; each question a step of init's one stage (INIT). The lines that say what was written and what was left,
-    which is also in NEXT STEPS. Refused as unattended is, with nothing written."""
+    which is also in NEXT STEPS: said as one report once the stage is done, with the line that asks again for what was
+    left. Refused as unattended is, with nothing written."""
     asking = _Asking(running)
     running.emit("stage", None, SETTINGS)
     lines = await _run(home, typed, environ=environ, job=running.job, root_ssh=root_ssh, asking=asking)
-    if asking.left:
-        running.emit(
-            "next",
-            None,
-            said("{init}   asks again for {left}", {"init": _init(), "left": _listed_words(asking.left)}),
-            matter="init",
-        )
     running.emit("stage", None, SETTINGS, outcome="done")
+    again = ""
+    if asking.left:
+        again = said("{init}   asks again for {left}", {"init": _init(), "left": _listed_words(asking.left)})
+    report.say(running, None, "init_settings", "\n".join(lines), again)
     return lines
 
 
@@ -2486,18 +2485,17 @@ async def _asked(
     running: Context, home: paths.Home, typed: Given, environ: Mapping[str, str], verbosity: object
 ) -> int:
     """init at a terminal, its run's body: drawn live from its events (INIT), what attended says of its writes said
-    above the region as one report, and a refusal said as the stage's failure, with nothing written. The exit
-    status."""
+    above the region as one report (attended's own), and a refusal said as the stage's failure, with nothing written.
+    The exit status."""
     from claude_vm.runs import live
 
     counted = verbosity if isinstance(verbosity, int) and not isinstance(verbosity, bool) else 0
     live.Live(running.job, INIT, sys.stdout, verbosity=counted, cancelled=running.cancelled)
     try:
-        lines = await attended(home, typed, running=running, environ=environ)
+        await attended(home, typed, running=running, environ=environ)
     except Refused as refused:
         running.emit("stage", None, SETTINGS, outcome="failed", why=refused.sentence.removeprefix("error: "))
         return EXITS["refused"]
-    running.emit("report", None, "\n".join(lines))
     return EXITS["done"]
 
 
