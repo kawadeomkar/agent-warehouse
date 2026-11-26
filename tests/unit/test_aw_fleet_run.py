@@ -323,6 +323,8 @@ def test_the_runner_s_task_cancelled_with_no_stop_set_lets_no_machine_begin_afte
 
             async def body(machine: str) -> str:
                 begun.append(machine)
+                # One step on the loop, so that each machine's turn is handed to the next in a turn of its own.
+                await asyncio.sleep(0)
                 return "done"
 
             running = asyncio.ensure_future(fleet_run.one_at_a_time(ctx, machines, body))  # type: ignore[arg-type]
@@ -343,7 +345,8 @@ def test_the_runner_s_task_cancelled_with_no_stop_set_lets_no_machine_begin_afte
         assert begun == at_the_cancel, (turns, at_the_cancel, begun)
     else:
         pytest.fail("the run never ended within the turns tried")
-    assert turns > 4, turns
+    # The cancel was tried at every turn of a run that took more than two turns a machine.
+    assert turns > 2 * len(machines), turns
 
 
 def test_a_stage_reached_before_the_runner_ran_is_the_one_its_end_keeps(own) -> None:
