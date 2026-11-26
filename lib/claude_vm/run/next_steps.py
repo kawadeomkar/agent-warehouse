@@ -7,11 +7,19 @@ engine at the end of a run in parts, the same way. Pure: nothing read or written
 
 # The set_stats names the report tasks record under, each owner's own prefix,
 # and the order a VM's matters are listed in: just init's two first, as it comes first.
+# The new engine's own matters (its reports' say), which no report of
+# today's records, so today's lines and their order stay as they are: what a fleet's
+# read left out, the route's notes and the base template, after init's two and before
+# vm, as a deploy reaches them; layer 1's parts of a configure after vm, before claude.
 NEXT_STATS = ("claude_vm_next", "claude_code_next", "github_projects_next", "tailscale_next", "vpn_next", "code_next")
 MATTERS = (
     "init_settings",
     "init_check",
+    "fleet",
+    "route",
+    "template",
     "vm",
+    "configure",
     "claude",
     "remote_control",
     "github",

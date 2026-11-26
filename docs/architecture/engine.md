@@ -1246,6 +1246,23 @@ names reaching every VM; a failed task, cloud-init's, a planted callback, the ru
 started where the plan says; and, over the stand-in's real connection, a configure through the stand-in hop, and a hop
 refused that stops before the VM.
 
+**What a run says, and NEXT STEPS: `report.py`.** `say(run, machine, matter, text, line)` is the one way a workflow or a
+layer-2 step tells a person something: it emits the `report`, printed above the region and kept for the summary, and
+straight after it the `next` record of that machine and matter, the line while something is left and `""` once nothing
+is, which takes back a line an earlier report of the same machine and matter left. So NEXT STEPS is recorded by each
+report and never read off what was said, as today's report tasks record theirs
+([§7.5](custom-code.md#75-callback_pluginsagent_warehousepy--the-waits-and-next-steps)). The machine is its identity, or a VM's stand-in key until its join, or none for the
+run's own; the matter is one of `run/next_steps.py`'s `MATTERS`, today's and the engine's own, which no report of today's
+records, each at a named place (`fleet`, `route` and `template` after `init`'s two, `configure` after `vm`), so today's
+NEXT STEPS keeps its lines and their order. The line is the printer's whole line, or a sentence `said` writes, made by
+the caller with the host's flag, so that with more than one host it ends `--host <name>`, and handed on whole: one line,
+never a form. The run's model folds the records in today's order and the run's end prints them after the summary, which
+leaves them out, under NEXT STEPS (§16.8). Where `status/lines.py`'s words name the program, its name is the parameter
+`program`, `just` for today's callers by default and `aw` from this engine. `tests/unit/test_aw_report.py` holds it: a
+syntax-tree scan of `engine/` and `guest/` for a `report` or `next` event emitted any other way; a configure of two of
+the stand-in machines printing a summary line each and the NEXT STEPS block in today's order, each line ending with its
+host where the fleet has two; and the order of the engine's matters beside today's.
+
 ## 16.5 `pve/` — the typed Proxmox client and the one table of privileges
 
 `lib/claude_vm/pve/` is where the typed client of the Proxmox VE API goes, with the one table that names each call's

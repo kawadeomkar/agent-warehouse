@@ -58,7 +58,7 @@ from ..schema.printer import said
 from ..schema.words import Line
 from ..ssh import connections, runner
 from ..text import one_line
-from . import fleet
+from . import fleet, report
 
 if TYPE_CHECKING:
     import asyncio
@@ -222,7 +222,7 @@ class Route:
         """line, said once a run as its report."""
         if line and line not in self.said:
             self.said.append(line)
-            self.run.emit("report", None, line)
+            report.say(self.run, None, "route", line, "")
 
     def say_notes(self) -> None:
         """Each of the connections' notes not said yet (a socket's path too long), once a run."""

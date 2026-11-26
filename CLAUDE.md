@@ -1502,6 +1502,11 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   from. The harness's runs never load the callback - their `ansible.cfg` holds only
   `inject_facts_as_vars = false`, and the JSON callback shows custom stats, which `_left_to_do` reads
   ([§7.5](docs/architecture/custom-code.md#75-callback_pluginsagent_warehousepy--the-waits-and-next-steps)).
+    - In the new engine, `lib/claude_vm/engine/report.py`'s `say` is the one way a workflow or a layer-2 step says
+      something: the `report` event, then straight after it the `next` record of that machine and matter (one of
+      `MATTERS`), the printer's whole line or `""`, never a form. `tests/unit/test_aw_report.py` fails on a `report` or
+      `next` event emitted any other way in `engine/` or `guest/`, and on a line that names a VM and not its host with
+      two hosts ([§16.4](docs/architecture/engine.md#164-engine--the-workflows-one-module-a-verb)).
 - **Discovery is a playbook, not the `community.proxmox` inventory plugin.** Decided, not open
   ([§15.1](docs/architecture/decisions.md#151-discovery-stays-a-playbook-not-the-inventory-plugin)).
 - **Fleet listings read `/cluster/resources`, never an unfiltered `proxmox_vm_info`**, which fails for every VM
