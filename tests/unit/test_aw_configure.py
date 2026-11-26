@@ -5,28 +5,32 @@ Without the fake: the parts a configure asks for and runs (Plan), a part of laye
 record takes (finished only once one configure ran all six of today's parts), the home read from getent's line, and the
 failures heard from layer 1's events.
 
-On a whole fleet folder against the fake Proxmox, each VM made first by G3's `aw deploy --only provision` and reached
-at a stand-in machine (tests/unit/aw_machine.py), its key filed under its identity. Through `aw deploy` as a person runs
+On a whole fleet folder against the fake Proxmox, each VM made first by G3's `aw deploy --only provision` and reached at
+a stand-in machine (tests/unit/aw_machine.py), its key filed under its identity. Through `aw deploy` as a person runs
 it: a stopped VM left stopped and never reached; a VM with no key filed refused before any connection, with the line
 that files it; a --tags naming a part of layer 2 refused naming G9, before anything is read; a VM the fleet may not
-change refused before any connection where it is named, and left out and said where none is. In this process, through
-the frame, the system play swapped for a play of one task a part that touches only the stand-in's own directory and run
-over F3's test-only local connection (F30's layer1_host), which the test alone hands layer 1 (the real roles converge
-only in F6's molecule/system/ scenario, never here): a VM left by G3 has its three parts run, stays unfinished with the
-three of layer 2 named, its digest empty and nothing written, its user's home and workspace read, every connection to it
-by its identity, its key checked strictly and the person's vm_ssh_options given; --tags common runs that part alone and
---tags with no names finds every VM (tests/unit/test_configure_tags.py's case); a failed task fails the VM naming the
-task, cloud-init's in this engine's lines; a callback of the product's name beside the play, which ran in its place,
-refused; every secret the run holds struck from what layer 1 says; a stopped VM started where the plan says. And, over
-the stand-in's real SSH connection (as G7 proved its route), a configure through the stand-in hop reaches the VM only
+change refused before any connection where it is named, and left out and said where none is. Beside a run's locks held
+in this process: a configure that names no VM refused beside a run on one, as are a configure and a provision of delta,
+and a configure of delta beside a run that holds the whole fleet. In this process, through the frame, the system play
+swapped for a play of one task a part that touches only the stand-in's own directory and run over F3's test-only local
+connection (F30's layer1_host), which the test alone hands layer 1 (the real roles converge only in F6's
+molecule/system/ scenario, never here): a VM left by G3 has its three parts run, stays unfinished with the three of
+layer 2 named, its digest empty and nothing written, its user's home and workspace read, every connection to it by its
+identity, its key checked strictly and the person's vm_ssh_options given; --tags common runs that part alone and --tags
+with no names finds every VM (tests/unit/test_configure_tags.py's case); a failed task fails the VM naming the task,
+cloud-init's in this engine's lines; a callback of the product's name beside the play, which ran in its place, refused;
+every secret the run holds struck from what layer 1 says; a stopped VM started where the plan says. And, over the
+stand-in's real SSH connection (as G7 proved its route), a configure through the stand-in hop reaches the VM only
 through it, and with the hop's login refused stops before the VM.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import json
+import os
 import shutil
 import tempfile
 import threading
@@ -50,7 +54,7 @@ from claude_vm.guest import layer1, system
 from claude_vm.hosts.model import Request
 from claude_vm.pve import record as block
 from claude_vm.runs import job as jobs
-from claude_vm.runs import model, rundir
+from claude_vm.runs import locks, model, rundir
 from claude_vm.schema.rules import CONFIGURE_ROLES
 from claude_vm.schema.words import EXITS
 
@@ -221,6 +225,46 @@ def test_a_vm_the_fleet_may_not_change_is_refused_named_and_left_out_unnamed_bef
     _ok(ran)
     assert f"Left out: the record in VM {vmid}'s notes" in _said(ran), _said(ran)
     assert len(machine.calls()) == calls and made.writes(sent) == []
+
+
+@contextlib.contextmanager
+def _holding(*names: str) -> Iterator[jobs.Job]:
+    """A run beside the test's, its locks held in this process as a run's are: each VM named's, under the fleet's
+    shared, or the fleet's whole where none is. Let go, and its job dropped, at the end."""
+    holder = jobs.create(
+        paths.jobs_dir(paths.home(REPO)), "deploy", "aw deploy", "pve", list(names), {"kind": "terminal"}, True
+    )
+    try:
+        locks.take(holder, "machines", [("pve", name) for name in names], "machine")
+        yield holder
+    finally:
+        for _, held, _ in locks._TAKEN.pop(jobs._key(holder.folder), []):
+            os.close(held)
+        jobs.drop(holder)
+
+
+def test_a_configure_that_names_no_vm_holds_the_fleet_s_lock_whole_and_one_that_names_one_its_lock(made) -> None:
+    # Two runs never configure one VM at once (review 75's finding 1, its probe P8): a configure that names none
+    # reaches every VM, so it is refused beside any run on one, and one that names delta beside a run that holds the
+    # whole fleet.
+    [(vmid, machine)] = _provisioned(made, "delta").values()
+    calls, sent = len(machine.calls()), len(made.sent())
+    with _holding("delta") as holder:
+        ran = _aw(made, "delta", "--only", "configure")
+        _ok(ran, EXITS["refused"])
+        assert f"error: delta on pve is held by job {holder.id}" in _said(ran), _said(ran)
+        ran = _aw(made, "--only", "configure")
+        _ok(ran, EXITS["refused"])
+        assert "error: runs on machines of this fleet are under way, and this run needs the whole fleet" in _said(ran)
+        ran = _aw(made, "delta", "--only", "provision")
+        _ok(ran, EXITS["refused"])
+        assert f"error: delta on pve is held by job {holder.id}" in _said(ran), _said(ran)
+    with _holding() as holder:
+        ran = _aw(made, "delta", "--only", "configure")
+        _ok(ran, EXITS["refused"])
+        assert f"error: the fleet is held by job {holder.id}" in _said(ran), _said(ran)
+    assert len(machine.calls()) == calls and made.writes(sent) == []
+    assert made.record(vmid).converged == ""
 
 
 # ---------------------------------------------------------------- the frame, in this process ----
