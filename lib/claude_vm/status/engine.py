@@ -476,6 +476,9 @@ def _aliases(fleet):
 class Run:
     """One run: the fleet read, each VM read beside it, each piece drawn as it lands."""
 
+    # A VM's commands cut to a field's length on today's road, kept whole on aw's (model.status_clean).
+    commands = model.FIELD_LIMIT
+
     def __init__(self, opts, screen, config, reader=None, program="just"):
         self.opts = opts
         self.reader = reader or Tagged()
@@ -485,9 +488,11 @@ class Run:
         self.names = config["run"]["names"]
         self.sections = list(screen.sections)
         self.settings = {**self.fleet["settings"], "names": self.names, "sections": self.sections}
-        # The program Tailscale's line names where it names one of its own (lines.py's tailscale_report).
+        # The program Tailscale's line names where it names one of its own (lines.py's tailscale_report), and on aw's
+        # road a VM's commands kept whole.
         if program != "just":
             self.settings["program"] = program
+            self.commands = model.LINE_LIMIT
         self.over_ssh = model.status_needs_ssh(self.sections)
         self.cache = Path(opts.cache) if opts.cache else None
         self.known = (settings.read_json(self.cache / "upgrades.json") or {}) if self.cache else {}
@@ -532,7 +537,7 @@ class Run:
 
         def land(read):
             part = vm_found.ssh_found(read, vm_settings, name, host, sections, joined_before)
-            self.screen.land(name, model.status_clean({"ssh": {**part, **route}}), merge=True)
+            self.screen.land(name, self.clean({"ssh": {**part, **route}}), merge=True)
 
         def early(read):
             try:
@@ -566,7 +571,7 @@ class Run:
             {"unreachable": True, "msg": said}, vm_settings, name, how["host"], self.sections, joined_before
         )
         part.update(refusal="hop", hop_hint=hint)
-        self.screen.land(name, model.status_clean({"ssh": part}), merge=True)
+        self.screen.land(name, self.clean({"ssh": part}), merge=True)
 
     # --- the route through the Proxmox host ------------------------------------------------------------------------
     def settle_route(self):
@@ -668,12 +673,16 @@ class Run:
         """The pool the probes run in: no more connections at once than Ansible's forks would open."""
         return ThreadPoolExecutor(max_workers=max(1, min(count, int(self.fleet["forks"]))))
 
+    def clean(self, value):
+        """``value`` made plain text for the screen, a VM's commands cut to this road's length."""
+        return model.status_clean(value, commands=self.commands)
+
     # --- the fleet ------------------------------------------------------------------------------------------------
     def unread(self, unread, hint):
         fleet = model.status_fleet(
             None, settings={**self.settings, "proxmox_hint": hint}, unread=unread, hosts=self.fleet["hosts"]
         )
-        self.screen.land("localhost", {"fleet": model.status_clean(fleet)})
+        self.screen.land("localhost", {"fleet": self.clean(fleet)})
 
     def from_listing(self):
         api = Proxmox(self.fleet)
@@ -707,7 +716,7 @@ class Run:
         if tagged is None:
             return
         requested = [one for one in tagged if "name" in one and one["name"] in self.names] if self.names else tagged
-        early = model.status_clean(
+        early = self.clean(
             self.reader.fleet(
                 self,
                 model.status_fleet(
@@ -897,7 +906,7 @@ class Run:
                     self.reader.wanted(self, settings.for_vm(self.config, name), listed, listed.get("config")),
                 ),
             }
-            self.screen.land(name, model.status_clean(part), merge=True)
+            self.screen.land(name, self.clean(part), merge=True)
         return {"args": args, "hop_landed": landed}
 
     def fleet_whole(self, data, tagged, requested, lists, results):
@@ -915,7 +924,7 @@ class Run:
         # A template the user built is compared with nothing: the project never rebuilds it.
         if template_config.get("status") == 200 and not self.settings.get("template_custom"):
             drift = proxmox_reads.proxmox_template_drift(_data(template_config), self.fleet["template_wanted"])
-        whole = model.status_clean(
+        whole = self.clean(
             self.reader.fleet(
                 self,
                 model.status_fleet(
@@ -942,7 +951,7 @@ class Run:
     def from_inventory(self):
         """Discovery off: no Proxmox, the inventory's claude_vms each read as it says it is reached."""
         fleet = model.status_fleet([], settings=self.settings, aliases=_aliases(self.fleet))
-        self.screen.land("localhost", {"fleet": model.status_clean(fleet)})
+        self.screen.land("localhost", {"fleet": self.clean(fleet)})
         if not self.over_ssh:
             return
         hosts = self.config["inventory"]

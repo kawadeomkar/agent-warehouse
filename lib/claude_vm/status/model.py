@@ -40,10 +40,11 @@ from ..text import and_list, one_line, plural
 SECTIONS = ("vms", "storage", "capacity", "access", "sign-ins", "system", "work")
 SSH_SECTIONS = frozenset({"access", "sign-ins", "system", "work"})
 # A field a VM supplies is cut to this; a role's whole line, which carries a command, to the longer - and a node's
-# grant lines, which carry just init's with the host's --host, and would lose their end to a field's limit.
+# grant lines, which carry just init's with the host's --host, and aw's printed lines (key "lines", which today's
+# settings have not got), each the printer's whole line with its --host, which would lose their end to a field's limit.
 FIELD_LIMIT = 120
 LINE_LIMIT = 400
-LINE_KEYS = frozenset({"line", "grant"})
+LINE_KEYS = frozenset({"line", "grant", "lines"})
 GIB = 1024**3
 LEVELS = ("unread", "problem", "todo")
 # The configuration keys the report reads from a VM's config: nothing else, cipassword among what is left out. The
@@ -93,14 +94,21 @@ def _host_flag(settings):
     return f" {flag}" if flag else ""
 
 
-def status_clean(value, limit=FIELD_LIMIT):
-    """``value`` with every string in it made one line of plain text: a role's line (key "line") and a node's grant
-    lines (key "grant") cut to LINE_LIMIT, every other string to ``limit``. Keys are cleaned too. Numbers, booleans and
-    None are kept."""
+def status_clean(value, limit=FIELD_LIMIT, commands=FIELD_LIMIT):
+    """``value`` with every string in it made one line of plain text: a role's line (key "line"), a node's grant
+    lines (key "grant") and aw's printed lines (key "lines") cut to LINE_LIMIT, a VM's commands (keys ending _command)
+    to ``commands``, every other string to ``limit``. aw's road gives LINE_LIMIT for ``commands``: its commands are the
+    printer's whole lines, whose --host comes last, after a checkout's path of any length. Keys are cleaned too.
+    Numbers, booleans and None are kept."""
     if isinstance(value, dict):
-        return {one_line(k, limit): status_clean(v, LINE_LIMIT if k in LINE_KEYS else limit) for k, v in value.items()}
+        return {
+            one_line(k, limit): status_clean(
+                v, LINE_LIMIT if k in LINE_KEYS else commands if str(k).endswith("_command") else limit, commands
+            )
+            for k, v in value.items()
+        }
     if isinstance(value, (list, tuple)):
-        return [status_clean(v, limit) for v in value]
+        return [status_clean(v, limit, commands) for v in value]
     if isinstance(value, str):
         return one_line(value, limit)
     return value
