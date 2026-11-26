@@ -256,6 +256,7 @@ def test_the_record_holds_what_the_run_is(jobs_dir) -> None:
             "host": "pve",
             "machines": ["alpha", "beta"],
             "making": {},
+            "names": {},
             "locks": [],
             "attached": False,
             "pid": os.getpid(),
