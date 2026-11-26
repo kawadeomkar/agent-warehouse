@@ -11,6 +11,7 @@ import re
 import shutil
 import statistics
 import subprocess
+import sys
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
@@ -258,13 +259,15 @@ DRAIN_GRACE = 2.0
 @pytest.fixture(autouse=True)
 def drainwatch() -> Iterator[list[str]]:
     """A draining change of a terminal's settings (TCSADRAIN, TCSAFLUSH) made in this process at a pseudo-terminal it
-    opened, with output its master holds unread and nothing reading it: a failure of the test. macOS waits there until
-    the master has read everything (ttywait), where Linux returns at once, so such a test hangs on macOS alone (#310's
-    hang); here it fails on Linux too. Each master opened during the test (os.openpty, which pty.openpty calls) is
-    watched by its terminal's name; at such a change, one still holding output after DRAIN_GRACE - which another
-    thread reading it would have taken - is noted, and the test fails at its end. Then the hold of a terminal
-    tui/live_region.py keeps for this process, which a region a test started and never finished would leave to the
-    next test, given back. Function scoped, as aw_home is, and by a MonkeyPatch of its own."""
+    opened, with output its master holds unread and nothing reading it: a failure of the test, on Linux. macOS waits
+    there until the master has read everything (ttywait), where Linux returns at once, so such a test hangs on macOS
+    alone (#310's hang); here it fails on Linux too. Each master opened during the test (os.openpty, which pty.openpty
+    calls) is watched by its terminal's name; at such a change, one still holding output after DRAIN_GRACE - which
+    another thread reading it would have taken - is noted, and the test fails at its end. Off Linux nothing is noted:
+    FIONREAD on a master there counts what its slave has not read, never the slave's output, so it would fail a test
+    that leaves what was typed unread and never see the output it is for. Then, on every platform, the hold of a
+    terminal tui/live_region.py keeps for this process, which a region a test started and never finished would leave
+    to the next test, given back. Function scoped, as aw_home is, and by a MonkeyPatch of its own."""
     import fcntl
     import struct
     import termios
@@ -296,7 +299,7 @@ def drainwatch() -> Iterator[list[str]]:
 
     def tcsetattr(fd, when, settings):
         name = None
-        if when in (termios.TCSADRAIN, termios.TCSAFLUSH) and masters:
+        if sys.platform == "linux" and when in (termios.TCSADRAIN, termios.TCSAFLUSH) and masters:
             with contextlib.suppress(OSError):
                 name = os.ttyname(fd)
         if name in masters and unread(name):

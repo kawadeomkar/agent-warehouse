@@ -3127,10 +3127,10 @@ the program's own left in place, the handlers the hold took put back where it en
 question's end), and from an interactive shell, nothing typed unseen left on its line or in its history at either, and
 300 lines said above the region with nobody reading and then a Ctrl-C, none of them lost;
 `tests/unit/test_aw_attached.py` a run started in the background reading no settings to put back, and a `Ctrl-\` ending
-the run as a SIGTERM does, the tree ended with SIGTERM and the run dying of SIGQUIT. In every in-process test, a
-draining change of a
-pseudo-terminal's settings made with output unread at its master and nothing reading it fails the test
-(`tests/unit/conftest.py`'s `drainwatch`), as macOS would wait there for good.
+the run as a SIGTERM does, the tree ended with SIGTERM and the run dying of SIGQUIT. In every in-process test on
+Linux, a draining change of a pseudo-terminal's settings made with output unread at its master and nothing reading it
+fails the test (`tests/unit/conftest.py`'s `drainwatch`), as macOS would wait there for good; off Linux it notes
+nothing, since `FIONREAD` on a master there counts what its slave has not read, never the slave's output.
 
 ## 16.9 `fleet/` — the fleet's files, the settings, the secrets and the fleet's mark
 
