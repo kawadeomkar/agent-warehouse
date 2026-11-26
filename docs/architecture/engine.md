@@ -3068,11 +3068,12 @@ at its default) is taken by the terminal's hold as the region's is: the settings
 and not read thrown away with them (`TCSAFLUSH`), and then the stop, so that nothing typed reaches the shell's line or
 its history; once the run goes on in the foreground (`fg`) the question's mode is made again and its words written again
 below the shell's lines, where the answer is typed afresh (`change`'s `back`); a run the shell goes on with in the
-background (`bg`) stops again at the question (SIGTTOU) till it is the foreground - but one the shell ends while it
-is stopped (`kill %1`: SIGTERM, then SIGCONT) ends at once, since the ladder's end tells the hold it waits for the
-terminal no more (`live_region.ending`) and the SIGCONT then changes nothing in the background; a question going on
-there waits a moment first (`ENDING_GRACE`), for a kill another of the run's threads took to reach the ladder.
-A `Ctrl-\` is the
+background (`bg`) stops at the question till it is the foreground - SIGTTOU at its default, raised from Python in a loop and never left to the terminal inside the change (`_once_foreground`), whose stop the
+kernel would make again at each SIGCONT without coming back to Python where another thread took the signals - and
+before each stop it waits a moment (`ENDING_GRACE`), for a kill another of the run's threads took to reach the ladder.
+A run the shell ends while it is stopped, at a Ctrl-Z or after `bg` (`kill %1`: SIGTERM, then SIGCONT), ends at
+once, since the ladder's end tells the hold it waits for the terminal no more (`live_region.ending`): the SIGCONT
+changes nothing in the background, and the question stops no more. A `Ctrl-\` is the
 ladder's, as SIGTERM, what was typed thrown away first. The edges: at the menu, whose raw mode makes them keys, a
 Ctrl-Z and a
 `Ctrl-\` are keys it has no use for, and the menu goes on; a key between two questions, or while the region is aside
@@ -3101,8 +3102,9 @@ ended where it was cut and what was typed on it kept there (`192^C`, the keys an
 left in the terminal's input, however a run ends the terminal's settings those it had before the run; from an
 interactive shell (`harness._in_a_shell`), a line and a hidden answer half typed and then a Ctrl-Z (`fg` bringing the
 question back in its mode, its words written again), a `Ctrl-\` or a Ctrl-C, what was typed never on the shell's line
-or in its history, and a Ctrl-Z there and then `kill %1` or `kill -HUP %1`, the run ended at once, of the signal,
-and its lock free for the next; a line, a hidden answer whose characters reach neither the screen, the record nor
+or in its history, and a Ctrl-Z there and then `kill %1` or `kill -HUP %1`, or `bg` and then `kill %1`, the run
+ended at once, of the signal, and its lock free for the next; a line, a hidden answer whose characters reach
+neither the screen, the record nor
 the run's events, two lines pasted at a line and at a hidden answer, the second never left in the terminal's input once
 the run has ended, the region gone while a question is up and back after it, Enter taking the default, Ctrl-C at a
 line, a hidden answer and the menu ending the run, keys typed before the question not taken as its answer, the run's

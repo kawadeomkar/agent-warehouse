@@ -928,16 +928,25 @@ class _Ended(Exception):
     """The run's end at once, as the ladder raises it (Abandoned)."""
 
 
+class _Stopped(Exception):
+    """A stop of the question's own (SIGTTOU at its default), stood in for."""
+
+
 def test_a_question_the_shell_goes_on_with_in_the_background_lets_an_end_another_thread_took_land_first(monkeypatch):
     # A shell's kill of a run stopped at a question (kill %1): SIGTERM, then SIGCONT. The kernel may hand the SIGTERM to
     # a thread other than the main one, whose handler passes it on to Python only once that thread runs; here it lands
     # 50 ms after the SIGCONT, from a thread of the test's. The question goes on in the background: in the wait before
-    # it makes its mode there (ENDING_GRACE), the run's handler of the end runs - the ladder's, which tells the hold
-    # (live.ending) and raises - and no change is made, which would stop the run (SIGTTOU) for good.
+    # it stops there of its own (ENDING_GRACE), the run's handler of the end runs - the ladder's, which tells the hold
+    # (live.ending) and raises - and neither a stop nor a change is made: a stop would keep the run for good.
     master, slave = os.openpty()
     found = termios.tcgetattr(slave)
     landed: list[int] = []
     made: list[tuple] = []
+    stops: list[int] = []
+
+    def stopped(signum):
+        stops.append(signum)
+        raise _Stopped
 
     def ended(signum, _frame):
         landed.append(signum)
@@ -957,6 +966,7 @@ def test_a_question_the_shell_goes_on_with_in_the_background_lets_an_end_another
         with monkeypatch.context() as patch:
             patch.setattr(os, "tcgetpgrp", lambda fd: os.getpgrp() + 1)
             patch.setattr(live, "set_terminal", lambda *args: made.append(args))
+            patch.setattr(live, "_at_default", stopped)
             thread = threading.Thread(target=late)
             thread.start()
             try:
@@ -968,7 +978,7 @@ def test_a_question_the_shell_goes_on_with_in_the_background_lets_an_end_another
                         thread.join()
                     except _Ended:
                         pass
-        assert landed == [signal.SIGTERM] and made == [], (landed, made)
+        assert landed == [signal.SIGTERM] and made == [] and stops == [], (landed, made, stops)
     finally:
         signal.signal(signal.SIGTERM, previous)
         live.put_back(slave, termios.TCSANOW, found, last=True)

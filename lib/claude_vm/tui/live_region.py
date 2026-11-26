@@ -65,10 +65,10 @@ FRAME_SECONDS = 0.1
 # init's, show no frame between them.
 SETTLE_SECONDS = 0.5
 MIN_ROWS, MIN_COLS = 4, 20
-# How long a question the shell goes on with in the background waits before it makes its mode there, which stops it
-# (SIGTTOU): a shell's kill of a stopped run comes with the SIGCONT (kill %1), and the kernel may hand the kill to
-# another of the run's threads, whose handler passes it on to Python only once that thread runs. Within the wait the
-# run's own handler of it (the ladder's, which calls ending) comes first, and the question stops for nothing.
+# How long a question in the background waits before each stop of its own (_once_foreground): a shell's kill of a
+# stopped run comes with the SIGCONT (kill %1), and the kernel may hand the kill to another of the run's threads,
+# whose handler passes it on to Python only once that thread runs; the wait gives the run's own handler of it (the
+# ladder's, which calls ending) that time to come first, where the stop would otherwise come before it.
 ENDING_GRACE = 0.2
 # What a program ends or stops on, held off for a write to the terminal and its count (uninterrupted): a Ctrl-C, a
 # kill and a hangup, which a program may end on by raising from a handler of its own; and a Ctrl-Z (SIGTSTP) and a
@@ -296,18 +296,9 @@ class _Hold:
         when, settings = self.made
         try:
             if self.waits:
-                if not foreground(self.fd):
-                    # An end that came with the SIGCONT given the time to land first (ENDING_GRACE).
-                    time.sleep(ENDING_GRACE)
-                    if not self.waits or not self.ours():
-                        return
-                # SIGTTOU let through, wherever the stop came: a question in the background stops here.
-                held = signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGTTOU})
-                try:
-                    if not foreground(self.fd) or termios.tcgetattr(self.fd) != list(settings):
-                        set_terminal(self.fd, when, settings)
-                finally:
-                    signal.pthread_sigmask(signal.SIG_SETMASK, held)
+                # A question in the background stops till it is the foreground (_once_foreground).
+                if not _once_foreground(self.fd, when, settings, self._waiting, changed=True):
+                    return
             else:
                 with _unstopped():
                     if not foreground(self.fd):
@@ -321,6 +312,9 @@ class _Hold:
             if self.back is not None:
                 with contextlib.suppress(Exception):
                     self.back()
+
+    def _waiting(self) -> bool:
+        return self.waits and self.ours()
 
     def _quit(self, signum, _frame):
         """A Ctrl-\\: the terminal as found, then the quit at SIGQUIT's default."""
@@ -368,17 +362,43 @@ def _in_place_of(signum, handler):
 def change(fd, when, settings, *, wait=False, away=None, back=None) -> bool:
     """A mode of this process's own made (set_terminal): the terminal held (_Hold) from the first one, the settings
     found before it kept, and this mode as the one made last. Made only while this process is the terminal's
-    foreground, SIGTTOU held off (whether it was is given back) - but with wait, at once, for a question that needs the
-    terminal: a process in the background is stopped there (SIGTTOU) until it is the foreground again. What holds the
-    terminal is told, where it gives them, before a stop or a quit (away(True)), once the process goes on after a stop
-    (away(False)) and once its mode is back after one (back): in the main thread, from a signal's handler."""
+    foreground, SIGTTOU held off (whether it was is given back) - but with wait, for a question that needs the
+    terminal, once it is: a process in the background is stopped (_once_foreground) until it is the foreground. What
+    holds the terminal is told, where it gives them, before a stop or a quit (away(True)), once the process goes on
+    after a stop (away(False)) and once its mode is back after one (back): in the main thread, from a signal's
+    handler."""
     _HOLD.take(fd)
     _HOLD.made = (when, settings)
     _HOLD.away, _HOLD.back, _HOLD.waits = away, back, wait
     if wait:
+        return _once_foreground(fd, when, settings, _HOLD._waiting)
+    return _made(fd, when, settings)
+
+
+def _once_foreground(fd, when, settings, waiting, *, changed=False) -> bool:
+    """settings made (set_terminal) once this process is the terminal's foreground, for a question that needs the
+    terminal - with changed, only where the terminal is not in them - and till then the process stopped, as the
+    terminal stops it (SIGTTOU at its default), but from Python, SIGTTOU held off at the change (_unstopped): each time
+    the process goes on it is back here, where a handler of a signal that came meanwhile runs, and stops again only
+    while waiting() holds, after ENDING_GRACE. The kernel's own stop inside tcsetattr restarts the call at a SIGCONT
+    without coming back to Python where another thread took the signals, so a kill would never end the run (review
+    68's F8). Where SIGTTOU is ignored, the change is made at once, as the terminal would make it. Whether they were
+    made; False once waiting() no longer holds."""
+    ignored = signal.getsignal(signal.SIGTTOU) == signal.SIG_IGN
+    if ignored or threading.current_thread() is not threading.main_thread():
+        # Ignored, the change goes through; off the main thread, which sets no handler, the terminal stops it there.
         set_terminal(fd, when, settings)
         return True
-    return _made(fd, when, settings)
+    while True:
+        with _unstopped():
+            if foreground(fd):
+                if not changed or termios.tcgetattr(fd) != list(settings):
+                    set_terminal(fd, when, settings)
+                return True
+        time.sleep(ENDING_GRACE)
+        if not waiting():
+            return False
+        _at_default(signal.SIGTTOU)
 
 
 def put_back(fd, when, settings, *, last=False) -> bool:
@@ -407,8 +427,7 @@ def ending():
     """The run ends at once (the ladder's end, runs/attached.py): the hold waits for the terminal no more. A question
     stopped and then killed from its shell (kill %1: SIGTERM, then SIGCONT) would set its mode again from the
     background at the SIGCONT and stop there (SIGTTOU) for good, its machines' lock held; now the SIGCONT changes
-    nothing in the background, and the end goes on - where another thread took the kill, once its handler has run,
-    which the question waits for (ENDING_GRACE)."""
+    nothing in the background, and a question stopped there (_once_foreground) stops no more: the end goes on."""
     _HOLD.waits = False
 
 
