@@ -594,7 +594,7 @@ class Making:
         changes = settings_call(self.values, size, self.host.password, kept)
         repos = self.plan.repos
         self.step("settings")
-        await self.call(client.edit_config, owned, lambda _: changes)
+        await self.call(client.edit_config, owned, lambda _: changes, self.ctx.stopping)
         if self.ctx.cancelled.is_set():
             # A stop that came while the settings call's answer was outstanding: nothing more is written, the
             # repositories and the resize left to the next run, which resumes a VM not yet provisioned from here.
@@ -606,7 +606,7 @@ class Making:
         has = proxmox.proxmox_disk_bytes(str(config.values.get(DISK) or ""))
         if (found is None or not found.provisioned) and "disk" not in kept and has < proxmox.proxmox_disk_bytes(disk):
             self.step("resize")
-            task = await self.call(client.resize, owned, DISK, disk)
+            task = await self.call(client.resize, owned, DISK, disk, self.ctx.stopping)
             self._warned(await self.call(client.follow, task, None, self.ctx.stopping))
             self.step("resize", "done")
 
@@ -614,7 +614,7 @@ class Making:
         """Step 7's start: sent and followed to its end."""
         client = self.host.client
         self.step("start")
-        task = await self.call(client.start, owned)
+        task = await self.call(client.start, owned, self.ctx.stopping)
         self._warned(await self.call(client.follow, task, None, self.ctx.stopping))
         self.step("start", "done")
 
