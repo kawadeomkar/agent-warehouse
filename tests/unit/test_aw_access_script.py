@@ -13,15 +13,20 @@ and a token made without privilege separation (its sentence naming init's line f
 for), each leaving the host byte for byte as it was; says each grant of the engine's roles to its user or token that its
 settings do not make with the line that removes it, and removes none; takes a pool with no mark only given `--pool
 <name> --take-unmarked`, its comment kept and the mark added at its end. It reads every answer as JSON through Perl, so
-a pool's comment is read as fleet/mark.py reads it, held by a corpus of comments. A person's own template is looked up
-by its name, its network cards' bridges from its configuration, which the stand-in does not read: a pvesh of this file's
-own, first on PATH, answers that one read and hands every other to the stand-in.
+a pool's comment is read as fleet/mark.py reads it, held by a corpus of comments. Card E8: the token's comment carries
+the fleet's mark as the pool's does, and a token whose comment carries another mark (the same corpus) is refused as
+`check` refuses it, naming `--token-id`, one with none taken as it is; `--regenerate` makes this fleet's token's secret
+again, the one change to a token that is there, and refuses one whose comment carries no mark; and two fleets on one
+host share the user, each token's rights its own pool's alone, a token made without separation refused. A person's
+own template is looked up by its name, its network cards' bridges from its configuration, which the stand-in does not
+read: a pvesh of this file's own, first on PATH, answers that one read and hands every other to the stand-in.
 
 The rule with a test of its own (V2-9): no file of the checkout holds a rendering of the list, found by its header.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -128,6 +133,7 @@ def _found(state: dict) -> access.Found:
         users=list(state["users"]),
         tokens={full_id: bool(token["privsep"]) for full_id, token in state["tokens"].items()},
         grants=[access.Grant(a["path"], a["roleid"], a["ugid"], bool(a["propagate"])) for a in state["acls"]],
+        token_comments={full_id: token.get("comment", "") for full_id, token in state["tokens"].items()},
     )
 
 
@@ -183,7 +189,7 @@ def _set_up(host: access.Host) -> dict:
         "pools": {host.pool: {"comment": MARK}},
         "roles": roles,
         "users": {"root@pam": {}, host.user: {"comment": access.COMMENT}},
-        "tokens": {f"{host.user}!{host.token}": {"privsep": 1, "secret": SECRET, "comment": access.COMMENT}},
+        "tokens": {f"{host.user}!{host.token}": {"privsep": 1, "secret": SECRET, "comment": MARK}},
         "acls": acls,
     }
 
@@ -255,6 +261,15 @@ HELD = {
         "",
     ),
     "the audit role lacking one and holding more": ({"roles": {access.AUDIT_ROLE: ["VM.Console"]}}, (), {}, ""),
+    "--no-token, the token there, its comment the fleet's mark": (
+        {
+            "users": {"root@pam": {}, access.USER: {}},
+            "tokens": {TOKEN_ID: {"privsep": 1, "secret": SECRET, "comment": f"{NOTE} {MARK}"}},
+        },
+        ("--no-token",),
+        {},
+        "",
+    ),
     "--no-token, the token there and nothing else": (
         {
             "users": {"root@pam": {}, access.USER: {}},
@@ -335,7 +350,8 @@ def test_a_fresh_host_gets_every_object_and_the_secret_alone_on_stdout(tmp_path:
     assert state["roles"][access.ROLE] == list(access.engine_privileges())
     assert state["roles"][access.AUDIT_ROLE] == ["VM.Audit"]
     assert state["users"][access.USER] == {"comment": access.COMMENT}
-    assert state["tokens"][TOKEN_ID] == {"privsep": 1, "secret": SECRET, "comment": access.COMMENT}
+    # The token's comment is the fleet's mark, as the pool's is (card E8); the user's, which fleets share, is not.
+    assert state["tokens"][TOKEN_ID] == {"privsep": 1, "secret": SECRET, "comment": MARK}
     paths = [f"/pool/{access.POOL}", "/storage/local-lvm", "/sdn/zones/localnetwork/vmbr0", "/nodes/pve"]
     wanted = [*((path, access.ROLE) for path in paths), ("/vms", access.AUDIT_ROLE)]
     for subject, kind in ((access.USER, "user"), (TOKEN_ID, "token")):
@@ -400,7 +416,7 @@ def test_every_printed_token_id_is_quoted_and_the_token_s_line_asks_for_json(tmp
     named = [line for line in lines if "!" in line]
     assert len(named) == 5 and all(f"'{TOKEN_ID}'" in line for line in named)
     (token,) = [line for line in lines if line.startswith("pveum user token add")]
-    assert token.endswith("--privsep 1 --comment agent-warehouse --output-format json")
+    assert token.endswith(f"--privsep 1 --comment {shlex.quote(MARK)} --output-format json")
 
 
 def test_under_pool_nothing_is_granted_on_the_guests_outside_it(tmp_path: Path) -> None:
@@ -611,6 +627,23 @@ def test_a_pool_with_no_mark_is_taken_only_with_pool_and_take_unmarked(tmp_path:
     assert _planned(_host(), state).steps == ()
 
 
+@pytest.mark.parametrize("extra", [0, 1], ids=["at the bound", "one past it"])
+def test_a_pool_s_comment_the_mark_would_take_past_the_bound_is_refused_by_name(tmp_path: Path, extra: int) -> None:
+    # Card E8 (review 19): Proxmox declares no length for a pool's comment, so the script holds it to one of its own.
+    comment = "n" * (access.COMMENT_MOST - len(MARK) - 1 + extra)
+    state = {"pools": {access.POOL: {"comment": comment}}}
+    args = ("--pool", access.POOL, "--take-unmarked")
+    if extra:
+        result = _refused(tmp_path, *args, state=state)
+        assert f"would be longer than {access.COMMENT_MOST} characters" in result.stderr, result.stderr
+        assert comment not in result.stderr
+        return
+    _install(tmp_path, state)
+    result = _run(tmp_path, *args)
+    assert result.returncode == 0, result.stderr
+    assert _state(tmp_path)["pools"][access.POOL]["comment"] == f"{comment} {MARK}"
+
+
 @pytest.mark.parametrize(
     ("args", "comment"),
     [
@@ -629,6 +662,135 @@ def test_take_unmarked_without_pool_or_for_a_marked_pool_is_refused(tmp_path: Pa
 def test_a_pool_another_fleet_marked_is_refused_with_its_fleet_named(tmp_path: Path) -> None:
     result = _refused(tmp_path, state={"pools": {access.POOL: {"comment": COMMENTS["another fleet's"]}}})
     assert f"error: the pool's mark names another fleet, {OTHER}, where" in result.stderr
+
+
+# ------------------------------------------------------- the token's mark (card E8) ---
+@pytest.mark.parametrize("comment", COMMENTS.values(), ids=COMMENTS)
+def test_a_token_s_comment_is_read_as_fleet_mark_reads_it_and_another_mark_refused_naming_token_id(
+    tmp_path: Path, comment: str
+) -> None:
+    # Card E8 (E1's point 1, ruled 2026-11-24; review 62): the token, not the user, is what two fleets must not share.
+    state = {
+        "users": {"root@pam": {}, access.USER: {}},
+        "tokens": {TOKEN_ID: {"privsep": 1, "secret": SECRET, "comment": comment}},
+    }
+    _install(tmp_path, state)
+    try:
+        _planned(_host(), _state(tmp_path))
+    except access.NotOwn as refusal:
+        assert "--token-id <id>, with an ID of the fleet's own" in str(refusal)
+        for args in (("--dry-run",), (), ("--no-token",), ("--regenerate",)):
+            result = _refused(tmp_path, *args)
+            assert str(refusal) in result.stderr.splitlines(), (args, result.stderr)
+    else:
+        result = _run(tmp_path, "--dry-run")
+        assert result.returncode == 0, result.stderr
+        assert not [line for line in result.stdout.splitlines() if line.startswith("pveum user token")]
+    # Whether it is refused is whether its comment holds a mark that is not this fleet's: none is a person's own.
+    try:
+        found = mark.parse(comment)
+        other = found is not None and found != mark.Mark(FLEET, mark.NONE)
+    except mark.Refused:
+        other = True
+    with pytest.raises(access.NotOwn) if other else contextlib.nullcontext():
+        _planned(_host(), _state(tmp_path))
+
+
+# The token's secret made again: the one the stand-in gives next.
+AGAIN = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
+
+
+def test_regenerate_makes_this_fleet_s_token_s_secret_again_and_prints_it_alone(tmp_path: Path) -> None:
+    # Card E8's take-over, and A33's line (review 47): token modify --regenerate, answered as flat JSON.
+    _install(tmp_path, {**_set_up(_host()), "next_secret": AGAIN})
+    line = shlex.join(["pveum", "user", "token", "modify", access.USER, access.TOKEN, "--regenerate"])
+    line += " --output-format json"
+    dry = _run(tmp_path, "--regenerate", "--dry-run")
+    assert (dry.returncode, dry.stdout) == (0, line + "\n"), dry.stderr
+    assert _writes(tmp_path) == []
+    made = _run(tmp_path, "--regenerate")
+    assert (made.returncode, made.stdout) == (0, AGAIN + "\n"), made.stderr
+    assert [each[2:] for each in made.stderr.splitlines() if each.startswith("+ ")] == [line]
+    state = _state(tmp_path)
+    assert state["tokens"][TOKEN_ID] == {"privsep": 1, "secret": AGAIN, "comment": MARK}
+    assert _planned(_host(), state).steps == ()
+    # Where the token is not there, --regenerate makes it, as a run without it does.
+    fresh = tmp_path / "fresh"
+    fresh.mkdir()
+    assert _run(fresh, "--regenerate").stdout == SECRET + "\n"
+
+
+@pytest.mark.parametrize(
+    ("args", "comment", "said"),
+    [
+        (("--regenerate", "--no-token"), MARK, "--regenerate makes the token's secret again, and --no-token"),
+        (("--regenerate",), "", "--regenerate makes again only a token whose comment carries this fleet's mark"),
+        (("--regenerate",), NOTE, "--regenerate makes again only a token whose comment carries this fleet's mark"),
+    ],
+    ids=["with --no-token", "a token with no comment", "a token of the person's own"],
+)
+def test_regenerate_with_no_token_or_of_a_token_no_mark_names_is_refused(tmp_path: Path, args, comment, said) -> None:
+    state = _set_up(_host())
+    state["tokens"][TOKEN_ID] = {"privsep": 1, "secret": SECRET, **({"comment": comment} if comment else {})}
+    result = _refused(tmp_path, *args, state=state)
+    assert said in result.stderr
+
+
+def _rights(state: dict, subject: str, path: str) -> set[str]:
+    """What subject's own ACL entries give it on path: each role granted it there, or above it and propagating."""
+    held: set[str] = set()
+    for acl in state["acls"]:
+        above = acl["path"] == path or (acl["propagate"] and path.startswith(acl["path"].rstrip("/") + "/"))
+        if acl["ugid"] == subject and above:
+            held |= set(state["roles"].get(acl["roleid"], []))
+    return held
+
+
+@pytest.mark.parametrize("separated", [True, False], ids=["each token separated", "a token made without"])
+def test_two_fleets_on_one_host_share_the_user_and_each_token_holds_its_own_pool_alone(tmp_path, separated) -> None:
+    # Card E8 (E1's point 1, ruled 2026-11-24; review 58's finding 3): with privilege separation a token holds what
+    # both its own grants and its user's give, so the one user granted on both pools gives neither fleet's token the
+    # other's pool. The second fleet's default token ID is the first's, refused, naming --token-id; one made without
+    # separation would hold all its user's grants, and is refused.
+    first, second = _host(), _host(fleet=OTHER, pool="dev-vms", token="second")
+    assert _run(tmp_path).returncode == 0
+
+    def refused(host: access.Host) -> str:
+        before, writes = _state_bytes(tmp_path), len(_writes(tmp_path))
+        result = _run(tmp_path, host=host)
+        assert (result.returncode, result.stdout) == (1, ""), result.stderr
+        assert (_state_bytes(tmp_path), len(_writes(tmp_path))) == (before, writes)
+        return result.stderr
+
+    assert "--token-id <id>, with an ID of the fleet's own" in refused(_host(fleet=OTHER, pool="dev-vms"))
+    if not separated:
+        state = _state(tmp_path)
+        state["tokens"][f"{access.USER}!second"] = {"privsep": 0, "secret": AGAIN}
+        (tmp_path / "pve" / "pve-state.json").write_text(json.dumps(state))
+        assert "is there without privilege separation" in refused(second)
+        assert not [acl for acl in _state(tmp_path)["acls"] if acl["ugid"] == f"{access.USER}!second"]
+        return
+    made = _run(tmp_path, host=second)
+    assert made.returncode == 0, made.stderr
+    state = _state(tmp_path)
+    assert state["pools"] == {
+        first.pool: {"comment": MARK},
+        second.pool: {"comment": mark.Mark(OTHER, mark.NONE).line},
+    }
+    ids = {host.pool: f"{access.USER}!{host.token}" for host in (first, second)}
+    assert state["tokens"][ids[first.pool]]["comment"] == MARK
+    assert state["tokens"][ids[second.pool]]["comment"] == mark.Mark(OTHER, mark.NONE).line
+    for pool, token in ids.items():
+        other = next(each for each in ids if each != pool)
+        # The user is granted on both pools; each token on its own alone, so with separation it holds its own alone.
+        assert _rights(state, access.USER, f"/pool/{other}") and _rights(state, access.USER, f"/pool/{pool}")
+        assert _rights(state, token, f"/pool/{pool}") and not _rights(state, token, f"/pool/{other}")
+        assert state["tokens"][token]["privsep"] == 1
+    # Each fleet's run again finds its own and changes nothing; neither is refused for the other's.
+    for host in (first, second):
+        assert _planned(host, state).steps == ()
+        again = _run(tmp_path, "--dry-run", host=host)
+        assert (again.returncode, again.stdout) == (0, ""), again.stderr
 
 
 # ------------------------------------------------------- the person's template ---
