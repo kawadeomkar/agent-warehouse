@@ -1094,8 +1094,8 @@ see is the runner's to refuse.
 **A VM made: `create.py`, and `deploy`'s handler: `deploy.py`.** `aw deploy --only provision` makes or resumes each VM
 named, the default VM where none is (`vm_default_name`), side by side, under each VM's lock (C7's `machines`); `aw
 deploy --only template` is `template.ensure` and nothing after it (above), under the fleet's lock held exclusively, since
-it names no machine; every other stage of `deploy`, and `--check`, `--adopt`, `--take-over` and `--remove-key`, is
-refused naming the card that builds it. Before anything is created, the run reads the fleet (`fleet.requested`, a changing read, so a VM it may not
+it names no machine; every other stage of `deploy` but `--only configure` (`configure.py`, below), and `--check`,
+`--adopt`, `--take-over` and `--remove-key`, is refused naming the card that builds it. Before anything is created, the run reads the fleet (`fleet.requested`, a changing read, so a VM it may not
 change refuses the run), settles the route (`routes.settle`, whose hop that cannot be used stops the run), refuses a VM
 with no key in `vm_ssh_public_keys` and no console password in the vault (`vm_password`), and compares the base template
 (`template.compare`): only one it may clone from is cloned from, any other said with why, and none with no cloud-init
@@ -1199,6 +1199,52 @@ given; a name two VMs carry; a member the token may not read; one VM of two fail
 file lock refused sent once more, and one that failed otherwise never; the question at a terminal, yes and no, and the
 names typed; a Ctrl-C during the deletion; a VM owned again after a stop that changed it, held to the VM confirmed; and,
 without the fake, the names' validator, the question's words and what takes it, and the override's rule.
+
+**A VM configured, the frame: `configure.py`.** `aw deploy --only configure` configures each VM named, or every VM of
+the pool this fleet may change where none is (the fleet's lock then held whole); `--tags` beside VM names, with no
+`--only`, is the same run. A configure asks for parts, today's six (`rules.CONFIGURE_ROLES`), every one where `--tags`
+names none. The system play runs the three of layer 1 (`system.PARTS`); `claude_code`, `github_projects` and
+`tailscale` are layer 2's (card G9): until then a `--tags` that names one is refused before anything is read, naming
+G9, and a configure with no `--tags` runs the three and says by name that the other three were not run. The record's
+stage becomes `finished` only where one configure ran all six (`stage_after`), so a VM stays `unfinished` until G9; the
+converged digest stays empty, and so unwritten, until F28. Before anything reaches a VM the run reads the fleet by a
+changing read (`fleet.requested`: a VM it may not change refuses the run where it is named, and is left out and said
+where none is) and settles the route; `Route.ready()` is asked before the machines are reached side by side, under a
+task group. Then for each VM, each step an event of the run, declared as configure's (`DECLARED`: start, reach, system
+layer, home), and layer 1's own events lines of that machine's work:
+
+- **Provisioned and running.** A VM whose record is not provisioned fails, naming the provision line. A stopped one is
+  said and left, never waited on, unless the plan starts it (`start`, which only the whole chain, G10, gives: `deploy`
+  refuses `--start` beside `--only configure`), through its Owned, its address then waited for.
+- **Reached.** Its identity's key filed in the product's known-hosts file is held first (`layer1.key_filed`): with none,
+  the VM fails before any connection, with the line that files it. Its `Target` is the route's (`Route.targets`, one VM
+  a call, so that one refused fails it alone), its master made sure of (`Route.ensure`) and `true` run through the
+  runner until its `sshd` answers, for `SSHD` seconds at most.
+- **The system layer.** The play's variables are made for the parts run (`wiring.role_variables`, the same parts as the
+  child's `--tags`) and written in the run's directory through `system.variables`, held to every secret the run holds
+  (each host's token, the console password), which layer 1 also strikes from what it says. A failed task fails the VM
+  with the task named, the machine's name in place of its identity; cloud-init's own failure (`CLOUD_INIT_TASK`) is
+  said in this engine's lines, `aw destroy` and the provision and configure lines with
+  `--set configure_wait_for_cloud_init=false`, never today's `just` and `ANSIBLE_ARGS`; a VM layer 1 could not reach,
+  and a child that ended otherwise before any task failed (a play that did not load among them), fail with its words;
+  and a run that ended well with no recap heard from the product's callback fails too, since a callback of the same
+  name beside the play or in a role was loaded in its place.
+- **The home.** The VM user's real home is read from the password database through the runner (`getent passwd`) and
+  the workspace made from it as every reader makes it (`sessions.projects_dir`): each VM's outcome (`Configured`)
+  carries both only where it succeeded, for G8's alias.
+- **The record**, written through its Owned only where the stage changed; otherwise nothing is sent.
+
+A step that fails fails its VM alone, and the run exits 2; a route that cannot be used stops it. The interpreter and
+`sudo` are named by their paths in what layer 1 generates, and nothing here passes an option that could change them,
+nor a test's connection. `tests/unit/test_aw_configure.py` holds it against the fake and the stand-in machines, each VM
+made first by `--only provision`: a stopped VM left and never reached, a VM with no key filed refused before any
+connection, a part of layer 2 refused naming G9, a VM the fleet may not change refused or left out; then in the test's
+process, the system play swapped for a play of one task a part over F3's test-only local connection, which the test
+alone hands layer 1: the three parts run and the VM left `unfinished` with layer 2's named and nothing written, every
+connection by its identity, strict, with the person's `vm_ssh_options`; `--tags common` alone, and `--tags` with no
+names reaching every VM; a failed task, cloud-init's, a planted callback, the run's secrets struck; a stopped VM
+started where the plan says; and, over the stand-in's real connection, a configure through the stand-in hop, and a hop
+refused that stops before the VM.
 
 ## 16.5 `pve/` — the typed Proxmox client and the one table of privileges
 

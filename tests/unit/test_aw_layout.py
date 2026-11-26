@@ -52,7 +52,8 @@ REUSED = {
     "catalogue": "the choices a checkout makes once, the editor and the VPN, as rows of a list",
     "wire": "the one JSON form a reused record of today's leaves in",
     "claude_config": "what of this machine's Claude Code the verb code carries beside the sessions",
-    "sessions": "which session the verb code carries to a machine, and which destroy saves",
+    "sessions": "which session the verb code carries to a machine, which destroy saves, and where a configured VM's"
+    " workspace is (projects_dir)",
     "desktop": "the sign-ins' steps on this machine: its browser, and the run waiting for a sign-in",
     "run.next_steps": "NEXT STEPS by machine and matter, as today's runs say them",
     "status": "status's engine, its model and its lines, which aw status keeps",
