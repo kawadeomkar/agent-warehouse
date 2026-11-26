@@ -6,14 +6,15 @@ Without the fake: `say` emits the report, then the `next` record of its machine 
 is left; it refuses a matter MATTERS has not, a line of more than one line and a form; the engine's matters sit at their
 named places of run/next_steps.py's MATTERS, today's in today's order, so that today's records give today's lines; the
 run's model folds what `say` emitted in that order; status/lines.py's words name the program by its parameter, just by
-default. A syntax-tree scan of lib/claude_vm/engine/ and lib/claude_vm/guest/ fails on a `report` or `next` event
-emitted any other way than `say` (each road it refuses planted once).
+default, and on aw's road a VM's command is the caller's whole line, with its host. A syntax-tree scan of
+lib/claude_vm/engine/ and lib/claude_vm/guest/ fails on a `report` or `next` event emitted any other way than `say`
+(each road it refuses planted once).
 
 Against the fake and F30's stand-in machines, each VM made first by G3's `aw deploy --only provision`: a configure of
 two prints a summary line for each and the NEXT STEPS block in today's order, through `aw deploy` as a person runs it;
-with two hosts, each line that names a VM ends with its host (the case of today's
-test_every_line_that_names_a_vm_names_its_host, carried; tests/unit/test_hosts.py unchanged); and in this process, one
-VM reached through layer 1 and one left stopped, each report followed by its record.
+with two hosts, each line that names a VM ends with its host, configure's and a provision's of a VM left stopped (the
+case of today's test_every_line_that_names_a_vm_names_its_host, carried; tests/unit/test_hosts.py unchanged); and in
+this process, one VM reached through layer 1 and one left stopped, each report followed by its record.
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ from claude_vm.runs import job as jobs
 from claude_vm.runs import model, rundir
 from claude_vm.runs.stages import DEPLOY
 from claude_vm.runs.view import View
+from claude_vm.schema import printer
 from claude_vm.status import lines
 
 LIB = REPO / "lib" / "claude_vm"
@@ -205,7 +207,6 @@ def _tailscale(**given: object) -> dict:
     [
         ({"sign_in_follows": True}, "{program} deploy signs it in next, in this run."),
         ({}, "joins it on the next {program} deploy --only configure."),
-        ({"check_mode": True, "backend": "Running", "daemon_up": False}, "{program} deploy alpha --only configure"),
     ],
 )
 def test_status_lines_name_the_program_by_its_parameter_just_by_default(given, said) -> None:
@@ -213,6 +214,18 @@ def test_status_lines_name_the_program_by_its_parameter_just_by_default(given, s
     assert said.format(program="just") in lines.tailscale_report(facts)["line"]
     assert said.format(program="aw") in lines.tailscale_report(facts, program="aw")["line"]
     assert "just" not in lines.tailscale_report(facts, program="aw")["line"]
+
+
+@pytest.mark.parametrize("backend", [{"check_without_package": True}, {"backend": "Running", "daemon_up": False}])
+def test_a_line_status_lines_names_a_vm_by_is_the_caller_s_whole_line_on_aw_s_road(backend) -> None:
+    # Today's just writes check mode's line itself; on aw's road the caller gives the printer's line, with its host.
+    facts = _tailscale(check_mode=True, **backend)
+    assert "just deploy alpha --only configure" in lines.tailscale_report(facts)["line"]
+    with pytest.raises(ValueError, match="reconfigure_command"):
+        lines.tailscale_report(facts, program="aw")
+    again = printer.line("deploy", {"names": ["alpha"], "only": "configure"}, refused=False, host_flag="pve")
+    said = lines.tailscale_report({**facts, "reconfigure_command": again}, program="aw")["line"]
+    assert "aw deploy alpha --only configure --host pve" in said and "just" not in said, said
 
 
 # ---------------------------------------------------------------- the scan ----
@@ -370,6 +383,19 @@ def test_with_two_hosts_every_line_that_names_a_vm_names_its_host(made) -> None:
         "aw deploy delta --only provision --start --host pve",
         "aw deploy echo --only provision --start --host pve",
     ], ran.stdout
+
+
+def test_a_provision_that_leaves_a_vm_stopped_records_its_line_with_its_host_where_there_are_two(made) -> None:
+    _stopped(made, "delta")
+    ran = made.deploy("delta")
+    _ok(ran)
+    assert "already exists and is stopped" in ran.stdout, ran.stdout
+    assert _block(ran.stdout) == ["aw deploy delta --only provision --start"], ran.stdout
+    # A second host of the fleet, set up as a person begins one: the fleet has two from here on.
+    with_port(int(made.base.rsplit(":", 1)[1]), "nuc")
+    ran = made.deploy("delta")
+    _ok(ran)
+    assert _block(ran.stdout) == ["aw deploy delta --only provision --start --host pve"], ran.stdout
 
 
 @pytest.fixture

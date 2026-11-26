@@ -185,6 +185,21 @@ def _tailscale_needs_login(facts, program):
     return f"Tailscale is installed but not signed in. {login} signs it in from your browser{after}"
 
 
+def _again(facts, program):
+    """The command that configures the VM again, for check mode's two lines: the caller's reconfigure_command, else, for
+    today's just alone, the line written here. Check mode's alone: just status reads no run in check mode, and names no
+    such command. On any other program's road the caller gives it, made by the printer with the host's flag: ValueError
+    where it does not, so that no line names a VM without its host."""
+    given = facts.get("reconfigure_command")
+    if given:
+        return given
+    if program != "just":
+        raise ValueError(
+            f"{program}'s lines name a VM's command whole, from the printer with its host: give reconfigure_command"
+        )
+    return f"just deploy {facts['name']} --only configure"
+
+
 def _tailscale_line(case, facts, program):
     """One line: how the VM is on Tailscale, and the command that does the next thing where there is one. What the VM
     reports - its name, its tailnet - goes through plain_text, since the VM's user chooses it. The tailnet is said so
@@ -197,12 +212,10 @@ def _tailscale_line(case, facts, program):
     )
     where = f"{tailnet}as {shown} ({facts['ipv4'] or 'no IPv4 address yet'})"
     configure, login, admin = facts["configure_command"], facts["login_command"], facts["admin_page"]
-    # Check mode's alone: just status reads no run in check mode, and names no such command.
-    again = facts.get("reconfigure_command") or f"{program} deploy {vm} --only configure"
     if case == "check-no-package":
-        return f"Tailscale is not installed, and check mode installs nothing; {again} installs it."
+        return f"Tailscale is not installed, and check mode installs nothing; {_again(facts, program)} installs it."
     if case == "check-daemon-down":
-        return f"tailscaled is not running, and check mode starts nothing; {again} starts it."
+        return f"tailscaled is not running, and check mode starts nothing; {_again(facts, program)} starts it."
     if case == "not-ours":
         said = (
             f"on Tailscale {where}; installed"
