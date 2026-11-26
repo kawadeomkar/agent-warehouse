@@ -86,6 +86,7 @@ Proxmox client inside the functions that use them.
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import errno
 import json
@@ -93,7 +94,7 @@ import os
 import shlex
 import stat
 import sys
-from collections.abc import Awaitable, Callable, Mapping, MutableMapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, MutableMapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -1055,6 +1056,8 @@ SET_UP = "Set it up now?"
 DRY_RUN_HEADS = ("The commands this would run", "the token's line prints JSON")
 # The script's line where nothing is missing.
 NOTHING_TO_DO = "Nothing to do"
+# The script's own words that it made the token, in a run that then stopped (pve/script.py's make_token and fail).
+TOKEN_MADE = ("after the token was made", "made the token and printed no secret")
 # init's own line, as a sentence names it.
 NEXT = {"init": Line("init")}
 # What proxmox_audit_scope lets the token read, a line of the plan of its own (O15, item 2; the owner's answer of
@@ -1341,6 +1344,25 @@ def _record(
     return [f"{hosts.HOSTS_REL}/{found.name}/{hosts.HOST_FILE}"] if digest != state.digest else []
 
 
+def _but_token(made: Sequence[tuple[str, str, bool]], full_id: str) -> list[tuple[str, str, bool]]:
+    """What the script made but the token full_id and its grants: what stays once the token was deleted again."""
+    return [named for named in made if named[0] != "token" and not named[1].endswith(f" {full_id}")]
+
+
+@contextlib.asynccontextmanager
+async def _said_if_ended(asking: _Asking, sentence: str, held: Sequence[bool]) -> AsyncIterator[None]:
+    """The y's phase, whose end by a second Ctrl-C, the grace's end, SIGHUP or SIGTERM says sentence (the token's
+    delete line) where held[0] is still false then: a token the run may have made, its secret held nowhere."""
+    import asyncio
+
+    try:
+        yield
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        if not held[0]:
+            asking.say(sentence)
+        raise
+
+
 async def _offer(
     asking: _Asking,
     found: _Set,
@@ -1360,10 +1382,13 @@ async def _offer(
     no storage or bridge is given or set, the script's --list, and one in effect that the node lists, else the person
     asked which; then the script's --dry-run, with --no-token where the vault holds the token's secret or one is given.
     Where something is missing, the plan (E1's list rendered for people), the commands and what the script said are
-    shown, and the person asked "Set it up now? y or n", no first; on y alone, the script is run as root over root SSH,
-    /bin/sh reading it from its standard input. Its one line on standard output, the token's secret, held to a UUID and
+    shown, and the person asked "Set it up now? y or n", no first; on y alone, fleet.json is written where there is
+    none, with the ID the pool is marked with, then the script is run as root over root SSH, /bin/sh reading it from its
+    standard input, in a shield with what follows it (a run ended inside it anyway says the token's delete line where
+    the token may be there unheld). Its one line on standard output, the token's secret, held to a UUID and
     sealed in the vault at once (_keep), then host.yml's record of what it made (_record); where the vault cannot be
-    written, or no secret was printed, the token the run made is deleted again (_rescue), and init stops. The given
+    written, or no secret was printed, the token the run made (its add said, then a later command, the run's end or
+    the script's words that it made it) is deleted again (_rescue), and init stops. The given
     values with what the offer settled: the storage and the bridge asked, and after a y the node, the storage and the
     bridge the access was set up on, and the secret; and what the offer did, None where it ran nothing. Root SSH that
     does not answer, a script that refuses, nothing missing, a token there whose secret is held nowhere here (until
@@ -1482,67 +1507,102 @@ async def _offer(
         asking.step("access", "skipped")
         return typed, None
 
-    # The y: the script runs, and nothing runs between its end and the vault's write of the secret it printed.
-    result = await shell([*SH, *no_token], script, RUN_SECONDS)
-    ran = [each[2:] for each in _said_lines(result) if each.startswith("+ ")]
-    words = []
-    for each in ran:
+    # The y. fleet.json first, with the ID the script marks the pool with, so that a run cut after it finds the same ID
+    # (review 72, 1). Then the script, the vault's write of the secret it printed, made's record and any rescue, as one
+    # phase a Ctrl-C lets finish (review 72, 3), nothing run between the script's end and the vault's write.
+    early: list[str] = []
+    if found.fleet is None:
         try:
-            words.append(shlex.split(each))
-        except ValueError:
-            words.append([])
-    finished = isinstance(result, runner.Done) and result.status == 0
-    # Of a run that did not finish, the last command said may not have run, or not to its end.
-    completed = words if finished else words[:-1]
-    made_now = [named for each in completed if (named := _object_of(each)) is not None and named[2]]
-    # The token's line said: the dry run found no token of that ID, so one there now is this run's own, its secret
-    # held nowhere unless the vault takes it.
-    token_said = any(_object_of(each) == ("token", full_id, True) for each in words)
-    secret: Secret | None = None
-    wrote: list[str] = []
-    stop = ""
-    if not finished:
-        stop = f"The access script did not finish on {address} ({_why(result)})."
-        if token_said and isinstance(result, runner.Done):
-            # The script ended by itself after the token's line (a later command refused, or no secret printed): the
-            # token deleted, as the playbook's rescue deletes it while the vault is unwritten.
-            rescued = await _rescue(shell, token_user, token_id, address)
-            stop += f" {rescued[:1].upper()}{rescued[1:]}."
-            made_now = [named for named in made_now if named[0] != "token" and not named[1].endswith(f" {full_id}")]
-        elif token_said:
-            # The connection was lost after the token's line: it may be there, its secret unsaid. Never run again here.
-            stop += (
-                f" The token {full_id} may be on {address} with its secret unsaid: as root there,"
-                f" {shlex.join(['pveum', 'user', 'token', 'delete', token_user, token_id])} deletes it."
-            )
-        stop += said(" What it made before that stays; the next {init} makes only what is still missing", NEXT)
-    elif token_said:
-        value = answers.init_answer(result.lines[0], "uuid") if len(result.lines) == 1 else ""
-        if not value:
-            sentence = await _rescue(shell, token_user, token_id, address)
-            stop = f"The access script made the token {full_id} on {address} and printed no secret of it: {sentence}."
-            made_now = [named for named in made_now if named[0] != "token" and not named[1].endswith(f" {full_id}")]
-        else:
-            secret = Secret(value)
+            record.write(home, record.first(fleet_id))
+        except WRITERS_REFUSE as error:
+            raise Refused(f"{str(error).removeprefix('error: ')}: nothing was run on {address}") from None
+        except OSError as error:
+            wrong = error.strerror or error
+            raise Refused(f"fleet.json could not be written ({wrong}): nothing was run on {address}") from None
+        early.append(_written(home, record.path(home)))
+        found = dataclasses.replace(found, fleet=record.first(fleet_id))
+    # Whether no token of the run's own is held nowhere: where the run is ended before it is, the delete line said.
+    held = [bool(no_token)]
+    delete = shlex.join(["pveum", "user", "token", "delete", token_user, token_id])
+    ended = (
+        f"The run was ended while the access was set up on {address}: the token {full_id} may be there with its secret"
+        f" held nowhere. As root there, {delete} deletes it."
+    )
+    async with asking.running.shield(f"setting up the API access on {address}"), _said_if_ended(asking, ended, held):
+        result = await shell([*SH, *no_token], script, RUN_SECONDS)
+        ran = [each[2:] for each in _said_lines(result) if each.startswith("+ ")]
+        words = []
+        for each in ran:
             try:
-                wrote = _keep(home, found, secret, fleet_id, environ)
-            except Refused as refused:
+                words.append(shlex.split(each))
+            except ValueError:
+                words.append([])
+        finished = isinstance(result, runner.Done) and result.status == 0
+        # Of a run that did not finish, the last command said may not have run, or not to its end.
+        completed = words if finished else words[:-1]
+        made_now = [named for each in completed if (named := _object_of(each)) is not None and named[2]]
+        # The token's line said, and whether the run made it (review 72, 2): the dry run found no token of that ID,
+        # so one the run made is its own, its secret held nowhere unless the vault takes it. The line is said before
+        # the add runs: made where a later command was said after it, the run finished, or the script says it made
+        # it; last in a run that ended by itself, none of that said, Proxmox refused the add, and nothing is its own.
+        said_at = [number for number, each in enumerate(words) if _object_of(each) == ("token", full_id, True)]
+        token_said = bool(said_at)
+        told = "\n".join(_said_lines(result))
+        later = token_said and said_at[-1] < len(words) - 1
+        token_made = token_said and (finished or later or any(part in told for part in TOKEN_MADE))
+        if isinstance(result, runner.Done) and not token_made:
+            held[0] = True
+        secret: Secret | None = None
+        wrote = list(early)
+        stop = ""
+        if not finished:
+            stop = f"The access script did not finish on {address} ({_why(result)})."
+            if token_made and isinstance(result, runner.Done):
+                # The script ended by itself after it made the token (a later command refused, or no secret
+                # printed): the token deleted, as the playbook's rescue deletes it while the vault is unwritten.
+                rescued = await _rescue(shell, token_user, token_id, address)
+                held[0] = True
+                stop += f" {rescued[:1].upper()}{rescued[1:]}."
+                made_now = _but_token(made_now, full_id)
+            elif token_said and isinstance(result, runner.Done):
+                # Proxmox refused the token's add: none of the run's own to delete, and one of that ID is not its.
+                stop += f" Proxmox refused to make the token {full_id}: nothing of it was deleted."
+            elif token_said:
+                # The connection was lost after the token's line: it may be there, its secret unsaid. Never run again.
+                stop += f" The token {full_id} may be on {address} with its secret unsaid: as root there, {delete}"
+                stop += " deletes it."
+            stop += said(" What it made before that stays; the next {init} makes only what is still missing", NEXT)
+        elif token_made:
+            value = answers.init_answer(result.lines[0], "uuid") if len(result.lines) == 1 else ""
+            if not value:
                 sentence = await _rescue(shell, token_user, token_id, address)
-                stop = f"{refused.sentence.removeprefix('error: ')}: {sentence}."
-                made_now = [named for named in made_now if named[0] != "token" and not named[1].endswith(f" {full_id}")]
-                secret = None
-    if ran:
-        asking.say("\n".join([f"Ran on {address}, as root:", *(f"+ {each}" for each in ran)]))
-    made = tuple(hosts.Made(what, name, BY_ENGINE) for what, name, _ in made_now if _own_name(what, name))
-    try:
-        wrote += _record(home, found, address, token_user, token_id, made, environ) if made else []
-    except Refused as refused:
+                held[0] = True
+                stop = f"The access script made the token {full_id} on {address} and printed no secret of it:"
+                stop += f" {sentence}."
+                made_now = _but_token(made_now, full_id)
+            else:
+                secret = Secret(value)
+                try:
+                    wrote += _keep(home, found, secret, fleet_id, environ)
+                    held[0] = True
+                except Refused as refused:
+                    sentence = await _rescue(shell, token_user, token_id, address)
+                    held[0] = True
+                    stop = f"{refused.sentence.removeprefix('error: ')}: {sentence}."
+                    made_now = _but_token(made_now, full_id)
+                    secret = None
+        if ran:
+            asking.say("\n".join([f"Ran on {address}, as root:", *(f"+ {each}" for each in ran)]))
+        made = tuple(hosts.Made(what, name, BY_ENGINE) for what, name, _ in made_now if _own_name(what, name))
+        try:
+            wrote += _record(home, found, address, token_user, token_id, made, environ) if made else []
+        except Refused as refused:
+            if stop:
+                stop += f" Its record in made could not be written: {refused.sentence.removeprefix('error: ')}"
+            else:
+                raise
         if stop:
-            stop += f" Its record in made could not be written: {refused.sentence.removeprefix('error: ')}"
-        else:
-            raise
-    if stop:
-        raise Refused(stop)
+            raise Refused(stop)
     asking.step("access", "done")
     typed = dataclasses.replace(typed, node=node, storage=chosen["storage"], bridge=chosen["bridge"])
     if secret is not None:
