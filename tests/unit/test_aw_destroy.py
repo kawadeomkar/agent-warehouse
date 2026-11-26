@@ -581,6 +581,46 @@ def test_a_vm_owned_again_is_held_to_the_vm_confirmed(fake) -> None:
     assert fake.deletions() == []
 
 
+def test_a_sibling_deleted_during_the_second_look_is_gone_not_unread(fake, monkeypatch) -> None:
+    # Review 73's item 1: alpha runs and gamma does not, both confirmed. gamma's deletion ends just after the pool's
+    # listing of alpha's second look (after its stop) and before gamma's configuration is read there: gamma is gone,
+    # not a member the token may not read, and alpha is deleted.
+    import asyncio
+
+    listed = fleet._pool
+    raced: list[str] = []
+
+    def listing(host: fleet.Host) -> object:
+        pool = listed(host)
+        if not raced:
+            raced.append("gamma")
+            client = host.client
+            client.follow(client.delete(sibling.owned), None, None)
+        return pool
+
+    events: list = []
+    with _host() as host:
+        how = destroy.How(confirmed="alpha,gamma")
+        target, sibling = destroy._read(host, ("alpha", "gamma"), how).targets
+        assert (target.name, sibling.name) == ("alpha", "gamma")
+        monkeypatch.setattr(fleet, "_pool", listing)
+        assert asyncio.run(destroy._one(_context(events), host, target, how)) == "deleted", events
+    assert raced == ["gamma"]
+    assert not {ALPHA, GAMMA} & fake.listed() and BETA in fake.listed()
+
+
+def test_a_member_the_pool_still_names_unread_refuses_the_second_look(fake) -> None:
+    # The pool listed once more still names beta, whose configuration the token may not read: refused as before.
+    with _host() as host:
+        how = destroy.How(confirmed="alpha")
+        [target] = destroy._read(host, ("alpha",), how).targets
+        _pve(fake.base, "PUT", "access/acl", path=f"/vms/{BETA}", roles="NoAccess", tokens=TOKEN)
+        with pytest.raises(destroy.Failed) as failed:
+            destroy._again(host, target, how)
+    assert "the token may not read the configuration of beta (VMID 9011)" in failed.value.sentence
+    assert fake.deletions() == []
+
+
 def test_gone_is_read_from_the_listing_at_its_vmid(fake) -> None:
     with _host() as host:
         [target] = destroy._read(host, ("gamma",), destroy.How()).targets

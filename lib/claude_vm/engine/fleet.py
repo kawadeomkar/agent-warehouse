@@ -731,7 +731,8 @@ def requested(
     changes nothing gives targets for reading alone. A deletion's read (card G5) asks three things more: unrecorded,
     destroy's override (destroy_allow_unrecorded), which owns a member with no record and refuses all else owned()
     refuses, a changing read's alone that creates nothing (ValueError otherwise); whole, refused while any member of
-    the pool could not be read, since one unread may carry a target's UUID and nothing would tell the two apart; and
+    the pool could not be read, since one unread may carry a target's UUID and nothing would tell the two apart (one
+    that the pool, listed once more, no longer names is gone, not unread: a sibling's deletion that ended); and
     addresses=False, no guest agent asked, for a run that reaches no VM. Refused, Missing or NotOwned, in one sentence,
     before anything is changed."""
     if create and not change:
@@ -768,6 +769,12 @@ def requested(
                 for target in targets
             ]
         unread = [target for target in everyone if target.unread]
+        if whole and unread:
+            # A member whose deletion ended between the pool's listing and its configuration's read (a sibling's of the
+            # same run, review 73's item 1) is gone, not unread: the pool is listed once more, and only a member it
+            # still names refuses the read.
+            still = {entry.vmid for entry in _pool(host).members if entry.type == QEMU}
+            unread = [target for target in unread if target.vmid in still]
         if whole and unread:
             raise Refused(
                 f"{unread[0].unread}; and while a member of the pool {host.pool} on {host.name} cannot be read, it may"
