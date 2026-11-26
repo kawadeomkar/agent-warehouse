@@ -68,8 +68,9 @@ script with the mark's ID and runs it with `--regenerate`, so that the token is 
 secret stops working, and fleet.json keeps the mark's ID; using another pool (where settings.yml names none) takes its
 name and, where no token was named, the token's full ID, two fleets never sharing one, and starts a fleet of this
 computer's own there. Where the mark's ID is fleet.json's, the first is asked as making this fleet's own token's
-secret again (AGAIN), never as a take-over (review 72). A token whose secret was made again is never deleted where the
-vault cannot be written (`_rescue`): it was not this run's, and deleting it would leave the fleet with none. A mark
+secret again (AGAIN), never as a take-over (review 72). A token whose secret the dry run made again (`token modify`)
+is never deleted where the vault cannot be written (`_rescue`): it was not this run's, and deleting it would leave the
+fleet with none; one a take-over adds, the token gone, is the run's own and deleted (review 76). A mark
 that names a control VM is refused by the script with fleet/mark.py's sentence, and neither is offered; Enter or Esc
 does neither. `--print-commands` prints the same script on standard output, and on standard error how to run it,
 reading the fleet's files alone; its one write, with no fleet.json, is the fleet's ID it renders, there (card E8), so
@@ -1480,9 +1481,11 @@ async def _rescue(shell: Shell, user: str, token: str, address: str, again: bool
     """The token this run made deleted on the host, its secret held nowhere: the vault could not be written, or the
     script printed no secret, or failed after it made the token. Besides the script's run after a y, the one change
     init makes on Proxmox; never where the vault holds the secret. The sentence that says it was, or the line that
-    deletes it where it could not be. again: the run made the token's secret again (--regenerate, card E8), and never
-    made the token, so it is never deleted (review 72): it stays with its grants, its secret held nowhere, as the next
-    init finds it and asks to make the secret again; deleting it would leave the fleet with no token at all."""
+    deletes it where it could not be. again: the dry run's token line made the token's secret again (`token modify
+    --regenerate`, card E8), so the run never made it and it is never deleted (review 72): it stays with its grants,
+    its secret held nowhere, as the next init finds it and asks to make the secret again; deleting it would leave the
+    fleet with no token at all. A token a take-over adds, where it was gone, is the run's own, and deleted (review
+    76)."""
     if again:
         return said(
             "the token {token} was there before this run, which made its secret again, and it is never deleted: it is"
@@ -1782,8 +1785,11 @@ async def _offer(
         f"The run was ended while the access was set up on {address}: the token {full_id} may be there with its secret"
         f" held nowhere. As root there, {delete} deletes it."
     )
-    if again:
-        # Card E8: a token whose secret is made again was there before, and is never deleted (review 72's note owed).
+    # Card E8: a token whose secret the dry run said it makes again (token modify) was there before, and is never
+    # deleted (review 72's note owed); one a take-over adds (--regenerate, the token gone) is the run's own, deleted as
+    # E7 deletes it (review 76, 1).
+    regenerating = any(_object_of(each) == ("token", full_id, False) for each in commands)
+    if regenerating:
         ended = said(
             "The run was ended while the access was set up on {address}: the token {token} may have its secret made"
             " again, held nowhere; the next {init} asks to make it again.",
@@ -1809,7 +1815,8 @@ async def _offer(
         # Card E8: the take-over's line, which makes the token's secret again, is read as the add is.
         said_at = [number for number, each in enumerate(words) if _token_line(each, full_id)]
         token_said = bool(said_at)
-        told = "\n".join(_said_lines(result))
+        # The script's own refusals alone (review 72b, 7): a `+` line may quote a pool's comment a take keeps.
+        told = "\n".join(each for each in _said_lines(result) if each.startswith("error: "))
         later = token_said and said_at[-1] < len(words) - 1
         token_made = token_said and (finished or later or any(part in told for part in TOKEN_MADE))
         if isinstance(result, runner.Done) and not token_made:
@@ -1822,7 +1829,7 @@ async def _offer(
             if token_made and isinstance(result, runner.Done):
                 # The script ended by itself after it made the token (a later command refused, or no secret
                 # printed): the token deleted, as the playbook's rescue deletes it while the vault is unwritten.
-                rescued = await _rescue(shell, token_user, token_id, address, bool(again))
+                rescued = await _rescue(shell, token_user, token_id, address, regenerating)
                 held[0] = True
                 stop += f" {rescued[:1].upper()}{rescued[1:]}."
                 made_now = _but_token(made_now, full_id)
@@ -1837,7 +1844,7 @@ async def _offer(
         elif token_made:
             value = answers.init_answer(result.lines[0], "uuid") if len(result.lines) == 1 else ""
             if not value:
-                sentence = await _rescue(shell, token_user, token_id, address, bool(again))
+                sentence = await _rescue(shell, token_user, token_id, address, regenerating)
                 held[0] = True
                 stop = f"The access script made the token {full_id} on {address} and printed no secret of it:"
                 stop += f" {sentence}."
@@ -1848,7 +1855,7 @@ async def _offer(
                     wrote += _keep(home, found, secret, fleet_id, environ)
                     held[0] = True
                 except Refused as refused:
-                    sentence = await _rescue(shell, token_user, token_id, address, bool(again))
+                    sentence = await _rescue(shell, token_user, token_id, address, regenerating)
                     held[0] = True
                     stop = f"{refused.sentence.removeprefix('error: ')}: {sentence}."
                     made_now = _but_token(made_now, full_id)

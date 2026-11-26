@@ -2474,6 +2474,55 @@ def test_a_token_made_again_is_never_deleted_where_the_vault_cannot_be_written(
     assert ("token", ENGINE_FULL) not in {(each.what, each.id) for each in _reached().fields.made}
 
 
+def test_a_token_a_take_over_adds_is_deleted_where_the_vault_cannot_be_written(
+    fake, pve_host, job, monkeypatch, tmp_path
+) -> None:
+    # Review 76, 1 (its probe P1): the other fleet's token is gone, so --regenerate adds it; that token is the run's
+    # own, deleted as E7 deletes one, and only a token the dry run made again (token modify) is spared.
+    with_port(fake.port)
+    _another_fleet_s(pve_host, record.new_id())
+    _state_of(pve_host, tokens={})
+    monkeypatch.setattr(sealed, "put", _vault_refuses)
+    person = _Person({WHICH: engine_init.TAKE, SET_UP: engine_init.YES})
+    with pytest.raises(engine_init.Refused) as stopped:
+        _offered(fake, person, job, pve_host)
+    sentence = stopped.value.sentence
+    [question] = person.question(SET_UP)
+    assert f"pveum user token add {ENGINE_USER} {ENGINE_TOKEN}" in question, question
+    assert f"the token {ENGINE_FULL} this run made was deleted on 127.0.0.1 again" in sentence, sentence
+    assert "was there before this run" not in sentence
+    assert _state_of(pve_host)["tokens"] == {}
+    assert _ran(pve_host)[-1] == f"pveum user token delete {ENGINE_USER} {ENGINE_TOKEN}"
+    assert ("token", ENGINE_FULL) not in {(each.what, each.id) for each in _reached().fields.made}
+    _nothing_of(fake.secret, tmp_path, person, pve_host, sentence)
+
+
+@pytest.mark.parametrize("pool_set", [False, True], ids=["no pool set", "proxmox_pool set"])
+def test_a_take_over_is_never_offered_where_fleet_json_names_another_fleet(fake, pve_host, job, pool_set) -> None:
+    # Review 76, 2 (its probe P2): fleet.json names fleet B and the pool carries fleet A's mark: no take-over, which
+    # would leave fleet.json B's against A's mark; another pool alone, or, with the pool set, nothing asked and the
+    # mark's rule said.
+    with_port(fake.port)
+    mine, theirs = record.new_id(), record.new_id()
+    record.write(_home(), record.first(mine))
+    if pool_set:
+        overrides.set(_home(), "proxmox_pool", ENGINE_POOL, "pve", overrides.read(_home(), "pve").host.digest)
+    before = _another_fleet_s(pve_host, theirs)
+    person = _Person({SET_UP: engine_init.YES})
+    _offered(fake, person, job, pve_host)
+    assert person.question(AGAIN) == [] and person.question(SET_UP) == []
+    if pool_set:
+        assert person.question(WHICH) == []
+        assert f"the pool's mark names another fleet, {theirs}, where this computer's folder is the fleet {mine}'s" in (
+            " ".join(person.said().split())
+        ), person.said()
+    else:
+        [which] = person.question(WHICH)
+        assert "take the fleet over" not in which and "use another pool" in which, which
+    assert (pve_host.bin / "pve-state.json").read_bytes() == before
+    assert record.read(_home()).fleet == mine
+
+
 def test_a_pool_whose_mark_names_a_control_vm_is_refused_and_nothing_asked(fake, pve_host, job) -> None:
     # This fleet's mark, naming a control VM (D2): no question, the script's refusal said.
     with_port(fake.port)
