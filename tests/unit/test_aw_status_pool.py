@@ -21,6 +21,7 @@ import os
 import re
 import shlex
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -185,6 +186,10 @@ def _tree(root: Path, leave: Path) -> dict[str, str]:
 
 
 def test_the_pool_and_its_records_give_today_s_report_of_the_tagged_fleet(made, home, tmp_path) -> None:
+    # beta and gamma made two days ago, as alpha was (harness.fake_fleet): a VM made just now has a point of its day
+    # more for each minute it lives, and the two reports are read moments apart, often a minute apart.
+    for vmid in (9011, 9012):
+        _pve(made.base, "PUT", "fake/disk-ctime", vmid=vmid, ctime=int(time.time()) - 2 * 86400)
     today = _today(made, tmp_path, "--json", "--only", API_ONLY)
     assert today.returncode in (0, 1, 2), today.stderr[-2000:]
     _untagged(made)
