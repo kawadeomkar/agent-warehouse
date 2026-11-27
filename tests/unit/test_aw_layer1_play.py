@@ -449,9 +449,7 @@ def _layer1_holds(job: jobs.Job, alpha: Machine, given: Path) -> layer1.Refused:
     file it holds is refused for that, the check held after the file's, so that nothing is written or started either
     way."""
     with pytest.raises(layer1.Refused) as refused:
-        asyncio.run(
-            layer1.run(job, target(alpha), system.PLAY, given, name="alpha", host_flag="", env="a word")
-        )
+        asyncio.run(layer1.run(job, target(alpha), system.PLAY, given, name="alpha", host_flag="", env="a word"))
     directory = rundir.made(job)
     assert directory is not None and list(directory.iterdir()) == [given] * (given.parent == directory)
     assert children.live(job) == []

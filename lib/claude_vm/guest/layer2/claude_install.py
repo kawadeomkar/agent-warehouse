@@ -7,9 +7,14 @@ options passed through by their own names, each the role's own default where non
 What it does is today's role's, task by task (roles/claude_code/tasks/install_native.yml and install_npm.yml), which
 stay as they are until the cutover.
 
-**Native**, the default. The probe runs `~/.local/bin/claude --version` as the machine's account: nothing answering is
-no install. A channel, stable or latest, installs only where none is (the binary updates itself on its channel, which
-the settings' step writes); an exact version installs where the version installed is another. To install, the release
+**Native**, the default. The probe reads, as the machine's account, what `~/.local/bin/claude` resolves to and that
+file's SHA-256, and runs nothing of it: no launcher is no install. An install counts only where the launcher resolves to
+a release's file under `~/.local/share/claude/versions/`, the layout the binary's own `install` and its updates keep and
+the helper's probe reads the version from, and where that file is the binary Anthropic's signed manifest of its version
+gives for the machine's platform (the manifest read here as below); a launcher anywhere else, or of another digest, is
+one the step did not verify, and is installed over. A channel, stable or latest, installs only where no such install
+is (the binary updates itself on its channel, which the settings' step writes); an exact version installs where the
+version installed is another. To install, the release
 is settled on this computer through vendors/downloads.py's `claude_release`, which reads the channel's pointer, the
 release's manifest and Anthropic's detached signature of it, each held to its cap, verifies the signature with the
 vendored key (vendors/keys.py's, found by its fingerprint) and returns the version and the SHA-256 of each platform's
@@ -20,13 +25,15 @@ time bounded) into the account's own `~/.claude/downloads`, never /tmp, which ma
 said back, held here to the manifest's; its digest read once more there and, only where it is the manifest's, the
 binary's own `install` of that exact release run (never a channel's name, which it could resolve and fetch again for
 itself), bounded on the machine with `timeout`, and the SHA-256 of what `~/.local/bin/claude` then resolves to said
-back, held here to the same digest; and the download removed, whatever happened. The installer script is never used:
-it verifies no signature.
+back, held here to the same digest and to its place, `~/.local/share/claude/versions/<the release>`, and the launcher
+removed where it is not (so that no run after takes it as installed); and the download removed, whatever happened.
+The installer script is never used: it verifies no signature.
 
 **npm**: as today's install_npm.yml, as root through the machine's sudo: `npm --version` must answer; `npm ls -g
 --depth=0 --json` is read for `@anthropic-ai/claude-code`; where it is absent it is installed with `npm install -g`,
 given the version only where `claude_code_version` is an exact one, so that stable and latest install once and an exact
-version moves it, as today's `state: present` does; and what npm then lists is held to what was asked. A version is held
+version moves it, as today's `state: present` does; and what npm then lists is held to what was asked (guest/npm.py
+reads the list, as guest/states.py does for status). A version is held
 to stable, latest or a release's pattern before anything runs: npm installs any spec given as a version - another
 package, a repository, a tarball's address - as root.
 
@@ -41,6 +48,7 @@ import json
 import re
 
 from claude_vm import text
+from claude_vm.guest import npm
 from claude_vm.guest.layer2.step import Context, Difference, Failed
 from claude_vm.ssh import runner
 from claude_vm.vendors import downloads, keys, proxy, trust
@@ -59,9 +67,12 @@ RELEASE = downloads.RELEASE
 # The machine's platform by `uname -m`, as the role maps it; any other is named as it is, and the manifest decides.
 PLATFORMS = {"x86_64": "linux-x64", "aarch64": "linux-arm64"}
 # npm's package.
-PACKAGE = "@anthropic-ai/claude-code"
-# The launcher, under the account's home.
+PACKAGE = npm.PACKAGE
+# The launcher, and the folder of the releases the binary's own install keeps, each under the account's home.
 LAUNCHER = ".local/bin/claude"
+VERSIONS = ".local/share/claude/versions"
+# The install's exit status where the launcher does not resolve to the release's own file under VERSIONS.
+MISPLACED = 4
 
 # The calls' bounds: a read; the download, whose curl is bounded to 120 s on the machine, today's get_url's timeout;
 # the install, bounded to INSTALL_SECONDS there; npm's install, bounded to NPM_SECONDS there.
@@ -73,8 +84,17 @@ SLOW = runner.Limits(seconds=float(NPM_SECONDS + 30), silent=None)
 
 # Each machine's script, run by sh -c with its words as $1, $2 and on: no value of the settings or of a release is
 # ever part of a script's text.
-# The installed version: the launcher's own word, nothing where it does not answer.
-VERSION = 'exec "$HOME/.local/bin/claude" --version'
+# What is installed, nothing of it run: "absent" where no launcher is; else what the launcher resolves to, the folder
+# of releases resolved, and that file's SHA-256 ("digest none" where it is no file).
+PROBE = f"""set -u
+launcher="$HOME/{LAUNCHER}"
+if [ ! -e "$launcher" ]; then echo absent; exit 0; fi
+target=$(readlink -f -- "$launcher") || target=
+versions=$(readlink -f -- "$HOME/{VERSIONS}" 2>/dev/null) || versions=
+printf 'target %s\\n' "$target"
+printf 'versions %s\\n' "$versions"
+if [ -n "$target" ] && [ -f "$target" ]; then sha256sum -- "$target"; else echo "digest none"; fi
+"""
 # The download: $1 the release, $2 the platform, $3 the binary's URL. Its SHA-256 said back.
 DOWNLOAD = f"""set -eu
 umask 077
@@ -87,7 +107,8 @@ curl --fail --silent --show-error --location --proto =https --proto-redir =https
 sha256sum -- "$dest"
 """
 # The install: $1 the release, $2 the platform, $3 the SHA-256 the signed manifest gives. The download run only where
-# it is that binary; then the SHA-256 of what the launcher resolves to said back.
+# it is that binary; then what the launcher resolves to held to the release's own file under VERSIONS (exit
+# MISPLACED), and its SHA-256 said back.
 INSTALL = f"""set -eu
 dest="$HOME/.claude/downloads/claude-$1-$2"
 got=$(sha256sum -- "$dest")
@@ -97,10 +118,18 @@ if [ "${{got%% *}}" != "$3" ]; then
 fi
 chmod 700 "$dest"
 timeout {INSTALL_SECONDS} "$dest" install "$1" >&2
-sha256sum -- "$(readlink -f -- "$HOME/{LAUNCHER}")"
+target=$(readlink -f -- "$HOME/{LAUNCHER}") || target=
+versions=$(readlink -f -- "$HOME/{VERSIONS}") || versions=
+if [ -z "$versions" ] || [ "$target" != "$versions/$1" ]; then
+  echo "~/{LAUNCHER} resolves to ${{target:-nothing}}, not ~/{VERSIONS}/$1" >&2
+  exit {MISPLACED}
+fi
+sha256sum -- "$target"
 """
 # The download removed: $1 the release, $2 the platform.
 REMOVE = 'rm -f -- "$HOME/.claude/downloads/claude-$1-$2"'
+# The launcher removed, the file it resolves to left: where the install put something else in its place.
+UNLINK = f'rm -f -- "$HOME/{LAUNCHER}"'
 
 # A SHA-256 as sha256sum says one, at the start of its line.
 DIGEST = re.compile(r"([0-9a-f]{64}) [ *].*")
@@ -108,12 +137,14 @@ DIGEST = re.compile(r"([0-9a-f]{64}) [ *].*")
 
 @dataclasses.dataclass(frozen=True)
 class Installed:
-    """What the probe found: the method and the release the settings name (a channel or a version), and the version
-    installed: None where none is, "" where one is that says no version."""
+    """What the probe found: the method and the release the settings name (a channel or a version), the version
+    installed (None where none is, "" where one is that says no version), and, natively, why what is installed is not
+    one the step verified ("" where it is, or where it was not held, since the release wanted is another)."""
 
     method: str
     wanted: str
     version: str | None
+    unverified: str = ""
 
 
 def _words(said: str) -> str:
@@ -197,13 +228,43 @@ class ClaudeInstall:
         method, wanted = self._wanted(ctx)
         if method == "npm":
             return Installed(method, wanted, await self._npm_listed(ctx))
-        result = await ctx.run(_sh(VERSION), limits=QUICK)
-        if isinstance(result, runner.Done):
-            if result.status != 0:
-                return Installed(method, wanted, None)
-            first = result.lines[0].split() if result.lines and result.lines[0].split() else [""]
-            return Installed(method, wanted, first[0] if RELEASE.fullmatch(first[0]) else "")
-        raise Failed(f"Claude Code's version could not be read on the machine: {_failure(result)}")
+        return await self._native_installed(ctx, method, wanted)
+
+    async def _native_installed(self, ctx: Context, method: str, wanted: str) -> Installed:
+        """What the launcher resolves to, held to its place and, where the release wanted is that one or a channel's,
+        to the digest Anthropic's signed manifest of it gives: nothing of it run."""
+        result = await ctx.run(_sh(PROBE), limits=QUICK)
+        if not (isinstance(result, runner.Done) and result.status == 0 and result.lines):
+            raise Failed(f"Claude Code's launcher could not be read on the machine: {_failure(result)}")
+        if list(result.lines) == ["absent"]:
+            return Installed(method, wanted, None)
+        said = dict(line.partition(" ")[::2] for line in result.lines[:2])
+        target, versions = said.get("target", ""), said.get("versions", "")
+        name = target.rpartition("/")[2]
+        if not (versions and target == f"{versions}/{name}" and RELEASE.fullmatch(name)):
+            where = _shown(target or "nothing")
+            return Installed(
+                method, wanted, "", f"~/{LAUNCHER} resolves to {where}, no release's file under ~/{VERSIONS}"
+            )
+        if wanted not in CHANNELS and name != wanted:
+            return Installed(method, wanted, name)
+        digest = _digest(result)
+        if digest is None:
+            return Installed(method, wanted, name, f"the SHA-256 of ~/{VERSIONS}/{name} could not be read")
+        try:
+            release = await self._fetched(ctx, name)
+        except downloads.NotARelease:
+            return Installed(method, wanted, name, f"{name} is older than the first release Anthropic signs")
+        except (downloads.DownloadError, trust.Unusable, ValueError, TypeError) as error:
+            raise Failed(
+                f"Claude Code {name} on the machine could not be held to its signed manifest: {_words(str(error))}"
+            ) from None
+        platform = await self._platform(ctx)
+        if release.checksums.get(platform) != digest:
+            return Installed(
+                method, wanted, name, f"it is not the binary Anthropic's signed manifest of {name} gives ({platform})"
+            )
+        return Installed(method, wanted, name)
 
     async def _npm_listed(self, ctx: Context) -> str | None:
         """The version of npm's global package, as root: None where npm lists none. npm must answer first."""
@@ -213,22 +274,13 @@ class ClaudeInstall:
                 "npm did not answer on the machine, and claude_code_install_method npm installs Claude Code with it"
                 f" (dev_tools_install_node installs Node.js and npm): {_failure(answered)}"
             )
-        listed = await ctx.run(["npm", "ls", "-g", "--depth=0", "--json"], as_root=True, limits=QUICK)
-        # npm ls exits 1 for a problem of the tree it lists, and still lists it.
-        if not (isinstance(listed, runner.Done) and listed.status in (0, 1)):
+        listed = await ctx.run(list(npm.LIST), as_root=True, limits=QUICK)
+        if not (isinstance(listed, runner.Done) and listed.status in npm.LISTED):
             raise Failed(f"npm did not list its global packages on the machine: {_failure(listed)}")
         try:
-            tree = json.loads("\n".join(listed.lines))
-        except ValueError:
-            tree = None
-        if not isinstance(tree, dict):
-            raise Failed("npm listed its global packages in no JSON object")
-        dependencies = tree.get("dependencies") or {}
-        package = dependencies.get(PACKAGE) if isinstance(dependencies, dict) else None
-        if package is None:
-            return None
-        version = package.get("version") if isinstance(package, dict) else None
-        return version if isinstance(version, str) and RELEASE.fullmatch(version) else ""
+            return npm.version(listed.lines)
+        except ValueError as error:
+            raise Failed(str(error)) from None
 
     # ------------------------------------------------------------ the difference ----
 
@@ -239,6 +291,9 @@ class ClaudeInstall:
         wanted = state.wanted if state.wanted not in CHANNELS else f"the {state.wanted} channel's release"
         if state.version is None:
             return Difference(f"Claude Code ({state.method})", "not installed", wanted)
+        if state.unverified:
+            now = f"{state.version or 'a launcher'}: {state.unverified}"
+            return Difference(f"Claude Code ({state.method})", now, wanted)
         if state.wanted not in CHANNELS and state.version != state.wanted:
             return Difference(f"Claude Code ({state.method})", state.version or "a version it does not say", wanted)
         return None
@@ -258,19 +313,24 @@ class ClaudeInstall:
 
     async def _release(self, ctx: Context, wanted: str) -> downloads.Release:
         """The release wanted names, its manifest's signature verified on this computer."""
-        import asyncio
-
-        base = self._setting(ctx, "claude_code_download_url")
-        tls_ca_file = self._setting(ctx, "tls_ca_file") or None
         try:
-            chosen = proxy.choose(self._setting(ctx, "network_proxy"), ctx.env, base)
-            return await asyncio.to_thread(
-                downloads.claude_release, base, wanted, key=self.key, tls_ca_file=tls_ca_file, proxy=chosen
-            )
+            return await self._fetched(ctx, wanted)
         except (downloads.DownloadError, trust.Unusable, ValueError, TypeError) as error:
             raise Failed(
                 f"Claude Code was not installed, nothing fetched on the machine: {_words(str(error))}"
             ) from None
+
+    async def _fetched(self, ctx: Context, wanted: str) -> downloads.Release:
+        """The release wanted names, its manifest's signature verified on this computer by downloads.py, its errors
+        raised as they are."""
+        import asyncio
+
+        base = self._setting(ctx, "claude_code_download_url")
+        tls_ca_file = self._setting(ctx, "tls_ca_file") or None
+        chosen = proxy.choose(self._setting(ctx, "network_proxy"), ctx.env, base)
+        return await asyncio.to_thread(
+            downloads.claude_release, base, wanted, key=self.key, tls_ca_file=tls_ca_file, proxy=chosen
+        )
 
     async def _platform(self, ctx: Context) -> str:
         result = await ctx.run(["uname", "-m"], limits=QUICK)
@@ -304,12 +364,16 @@ class ClaudeInstall:
                     f" signed manifest names (SHA-256 {digest}): it was never run"
                 )
             installed = await ctx.run(_sh(INSTALL, release.version, platform, digest), limits=SLOW)
+            if isinstance(installed, runner.Done) and installed.status == MISPLACED:
+                await ctx.run(_sh(UNLINK), limits=QUICK)
+                raise Failed(f"install put something else in place: {_failure(installed)}; ~/{LAUNCHER} was removed")
             if not (isinstance(installed, runner.Done) and installed.status == 0):
                 raise Failed(f"Claude Code {release.version}'s install did not end well: {_failure(installed)}")
             if _digest(installed) != digest:
+                await ctx.run(_sh(UNLINK), limits=QUICK)
                 raise Failed(
                     f"~/{LAUNCHER} is not the binary Anthropic's signed manifest of {release.version} gives"
-                    f" ({platform}, SHA-256 {digest}): install put something else in place"
+                    f" ({platform}, SHA-256 {digest}): install put something else in place, and it was removed"
                 )
         finally:
             await ctx.run(_sh(REMOVE, release.version, platform), limits=QUICK)

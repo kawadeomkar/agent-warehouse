@@ -15,9 +15,13 @@ holds today's role.
   another key) stops the install before any binary is fetched; a manifest signed for another release, or one past its
   cap, refused; a binary that is not the manifest's never run; an install that puts another binary in place refused; a
   release older than the first signed one, or a channel that names no version, refused, nothing of it fetched.
+- A launcher the step did not verify (linked outside ~/.local/share/claude/versions/, linked to a file there that is
+  not the signed binary, or a file of its own) is installed over, nothing of it run; an install that leaves one is
+  refused on every run, the launcher removed; a download changed on the machine between its download and its install
+  is never run.
 - A second run of either method applies nothing; an exact version moves it; the difference names the release
   installed and the one wanted; a platform the release has no binary for is refused; and guest.states reports the
-  version installed.
+  version installed, natively and by npm.
 - npm, against a stand-in npm on the machine, as root through its sudo: installed once, a second run applying
   nothing, an exact version moving it, stable and latest never given to npm as a version; npm not answering, a sudo
   that wants a password and a version npm would read as another spec each a named failure, nothing installed.
@@ -116,6 +120,17 @@ else:
 """
 # An npm that does not answer, as a machine with no Node.js has none.
 NO_NPM = "#!/bin/sh\necho 'sh: 1: npm: not found' >&2\nexit 127\n"
+# One that installs itself as the real one would, but under a folder of its own, and links the launcher there: the
+# manifest's binary, in a place the step does not hold.
+LINKING = f"""#!/bin/sh
+[ "$1" = --version ] && {{ echo "{RELEASE} (Claude Code)"; exit 0; }}
+printf '%s\\n' "$*" >> "$HOME/asked"
+mkdir -p "$HOME/.local/bin" "$HOME/elsewhere"
+cp "$0" "$HOME/elsewhere/claude"
+ln -sf "$HOME/elsewhere/claude" "$HOME/.local/bin/claude"
+""".encode()
+# What a test writes over the download on the machine, between the download and the install.
+SWAPPED = b'#!/bin/sh\necho swapped-on-machine >> "$HOME/asked"\n'
 
 
 @pytest.fixture(scope="module")
@@ -294,10 +309,11 @@ def test_the_release_named_is_installed_as_that_release_held_to_the_signed_manif
     assert [path for path in asked if path in ("/good/stable", "/good/latest")] == (
         [] if wanted == RELEASE else [f"/good/{wanted}"]
     )
-    # A second run applies nothing, and fetches nothing.
+    # A second run applies nothing and runs nothing of the binary: it holds what is installed to the signed manifest of
+    # its own release, and fetches no pointer and no binary.
     again = _install(job, alpha, vendor, claude_code_version=wanted)
     assert again == step.Ran("succeeded", ((STEP, False),)) and _asked(alpha) == [f"install {RELEASE}"]
-    assert vendor.asked() == asked
+    assert vendor.asked()[len(asked) :] == [f"/good/{RELEASE}/manifest.json", f"/good/{RELEASE}/manifest.json.sig"]
 
 
 def test_an_exact_version_moves_it_and_a_second_run_applies_nothing(job, alpha, vendor):
@@ -356,11 +372,76 @@ def test_a_binary_that_is_not_the_one_the_signed_manifest_names_is_never_run_and
     assert _downloads(alpha) == []
 
 
-def test_an_install_that_puts_another_binary_in_place_is_refused(job, alpha, vendor):
-    vendor.release(binary=REFETCHING, manifest=_manifest(binary=REFETCHING))
+@pytest.mark.parametrize("binary", [REFETCHING, LINKING], ids=["another-binary", "linked-elsewhere"])
+@pytest.mark.parametrize("wanted", ["stable", RELEASE])
+def test_an_install_that_puts_something_else_in_place_is_refused_on_every_run(job, alpha, vendor, binary, wanted):
+    vendor.release(binary=binary, manifest=_manifest(binary=binary))
+    launcher = alpha.home / ".local" / "bin" / "claude"
+    for runs in (1, 2):
+        ran = _install(job, alpha, vendor, claude_code_version=wanted)
+        assert ran.outcome == "failed" and "install put something else in place" in ran.why, ran
+        # The launcher it left is removed, so that no run after takes it as installed.
+        assert not os.path.lexists(launcher) and _downloads(alpha) == []
+        assert _asked(alpha) == [f"install {RELEASE}"] * runs
+
+
+def _placed(made: Machine, how: str) -> None:
+    """A launcher the step did not verify: linked to the right binary outside the releases' folder, linked to a file
+    of the releases' folder that is not the signed binary, or a file of its own."""
+    home = made.home
+    launcher = home / ".local" / "bin" / "claude"
+    launcher.parent.mkdir(parents=True)
+    if how == "elsewhere":
+        _write(home / "elsewhere" / "claude", _binary())
+        launcher.symlink_to(home / "elsewhere" / "claude")
+    elif how == "tampered":
+        _write(home / ".local" / "share" / "claude" / "versions" / RELEASE, _binary() + b"# changed\n")
+        launcher.symlink_to(home / ".local" / "share" / "claude" / "versions" / RELEASE)
+    else:
+        _write(launcher, _binary())
+    launcher.resolve().chmod(0o755)
+
+
+@pytest.mark.parametrize(
+    ("how", "said"),
+    [
+        ("elsewhere", "no release's file under ~/.local/share/claude/versions"),
+        ("tampered", f"it is not the binary Anthropic's signed manifest of {RELEASE} gives (linux-x64)"),
+        ("a-file", "no release's file under ~/.local/share/claude/versions"),
+    ],
+)
+@pytest.mark.parametrize("wanted", ["stable", RELEASE])
+def test_a_launcher_the_step_did_not_verify_is_installed_over(job, alpha, vendor, how, said, wanted):
+    vendor.release()
+    _placed(alpha, how)
+    install = ClaudeInstall(key=vendor.key)
+    ctx = _ctx(job, alpha, _settings(vendor, claude_code_version=wanted))
+    difference = install.difference(asyncio.run(install.probe(ctx)))
+    assert difference is not None and said in difference.now, difference
+    # The probe ran nothing of what the launcher resolves to.
+    assert _asked(alpha) == []
+    assert _install(job, alpha, vendor, claude_code_version=wanted) == step.Ran("succeeded", ((STEP, True),))
+    assert _asked(alpha) == [f"install {RELEASE}"] and _launched(alpha) == hashlib.sha256(_binary()).hexdigest()
+    versions = alpha.home / ".local" / "share" / "claude" / "versions"
+    assert (alpha.home / ".local" / "bin" / "claude").resolve() == (versions / RELEASE).resolve()
+    assert _install(job, alpha, vendor, claude_code_version=wanted) == step.Ran("succeeded", ((STEP, False),))
+
+
+def test_a_download_changed_on_the_machine_before_its_install_is_never_run(job, alpha, vendor, monkeypatch):
+    vendor.release()
+    run = step.Context.run
+
+    async def swapping(self, command, **how):
+        """The context's run, the download written over on the machine once its call has said its digest."""
+        result = await run(self, command, **how)
+        if list(command[:3]) == ["sh", "-c", claude_install.DOWNLOAD]:
+            (alpha.home / ".claude" / "downloads" / f"claude-{RELEASE}-linux-x64").write_bytes(SWAPPED)
+        return result
+
+    monkeypatch.setattr(step.Context, "run", swapping)
     ran = _install(job, alpha, vendor)
-    assert ran.outcome == "failed" and "install put something else in place" in ran.why, ran
-    assert _asked(alpha) == [f"install {RELEASE}"] and _downloads(alpha) == []
+    assert ran.outcome == "failed" and "exit 3: the download is not the binary" in ran.why, ran
+    assert _asked(alpha) == [] and _downloads(alpha) == [] and not (alpha.home / ".local").exists()
 
 
 @pytest.mark.parametrize(
@@ -402,6 +483,29 @@ def test_the_difference_names_the_release_installed_and_the_one_wanted(job, alph
     assert difference(claude_code_install_method="npm") == step.Difference(
         "Claude Code (npm)", "not installed", "the stable channel's release"
     )
+
+
+def test_guest_states_reports_an_npm_install_and_its_version(job, alpha, vendor):
+    given = _status_settings(alpha)
+    settings = {**given, "claude": {**given["claude"], "method": "npm"}}
+
+    def claude() -> tuple[bool, str]:
+        records = asyncio.run(
+            states.read(
+                job, target(alpha), ["claude"], settings=settings, name="alpha", python="python3", env=dict(os.environ)
+            )
+        )
+        return records["claude"]["installed"], records["claude"]["version"]
+
+    _stand_in(alpha, "npm", NO_NPM)
+    assert claude() == (False, "")
+    _stand_in(alpha, "npm", NPM)
+    assert claude() == (False, "")
+    npm_next = {"claude_code_install_method": "npm", "claude_code_version": NEXT}
+    assert _install(job, alpha, vendor, **npm_next).outcome == "succeeded"
+    assert claude() == (True, NEXT)
+    # Read as the machine's user: status asks nothing of sudo for it.
+    assert [call["sudo"] for call in _npm_calls(alpha) if call["args"][:1] == ["ls"]][-1] is False
 
 
 def test_guest_states_reports_the_version_installed(job, alpha, vendor):
