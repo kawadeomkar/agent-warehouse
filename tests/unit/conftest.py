@@ -302,25 +302,30 @@ def drainwatch() -> Iterator[list[str]]:
         return None
 
     def macos_echo(fd, data):
-        """What is typed at a watched master (os.write), with the echo macOS makes there and Linux does not made too:
-        an end of input typed while the terminal is canonical and echoes is echoed as ^D and two backspaces over it
-        (XNU's ttyinput), written at the slave, so that the master holds it as it would on macOS till it is read."""
-        wrote_now = wrote(fd, data)
+        """What is typed at a watched master (os.write), with the echo macOS makes there and Linux does not made too, as
+        macOS makes it: an end of input typed while the terminal is canonical and echoes - its mode at that moment, read
+        before the write, never after, when the program may have read it and put its own mode back - is echoed as ^D
+        and two backspaces over it (XNU's ttyinput), written at the slave before what was typed reaches the master,
+        so that it comes before anything the program writes once it reads, and the master holds it as it would on
+        macOS till it is read. Typed in any other mode (a menu's raw one), nothing."""
         name = watched(fd) if masters else None
+        ends = 0
         if name is not None:
             with contextlib.suppress(OSError, termios.error):
                 mode = termios.tcgetattr(fd)
                 lflag, eof = mode[3], mode[6][termios.VEOF]
                 eof = eof if isinstance(eof, bytes) else bytes([eof])
-                ends = bytes(data[:wrote_now]).count(eof) if eof != b"\0" else 0
-                if ends and lflag & termios.ICANON and lflag & termios.ECHO:
-                    slave = os.open(name, os.O_WRONLY | os.O_NOCTTY)
-                    try:
-                        wrote(slave, b"^D\b\b" * ends)
-                    finally:
-                        os.close(slave)
-                    echoed.add(name)
-        return wrote_now
+                if eof != b"\0" and lflag & termios.ICANON and lflag & termios.ECHO:
+                    ends = bytes(data).count(eof)
+        if ends:
+            with contextlib.suppress(OSError):
+                slave = os.open(name, os.O_WRONLY | os.O_NOCTTY)
+                try:
+                    wrote(slave, b"^D\b\b" * ends)
+                finally:
+                    os.close(slave)
+                echoed.add(name)
+        return wrote(fd, data)
 
     def unread(name: str) -> int:
         master, dev, ino = masters[name]
