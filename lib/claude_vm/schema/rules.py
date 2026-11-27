@@ -234,6 +234,10 @@ def _settings_both(values: Values) -> Filled | None:
     return {} if _on(values, "reset") and _on(values, "value") else None
 
 
+def _settings_edit(values: Values) -> Filled | None:
+    return {} if _words(values, "name") == ["edit"] and _on(values, "json") else None
+
+
 def _host_json(values: Values) -> Filled | None:
     return {} if _on(values, "json") and _words(values, "name") else None
 
@@ -365,6 +369,13 @@ _ALL: tuple[Rule, ...] = (
         ("settings",),
         "error: --value sets a value and --reset takes one out: one or the other",
         _settings_both,
+    ),
+    Rule(
+        "settings.5",
+        ("settings",),
+        "error: {edit} opens the settings in your editor, which is no report: give it no --json",
+        _settings_edit,
+        {"edit": Line("settings", {"name": "edit"})},
     ),
     Rule(
         "destroy.1",

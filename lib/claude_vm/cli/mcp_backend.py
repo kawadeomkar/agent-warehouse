@@ -171,7 +171,7 @@ def schema(tool: str) -> dict:
         if fate_of(row, item, tool).kind != PROPERTY_KIND:
             continue
         properties[field] = _property(item)
-        if isinstance(item, Words) and item.needed:
+        if isinstance(item, Words) and (item.needed or item.agent_needed):
             required.append(field)
             if item.plural:
                 properties[field]["minItems"] = 1
@@ -232,6 +232,11 @@ def command(tool: str, arguments: Mapping[str, object], given: Mapping[str, obje
     given = dict(given or {})
     if set(given) != asked:
         raise TypeError(f"the {tool} tool's call is given {sorted(given)}, where the table asks for {sorted(asked)}")
+    # An empty value would be written --long= or left out, so a destroy's --confirm with no names would reach the
+    # default VM: what the server gives for a call is a value, or the call is not made.
+    empty = sorted(field for field, value in given.items() if value is None or value == "" or value == [])
+    if empty:
+        raise TypeError(f"the {tool} tool's call is given no value for {empty}: the server gives one, or no call")
     values: dict[str, object] = {}
     for name, value in arguments.items():
         if row.changes and name == WAIT:
@@ -256,6 +261,9 @@ def command(tool: str, arguments: Mapping[str, object], given: Mapping[str, obje
             raise Refused(
                 f"error: the {tool} tool takes no {words.field} that starts with -, which aw would read as an option"
             )
+    # A word the table says an agent's tool needs, where none would reach what nobody named: no default is implied.
+    if words is not None and (words.needed or words.agent_needed) and words.field not in values:
+        raise Refused(f"error: the {tool} tool takes its {words.field}, and none was given: name what it is for")
     held = checks.check_before(before) or checks.check(row.name, values)
     if held:
         raise Refused(held)

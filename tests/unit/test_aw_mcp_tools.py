@@ -56,7 +56,25 @@ TOOLS = {
 NO_TOOL = {"help", "vault", "mcp"}
 # What a call needs beyond nothing for the one check to take it, by tool: the verb's needed word, and the VMs destroy
 # deletes, which its --confirm, given by the server, must name.
-NEEDS = {"code": {"name": "alpha"}, "release": {"name": "alpha"}, "destroy": {"names": ["alpha"]}}
+NEEDS = {
+    "code": {"name": "alpha"},
+    "release": {"name": "alpha"},
+    "destroy": {"names": ["alpha"]},
+    "cancel": {"job": "3f9a0c1e7b2d4a58"},
+}
+# What the rules between options need beside a property, for the one check to take the call, by the tool and the
+# property's field.
+COMPANIONS = {
+    ("deploy", "start"): {"names": ["alpha"], "only": "provision"},
+    ("deploy", "cores"): {"names": ["alpha"], "only": "provision"},
+    ("deploy", "memory"): {"names": ["alpha"], "only": "provision"},
+    ("deploy", "disk"): {"names": ["alpha"], "only": "provision"},
+    ("deploy", "repos"): {"names": ["alpha"], "only": "provision"},
+    ("deploy", "tags"): {"names": ["alpha"]},
+    ("settings_set", "value"): {"name": "vm_cores"},
+    ("settings_set", "reset"): {"name": "vm_cores"},
+    ("logs", "save"): {"job": "3f9a0c1e7b2d4a58"},
+}
 # The values the server works out for each call, by the field of each fate fixed with no value.
 GIVES = {"attended": "1", "confirm": "alpha"}
 
@@ -89,6 +107,25 @@ def _refusal(tool: str, arguments: dict) -> str:
     with pytest.raises(Refused) as refused:
         command(tool, arguments, _given(tool))
     return str(refused.value)
+
+
+def _taken(item: Option | Words) -> object:
+    """A value of item that its pattern takes: its own example, or its pattern's first; true for a flag."""
+    if isinstance(item, Option) and item.kind == "flag":
+        return True
+    example = item.example or PATTERNS[item.pattern].examples[0]
+    return [example] if isinstance(item, Words) and item.plural else example
+
+
+def _said_in(argv: list[str], item: Option | Words, value: object) -> bool:
+    """Whether the line says item's value: each word after the verb, a flag's spelling, or a value after its option."""
+    if isinstance(item, Words):
+        return all(word in argv for word in (value if isinstance(value, list) else [value]))
+    spelled = check.spelled(item)
+    if item.kind == "flag":
+        return spelled in argv
+    pairs = list(zip(argv, argv[1:], strict=False))
+    return (spelled, value) in pairs or f"{spelled}={value}" in argv
 
 
 def _sample(item: Option | Words) -> object:
@@ -145,6 +182,11 @@ def test_every_option_and_word_has_exactly_one_fate_for_the_tool(tool: str) -> N
         assert one.kind in FATES, (tool, field)
         if one.kind == "property":
             assert field in properties, (tool, field)
+            # Given a value the one check takes, with what its rules need beside it, the property reaches the line.
+            value = _taken(item)
+            arguments = {**NEEDS.get(tool, {}), **COMPANIONS.get((tool, field), {}), field: value}
+            line = command(tool, arguments, _given(tool))
+            assert _said_in(line, item, value), (tool, field, line)
             continue
         assert field not in properties, (tool, field)
         refusal = _refusal(tool, {**NEEDS.get(tool, {}), field: _sample(item)})
@@ -221,6 +263,8 @@ def test_each_word_a_tool_does_not_take_is_refused_before_any_child_starts(monke
     assert _refusal("logs", {"job": "1", "follow": True}).endswith(printer.said(words.FOLLOW_REFUSED))
     assert _refusal("deploy", {"bogus": 1}) == "error: the deploy tool has no argument bogus"
     assert _refusal("deploy", {"Bad Name!": 1}) == "error: the deploy tool has no argument of that name"
+    # Held whole: a name that starts as one could and goes on as none could is said as none.
+    assert _refusal("deploy", {"bad name!": 1}) == "error: the deploy tool has no argument of that name"
     for own in ("log", "jobs", "job", "vault", "nothing"):
         with pytest.raises(Refused):
             command(own, {})
@@ -330,8 +374,35 @@ def test_a_given_value_the_table_does_not_ask_for_is_the_server_s_fault() -> Non
         command("destroy", {"names": ["alpha"]}, {"attended": "1"})
     with pytest.raises(TypeError):
         command("status", {}, {"attended": "1", "confirm": "alpha"})
-    argv = command("destroy", {"names": ["alpha"]}, {"attended": "", "confirm": "alpha"})
-    assert argv[:2] == ["aw", "destroy"] and argv[argv.index("--confirm") + 1] == "alpha"
+    argv = command("destroy", {"names": ["alpha"]}, {"attended": "0", "confirm": "alpha"})
+    assert argv[:4] == ["aw", "--attended", "0", "destroy"] and argv[argv.index("--confirm") + 1] == "alpha"
+    # An empty value the server gives is no value: --confirm= with no names would reach the default VM.
+    for empty in ("", None, []):
+        with pytest.raises(TypeError, match="no value"):
+            command("destroy", {}, {"attended": "1", "confirm": empty})
+        with pytest.raises(TypeError, match="no value"):
+            command("destroy", {"names": ["alpha"]}, {"attended": empty, "confirm": "alpha"})
+
+
+@pytest.mark.parametrize(("tool", "field"), [("destroy", "names"), ("cancel", "job"), ("code", "name")])
+def test_a_word_an_agent_s_tool_needs_is_required_and_none_is_refused(tool: str, field: str) -> None:
+    # None would reach what nobody named: the default VM, the one job that runs, a terminal's among them.
+    made = schema(tool)
+    assert field in made["required"]
+    assert not Draft202012Validator(made).is_valid({})
+    words = {} if tool == "code" else {"names": []} if tool == "destroy" else {"job": ""}
+    for arguments in ({}, words):
+        refusal = _refusal(tool, arguments)
+        assert refusal == f"error: the {tool} tool takes its {field}, and none was given: name what it is for"
+
+
+@pytest.mark.parametrize("tool", ["settings", "settings_set"])
+def test_settings_edit_is_refused_to_an_agent_s_tool(tool: str) -> None:
+    # It opens an editor on the person's screen: each settings tool gives --json, which a rule of the table refuses
+    # beside it.
+    refusal = _refusal(tool, {"name": "edit"})
+    assert refusal == check.check("settings", {"name": "edit", "json": True})
+    assert refusal and "editor" in refusal
 
 
 # The names the module may read from the table and never writes: each a fate, a reason or what makes one.
