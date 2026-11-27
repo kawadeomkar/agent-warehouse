@@ -5,8 +5,14 @@ person. Writes nothing."""
 
 from __future__ import annotations
 
-from .layout import Layout
+from typing import TYPE_CHECKING
+
 from .model import SHARED_HOSTS, Choice, Host, HostList, HostRow, Note, Refused, Request, Where
+
+if TYPE_CHECKING:
+    # The layout is the caller's, and named here only for the annotations: so the new engine, whose fleet/hosts.py
+    # takes these rules over a layout of its own, loads neither today's layout nor the vault reader it imports.
+    from .layout import Layout
 
 
 def pick(layout: Layout, given: str = "", lenient: bool = False) -> Host | None:

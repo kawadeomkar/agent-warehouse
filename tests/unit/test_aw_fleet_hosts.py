@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 import yaml
 from harness import REPO
+from test_claude_vm import _python
 
 from claude_vm.fleet import hosts, overrides, paths, registry
 from claude_vm.fleet.hosts import Layout, reach
@@ -690,3 +691,16 @@ def test_no_module_of_the_new_engine_reads_a_host_s_today_s_files() -> None:
         if path.is_file() and (reads := _reads_todays_files(path.read_text()))
     }
     assert found == {}, "today's inventory files of a host are today's product's: the new road reads none"
+
+
+def test_an_aw_run_loads_neither_today_s_layout_nor_its_vault_reader() -> None:
+    # hosts/choose.py names today's Layout for its annotations alone, and the adapter gives its rules a layout of its
+    # own: an import of the hosts adapter, as an aw run's, in a fresh interpreter loads neither hosts/layout.py nor the
+    # vault reader it imports, which the new road never reads.
+    loaded = _python(
+        f"import sys; sys.path.insert(0, {str(REPO / 'lib')!r}); "
+        "import claude_vm.cli.main, claude_vm.engine.deploy, claude_vm.fleet.hosts; "
+        "print(' '.join(sorted(sys.modules)))"
+    ).split()
+    assert {"claude_vm.fleet.hosts", "claude_vm.hosts.choose", "claude_vm.engine.deploy"} <= set(loaded), loaded
+    assert {"claude_vm.hosts.layout", "claude_vm.vault"}.isdisjoint(loaded)
