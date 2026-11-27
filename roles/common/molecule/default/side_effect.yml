@@ -191,9 +191,10 @@
 # The person's keys over a keys file that holds more, through a ~/.ssh that is a
 # link to a folder of dev's: both lines of the listed key, the first with
 # options in front and another comment, become the listed form (sshd applies
-# the first), the line of a key not on the list is kept, and so is a line of
-# the key commented out; the folder the link names is made 0700, as the user,
-# and a second run changes nothing. A key that is none is refused, and so are
+# the first), the line of a key not on the list is kept, directly before one of
+# them, and so is a line of the key commented out; a real key's line becomes
+# its listed form, whose options hold a backslash, written as it is; the folder
+# the link names is made 0700, as the user, and a second run changes nothing. A key that is none is refused, and so are
 # an item of two lines, one commented out and a key listed twice. Then ~/.ssh
 # is put back as converge left it, for verify.yml to find the listed key there.
 - name: Authorise the keys over a keys file that holds more, through a linked ~/.ssh
@@ -203,6 +204,10 @@
   vars:
     common_side_effect_listed: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMoleculeTestKeyDoNotUse0000000000000000000 molecule@test
     common_side_effect_other: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOtherKeyKeptDoNotUse0000000000000000000000 kept@test
+    # A real key, whose base64 holds r, n and +, listed with options that hold a
+    # backslash, which Python's replacement would read as a group's number.
+    common_side_effect_real: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHMy11wLE9DSZRr7s6m76bSqWqNH+fn6Ga958m5nBwQc rn@test
+    common_side_effect_real_listed: 'command="printf x\1y" {{ common_side_effect_real }}'
     common_side_effect_home: "{{ ansible_facts.getent_passwd.dev[4] }}"
   tasks:
     - name: Read dev's home
@@ -230,13 +235,14 @@
         group: dev
         follow: false
 
-    - name: Write the listed key twice, first with options and another comment, a key not on the list, and one commented out
+    - name: Write the listed key twice, first with options and another comment, one commented out, a key not on the list, and the real key
       ansible.builtin.copy:
         content: |
           no-agent-forwarding,no-pty {{ common_side_effect_listed.rsplit(' ', 1)[0] }} another@comment
-          {{ common_side_effect_other }}
           # {{ common_side_effect_listed.rsplit(' ', 1)[0] }} commented@out
+          {{ common_side_effect_other }}
           {{ common_side_effect_listed.rsplit(' ', 1)[0] }} second@old
+          {{ common_side_effect_real.rsplit(' ', 1)[0] }} plain@old
         dest: "{{ common_side_effect_home }}/keys-elsewhere/authorized_keys"
         owner: dev
         group: dev
@@ -247,7 +253,7 @@
         name: common
         tasks_from: keys
       vars:
-        common_user_ssh_public_keys: ["{{ common_side_effect_listed }}"]
+        common_user_ssh_public_keys: ["{{ common_side_effect_listed }}", "{{ common_side_effect_real_listed }}"]
 
     - name: Read what that left of the keys file
       ansible.builtin.slurp:
@@ -269,7 +275,7 @@
         name: common
         tasks_from: keys
       vars:
-        common_user_ssh_public_keys: ["{{ common_side_effect_listed }}"]
+        common_user_ssh_public_keys: ["{{ common_side_effect_listed }}", "{{ common_side_effect_real_listed }}"]
 
     - name: Read what the second run left of the keys file
       ansible.builtin.slurp:
@@ -283,8 +289,8 @@
         that:
           - >-
             (common_side_effect_keys.content | b64decode)
-            == [common_side_effect_listed, common_side_effect_other, '# ' ~ common_side_effect_key ~ ' commented@out',
-                common_side_effect_listed, ''] | join("\n")
+            == [common_side_effect_listed, '# ' ~ common_side_effect_key ~ ' commented@out', common_side_effect_other,
+                common_side_effect_listed, common_side_effect_real_listed, ''] | join("\n")
           - common_side_effect_keys_again.content == common_side_effect_keys.content
           - common_side_effect_keys_stat.results[0].stat.islnk
           - common_side_effect_keys_stat.results[1].stat.mode == '0700'

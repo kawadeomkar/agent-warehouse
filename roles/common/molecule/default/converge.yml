@@ -7,6 +7,9 @@
       vars:
         common_user_ssh_public_keys:
           - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMoleculeTestKeyDoNotUse0000000000000000000 molecule@test
+          # A real key's base64 holds r, n and +, which no pattern of keys.yml may
+          # take for anything else.
+          - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHMy11wLE9DSZRr7s6m76bSqWqNH+fn6Ga958m5nBwQc rn@test
         common_extra_packages: [sl]
         common_timezone: Europe/Amsterdam
         # The agent under its unit's full name; side_effect.yml runs it under the default's.

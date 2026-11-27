@@ -22,8 +22,8 @@
   vars:
     common_keys_unread: >-
       {{ common_user_ssh_public_keys | reject('search', common_ssh_key_pattern) | list
-         + common_user_ssh_public_keys | select('search', '[\\r\\n]') | list
-         + common_user_ssh_public_keys | select('match', '[ \\t]*#') | list }}
+         + common_user_ssh_public_keys | select('search', common_ssh_key_line_break) | list
+         + common_user_ssh_public_keys | select('match', common_ssh_key_commented) | list }}
     # Each key's type and base64, read once the first check has passed.
     common_keys_listed: >-
       {{ common_user_ssh_public_keys | map('regex_findall', common_ssh_key_pattern) | map('first')
@@ -59,9 +59,10 @@
     path: "~{{ common_user }}/.ssh/authorized_keys"
     regexp: >-
       ^(?!{{ item | regex_escape }}$){{ common_key_line }}
-    # Python's replacement string, where a backslash is an escape.
+    # Python's replacement string, where a backslash is an escape: each one
+    # doubled, so that the listed line is written as it is.
     replace: >-
-      {{ item | replace('\\', '\\\\') }}
+      {{ item | replace(common_backslash, common_backslash ~ common_backslash) }}
   become: true
   become_user: "{{ common_user }}"
   loop: "{{ common_user_ssh_public_keys }}"
