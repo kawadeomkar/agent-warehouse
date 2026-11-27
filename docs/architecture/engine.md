@@ -506,7 +506,8 @@ refused by the rule its code names, each case of a habit says its habit's senten
 parser's sentence in the test's process too;
 `--repos`' 2000 characters taken and 2001 refused; each name the names habit splits a verb's words into held to the
 pattern, through the launcher and with the pattern narrowed, as `host --for`'s are; no rule says back a value that may
-be a secret, over every case of a rule with each value of free text its verb takes typed as one, and one it says back
+be a secret, over every case of a rule with each value of free text its verb takes (held to `text`, `assignment`,
+`path` or `secret_file`) typed as one, and one it says back
 has met its pattern first; the check answers alike as words and as JSON; the question
 is asked at a pseudo-terminal, typed and with none; and no file of the tree names the recorded command line of v2.7.0,
 which no test holds `aw` or the `justfile` to.
