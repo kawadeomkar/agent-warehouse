@@ -179,6 +179,19 @@ ROWS: tuple[Row, ...] = (
         where=paths.jobs_dir,
     ),
     Row(
+        id="logs",
+        path=(
+            "the state folder's `logs/` (fleet/paths.py's `logs_dir`) where LOG_DIR is not set and the fleet's home is"
+            " not a checkout's own; LOG_DIR where it is set, the checkout's own `.logs/` otherwise"
+        ),
+        what="each run's plain-text log, one file a run, the lines a person reads",
+        writer="every run (runs/textlog.py)",
+        when="every run but one at a terminal with LOG_DIR empty",
+        removed_by="the prune (runs/prune.py), past LOG_RETENTION_DAYS, 14 where it is not set",
+        sources=(f"{RUNS}textlog.py",),
+        where=paths.logs_dir,
+    ),
+    Row(
         id="locks",
         path="the state folder's lock files (fleet/paths.py's `locks_dir`)",
         what="one empty file a lock - the fleet's, each machine's, the short sections' - held by the kernel",

@@ -23,13 +23,14 @@ from claude_vm.engine.controller_writes import ROWS
 from claude_vm.fleet import paths, registry
 
 FIELDS = ("id", "path", "what", "writer", "when", "removed_by")
-# How each row's write looks where the engine makes it, where it has a spelling of its own: the Proxmox host's key
-# taken at first use (the runner's policy for the host), a VM's key appended under its identity or named by an alias,
-# the aliases' two writes, the launcher's environment, and the two writes of other programs' command lines. A row
-# with none here is found by WRITES alone.
+# How each row's write looks where the engine makes it, where it has a spelling of its own: the Proxmox host's key taken
+# at first use (the runner's policy for the host), a VM's key appended under its identity or named by an alias, the
+# aliases' two writes, a run's text log opened new to append, the launcher's environment, and the two writes of other
+# programs' command lines. A row with none here is found by WRITES alone.
 MADE_BY = {
     "known_hosts": r"ACCEPT_NEW if [^\n]*is_host",
-    "vm_known_hosts": r"os\.O_APPEND|UserKnownHostsFile \{",
+    "vm_known_hosts": r"os\.O_WRONLY \| os\.O_APPEND|UserKnownHostsFile \{",
+    "logs": r"os\.O_EXCL \| os\.O_APPEND",
     "ssh_config": r"swap, files\.config",
     "ssh_include": r"swap, files\.user",
     "data": r"UV_PROJECT_ENVIRONMENT=",
@@ -79,12 +80,12 @@ def test_every_row_says_where_what_who_when_and_what_takes_it_out() -> None:
         assert all((REPO / source).is_file() for source in row.sources), row.id
         assert row.setting == "" or row.setting in {each.name for each in registry.rows()}, row.id
         assert row.where is None or row.where.__module__ == paths.__name__, row.id
-    # Today's rows, each carried, and the report's own: the fleet's folder, the key file, the state folder's jobs and
-    # locks, a run's directory and the shared control directory, which is Ansible's own.
+    # Today's rows, each carried, and the report's own: the fleet's folder, the key file, the state folder's jobs, the
+    # runs' text logs and the lock files, a run's directory and the shared control directory, which is Ansible's own.
     today = ["known_hosts", "vm_known_hosts", "ssh_config", "ssh_include", "data", "vscode_extension"]
     today += ["editor_records", "mcp", "sessions_dir"]
     assert ids[: len(today)] == today
-    assert ids[len(today) :] == ["fleet", "vault_key", "jobs", "locks", "run_dir", "control_dir"]
+    assert ids[len(today) :] == ["fleet", "vault_key", "jobs", "logs", "locks", "run_dir", "control_dir"]
     assert controller_writes.ALSO
 
 
