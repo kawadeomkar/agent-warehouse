@@ -565,8 +565,6 @@ def _forged(at: runner.Target, identity: str) -> runner.Target:
         ("a test connection that gives more", "a test-only connection gives no ansible_ssh_common_args"),
         ("an option that opens a template", "the inventory's ansible_ssh_common_args would open a template"),
         ("an environment that is no mapping", "the run's environment is a mapping"),
-        ("a redaction list of plain words", "the run's redaction list holds Secrets alone"),
-        ("a redaction list that is one word", "the run's redaction list is a list of Secrets"),
         ("a folder of collections with no test connection", "a folder of collections is a test's, given only beside"),
         ("a folder of collections that is not there", "a test's folder of collections is an absolute path to a folder"),
     ],
@@ -618,10 +616,6 @@ def test_what_is_not_one_is_refused_before_anything_is_written_or_started(made, 
         at = target(alpha, given={"Compression": "{{ lookup('pipe', 'id') }}"})
     elif case == "an environment that is no mapping":
         given["env"] = ["PATH=/bin"]
-    elif case == "a redaction list of plain words":
-        given["redacted"] = ["a secret as a plain word"]
-    elif case == "a redaction list that is one word":
-        given["redacted"] = "a secret as a plain word"
     elif case == "a folder of collections with no test connection":
         given["test_collections"] = tmp_path
     elif case == "a folder of collections that is not there":

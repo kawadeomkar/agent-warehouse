@@ -2541,7 +2541,11 @@ before it raised, and the first error is raised once the last has heard, so that
 keeps the run's end from its log. The kinds are `stage`, `step`,
 `report`, `waiting`, `next`, `join` and `end`; another is refused, `child` among them, since a child the run started is
 its registry's (`children.py`). Every string an event carries goes through
-`text.plain_text`, and a `Secret` anywhere in one is refused before anything is written or heard. What an agent and
+`text.plain_text`, and a `Secret` anywhere in one is refused before anything is written or heard. The job holds the
+run's redaction list: every secret the run opens is added to it (`redact`, a `Secret` alone, each once; `redacted` is
+the list), and every string of an event, its text, its data and their keys, is struck of each of them
+(`secret.struck_all`), before and after it is made plain, so that neither the record nor a listener has one; layer 1's
+child is struck of the same list (§16.10). `tests/unit/test_aw_job.py` holds it. What an agent and
 `logs` read is also kept in the record: a `waiting` (empty text: nothing), a `next` with its `matter` (an empty line
 removes it), a machine's `end` with its outcome and the stage its last `stage` event named, and the run's `end` (no
 machine) with its outcome and exit status. Only the process that made a job emits its events, listens to them or drops
@@ -3726,7 +3730,8 @@ is settled from.
 `lib/claude_vm/guest/` is where what the engine does inside a machine goes: the helper, which is sent to the machine
 and never installed there, and the inputs of the system layer, which Ansible converges as a child with built-in modules
 only, and layer 2, the rest of the work, in plain code. It imports `ssh/`, `schema/`, `fleet/` and `runs/` (the one
-starter of a child, and the run's directory), and nothing of `engine/`, `cli/` or `control/`, and no pydantic. A plugin
+starter of a child, and the run's directory), and of `vendors/` the verified downloads and the proxy's choice, which
+layer 2's install of Claude Code reads its release by; nothing of `engine/`, `cli/` or `control/`, and no pydantic. A plugin
 of that Ansible child is the one code of the new engine that imports `ansible`. It lives under `guest/ansible/`, where
 the child's own configuration names it.
 
@@ -4096,7 +4101,7 @@ machine's `end` have it, with the name a person chose beside it (`name`) for wha
 play's name, its data a fixed set of fields each held to its type (`status`, `part`, `task`, and where there is one the
 item, the message, the output, the return code, the exception, the warnings, the diff, the attempts, and whether the
 result was censored or its failure ignored). Every string is struck of every secret of the run's redaction list
-(`redacted`, the `Secret`s the run opened, which `layer1.run` is handed), the longest first (`secret.struck_all`), so
+(the job's, `Job.redacted`: every `Secret` the run opened, which the run adds with `redact`), the longest first (`secret.struck_all`), so
 that of two where one holds the other the longer is struck whole; made plain (`text.plain_text`); and struck again, so
 that a secret an escape sequence split is struck once whole; then cut to its field's bound, after the strike. A
 message, an item or an output written as a structure stays one until each of its strings is so made, and is then made
@@ -4119,6 +4124,45 @@ form, raw and escaped; of two secrets one inside the other, the longer struck wh
 and its end keyed by the one identity the record names; a control sequence reaching the log as plain text; the diff's
 two rules; the pipe closed by its reader before and in the play; a listener's failure; and the reader's own rules on
 lines of its own.
+
+**Layer 2's steps.** `lib/claude_vm/guest/layer2/step.py` is the one shape of a step: a `name` (its events' key, as a
+stage's step is keyed), a `part` (one of a configure's six), `probe(ctx)`, which reads the machine and changes nothing,
+`apply(ctx, state)`, which brings it from that state to its settings and says whether it changed anything (nothing
+where the state is what the settings name, so a second run applies nothing), and `difference(state)`, what `apply`
+would change, what it is about, as it is and as it would be, or none: what F21's `--check --diff` says, with no
+`apply`. A step that cannot go on raises `Failed` with its sentence. The `Context` is one machine's in one run: the job,
+the route's `Target`, the key its events name it by, the settings by name, the environment of its children and the
+cancel flag; `run` is the SSH runner's one bounded call on the machine, as its account or as root through its sudo by
+its path under `sudo -n` (where sudo wants a password the call fails, since a VM the engine makes has a passwordless
+sudo and no secret follows a step's command), and `emit` one event about the machine. `run_steps(ctx, steps)` runs a
+machine's steps in order, each between two `step` events, its part and the run's stage on each, the end `done` with
+whether it changed anything or `failed` with why; the first that fails stops the machine, and a run that is stopping
+starts no next step. It returns the machine's outcome, each step's change and why it failed.
+
+**Claude Code's install.** `lib/claude_vm/guest/layer2/claude_install.py`'s step `claude-install` is every way Claude
+Code is installed, today's `install_native.yml` and `install_npm.yml` in plain code, which nothing of layer 1 does:
+it reads `claude_code_install_method` and `claude_code_download_url`, the role's options passed through by their own
+names (the role's own defaults where none is set, held equal to them), `claude_code_version`, held to stable, latest or
+a release's version before anything runs, and `tls_ca_file` and `network_proxy` for this computer's reads. Natively, the
+default, the probe runs the launcher's `--version` as the machine's account, a channel installs only where nothing is
+installed and an exact version where another is; the release is settled here by `vendors/downloads.py`'s
+`claude_release` (§16.7), which returns the version and the digests only once Anthropic's signature of its manifest
+verified by the vendored key, so this module verifies nothing itself. The machine's platform is read (`uname -m`,
+today's map) and a release with no binary for it refused; then, as the account, three calls: the binary downloaded by
+the machine's `curl` (https alone, bounded) into `~/.claude/downloads` and its SHA-256 said back and held here to the
+manifest's; its digest checked again on the machine and only then its own `install` of that exact release run, never a
+channel's name, bounded there by `timeout`, and what `~/.local/bin/claude` resolves to said back and held to the same
+digest; and the download removed, whatever happened. The installer script is never used. Under `npm`, as root:
+`npm --version` must answer, `npm ls -g --depth=0 --json` is read, and `@anthropic-ai/claude-code` is installed with
+`npm install -g` where it is absent, with its version only where an exact one is wanted, so a channel installs once and
+an exact version moves it, and what npm lists after is held to it. The difference names the release installed and the
+one wanted. `tests/unit/test_aw_claude_install.py` carries `test_signed_downloads.py`'s cases against the step, on F30's
+stand-in machines and the fake download server over TLS with keys of the test's own: each method installing once, a
+second run applying nothing, an exact version moving it, a manifest that does not verify, of another release or past
+its cap, a binary not the manifest's never run, a launcher that resolves elsewhere refused, the download gone whatever
+happened, `stable` never npm's version, npm not answering and a sudo that wants a password each a named failure, the
+version `guest.states` reads after it, the steps' runner, and a scan of the step's source: no channel's name in an
+`install` argument and no URL of the installer script.
 
 **How the engine's tests reach a machine.** A test of the new engine reaches no real machine: it reaches a stand-in,
 a directory of the test's own that `tests/unit/aw_machine.py` makes, through the SSH runner (§16.6) as it reaches a

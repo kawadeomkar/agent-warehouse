@@ -16,7 +16,10 @@ person and for a machine's `job` line.
 the run's own process, each whatever one before it raised; no event is written to a file of its own. What an agent
 and `logs` need of a run while it runs is kept in the record: what it waits for, NEXT STEPS, each machine's outcome,
 and at the end the run's. Every string the record and an event hold is made plain (`text.plain_text`), and a
-`Secret` is refused before anything is written.
+`Secret` is refused before anything is written. The job holds the run's redaction list: every secret the run opens
+is added to it (`redact`), and `emit` strikes each of them (`secret.struck_all`) from every string of an event, its
+text, its data and their keys, before and after it is made plain, so before the record or any listener sees it;
+layer 1's child reads the same list (guest/layer1.py).
 
 A machine is named in the record and the events by its identity (`agent-warehouse-<its SMBIOS UUID>`), which a VM the
 run is making does not have until its clone gives it one. Until then the run names it by a stand-in key (`stand_in()`,
@@ -57,7 +60,7 @@ from pathlib import Path
 from claude_vm import store
 from claude_vm.fleet import files, paths
 from claude_vm.schema import patterns
-from claude_vm.secret import Secret
+from claude_vm.secret import Secret, struck_all
 from claude_vm.text import plain_text
 
 # A job's ID, as today's MCP jobs' (lib/claude_vm/mcp/jobs.py): sixteen lowercase hex digits, the pattern `job_id`.
@@ -192,6 +195,8 @@ class Job:
         self._named: set[str] = set()
         # Every machine an end of this run's has named, by the key it named it by.
         self._ended: set[str] = set()
+        # The run's redaction list: every secret the run opened, struck from every event it emits.
+        self._redacted: list[Secret] = []
 
     def __repr__(self) -> str:
         return f"Job({str(self.folder)!r})"
@@ -288,11 +293,38 @@ class Job:
             raise RuntimeError(f"job {self.id} is not this process's: only the run that made a job hears its events")
         self._listeners.append(listener)
 
+    def redact(self, *secrets: Secret) -> None:
+        """Each of secrets added to the run's redaction list, once: struck from every event this job's run emits from
+        now on. Refused, nothing added, where one is not a Secret."""
+        if not all(isinstance(secret, Secret) for secret in secrets):
+            raise TypeError("the run's redaction list holds Secrets alone: every secret the run opened, as opened")
+        for secret in secrets:
+            if not any(secret is held for held in self._redacted):
+                self._redacted.append(secret)
+
+    @property
+    def redacted(self) -> tuple[Secret, ...]:
+        """The run's redaction list, as it is now: every secret the run opened, in the order it was added."""
+        return tuple(self._redacted)
+
+    def _struck(self, value: object) -> object:
+        """value with every secret of the redaction list struck from each of its strings, keys too."""
+        if not self._redacted:
+            return value
+        if isinstance(value, str):
+            return struck_all(value, self._redacted)
+        if isinstance(value, Mapping):
+            return {self._struck(key): self._struck(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [self._struck(item) for item in value]
+        return value
+
     def emit(self, kind: str, machine: str | None, text: str, **data: object) -> Event:
         """One event of this run: checked, made plain, kept in the record where its kind is one an agent or `logs`
         reads (`waiting`, `next`, an `end`, a `join`, and the first event of a machine not yet made), then handed to
-        each listener in order, each hearing it whatever one before it raised, and the first error raised after the
-        last. Refused before anything is written or heard: a kind not in KINDS, a Secret anywhere in
+        each listener in order, every secret of the run's redaction list struck from its text and its data, each
+        listener hearing it whatever one before it raised, and the first error raised after the last. Refused
+        before anything is written or heard: a kind not in KINDS, a Secret anywhere in
         it, an end with no outcome, a machine not yet made first named with no name, an event that names a stand-in
         joined already, and a join the module refuses."""
         if self._held_here() is None:
@@ -306,10 +338,12 @@ class Job:
             raise TypeError(f"an event's machine is a str or None, not a {type(machine).__name__}")
         if not isinstance(text, str):
             raise TypeError(f"an event's text is a str, not a {type(text).__name__}")
-        carried = _plain(data)
+        carried = self._struck(_plain(self._struck(data)))
         assert isinstance(carried, dict)
         about = plain_text(machine) if machine is not None else None
-        event = Event(time.time(), kind, about, plain_text(text), carried)
+        said = self._struck(plain_text(self._struck(text)))
+        assert isinstance(said, str)
+        event = Event(time.time(), kind, about, said, carried)
         change = self._recorded(event)
         if change is not None:
             self._change(change)

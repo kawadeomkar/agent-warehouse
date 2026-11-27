@@ -445,12 +445,12 @@ NOT_TAKEN = [
 
 
 def _layer1_holds(job: jobs.Job, alpha: Machine, given: Path) -> layer1.Refused:
-    """What layer 1 says of the variables file given beside the system play, with a redaction list that is no list: a
+    """What layer 1 says of the variables file given beside the system play, with an environment that is no mapping: a
     file it holds is refused for that, the check held after the file's, so that nothing is written or started either
     way."""
     with pytest.raises(layer1.Refused) as refused:
         asyncio.run(
-            layer1.run(job, target(alpha), system.PLAY, given, name="alpha", host_flag="", env={}, redacted="a word")
+            layer1.run(job, target(alpha), system.PLAY, given, name="alpha", host_flag="", env="a word")
         )
     directory = rundir.made(job)
     assert directory is not None and list(directory.iterdir()) == [given] * (given.parent == directory)
@@ -477,7 +477,7 @@ def test_a_name_the_play_does_not_take_is_refused_by_its_writer_and_by_layer_1_s
 def test_layer_1_s_hold_takes_what_the_play_s_writer_writes(made, tmp_path) -> None:
     written = system.variables(rundir.path_for(made, "vars.json"), {"common_user": "dev"}, secrets=())
     said = str(_layer1_holds(made, _alpha(tmp_path), written))
-    assert said.startswith("the run's redaction list is a list of Secrets"), said
+    assert said.startswith("the run's environment is a mapping of names to values"), said
     assert layer1.PLAY_NAMES == {system.PLAY: system.NAMES}
 
 

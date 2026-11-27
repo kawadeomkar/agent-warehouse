@@ -47,12 +47,12 @@ standard input is `/dev/null`, and its one pipe is the events', whose write end 
 and whose read end the run reads to its end, while the child runs: the product's callback (`CALLBACK`, in `CALLBACKS`,
 which only this configuration names) writes each event of the play there as a line of JSON, and guest/events.py hands
 each to the run's own `emit` as a `step` event of the machine, keyed by its identity as the run's record keys it, with
-the name a person chose beside it, every secret of the run's redaction list (`redacted`) struck from it. A listener that
-fails while the child runs ends the child, and its error is raised. What the child prints on its standard output and
-error - with the product's callback, Ansible's own words alone: a warning, an error before a play starts - goes to a
-file of its own, never the terminal, and its last `MOST` bytes from a line's start come back, struck and plain the same
-way, with the exit status and the counts the events gave (`Ended`). However the call ends, nothing it started is left: a
-child still running when it ends is ended with its tree (claude_vm.proc).
+the name a person chose beside it, every secret of the run's redaction list (the job's, `Job.redacted`, every secret the
+run opened) struck from it. A listener that fails while the child runs ends the child, and its error is raised. What the
+child prints on its standard output and error - with the product's callback, Ansible's own words alone: a warning, an
+error before a play starts - goes to a file of its own, never the terminal, and its last `MOST` bytes from a line's
+start come back, struck and plain the same way, with the exit status and the counts the events gave (`Ended`). However
+the call ends, nothing it started is left: a child still running when it ends is ended with its tree (claude_vm.proc).
 
 Only tests pass `test_connection`: the host variables of a test-only connection, `local` for a play of one task on a
 stand-in machine (tests/unit/aw_machine.py's `layer1_host`) and `community.docker.docker` for a Molecule container,
@@ -84,7 +84,6 @@ from claude_vm.guest import variables as play_variables
 from claude_vm.runs import children, rundir
 from claude_vm.schema import patterns, printer
 from claude_vm.schema.words import Line
-from claude_vm.secret import Secret
 from claude_vm.ssh import hostkeys, runner
 
 if TYPE_CHECKING:
@@ -349,15 +348,6 @@ def _collections(given: object, test_connection: object) -> Path | None:
     return Path(given)
 
 
-def _redacted(given: object) -> tuple[Secret, ...]:
-    """The run's redaction list: every secret the run opened, each a Secret."""
-    if isinstance(given, (str, bytes, Secret)) or not isinstance(given, Sequence):
-        raise Refused("the run's redaction list is a list of Secrets")
-    if not all(isinstance(secret, Secret) for secret in given):
-        raise Refused("the run's redaction list holds Secrets alone: every secret the run opened, as it opened it")
-    return tuple(given)
-
-
 def _ini(path: Path, what: str) -> str:
     """path as one value of the configuration file: absolute, with no character an ini file or a pathspec reads."""
     value = str(path)
@@ -517,24 +507,24 @@ async def run(
     check: bool = False,
     diff: bool = False,
     verbosity: int = 0,
-    redacted: Sequence[Secret] = (),
     started: Callable[[Process], None] | None = None,
     test_connection: Mapping[str, object] | None = None,
     test_collections: Path | None = None,
 ) -> Ended:
     """play run on target by one ansible-playbook, a child of job's run in a session of its own, with the configuration
-    and the inventory written into the run's directory, where it works, and the environment built from env's allow list;
-    started(process) called once it runs; each event of the play handed to job's emit as a step event of the machine,
-    keyed by target's identity with name beside it, as it comes, every secret of redacted (every secret the run opened)
-    struck from it; its exit status, the end of what it printed, and the counts. The configuration names no folder of
-    collections but test_collections, where a test gives it. name is the name a person chose for the machine, and
-    host_flag the host a line that names it names (the printer's). A variables file holds the names its play takes and
-    no other, from layer 1's own list of the play's (PLAY_NAMES: guest/system.py's NAMES for the system play), never a
-    caller's. Everything is held before anything is written or started: a target that is no machine's, a first use's, or
-    whose identity has no key filed, a play or a variables file that is not there, a variables file beside a play with
-    no list, one that is not what guest/variables.py writes or that holds a name the play does not take, a part, a flag,
-    a verbosity or a redaction list that is not one, and a test's folder of collections given without a test-only
-    connection. A listener of job's that fails while the child runs ends the child, and its error is raised."""
+    and the inventory written into the run's directory, where it works, and the environment built from env's allow
+    list; started(process) called once it runs; each event of the play handed to job's emit as a step event of the
+    machine, keyed by target's identity with name beside it, as it comes, every secret of the job's redaction list
+    (job.redacted, every secret the run opened) struck from it; its exit status, the end of what it printed, and the
+    counts. The configuration names no folder of collections but test_collections, where a test gives it. name is the
+    name a person chose for the machine, and host_flag the host a line that names it names (the printer's). A
+    variables file holds the names its play takes and no other, from layer 1's own list of the play's (PLAY_NAMES:
+    guest/system.py's NAMES for the system play), never a caller's. Everything is held before anything is written or
+    started: a target that is no machine's, a first use's, or whose identity has no key filed, a play or a variables
+    file that is not there, a variables file beside a play with no list, one that is not what guest/variables.py
+    writes or that holds a name the play does not take, a part, a flag or a verbosity that is not one, and a test's
+    folder of collections given without a test-only connection. A listener of job's that fails while the child runs
+    ends the child, and its error is raised."""
     import asyncio
     import tempfile
 
@@ -549,7 +539,7 @@ async def run(
     check, diff, verbosity = _flag(check, "check"), _flag(diff, "diff"), _verbosity(verbosity)
     if not isinstance(env, Mapping):
         raise Refused("the run's environment is a mapping of names to values")
-    heard = events.Heard(job, str(machine.identity), name, _redacted(redacted))
+    heard = events.Heard(job, str(machine.identity), name, job.redacted)
     document = inventory_document(machine, name, test_connection)
     collections = _collections(test_collections, test_connection)
     directory = _directory(job)
