@@ -24,9 +24,16 @@ quote or a backslash can make a secret's text: never escaped before the strike, 
 secret holding a quote, a backslash, a line break or a character outside ASCII. Then a string is cut to its field's
 bound, its start for a message, its end for an output: cut after it is struck, so that no part of a secret is left of a
 cut. The child's own bound is a string's end from a line break, never a part of a line, so that a secret on one line
-reaches the strike whole. What the strike does not promise: a secret Ansible itself writes in another form (through
-`repr`, as an exception's text quotes a value, base64 or a URL's escapes), one split across two strings, or one split
-by a character `plain_text` keeps (a zero-width space).
+reaches the strike whole. The strike meets a secret in the forms Ansible itself quotes one in too (secret.struck_all):
+JSON's escape of it, as a mapping's diff is written, and `repr`'s, as an exception's text quotes a value or a key
+that is a tuple is made text. What it does not promise: a secret in base64 or a URL's escapes, one split across two
+strings, or one split by a character `plain_text` keeps (a zero-width space).
+
+`checked` is what F21's check (layer1.check, a run in check mode with its diff) makes of the tasks heard, one `Checked`
+a task in the order they started: `would change` where a result said changed, `would not change` where every result
+said ok or skipped, and `not evaluated` for a `command`, `shell` or `raw` task that check mode skipped, as check mode
+reports it, and for a task that failed, was unreachable or had no result; with the diffs heard of it, each struck as
+every event's.
 
 A line is read up to LINE_MOST bytes: a longer one is left out whole, said as an event that could not be read, and so is
 a line that is no event (a write a signal cut short leaves one). The pipe's end, with or without a line the child did
@@ -87,6 +94,29 @@ TEXTS = (
 )
 
 
+# What check mode makes of a task, and the modules it skips rather than evaluates.
+VERDICTS = ("would change", "would not change", "not evaluated")
+UNEVALUATED = frozenset({"command", "shell", "raw"})
+ANSIBLE_OWN = ("ansible.builtin.", "ansible.legacy.")
+
+
+@dataclasses.dataclass(frozen=True)
+class Checked:
+    """One task of a run in check mode: its name, its part, what check mode makes of it (one of VERDICTS), and the
+    diffs heard of it, struck and joined ("" for none)."""
+
+    task: str
+    part: str | None
+    verdict: str
+    diff: str = ""
+
+
+def _unevaluated(action: str) -> bool:
+    for prefix in ANSIBLE_OWN:
+        action = action.removeprefix(prefix)
+    return action in UNEVALUATED
+
+
 @dataclasses.dataclass(frozen=True)
 class Counts:
     """What a caller needs of a layer-1 run: the hosts' failures, unreachable tasks and changes; recap says whether
@@ -129,6 +159,7 @@ class Heard:
         self._redacted = tuple(redacted)
         self._counted = {"failed": 0, "unreachable": 0, "changed": 0}
         self._recap: dict[str, int] | None = None
+        self._tasks: list[dict] = []
 
     # ---------------------------------------------------------------- what a string becomes ----
 
@@ -205,10 +236,41 @@ class Heard:
         data["task"] = task
         if kind == "task":
             data["handler"] = event.get("handler") is True
+            action = self.clean(event.get("action"), NAME_MOST)
+            self._tasks.append({"task": task, "part": data["part"], "action": action, "kinds": set(), "diffs": []})
             self._step(task, **data)
             return
         self._result(kind, event, data)
+        self._tally(kind, task, data)
         self._step(task, **data)
+
+    def _tally(self, kind: str, task: str, data: Mapping[str, object]) -> None:
+        """A result kept for checked: of the task last started, where it is that task's."""
+        if not self._tasks or self._tasks[-1]["task"] != task:
+            return
+        current = self._tasks[-1]
+        if kind == "diff":
+            if data.get("diff"):
+                current["diffs"].append(data["diff"])
+        elif kind != "retry":
+            current["kinds"].add(kind)
+
+    @property
+    def checked(self) -> tuple[Checked, ...]:
+        """Each task heard, as check mode makes it: see the module's docstring."""
+        made = []
+        for each in self._tasks:
+            kinds = each["kinds"]
+            if not kinds or kinds & {"failed", "unreachable"}:
+                verdict = "not evaluated"
+            elif _unevaluated(each["action"]) and kinds == {"skipped"}:
+                verdict = "not evaluated"
+            elif "changed" in kinds:
+                verdict = "would change"
+            else:
+                verdict = "would not change"
+            made.append(Checked(each["task"], each["part"], verdict, "\n".join(each["diffs"])))
+        return tuple(made)
 
     def _result(self, kind: str, event: Mapping[str, object], data: dict[str, object]) -> None:
         """A result's fields, each held to its type, into data; and the counts kept of it."""

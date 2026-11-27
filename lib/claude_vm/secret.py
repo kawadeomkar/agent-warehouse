@@ -6,14 +6,17 @@ into JSON, so it cannot travel by accident to a file, a child or a message. Its 
 `reveal()`, at the one place that sends it on: a request's header, a child's standard input. The modules that call
 `reveal()` are named in tests/unit/test_aw_guards.py's `REVEALS`, each with why, and no other may. `struck(text)` puts
 it as its mark wherever a text holds it, so that a peer's words that echo it can be said; `struck_all(text, secrets)`
-does so for several, the longest first, so that of two where one holds the other the longer is struck whole; and
-`struck_end(text, secrets)` strikes an end of a text cut at a bound that is the beginning of one.
+does so for several, the longest first, so that of two where one holds the other the longer is struck whole, each in
+every form a text quotes it in as well as its own (JSON's escape of it, with and without ASCII's, and Python's
+`repr`'s, inside the quotes), since Ansible writes a mapping's diff through JSON and a failure's value through
+`repr`; and `struck_end(text, secrets)` strikes an end of a text cut at a bound that is the beginning of one.
 
 Standard library only, and nothing at import.
 """
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
 
 # What a secret is shown as, wherever it is shown.
@@ -46,6 +49,21 @@ class Secret:
         """secrets in the order a text is struck of them: the longest value first, those of one length as given. It
         hands back the Secrets alone, never a value or its length."""
         return sorted(secrets, key=lambda secret: len(secret.__value), reverse=True)
+
+    @staticmethod
+    def _forms(secrets: tuple[Secret, ...]) -> list[str]:
+        """Every form of secrets' values a text is struck of, the longest first, each once: for struck_all alone,
+        which strikes them and hands back nothing of them."""
+        found: dict[str, None] = {}
+        for secret in secrets:
+            value = secret.__value
+            if not value:
+                continue
+            found[value] = None
+            found[json.dumps(value)[1:-1]] = None
+            found[json.dumps(value, ensure_ascii=False)[1:-1]] = None
+            found[repr(value)[1:-1]] = None
+        return sorted((form for form in found if form), key=len, reverse=True)
 
     @staticmethod
     def _begun(text: str, secrets: tuple[Secret, ...]) -> int:
@@ -93,8 +111,10 @@ def struck_all(text: str, secrets: Iterable[Secret]) -> str:
     held = tuple(secrets)
     if not all(isinstance(secret, Secret) for secret in held):
         raise TypeError("a text is struck of Secrets alone")
-    for secret in Secret._longest_first(held):
-        text = secret.struck(text)
+    if not isinstance(text, str):
+        raise TypeError(f"a Secret strikes itself from a str, not a {type(text).__name__}")
+    for form in Secret._forms(held):
+        text = text.replace(form, MARK)
     return text
 
 

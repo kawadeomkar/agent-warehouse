@@ -25,6 +25,12 @@ machine: no later step is probed. Each event carries the step's part, and the ru
 It returns a `Ran`: the machine's outcome (`succeeded`, `failed` or `cancelled`), each step's that ran, and why it
 failed.
 
+`check_steps(ctx, steps)` is layer 2's part of F21's deep diff, `deploy --check`'s: layer 2 has no check mode, so each
+step answers from its probe and its difference, and no apply runs and no event is emitted. It returns one `Checked` a
+step, in their order: `would change` with the difference, `would not change` where there is none, `would apply` for a
+step that has no read of its own (its `reads` False), never probed, and `not evaluated`, with why, where its probe
+could not go on. Each step reads the machine as it is: a later step's read never sees what an earlier one would write.
+
 Standard library only; asyncio is imported inside the coroutines that start a child.
 """
 
@@ -138,6 +144,43 @@ class Context:
 def _wants_a_password(said: str) -> bool:
     """Whether sudo refused under -n for want of a password, in sudo's words or sudo-rs's."""
     return any(remote.WANTS_A_PASSWORD.fullmatch(line.strip()) for line in said.splitlines())
+
+
+@dataclasses.dataclass(frozen=True)
+class Checked:
+    """One step of a check: its name, its part, its verdict (one of VERDICTS), its difference where it would change
+    something, and why it could not be evaluated ("" otherwise)."""
+
+    name: str
+    part: str
+    verdict: str
+    difference: Difference | None = None
+    why: str = ""
+
+
+# What a check makes of a step.
+VERDICTS = ("would change", "would not change", "would apply", "not evaluated")
+
+
+async def check_steps(ctx: Context, steps: Sequence[Step]) -> tuple[Checked, ...]:
+    """steps answered on ctx's machine from their probes and differences, none applied: see the module's docstring."""
+    made = []
+    for step in _held(steps):
+        if ctx.cancelled.is_set():
+            break
+        if getattr(step, "reads", True) is False:
+            made.append(Checked(step.name, step.part, "would apply"))
+            continue
+        try:
+            difference = step.difference(await step.probe(ctx))
+        except Failed as failed:
+            made.append(Checked(step.name, step.part, "not evaluated", why=str(failed)))
+            continue
+        if difference is not None and not isinstance(difference, Difference):
+            raise TypeError(f"step {step.name}'s difference is a Difference, or None for none")
+        verdict = "would not change" if difference is None else "would change"
+        made.append(Checked(step.name, step.part, verdict, difference))
+    return tuple(made)
 
 
 @dataclasses.dataclass(frozen=True)
