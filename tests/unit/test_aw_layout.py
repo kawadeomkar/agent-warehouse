@@ -273,7 +273,7 @@ def test_aw_version_names_this_checkout(tmp_path, home) -> None:
 @pytest.mark.parametrize(
     ("words", "said"),
     [
-        (("settings",), not_built(VERBS["settings"])),
+        (("vault",), not_built(VERBS["vault"])),
         (("code", "alpha"), not_built(VERBS["code"])),
         (("hunter2",), no_such_command()),
     ],
