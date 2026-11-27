@@ -28,7 +28,9 @@ layer that set it, one of `LAYERS`: the table's default, then the file of the ro
 them, each option passed through that the fleet's file or the run sets, which has no default here. `typed(row,
 text)` holds typed text to a row's type, choices, form and least value, a path's rule (`~` the user's home, a path
 still relative refused by name, `""` unset) and `network_proxy` to vendors/proxy.py's one check of it, which refuses a
-user and a password; a file's value is held the same way. `run_values(texts, secrets=...)` holds the words of `--set`;
+user and a password; a file's value is held the same way. `run_values(texts, secrets=...)` holds the words of `--set`,
+a secret looked for by `holds_a_secret` in the text and in every string `strings` finds in its value, as the settings
+verb's writes look for one;
 `set` and `unset` write one value, and `set_current` client.yml's current host, under `store.locked`, compare-and-swap
 on the digest of the file as the caller read it: the whole file laid out anew, in UTF-8, so a write keeps no comment a
 person wrote in it, and a scratch file a killed write left beside it is taken out first. A file's integers are YAML
@@ -429,23 +431,23 @@ def _row(name: str) -> Row:
     raise Refused(f"{name} {why}" if why is not None else _unknown(name))
 
 
-def _holds_a_secret(texts: Iterable[str], secrets: Iterable[Secret]) -> bool:
+def holds_a_secret(texts: Iterable[str], secrets: Iterable[Secret]) -> bool:
     """Whether a text holds one of the vault's secrets: each struck from it, never revealed, an empty one striking
     nothing."""
     return any(secret.struck(text) != text for secret in secrets for text in texts)
 
 
-def _strings(value: object) -> list[str]:
+def strings(value: object) -> list[str]:
     """Every string a value holds, a mapping's keys too, and its JSON, which YAML's escapes cannot hide one from."""
     found = [json.dumps(value, ensure_ascii=False)]
     if isinstance(value, str):
         found.append(value)
     elif isinstance(value, Mapping):
         for key, item in value.items():
-            found += [key, *_strings(item)]
+            found += [key, *strings(item)]
     elif isinstance(value, (list, tuple)):
         for item in value:
-            found += _strings(item)
+            found += strings(item)
     return found
 
 
@@ -469,12 +471,12 @@ def run_values(
         row = _row(name)
         if row.secret:
             raise Refused(f"{name} may hold a secret, which the run's record would keep: it is never given for one run")
-        if _holds_a_secret([raw], secrets):
+        if holds_a_secret([raw], secrets):
             raise Refused(
                 f"that value of {name} is a secret the vault holds, which the run's record would keep: not used"
             )
         value = typed(row, raw, environ=environ)
-        if _holds_a_secret(_strings(value), secrets):
+        if holds_a_secret(strings(value), secrets):
             raise Refused(
                 f"that value of {name} is a secret the vault holds, which the run's record would keep: not used"
             )
@@ -535,9 +537,16 @@ def _loader():
                 raise yaml.constructor.ConstructorError(None, None, UNREADABLE, node.start_mark) from None
             return data
 
+    def decimal(loader, node) -> int:
+        # In decimal, a leading zero and all; anything else tagged an integer (!!int 0x10, and the 1_000, the spaces
+        # and the other scripts' digits Python's int takes) is refused by its line.
+        text = loader.construct_scalar(node)
+        if not isinstance(text, str) or INTEGER.match(text) is None:
+            raise yaml.constructor.ConstructorError(None, None, UNREADABLE, node.start_mark)
+        return int(text, 10)
+
     Literals.add_implicit_resolver(INT_TAG, INTEGER, list("-+0123456789"))
-    # In decimal, a leading zero and all; anything else tagged an integer (!!int 0x10) is refused by its line.
-    Literals.add_constructor(INT_TAG, lambda loader, node: int(loader.construct_scalar(node), 10))
+    Literals.add_constructor(INT_TAG, decimal)
     return Literals
 
 

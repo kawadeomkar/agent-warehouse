@@ -51,6 +51,8 @@ REPLACES = {
     " through it, the ciphertext alone",
     "lib/claude_vm/fleet/hosts.py": "a host's host.yml and its anchor, by write alone, through _commit"
     " (tests/unit/test_aw_fleet_host_writer.py holds that)",
+    "lib/claude_vm/fleet/settings_verb.py": "settings edit's document, in a folder of its own that tempfile makes and"
+    " takes out, never a file of the fleet's: what it changes is written by overrides.set and overrides.unset",
 }
 # A proxy's user and password, made up, which no refusal may say; and the sentence network_proxy is refused in for them.
 PROXY_USER = "proxyuser"
@@ -1144,7 +1146,10 @@ def test_a_file_s_integer_is_yaml_1_2_s_in_decimal_as_typed_text_is(text: str, v
     assert overrides.typed(registry.row("vm_cores"), text) == value
 
 
-@pytest.mark.parametrize("text", ["0x10", "0o17", "0b11", "1_000", "1:30", "!!int 0x10"])
+@pytest.mark.parametrize(
+    "text",
+    ["0x10", "0o17", "0b11", "1_000", "1:30", "!!int 0x10", "!!int 1_000", "!!int ' 12'", "!!int '\u0661\u0662'"],
+)
 def test_a_file_s_integer_in_another_form_of_yaml_1_1_s_is_refused_for_an_int_row(text: str) -> None:
     where = _where()
     path = _put(_fleet_file(where), f"vm_cores: {text}\n")
@@ -1180,12 +1185,18 @@ def test_a_scratch_file_a_killed_write_left_is_taken_out_by_the_next_write() -> 
     where = _where()
     digest = overrides.set(where, "vm_cores", 3, None, overrides.MISSING)
     folder = _fleet_file(where).parent
-    left = _put(folder / ".settings.yml.k1ll3d.tmp", "vm_cores: 9\n")
-    kept = folder / ".settings.yml.a-folder.tmp"
+    # A name mkstemp makes, as store.replace's scratch has one: eight characters of its alphabet.
+    left = _put(folder / ".settings.yml.k1ll3d_9.tmp", "vm_cores: 9\n")
+    kept = folder / ".settings.yml.afolder1.tmp"
     kept.mkdir()
-    other = _put(folder / ".machines.yml.k1ll3d.tmp", "x\n")
+    other = _put(folder / ".machines.yml.k1ll3d_9.tmp", "x\n")
+    # A person's own, of the glob's shape but not mkstemp's name.
+    own = [
+        _put(folder / f".settings.yml.{part}.tmp", "x\n") for part in ("backup", "my-copy1", "Backup12", "k1ll3d_99")
+    ]
     overrides.set(where, "vm_cores", 4, None, digest)
     assert not left.exists() and kept.is_dir() and other.exists()
+    assert all(each.exists() for each in own)
     assert overrides.resolve(where, None)["vm_cores"].value == 4
 
 

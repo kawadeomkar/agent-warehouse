@@ -60,6 +60,9 @@ REVEALS: dict[str, str] = {
     " token's secret in the API's one header (_fleet), the VM user's or a machine's own sudo password, read when the"
     " engine asks for one and sent on the probe's standard input alone (password_of), and Tailscale's key read for its"
     " kind alone (_vm), never kept or said",
+    "lib/claude_vm/fleet/settings_verb.py": "each secret the vault holds, read in _hunted alone for its length, so that"
+    " a write looks for none shorter than four characters in a value, as today's tools/settings does: never sent on,"
+    " written or said",
     "lib/claude_vm/guest/remote.py": "the VM user's sudo password, read in _forms alone, once a run at its first ask,"
     " to make the forms a machine may say it back in, each wrapped again at once as a Secret and struck from what the"
     " machine said (card F33): never sent on, written or said",
