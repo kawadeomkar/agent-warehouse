@@ -125,7 +125,9 @@ def _of(heard: list[jobs.Event], task: str) -> list[jobs.Event]:
     return [event for event in heard if event.data.get("task") == task]
 
 
-def _run(job: jobs.Job, made_machine: Machine, play: Path, **given) -> layer1.Ended:
+def _run(job: jobs.Job, made_machine: Machine, play: Path, redacted=(), **given) -> layer1.Ended:
+    """play run on made_machine by layer 1's child, redacted (secrets the run opened) in the job's redaction list."""
+    job.redact(*redacted)
     given.setdefault("env", dict(os.environ))
     return asyncio.run(
         asyncio.wait_for(

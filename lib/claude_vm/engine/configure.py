@@ -432,6 +432,9 @@ class Configuring:
         document = wiring.role_variables(settings, self.name, parts)
         path = rundir.path_for(self.ctx.job, f"variables-{self.key}.json")
         written = system.variables(path, document, secrets=self.secrets)
+        # Every secret the run holds struck from what the child says: the job's redaction list, which every event of
+        # the run is struck of.
+        self.ctx.job.redact(*self.secrets)
         ended = await layer1.run(
             self.ctx.job,
             reached,
@@ -441,7 +444,6 @@ class Configuring:
             host_flag=self.host.host_flag,
             env=dict(self.host.environ),
             tags=parts,
-            redacted=self.secrets,
         )
         sentence = self._failed(ended)
         if sentence and self.ctx.cancelled.is_set() and not self._task_failed(ended):

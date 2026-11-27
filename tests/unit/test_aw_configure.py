@@ -64,6 +64,7 @@ from claude_vm.runs import job as jobs
 from claude_vm.runs import locks, model, rundir
 from claude_vm.schema.rules import CONFIGURE_ROLES
 from claude_vm.schema.words import EXITS
+from claude_vm.secret import MARK
 
 CONFIGURE_PY = REPO / "lib" / "claude_vm" / "engine" / "configure.py"
 # The UUID of a VM no stand-in is: a record that names it is a copy of another VM's notes.
@@ -527,7 +528,8 @@ def test_every_secret_the_run_holds_is_struck_from_what_layer_1_says(made, job, 
     # Nor on any connection's command line, nor in the play's variables.
     assert all(secret not in " ".join(call["argv"]) for call in machine.calls())
     assert secret not in swapped.calls[0]["variables"].read_text()
-    assert [str(each) for each in swapped.calls[0]["redacted"]] and len(swapped.calls[0]["redacted"]) >= 1
+    # The job's redaction list holds it: the list layer 1's child, and every event of the run, is struck of.
+    assert "redacted" not in swapped.calls[0] and any(each.struck(secret) == MARK for each in job.redacted)
 
 
 def test_a_stopped_vm_is_started_first_where_the_plan_says(made, job, heard, swapped) -> None:
