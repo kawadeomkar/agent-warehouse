@@ -290,22 +290,21 @@ that a value, an option or a closing mark follows. Its one exception is `cli/dis
 constant (`program`, `_program`, `PROGRAM`), by any name a module binds to the printer or imports from it; only the
 printer and the check name a sentence's field `program`; the check's `command`, the program and a verb, is used only by
 the modules that refuse (the check, the printer, `cli/parse.py` and `cli/dispatch.py`) and by help, for its usage
-lines and the program its closing paragraph names, each named with why (`COMMAND_USERS`), by any name a module binds
-to the check, its
-package or the function; every use of `line` or `argv`, through any name or a `functools.partial`, says `refused`;
-and a printer's line is never extended: a call of `line` or `argv`, of `said` whose sentence is one field (`"{line}"`)
-or ends, but for spaces, in a field a `Line` fills (`"run {line}"`: one of `LINES`', or one given at the call in a
-mapping written there), of a function of the module's own that returns one, a name bound to one in the same function,
-an f-string that ends in one, what hands one on (`str` of it, a subscript or a slice of it, its `strip`, `lstrip`,
-`rstrip`, `ljust`, `rjust` or `center`, any function of `textwrap` given it first, by any name), and lines joined by a
-newline, which end in their last, is never an operand of `+` or `%`, an element of what a `%` template takes, added
-to, anywhere in what `join`, `format` or `format_map` takes, or an argument of `print` but the last (`print` joins its
-arguments with a space), is never edited by its `replace`, and in an f-string is followed by the string's end,
-punctuation or a word of prose (letters alone, no verb of the table's, no word that starts with `-` before the next
-punctuation), never by a field; an f-string that holds one anywhere is never an operand of `+` or `%` or an argument of
-`print` but the last, and a sentence that ends in one is a line, words before it or not. Lines each on a line of its
-own are whole: a `join` whose separator is a newline alone, of a list or tuple written there whose every item is a
-line, or of a comprehension of lines, and a line with a newline added, the one argument of a `write`
+lines and the program its closing paragraph names, each named with why (`COMMAND_USERS`), by any name a module binds to
+the check, its package or the function; every use of `line` or `argv`, through any name or a `functools.partial`, says
+`refused`; and a printer's line is never extended: a call of `line` or `argv`, of `said` whose sentence is one field
+(`"{line}"`) or ends, but for spaces, in a field a `Line` fills (`"run {line}"`: one of `LINES`', or one given at the
+call in a mapping written there), of a function of the module's own that returns one, a name bound to one in the same
+function, an f-string that ends in one, what hands one on (`str` of it, a subscript or a slice of it, its `strip`,
+`lstrip`, `rstrip`, `ljust`, `rjust` or `center`, any function of `textwrap` given it first, by any name), and lines
+joined by a newline, which end in their last, is never an operand of `+` or `%`, an element of what a `%` template
+takes, added to, anywhere in what `join`, `format` or `format_map` takes, or an argument of `print` but the last
+(`print` joins its arguments with a space), is never edited by its `replace`, and in an f-string is followed by the
+string's end, punctuation or a word of prose (letters alone, no verb of the table's, no word that starts with `-` before
+the next punctuation), never by a field; an f-string that holds one anywhere is never an operand of `+` or `%` or an
+argument of `print` but the last, and a sentence that ends in one is a line, words before it or not. Lines each on a
+line of its own are whole: a `join` whose separator is a newline alone, of a list or tuple written there whose every
+item is a line, or of a comprehension of lines, and a line with a newline added, the one argument of a `write`
 (`out.write(line + "\n")`). And a sentence `said` says is never built at its call (by `+`, `%`, an f-string, `join` or
 `format`), and in a literal one, or a constant of its module's, each field a `Line` fills (given at the call, from
 `LINES`, or each field, where the call gives its values otherwise than as a mapping written there) is followed as a
@@ -1876,9 +1875,8 @@ runner's carries `ControlMaster=no`, the host's among them.
 - **A person's own options.** `vm_ssh_options` is a mapping of `ssh`'s option names to values, given as `-o Name=value`
   after the product's options: `ssh` keeps the first value it is given, so a person's option changes whatever the
   product leaves, a `ProxyJump` or a `ProxyCommand` among them, and never a value it pins. What the product writes
-  itself is refused by name (`REFUSED_OPTIONS`) - `HostKeyAlias`, `UserKnownHostsFile`, `CheckHostIP`,
-  `UpdateHostKeys`, `BatchMode`,
-  `ControlPath`, `ControlMaster`, `ForwardAgent` (`claude_ssh_forward_agent`'s), `IdentityFile`
+  itself is refused by name (`REFUSED_OPTIONS`) - `HostKeyAlias`, `UserKnownHostsFile`, `CheckHostIP`, `UpdateHostKeys`,
+  `BatchMode`, `ControlPath`, `ControlMaster`, `ForwardAgent` (`claude_ssh_forward_agent`'s), `IdentityFile`
   (`claude_ssh_identity_file`'s), and `HostName`, `User` and `Port`, where and as whom it connects - and
   `StrictHostKeyChecking` may be given only as `yes`; with them `IdentityFile2`, `ssh`'s old name for
   `IdentityFile`, and what would hand the strict check a key the product's file does not hold, `GlobalKnownHostsFile`
