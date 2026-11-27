@@ -1,11 +1,12 @@
 """The system play's variables for one machine (lib/claude_vm/guest/wiring.py; docs/architecture/engine.md §16.10).
 
-The table holds every variable of the play's three roles' specs, every entry point's, once, but the internals, each
-with its reason: no variable of a role is left out and none is made up. Each that a setting makes is the row today's
-wiring reaches it from (inventory/group_vars/all/defaults.yml and the roles' defaults, read by lib/claude_vm/wiring.py),
-and every variable today's wiring reaches from a row is that row's here; each the role's own option is one
-fleet/passthrough.py passes through, and every option of the three roles passed through is one here; the machine's
-name makes the hostname; and the internal password is empty, refused wherever a run could set it.
+The table holds every variable of the play's roles' specs, every entry point's (Tailscale's entry system's alone, the
+one the play imports), once, but the internals, each with its reason: no variable of a role is left out and none is
+made up. Each that a setting makes is the row today's wiring reaches it from (inventory/group_vars/all/defaults.yml
+and the roles' defaults, read by lib/claude_vm/wiring.py), and every variable today's wiring reaches from a row is that
+row's here, tailscale_wanted vpn's choice; each the role's own option is one fleet/passthrough.py passes through, and
+every option of the roles passed through is one here; the machine's name makes the hostname; and the internal
+password is empty, refused wherever a run could set it.
 
 The function's output, for the registry's defaults and for four sets of overrides (the rows the play reads, twice, with
 their switches set apart; every option of its roles set, the fact-made defaults among them; and values given for one run
@@ -44,7 +45,7 @@ from claude_vm.fleet import overrides, passthrough, paths, registry
 from claude_vm.fleet.overrides import Value
 from claude_vm.guest import layer1, system, wiring
 from claude_vm.guest import variables as play_variables
-from claude_vm.guest.wiring import INTERNALS, MACHINE, OPTION, PLAY, SETTING, TABLE
+from claude_vm.guest.wiring import CHOSEN, ENTRY, INTERNALS, MACHINE, OPTION, PLAY, SETTING, TABLE
 from claude_vm.ssh import runner
 
 MODULE = "claude_vm.guest.wiring"
@@ -59,7 +60,12 @@ FACTS = {"architecture": "aarch64", "virtualization_type": "kvm"}
 
 
 def _specs() -> dict[str, dict[str, dict]]:
-    return {role: todays.specs()[role] for role in ROLES}
+    """Each role's variables, every entry point's, but a role of ENTRY's: that entry's alone."""
+    every, read = todays.specs(), todays.argument_specs()
+    return {
+        role: {name: every[role][name] for name in read[role][ENTRY[role]]["options"]} if role in ENTRY else every[role]
+        for role in ROLES
+    }
 
 
 def _settings(where: paths.Home, run: tuple[str, ...] = ()) -> dict[str, Value]:
@@ -92,14 +98,19 @@ def test_every_variable_of_the_roles_specs_is_in_the_table_or_an_internal_once_a
         seen += [*TABLE[role], *internals]
         for name, source in TABLE[role].items():
             assert source.kind in wiring.KINDS, name
-            assert (source.setting is not None) is (source.kind == SETTING), name
+            assert (source.setting is not None) is (source.kind in (SETTING, CHOSEN)), name
+            assert (source.chosen is not None) is (source.kind == CHOSEN), name
     assert len(seen) == len(set(seen)), "a variable is in the table twice"
     assert {internal.role for internal in INTERNALS.values()} <= set(ROLES)
     # Every role variable of the play's roles, every entry point's: the image's and its options' list the same names.
     for role in ROLES:
         listed = yaml.safe_load((REPO / "roles" / role / "meta" / "argument_specs.yml").read_text())["argument_specs"]
-        every = {name for entry in listed.values() for name in ((entry or {}).get("options") or {})}
+        entries = [listed[ENTRY[role]]] if role in ENTRY else listed.values()
+        every = {name for entry in entries for name in ((entry or {}).get("options") or {})}
         assert every == set(specs[role]), role
+    # Tailscale's entry system, the package alone: whether it is the VPN is vpn's, as today's wiring makes it.
+    assert ENTRY == {"tailscale": "system"}
+    assert TABLE["tailscale"]["tailscale_wanted"] == wiring.Source(CHOSEN, "vpn", "tailscale")
 
 
 def test_each_setting_is_the_row_today_s_wiring_reaches_the_variable_from_and_none_is_missed() -> None:
@@ -118,6 +129,14 @@ def test_each_setting_is_the_row_today_s_wiring_reaches_the_variable_from_and_no
         (name, str(source.setting)) for role in ROLES for name, source in TABLE[role].items() if source.kind == SETTING
     }
     assert ours == today
+    # A choice is made from a row through today's own variable of it, which set_by does not follow: vpn's, through the
+    # VPN's key, as today's wiring makes tailscale_wanted.
+    chosen = {(name, str(source.setting), source.chosen) for role in ROLES for name, source in TABLE[role].items()}
+    assert {each for each in chosen if each[2] is not None} == {("tailscale_wanted", "vpn", "tailscale")}
+    wired = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())
+    assert wired["claude_vpn_key"] == "{{ vpn | default('none', true) | string }}"
+    assert wired["tailscale_wanted"] == "{{ claude_vpn_key == 'tailscale' }}"
+    ours |= {("tailscale_wanted", "vpn")}
     for source in PLAY.values():
         assert source.kind == SETTING and registry.row(str(source.setting)).home == "run"
     assert set(PLAY) == {"configure_wait_for_cloud_init"}
@@ -127,7 +146,12 @@ def test_each_setting_is_the_row_today_s_wiring_reaches_the_variable_from_and_no
 
 
 def test_each_option_is_one_passed_through_and_every_option_of_the_play_s_roles_passed_through_is_one() -> None:
-    passed = {each.name for each in passthrough.options() if each.refused is None and each.role in ROLES}
+    specs = _specs()
+    passed = {
+        each.name
+        for each in passthrough.options()
+        if each.refused is None and each.role in ROLES and each.name in specs[each.role]
+    }
     ours = {name for role in ROLES for name, source in TABLE[role].items() if source.kind == OPTION}
     assert ours == passed
     named = {name for role in ROLES for name, source in TABLE[role].items() if source.kind == MACHINE}
@@ -489,8 +513,16 @@ ROWS_SET = {
     "dev_tools_install_uv": False,
     "dev_tools_install_rust": True,
     "dev_tools_node_major": 20,
+    "vpn": "tailscale",
+    "tailscale_upload_logs": False,
+    "tailscale_daemon_flags": ["--port=41641"],
 }
-ROWS_APART = {"dev_tools_install_node": False, "dev_tools_install_docker": False, "dev_tools_install_gh": False}
+ROWS_APART = {
+    "dev_tools_install_node": False,
+    "dev_tools_install_docker": False,
+    "dev_tools_install_gh": False,
+    "tailscale_upload_logs": False,
+}
 # The values for one run, over the fleet's file: a row of the fleet's and the play's own, an option, a fact-made one,
 # and two switches.
 RUN = (
@@ -500,12 +532,18 @@ RUN = (
     "dev_tools_deb_arch=amd64",
     "dev_tools_install_gh=false",
     "dev_tools_install_uv=false",
+    "tailscale_upload_logs=false",
 )
 CASES = ("defaults", "rows", "rows apart", "options", "for one run")
 
 
 def _options_set() -> dict[str, object]:
-    return {each.name: _another(each) for each in passthrough.options() if each.refused is None and each.role in ROLES}
+    specs = _specs()
+    return {
+        each.name: _another(each)
+        for each in passthrough.options()
+        if each.refused is None and each.role in ROLES and each.name in specs[each.role]
+    }
 
 
 def _case(case: str) -> tuple[dict[str, object], tuple[str, ...]]:
@@ -522,7 +560,7 @@ def _case(case: str) -> tuple[dict[str, object], tuple[str, ...]]:
 
 def test_the_cases_set_every_two_rows_the_play_reads_apart(where) -> None:
     sources = [*PLAY.values(), *(source for role in ROLES for source in TABLE[role].values())]
-    rows = sorted({str(source.setting) for source in sources if source.kind == SETTING})
+    rows = sorted({str(source.setting) for source in sources if source.kind in (SETTING, CHOSEN)})
     seen: dict[str, list[str]] = {row: [] for row in rows}
     for case in CASES:
         fleet, run = _case(case)
@@ -569,10 +607,14 @@ def test_the_variables_are_what_ansible_gives_the_roles_from_today_s_inventory(t
         assert given["vscode_server_enabled"] is True and given["dev_tools_install_node"] is False
     if case == "options":
         assert (given["dev_tools_deb_arch"], given["dev_tools_docker_manage_service"]) == ("amd64", False)
-        # Every option of the three roles: seventeen of common's, four of the editor's server's, twelve of dev_tools'.
+        # Every option of the roles: seventeen of common's, four of the editor's server's, twelve of dev_tools', and
+        # Tailscale's markers' folder.
         options = {name for role in ROLES for name, source in TABLE[role].items() if source.kind == OPTION}
-        assert set(fleet) == options and len(options) == 33
+        assert set(fleet) == options and len(options) == 34
     if case == "for one run":
         assert (given["common_user"], given["configure_wait_for_cloud_init"]) == ("sam", False)
         assert (given["common_apt_upgrade"], given["dev_tools_deb_arch"]) == (False, "amd64")
         assert (given["dev_tools_install_gh"], given["dev_tools_install_uv"]) == (False, False)
+        assert (given["tailscale_wanted"], given["tailscale_upload_logs"]) == (False, False)
+    if case == "rows":
+        assert (given["tailscale_wanted"], given["tailscale_daemon_flags"]) == (True, ["--port=41641"])

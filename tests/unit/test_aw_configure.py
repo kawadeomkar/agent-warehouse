@@ -77,7 +77,9 @@ OTHER_UUID = "0f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0"
 def test_a_configure_asks_every_part_unless_tags_name_some_and_runs_layer_1_s_alone() -> None:
     every = configure.Plan.read()
     assert every.parts == CONFIGURE_ROLES
-    assert every.system_parts == system.PARTS == ("common", "vscode_server", "dev_tools")
+    # Tailscale's part, its package, is the play's, and waits for its join, layer 2's (G9): a configure runs it not.
+    assert every.system_parts == configure.SYSTEM_PARTS == ("common", "vscode_server", "dev_tools")
+    assert system.PARTS == (*configure.SYSTEM_PARTS, "tailscale")
     assert every.unrun == ("claude_code", "github_projects", "tailscale") == configure.LAYER_2
     # Named in any order: in today's order, the play's parts alone run.
     named = configure.Plan.read("dev_tools,common")
@@ -405,10 +407,11 @@ def test_a_vm_left_by_provision_runs_its_three_parts_and_stays_unfinished_naming
     assert (done.name, done.identity) == ("delta", machine.identity)
     assert (done.outcome, done.stage) == ("succeeded", "unfinished")
     # Each part of layer 1 ran, given as the child's tags, and the variables made for those parts alone.
-    for part in system.PARTS:
+    for part in configure.SYSTEM_PARTS:
         assert (machine.home / TOUCHED.format(part=part)).is_file(), part
+    assert not (machine.home / TOUCHED.format(part="tailscale")).exists()
     [call] = swapped.calls
-    assert call["tags"] == system.PARTS and call["play"] == swapped.play and call["host_flag"] == ""
+    assert call["tags"] == configure.SYSTEM_PARTS and call["play"] == swapped.play and call["host_flag"] == ""
     assert call["target"].identity == machine.identity and call["target"].routed_as == "direct"
     variables = json.loads(call["variables"].read_text())
     assert {"common_user", "vscode_server_user", "dev_tools_user"} <= set(variables)

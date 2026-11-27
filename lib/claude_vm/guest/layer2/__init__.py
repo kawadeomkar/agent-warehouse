@@ -12,6 +12,8 @@ in the way said, or removed; whether it is wanted is decided there alone, which 
 gh's standard input alone, and signs out only the login its marker says the product made, by account; it makes gh
 git's credential helper. clones.py lists the account's repositories on the machine with whatever token it holds,
 selects them by the settings or the machine's own list, sets the git identity only where it is unset, and clones what
-is missing and pulls what is there by the helper's verb clones, naming what it skipped. Imported by engine/ and that one
-reader; nothing of today's product imports it.
+is missing and pulls what is there by the helper's verb clones, naming what it skipped. tailscale.py joins the
+Tailscale layer 1 installed with the store's key, once, from a settled state, the key on tailscale up's standard input
+alone, holds the settings of the login it made, and leaves alone a Tailscale or a login it did not make and one where
+Tailscale is not the VPN. Imported by engine/ and that one reader; nothing of today's product imports it.
 """

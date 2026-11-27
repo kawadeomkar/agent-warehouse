@@ -171,7 +171,8 @@ roles/                            one role per concern, each with defaults/, met
                                   library/github_repos.py, the listing, and git_clone_many.py, the clones, several at
                                   a time, each whole or not at all (§5.6)
   tailscale/                      tasks/ownership.yml, install.yml, state.yml, connect.yml (the key), settings.yml,
-                                  report.yml, unmanaged.yml (off), login.yml and web_login.yml (the sign-in);
+                                  report.yml, unmanaged.yml (off), login.yml and web_login.yml (the sign-in),
+                                  system.yml (the new engine's layer 1: the package alone, §16.10);
                                   files/tailscale.asc (the vendored signing key)
 
 lib/claude_vm/                    the controller's Python as one package (§7.10): records.py, every record's base,

@@ -4,7 +4,9 @@
 # (docs/architecture/engine.md §16.10). Today's three system roles, as they stand and under today's tags, after the
 # opening tasks of the guest play today's product runs: the wait, the base's check by raw, the facts, cloud-init's
 # wait and root's temporary directory, copied here as they stand (tests/unit/test_aw_layer1_play.py holds the two
-# equal). Nothing here prompts, reports or calls a vendor: the sign-ins, layer 2 and the VPN are the engine's own.
+# equal). Then Tailscale's package, where it is the VPN, by the role's entry system under the tag tailscale, and never
+# in an image. Nothing here prompts, reports or calls a vendor: the sign-ins, layer 2 and the VPN's join are the
+# engine's own.
 #
 # Every task this play reaches calls a state module of ansible.builtin, or is a command, shell or raw with its reason
 # listed (tests/unit/test_aw_layer1_ratchet.py), so that the product needs no Galaxy collection.
@@ -256,3 +258,12 @@
       tags: [vscode_server]
     - role: dev_tools
       tags: [dev_tools]
+
+  tasks:
+    # Tailscale, where it is the VPN: its package alone, by the role's entry system, imported so that the part's tag
+    # reaches every task it includes. Its join is layer 2's (lib/claude_vm/guest/layer2/tailscale.py).
+    - name: Install Tailscale where it is the VPN
+      ansible.builtin.import_role:
+        name: tailscale
+        tasks_from: system
+      tags: [tailscale]

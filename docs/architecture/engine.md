@@ -4588,6 +4588,31 @@ carries the cases of `test_github_repos.py`, `test_git_clone_many.py` and `test_
 `tests/molecule/fake_github_api.py`, local bare repositories and stand-in machines, holds that the copy chooses what
 today's module chooses, and that a redirect is never followed with the token.
 
+**Tailscale's install and join.** Layer 1 installs the package, layer 2 joins it. The system play's part `tailscale`
+is the role's entry `system` (`roles/tailscale/tasks/system.yml`, imported by `playbooks/system.yml` under the tag
+`tailscale`, never in an image): `ownership.yml`, then `install.yml` where `tailscale_wanted` and the Tailscale is the
+role's (none there, or the one its marker marks), the log switch's drop-in before the package; nothing else of the
+role, no 1.x move. Its variables are the four of that entry alone (`wiring.ENTRY`), `tailscale_wanted` a `chosen`
+source, whether `vpn` is `tailscale`, as today's wiring makes it. A configure leaves the part to G9, which runs it with
+the join (`configure.SYSTEM_PARTS`). `lib/claude_vm/guest/layer2/tailscale.py`'s step `vpn-join` is `state.yml`,
+`connect.yml`, `settings.yml` and `report.yml` in plain code. Its probe reads as root what dpkg says, the role's
+markers `tailscale-installed` and `tailscale-joined` (the node key of the login it made) and a Tailscale outside dpkg,
+then `tailscale status --json` a second apart until it is neither `NoState` nor `Starting`, for 30 seconds at most, and
+`tailscale debug prefs` where it runs. `decide(found, wanted)` holds the rules: the key is sent only from a settled
+`NeedsLogin` with no `HaveNodeKey`, on a VM whose record says it never had a login (G1's `joined`, which G9 hands the
+step as `tailscale_joined_before`), under a method that takes it and never an OAuth client's secret with no tags; under
+the method key, a VM that had a login and has none fails, naming why; a Tailscale or a login the role did not make is
+reported and left; only the role's own running login is held to the rows, by one `tailscale set`. The join is `tailscale
+up --auth-key=file:/dev/stdin` with the key on its standard input alone, sent once; the state is read again, settled,
+and the marker made to say what the join left (the node key, `pending` for a join still under way, none after a
+refusal, which is a report). After an `up` that ends `Unreachable` the key is never sent again in the run: a login read
+again is recorded, none fails the step, and the next run decides from a settled state. The step's `seen` says, by the
+machine, whether its Tailscale has had a login, which G9 writes into the VM's record. Off, `vpn` not `tailscale`, is
+left as it is: the markers alone are read, nothing is logged out and no package removed. The key joins the run's
+redaction list before anything is read and is read in `_key` alone. `tests/unit/test_aw_tailscale.py` carries
+`test_tailscale.py`'s cases against `tests/molecule/fake_tailscale.sh` on stand-in machines and greps every event,
+file and call for every canned key.
+
 **A person's keys.** The keys a machine accepts are the person's own, `vm_ssh_public_keys`, and layer 1 alone adds them:
 `common`'s keys tasks (`roles/common/tasks/keys.yml`) put each listed key on the account, every line of it made the
 listed form, and leave every other line, so the list only adds and a key that is on a machine and not in the list stays.

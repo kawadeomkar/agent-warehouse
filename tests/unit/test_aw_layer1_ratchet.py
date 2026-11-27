@@ -362,6 +362,20 @@ REASONS: dict[tuple[str, str], tuple[str, str, dict]] = {
             ),
         },
     ),
+    ("roles/tailscale/tasks/ownership.yml", "ownership | Ask dpkg whether Tailscale is installed"): (
+        "a read: dpkg-query --show of the package's status, which package_facts gives only with every package",
+        "ansible.builtin.command",
+        {
+            "argv": ["dpkg-query", "--show", "--showformat=${db:Status-Status}", "tailscale"],
+        },
+    ),
+    ("roles/tailscale/tasks/install.yml", "install | Ask dpkg whether the install got as far as the package"): (
+        "a read, in the install's rescue, which always ends in its fail: dpkg-query --show of the package's status",
+        "ansible.builtin.command",
+        {
+            "argv": ["dpkg-query", "--show", "--showformat=${db:Status-Status}", "tailscale"],
+        },
+    ),
     ("roles/dev_tools/tasks/rust.yml", "rust | Add the components the toolchain is missing"): (
         "rustup component add, only of those missing: rustup has no module",
         "ansible.builtin.command",
@@ -393,6 +407,13 @@ LOOKUPS = {
     ("roles/dev_tools/tasks/docker.yml", "{{ lookup('ansible.builtin.file', 'docker.asc') }}"): (
         "Docker's signing key, a file of the role's own"
     ),
+    ("roles/tailscale/tasks/install.yml", "{{ lookup('ansible.builtin.file', 'tailscale.asc') }}"): (
+        "Tailscale's signing key, a file of the role's own"
+    ),
+    # No lookup: the program dpkg-query, an argument of a command run on the machine, whose name the scan reads as a
+    # call of query's (LOOKUP's \bquery\b): listed so that a lookup added beside it is still found.
+    ("roles/tailscale/tasks/ownership.yml", "dpkg-query"): "no lookup: dpkg-query, the program, run on the machine",
+    ("roles/tailscale/tasks/install.yml", "dpkg-query"): "no lookup: dpkg-query, the program, run on the machine",
 }
 
 
@@ -1122,6 +1143,8 @@ def test_the_walk_reaches_what_the_play_runs() -> None:
         "roles/common/vars/main.yml",
         "roles/vscode_server/defaults/main.yml",
         "roles/dev_tools/defaults/main.yml",
+        "roles/tailscale/defaults/main.yml",
+        "roles/tailscale/vars/main.yml",
     }
     assert {path.name for path in found.templates} == {
         "sudoers.j2",

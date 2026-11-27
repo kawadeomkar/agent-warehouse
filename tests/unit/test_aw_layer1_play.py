@@ -3,6 +3,7 @@
 Its opening tasks are the guest play's of today's configure.yml, copied as they stand and held equal here, after one of
 its own: the check that the connection is the one the engine wrote, which today's product makes of a VM's effective
 ssh options (playbooks/tasks/host_keys.yml), made whole. Its roles are today's three system roles under today's tags,
+and Tailscale's package by its role's entry system under the tag tailscale (card F14),
 so that a part asked for with --tags runs that role alone (ansible-playbook's own --list-tasks says which). The check
 is run here as the play has it, through layer 1's child on a stand-in machine over the test-only local connection: the
 inventory the engine wrote passes it, and every source of the host's variables that outranks the inventory - a fact,
@@ -135,12 +136,21 @@ def test_the_opening_tasks_are_the_guest_play_s_own_as_they_stand() -> None:
     assert all(task.get("tags") == ["always"] for task in SYSTEM["pre_tasks"])
 
 
-def test_the_play_runs_the_three_system_roles_under_today_s_tags_on_its_one_host() -> None:
+def test_the_play_runs_the_three_system_roles_under_today_s_tags_then_tailscale_s_system_entry() -> None:
     assert (SYSTEM["hosts"], SYSTEM["become"], SYSTEM["gather_facts"]) == ("all", True, False)
-    roles = [{"role": part, "tags": [part]} for part in system.PARTS]
+    assert system.PARTS == ("common", "vscode_server", "dev_tools", "tailscale")
+    roles = [{"role": part, "tags": [part]} for part in system.PARTS[:-1]]
     assert SYSTEM["roles"] == roles == _guest_play()["roles"][: len(roles)]
-    assert system.PARTS == ("common", "vscode_server", "dev_tools")
-    assert not {"tasks", "post_tasks", "handlers"} & set(SYSTEM)
+    # Tailscale's package alone, by its role's entry system, imported so that its tag reaches every task it includes;
+    # never main, which today's play runs (card F14).
+    assert SYSTEM["tasks"] == [
+        {
+            "name": "Install Tailscale where it is the VPN",
+            "ansible.builtin.import_role": {"name": "tailscale", "tasks_from": "system"},
+            "tags": ["tailscale"],
+        }
+    ]
+    assert not {"post_tasks", "handlers"} & set(SYSTEM)
     assert system.PLAY == REPO.resolve() / "playbooks" / "system.yml"
 
 

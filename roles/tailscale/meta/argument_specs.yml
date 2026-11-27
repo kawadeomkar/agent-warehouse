@@ -203,6 +203,31 @@ argument_specs:
         default: ""
 
 
+  # tasks_from: system, which the new engine's playbooks/system.yml runs as its part tailscale: the package alone.
+  system:
+    short_description: Install Tailscale where it is the VPN, and nothing more
+    description:
+      - Reads what is installed and who installed it, and installs Tailscale from its apt repository where it is the
+        VPN and no Tailscale is there or the one there is this role's. The join, the settings and the report are the
+        new engine's own (lib/claude_vm/guest/layer2/tailscale.py). With tailscale_wanted false it changes nothing.
+    options:
+      tailscale_wanted:
+        type: bool
+        description: Whether Tailscale is the VPN; wired from the vpn setting (tailscale).
+      tailscale_upload_logs:
+        type: bool
+        default: true
+        description: false keeps tailscaled from uploading its logs, from its first start.
+      tailscale_daemon_flags:
+        type: list
+        elements: str
+        default: []
+        description: More tailscaled flags, in /etc/default/tailscaled's FLAGS.
+      tailscale_marker_dir:
+        type: path
+        default: /var/lib/agent-warehouse
+        description: Where the markers saying what this role installed and which login it made are kept.
+
   # tasks_from: release, which playbooks/destroy.yml runs on each VM before it
   # is deleted.
   release:

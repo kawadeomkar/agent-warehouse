@@ -3,13 +3,17 @@
 Layer 1 hands the system play one variables file (guest/variables.py) and an inventory of one host, and nothing else:
 no group_vars, no host_vars, and no template of today's wiring (inventory/group_vars/all/defaults.yml) is read. So
 every variable the play's roles read that a person's settings decide is here, in `TABLE`: for each role of the play, in
-its order, each variable of its meta/argument_specs.yml, every entry point's, with where its value comes from, written
-by hand as plain data, a `Source` of one of three kinds:
+its order, each variable of its meta/argument_specs.yml, every entry point's (for `tailscale`, whose other entries are
+today's play's, its entry `system`'s alone: `ENTRY`), with where its value comes from, written by hand as plain data, a
+`Source` of one of four kinds:
 
 - `setting`: the value of a row of the settings table (fleet/registry.py), by the row's name: `common_user`,
   `vscode_server_user` and `dev_tools_user` are `vm_user`'s; `common_user_ssh_public_keys` is `vm_ssh_public_keys`',
   `common_extra_packages` `vm_extra_packages`' and `vscode_server_enabled` `vscode_remote`'s; and each of the six of
   `dev_tools` that is a row of its own name is that row's;
+- `chosen`: whether a row holds one value: `tailscale_wanted`, whether `vpn` is `tailscale`, as today's wiring makes it
+  from the VPN's key (inventory/group_vars/all/defaults.yml), so that Tailscale's part installs the package only where
+  it is the VPN;
 - `machine`: the name a person chose for the machine: `common_hostname`, whose role default reads `inventory_hostname`,
   which layer 1's inventory makes the machine's identity, never its name;
 - `option`: a role's option passed through by its own name (fleet/passthrough.py), handed only where the settings hold
@@ -54,12 +58,13 @@ from claude_vm.schema import patterns
 if TYPE_CHECKING:
     from claude_vm.fleet.overrides import Value
 
-# Where a role variable's value comes from: a row of the settings table, the machine's own name, or the role's option of
-# the same name, passed through.
+# Where a role variable's value comes from: a row of the settings table, whether a row holds one value, the machine's
+# own name, or the role's option of the same name, passed through.
 SETTING = "setting"
+CHOSEN = "chosen"
 MACHINE = "machine"
 OPTION = "option"
-KINDS = (SETTING, MACHINE, OPTION)
+KINDS = (SETTING, CHOSEN, MACHINE, OPTION)
 # The layer of a row's value that no file and no run set: the table's default (fleet/overrides.py's DEFAULT), the one a
 # profile is laid over.
 DEFAULT = "default"
@@ -67,10 +72,12 @@ DEFAULT = "default"
 
 @dataclass(frozen=True)
 class Source:
-    """Where one variable's value comes from: its kind, one of KINDS, and, for a setting, the row's name."""
+    """Where one variable's value comes from: its kind, one of KINDS, for a setting or a choice the row's name, and for
+    a choice the value it is true at."""
 
     kind: str
     setting: str | None = None
+    chosen: str | None = None
 
 
 @dataclass(frozen=True)
@@ -151,8 +158,20 @@ TABLE: Mapping[str, Mapping[str, Source]] = MappingProxyType(
                 "dev_tools_rust_components": OWN,
             }
         ),
+        # Its entry system's alone (ENTRY): the package, where Tailscale is the VPN. The join is layer 2's.
+        "tailscale": MappingProxyType(
+            {
+                "tailscale_wanted": Source(CHOSEN, "vpn", "tailscale"),
+                "tailscale_upload_logs": _row("tailscale_upload_logs"),
+                "tailscale_daemon_flags": _row("tailscale_daemon_flags"),
+                "tailscale_marker_dir": OWN,
+            }
+        ),
     }
 )
+# The entry point of a role whose variables alone the table holds, where the play imports that entry and the role's
+# others are today's play's.
+ENTRY: Mapping[str, str] = MappingProxyType({"tailscale": "system"})
 # The parts of the play, each a role of it, in its order.
 PARTS = tuple(TABLE)
 
@@ -193,6 +212,8 @@ def made_here(name: str) -> str | None:
         if source.kind == MACHINE:
             return "is the machine's own name, which the play is given as the machine's: it is never set"
         if source.kind == SETTING and source.setting != name:
+            return f"is made from {source.setting}, a setting of its own: set {source.setting} instead"
+        if source.kind == CHOSEN:
             return f"is made from {source.setting}, a setting of its own: set {source.setting} instead"
         return None
     if name in INTERNALS:
@@ -236,7 +257,7 @@ def _laid() -> frozenset[str]:
     """The names a profile may lay: each setting the play's variables are made from, and each option of its roles."""
     sources = [*PLAY.values(), *(source for role in TABLE.values() for source in role.values())]
     options = {name for role in TABLE.values() for name, source in role.items() if source.kind == OPTION}
-    return frozenset({source.setting for source in sources if source.kind == SETTING} | options)
+    return frozenset({source.setting for source in sources if source.kind in (SETTING, CHOSEN)} | options)
 
 
 def _profile(profile: object) -> Mapping[str, object]:
@@ -281,6 +302,8 @@ def role_variables(
         for variable, source in TABLE[role].items():
             if source.kind == SETTING:
                 made[variable] = setting(str(source.setting), variable)
+            elif source.kind == CHOSEN:
+                made[variable] = setting(str(source.setting), variable) == source.chosen
             elif source.kind == MACHINE:
                 made[variable] = name
             elif variable in held:

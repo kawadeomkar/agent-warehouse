@@ -1,5 +1,6 @@
 """The system play: `playbooks/system.yml`, layer 1's one play, which converges a machine's system layer with today's
-three system roles as they stand (docs/architecture/engine.md §16.10).
+three system roles as they stand, and Tailscale's package where it is the VPN, by its role's entry `system`
+(docs/architecture/engine.md §16.10).
 
 `PLAY` is the play, `PARTS` its parts, each a role it runs under a tag of the role's own name, in their order (a part
 asked for is a `--tags` of layer1.run's), and `NAMES` the names its variables may hold: guest/wiring.py's one list, the
@@ -26,8 +27,8 @@ from claude_vm.secret import Secret
 
 # The play, in this checkout or release: playbooks/ beside lib/, which holds this module.
 PLAY = Path(__file__).resolve().parents[3] / "playbooks" / "system.yml"
-# The roles the play runs, in its order, each under a tag of its own name.
-PARTS = ("common", "vscode_server", "dev_tools")
+# The roles the play runs, in its order, each under a tag of its own name: tailscale's, its entry system, the package.
+PARTS = ("common", "vscode_server", "dev_tools", "tailscale")
 # The names the play's variables may hold, and no other: guest/wiring.py's one list.
 NAMES = wiring.NAMES
 # The settings the engine cannot serve yet, each with the one value it serves and why another is refused.

@@ -74,6 +74,10 @@ REVEALS: dict[str, str] = {
     " _digest alone for the digest the marker holds, struck from every event of the run before the probe reads anything"
     " and sent on gh auth login's standard input alone, as the runner's Secret (card F12): never in a command's words,"
     " a file or said",
+    "lib/claude_vm/guest/layer2/tailscale.py": "the store's tailscale_auth_key, read in _key alone for whether one is"
+    " set and whether it is an OAuth client's secret, struck from every event of the run before the probe reads"
+    " anything and sent on tailscale up's standard input alone, as the runner's Secret, once (card F14): never in a"
+    " command's words, a file, an event or said",
 }
 
 # The fixtures of the engine's test files whose scope is wider than one test, each with why it may be: pytest makes

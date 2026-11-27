@@ -4,8 +4,9 @@ reached, its system layer brought to its settings by layer 1's child (guest/laye
 later part of a configure (layer 2's, card G9; the sign-ins, G12) is added here.
 
 **The parts.** A configure asks for parts: today's six (schema/rules.py's `CONFIGURE_ROLES`), every one where `--tags`
-names none, or those it names. The system play runs the three of layer 1 (`system.PARTS`); `claude_code`,
-`github_projects` and `tailscale` are layer 2's, which G9 builds: until then a `--tags` that names one is refused before
+names none, or those it names. The system play runs the three of layer 1 (`SYSTEM_PARTS`: `system.PARTS` but
+`tailscale`, whose part installs the package and whose join is layer 2's); `claude_code`, `github_projects` and
+`tailscale` are layer 2's, which G9 builds: until then a `--tags` that names one is refused before
 the run, naming G9 (`unbuilt`), and a configure with no `--tags` runs the three, says by name that the other three were
 not run, and leaves the VM `unfinished`. The record's stage becomes `finished` only where one configure ran all six
 (`stage_after`), so not before G9; the converged digest is left empty, and so never written, until F28.
@@ -80,8 +81,11 @@ STEPS = (
     Step("home", "home"),
 )
 DECLARED = Declared("deploy", (Stage(STAGE, "configure", steps=STEPS),))
-# The parts of a configure layer 2 runs, which card G9 builds: every part but layer 1's.
-LAYER_2 = tuple(part for part in CONFIGURE_ROLES if part not in system.PARTS)
+# The parts of a configure layer 2 runs, which card G9 builds: tailscale's package is layer 1's (system.PARTS), and is
+# installed with its join, by G9, so a configure leaves it until then.
+LAYER_2 = ("claude_code", "github_projects", "tailscale")
+# The system play's parts a configure runs: every one but those whose part is layer 2's.
+SYSTEM_PARTS = tuple(part for part in system.PARTS if part not in LAYER_2)
 LAYER_2_CARD = "G9"
 # The stage a VM's record names once one configure ran every part.
 FINISHED = "finished"
@@ -161,7 +165,7 @@ class Plan:
     @property
     def system_parts(self) -> tuple[str, ...]:
         """The parts asked that the system play runs, in its order."""
-        return tuple(part for part in system.PARTS if part in self.parts)
+        return tuple(part for part in SYSTEM_PARTS if part in self.parts)
 
     @property
     def unrun(self) -> tuple[str, ...]:
@@ -181,8 +185,8 @@ def unbuilt(tags: object) -> str | None:
         {
             "parts": ",".join(named),
             "card": LAYER_2_CARD,
-            "line": Line("deploy", {"only": STAGE, "tags": ",".join(system.PARTS)}, host_flag=""),
-            "system": ", ".join(system.PARTS),
+            "line": Line("deploy", {"only": STAGE, "tags": ",".join(SYSTEM_PARTS)}, host_flag=""),
+            "system": ", ".join(SYSTEM_PARTS),
         },
     )
 
