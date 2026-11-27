@@ -68,7 +68,8 @@ def job(home: Path):
 def reach(tmp_path, engine_guard):
     """A maker of stand-in machines, each reached through the stand-in ssh, first on this test's PATH: gh holding
     stored (its source and its account's login where given), the product's marker of marked, a gh too old for --json
-    where old (its words, "" for gh's own), gh made git's helper by hand where helper, and two accounts where two."""
+    where old (its words, "" for gh's own), gh made git's helper by hand where helper, two accounts where two, and its
+    login's check failing where check names how (fake_gh.sh's unchecked, GitHub out of reach; or refused, a 401)."""
     root = tmp_path / "machines"
     made: list[Machine] = []
     engine_guard.first_on_path(ssh_stand_in(root, made))
@@ -83,6 +84,7 @@ def reach(tmp_path, engine_guard):
         old: str | None = None,
         helper: bool = False,
         two: bool = False,
+        check: str | None = None,
     ) -> Machine:
         gh = {}
         if stored is not None:
@@ -95,6 +97,8 @@ def reach(tmp_path, engine_guard):
             gh["fake-old"] = old
         if two:
             gh["fake-two-accounts"] = ""
+        if check is not None:
+            gh[f"fake-{check}"] = ""
         one = machine(root, name, gh=gh)
         filed(one)
         if marked is not None:
@@ -308,6 +312,60 @@ def test_a_machine_converges_to_signed_in_and_back_with_nothing_of_the_token_in_
     assert _stored(made) is None and not _marker(made).exists()
     assert _gh_calls(made).count(LOGIN) == 1 and _gh_calls(made).count(LOGOUT) == 1
     assert _leaks(job, heard, made) == []
+
+
+# ------------------------------------------------------------------ a login gh could not check ----
+
+
+CHECKS = pytest.mark.parametrize("check", ["unchecked", "refused"])
+
+
+@CHECKS
+def test_a_cleared_token_signs_out_the_product_s_login_whose_check_failed(job, reach, check):
+    # Review 97's 1: taken for signed out, the marker went and the product's login stayed for good.
+    made = reach(stored=TOKENS["old"], marked=TOKENS["old"], check=check)
+    assert _run(job, made) == step.Ran("succeeded", ((STEP, True),))
+    assert _gh_calls(made).count(LOGOUT) == 1
+    assert _stored(made) is None and not _marker(made).exists()
+
+
+@CHECKS
+def test_a_login_made_by_hand_whose_check_failed_is_left_with_its_marker_and_said_as_it_is(job, reach, check):
+    # A stale marker, of the product's login the person's own replaced: gh holds a login, so it stays.
+    made = reach(stored=TOKENS["oauth"], marked=TOKENS["old"], check=check)
+    heard = _heard(job)
+    # gh is made git's helper, as for any login gh holds: nothing else changes.
+    assert _run(job, made).outcome == "succeeded" and _gh_helper(made)
+    assert not any(call.startswith("auth logout") for call in _gh_calls(made))
+    assert _stored(made) == TOKENS["oauth"] and _marker(made).read_text().strip() == _digest(TOKENS["old"])
+    reports, nexts = _said(heard)
+    assert len(reports) == 1 and "not signed in" not in reports[0], reports
+    assert reports[0].startswith(f"alpha: gh holds a login to GitHub as {USERNAME} by a login of your own")
+    if check == "unchecked":
+        assert "which it could not check with GitHub (Get" in reports[0] and nexts == {"github": ""}
+    else:
+        assert "whose token GitHub refused (HTTP 401: Bad credentials" in reports[0]
+        assert reports[0].endswith("Sign gh in again with aw login alpha --only github")
+        assert nexts == {"github": reports[0]}
+
+
+@CHECKS
+def test_a_token_is_not_put_over_a_login_made_by_hand_whose_check_failed(job, reach, check):
+    made = reach(stored=TOKENS["oauth"], check=check)
+    heard = _heard(job)
+    assert _run(job, made, TOKENS["vault"]).outcome == "succeeded"
+    assert LOGIN not in _gh_calls(made) and _stored(made) == TOKENS["oauth"] and not _marker(made).exists()
+    assert "not signed in" not in _said(heard)[0][0]
+
+
+@CHECKS
+def test_the_product_s_login_whose_check_failed_keeps_its_marker_and_is_not_signed_in_again(job, reach, check):
+    made = reach(stored=TOKENS["vault"], marked=TOKENS["vault"], check=check)
+    assert _run(job, made, TOKENS["vault"]).outcome == "succeeded"
+    assert LOGIN not in _gh_calls(made) and _marker(made).read_text().strip() == _digest(TOKENS["vault"])
+    want = github.Wanted(True, "auto", None, "", (), False, "alpha", "dev", "aw login alpha", "aw deploy alpha")
+    found = github.Found(True, account=USERNAME, state="error", error="HTTP 401", stored="a" * 64, marker="a" * 64)
+    assert github.decide(found, want).logout == USERNAME and not github.decide(found, want).forget
 
 
 # ------------------------------------------------------------------ the invariant ----

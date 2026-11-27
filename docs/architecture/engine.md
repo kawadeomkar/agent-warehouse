@@ -4405,13 +4405,16 @@ login landing starting the service through the path unit, a stopped service left
 store's `github_token`; a method other than auto, web and token is refused before the machine is read, a GitHub App's
 hourly token named, since nothing standalone renews one. Its probe reads, as the machine's account: whether gh is
 there, `gh auth status --json` (a gh too old for it, before 2.81.0, a named failure where the run manages gh, never
-"signed out"), the active account, and, signed in, the token gh holds piped on the machine into its own `python3`,
+"signed out"), the active account, and, wherever gh holds one, its check passed or not (state `error`), the token
+gh holds piped on the machine into its own `python3`,
 which prints its digest and the kind its prefix tells and never the token, so that the token never leaves the machine;
-the marker `~/.config/agent-warehouse/gh-login`, the digest of a login the product made; and git's helpers for
+the marker `~/.config/agent-warehouse/gh-login`, the digest of a login the product made, `github_token`'s alone (a
+device-flow login's marker is `gh-device-login`, which the step never reads or signs out by); and git's helpers for
 github.com. `decide(found, wanted)` is auth.yml's decisions in one function, by digests alone, never by a token's
 prefix: the token signs gh in where gh is signed out, signed in by the product, or the method is token, and a login
 made by hand stays, the token only listing there; with the method taking no token, only the marked login is signed out,
-by account, and the marker goes once gh is signed out; the marker is written wherever the login is the token's; gh is
+by account, and the marker goes once gh holds no login; a login whose check failed is a login all the same, decided
+by its digest and said as unchecked or refused, never "not signed in"; the marker is written wherever the login is the token's; gh is
 made git's helper where git has no entry of gh's. The acts are fixed commands of the runner: `gh auth login
 --with-token --insecure-storage` with the token on its standard input alone (a refusal fails quoting gh, but one for a
 missing scope under auto, which keeps listing and leaves gh signed out, the scopes named), the logout, the marker
