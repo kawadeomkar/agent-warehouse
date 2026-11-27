@@ -41,6 +41,13 @@ VARIABLE = paths.VARIABLE
 # sweep elsewhere can then reach the key by its name (docs/architecture/engine.md §16.9).
 NAME_THE_FOLDERS = ("lib/claude_vm/fleet/paths.py",)
 NAME_THE_KEY = ("lib/claude_vm/fleet/paths.py", "lib/claude_vm/fleet/vaultkey.py")
+# The modules beside paths.py that name its VARIABLE alone, and no folder, with why: each passes it on to a run and
+# works nothing out of it.
+GIVE_THE_VARIABLE = {
+    "lib/claude_vm/cli/mcp_serve.py": "the agents' server gives each run it starts the variable from its registered"
+    " arguments, never from its own environment, and imports nothing of fleet/: tests/unit/test_aw_mcp_server.py"
+    " holds the name equal to this module's",
+}
 FOLDERS = re.compile(
     r"XDG_CONFIG_HOME|XDG_STATE_HOME|AGENT_WAREHOUSE_HOME"
     r"|\.config\W{1,6}agent-warehouse(?![\w-])|\.local\W{1,6}state\W{1,6}agent-warehouse(?![\w-])"
@@ -653,7 +660,7 @@ def _folder_problems(rel: str, text: str) -> list[str]:
     on a machine other than as guest/ may."""
     if rel in NAME_THE_FOLDERS:
         return []
-    problems, rest = [], text
+    problems, rest = [], text.replace(VARIABLE, "") if rel in GIVE_THE_VARIABLE else text
     if rel.startswith(GUEST):
         rest = ON_A_MACHINE_NAMED.sub(lambda found: "" if _reserved(found["name"]) else found[0], text)
         problems += [f"line {line}: ON_A_MACHINE not before one reserved name" for line in _on_a_machine_misused(text)]

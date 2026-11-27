@@ -505,7 +505,8 @@ def test_the_server_imports_nothing_of_the_engine_the_proxmox_client_or_the_flee
         [sys.executable, "-I", "-c", script],
         cwd=world["checkout"],
         env=_env(world),
-        stdin=subprocess.DEVNULL,
+        # A pipe, as a client's is, which a run must not inherit.
+        input="",
         capture_output=True,
         text=True,
         timeout=120,
@@ -516,6 +517,7 @@ def test_the_server_imports_nothing_of_the_engine_the_proxmox_client_or_the_flee
     assert set(found["listed"]) == READS and found["errors"] == [False] * len(calls)
     # Each read ran aw: the engine's modules were the children's to load.
     assert len(_runs(world)) == len(calls) + 1
+    assert all(run["stdin_null"] for run in _runs(world))
     assert found["loaded"] == []
 
 
@@ -538,7 +540,7 @@ def test_a_log_s_name_is_a_text_log_s_and_its_job_is_found_in_the_list() -> None
         assert not mcp_serve.LOG_NAME.fullmatch(refused), refused
     rows = [
         listing.COLUMNS,
-        (OTHER, "running", "2026-11-06 10:16:00", "1m 0s", "aw login  beta", "-"),
+        (OTHER, "running", "2026-11-06 10:16:00", "1m 0s", f"a run that names {made[1]}", "-"),
         (JOB, "ok", "2026-11-06 10:15:00", "4m 2s", "aw deploy alpha", f"/a folder/logs/{made[0]}"),
     ]
     printed = "\n".join(listing._table(rows))
