@@ -331,6 +331,8 @@ def test_a_run_has_no_terminal_a_session_of_its_own_and_the_signals_at_their_def
     (result,) = _talk(_args(world), _env(world), ("status", {}), ignoring=True)["results"]
     assert not result.is_error, _text(result)
     (run,) = _runs(world)
+    # The SDK's stdio server puts /dev/null in fd 0's place as it starts, so a run that inherited it would pass here;
+    # the in-process test below gives the server a pipe, which a run must not inherit.
     assert run["stdin_null"] is True
     assert run["sid"] == run["pid"] and run["sid"] != os.getsid(0)
     assert run["ignored"] == []
