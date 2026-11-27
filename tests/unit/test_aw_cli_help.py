@@ -13,7 +13,13 @@ table says the verb needs it; a verb that needs its word refuses none once built
 refuses whole is refused by its own rule. An option of a later card's is left out of help and the reference until that
 card. aw help lists every verb of the table in its order, each with its doc and [options] where it has any, and no
 recipe of the repository's own; the options given before a verb, but the hidden one, with their form; and its closing
-paragraph, with -v and --set each named on the verbs whose row has it, its commands written by the printer. Through
+paragraph, with -v and --set each named on the verbs whose row has it, its commands written by the printer. Help is as
+wide as its terminal, COLUMNS first, at most WIDTH and at least 72, and WIDTH with none to ask; at that width, with no
+terminal and at 80 columns, every row of the listing and of every verb, joined again, is the row unwrapped, its lines
+after the first at its text's column, and no line breaks inside a command the table's sentences name, the program, an
+option and its value, a word and the option after it or a form's example, at any width from 72 to WIDTH, the program
+as aw and started from a path with a space; a line is longer than the width only where it holds one such piece alone.
+A refusal and the reference are not wrapped. The tests that read a row's end read it joined again. Through
 tools/aw and the launcher, aw alone is aw help, a word that is no verb is refused unsaid, control among them, and a
 second word in help.1's sentence. help and the reference import the standard library and schema/ alone, the printer
 among it, and aw help loads nothing of the engine. The reference gives a row for every verb but help, every option but
@@ -25,6 +31,7 @@ escapes a cell as tools/docs.py does.
 from __future__ import annotations
 
 import io
+import os
 import re
 import shlex
 import sys
@@ -41,7 +48,7 @@ from claude_vm.schema import check as checks
 from claude_vm.schema import printer, rules
 from claude_vm.schema.patterns import PATTERNS
 from claude_vm.schema.printer import said
-from claude_vm.schema.words import BEFORE, EXITS, SET, VERBOSE, VERBS, Option, Words, placeholder
+from claude_vm.schema.words import BEFORE, EXITS, LINES, SET, VERBOSE, VERBS, Option, Words, placeholder
 
 MODULES = ("claude_vm.cli.help", "claude_vm.cli.reference")
 # Of the new engine's own, what help and the reference may load: schema/, and these.
@@ -90,13 +97,47 @@ def _described(item: Option | Words) -> str:
     return f"{text}, held to " + (f"<code>{raw.replace('|', '&#124;')}</code>" if "|" in raw else f"`{raw}`")
 
 
+# A row's first line in aw help <verb>: its indent and its left side, then two spaces or more before its text.
+_LEFT = re.compile(r" +\S+(?: \S+)*?  +(?=\S)")
+# The lines of help that are no row's: its headings and a verb's usage line.
+HEADINGS = (helps.LISTING, helps.BEFORE_ANY, helps.OPTIONS, helps.WORDS)
+
+
+def _column(line: str) -> int | None:
+    """Where the text of the row a line begins starts: after the listing's #, after a verb's row's left side, 0 for a
+    line of a paragraph (a verb's doc, the closing paragraph); None for a line of no row (a heading, a group's name, the
+    usage line, a blank one)."""
+    if line.startswith("    ") and " # " in line:
+        return line.index(" # ") + 3
+    if line.startswith(" "):
+        left = _LEFT.match(line)
+        return left.end() if left else None
+    if not line or line in HEADINGS or line.startswith(f"{helps.USAGE} "):
+        return None
+    return 0
+
+
+def _joined(text: str) -> list[str]:
+    """help's lines with each row joined again: a line that starts at the column where the row before it has its text
+    (a paragraph's next line, at 0) is that row's next line. The closing paragraph's sentences join into one line."""
+    joined: list[str] = []
+    column = None
+    for line in text.splitlines():
+        if column is not None and line[:column] == " " * column and line[column : column + 1] not in ("", " "):
+            joined[-1] += f" {line[column:]}"
+            continue
+        joined.append(line)
+        column = _column(line)
+    return joined
+
+
 # ---------------------------------------------------------------- the help of one verb ----
 
 
 @pytest.mark.parametrize("name", list(VERBS))
 def test_help_of_a_verb_shows_its_usage_doc_options_and_words_in_the_table_s_order(name: str) -> None:
     verb = VERBS[name]
-    lines = helps.of(name).splitlines()
+    lines = _joined(helps.of(name))
     assert lines[:3] == [f"{helps.USAGE} {helps.usage(verb)}", "", said(verb.doc)]
     # Only a word before any verb is hidden from help: every option of a verb has its sentence.
     assert all(option.help for option in checks.options_of(verb)), name
@@ -122,7 +163,7 @@ def test_help_says_the_form_of_each_value_the_table_holds_to_a_pattern_and_no_em
     # The owner's frame and answer 7 of 2026-11-21: help says what each value may be, as just --usage did, and leaves
     # out [default: ''], which says nothing.
     verb = VERBS[name]
-    text = helps.of(name)
+    text = "\n".join(_joined(helps.of(name)))
     rows = [line for line in text.splitlines() if line.startswith("  ")]
     for option in helps.options(verb):
         [row] = [row for row in rows if row.lstrip().startswith(f"{helps.shown(option)} ")]
@@ -136,7 +177,8 @@ def test_help_says_the_form_of_each_value_the_table_holds_to_a_pattern_and_no_em
         assert row.endswith(f" {checks.form_of(verb.words)}") if formed else not row.endswith("]"), row
     # The pattern itself is never what help says (the owner's ruling, review/code/OWNER-9.md 2).
     assert [name for name, pattern in PATTERNS.items() if pattern.text in text] == []
-    assert "[pattern: " not in text and "[default:" not in text and "[default:" not in helps.listing()
+    listed = "\n".join(_joined(helps.listing()))
+    assert "[pattern: " not in text and "[default:" not in text and "[default:" not in listed
 
 
 def test_help_ends_the_row_of_every_option_and_words_the_hand_written_map_names_with_what_its_value_may_be() -> None:
@@ -146,7 +188,7 @@ def test_help_ends_the_row_of_every_option_and_words_the_hand_written_map_names_
     # refuses any.
     for verb, named in PATTERN_OF.items():
         text = helps.of(verb) if verb else helps.listing()
-        rows = [line for line in text.splitlines() if line.startswith("  " if verb else "    ")]
+        rows = [line for line in _joined(text) if line.startswith("  " if verb else "    ")]
         options = {checks.spelled(option): option for option in (checks.options_of(VERBS[verb]) if verb else BEFORE)}
         for word, name in named.items():
             if (word in options and options[word].until is not None) or _refused_whole(verb, word):
@@ -182,7 +224,7 @@ def test_set_s_row_names_the_placeholder_it_prints_and_never_name_equals_value()
     having = [name for name, verb in VERBS.items() if SET in verb.options]
     assert having
     for name in having:
-        [row] = [row for row in helps.of(name).splitlines() if row.lstrip().startswith(f"{helps.shown(SET)} ")]
+        [row] = [row for row in _joined(helps.of(name)) if row.lstrip().startswith(f"{helps.shown(SET)} ")]
         assert f": {helps.shown(SET)}, once for each " in row and "name=value" not in row, row
     assert "name=value" not in reference.commands() and "name=value" not in helps.listing()
 
@@ -190,7 +232,7 @@ def test_set_s_row_names_the_placeholder_it_prints_and_never_name_equals_value()
 def test_release_s_rows_say_one_adopted_machine_never_a_vm() -> None:
     # Its words and --confirm are held to a VM's patterns, which take several names: their form says one machine
     # (review/code/H29.md 2).
-    rows = [row for row in helps.of("release").splitlines() if row.startswith("  ")]
+    rows = [row for row in _joined(helps.of("release")) if row.startswith("  ")]
     formed = [row for row in rows if row.lstrip().startswith(("--confirm ", "<machine> "))]
     assert len(formed) == 2 and all(f"[{WORDS_OF['release', '<machine>']}, e.g. alpha]" in row for row in formed)
     assert [row for row in rows if "VM" in row or "commas" in row] == []
@@ -300,7 +342,7 @@ def test_an_option_is_shown_with_its_short_form_and_its_value_s_placeholder() ->
 
 
 def test_aw_help_lists_every_verb_in_the_table_s_order_with_its_doc_and_no_recipe_of_the_repository_s_own() -> None:
-    lines = helps.listing().splitlines()
+    lines = _joined(helps.listing())
     assert lines[0] == helps.LISTING
     end = lines.index(helps.BEFORE_ANY)
     listed = [line for line in lines[1:end] if line.startswith("    ") and not line.lstrip().startswith("[")]
@@ -320,7 +362,7 @@ def test_aw_help_lists_every_verb_in_the_table_s_order_with_its_doc_and_no_recip
 
 
 def test_aw_help_lists_the_options_given_before_a_verb_but_the_hidden_one() -> None:
-    lines = helps.listing().splitlines()
+    lines = _joined(helps.listing())
     before = lines[lines.index(helps.BEFORE_ANY) + 1 :]
     before = before[: before.index("")]
     assert [line.split(" # ")[0].strip() for line in before] == [
@@ -336,7 +378,7 @@ def test_aw_help_lists_the_options_given_before_a_verb_but_the_hidden_one() -> N
 def test_aw_help_ends_in_its_closing_paragraph_with_v_and_set_on_the_verbs_that_have_them() -> None:
     lines = helps.listing().splitlines()
     closing = lines[len(lines) - len(helps.closing()) :]
-    assert closing == helps.closing() and all(len(line) <= helps.WIDTH for line in closing)
+    assert closing == helps.closing() and all(len(line) <= helps.columns() for line in closing)
     ours = re.split(r"(?<=\.) (?=[A-Z])", " ".join(closing))
     assert len(ours) == 3, ours
     assert ours[0] == (
@@ -363,6 +405,152 @@ def test_aw_help_ends_in_its_closing_paragraph_with_v_and_set_on_the_verbs_that_
     # A command a person pastes, and an option with its value, is never cut across two lines.
     for whole in (example, hosts, helps.shown(SET)):
         assert [line for line in closing if whole in line], whole
+
+
+# ---------------------------------------------------------------- where help's lines break ----
+
+# A width no row of help is as wide as: help unwrapped, each row on one line.
+UNWRAPPED = sys.maxsize
+# The programs help is read as started by: aw, and from a path with a space, as test_aw_cli_printer.py's tests start it.
+PROGRAMS = ["aw", "/opt/my checkout/aw"]
+# The spellings of the options that take a value, of every verb and before any: the word after one is its value.
+VALUED = "|".join(
+    re.escape(spelling)
+    for option in [*BEFORE, *(option for verb in VERBS.values() for option in checks.options_of(verb))]
+    if " " in helps.shown(option)
+    for spelling in [f"--{option.long}"] * bool(option.long) + [f"-{option.short}"] * bool(option.short)
+)
+
+
+def _terminal(monkeypatch, columns: int | None, environ: int | None = None) -> None:
+    """help's standard output as a terminal of columns, or as none to ask (a pipe, a file); COLUMNS as environ."""
+
+    def size(fd: int = 1) -> os.terminal_size:
+        if columns is None:
+            raise OSError("not a terminal")
+        return os.terminal_size((columns, 24))
+
+    monkeypatch.setattr(os, "get_terminal_size", size)
+    if environ is None:
+        monkeypatch.delenv("COLUMNS", raising=False)
+    else:
+        monkeypatch.setenv("COLUMNS", str(environ))
+
+
+def _kept(text: str) -> set[int]:
+    """Where in a row's text help may not break a line, by this test's own reading of a piece: each space inside a
+    command the table's sentences name (the printer's line for each of LINES, the program at its start) or the program
+    alone, an option that takes a value and the word after it, a form's e.g. and its example, and each space before an
+    option that follows a word."""
+    spans = [
+        found.span()
+        for whole in [*(said(f"{{{name}}}") for name in LINES), checks.command("")]
+        for found in re.finditer(re.escape(whole), text)
+    ]
+    for piece in (rf"(?<!\S)(?:{VALUED}) \S+", r"\be\.g\. \S+", r"(?<=[\w>\]]) (?=--?[A-Za-z])"):
+        spans += [found.span() for found in re.finditer(piece, text)]
+    return {at for start, end in spans for at in range(start, end) if text[at] == " "}
+
+
+def _held(wrapped: str, unwrapped: str, width: int) -> list[str]:
+    """Each row of help unwrapped, as its lines wrapped at width give it: each line after its first starting at the
+    column where its text starts, the lines joined again the row; no line broken inside a piece, and none longer than
+    width but one that is one piece, after its row's left side or indent. Returns the rows that were wrapped."""
+    lines = wrapped.splitlines()
+    at = 0
+    broken = []
+    for row in unwrapped.splitlines():
+        column = _column(row) or 0
+        text = row[column:]
+        assert lines[at][:column] == row[:column], (row, lines[at])
+        pieces = [lines[at][column:]]
+        at += 1
+        while " ".join(pieces) != text:
+            assert at < len(lines) and len(" ".join(pieces)) < len(text), (row, pieces)
+            assert lines[at][:column] == " " * column and lines[at][column : column + 1] not in ("", " "), lines[at]
+            pieces.append(lines[at][column:])
+            at += 1
+        kept = _kept(text)
+        start = 0
+        for number, piece in enumerate(pieces):
+            assert not number or start - 1 not in kept, ("broken inside a piece", row, pieces)
+            spaces = [start + i for i, character in enumerate(piece) if character == " "]
+            assert column + len(piece) <= width or set(spaces) <= kept, ("longer than the width", width, piece)
+            start += len(piece) + 1
+        broken += [row] * (len(pieces) > 1)
+    assert at == len(lines), lines[at:]
+    return broken
+
+
+@pytest.mark.parametrize(
+    ("terminal", "environ", "width"),
+    [
+        (None, None, helps.WIDTH),
+        (80, None, 80),
+        (72, None, 72),
+        (40, None, helps.NARROWEST),
+        (300, None, helps.WIDTH),
+        (0, None, helps.WIDTH),
+        (80, 90, 90),
+        (None, 100, 100),
+    ],
+    ids=["no-terminal", "80", "72", "40", "300", "0", "COLUMNS-90-at-80", "COLUMNS-100"],
+)
+def test_help_is_as_wide_as_its_terminal_at_most_width_and_at_least_the_narrowest(
+    monkeypatch, terminal: int | None, environ: int | None, width: int
+) -> None:
+    # review/code/OWNER-11.md 2: the terminal's columns, COLUMNS first, at most WIDTH and at least 72; WIDTH where there
+    # is no terminal to ask. One width for the whole of help, its closing paragraph among it.
+    _terminal(monkeypatch, terminal, environ)
+    assert helps.NARROWEST == 72 and helps.columns() == width
+    for name, printed in [(None, helps.listing(width)), ("deploy", helps.of("deploy", width))]:
+        out = io.StringIO()
+        assert helps.main(None, name, out=out) == EXITS["done"] and out.getvalue() == printed
+    assert helps.listing().endswith("\n".join(helps.closing(width)) + "\n")
+
+
+@pytest.mark.parametrize("program", PROGRAMS, ids=["aw", "space"])
+@pytest.mark.parametrize("terminal", [None, 80], ids=["no-terminal", "80-columns"])
+def test_every_row_of_help_is_wrapped_in_its_own_column_and_nothing_pasted_is_broken(
+    monkeypatch, terminal: int | None, program: str
+) -> None:
+    # The listing and every verb, as aw help prints them: each row joined again is the row unwrapped, each line after
+    # its first at the text's column, and no line longer than the width but one that holds a single piece.
+    monkeypatch.setattr(printer, "_program", printer.PROGRAM)
+    printer.started_as(program)
+    _terminal(monkeypatch, terminal)
+    width = helps.WIDTH if terminal is None else terminal
+    broken = []
+    for name in [None, *VERBS]:
+        out = io.StringIO()
+        helps.main(None, name, out=out)
+        broken += _held(out.getvalue(), helps.listing(UNWRAPPED) if name is None else helps.of(name, UNWRAPPED), width)
+    # Rows are wrapped at all: the closing paragraph's, the listing's and a verb's options'.
+    assert [row for row in broken if not row.startswith(" ")] and [row for row in broken if " # " in row]
+    assert [row for row in broken if row.startswith("  ") and " # " not in row]
+
+
+@pytest.mark.parametrize("program", PROGRAMS, ids=["aw", "space"])
+def test_no_width_from_the_narrowest_to_width_breaks_a_piece(monkeypatch, program: str) -> None:
+    # A piece is cut only at some widths: every width help may take, the listing and every verb.
+    monkeypatch.setattr(printer, "_program", printer.PROGRAM)
+    printer.started_as(program)
+    for width in range(helps.NARROWEST, helps.WIDTH + 1):
+        for name in [None, *VERBS]:
+            if name is None:
+                _held(helps.listing(width), helps.listing(UNWRAPPED), width)
+            else:
+                _held(helps.of(name, width), helps.of(name, UNWRAPPED), width)
+
+
+def test_the_reference_and_a_refusal_are_not_wrapped(monkeypatch) -> None:
+    # A refusal stays one line on standard error, which a script and an agent read whole; the reference is a table.
+    _terminal(monkeypatch, helps.NARROWEST)
+    with pytest.raises(parse.Refused) as refused:
+        parse.read(["deploy", "--only=check"])
+    assert "\n" not in refused.value.sentence and len(refused.value.sentence) > helps.WIDTH
+    rows = [row for row in reference.commands().splitlines() if row.startswith("| `")]
+    assert rows and max(len(row) for row in rows) > helps.WIDTH
 
 
 # ---------------------------------------------------------------- through tools/aw ----

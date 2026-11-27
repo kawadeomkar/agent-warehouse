@@ -433,18 +433,29 @@ any. A second word is refused by the one check (`help.1`), and a word that is no
 which never says it. The usage lines are help's own, after the check's `command`, the program as it was started and the
 verb as the printer writes them; the closing paragraph names the program the same way, never cut where it is wrapped;
 a whole command line it prints, for a person to paste (the closing paragraph's example, `aw host`, the table's
-sentences' commands), comes from the printer. Help names no part of the program itself. A usage line shows a verb's
-word without brackets only where the table says the verb needs it (`Words.needed`: `code` and `release`), and none for
-the words of a verb that refuses any (`Words.refused`). `reference.py`'s `commands()` writes the tables of the command
-reference from the same functions, in the form `tools/docs.py` writes them from the `justfile` today: a table for each
-group of verbs, `help` aside, with a row for each verb, each of its options and its words, and one of the options given
-before any verb, each cell escaped as `tools/docs.py` escapes one. The cell of a value the table holds to a pattern ends
-as help's row does, with what the value may be in words, and then gives the pattern itself, as its definition, in code:
-a code span, or an HTML code element with `&#124;` for each `|` where the pattern has one, as `tools/docs.py` writes a
-setting's value with one, since a `|` splits a GitHub table's cell and an escaped one inside a code span shows its
-backslash on the site. Nothing calls it before the cutover, which points `tools/docs.py` at it. `help.py` imports the
-standard library and `schema/`, the printer among it; `reference.py` those and `help.py`; and `aw help` loads nothing of
-the engine.
+sentences' commands), comes from the printer. Help names no part of the program itself. Every row is wrapped at one
+width for the whole of help, the terminal's columns (`COLUMNS` first, as `shutil.get_terminal_size` reads them), at
+most `WIDTH` (110, longer lines being hard to read) and at least `NARROWEST` (72, below which the left column leaves
+too little), and `WIDTH` where there is no terminal to ask (a pipe, a file, a test): in `aw help` each verb's row and
+each row of the options before any verb, in `aw help <verb>` its doc, each option's row and the words' row, and the
+closing paragraph's sentences, each by the one function that wraps, the lines after a row's first indented to where
+its text starts. A line breaks only at a space, and never inside a hyphenated word, a command a sentence names (the
+printer's line, the program at its start), an option and the word after it where it takes a value
+(`--only configure`, `--set <name>=<value>`), a word and an option that follows it (`ansible-playbook --check --diff`),
+or a form's example (`e.g. 8`): a line is longer than the width only where one such piece stands alone on it. What a row
+says does not change, only where its lines break. The usage line is not wrapped, a form of the command whole; nor is a
+refusal, one line on standard error that a script and an agent read whole, nor the reference. A usage line shows a
+verb's word without brackets only where the table says the verb needs it (`Words.needed`: `code` and `release`), and
+none for the words of a verb that refuses any (`Words.refused`). `reference.py`'s `commands()` writes the tables of the
+command reference from the same functions, in the form `tools/docs.py` writes them from the `justfile` today: a table
+for each group of verbs, `help` aside, with a row for each verb, each of its options and its words, and one of the
+options given before any verb, each cell escaped as `tools/docs.py` escapes one. The cell of a value the table holds to
+a pattern ends as help's row does, with what the value may be in words, and then gives the pattern itself, as its
+definition, in code: a code span, or an HTML code element with `&#124;` for each `|` where the pattern has one, as
+`tools/docs.py` writes a setting's value with one, since a `|` splits a GitHub table's cell and an escaped one inside a
+code span shows its backslash on the site. Nothing calls it before the cutover, which points `tools/docs.py` at it.
+`help.py` imports the standard library and `schema/`, the printer among it; `reference.py` those and `help.py`; and
+`aw help` loads nothing of the engine.
 
 **The launcher: `aw`.** At the checkout's top, in POSIX `sh`, the launcher finds its checkout from its own path, every
 link to it followed and the folder made by its physical path (`cd -P`), so that a relative link in a folder that is
@@ -509,10 +520,14 @@ and of the maps `tests/unit/test_aw_cli_words.py` writes by hand, with the examp
 row and in the refusal of a value outside it alike, `--attended` before any verb among them, and none for the words of a
 verb that refuses any, never the pattern itself, and no empty default; `--set`'s row naming its placeholder, never
 `name=value`; `release`'s rows saying one adopted machine; an option of a later card's left out; `[options]` in the
-listing; through `tools/aw` and the launcher, `control` refused as no verb; what each imports; and that the reference
-gives a row for every verb but `help`, every option but a later card's and the words, each value held to a pattern with
-its words and then its pattern as code, and no row split by a `|` or a code span holding one; and escapes a cell as
-`tools/docs.py` does.
+listing; help as wide as its terminal, `COLUMNS` first, between 72 and `WIDTH`, and `WIDTH` with none; with no terminal
+and at 80 columns, every row of the listing and of every verb joined again equal to the row unwrapped, its lines after
+the first at its text's column, and at every width from 72 to `WIDTH` no line broken inside a piece and none longer
+than the width but one piece, the program as `aw` and from a path with a space; a refusal and the reference unwrapped;
+the tests that read a row's end reading it joined again; through `tools/aw` and the launcher, `control` refused as no
+verb; what each imports; and that the reference gives a row for every verb but `help`, every option but a later card's
+and the words, each value held to a pattern with its words and then its pattern as code, and no row split by a `|` or a
+code span holding one; and escapes a cell as `tools/docs.py` does.
 `tests/unit/test_aw_cli_imports.py` holds the quick commands to what this section says they import: `aw` alone, help,
 `--version`, a refusal of each kind, and the reads `logs`, `cancel`, `host`, `settings` and `status`, each read once its
 verb has a handler and skipped by name until then, run through the launcher of a checkout the test makes with a fleet of
