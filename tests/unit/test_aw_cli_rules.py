@@ -299,14 +299,18 @@ def test_each_case_is_refused_by_the_rule_its_code_names(monkeypatch, code) -> N
     assert rules.RULES[_rule_of(code)].check(values) == sentence
 
 
-# The patterns of free text, which a person may paste a secret into: one line of text, and a setting's name with its
-# value (--set).
-FREE_TEXT = {"text": TYPED, "assignment": f"vm_cores={TYPED}"}
+# A secret shaped as a Proxmox token's is, a UUID, which a file's path held to secret_file takes whole.
+UUID_SHAPED = f"{TYPED}-0000-4000-8000-000000000000"
+# The patterns of free text, which a person may paste a secret into, each with a secret it takes: one line of text, a
+# setting's name with its value (--set), a path, free after its first character (mcp --project-dir, --vault-key-file),
+# and a file's path, which takes a token's secret whole (init --token-secret-file, review/code/H32.md 1).
+FREE_TEXT = {"text": TYPED, "assignment": f"vm_cores={TYPED}", "path": f"/{TYPED}", "secret_file": UUID_SHAPED}
 
 
 def _secrets(verb: str) -> dict[str, object]:
     """Every free-text value verb takes, each given as a secret typed: an option held to a pattern of free text (--set,
-    settings --value, --browser), and the words of a verb that refuses any (init's and mcp's), which may be one."""
+    settings --value, --browser, a path, a secret's file), and the words of a verb that refuses any (init's and mcp's),
+    which may be one."""
     row = VERBS[verb]
     typed: dict[str, object] = {}
     for option in row.options:
