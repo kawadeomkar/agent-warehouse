@@ -18,7 +18,9 @@ call; and the server's own process imports nothing of the engine, the Proxmox cl
 
 from __future__ import annotations
 
+import ast
 import asyncio
+import inspect
 import json
 import os
 import subprocess
@@ -34,7 +36,7 @@ from claude_vm.cli import mcp_backend, mcp_serve
 from claude_vm.fleet import paths, vaultkey
 from claude_vm.mcp import environment
 from claude_vm.mcp.results import NOTE, json_result
-from claude_vm.mcp.server import HOSTS_KEEP, LOG_NAME
+from claude_vm.mcp.server import HOSTS_KEEP, LOG_NAME, Server
 from claude_vm.runs import listing, textlog
 from claude_vm.schema.patterns import PATTERNS
 
@@ -77,6 +79,8 @@ DROPPED = {
     "CLAUDE_CODE_MESSAGING_TOKEN": "canned-messaging-token",
     "HOME": "/nonexistent/evil-home",
     "XDG_DATA_HOME": "/nonexistent/evil-data",
+    "XDG_CONFIG_HOME": "/nonexistent/evil-config",
+    "XDG_STATE_HOME": "/nonexistent/evil-state",
     "SHELL": "/nonexistent/evil-shell",
     paths.VARIABLE: "/nonexistent/evil-fleet",
     vaultkey.VARIABLE: "/nonexistent/evil-key",
@@ -549,3 +553,109 @@ def test_a_log_s_name_is_a_text_log_s_and_its_job_is_found_in_the_list() -> None
     assert mcp_serve.job_of_log(printed, made[0]) == JOB
     assert mcp_serve.job_of_log(printed, made[1]) is None
     assert mcp_serve.job_of_log("No jobs in /x.\n", made[0]) is None
+
+
+def test_a_run_s_state_folder_is_the_registered_one_and_its_key_the_terminal_s(world, tmp_path) -> None:
+    # An installed release, and a terminal whose XDG folders are none of the defaults: its home is the installed one,
+    # whose state folder and key file fleet/paths.py places by those folders, never inside the home.
+    release = tmp_path / "release"
+    release.mkdir()
+    (release / "release.json").write_text("{}\n")
+    folders = {name: tmp_path / "xdg" / name.lower() for name in ("XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME")}
+    for folder in folders.values():
+        (folder / "agent-warehouse").mkdir(parents=True)
+    terminal = paths.home(release, {"HOME": str(world["home"])} | {name: str(path) for name, path in folders.items()})
+    assert terminal.how == "installed" and not paths.inside(terminal.state, terminal.root)
+    registered = {**world, "fleet": terminal.root, "state": terminal.state}
+    args = _args(
+        registered,
+        key=False,
+        data_home=str(folders["XDG_DATA_HOME"]),
+        config_home=str(folders["XDG_CONFIG_HOME"]),
+        state_home=str(folders["XDG_STATE_HOME"]),
+    )
+    (result,) = _talk(args, _env(world, DROPPED), ("status", {}))["results"]
+    assert not result.is_error, _text(result)
+    (run,) = _runs(world)
+    child = paths.home(release, run["env"])
+    assert child.root == terminal.root
+    assert child.state == Path(_value(args, "--state")) and child.key_file == terminal.key_file
+
+
+# The constants of the variables a run is given, and the calls that read a file.
+GIVEN = ("HOME_VARIABLE", "KEY_VARIABLE", "CONFIG_VARIABLE", "STATE_VARIABLE")
+READS_A_FILE = frozenset({"open", "read_text", "read_bytes", "fdopen"})
+
+
+def test_the_server_gives_the_variables_to_a_run_alone_and_opens_no_file() -> None:
+    # What tests/unit/test_aw_fleet_paths.py's and test_aw_fleet_vaultkey.py's exceptions for the module rest on: each
+    # variable's constant is named, past its definition, only as a key of the run's environment in Program.env, its
+    # value nowhere else, and nothing is opened or read, so neither the home nor the key is worked out of the server's
+    # own environment.
+    tree = ast.parse(Path(mcp_serve.__file__).read_text())
+    parents = {id(child): node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+    named = [[name] for name in GIVEN]
+    defined = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.Assign) and [getattr(target, "id", "") for target in node.targets] in named
+    ]
+    assert len(defined) == len(GIVEN)
+    own = {id(part) for node in defined for part in ast.walk(node)}
+    (program,) = [node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "Program"]
+    (env,) = [node for node in program.body if isinstance(node, ast.FunctionDef) and node.name == "env"]
+    in_env = {id(part) for part in ast.walk(env)}
+    values = {getattr(mcp_serve, name) for name in GIVEN}
+    given, misused = [], []
+    for node in ast.walk(tree):
+        if id(node) in own:
+            continue
+        if isinstance(node, ast.Name) and node.id in GIVEN:
+            parent = parents[id(node)]
+            if (
+                isinstance(parent, ast.Subscript)
+                and parent.slice is node
+                and isinstance(parent.ctx, ast.Store)
+                and isinstance(parent.value, ast.Name)
+                and parent.value.id == "env"
+                and id(parent) in in_env
+            ):
+                given.append(node.id)
+            else:
+                misused.append(f"line {node.lineno}: {node.id}")
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in values:
+            misused.append(f"line {node.lineno}: {node.value!r}")
+        elif isinstance(node, ast.Call):
+            called = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", None)
+            if called in READS_A_FILE:
+                misused.append(f"line {node.lineno}: {called}()")
+    assert misused == []
+    assert sorted(given) == sorted(GIVEN)
+
+
+def test_each_tool_takes_its_schema_s_properties_and_refuses_any_other_argument(world) -> None:
+    registered, config, refusal = mcp_serve.configured(_args(world))
+    server = Server(config, refusal, _env(world), backend=mcp_serve.Program(registered))
+    for tool in mcp_serve.tools(server):
+        assert set(inspect.signature(tool.fn).parameters) == set(tool.parameters["properties"]), tool.name
+    # Over stdio: an argument the schema has no property for, a fate the table refuses among them, is said with the
+    # table's own sentence, and nothing runs.
+    calls = [
+        ("status", {"set": ["vm_cores=2"]}),
+        ("status", {"bogus": 1}),
+        ("status", {"json": False}),
+        ("settings", {"name": "vm_cores", "value": "3"}),
+        ("logs", {"follow": True, "job": JOB}),
+    ]
+    results = _talk(_args(world), _env(world), *calls)["results"]
+    for (name, arguments), result in zip(calls, results, strict=True):
+        extra = {key: value for key, value in arguments.items() if key not in made_properties(name)}
+        with pytest.raises(mcp_backend.Refused) as refused:
+            mcp_backend.command(name, extra, {"attended": "0"})
+        assert result.is_error and str(refused.value) in _text(result), (name, _text(result))
+    assert _runs(world) == []
+    _never_reached(world)
+
+
+def made_properties(name: str) -> set[str]:
+    return set({tool.name: tool for tool in mcp_backend.tools()}[name].schema["properties"])

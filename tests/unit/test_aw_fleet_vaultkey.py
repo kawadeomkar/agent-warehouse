@@ -718,12 +718,24 @@ def _texts() -> dict[str, str]:
     return found
 
 
-# The modules beside vaultkey.py that name its VARIABLE, with why: each gives it to a run and reads no key.
+# The modules beside vaultkey.py that name its VARIABLE, in one line of their own that defines a constant and nowhere
+# else in their text: the line, and why. Each gives it to a run and reads no key, which a test of its own holds by the
+# module's syntax.
 GIVE_THE_VARIABLE = {
-    "lib/claude_vm/cli/mcp_serve.py": "the agents' server gives each run it starts the variable from its registered"
-    " arguments, never from its own environment, and imports nothing of fleet/: tests/unit/test_aw_mcp_server.py"
-    " holds the name equal to vaultkey.py's",
+    "lib/claude_vm/cli/mcp_serve.py": (
+        'KEY_VARIABLE = "AGENT_WAREHOUSE_VAULT_KEY_FILE"',
+        "the agents' server gives each run it starts the variable from its registered arguments, never from its own"
+        " environment, names the constant only as a key of the run's environment, and opens no file:"
+        " tests/unit/test_aw_mcp_server.py::test_the_server_gives_the_variables_to_a_run_alone_and_opens_no_file",
+    ),
 }
+
+
+def _past_the_given(rel: str, text: str) -> str:
+    """text, past the one line of GIVE_THE_VARIABLE's where rel is one of its modules."""
+    if rel not in GIVE_THE_VARIABLE:
+        return text
+    return "\n".join(line for line in text.splitlines() if line != GIVE_THE_VARIABLE[rel][0])
 
 
 def test_a_run_reads_the_key_only_through_vaultkey() -> None:
@@ -731,8 +743,9 @@ def test_a_run_reads_the_key_only_through_vaultkey() -> None:
     assert len(texts) > 100, len(texts)
     # The variable's name in vaultkey.py alone; the key file's name in paths.py and vaultkey.py alone (an option such
     # as --vault-key-file is not it); Ansible's variable in no module of the new engine.
-    variable = sorted(rel for rel, text in texts.items() if VARIABLE in text)
-    assert variable == sorted({"lib/claude_vm/fleet/vaultkey.py", *GIVE_THE_VARIABLE})
+    variable = sorted(rel for rel, text in texts.items() if VARIABLE in _past_the_given(rel, text))
+    assert variable == ["lib/claude_vm/fleet/vaultkey.py"]
+    assert all(VARIABLE in texts[rel] for rel in GIVE_THE_VARIABLE), "an exception that names nothing any more"
     named = {rel for rel, text in texts.items() if re.search(r"\bvault-key\b(?!-)", text)}
     assert "lib/claude_vm/fleet/paths.py" in named
     assert named <= {"lib/claude_vm/fleet/paths.py", "lib/claude_vm/fleet/vaultkey.py"}, sorted(named)

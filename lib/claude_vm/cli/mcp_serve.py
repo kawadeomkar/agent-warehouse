@@ -3,19 +3,24 @@ program's backend in place of the justfile's recipes (docs/architecture/engine.m
 
 Its configuration is the registered command's arguments alone, as today's is: today's, read by mcp/config.py's parse
 as they are (the checkout, the PATH, HOME, XDG_DATA_HOME and CLAUDE_CONFIG_DIR recorded, --attended, --browser,
---any-branch), and the four this registration adds, each written --name=value: the program every read runs, an
+--any-branch), and the six this registration adds, each written --name=value: the program every read runs, an
 executable by its absolute path (the launcher at a checkout's top, or a release's); the fleet's home, which each run
-is given as AGENT_WAREHOUSE_HOME, so that it reaches the fleet registered whatever the session's environment says; the
-state folder, where the jobs are, for the server's own reads of them; and, where one is given, the file that holds the
-vault's key, which each run is given as AGENT_WAREHOUSE_VAULT_KEY_FILE (fleet/vaultkey.py's one override): a path,
-which the server never opens. Today's --vault-password-file is refused, since it is ansible-vault's. A command line
-that lacks one of the first three, as 2.x's just mcp registered it, or names one twice, is the refusal every tool
-answers with, naming aw mcp: the server never exits at its start, since Claude Code pins a stdio server that dies
-within 3 s to the older protocol for 7 days.
+is given as fleet/paths.py's variable, so that it reaches the fleet registered whatever the session's environment
+says; the state folder, where the jobs are, for the server's own reads of them; where one is given, the file that holds
+the vault's key, which each run is given as fleet/vaultkey.py's variable (its one override): a path, which the server
+never opens; and, where the terminal's are not the defaults, its config and state folders (--config-home,
+--state-home), which each run is given as XDG's variables of those names, since fleet/paths.py places the installed
+home's state folder and key by them: a run's state is then --state, and its key the terminal's. Each variable is
+named only where a run's environment is given it (tests/unit/test_aw_mcp_server.py). Today's --vault-password-file is
+refused, since it is ansible-vault's. A command line that lacks one of the first three, as 2.x's just mcp registered
+it, or names one twice, is the refusal every tool answers with, naming aw mcp: the server never exits at its start,
+since Claude Code pins a stdio server that dies within 3 s to the older protocol for 7 days. A call that gives an
+argument the tool's schema has no property for is refused with the table's sentence for it (cli/mcp_backend.py's
+command), before the SDK would drop it.
 
 It serves the reads alone, status, settings, hosts, logs and log, each by aw run as a child through today's Server:
 standard input /dev/null, a session of its own with the signals at their defaults, and an environment from today's
-allow list (mcp/environment.py: SHELL the account's own) with the two variables above, so that nothing of Ansible's,
+allow list (mcp/environment.py: SHELL the account's own) with the variables above, so that nothing of Ansible's,
 Python's, just's or Claude Code's from the session reaches it, nor LOG_DIR, nor a proxy. HTTPS_PROXY, ALL_PROXY and
 NO_PROXY, in either case, are never passed on: the session's environment is any project's to set (its
 .claude/settings.json env), and a proxy named there would carry each request of the run, the Proxmox API's token among
@@ -48,11 +53,14 @@ from claude_vm.schema import printer
 from claude_vm.schema.patterns import full
 
 # The variables a run is given from the registration's arguments, never from the server's own environment: the fleet's
-# home (fleet/paths.py's VARIABLE) and the vault's key file (fleet/vaultkey.py's), which tests hold equal.
+# home (fleet/paths.py's VARIABLE) and the vault's key file (fleet/vaultkey.py's), which tests hold equal, and the
+# terminal's config and state folders. Each is named once more, where Program.env gives it to a run.
 HOME_VARIABLE = "AGENT_WAREHOUSE_HOME"
 KEY_VARIABLE = "AGENT_WAREHOUSE_VAULT_KEY_FILE"
+CONFIG_VARIABLE = "XDG_CONFIG_HOME"
+STATE_VARIABLE = "XDG_STATE_HOME"
 # The arguments this registration adds to today's, each --name=value, and those it cannot do without.
-OWN = ("program", "fleet-home", "state", "vault-key-file")
+OWN = ("program", "fleet-home", "state", "vault-key-file", "config-home", "state-home")
 NEEDED = OWN[:3]
 # Today's tools served as they are, through the backend: their bodies are the same for both.
 TODAYS = ("status", "settings", "hosts")
@@ -81,13 +89,15 @@ FIRST_COLUMN, LOG_COLUMN = "JOB", "LOG"
 
 @dataclass(frozen=True)
 class Registered:
-    """The arguments this registration adds to today's: the program, the fleet's home, the state folder, and the vault's
-    key file, "" where none was given."""
+    """The arguments this registration adds to today's: the program, the fleet's home, the state folder, the vault's
+    key file, and the terminal's config and state folders, each of the last three "" where none was given."""
 
     program: str
     fleet_home: str
     state: str
     vault_key_file: str = ""
+    config_home: str = ""
+    state_home: str = ""
 
 
 def _registers() -> str:
@@ -132,7 +142,14 @@ def configured(argv: list[str]) -> tuple[Registered | None, Config | None, str]:
             None,
             _refused("--vault-password-file is ansible-vault's: aw opens the vault with --vault-key-file"),
         )
-    registered = Registered(own["program"], own["fleet-home"], own["state"], own.get("vault-key-file", ""))
+    registered = Registered(
+        own["program"],
+        own["fleet-home"],
+        own["state"],
+        own.get("vault-key-file", ""),
+        own.get("config-home", ""),
+        own.get("state-home", ""),
+    )
     return registered, config, ""
 
 
@@ -157,6 +174,10 @@ class Program:
         env[HOME_VARIABLE] = self.registered.fleet_home
         if self.registered.vault_key_file:
             env[KEY_VARIABLE] = self.registered.vault_key_file
+        if self.registered.config_home:
+            env[CONFIG_VARIABLE] = self.registered.config_home
+        if self.registered.state_home:
+            env[STATE_VARIABLE] = self.registered.state_home
         return env
 
     def command(self, server: Any, tool: str, arguments: dict[str, Any]) -> list[str]:
@@ -181,6 +202,20 @@ class Program:
 def described(tool: mcp_backend.Tool, extra: str) -> str:
     """A tool's description: the table's sentence, then what the server adds."""
     return f"{tool.description.rstrip('.')}. {extra}" if extra else tool.description
+
+
+def outside(server: Any, tool: Any, arguments: dict[str, Any]) -> str:
+    """Why a call gives an argument that is no property of the tool's schema, in mcp_backend.command's own sentence, or
+    "" where it gives none: the SDK would drop it before the tool's body, so the table's refusal would never be said."""
+    properties = tool.parameters.get("properties", {})
+    extra = {name: value for name, value in arguments.items() if name not in properties}
+    if not extra:
+        return ""
+    try:
+        mcp_backend.command(tool.name, extra, {"attended": server.attended()})
+    except ValueError as error:
+        return str(error)
+    return f"error: the {tool.name} tool has no argument {sorted(extra)[0]}"
 
 
 def job_of_log(listing: str, file: str) -> str | None:
@@ -281,7 +316,20 @@ def build(argv: list[str], environ: dict[str, str]) -> Any:
             raise ToolError(f"{said} Pull or switch the checkout to a working commit, then restart it with /mcp.")
 
         built = [Tool.from_function(status, name="status", annotations=today.READ_ONLY, structured_output=False)]
-    return MCPServer(name=today.NAME, instructions=INSTRUCTIONS, tools=built)
+    listed = {tool.name: tool for tool in built}
+
+    class Served(MCPServer):
+        """The SDK's server, which first refuses an argument that is no property of the tool's schema."""
+
+        async def call_tool(self, name: str, arguments: dict[str, Any], context: Any = None) -> Any:
+            tool = listed.get(name)
+            if tool is not None and server.config is not None:
+                refused = outside(server, tool, arguments or {})
+                if refused:
+                    raise ToolError(refused)
+            return await super().call_tool(name, arguments, context)
+
+    return Served(name=today.NAME, instructions=INSTRUCTIONS, tools=built)
 
 
 def main(argv: list[str]) -> None:

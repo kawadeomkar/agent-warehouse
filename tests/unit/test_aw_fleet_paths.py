@@ -41,12 +41,21 @@ VARIABLE = paths.VARIABLE
 # sweep elsewhere can then reach the key by its name (docs/architecture/engine.md §16.9).
 NAME_THE_FOLDERS = ("lib/claude_vm/fleet/paths.py",)
 NAME_THE_KEY = ("lib/claude_vm/fleet/paths.py", "lib/claude_vm/fleet/vaultkey.py")
-# The modules beside paths.py that name its VARIABLE alone, and no folder, with why: each passes it on to a run and
-# works nothing out of it.
+# The modules beside paths.py that name a variable of the fleet's folders, each in one line of its own that defines a
+# constant, and nowhere else in their text: the lines, and why. Each passes the variables on to a run and works
+# nothing out of them, which a test of its own holds by the module's syntax.
 GIVE_THE_VARIABLE = {
-    "lib/claude_vm/cli/mcp_serve.py": "the agents' server gives each run it starts the variable from its registered"
-    " arguments, never from its own environment, and imports nothing of fleet/: tests/unit/test_aw_mcp_server.py"
-    " holds the name equal to this module's",
+    "lib/claude_vm/cli/mcp_serve.py": (
+        (
+            'HOME_VARIABLE = "AGENT_WAREHOUSE_HOME"',
+            'CONFIG_VARIABLE = "XDG_CONFIG_HOME"',
+            'STATE_VARIABLE = "XDG_STATE_HOME"',
+        ),
+        "the agents' server gives each run it starts the home and the terminal's config and state folders from its"
+        " registered arguments, never from its own environment, and names each constant only as a key of the run's"
+        " environment: tests/unit/test_aw_mcp_server.py::"
+        "test_the_server_gives_the_variables_to_a_run_alone_and_opens_no_file",
+    ),
 }
 FOLDERS = re.compile(
     r"XDG_CONFIG_HOME|XDG_STATE_HOME|AGENT_WAREHOUSE_HOME"
@@ -660,7 +669,10 @@ def _folder_problems(rel: str, text: str) -> list[str]:
     on a machine other than as guest/ may."""
     if rel in NAME_THE_FOLDERS:
         return []
-    problems, rest = [], text.replace(VARIABLE, "") if rel in GIVE_THE_VARIABLE else text
+    problems, rest = [], text
+    if rel in GIVE_THE_VARIABLE:
+        defined = GIVE_THE_VARIABLE[rel][0]
+        rest = "\n".join(line for line in text.splitlines() if line not in defined)
     if rel.startswith(GUEST):
         rest = ON_A_MACHINE_NAMED.sub(lambda found: "" if _reserved(found["name"]) else found[0], text)
         problems += [f"line {line}: ON_A_MACHINE not before one reserved name" for line in _on_a_machine_misused(text)]
