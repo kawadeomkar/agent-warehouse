@@ -3,15 +3,31 @@
 # which these follow. As root they would make the keys file in the link's
 # target and set that directory to 0700, wherever it was; as the user, a link
 # reaches nothing the user could not change already.
-- name: keys | Refuse a listed key that is no public key
+#
+# Each item is one public key on one line: one with a line break would be
+# written whole over its first key's line, and its second key added again at
+# every run; one commented out would be added again at every run, since a line
+# commented out is no line of a key below; one key listed twice, under two
+# comments, would flip its line at every run.
+- name: keys | Refuse a listed key that is no public key alone on its line, or one listed twice
   ansible.builtin.assert:
-    that: common_keys_unread | length == 0
+    that:
+      - common_keys_unread | length == 0
+      - common_keys_listed | unique | length == common_keys_listed | length
     fail_msg: >-
-      common_user_ssh_public_keys holds what is no public key an authorized_keys
-      line holds: {{ common_keys_unread | join(', ') }}
+      {{ 'common_user_ssh_public_keys holds what is no public key alone on an authorized_keys line: '
+         ~ common_keys_unread | join(', ') if common_keys_unread
+         else 'common_user_ssh_public_keys lists the same key twice, by its type and base64: list it once' }}
     quiet: true
   vars:
-    common_keys_unread: "{{ common_user_ssh_public_keys | reject('search', common_ssh_key_pattern) | list }}"
+    common_keys_unread: >-
+      {{ common_user_ssh_public_keys | reject('search', common_ssh_key_pattern) | list
+         + common_user_ssh_public_keys | select('search', '[\\r\\n]') | list
+         + common_user_ssh_public_keys | select('match', '[ \\t]*#') | list }}
+    # Each key's type and base64, read once the first check has passed.
+    common_keys_listed: >-
+      {{ common_user_ssh_public_keys | map('regex_findall', common_ssh_key_pattern) | map('first')
+         | map('join', ' ') | list }}
 
 - name: keys | Make ~/.ssh, its target where it is a link
   ansible.builtin.file:
@@ -22,14 +38,48 @@
   become_user: "{{ common_user }}"
   when: common_user_ssh_public_keys | length > 0
 
-# A line of the same key, by its type and base64, becomes the listed form,
-# whatever options or comment it had; a key not there is added at the end. No
-# other line changes, and nothing takes a key away.
+- name: keys | Look for the keys file
+  ansible.builtin.stat:
+    path: "~{{ common_user }}/.ssh/authorized_keys"
+    follow: true
+    get_checksum: false
+  become: true
+  become_user: "{{ common_user }}"
+  register: common_keys_file
+  when: common_user_ssh_public_keys | length > 0
+
+# Every line of the same key, by its type and base64, becomes the listed form,
+# whatever options or comment it had: sshd applies the first line of a key it
+# finds, so none may keep options of its own in front of the listed one. A
+# line commented out is left as it is. No line is taken away, and none but a
+# line of a listed key changes. The pattern matches within one line: [ \t],
+# never \s, which would reach over a line's end.
+- name: keys | Make every line of a listed key its listed form
+  ansible.builtin.replace:
+    path: "~{{ common_user }}/.ssh/authorized_keys"
+    regexp: >-
+      ^(?!{{ item | regex_escape }}$){{ common_key_line }}
+    # Python's replacement string, where a backslash is an escape.
+    replace: >-
+      {{ item | replace('\\', '\\\\') }}
+  become: true
+  become_user: "{{ common_user }}"
+  loop: "{{ common_user_ssh_public_keys }}"
+  loop_control:
+    label: "{{ item.split(' ')[-1] if item.count(' ') > 1 else item[:32] ~ '...' }}"
+  when: common_keys_file.stat.exists
+  vars:
+    # The key's type and base64, the pattern's two groups.
+    common_key_parts: "{{ item | regex_findall(common_ssh_key_pattern) | first }}"
+    common_key_line: >-
+      (?![ \t]*#)(?:.*[ \t])?{{ common_key_parts[0] | regex_escape }}[ \t]+{{ common_key_parts[1] | regex_escape }}(?:[ \t].*)?$
+
+# Then a key with no line is added at the end, and the file made 0600.
 - name: keys | Authorise each SSH key
   ansible.builtin.lineinfile:
     path: "~{{ common_user }}/.ssh/authorized_keys"
     regexp: >-
-      (^|\s){{ common_key_parts[0] | regex_escape }}\s+{{ common_key_parts[1] | regex_escape }}(\s|$)
+      ^{{ common_key_line }}
     line: "{{ item }}"
     create: true
     mode: "0600"
@@ -39,5 +89,6 @@
   loop_control:
     label: "{{ item.split(' ')[-1] if item.count(' ') > 1 else item[:32] ~ '...' }}"
   vars:
-    # The key's type and base64, the pattern's two groups.
     common_key_parts: "{{ item | regex_findall(common_ssh_key_pattern) | first }}"
+    common_key_line: >-
+      (?![ \t]*#)(?:.*[ \t])?{{ common_key_parts[0] | regex_escape }}[ \t]+{{ common_key_parts[1] | regex_escape }}(?:[ \t].*)?$

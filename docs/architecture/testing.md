@@ -838,10 +838,11 @@ Verify finds the block back beside the user's line, the file still 0644, and a t
 file with no error and each setting in effect, the user's among them.
 
 Last, the side effect adds the person's keys over a keys file that holds more, through a `~/.ssh` that is a link
-to a folder of the user's open to all: the line of the listed key with options in front and another comment
-becomes the listed form, the line of a key not on the list is kept, and the folder the link names is made
-0700 and the file 0600, the user's. A listed key that is no public key is refused. Then `~/.ssh` is put
-back as converge left it, for verify to find the listed key there.
+to a folder of the user's open to all: both lines of the listed key, the first with options in front and another
+comment, become the listed form, the line of a key not on the list is kept and so is a line of the key commented
+out, the folder the link names is made 0700 and the file 0600, the user's, and a second run changes nothing. A
+listed key that is no public key is refused, and so are an item of two lines, one commented out and a key listed
+twice. Then `~/.ssh` is put back as converge left it, for verify to find the listed key there.
 
 `proxmox_vm`'s scenario is the interesting one: it runs against the fake PVE API and asserts the VMID
 came from Proxmox (9001, the next free one) and that the address came from the VM's own NIC —

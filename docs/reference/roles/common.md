@@ -212,8 +212,10 @@ classDef rescue stroke:#665352,stroke-width:2px;
 
 | Task | Module | When |
 |---|---|---|
-| Refuse a listed key that is no public key | `ansible.builtin.assert` |  |
+| Refuse a listed key that is no public key alone on its line, or one listed twice | `ansible.builtin.assert` |  |
 | Make ~/.ssh, its target where it is a link | `ansible.builtin.file` | <code>common_user_ssh_public_keys &#124; length > 0</code> |
+| Look for the keys file | `ansible.builtin.stat` | <code>common_user_ssh_public_keys &#124; length > 0</code> |
+| Make every line of a listed key its listed form | `ansible.builtin.replace` | <code>common_keys_file.stat.exists</code> |
 | Authorise each SSH key | `ansible.builtin.lineinfile` |  |
 
 ```mermaid
@@ -228,10 +230,12 @@ classDef importRole stroke:#699ba7,stroke-width:2px;
 classDef includeVars stroke:#8e44ad,stroke-width:2px;
 classDef rescue stroke:#665352,stroke-width:2px;
 
-  Start-->|Task| keys___Refuse_a_listed_key_that_is_no_public_key0[keys   refuse a listed key that is no public key]:::task
-  keys___Refuse_a_listed_key_that_is_no_public_key0-->|Task| keys___Make____ssh__its_target_where_it_is_a_link1[keys   make    ssh  its target where it is a link<br>When: **common user ssh public keys   length   0**]:::task
-  keys___Make____ssh__its_target_where_it_is_a_link1-->|Task| keys___Authorise_each_SSH_key2[keys   authorise each ssh key]:::task
-  keys___Authorise_each_SSH_key2-->End
+  Start-->|Task| keys___Refuse_a_listed_key_that_is_no_public_key_alone_on_its_line__or_one_listed_twice0[keys   refuse a listed key that is no public key<br>alone on its line  or one listed twice]:::task
+  keys___Refuse_a_listed_key_that_is_no_public_key_alone_on_its_line__or_one_listed_twice0-->|Task| keys___Make____ssh__its_target_where_it_is_a_link1[keys   make    ssh  its target where it is a link<br>When: **common user ssh public keys   length   0**]:::task
+  keys___Make____ssh__its_target_where_it_is_a_link1-->|Task| keys___Look_for_the_keys_file2[keys   look for the keys file<br>When: **common user ssh public keys   length   0**]:::task
+  keys___Look_for_the_keys_file2-->|Task| keys___Make_every_line_of_a_listed_key_its_listed_form3[keys   make every line of a listed key its listed<br>form<br>When: **common keys file stat exists**]:::task
+  keys___Make_every_line_of_a_listed_key_its_listed_form3-->|Task| keys___Authorise_each_SSH_key4[keys   authorise each ssh key]:::task
+  keys___Authorise_each_SSH_key4-->End
 ```
 
 ### `masked_units.yml`
