@@ -81,11 +81,13 @@ def test_every_row_says_where_what_who_when_and_what_takes_it_out() -> None:
         assert row.setting == "" or row.setting in {each.name for each in registry.rows()}, row.id
         assert row.where is None or row.where.__module__ == paths.__name__, row.id
     # Today's rows, each carried, and the report's own: the fleet's folder, the key file, the state folder's jobs, the
-    # runs' text logs and the lock files, a run's directory and the shared control directory, which is Ansible's own.
+    # runs' text logs and the lock files, a run's directory, the settings' document an edit opens and the shared control
+    # directory, which is Ansible's own.
     today = ["known_hosts", "vm_known_hosts", "ssh_config", "ssh_include", "data", "vscode_extension"]
     today += ["editor_records", "mcp", "sessions_dir"]
     assert ids[: len(today)] == today
-    assert ids[len(today) :] == ["fleet", "vault_key", "jobs", "logs", "locks", "run_dir", "control_dir"]
+    ours = ["fleet", "vault_key", "jobs", "logs", "locks", "run_dir", "settings_edit", "control_dir"]
+    assert ids[len(today) :] == ours
     assert controller_writes.ALSO
 
 
