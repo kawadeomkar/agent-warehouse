@@ -7,11 +7,14 @@ the run's device flow follows this configure. A method other than auto, web or t
 read, a GitHub App's hourly token named: nothing here renews one once the run has ended.
 
 **The probe** reads, as the machine's account and changing nothing: whether gh is there; `gh auth status --hostname
-github.com --json hosts`, its exit, what it said and its active account (the login, its state, its token's source, its
-scopes); where that account is signed in, the token gh holds, piped on the machine into its own `python3`, which prints
+github.com --json hosts`, its exit, what it said and its active account (the login, its state and the error of gh's
+check, its token's source, its scopes); wherever gh holds that account, its check passed or not (state `error`: GitHub
+out of reach, or the token refused), the token gh holds, piped on the machine into its own `python3`, which prints
 the token's digest and the kind its prefix tells (`pat`, `oauth`, `other`), never the token, so that it never leaves
 the machine; the marker `~/.config/agent-warehouse/gh-login` (guest/states.py's GITHUB_MARKER), the digest of the token
-of a login this product made; and, signed in, git's credential helpers for github.com.
+of a login this product made; and, where gh holds a login, git's credential helpers for github.com. `gh-login` holds
+`github_token`'s digest alone: a device-flow login's marker is `gh-device-login`, which this step never reads, writes
+or signs out by, so that a device-flow login is never signed out here.
 
 **The decisions** are `decide(found, wanted)`, one function over that state and the settings, as auth.yml and
 vars/main.yml decide them, by digests alone: never by a token's prefix, which tells a token the person pasted into gh
@@ -23,9 +26,12 @@ from none (the kind is the report's alone).
   or auto with one), the token gh holds is not it, and the login is not the person's own: gh signed out, signed in by
   this product (the marker's digest is the stored token's), or the method token, which asks for the token whatever gh
   holds. A login made by hand stays, and the token only lists there, said with the switch that hands gh to the token.
+  A login gh holds whose check failed (state `error`) is a login all the same: whose it is is its digest's, and it is
+  never taken for gh signed out.
 - **Sign out**, with the method taking no token, only the login the marker says is this product's, by account
-  (`--user`), so that a second account stays; then, once gh is signed out, the marker goes. A marker whose digest is
-  not the stored token's (the person's own login replaced this product's) is left where it is, and so is that login.
+  (`--user`), so that a second account stays; then, once gh holds no login at all, the marker goes. A marker whose
+  digest is not the stored token's (the person's own login replaced this product's) is left where it is, and so is
+  that login.
 - **The marker** is written, mode 0600 in a folder of 0700, wherever the login is the token's, not only straight after
   a sign-in, so that one gone missing comes back; only where its content or mode differs.
 - **git's helper**: `gh auth setup-git --hostname github.com` where the run manages gh, gh is signed in and git has no
@@ -41,7 +47,8 @@ helper. gh's state is read again after a sign-in or a sign-out. Nothing is ever 
 **The report** is `lib/claude_vm/status/lines.py`'s line (`github_login_report`, what `aw status` and login say of gh
 too), and its NEXT STEPS record under `github` while something is left; but for the three cases that file has no
 sentence for, each auth.yml's own: a token that only lists for want of a scope (left to do), a token beside a login of
-the person's own (nothing left), and a sign-in that follows in this run (nothing left).
+the person's own (nothing left), and a sign-in that follows in this run (nothing left); and a login whose check
+failed is said as one, never "not signed in": one GitHub refused is left to do, one that got no answer is not.
 
 The token is on the run's redaction list before anything is read, and no message, event, argument or difference
 carries it: a message asks whether one is set. Standard library; nothing of the helper runs here.
@@ -87,6 +94,9 @@ GITHUB = runner.Limits(seconds=90.0, silent=None)
 ACCOUNT = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]*")
 # gh as git's helper, as gh writes its entry: its path, then its words.
 GH_HELPER = re.compile(r"!(?:[^ ]*/)?gh(?: |\Z)")
+# gh's check of a login refused by GitHub, as gh's state error says it; any other error is a check that never got an
+# answer (status/found.py's unchecked).
+REFUSED = re.compile(r"HTTP 40[13]")
 # A token's source gh names where it came from the environment (GH_TOKEN, GITHUB_TOKEN).
 FROM_ENV = re.compile(r".*_TOKEN\Z")
 # A placeholder as the printer writes one: a word gh said that looks like one is said without its brackets, since a
@@ -226,15 +236,16 @@ def wanted(ctx: Context) -> Wanted:
 @dataclasses.dataclass(frozen=True)
 class Found:
     """gh's state on the machine as read: whether gh is there; its status's exit and what it said; the active
-    account's login, state, token source and scopes; the stored token's digest ("" where none was read) and the kind
-    its prefix tells; the marker's digest ("" for none) and whether its file is the one the run writes; and git's
-    helpers for github.com (read only where gh is signed in)."""
+    account's login, state, the error gh's check of it met, token source and scopes; the stored token's digest (""
+    where none was read) and the kind its prefix tells; the marker's digest ("" for none) and whether its file is the
+    one the run writes; and git's helpers for github.com (read only where gh holds a login)."""
 
     gh: bool
     status: int = 0
     status_said: str = ""
     account: str = ""
     state: str = ""
+    error: str = ""
     source: str = ""
     scopes: str = ""
     stored: str = dataclasses.field(default="", repr=False)
@@ -246,12 +257,25 @@ class Found:
 
     @property
     def signed_in(self) -> bool:
+        """Whether gh holds a login and GitHub took it at gh's check."""
         return self.state == "success"
 
     @property
+    def held(self) -> bool:
+        """Whether gh holds a login of github.com at all, checked or not: state error is a login whose check failed
+        (GitHub out of reach, or its token refused), never none."""
+        return self.state != ""
+
+    @property
+    def refused(self) -> bool:
+        """Whether GitHub refused the token of the login gh holds, by GitHub's own HTTP 401 or 403."""
+        return self.state == "error" and REFUSED.match(self.error) is not None
+
+    @property
     def ours(self) -> bool:
-        """Whether the login gh holds is the one this product made: the stored token's digest is the marker's."""
-        return self.signed_in and bool(self.stored) and bool(self.marker) and self.marker == self.stored
+        """Whether the login gh holds is the one this product made: the stored token's digest is the marker's,
+        whatever gh's check of it said."""
+        return self.held and bool(self.stored) and bool(self.marker) and self.marker == self.stored
 
     @property
     def gh_helper(self) -> bool:
@@ -295,11 +319,13 @@ async def read(ctx: Context) -> Found:
         "status_said": text.plain_text(status.said).strip(),
         "account": _word(account.get("login")),
         "state": _word(account.get("state")),
+        "error": _word(account.get("error")),
         "source": _word(account.get("tokenSource")),
         "scopes": _word(account.get("scopes")),
     }
     stored, kind, helpers = "", "none", ()
-    if read_state["state"] == "success":
+    # A login gh holds, checked or not: its token's digest decides whose it is either way.
+    if read_state["state"]:
         held = await ctx.run(_sh(STORED), limits=QUICK)
         said = dict(line.split(" ", 1) for line in held.lines if " " in line) if isinstance(held, runner.Done) else {}
         if not (isinstance(held, runner.Done) and held.status == 0 and set(said) == {"kind", "digest"}):
@@ -361,14 +387,11 @@ def decide(found: Found, want: Wanted) -> Acts:
             " to sign in by the device flow."
         )
     managed = want.auth and found.gh
-    holds_token = found.signed_in and bool(want.digest) and found.stored == want.digest
+    holds_token = found.held and bool(want.digest) and found.stored == want.digest
     sign_in = (
-        managed
-        and want.token_wanted
-        and not holds_token
-        and (not found.signed_in or found.ours or want.method == "token")
+        managed and want.token_wanted and not holds_token and (not found.held or found.ours or want.method == "token")
     )
-    beside = managed and want.token_wanted and found.signed_in and not holds_token and not found.ours
+    beside = managed and want.token_wanted and found.held and not holds_token and not found.ours
     beside = beside and want.method != "token"
     logout = None
     if managed and not want.token_wanted and found.ours:
@@ -378,13 +401,14 @@ def decide(found: Found, want: Wanted) -> Acts:
                 " it is not signed out: sign it out there with gh auth logout"
             )
         logout = found.account
-    forget = managed and not want.token_wanted and not found.signed_in and bool(found.marker)
+    # Only where gh holds no login: a login whose check failed is still the one the marker may be of.
+    forget = managed and not want.token_wanted and not found.held and bool(found.marker)
     wanted_marker = f"{want.digest}\n"
     mark = managed and want.token_wanted and holds_token
     mark = mark and not (found.marker_file == wanted_marker and found.marker_mode_held)
-    setup_git = managed and found.signed_in and not found.gh_helper and not sign_in and logout is None
+    setup_git = managed and found.held and not found.gh_helper and not sign_in and logout is None
     case = "beside" if beside else ""
-    if managed and not found.signed_in and not sign_in and want.follows:
+    if managed and not found.held and not sign_in and want.follows:
         case = "follows"
     return Acts(sign_in, logout, forget, mark, setup_git, case)
 
@@ -394,6 +418,33 @@ def decide(found: Found, want: Wanted) -> Acts:
 
 def _account(found: Found) -> str:
     return found.account if ACCOUNT.fullmatch(found.account) else "?"
+
+
+def _unchecked(found: Found, want: Wanted) -> tuple[str, str]:
+    """The report of a login gh holds whose check failed, which this run leaves as it is: never "not signed in". One
+    GitHub refused is left to do where the run manages gh; one whose check got no answer is not, as aw status says it
+    was not checked (status/found.py)."""
+    name, error = want.name, _said(found.error) or "no answer"
+    whose = "this product's token" if found.ours else "a login of your own"
+    if not found.refused:
+        said = (
+            f"{name}: gh holds a login to GitHub as {_account(found)} by {whose}, which it could not check with GitHub"
+            f" ({error}), so this run leaves it as it is."
+        )
+        return said, ""
+    said = f"{name}: gh holds a login to GitHub as {_account(found)} by {whose}, whose token GitHub refused ({error})."
+    if not want.auth:
+        return said + " This project leaves gh alone there (github_auth: false).", ""
+    if want.token_wanted and want.token is not None and found.stored == want.digest:
+        said += f" It is github_token: set a token GitHub takes, then run {want.configure_command}"
+    elif want.token_wanted and want.method != "token":
+        said += (
+            f" This run leaves it: sign gh in again with {want.login_command}, or set github_auth_method: token and"
+            f" run {want.configure_command}"
+        )
+    else:
+        said += f" Sign gh in again with {want.login_command}"
+    return said, said
 
 
 def _kind(found: Found) -> str:
@@ -415,6 +466,8 @@ def reported(found: Found, want: Wanted, case: str, *, login_done: bool = False,
             f" the device flow with {want.login_command}"
         )
         return said, said
+    if found.held and not found.signed_in:
+        return _unchecked(found, want)
     if case == "beside":
         said = (
             f"{name}: gh is signed in to GitHub as {_account(found)} by a login of your own, which this run leaves as"
@@ -570,7 +623,8 @@ def _after(found: Found, want: Wanted, acts: Acts) -> Found:
 def _as_now(found: Found) -> str:
     if not found.gh:
         return "gh not installed"
-    if not found.signed_in:
+    if not found.held:
         return "signed out"
     whose = "this product's token" if found.ours else "a login of your own"
-    return f"signed in as {_account(found)} by {whose}"
+    checked = "" if found.signed_in else f", which gh could not check with GitHub ({_said(found.error)})"
+    return f"signed in as {_account(found)} by {whose}{checked}"
