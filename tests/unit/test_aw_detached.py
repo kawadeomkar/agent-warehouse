@@ -75,6 +75,9 @@ def handler(verb):
             return 1
         if env.get("STANDIN_EXIT"):
             return int(env["STANDIN_EXIT"])
+        if env.get("STANDIN_HALF"):
+            sys.stderr.write(env["STANDIN_HALF"])
+            sys.stderr.flush()
         if env.get("STANDIN_BEFORE"):
             print("standin: before its run", file=sys.stderr, flush=True)
             time.sleep(float(env["STANDIN_BEFORE"]))
@@ -296,6 +299,20 @@ def test_the_starter_returns_only_once_the_run_is_under_way_and_says_what_it_sai
     assert Path(record["log"]).is_file() and record["locks"], record
 
 
+def test_half_a_line_said_before_the_run_is_under_way_is_said_whole_and_never_hides_its_word(standin) -> None:
+    # Review 99's finding 1: text with no newline on the shared pipe, then `started <id>`, read as one line, left the
+    # starter waiting for a run already under way, and then killing it.
+    ended, job = standin.detached("deploy", "alpha", STANDIN_HALF="standin: no newline", STANDIN_SLEEP="8")
+    assert _said(ended.stderr) == ["standin: no newline"], ended.stderr
+    assert jobs.state(job) == "running"
+    assert _ended(job)["outcome"] == "succeeded"
+
+
+def test_a_run_ended_by_a_signal_is_said_by_its_signal() -> None:
+    said = (detached._how(3), detached._how(-9), detached._how(-15))
+    assert said == ("exit 3", "killed by SIGKILL", "killed by SIGTERM")
+
+
 def test_a_run_another_run_holds_the_machine_of_is_refused_by_the_starter_and_proceeds_once_it_has_ended(
     standin,
 ) -> None:
@@ -315,7 +332,7 @@ def test_a_run_that_ends_before_it_is_under_way_ends_the_starter_with_its_status
     refused = standin.run("deploy", "alpha", "--detach", STANDIN_REFUSE=sentence)
     assert (refused.returncode, refused.stdout, _said(refused.stderr)) == (EXITS["refused"], "", [sentence]), refused
     silent = standin.run("deploy", "alpha", "--detach", STANDIN_EXIT="3")
-    assert (silent.returncode, _said(silent.stderr)) == (3, [detached.SILENT.format(status=3)]), silent
+    assert (silent.returncode, _said(silent.stderr)) == (3, [detached.SILENT.format(how="exit 3")]), silent
     assert _listed(standin) == []
 
 

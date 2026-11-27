@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import signal
 import sys
 import time
 from collections.abc import Mapping, Sequence
@@ -65,7 +66,7 @@ STARTED = "started"
 MOST = 65536
 # What the starter says where the run did not get under way.
 LATE = "error: the detached run was not under way within {within:g} s of its start, and was ended with what it started"
-SILENT = "error: the detached run ended before it was under way (exit {status}), and said nothing"
+SILENT = "error: the detached run ended before it was under way ({how}), and said nothing"
 STOPPED = "aw: the detached run was ended before it was under way: Ctrl-C"
 
 
@@ -192,6 +193,9 @@ def _answered(process: _Started, reading: int, within: float, out: TextIO, err: 
         held += chunk
         while b"\n" in held or len(held) >= MOST:
             line, _, held = held.partition(b"\n") if b"\n" in held else (held, b"", b"")
+            if line in (b"", b"\r"):
+                # The newline under_way writes before its word, which ends a line said without one.
+                continue
             job_id = _started(line)
             if job_id is not None:
                 _under_way_said(job_id, out)
@@ -236,8 +240,17 @@ def _ended(process: _Started, *, said: bool, err: TextIO) -> int:
     if status == 0:
         return EXITS["done"]
     if not said:
-        _say(err, SILENT.format(status=status))
+        _say(err, SILENT.format(how=_how(status)))
     return status if isinstance(status, int) and 0 < status < 256 else EXITS["refused"]
+
+
+def _how(status: object) -> str:
+    """How a run ended, as SILENT says it: its exit status, or the signal that killed it."""
+    if isinstance(status, int) and status < 0:
+        with contextlib.suppress(ValueError):
+            return f"killed by {signal.Signals(-status).name}"
+        return f"killed by signal {-status}"
+    return f"exit {status}"
 
 
 def _end(process: _Started) -> None:
@@ -254,15 +267,16 @@ def _end(process: _Started) -> None:
 
 
 def under_way(job: Job) -> None:
-    """The detached run's word that it is under way, `started <id>` on its standard output, then its standard output
-    and error pointed at its text log (runs/textlog.py), or /dev/null where it has none: from here nothing it says
-    reaches its starter. A starter that has gone is no reason to stop."""
+    """The detached run's word that it is under way, `started <id>` on a line of its own on its standard output, then
+    its standard output and error pointed at its text log (runs/textlog.py), or /dev/null where it has none: from here
+    nothing it says reaches its starter. A starter that has gone is no reason to stop."""
     from claude_vm.runs import textlog
 
     for stream in (sys.stdout, sys.stderr):
         with contextlib.suppress(Exception):
             stream.flush()
-    word = f"{STARTED} {job.id}\n".encode("ascii")
+    # On a line of its own: a newline first ends whatever was said before without one, which would hide the word.
+    word = f"\n{STARTED} {job.id}\n".encode("ascii")
     with contextlib.suppress(OSError):
         view = memoryview(word)
         while view:

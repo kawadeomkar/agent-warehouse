@@ -3126,7 +3126,8 @@ own limit.
   where the server named itself) and `attached` false, whatever the verb gave; its locks are taken by the run itself
   (C6), so a second run on its machine is refused while it lives and proceeds once it has ended; its text log is opened
   (16.8's text log: `LOG_DIR`'s, or the job's own folder where `LOG_DIR` is empty or the verb gave none), the prune's
-  lines said before it, on the pipe; and then `under_way(job)` writes `started <id>` and points its standard output and
+  lines said before it, on the pipe; and then `under_way(job)` writes `started <id>` on a line of its own (a newline
+  first, which ends a line said without one, so that it never hides the word) and points its standard output and
   error at that log, or `/dev/null` where it has none, so that nothing it says from then on reaches its starter, and a
   starter that has gone is no reason to stop. The live view it draws writes to that log as to any stream that is no
   terminal. From there it runs with no terminal: it asks nothing and takes each question's safe answer (`ask.py`), it
