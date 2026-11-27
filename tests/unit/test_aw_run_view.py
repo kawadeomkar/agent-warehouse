@@ -28,13 +28,16 @@ import unicodedata
 import pytest
 import test_run_view as todays
 from harness import REPO
+from test_claude_vm import _python
 from vt import VT
 
+from claude_vm.run import model as todays_model
 from claude_vm.runs import job as jobs
 from claude_vm.runs import model
 from claude_vm.runs.stages import DEPLOY, Declared, Stage, Step
 from claude_vm.runs.view import View
 from claude_vm.tui import run as drawn
+from claude_vm.tui import screen
 
 VIEW = REPO / "lib" / "claude_vm" / "runs" / "view.py"
 TUI = REPO / "lib" / "claude_vm" / "tui"
@@ -952,6 +955,31 @@ def test_nothing_in_the_view_prints_reads_a_clock_a_file_or_the_terminal_and_tui
             for alias in node.names
         }
         assert not {name for name in found if name and "runs" in name.split(".")}, path
+
+
+def test_the_view_loads_nothing_of_today_s_run_model() -> None:
+    # The view draws with tui/screen.py alone: an import of it in a fresh interpreter loads neither today's drawing of
+    # a run (tui/run.py) nor today's model under it (run/model.py, run/recipes.py). Of run/, only next_steps, which
+    # runs/model.py reuses for NEXT STEPS.
+    loaded = _python(
+        f"import sys; sys.path.insert(0, {str(REPO / 'lib')!r}); import claude_vm.runs.view; "
+        "print('\\n'.join(sorted(sys.modules)))"
+    ).split()
+    assert "claude_vm.runs.view" in loaded and "claude_vm.tui.screen" in loaded, loaded
+    assert "claude_vm.tui.run" not in loaded
+    assert {name for name in loaded if name.split(".")[:2] == ["claude_vm", "run"]} == {
+        "claude_vm.run",
+        "claude_vm.run.next_steps",
+    }
+
+
+def test_a_failure_draws_twice_the_lines_today_s_run_keeps_of_what_it_said() -> None:
+    # tui/screen.py imports no model, so the lines a failure draws are its own number, held here to today's.
+    assert screen.FAILURE_SAID == 2 * todays_model.FAILURE_LINES
+    said = [f"line {number}" for number in range(screen.FAILURE_SAID + 5)]
+    failure = {"where": "common", "who": "alpha", "task": "Write the motd", "seconds": None, "how": "failed"}
+    drawn_lines = [line for _, line in screen.failure_lines({**failure, "said": said, "log": ""}, 100, False)]
+    assert [line.strip() for line in drawn_lines if line.strip().startswith("line ")] == said[: screen.FAILURE_SAID]
 
 
 def test_a_view_draws_a_runs_model_and_nothing_else() -> None:

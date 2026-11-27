@@ -3041,10 +3041,12 @@ a sign-in, one cancelled), each event's effect, every refusal leaving the model 
 `emit`, and each rule above with a test of its own.
 
 **The run drawn: `view.py`.** `View(run, started_at=..., title, log, host, check)` draws the model as today's runs are
-drawn, with `tui/screen.py`'s lines, palette and cut and `tui/run.py`'s module-level functions (its marks, a report's and
-a failure's lines, a report's first sentence) and its two helpers for a summary's lines, as they stand: `tui/run.py`
-draws today's model of Ansible's tasks, whose counts, bars and windows of tasks the new model has not, so no base class
-is shared and today's file is unchanged. It gives `frame(now, cols, rows, glyph, color)`: the header (the run's title,
+drawn, with `tui/screen.py` alone: its lines, palette and cut, and the marks, a report's and a failure's lines, a
+report's first sentence and a summary's head and parts (`MARKS`, `report_lines`, `failure_lines`, `first_sentence`,
+`cut_head`, `flow`), which `tui/run.py` draws today's runs with from there too. `tui/run.py` draws today's model of
+Ansible's tasks, whose counts, bars and windows of tasks the new model has not, so no base class is shared, and an
+import of `view.py` loads neither it nor today's model (`run/model.py`, `run/recipes.py`):
+`tests/unit/test_aw_run_view.py` holds it in a fresh interpreter. It gives `frame(now, cols, rows, glyph, color)`: the header (the run's title,
 its host beside a second, the clock it started, a dry run), every stage drawn but a quiet one where nothing failed, each
 row its mark, its label and its time at the right edge and, where the run has two machines or more and the work is each
 machine's, each machine's mark (`alpha ✓ · beta ⠴ · gamma ○`, or their count where they do not fit; a machine that has
