@@ -1990,17 +1990,19 @@ class Handler(BaseHTTPRequestHandler):
                 )
             return self._reply(200, current)
         if sub == ["rrddata"] and method == "GET":
-            # A day: one point a minute on VE 9, one every twenty minutes on 8, the VM's CPU rising and falling.
+            # A day: one point a minute on VE 9, one every twenty minutes on 8, the VM's CPU rising and falling by
+            # two hours. The same day whenever it is read: its points end at the second asked, and each one's CPU is by
+            # its age, so a read a minute after another moves no point from one two hours to the next (the status
+            # tests compare two reports, read moments apart, of the same fake).
             step = 60 if version_9() else 1200
-            now = int(time.time()) // step * step
+            now = int(time.time())
             points = []
             for i in range(86400 // step):
                 t = now - 86400 + (i + 1) * step
                 point = {"time": t}
                 if vm["status"] == "running":
-                    point.update(
-                        {"cpu": round(0.05 + 0.04 * ((t // 7200) % 5), 4), "maxcpu": int(vm["config"].get("cores", 1))}
-                    )
+                    cpu = round(0.05 + 0.04 * (((now - t) // 7200) % 5), 4)
+                    point.update({"cpu": cpu, "maxcpu": int(vm["config"].get("cores", 1))})
                     if version_9():
                         point.update({"pressurecpusome": 0.5, "memhost": 1})
                 points.append(point)
