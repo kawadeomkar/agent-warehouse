@@ -13,7 +13,8 @@ value` and as `--long=value`, which is how a value that starts with - is given; 
 given once for each setting, and `-v`, counted. Every verb whose run is a job takes `--detach` (words.py's `changes`),
 and no other. `--`, which elsewhere ends the options, is refused wherever it stands, before argparse sees it: no verb
 takes a word that starts with -, a value that does is given as `--option=value`, and argparse's intermixed parse would
-drop it and read the words after it as options all the same.
+drop it and read the words after it as options all the same. argparse's own two exceptions hold on every Python: a word
+with a space in it, and a lone -, are taken as a word or a value, each then held to its pattern.
 
 Standard library only: a refusal imports nothing the engine needs.
 """
@@ -75,7 +76,9 @@ class _Unreadable(Exception):
 class _Parser(argparse.ArgumentParser):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
-        # Before any option is added: argparse asks it of each option string too.
+        # Read where a word is parsed, which is where the rule is needed. An option string is tested as it is added by
+        # each argument group's own matcher, argparse's, which this leaves as it is: no option of the table looks like a
+        # number.
         self._negative_number_matcher = _NEGATIVE_NUMBER
 
     def error(self, message: str):  # type: ignore[override]

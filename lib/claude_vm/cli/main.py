@@ -4,8 +4,8 @@ by the one check, today's habits applied, and the verb handed to its handler or 
     aw [--attended=1] <verb> [<word>...] [<option>...]
 
 A refusal is one line on standard error, and exits 1 (words.py's EXITS), before any of the words reach a handler: it
-imports no Ansible and no module of the engine. Its sentence says no value typed but where today's does (the rules
-between options, lib/claude_vm/schema/rules.py). A line the printer will not write (schema/printer.py's Unwritten, a
+imports no Ansible and no module of the engine; what its sentence may say back is the rules' to say
+(lib/claude_vm/schema/rules.py). A line the printer will not write (schema/printer.py's Unwritten, a
 form whose one placeholder is a verb's names beside words the check takes among them), which only the code asks it for,
 is said in one line too, as the code's own fault (the printer's own_fault), never as a traceback, and exits 1: here
 where it reaches main, and by the run where a handler's run ends the process at once with a call still in a thread
