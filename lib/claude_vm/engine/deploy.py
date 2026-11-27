@@ -169,7 +169,7 @@ def deploy(run: Any, **values: object) -> int:
         return _refused(f"error: {one_line(str(error), None).removeprefix('error: ')}")
 
     from .. import runs
-    from ..runs import ask, locks, textlog
+    from ..runs import ask, detached, locks, textlog
 
     host_name = reached.host.name
     templating = stage == template.STAGE
@@ -183,8 +183,8 @@ def deploy(run: Any, **values: object) -> int:
     else:
         chosen = names or (str(settings["vm_default_name"].value),)
     terminal = templating and ask.terminal() is not None
-    detached = getattr(run, "detached_run", False) is True
-    starter = {"kind": "detach" if detached else "terminal"}
+    away = getattr(run, "detached_run", False) is True
+    starter = {"kind": "detach" if away else "terminal"}
     # The agent's mark is the job's starter's (runs/job.py's STARTERS): mcp, which only card I's server starts.
     plan = create.Plan(
         size=size, repos=repos, start=values.get("start") is True, made_by_agent=starter["kind"] == "mcp"
@@ -244,6 +244,7 @@ def deploy(run: Any, **values: object) -> int:
         lock_machines=[(host_name, name) for name in chosen],
         lock_policy=locks.policy_of(str(settings["run_lock"].value)),
         logs=textlog.logs(home, run, part=_log_part(values)),
+        detached_limit=detached.limit_of(settings["run_detached_limit"].value),
     )
     return runs.run(draft, body)
 

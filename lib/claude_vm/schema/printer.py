@@ -81,6 +81,9 @@ from claude_vm.schema.words import HOST as SHARED_HOST
 
 # The program a line names where nothing says otherwise: the product's command line is aw alone (the owner's word 1).
 PROGRAM = "aw"
+# The variable the launcher at the checkout's top says the program in (cli/main.py takes it out of the environment at
+# once), and the one a detached run's starter hands its run (handed), so that the run's lines say the program too.
+STARTED_AS = "AGENT_WAREHOUSE_STARTED_AS"
 # What the habits add to a verb's values (lib/claude_vm/cli/habits.py), which a line says by its words alone: no names,
 # for the default VM or for every VM, as the verb takes none.
 HABITS_OWN = ("default_vm",)
@@ -143,6 +146,12 @@ def program() -> str:
     """The program every line starts with, as it was started, as one word: unquoted, for a child's environment, never
     for a line (line and said quote it)."""
     return _program
+
+
+def handed() -> dict[str, str]:
+    """What a detached run's starter hands its run in its environment (runs/detached.py), so that every line the run
+    prints says the program as this one was started: STARTED_AS with it, which the run's main takes as this one did."""
+    return {STARTED_AS: _program}
 
 
 def _off(option: Option | None, value: object) -> bool:

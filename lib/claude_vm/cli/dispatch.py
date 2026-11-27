@@ -14,13 +14,18 @@ keyword arguments, and returns the exit status it returns. Before that, in this 
   recipe of that name, the just command that does its work until the cutover (K14 takes that clause out at the flip).
 - A verb whose run is a job (the row's `changes`) is refused where the fleet's files do not exist, naming aw init, but
   for the two that come before any fleet, init and install; and says on standard error which fleet it drives where
-  that is not the checkout's own or the installed program's, as fleet/paths.py's variable or a fleet_home line chose.
+  that is not the checkout's own or the installed program's, as fleet/paths.py's variable or a fleet_home line chose,
+  but in a detached run, whose starter said it.
+
+Then a run --detach asks for is started detached, the same program in a session of its own (runs/detached.py's
+start), which this process waits for only until it says it is under way, and the handler is never called here; and in
+that run, which --detached-run marks, runs/detached.py's begin is called before its handler.
 
 Each command a sentence here names is the printer's (schema/printer.py), the program as it was started; but today's just
 <verb>, which is no command of aw's, and goes at the flip.
 
-Standard library only, the printer of a command, and fleet/paths.py, imported only to look for a fleet, which reads at
-most two client.yml files.
+Standard library only, the printer of a command, fleet/paths.py, imported only to look for a fleet, which reads at
+most two client.yml files, and runs/detached.py, imported only for a run --detach or --detached-run names.
 """
 
 from __future__ import annotations
@@ -86,8 +91,13 @@ def not_built(verb: Verb) -> str:
     return f"error: {checks.command(verb.name)} is not built yet (card {verb.card} builds it){until}"
 
 
-def _fleet(program_root: Path, verb: Verb, environ: Mapping[str, str], err: TextIO) -> None:
-    """Refuse a changing verb with no fleet to drive; say which fleet it drives where that is not the default."""
+# The program's path as main was handed it (started_from), which a run --detach starts again.
+_STARTED_FROM: str | None = None
+
+
+def _fleet(program_root: Path, verb: Verb, environ: Mapping[str, str], err: TextIO, *, say: bool = True) -> None:
+    """Refuse a changing verb with no fleet to drive; say which fleet it drives where that is not the default, unless
+    told not to."""
     from claude_vm.fleet import paths
 
     try:
@@ -96,10 +106,18 @@ def _fleet(program_root: Path, verb: Verb, environ: Mapping[str, str], err: Text
         raise Refused(f"error: {refused}") from None
     if verb.name not in BEFORE_A_FLEET and not paths.fleet_dir(home).is_dir():
         raise Refused(f"error: {paths.fleet_dir(home)} missing. Run: {printer.line('init', {}, refused=False)}")
+    if not say:
+        return
     if home.how == "variable":
         print(f"aw drives the fleet in {home.root}, which {paths.VARIABLE} names", file=err)
     elif home.pointer is not None:
         print(f"aw drives the fleet in {home.root}, which fleet_home in {home.pointer} names", file=err)
+
+
+def started_from(program: str) -> None:
+    """The program's path as main was handed it, which a run --detach starts again (dispatch)."""
+    global _STARTED_FROM
+    _STARTED_FROM = program
 
 
 def dispatch(
@@ -112,7 +130,8 @@ def dispatch(
     err: TextIO | None = None,
 ) -> int:
     """Run verb's handler with run and values, and return its exit status; raises Refused before it where the verb
-    cannot run here."""
+    cannot run here. A run --detach asks for is started detached instead, from the program's path as main was handed
+    it (started_from; program_root's tools/aw where none was given), and its starter's exit status returned."""
     env = os.environ if environ is None else environ
     if not in_a_virtualenv():
         raise Refused(NO_VIRTUALENV.format(python=sys.executable))
@@ -123,6 +142,15 @@ def dispatch(
     if verb.handler is None:
         raise Refused(not_built(verb))
     if verb.changes:
-        _fleet(program_root, verb, env, err or sys.stderr)
+        _fleet(program_root, verb, env, err or sys.stderr, say=not run.detached_run)
+    if run.detach and not run.detached_run:
+        from claude_vm.runs import detached
+
+        started = str(program_root / "tools" / "aw") if _STARTED_FROM is None else _STARTED_FROM
+        return detached.start(started, verb.name, run, values, env)
+    if run.detached_run:
+        from claude_vm.runs import detached
+
+        detached.begin()
     status = _load(verb.handler)(run, **values)
     return EXITS["done"] if status is None else status
