@@ -718,13 +718,21 @@ def _texts() -> dict[str, str]:
     return found
 
 
+# The modules beside vaultkey.py that name its VARIABLE, with why: each gives it to a run and reads no key.
+GIVE_THE_VARIABLE = {
+    "lib/claude_vm/cli/mcp_serve.py": "the agents' server gives each run it starts the variable from its registered"
+    " arguments, never from its own environment, and imports nothing of fleet/: tests/unit/test_aw_mcp_server.py"
+    " holds the name equal to vaultkey.py's",
+}
+
+
 def test_a_run_reads_the_key_only_through_vaultkey() -> None:
     texts = _texts()
     assert len(texts) > 100, len(texts)
     # The variable's name in vaultkey.py alone; the key file's name in paths.py and vaultkey.py alone (an option such
     # as --vault-key-file is not it); Ansible's variable in no module of the new engine.
     variable = sorted(rel for rel, text in texts.items() if VARIABLE in text)
-    assert variable == ["lib/claude_vm/fleet/vaultkey.py"]
+    assert variable == sorted({"lib/claude_vm/fleet/vaultkey.py", *GIVE_THE_VARIABLE})
     named = {rel for rel, text in texts.items() if re.search(r"\bvault-key\b(?!-)", text)}
     assert "lib/claude_vm/fleet/paths.py" in named
     assert named <= {"lib/claude_vm/fleet/paths.py", "lib/claude_vm/fleet/vaultkey.py"}, sorted(named)

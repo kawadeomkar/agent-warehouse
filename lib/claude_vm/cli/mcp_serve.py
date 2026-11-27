@@ -44,6 +44,7 @@ from claude_vm.cli import mcp_backend
 from claude_vm.mcp.config import Config, parse
 from claude_vm.mcp.environment import run_env
 from claude_vm.mcp.results import text_result
+from claude_vm.schema import printer
 from claude_vm.schema.patterns import full
 
 # The variables a run is given from the registration's arguments, never from the server's own environment: the fleet's
@@ -89,8 +90,13 @@ class Registered:
     vault_key_file: str = ""
 
 
+def _registers() -> str:
+    """The command that registers this server, as the printer writes it."""
+    return printer.line("mcp", {}, refused=False)
+
+
 def _refused(why: str) -> str:
-    return f"the server's registered command is not one aw mcp writes: {why}. Run aw mcp again."
+    return f"the server's registered command is not one {_registers()} writes: {why}. Run {_registers()} again."
 
 
 def configured(argv: list[str]) -> tuple[Registered | None, Config | None, str]:
@@ -107,7 +113,11 @@ def configured(argv: list[str]) -> tuple[Registered | None, Config | None, str]:
             rest.append(word)
     config, refusal = parse(rest)
     if config is None:
-        return None, None, refusal.replace("just mcp", "aw mcp")
+        # Today's sentence, with this registration's command in place of today's: argparse's refusal, said in brackets
+        # in it; else the checkout's, its first sentence, which names the checkout.
+        if refusal.startswith("the server's registered command"):
+            return None, None, _refused(refusal.partition(" (")[2].rpartition(")")[0])
+        return None, None, f"{refusal.rpartition('. Run ')[0]}. Run {_registers()} in the checkout."
     lacking = [f"--{name}" for name in NEEDED if not own.get(name)]
     if lacking:
         return None, None, _refused(f"it lacks {', '.join(lacking)}")
@@ -157,7 +167,7 @@ class Program:
         return [self.registered.program, *argv[1:]]
 
     def said(self, tool: str) -> str:
-        return f"aw {mcp_backend.runs()[tool]}"
+        return printer.line(mcp_backend.runs()[tool], {}, refused=True)
 
     def vault_refusal(self, config: Config) -> str:
         """None of the server's own: aw opens the sealed store itself, with no terminal, and says why it cannot."""
