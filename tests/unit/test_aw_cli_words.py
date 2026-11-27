@@ -565,6 +565,8 @@ OTHER_FATES = {
     ("host", "for_", "hosts"): words.refused(words.HOST_ASKED),
     ("host", "host", "hosts"): words.refused(words.HOST_ASKED),
     ("host", "name", "hosts"): words.refused(words.HOST_NAME_LEFT_OUT),
+    # A call given it would wait until the job ends (I1): the job tool follows a job, and returns at its waits.
+    ("logs", "follow", "logs"): words.refused(words.FOLLOW_REFUSED),
 }
 
 
