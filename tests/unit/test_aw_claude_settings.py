@@ -436,6 +436,53 @@ def test_a_machine_on_the_api_path_with_the_key_cleared_ends_running_remote_cont
     assert _run(job, signed_in) == step.Ran("succeeded", ((STEPS[0], False), (STEPS[1], False)))
 
 
+def test_the_key_joins_the_run_s_redaction_list_before_anything_is_read(job, signed_in, monkeypatch):
+    # Review 96's 6: the probe strikes the key from every event before a read of the machine can say it.
+    key = Secret(API_KEY)
+    read, held = claude_settings.read_file, []
+
+    async def reading(ctx, path, mode):
+        held.append(any(each is key for each in ctx.job.redacted))
+        return await read(ctx, path, mode)
+
+    monkeypatch.setattr(claude_settings, "read_file", reading)
+    assert asyncio.run(step.run_steps(_ctx(job, signed_in, _settings(anthropic_api_key=key)), _steps(signed_in)))
+    assert held and all(held), held
+
+
+def test_an_env_of_null_is_no_env_and_the_key_no_setting_manages_still_goes():
+    # Review 96's 7: claude_code_settings' env of null raised AttributeError, and the key stayed on the machine.
+    on_disk = claude_settings.File(True, True, json.dumps({"env": {"A": "1", "ANTHROPIC_API_KEY": "old"}}))
+    text, changes = claude_settings.planned(on_disk, {"env": None})
+    assert json.loads(text) == {"env": {"A": "1"}} and changes == ("env.ANTHROPIC_API_KEY removed",)
+    alone = claude_settings.File(True, True, '{"env": {"ANTHROPIC_API_KEY": "old"}}')
+    text, changes = claude_settings.planned(alone, {"env": None, "theme": "dark"})
+    assert json.loads(text) == {"theme": "dark"} and changes == ("env removed", "theme set")
+
+
+@pytest.mark.parametrize("why", ["console", "blocker"])
+def test_a_server_the_path_unit_started_that_systemd_restarts_is_stopped_once_it_may_not_run(job, signed_out, why):
+    # Review 96's 1: started by the path unit, never enabled, and refused, the server is activating (auto-restart);
+    # a run that finds its login of no use, or a setting in the way, stops it, as systemd_service's state=stopped does.
+    assert _run(job, signed_out).outcome == "succeeded"
+    (signed_out.home / "refused").write_text("")
+    (signed_out.home / ".claude" / ".credentials.json").write_text('{"claudeAiOauth": {"accessToken": "never-read"}}')
+    _systemctl(signed_out, "tick")
+    shown = _shown(signed_out, SERVICE)
+    restarting = ("activating", "auto-restart", "disabled")
+    assert (shown["ActiveState"], shown["SubState"], shown["UnitFileState"]) == restarting
+    given: dict[str, object] = {}
+    if why == "console":
+        _canned(signed_out, "console")
+    else:
+        given["claude_code_settings"] = {"env": {"DO_NOT_TRACK": "1"}}
+    assert _run(job, signed_out, **given).outcome == "succeeded"
+    assert not (_units(signed_out) / PATH_UNIT).exists()
+    shown = _shown(signed_out, SERVICE)
+    assert (shown["ActiveState"], shown["SubState"], shown["UnitFileState"]) == ("inactive", "dead", "disabled")
+    assert ["disable", "--now", SERVICE] in [call["args"] for call in _systemctl_calls(signed_out) if call["root"]]
+
+
 @pytest.mark.parametrize(
     ("login", "advice"),
     [
