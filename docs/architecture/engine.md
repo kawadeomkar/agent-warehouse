@@ -1508,6 +1508,38 @@ read and the swap, the jump's rules against a route of the test's own, and again
 `playbooks/ssh_config.yml` gives for the same fleet, the prune, a VM the fleet does not own, and a destroy that leaves
 no block of its VM and its key in place.
 
+**One VM's window: `code.py`.** `aw code <name>` (card G17) opens one VM in the editor over its alias: the window step
+of today's `playbooks/code.yml` in plain code, over today's pure decisions unchanged - the editor's plan as data
+(`editors/registry.py`'s `editor_open_plan`), the projects directory and `code`'s own directory (`sessions.py`), and the
+editors list (`claude_editors`, `cli/status_inputs.py`'s `EDITORS`). Refused before anything is written, each in one
+sentence, exit 1: an editor `code` cannot open; the managed SSH file off (`claude_ssh_config`); more than one name and
+a `--project` that is not one folder name (the schema's `code.2` and `check.project.2`); `--session`, naming card G18;
+then, from a live read that changes nothing (`fleet.requested`, `change=False`, and `fleet.refusal`): a VM not there or
+not the fleet's, a stopped one with the line that starts it, one with no address, one with no key filed; a home (the
+password database's, read as the VM's account) or `vm_projects_dir` that is not one plain absolute path; `code`'s own
+directory (`editor_files_dir`, else `<projects>/.agent-warehouse`) that is not one, is `/`, is the projects directory or
+the folder opened with the Claude terminal; a folder that is not there, said with what the projects directory holds;
+and `code`'s directory inside a checkout (a `.git` in a folder from the first below the projects directory down to it),
+wherever anything goes into it. Then, in this order - every read and refusal before the alias, so that a plan's
+refusal that says the alias is in place holds - the alias (`aliases.one`, written as `refresh` writes, refused where it
+is not), the editor found here (VS Code: `code` on `PATH`, its Remote - SSH extension installed through its own command
+line where `--list-extensions` lacks it, and its settings read, never written, for what `task.allowAutomaticTasks`
+does, where VS Code itself keeps them (the person's configuration folder, `fleet/paths.py`'s `config_home`, the one
+name of `XDG_CONFIG_HOME`); Zed: each `zeditor`, then `zed`, on `PATH` asked `--version`, the first that says Zed taken, and its tasks file's
+first line read for the marker), the plan, refused where it refuses, and its writes on the VM as its account, all in
+`code`'s own directory: that directory where anything goes into it (0755 where new), the plan's directories (the same,
+one there keeping its mode), the helpers it names (`playbooks/files/`, unchanged, 0644) and its files, each into a file
+beside it and renamed into place where its bytes or its mode differ. Last the registry's command, started to outlive the
+run (`runs/children.py`'s `outlive`), and the plan's report. No trust is set and no question of VS Code's, Zed's or
+Claude Code's answered. Every command on the VM is one of `READS` or `WRITES`, by name, a fixed script given its values
+as arguments, run by one function (`Opening.on_machine`); every command here one of `HERE`'s, by `Opening.here`. The
+steps are `deploy`'s editor stage's, but the sessions' (G18) and the notes' (G19); inside `deploy` (`window(...,
+in_deploy=True)`, which G10 composes) every failure is said under matter `editor` with the `code` line that opens it
+later - for a VM found stopped, under `vm`, the deploy that starts it - and the stage ends skipped, stopping nothing.
+`tests/unit/test_aw_code.py` holds it: the commands by name against what F30's stand-in machine was sent, Zed's and VS
+Code's windows through stand-ins of their commands that record how they were started, each refusal with nothing written
+and no editor started, and `tests/unit/test_code_live.py`'s cases at a terminal.
+
 **What the engine writes on this computer: `controller_writes.py`.** One row a place the new engine writes outside the
 checkout, in the form of today's `playbooks/vars/controller_writes.yml`: where (as a person reads it, or the function of
 `fleet/paths.py` that gives it), what, who, when, what takes it out, the setting that moves or turns it off, and its

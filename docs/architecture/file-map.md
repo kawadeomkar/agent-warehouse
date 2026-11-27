@@ -270,8 +270,10 @@ lib/claude_vm/engine/             the workflows, one module a verb, in place of 
                                   confirm.py, the one validator of the names that confirm a deletion; report.py, what a
                                   run says of a machine and, straight after, its NEXT STEPS record; aliases.py, the
                                   managed SSH config: each VM's alias written, validated and swapped, the Include added
-                                  once, the prune by origin; controller_writes.py, the one list of what the engine
-                                  writes on this computer outside the checkout
+                                  once, the prune by origin; code.py, code's handler: one VM's window, its alias
+                                  refreshed and the editor's plan applied in code's own directory on the VM;
+                                  controller_writes.py, the one list of what the engine writes on this computer outside
+                                  the checkout
 lib/claude_vm/pve/                the typed Proxmox VE client, and the one table of each call's privilege; client.py,
                                   Proxmox, the one class that sends the token, and its reads and writes; answers.py,
                                   each answer's frozen record and its parsing function; pin.py, the connection the token

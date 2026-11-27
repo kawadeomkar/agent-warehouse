@@ -36,6 +36,9 @@ MADE_BY = {
     "mcp": r"mcp add --scope",
     "sessions_dir": r"(?m)^\s*claude_sessions_fetch:",
 }
+# The new engine's workflows, whose writes on this machine its own list holds (engine/controller_writes.py, held by
+# tests/unit/test_aw_controller_writes.py): aw code's extension install is that list's row (card G17), not this one's.
+NEW_ENGINE = "lib/claude_vm/engine/"
 # A file that matches a row's pattern without writing on this machine, and why.
 NOT_HERE = {
     "roles/github_projects/tasks/clone.yml": "git's ssh on the VM, which writes the VM's own known_hosts",
@@ -48,7 +51,7 @@ def _code() -> list[tuple[str, str]]:
     return [
         (str(path.relative_to(REPO)), text)
         for path, text in repo_texts(untracked=True)
-        if not str(path.relative_to(REPO)).startswith(("tests/", "molecule/", "docs/"))
+        if not str(path.relative_to(REPO)).startswith(("tests/", "molecule/", "docs/", NEW_ENGINE))
         and path.suffix != ".md"
         and path != LIST
     ]
