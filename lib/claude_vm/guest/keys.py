@@ -24,10 +24,11 @@ Refused with a sentence, before anything is changed (`Refused`): a fingerprint t
 `vm_ssh_public_keys` lists, which the next configure would put back; a key this computer's ssh offers a machine, which
 the run may be using; and a fingerprint that matches no line. What ssh offers is asked of ssh itself, for each machine:
 `ssh -G` with the machine's whole line (runner.shown: the product's options, `vm_ssh_options`, the person's own
-`~/.ssh/config`), whose `identityagent` (else the run's `SSH_AUTH_SOCK`) is asked for its keys over the agent protocol,
-and whose every `identityfile` is read by its public half (`<file>.pub`, or the file itself where it is one). An
-identity file that is there but whose public half cannot be read, or one named with a token this module does not
-expand, refuses the key too: this run cannot tell it is not the one in use (`offered_by`).
+`~/.ssh/config`), whose `identityagent` (a path, `${VAR}`, ssh's older `$VAR`, else the run's `SSH_AUTH_SOCK`) is asked
+for its keys over the agent protocol, and whose every `identityfile` is read by its public half (`<file>.pub`, or the
+file itself where it is one). An identity file that is there but whose public half cannot be read, one named with a
+token this module does not expand, and a `pkcs11provider`, whose token's keys this run cannot list, refuse the key too:
+this run cannot tell it is not the one in use (`offered_by`).
 
 Standard library only; asyncio, socket and layer1 are imported inside the functions that need them.
 """
@@ -317,10 +318,19 @@ def offered_by(
         agent = env.get("SSH_AUTH_SOCK")
         if named and named[0].lower() == "none":
             agent = None
+        elif named and named[0].startswith("$") and not named[0].startswith("${"):
+            # ssh's older form: the name of a variable of the environment that holds the socket, which ssh -G shows
+            # as it is given and ssh reads only as it connects; no agent where the run's environment holds none.
+            agent = env.get(named[0][1:]) or None
         elif named and named[0] != "SSH_AUTH_SOCK":
             agent = _resolved(named[0].strip('"'), env, shown)
             if agent is None:
                 unread.append(f"the agent {named[0]}")
+        # A PKCS#11 provider, which only the person's own ~/.ssh/config may name (runner refuses it in
+        # vm_ssh_options): ssh offers every key its token holds, which this run cannot list.
+        for provider in shown.get("pkcs11provider") or ():
+            if provider.strip('"').lower() != "none":
+                unread.append(f"the keys of the PKCS#11 provider {provider}")
         files = []
         for raw in [str(identity_file)] * bool(identity_file) + list(shown.get("identityfile") or ()):
             path = _resolved(raw.strip('"'), env, shown)

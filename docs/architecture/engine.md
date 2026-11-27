@@ -4310,11 +4310,12 @@ linked `~/.ssh` and keeps the file's mode. The file is read again after, and mus
 Refused with nothing changed: a key the list names, which the next configure would put back; a key this computer's ssh
 offers the machine, which the run may be using; and a fingerprint on no line. What ssh offers is asked of ssh for each
 machine (`runner.shown`, `ssh -G` with the machine's whole line: the product's options, `vm_ssh_options`, the person's
-own `~/.ssh/config`): the agent its `identityagent` names (else the run's `SSH_AUTH_SOCK`), asked for its keys, and each
-`identityfile`'s public half; an identity file that is there whose public half cannot be read, or one named with a token
-`keys.py` does not expand, refuses the key too. `deploy` refuses a listed key, and one the run's own environment offers,
-before the run. A computer that is lost has the one procedure: its key out of `vm_ssh_public_keys`, then `--remove-key`
-from another computer.
+own `~/.ssh/config`): the agent its `identityagent` names (a path, `${VAR}` or ssh's older `$VAR`, else the run's
+`SSH_AUTH_SOCK`), asked for its keys, and each `identityfile`'s public half; an identity file that is there whose public
+half cannot be read, one named with a token `keys.py` does not expand, or a `pkcs11provider`, whose token's keys it
+cannot list, refuses the key too. `deploy` refuses a listed key, and one the run's own environment offers, before the
+run. A computer that is lost has the one procedure: its key out of `vm_ssh_public_keys`, then `--remove-key` from
+another computer.
 
 **How the engine's tests reach a machine.** A test of the new engine reaches no real machine: it reaches a stand-in,
 a directory of the test's own that `tests/unit/aw_machine.py` makes, through the SSH runner (§16.6) as it reaches a

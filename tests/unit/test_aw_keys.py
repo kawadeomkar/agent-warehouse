@@ -269,6 +269,15 @@ def test_the_keys_offered_are_the_ones_ssh_shows_it_uses(tmp_path) -> None:
         theirs = {**env, "SSH_AUTH_SOCK": agent}
         assert _fingerprint(C) in keys.offered(theirs, shown={"identityagent": ["SSH_AUTH_SOCK"]})
         assert _fingerprint(C) in keys.offered(theirs, shown={})
+        # ssh's older form, $NAME: the socket the run's environment holds under NAME, and none where it holds none.
+        assert _fingerprint(C) in keys.offered({**env, "MY_AGENT": agent}, shown={"identityagent": ["$MY_AGENT"]})
+        assert keys.offered_by(env, {"identityagent": ["$MY_AGENT"]}) == keys.Offered(frozenset(), ())
+    # A PKCS#11 provider: its token's keys cannot be listed, so the key is refused.
+    pkcs11 = keys.offered_by(env, {"pkcs11provider": ["/usr/lib/p11.so"]}).unread
+    assert pkcs11 == ("the keys of the PKCS#11 provider /usr/lib/p11.so",), pkcs11
+    assert keys.offered_by(env, {"pkcs11provider": ["none"]}).unread == ()
+    said = keys.refusal(_fingerprint(9), (), env, None, {"pkcs11provider": ["/usr/lib/p11.so"]})
+    assert said is not None and "PKCS#11 provider" in said
     (home / ".ssh" / "id_rsa").write_text("a private key, its public half not beside it")
     unread = keys.offered_by(env, {"identityfile": ["~/.ssh/id_rsa", "~/.ssh/%C", "~/.ssh/gone"]}).unread
     assert unread == (
@@ -421,8 +430,21 @@ def test_a_key_on_no_line_listed_or_offered_is_refused_with_nothing_changed(made
     try:
         with pytest.raises(keys.Refused, match="this computer's ssh offers"):
             _remove(made, target(alpha.machine), _fingerprint(A))
+        # ssh's older $NAME form of the agent (review 93b), in the configuration and on the command line, and a
+        # PKCS#11 provider in the configuration.
+        with _agent(_blob(A)) as agent:
+            config.write_text("Host *\n  IdentityAgent $AW_TEST_AGENT\n")
+            with pytest.raises(keys.Refused, match="this computer's ssh offers"):
+                _remove(made, target(alpha.machine), _fingerprint(A), _env(AW_TEST_AGENT=agent))
+            config.unlink()
+            with pytest.raises(keys.Refused, match="this computer's ssh offers"):
+                given = (("IdentityAgent", "$AW_TEST_AGENT"),)
+                _remove(made, target(alpha.machine, given=given), _fingerprint(A), _env(AW_TEST_AGENT=agent))
+        config.write_text("Host *\n  PKCS11Provider /nonexistent/p11.so\n")
+        with pytest.raises(keys.Refused, match="PKCS#11 provider /nonexistent/p11.so"):
+            _remove(made, target(alpha.machine), _fingerprint(A))
     finally:
-        config.unlink()
+        config.unlink(missing_ok=True)
     assert path.read_text() == before and alpha.played == []
     # A refusal before the file is read reads nothing on the machine.
     assert [call["argv"][-1] for call in alpha.calls() if call["outcome"] == "ran"] == ["cat -- .ssh/authorized_keys"]
@@ -488,14 +510,20 @@ def _role_values(found) -> dict[str, object]:
 
 
 def _naming_variables(found) -> set[str]:
-    """Every variable of the roles' defaults and vars, and of a task's vars, whose value names the keys, followed
-    through each variable that names such a variable."""
+    """Every variable of the roles' defaults and vars, and of a task's vars, whose value names the keys, and every
+    name a task that names the keys registers (a stat's result holds the file's path), followed through each variable
+    and task that names such a variable."""
     values = _role_values(found)
     for _, task in found.entries:
         values.update(task.get("vars") or {})
     names: set[str] = set()
     while True:
         more = {name for name, value in values.items() if name not in names and _mentions(value, names)}
+        more |= {
+            str(task["register"])
+            for _, task in found.entries
+            if task.get("register") and str(task["register"]) not in names and _mentions(task, names)
+        }
         if not more:
             return names
         names |= more
@@ -593,8 +621,31 @@ def _others(item: str) -> list[str]:
         f"no-pty {other} {item}",
         f"{listed.type} {listed.data}Zz longer",
         f"rsa-sha2-512 {_rsa_data()} other",
+        f"ssh-rsa {_rsa_data()} old@laptop",
+        f"ecdsa-sha2-nistp256 {_ecdsa_data()} old@laptop",
+        f"sk-ssh-ed25519@openssh.com {_sk_data()} old@laptop",
         f"# {other}",
     ]
+
+
+def _ecdsa_data() -> str:
+    point = b"\x04" + bytes(range(1, 65))
+    return base64.b64encode(_string(b"ecdsa-sha2-nistp256") + _string(b"nistp256") + _string(point)).decode()
+
+
+def _sk_data() -> str:
+    blob = _string(b"sk-ssh-ed25519@openssh.com") + _string(bytes(range(32))) + _string(b"ssh:")
+    return base64.b64encode(blob).decode()
+
+
+def _keys_form(item: str, replacing: bool) -> str:
+    """The one pattern keys.yml's tasks may render for item: its type and base64, escaped, where sshd reads a line's
+    key, at the line's start or after one word of options (keys._OPTIONS) and a blank, within one line; a replace's
+    with the listed line itself left out."""
+    key = keys.parsed(item)
+    assert key is not None
+    core = rf"[ \t]*(?!#)(?:{keys._OPTIONS}[ \t]+)?{re.escape(key.type)}[ \t]+{re.escape(key.data)}(?:[ \t].*)?$"
+    return f"^(?!{re.escape(item)}$){core}" if replacing else f"^{core}"
 
 
 def _rsa_data() -> str:
@@ -675,6 +726,10 @@ def _finds_another_key(action: str, args: dict, variables: dict[str, object]) ->
         for line in _others(item):
             if pattern.search(line + "\n"):
                 return f"a pattern that finds another key's line: {line}"
+        # And none but keys.yml's own form, which finds the listed key alone, wherever another key's line could be
+        # one this list of lines holds no kind of (review 93b).
+        if pattern.pattern != _keys_form(item, action in REPLACES):
+            return f"a pattern that is not the keys' own form: {pattern.pattern}"
     return None
 
 
@@ -792,6 +847,48 @@ def test_no_task_the_system_play_reaches_takes_a_line_of_authorized_keys_or_writ
             {"ansible.builtin.lineinfile": {"path": "~/.ssh/authorized_keys", "search_string": "ssh-", "line": "x"}},
             "search_string",
         ),
+        # Review 93b's four: another person's RSA key, an ECDSA key and a line by its comment written over with the
+        # listed one; the file emptied by its path in a stat's register alone.
+        (
+            {
+                "ansible.builtin.replace": {
+                    "path": "~/.ssh/authorized_keys",
+                    "regexp": "^ssh-rsa[ \\t].*$",
+                    "replace": "{{ item }}",
+                },
+                "loop": "{{ common_user_ssh_public_keys }}",
+            },
+            "finds another key's line",
+        ),
+        (
+            {
+                "ansible.builtin.lineinfile": {
+                    "path": "~/.ssh/authorized_keys",
+                    "regexp": "^ecdsa-sha2-nistp256[ \\t]",
+                    "line": "{{ item }}",
+                },
+                "loop": "{{ common_user_ssh_public_keys }}",
+            },
+            "finds another key's line",
+        ),
+        (
+            {
+                "ansible.builtin.replace": {
+                    "path": "~/.ssh/authorized_keys",
+                    "regexp": "^.*[ \\t]new@laptop$",
+                    "replace": "{{ item }}",
+                },
+                "loop": "{{ common_user_ssh_public_keys }}",
+            },
+            "not the keys' own form",
+        ),
+        (
+            [
+                {"name": "look", "ansible.builtin.stat": {"path": "~/.ssh/authorized_keys"}, "register": "found_keys"},
+                {"ansible.builtin.copy": {"dest": "{{ found_keys.stat.path }}", "content": ""}},
+            ],
+            "whole",
+        ),
     ],
 )
 def test_the_scan_refuses_each_task_that_could_take_a_line_away(tmp_path, task, why) -> None:
@@ -800,7 +897,8 @@ def test_the_scan_refuses_each_task_that_could_take_a_line_away(tmp_path, task, 
     (role / "tasks").mkdir(parents=True)
     (role / "defaults").mkdir()
     (role / "defaults" / "main.yml").write_text(yaml.safe_dump({"common_keys_path": "~/.ssh/authorized_keys"}))
-    (role / "tasks" / "main.yml").write_text(yaml.safe_dump([{"name": "planted", **task}]))
+    *before, task = task if isinstance(task, list) else [task]
+    (role / "tasks" / "main.yml").write_text(yaml.safe_dump([*before, {"name": "planted", **task}]))
     (tmp_path / "playbooks").mkdir()
     play = tmp_path / "playbooks" / "play.yml"
     play.write_text(yaml.safe_dump([{"name": "p", "hosts": "all", "roles": ["planted"]}]))
