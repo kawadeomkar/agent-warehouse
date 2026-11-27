@@ -798,6 +798,8 @@ NAMES_A_DESCRIPTION = {
     "lib/claude_vm/pve/template.py": "a template's record handed to today's proxmox_template_drift as the line of notes"
     " it reads, in a configuration of its own: the judgement, which holds no client and sends nothing"
     " (tests/unit/test_aw_engine_template.py)",
+    "lib/claude_vm/cli/mcp_backend.py": "the agents' tools' JSON Schemas, each property with the description a model"
+    " reads: no VM's, and nothing sent",
     "lib/claude_vm/pve/commands.py": "qm create of the base template over root SSH, the record its build made as its"
     " first notes, rendered by pve/record.py: the template's first write, before it exists, so that no client can send"
     " it (card E12, tests/unit/test_aw_engine_template.py)",
