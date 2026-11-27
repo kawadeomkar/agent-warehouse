@@ -95,9 +95,17 @@ DROPPED = {
     "all_proxy": "socks5://192.0.2.99:1080",
     "NO_PROXY": "*",
     "no_proxy": "*",
+    # A value no CoreFoundation writes, so a run that shows it was handed the session's (PLATFORM_OWN).
+    "__CF_USER_TEXT_ENCODING": "0xEEEE:0xE:0xE",
 }
 # What a POSIX shell puts in the environment of a program it execs, beside what it was given.
 SHELL_OWN = {"PWD", "OLDPWD", "SHLVL", "_"}
+# What the platform puts in every process's environment by itself, with why: no server's choice, so a run's environment
+# may hold it beside the allow list. That the server never hands on the session's value DROPPED holds.
+PLATFORM_OWN = {
+    "__CF_USER_TEXT_ENCODING": "macOS's CoreFoundation sets it as it loads, in the stand-in's Python at its start,"
+    " where the environment it was given lacks it",
+}
 SIGNALS = ("SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT")
 
 # The stand-in aw: it records what it was given, then prints the canned answer of its verb.
@@ -312,7 +320,7 @@ def test_a_run_gets_its_words_on_the_command_line_and_nothing_of_the_session_s_e
     for run in runs:
         env = run["env"]
         allowed = {"PATH", "HOME", "SHELL", "TERM", "NO_COLOR", paths.VARIABLE, vaultkey.VARIABLE}
-        allowed |= set(environment.PASSED) | SHELL_OWN
+        allowed |= set(environment.PASSED) | SHELL_OWN | set(PLATFORM_OWN)
         assert sorted(name for name in env if name not in allowed and not name.startswith("LC_")) == []
         # None of the session's values: the registration's fleet, key file, PATH and HOME, and the account's shell.
         assert {name: value for name, value in DROPPED.items() if env.get(name) == value} == {}
