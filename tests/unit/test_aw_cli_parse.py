@@ -299,6 +299,15 @@ def test_a_negative_number_is_one_rule_on_every_python(value: str, taken: bool) 
         assert "--value takes a value" in _refused(words)
 
 
+def test_argparse_s_two_exceptions_are_taken_and_each_then_meets_its_pattern() -> None:
+    # A word with a space in it, and a lone -, start with - and are taken all the same, as a value or a word, on every
+    # Python (argparse's own rule where a word is parsed): each then meets its pattern, as any value does.
+    for value in ("-1 x", "-"):
+        assert parse.read(["settings", "vm_cores", "--value", value]).values == {"name": "vm_cores", "value": value}
+    for word in ("-x y", "-"):
+        assert _refused(["destroy", word]).startswith("error: aw destroy takes no such name: "), word
+
+
 @pytest.mark.parametrize(
     ("words", "verb"),
     [

@@ -365,15 +365,20 @@ once it is built; that server runs `aw` as a child for every run.
 (`--attended`, the hidden `--detached-run`), then the verb, then its words and options, split by
 `argparse` into the table's slots for the one verb typed only. No verb is `help`, as `just` alone lists the recipes.
 `argparse` is set as the design requires: abbreviations off, so a prefix of an option is an option the verb has not
-got; its own help off; its errors raised rather than printed and exited on; and its colours off from Python 3.14. An
+got; its own help off; its errors raised rather than printed and exited on; its colours off from Python 3.14; and which
+word that starts with `-` and a digit it takes for a negative number, and so for a value, is Python 3.13's rule on every
+Python (`-1`, `-.5`, `-1.5`; any other is given with `=`), read where a word is parsed, each argument group testing an
+option string by its own matcher, as no option of the table looks like a number. An
 option is taken as `--long value` and as `--long=value`, which is how a value that starts with `-` is given, and is
 given once, but for `--set`, given once for each setting, and `-v`, counted. `--`, which elsewhere ends the options, is
 refused wherever it stands, before `argparse` sees it, in a sentence that says how a value that starts with `-` is
 given: no verb takes a word that starts with `-`, and `argparse`'s intermixed parse would drop it and read the words
-after it as options all the same. Every verb whose run is a job gets
-`--detach`, from the table's column, and no other verb has it. The values, only those given, then go through the one
-check (16.2). Anything refused raises `Refused` with one sentence of the project's own, which names the option where
-one was wrong and never a value or a verb typed: no text of `argparse`'s, no usage block, no exit status of its own.
+after it as options all the same. That has `argparse`'s own two exceptions, on every Python: a word with a space in it
+(`--value '-1 x'`) and a lone `-` are taken as a word or a value, and each then meets its pattern. Every verb whose
+run is a job gets `--detach`, from the table's column, and no other verb has it. The values, only those given, then go
+through the one check (16.2). Anything refused raises `Refused` with one sentence of the project's own, which names the
+option where one was wrong and never a value or a verb typed: no text of `argparse`'s, no usage block, no exit status
+of its own.
 
 **Today's habits: `habits.py`.** After the check, as ordinary code, a VM's name with `_` is taken with `-` and said in
 today's words, `alpha,beta` is two names as two words are, an empty one dropped, and a verb that takes one name refuses
@@ -476,7 +481,8 @@ being one `PATH` must name (`mkdir -p ~/.local/bin && ln -s <checkout>/aw ~/.loc
 as a shell reads it back), and writes nothing outside the checkout for it.
 
 `tests/unit/test_aw_cli_parse.py` holds all of it: every option of every verb in both spellings, the refusals and that
-none says a value or has a usage block, `--detach`, `default_vm`, `RunWords`, in `run_words` and in the program, the
+none says a value or has a usage block, a negative number by 3.13's rule and `argparse`'s two exceptions each held to
+its pattern, `--detach`, `default_vm`, `RunWords`, in `run_words` and in the program, the
 dispatch's refusals, what a refusal imports, and the launcher run in checkouts the test makes, with a stand-in `uv`,
 through links, from folders whose version manager picks another Python or that hold a planted module, and with a
 `PYTHON` that is no virtualenv's or cannot be run; every line it says that names a path or the program said as it is,
@@ -485,10 +491,12 @@ sentences with the program as the printer quotes it, a path typed that starts wi
 it. `tests/unit/test_aw_cli_rules.py` holds the rules and `deploy`'s
 question: every rule is named by the verbs whose rows run it; each refusal of a rule or a habit, and each of the
 parser's own, is run through the launcher, the words, status and sentence of each written there; each case of a rule is
-refused by the rule its code names, and each of the parser's own is the parser's sentence in the test's process too;
+refused by the rule its code names, each case of a habit says its habit's sentence, and each of the parser's own is the
+parser's sentence in the test's process too;
 `--repos`' 2000 characters taken and 2001 refused; each name the names habit splits a verb's words into held to the
 pattern, through the launcher and with the pattern narrowed, as `host --for`'s are; no rule says back a value that may
-be a secret, and one it says back has met its pattern first; the check answers alike as words and as JSON; the question
+be a secret, over every case of a rule with each value of free text its verb takes typed as one, and one it says back
+has met its pattern first; the check answers alike as words and as JSON; the question
 is asked at a pseudo-terminal, typed and with none; and no file of the tree names the recorded command line of v2.7.0,
 which no test holds `aw` or the `justfile` to.
 The printer's own test is 16.2's.
