@@ -44,6 +44,7 @@
 - name: node | Install global npm packages
   ansible.builtin.command:
     argv: [npm, install, -g, "{{ item }}"]
+  register: dev_tools_npm_installed
   changed_when: true
   loop: "{{ dev_tools_npm_global_packages | reject('in', dev_tools_npm_present) | list }}"
   vars:
