@@ -4219,9 +4219,11 @@ result was censored or its failure ignored). Every string is struck of every sec
 that of two where one holds the other the longer is struck whole; made plain (`text.plain_text`); and struck again, so
 that a secret an escape sequence split is struck once whole; then cut to its field's bound, after the strike. A
 message, an item or an output written as a structure stays one until each of its strings is so made, and is then made
-one text, JSON's form of it, struck once more, then cut. What the strike does not promise: a secret Ansible itself
-writes in another form (through `repr`, as an exception's text quotes a value, base64 or a URL's escapes), one split
-across two strings, or one split by a character `plain_text` keeps (a zero-width space). A line that is no event, or
+one text, JSON's form of it, struck once more, then cut. The strike meets a secret in the forms Ansible itself quotes
+one in too (`secret.struck_all`): JSON's escape of it, with and without ASCII's, as a mapping's diff is written, and
+`repr`'s, as an exception's text quotes a value or a key that is a tuple is made text. What it does not promise: a
+secret in base64 or a URL's escapes, one split across two strings, or one split by a character `plain_text` keeps (a
+zero-width space). A line that is no event, or
 too long, is said as one that could not be read; a line the child did not finish at the pipe's end is none.
 `layer1.run` returns, with the exit status, the counts a caller needs (`events.Counts`: the failed, the unreachable, the
 changed), from Ansible's own recap or, where the child ended before it, counted from the results heard; and the end of
@@ -4238,6 +4240,22 @@ form, raw and escaped; of two secrets one inside the other, the longer struck wh
 and its end keyed by the one identity the record names; a control sequence reaching the log as plain text; the diff's
 two rules; the pipe closed by its reader before and in the play; a listener's failure; and the reader's own rules on
 lines of its own.
+
+**The deep diff (`deploy --check`, card F21).** `layer1.check` runs the same child as `layer1.run` with `--check
+--diff`, so nothing on the machine changes, and returns `layer1.Checked`: how the child ended, and each task as check
+mode makes it (`events.Checked`, from `Heard.checked`), in the order the tasks started. A task is "would change" where
+a result said changed, with every diff heard of it; "would not change" where every result said ok or was skipped by a
+false condition; and "not evaluated" where check mode skipped it unrun, and where it failed, was unreachable or had no
+result. Which skip is which the callback says, a yes or no alone (`condition`): Ansible marks a skip of a false `when`
+(`false_condition`, `skip_reason`), of the task or of every item of its loop, and any other skip is check mode's own,
+of a module that does not support it (`tempfile`, `expect`) or a `command`, `shell`, `script` or `raw` it would have
+run, so no module is named here. A diff is written only in this mode and never for a task censored for `no_log`, and
+is struck as every event's text. Layer 2 has no check mode: `step.check_steps(ctx, steps)` answers each step from its
+`probe` and its `difference`, applies nothing and emits nothing: "would change" with the difference, "would not
+change" where there is none, "would apply" for a step with no read of its own (its `reads` False), never probed, and
+"not evaluated" where its probe could not go on, with why, struck of the run's secrets. Each step reads the machine as
+it is, so a later step never sees what an earlier one would write. `tests/unit/test_aw_layer1_check.py` holds both on
+the pinned ansible-core against the stand-in machine.
 
 **Layer 2's steps.** `lib/claude_vm/guest/layer2/step.py` is the one shape of a step: a `name` (its events' key, as a
 stage's step is keyed), a `part` (one of a configure's six), `probe(ctx)`, which reads the machine and changes nothing,

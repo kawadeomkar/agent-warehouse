@@ -31,9 +31,10 @@ strings, or one split by a character `plain_text` keeps (a zero-width space).
 
 `checked` is what F21's check (layer1.check, a run in check mode with its diff) makes of the tasks heard, one `Checked`
 a task in the order they started: `would change` where a result said changed, `would not change` where every result
-said ok or skipped, and `not evaluated` for a `command`, `shell` or `raw` task that check mode skipped, as check mode
-reports it, and for a task that failed, was unreachable or had no result; with the diffs heard of it, each struck as
-every event's.
+said ok or was skipped by a false condition, and `not evaluated` for a task check mode skipped unrun (any skip the
+callback says no condition made: a module that does not support check mode, such as `tempfile` or `expect`, or a
+`command`, `shell`, `script` or `raw` it would have run), and for a task that failed, was unreachable or had no result;
+with the diffs heard of it, each struck as every event's.
 
 A line is read up to LINE_MOST bytes: a longer one is left out whole, said as an event that could not be read, and so is
 a line that is no event (a write a signal cut short leaves one). The pipe's end, with or without a line the child did
@@ -94,10 +95,8 @@ TEXTS = (
 )
 
 
-# What check mode makes of a task, and the modules it skips rather than evaluates.
+# What check mode makes of a task.
 VERDICTS = ("would change", "would not change", "not evaluated")
-UNEVALUATED = frozenset({"command", "shell", "raw"})
-ANSIBLE_OWN = ("ansible.builtin.", "ansible.legacy.")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -109,12 +108,6 @@ class Checked:
     part: str | None
     verdict: str
     diff: str = ""
-
-
-def _unevaluated(action: str) -> bool:
-    for prefix in ANSIBLE_OWN:
-        action = action.removeprefix(prefix)
-    return action in UNEVALUATED
 
 
 @dataclasses.dataclass(frozen=True)
@@ -236,19 +229,20 @@ class Heard:
         data["task"] = task
         if kind == "task":
             data["handler"] = event.get("handler") is True
-            action = self.clean(event.get("action"), NAME_MOST)
-            self._tasks.append({"task": task, "part": data["part"], "action": action, "kinds": set(), "diffs": []})
+            self._tasks.append({"task": task, "part": data["part"], "kinds": set(), "unrun": False, "diffs": []})
             self._step(task, **data)
             return
         self._result(kind, event, data)
-        self._tally(kind, task, data)
+        self._tally(kind, task, data, unrun=kind == "skipped" and event.get("condition") is not True)
         self._step(task, **data)
 
-    def _tally(self, kind: str, task: str, data: Mapping[str, object]) -> None:
-        """A result kept for checked: of the task last started, where it is that task's."""
+    def _tally(self, kind: str, task: str, data: Mapping[str, object], unrun: bool) -> None:
+        """A result kept for checked: of the task last started, where it is that task's; unrun where it is a skip no
+        false condition made."""
         if not self._tasks or self._tasks[-1]["task"] != task:
             return
         current = self._tasks[-1]
+        current["unrun"] = current["unrun"] or unrun
         if kind == "diff":
             if data.get("diff"):
                 current["diffs"].append(data["diff"])
@@ -263,10 +257,10 @@ class Heard:
             kinds = each["kinds"]
             if not kinds or kinds & {"failed", "unreachable"}:
                 verdict = "not evaluated"
-            elif _unevaluated(each["action"]) and kinds == {"skipped"}:
-                verdict = "not evaluated"
             elif "changed" in kinds:
                 verdict = "would change"
+            elif each["unrun"]:
+                verdict = "not evaluated"
             else:
                 verdict = "would not change"
             made.append(Checked(each["task"], each["part"], verdict, "\n".join(each["diffs"])))

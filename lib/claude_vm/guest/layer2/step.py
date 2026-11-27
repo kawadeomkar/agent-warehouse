@@ -29,7 +29,8 @@ failed.
 step answers from its probe and its difference, and no apply runs and no event is emitted. It returns one `Checked` a
 step, in their order: `would change` with the difference, `would not change` where there is none, `would apply` for a
 step that has no read of its own (its `reads` False), never probed, and `not evaluated`, with why, where its probe
-could not go on. Each step reads the machine as it is: a later step's read never sees what an earlier one would write.
+could not go on, struck of the run's secrets. Each step reads the machine as it is: a later step's read never sees
+what an earlier one would write.
 
 Standard library only; asyncio is imported inside the coroutines that start a child.
 """
@@ -43,6 +44,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from claude_vm.guest import remote
 from claude_vm.schema.rules import CONFIGURE_ROLES
+from claude_vm.secret import struck_all
 from claude_vm.ssh import runner
 
 if TYPE_CHECKING:
@@ -174,7 +176,9 @@ async def check_steps(ctx: Context, steps: Sequence[Step]) -> tuple[Checked, ...
         try:
             difference = step.difference(await step.probe(ctx))
         except Failed as failed:
-            made.append(Checked(step.name, step.part, "not evaluated", why=str(failed)))
+            # Struck of every secret the run opened, as every event is: a probe's words may quote what it read.
+            why = struck_all(str(failed), ctx.job.redacted)
+            made.append(Checked(step.name, step.part, "not evaluated", why=why))
             continue
         if difference is not None and not isinstance(difference, Difference):
             raise TypeError(f"step {step.name}'s difference is a Difference, or None for none")
