@@ -28,7 +28,10 @@ remembers the tree under it at a Ctrl-C, remembers nothing of the open's: the ma
 `ProxyCommand` in the open's group, and ending that ends the master. A child meant to
 outlive its run - the editor, a page's opener - is `outlive`'s: unmarked, in a session of its own, entered in no
 registry, and left out of the tree a run's end remembers and ends (`outliving`), so that no end of the run reaches it.
-Nothing here reads the process table, and nothing is written to a file.
+A detached run, which the starter of `--detach` starts before any job exists (runs/detached.py), is `start_detached`'s:
+unmarked, since it makes its own job and marks its own children, in a session of its own, its standard output and
+error the one pipe its starter reads, never a lock, and in no registry. Nothing here reads the process table, and
+nothing is written to a file.
 
 Standard library only; asyncio and subprocess are imported inside the functions that start a child.
 """
@@ -341,16 +344,38 @@ def outlive(job: jobs.Job, argv: Sequence[str], env: Mapping[str, str]) -> subpr
     import subprocess
 
     _job_id(job)
+    process = _in_a_session(_argv(argv), env, subprocess.DEVNULL)
+    _OUTLIVING.append(process)
+    return process
+
+
+def start_detached(argv: Sequence[str], env: Mapping[str, str], answer: int) -> subprocess.Popen:
+    """argv started as a detached run (runs/detached.py), and its process: the one child started before any job exists,
+    by the starter of `--detach`, which holds no job and so marks nothing. Unmarked, since the run makes its own job and
+    marks its own children; in a session of its own, so no terminal stops it, hangs it up or reaches it with a Ctrl-C;
+    its standard input /dev/null, the signals at their defaults, and its standard output and error both answer, the
+    write end of the pipe its starter reads its first words from: no other descriptor open, and never a lock's, which
+    is refused by the lock's name before anything starts. Started by subprocess itself, as `outlive`'s child is, and
+    entered in no registry: it is no child of a run's."""
+    if isinstance(answer, bool) or not isinstance(answer, int) or answer < 0:
+        raise TypeError("a detached run's answer is the descriptor of its pipe's write end, by its number")
     words = _argv(argv)
-    process = subprocess.Popen(
+    _refuse_locks([answer])
+    return _in_a_session(words, env, answer)
+
+
+def _in_a_session(words: list[str], env: Mapping[str, str], out: int) -> subprocess.Popen:
+    """words started unmarked in a session of their own, standard input /dev/null and standard output and error out,
+    every signal at its default and no other descriptor open: a child meant to outlive its run, or a detached run."""
+    import subprocess
+
+    return subprocess.Popen(
         words,
         stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=out,
+        stderr=out,
         env=unmarked(env),
         close_fds=True,
         start_new_session=True,
         preexec_fn=_default_signals,
     )
-    _OUTLIVING.append(process)
-    return process

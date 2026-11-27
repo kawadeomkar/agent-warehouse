@@ -34,8 +34,9 @@ from claude_vm.cli import before, dispatch, habits, parse
 from claude_vm.schema import printer
 from claude_vm.schema.words import EXITS, VERBS
 
-# What the launcher at the checkout's top says the program is, as a person can run it again: aw, or what they typed.
-STARTED_AS = "AGENT_WAREHOUSE_STARTED_AS"
+# What the launcher at the checkout's top says the program is, as a person can run it again: aw, or what they typed. The
+# printer's name for it, which a detached run's starter hands on (printer.handed).
+STARTED_AS = printer.STARTED_AS
 # A job's marker, which a run never inherits: runs/children.py's MARKER, held equal by tests/unit/test_aw_children.py.
 MARKER = "AGENT_WAREHOUSE_JOB"
 
@@ -66,6 +67,7 @@ def main(argv: list[str]) -> int:
             # Ctrl-C at deploy's question, before anything ran: ended as today's recipe is, with nothing more said.
             return EXITS["cancelled"]
         run, values = before.run_words(reading.before, values, os.environ)
+        dispatch.started_from(program)
         return dispatch.dispatch(checkout(program), verb, run, values)
     except parse.Refused as refused:
         print(refused.sentence, file=sys.stderr)

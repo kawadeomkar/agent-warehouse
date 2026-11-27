@@ -2784,7 +2784,12 @@ nowhere, since no run ever ends one. **A run's end ends `ssh`, `ansible` and `pr
 their defaults, its standard streams `/dev/null` and nothing else open; entered in no registry, so the run's end neither
 waits for it nor ends it; and left out, with what is under it, of every tree the ladder remembers and ends
 (`outliving()`). It is started by `subprocess` itself, never through asyncio, whose transport kills a child it still
-holds once the transport is closed or collected. Nothing ends it; a caller that wants its status polls it.
+holds once the transport is closed or collected. Nothing ends it; a caller that wants its status polls it. **A detached
+run** is `start_detached(argv, env, answer)`'s, the one child started before any job exists, by the starter of
+`--detach` (`detached.py`, below): unmarked, since it makes its own job and marks its own children, in a session of its
+own, its standard input `/dev/null`, the signals at their defaults, its standard output and error both `answer`, the
+pipe its starter reads, and nothing else open, a lock's descriptor refused by the lock's name before anything starts;
+entered in no registry, since it is no child of a run's.
 
 **A child the terminal stopped.** `watched(job)` gives the job's children still running and, beside them, `route.py`'s
 `ssh` still running in a process group of its own (`route.leading`: the hop's and its `ssh -G`, which the new engine
@@ -2965,6 +2970,7 @@ stays ignored. The ladder:
 | An error the body did not handle | the tree ended | `failed`, the error | the error raised again |
 | The body returns | what it still holds of its children ended | `succeeded` for 0, `cancelled` for 130, else `failed` with the status, or `declined` with the status and why where the body said so by `decline(why)` (destroy's no): an exit status alone never makes it | exits with the status |
 | SIGKILL | nothing | none: the job reads `lost` once its lock is free | killed |
+| A detached run's limit (`limit`, below) | as SIGTERM: the tree ended with SIGTERM, what ignores it killed after `SETTLE`, the body cancelled; a line says the limit came. Where a stop was asked first (a Ctrl-C's, a cancel's), its grace ends there instead, and the stop stays the run's end | `failed`, `the deadline: run_detached_limit's <limit> came`, exit 2; each machine begun and not ended `failed` at its stage | exits 2, as a failed run does |
 
 On every path but SIGKILL, every child of the registry has ended or been ended before the loop closes, since asyncio
 kills an `ansible-playbook` it still holds when its loop closes and leaves the playbook's detached task workers running;
@@ -3090,6 +3096,51 @@ and ended, its run ending with its body's own status: one that reads it (SIGTTIN
 first as `readpassphrase` does (SIGTTOU), and `route.py`'s `ssh`; and a run at a pseudo-terminal, its terminal its
 controlling one, whose child of kind `ssh`, in a group of its own in the run's session, asks nothing for three seconds
 starts no `ps`, counted by a stand-in first on its `PATH`.
+
+**A detached run: `detached.py`.** `--detach` is the parser's for every verb whose row says `changes` (16.3), `deploy`,
+`login`, `code`, `destroy`, `release`, `init` and `install`, and this module serves them all alike, with nothing of one
+verb's: a verb the table marks changing is detachable with no change here. There is no supervisor (T5): the run is the
+same program in a session of its own, which makes its own job, takes its own locks, writes its own record and keeps its
+own limit.
+
+- **The starter.** The command is parsed, held by the one check, and refused at once where it would be refused, by
+  `cli/main.py` and `cli/dispatch.py` as any command is, a fleet that is not there among it; then the dispatch hands it
+  to `start(program, verb, run, values, env)` in place of the verb's handler, which builds the run's command
+  (`argv_of`: this Python under `-I`, the program by the path `main` was handed, and the printer's words of the same
+  values with the run's own `-v` and `--set`, after `--detached-run` and, where it was given, `--attended 1`) and starts
+  it through `children.start_detached` (above). Its environment is the caller's, with the program as it was started
+  handed on (`printer.handed()`, `AGENT_WAREHOUSE_STARTED_AS`), so that the lines the run prints say it: the run is the
+  person's own command, as it would be at their terminal, so the proxy's variables (`HTTPS_PROXY`, `ALL_PROXY`,
+  `NO_PROXY` and their lower-case forms) reach it, the one place a proxy that needs a user and a password is given,
+  since `network_proxy` refuses one (16.9); the allow list of today's MCP server (`lib/claude_vm/mcp/environment.py`)
+  stays that server's own. `detach(argv, env)` then reads the pipe for `STARTING` seconds (60): each line the run says
+  before it is under way is said again on the starter's standard error as it came, made plain, so that a refusal at its
+  locks (which leaves no job), a refusal of its handler's and a line the printer would not write are all said; the line
+  `started <job id>` ends the read, and the starter prints the job's ID, then `aw logs <id> --follow` and
+  `aw cancel <id>`, each a whole line of the printer's printed by itself, and exits 0. A run that ends before it is
+  under way ends the starter with its own status, 1 where it said nothing and ended otherwise; with no `started` in
+  time, or at a Ctrl-C of the starter's, the run is ended with everything under it (`proc.end`, never its group
+  alone), and the starter says so and exits 1, or 130.
+- **The run.** `--detached-run` has the dispatch call `begin()` before the handler, and the handler's run goes through
+  `runs.run` as any run does, which reads `running()`: the job is made with the starter `detach` (an MCP server's own
+  where the server named itself) and `attached` false, whatever the verb gave; its locks are taken by the run itself
+  (C6), so a second run on its machine is refused while it lives and proceeds once it has ended; its text log is opened
+  (16.8's text log: `LOG_DIR`'s, or the job's own folder where `LOG_DIR` is empty or the verb gave none), the prune's
+  lines said before it, on the pipe; and then `under_way(job)` writes `started <id>` and points its standard output and
+  error at that log, or `/dev/null` where it has none, so that nothing it says from then on reaches its starter, and a
+  starter that has gone is no reason to stop. The live view it draws writes to that log as to any stream that is no
+  terminal. From there it runs with no terminal: it asks nothing and takes each question's safe answer (`ask.py`), it
+  never changes a terminal's settings, so the echo of a shell it was started from stays the shell's, and it signs in and
+  opens pages only where `--attended 1` was given (16.3). It outlives its starter, the terminal its starter ran at, and
+  an MCP server; `cancel` stops it as Ctrl-C stops a run at a terminal; a SIGKILL leaves no exit record, and the job
+  reads `lost` once its lock is free.
+- **The limit.** The setting `run_detached_limit`, in minutes, 120 by the owner's decision and 0 for none, which a
+  verb gives `runs.Draft` as seconds (`limit_of`; `detached_limit` defaults to the setting's default, so a verb that
+  gives none is held to 120 minutes): the record's `deadline` says when by the computer's clock, and the run counts it
+  itself on the loop's monotonic clock from its ladder's start (`attached.run(..., limit=)`), which leaves out a time
+  the computer slept where the system's monotonic clock does (experiment 61 tries it across a closed lid). At it the
+  run stops as at a SIGTERM and its record says `failed`, the deadline as why (the ladder's table above). A run at a
+  terminal has no limit, as today.
 
 **A run over several machines: `fleet_run.py`.** `each(context, machines, body, most, names=...)` starts `body(machine)`
 for each machine, by the key its events name it by (its identity, or a VM's stand-in until its join), never more than

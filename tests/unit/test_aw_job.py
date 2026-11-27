@@ -53,6 +53,7 @@ SECRET = "unit-test-aw-job-secret"
 # tree, never to decide a state.
 PROCESS_TABLE: dict[str, str] = {
     "claude_vm/runs/attached.py": "a run's end: the tree under the run remembered at a Ctrl-C, and ended by end_under",
+    "claude_vm/runs/detached.py": "a starter's end of a run not under way: its tree ended by end, not its group",
 }
 # What reads a process's start or the process table, in any module of runs/: ps's start column, Linux's /proc, a
 # library of processes, today's MCP jobs' reading of a start (mcp/jobs.py's started, desktop.py's PS_ENV), a pidfd.

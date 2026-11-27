@@ -1113,8 +1113,8 @@ ADDED: tuple[Row, ...] = (
         "int",
         120,
         "common",
-        "The longest a detached run may last, in minutes: at the limit it stops as a run stops at a Ctrl-C, and its "
-        "record says why. 0: no limit.",
+        "The longest a detached run may last, in minutes: at the limit it stops as a run stops at a kill, and its "
+        "record says it failed at its deadline. 0: no limit.",
         least=0,
     ),
     _fleet(
