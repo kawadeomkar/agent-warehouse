@@ -879,11 +879,12 @@ def _beside(nuc: Fake, fleet: str) -> None:
     with_port(nuc.port, FURTHER)
 
 
-def _set_up(nuc: Fake) -> None:
+def _set_up(nuc: Fake, *, without: str | None = None) -> None:
     """The further host as init sets one up, so that every check passes: the grants of E1's list beside the role on the
-    pool, the engine's template, and the fleet's VMs an SSH key."""
+    pool (but the one on the path without names), the engine's template, and the fleet's VMs an SSH key."""
     for path, privs in GRANTS.items():
-        engine_grant(nuc.base, path, privs)
+        if path != without:
+            engine_grant(nuc.base, path, privs)
     Templates(nuc.base, nuc.directory, Token(nuc.token, Secret(nuc.secret)), nuc.pki).built()
     where = _home()
     if not overrides.read(where, None).fleet.settings.get("vm_ssh_public_keys"):
@@ -972,6 +973,46 @@ def test_a_failed_check_leaves_the_further_host_s_own_settings_unwritten(fake, n
     _set_up(nuc)
     ran = _init(fake, *_further(nuc, tmp_path, "--storage", "local-lvm", "--bridge", "vmbr0"))
     assert ran.returncode == 0, ran
+    assert _own(FURTHER) == FURTHER_OWN
+
+
+def test_a_further_host_s_init_writes_no_current_host_where_the_computer_has_none(
+    fake, nuc, secret_file, tmp_path
+) -> None:
+    fleet = _first(fake, secret_file, *EVERY)
+    _beside(nuc, fleet)
+    _set_up(nuc)
+    # A computer with no current host yet: the first host's run set one, so it goes first.
+    (_home().root / paths.CLIENT).unlink()
+    assert overrides.read(_home(), None).client.own.get("current_host") is None
+    ran = _init(fake, *_further(nuc, tmp_path))
+    assert ran.returncode == 0 and _own(FURTHER) == FURTHER_OWN, ran
+    # A further host's init never makes itself the current host, even where none is set.
+    assert overrides.read(_home(), None).client.own.get("current_host") is None
+    assert "its current host" not in ran.stdout, ran.stdout
+
+
+def test_an_unchecked_line_alone_leaves_the_further_host_s_own_settings_unwritten(
+    fake, nuc, secret_file, tmp_path
+) -> None:
+    fleet = _first(fake, secret_file, *EVERY)
+    _beside(nuc, fleet)
+    # Every grant but VM.Audit on /vms: its check is a `--` line alone, not a `!!` one, and init exits 0.
+    _set_up(nuc, without="/vms")
+    ran = _init(fake, *_further(nuc, tmp_path))
+    assert ran.returncode == 0 and "!!" not in ran.stdout, ran
+    unchecked = [line for line in ran.stdout.splitlines() if line.startswith("  --   ")]
+    assert len(unchecked) == 1 and "(VM.Audit)" in unchecked[0], ran.stdout
+    # Not every check passed, so none of its own settings is written, and that is said.
+    assert _own(FURTHER) == {}
+    noted = [line for line in ran.stdout.splitlines() if f"not written into {FURTHER_SETTINGS}" in line]
+    assert len(noted) == 1 and noted[0].startswith("  note "), ran.stdout
+    with pytest.raises(hosts.Refused, match="does not set proxmox_node"):
+        hosts.reach(hosts.Layout(_home()), Request(host=FURTHER))
+    # Granted it, the same run writes them.
+    engine_grant(nuc.base, "/vms", GRANTS["/vms"])
+    ran = _init(fake, *_further(nuc, tmp_path))
+    assert ran.returncode == 0 and "  --   " not in ran.stdout, ran
     assert _own(FURTHER) == FURTHER_OWN
 
 
