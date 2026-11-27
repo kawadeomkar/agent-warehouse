@@ -1,8 +1,9 @@
 """The agents' server's tools over the program: each tool's schema made from the one table of verbs and options, and the
 command line of aw that a call runs (docs/architecture/engine.md §16.3).
 
-A tool runs one verb, as the table's column tools says (schema/words.py), or is one of the server's own reads of the
-state folder's jobs (log, jobs, job), which run no verb. Its schema is one flat set of properties, a small function of
+A tool runs one verb, as the table's column tools says (schema/words.py), or is one of the server's own reads (log,
+which reads a job's log through logs, by the job's ID or the log's name; jobs and job), which run no verb of their own.
+Its schema is one flat set of properties, a small function of
 the verb's row: each option and the verb's words whose fate for that tool is a property (words.py's agent), with exact
 JSON types (a string, a boolean, a list of strings), its pattern anchored whole, and its description the table's
 sentence said through the printer's said, with its form. A fate the server gives (fixed) is given to every call, the
@@ -75,20 +76,37 @@ def _job_id(description: str) -> dict:
     return {"type": "string", "pattern": _anchored("job_id"), "description": description}
 
 
-# The server's own reads of the state folder's jobs, which run no verb (I3 builds their bodies): each one's description
-# and schema.
+# A run's text log's name, as runs/textlog.py's name makes it and tools/run-logged made today's: the run's start, its
+# verb and a part its patterns checked. The server finds the job of a log so named in the list logs prints.
+LOG_NAME = r"[0-9]{8}-[0-9]{6}-[a-z][a-z0-9_-]{0,79}\.log"
+# How many lines of a log one call reads, the fewest and the most, as today's server reads them.
+LOG_LINES = (1, 2000)
+
+# The server's own reads, which run no verb of their own: log reads one job's text log through logs (I2), by the job's
+# ID or its log's name; jobs and job are I3's. Each one's description and schema.
 OWN_TOOLS: dict[str, tuple[str, dict]] = {
     "log": (
-        "Read-only: one job's text log, by its ID as logs lists it: its last lines, or from line start (1 is its "
-        "first) to read the rest. A log names the Proxmox host and VMs by address.",
+        "Read-only: one job's text log, by the job's ID or the log's name as logs lists them, made plain text: its "
+        f"last lines, or from line start (1 is its first) to read the rest (lines: {LOG_LINES[0]}-{LOG_LINES[1]}, 200 "
+        "by default; fewer where a result says its middle was cut). A log names the Proxmox host and VMs by address.",
         {
             "type": "object",
             "properties": {
-                "job": _job_id("The job whose log to read, by its ID as logs lists it"),
-                "lines": {"type": "integer", "minimum": 20, "maximum": 2000, "description": "How many lines"},
+                "job": _job_id("The job whose log to read, by its ID as logs lists it; or give log_name"),
+                "log_name": {
+                    "type": "string",
+                    "pattern": f"^(?:{LOG_NAME})$",
+                    "description": "The log to read, by its name as logs lists it (20261106-101500-deploy.log); or "
+                    "give job",
+                },
+                "lines": {
+                    "type": "integer",
+                    "minimum": LOG_LINES[0],
+                    "maximum": LOG_LINES[1],
+                    "description": "How many lines",
+                },
                 "start": {"type": "integer", "minimum": 0, "description": "The first line to read; none: the end"},
             },
-            "required": ["job"],
             "additionalProperties": False,
         },
     ),
