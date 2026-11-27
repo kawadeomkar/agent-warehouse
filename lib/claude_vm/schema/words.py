@@ -261,6 +261,7 @@ ADOPT_REFUSED = "an agent never adopts a machine: the person's, at a terminal or
 REMOVE_KEY_REFUSED = "it takes a key off each VM's account: the person's, at a terminal"
 TAKE_OVER_REFUSED = "it clears another computer's run recorded on a machine: the person's, at a terminal"
 PRINT_COMMANDS_REFUSED = "it prints the commands the Proxmox host's root runs: the administrator's, by hand"
+FOLLOW_REFUSED = "it waits until the job ends: an agent follows a job with job, which returns when it waits or ends"
 INSTALLED_REFUSED = "the installed program's, after 3.0: a checkout refuses it, and takes a newer version by git pull"
 DETACHED_RUN_REFUSED = "the run --detach starts is given it by the program itself: nobody types it"
 
@@ -881,7 +882,11 @@ _VERBS: tuple[Verb, ...] = (
             PROPERTY,
         ),
         options=(
-            _flag("follow", "With a job: print its log, then each line it adds, until the job ends"),
+            _flag(
+                "follow",
+                "With a job: print its log, then each line it adds, until the job ends",
+                refused(FOLLOW_REFUSED),
+            ),
             _flag("save", "With a job: say where its log is kept on this computer"),
         ),
         rules=(),

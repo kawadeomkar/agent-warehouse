@@ -248,7 +248,8 @@ lib/claude_vm/cli/                aw, the program: the command line read against
                                   main.py, the entry tools/aw runs; parse.py, the words read with argparse; habits.py,
                                   today's habits, deploy's question among them; before.py, RunWords, the run's own
                                   words; dispatch.py, a verb handed to its handler or refused; help.py, aw help's two
-                                  levels from the table; reference.py, the command reference's tables from it
+                                  levels from the table; reference.py, the command reference's tables from it;
+                                  mcp_backend.py, the agents' tools' schemas and command lines, from the table
 lib/claude_vm/engine/             the workflows, one module a verb, in place of the playbooks; record.py, a VM's record,
                                   typed, read from its notes and written there under Proxmox's digest; certificate.py,
                                   the API's certificate worked out with no credential: an anchor where the computer's

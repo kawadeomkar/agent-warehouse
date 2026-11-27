@@ -594,6 +594,34 @@ and each secret set, and the refusals; `tests/unit/test_aw_status_hosts.py` hold
 its own API, token and settings; `tests/unit/test_aw_status_live.py` runs `aw status --json` against the fake beside
 `tools/status --json`, and a Ctrl-C while `read_fleet` waits on a probe and on the API's answers.
 
+**The agents' tools: `cli/mcp_backend.py`.** The new backend of the agents' server, beside today's
+`lib/claude_vm/mcp/recipes.py` ([§7.12](custom-code.md#712-libclaude_vmmcp--the-mcp-server)), which stays until the
+cutover: it is no module of `mcp/`, since nothing of today's imports the new side (16.1). `tools()` lists the sixteen
+tools: one for each tool the table's column `tools` names (`settings` and `settings_set` both run `settings`, `hosts`
+runs `host`), and the server's own reads of the state folder's jobs, `log`, `jobs` and `job`, which run no verb. A
+tool's schema is a small function of its verb's row (16.2): one flat object, `additionalProperties` false, a property
+for each option and the verb's words whose fate for that tool is `property`, with exact JSON types (a string, a
+boolean, a list of strings for several words), the table's pattern as `^(?:<text>)$`, since a JSON Schema pattern is not
+anchored, and the table's help said through `said` with its form as the description; a word the verb needs (`code`'s,
+`release`'s) is required, and a tool whose verb's run is a job has the server's own `wait_seconds` beside them. The
+module holds no fate, reason or tool's name of its own: a fate the table does not write for a tool raises `Unfated`,
+naming the verb, the word and the tool. `command(tool, arguments, given)` is the command line a call runs, the
+printer's `argv` with `refused` false, so `settings_set`'s value reaches the run: each value one argument word, never
+through a shell; each fixed value the table writes (`--json`, `init --no-prompt`, `--detach` on every verb whose run
+is a job), and in `given` those the server works out for each call (`--confirm`'s names, `--attended`), the only words
+before the verb, since `aw` reads its settings from the fleet's files. A call is refused with `Refused`, before any
+child starts and in a sentence for the agent: an argument the tool does not take, with the table's reason (`--set`,
+`-v`, `--adopt`, `logs --follow`, which would wait until the job ends, and the rest); a verb's word that starts with
+`-`, which `aw` would read as an option, while an option's value that does is written `--long=value`, one word; then
+what the one check refuses, its rules among them, so that the printer's words that the program is at fault are never
+said of an agent's value; and last a line the printer will not write, its `Unwritten` said as the refusal. It imports
+`schema/` and the standard library alone. `tests/unit/test_aw_mcp_tools.py` carries `test_mcp_tools.py`'s holds against
+the table: every verb a tool or a reason, every option and word one fate for each tool that runs it, one added with
+no fate failing by name, every verb whose run is a job started detached; each word a tool does not take tried and
+refused with no child started; a value with a space one word, a word with a leading `-` refused; the schemas valid,
+exactly typed and anchored; the descriptions the table's; the check before the printer; and a scan that no fate is
+written in the module.
+
 ## 16.4 `engine/` — the workflows, one module a verb
 
 `lib/claude_vm/engine/` is where the workflows go, one module a verb. Each says what a run of `deploy`, `destroy`,
