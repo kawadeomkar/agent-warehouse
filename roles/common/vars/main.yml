@@ -30,6 +30,13 @@ common_cloud_init_user_cfg: /etc/cloud/cloud.cfg.d/99-agent-warehouse-user.cfg
 # same key.
 common_ssh_key_pattern: '(?:^|\s)((?:ssh|ecdsa|sk)-\S+)\s+(AAAA[0-9A-Za-z+/]+=*)(?:\s|\Z)'
 
+# The options in front of a key on an authorized_keys line, as sshd skips
+# them: one word to the first blank outside double quotes, where a backslash
+# escapes a double quote alone, inside quotes and out. keys.yml's patterns put
+# a listed key after at most this and a blank, where sshd reads a line's key,
+# so a line of another key whose option or comment names it is not its line.
+common_ssh_key_options: '(?:\\"|\\(?!")|[^ \t"\n\\]|"(?:\\"|\\(?!")|[^"\n\\])*")+'
+
 # What keys.yml refuses in an item, a line break and a line commented out, and
 # the backslash it doubles in a replacement: here, in YAML's single quotes, so
 # that each reaches Python's re as written, never through a Jinja string.

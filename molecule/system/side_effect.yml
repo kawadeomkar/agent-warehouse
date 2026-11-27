@@ -1,22 +1,31 @@
 ---
 # The person's keys, after the idempotence stage (lib/claude_vm/guest/keys.py; docs/architecture/testing.md §11.3):
-# two keys vm_ssh_public_keys does not list put on the account, and the first commented out too; the system play
-# converged again, which keeps them and changes nothing, since the list only adds; the file made 0640; then
-# remove_key.py takes the first off as deploy --remove-key does, and every other line, the mode and the listed key
-# stay.
-- name: Put two keys the list does not name on the account
+# keys vm_ssh_public_keys does not list put on the account - two keys, the first commented out too, and two lines of
+# the second whose comment or forced command names the listed key - then the system play converged again, which keeps
+# every one and changes nothing, since the list only adds and finds a key where sshd reads a line's key; the file made
+# 0640; then remove_key.py takes the first off as deploy --remove-key does, and every other line, the mode and the
+# listed key stay.
+- name: Put keys the list does not name on the account
   hosts: all
   become: true
-  vars:
-    system_side_effect_keys:
-      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAII+WnaSrsrnAx87V3OPq8fj/Bg0UGyIpMDc+RUxTWmFo gone@side-effect
-      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJyjqrG4v8bN1Nvi6fD3/gUMExohKC82PURLUllgZ251 kept@side-effect
-      - "# ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAII+WnaSrsrnAx87V3OPq8fj/Bg0UGyIpMDc+RUxTWmFo gone@side-effect"
   tasks:
     - name: Look up the user's home
       ansible.builtin.getent:
         database: passwd
         key: dev
+
+    - name: Name the keys the side effect puts there
+      ansible.builtin.set_fact:
+        system_side_effect_keys:
+          - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAII+WnaSrsrnAx87V3OPq8fj/Bg0UGyIpMDc+RUxTWmFo gone@side-effect
+          - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJyjqrG4v8bN1Nvi6fD3/gUMExohKC82PURLUllgZ251 kept@side-effect
+          - "# ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAII+WnaSrsrnAx87V3OPq8fj/Bg0UGyIpMDc+RUxTWmFo gone@side-effect"
+          - >-
+            ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJyjqrG4v8bN1Nvi6fD3/gUMExohKC82PURLUllgZ251 names
+            ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMoleculeTestKeyDoNotUse0000000000000000000
+          - >-
+            command="echo ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMoleculeTestKeyDoNotUse0000000000000000000 x"
+            ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJyjqrG4v8bN1Nvi6fD3/gUMExohKC82PURLUllgZ251 forced
 
     - name: Add the keys after the listed one
       ansible.builtin.lineinfile:
@@ -54,17 +63,11 @@
         src: "{{ ansible_facts.getent_passwd.dev[4] }}/.ssh/authorized_keys"
       register: system_side_effect_before
 
-    - name: Assert the converge kept the keys the list does not name
+    - name: Assert the converge kept every key the list does not name
       ansible.builtin.assert:
         that:
-          - (system_side_effect_before.content | b64decode).splitlines()[-3:] == system_side_effect_keys
-          - (system_side_effect_before.content | b64decode).splitlines() | length == 4
+          - (system_side_effect_before.content | b64decode).splitlines()[1:] == system_side_effect_keys
         quiet: true
-      vars:
-        system_side_effect_keys:
-          - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAII+WnaSrsrnAx87V3OPq8fj/Bg0UGyIpMDc+RUxTWmFo gone@side-effect
-          - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJyjqrG4v8bN1Nvi6fD3/gUMExohKC82PURLUllgZ251 kept@side-effect
-          - "# ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAII+WnaSrsrnAx87V3OPq8fj/Bg0UGyIpMDc+RUxTWmFo gone@side-effect"
 
     - name: Make the keys file 0640
       ansible.builtin.file:
@@ -108,12 +111,11 @@
     - name: Assert the key alone was taken off, and every other line and the mode kept
       ansible.builtin.assert:
         that:
-          - (system_side_effect_after.content | b64decode).splitlines() == [system_side_effect_listed] + system_side_effect_left
+          - system_side_effect_after_lines[0] is search('molecule@test')
+          - system_side_effect_after_lines == system_side_effect_before_lines[:1] + system_side_effect_keys[1:]
           - system_side_effect_file.stat.mode == '0640'
           - system_side_effect_file.stat.pw_name == 'dev'
         quiet: true
       vars:
-        system_side_effect_listed: "{{ (system_side_effect_before.content | b64decode).splitlines() | first }}"
-        system_side_effect_left:
-          - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJyjqrG4v8bN1Nvi6fD3/gUMExohKC82PURLUllgZ251 kept@side-effect
-          - "# ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAII+WnaSrsrnAx87V3OPq8fj/Bg0UGyIpMDc+RUxTWmFo gone@side-effect"
+        system_side_effect_before_lines: "{{ (system_side_effect_before.content | b64decode).splitlines() }}"
+        system_side_effect_after_lines: "{{ (system_side_effect_after.content | b64decode).splitlines() }}"

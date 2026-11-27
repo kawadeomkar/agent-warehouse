@@ -52,8 +52,11 @@
 # whatever options or comment it had: sshd applies the first line of a key it
 # finds, so none may keep options of its own in front of the listed one. A
 # line commented out is left as it is. No line is taken away, and none but a
-# line of a listed key changes. The pattern matches within one line: [ \t],
-# never \s, which would reach over a line's end.
+# line of a listed key changes: the key where sshd reads a line's key, at its
+# start or after one word of options (common_ssh_key_options), so a line of
+# another key whose comment or forced command names it is kept. The pattern
+# matches within one line: [ \t], never \s, which would reach over a line's
+# end.
 - name: keys | Make every line of a listed key its listed form
   ansible.builtin.replace:
     path: "~{{ common_user }}/.ssh/authorized_keys"
@@ -73,7 +76,7 @@
     # The key's type and base64, the pattern's two groups.
     common_key_parts: "{{ item | regex_findall(common_ssh_key_pattern) | first }}"
     common_key_line: >-
-      (?![ \t]*#)(?:.*[ \t])?{{ common_key_parts[0] | regex_escape }}[ \t]+{{ common_key_parts[1] | regex_escape }}(?:[ \t].*)?$
+      [ \t]*(?!#)(?:{{ common_ssh_key_options }}[ \t]+)?{{ common_key_parts[0] | regex_escape }}[ \t]+{{ common_key_parts[1] | regex_escape }}(?:[ \t].*)?$
 
 # Then a key with no line is added at the end, and the file made 0600.
 - name: keys | Authorise each SSH key
@@ -92,4 +95,4 @@
   vars:
     common_key_parts: "{{ item | regex_findall(common_ssh_key_pattern) | first }}"
     common_key_line: >-
-      (?![ \t]*#)(?:.*[ \t])?{{ common_key_parts[0] | regex_escape }}[ \t]+{{ common_key_parts[1] | regex_escape }}(?:[ \t].*)?$
+      [ \t]*(?!#)(?:{{ common_ssh_key_options }}[ \t]+)?{{ common_key_parts[0] | regex_escape }}[ \t]+{{ common_key_parts[1] | regex_escape }}(?:[ \t].*)?$

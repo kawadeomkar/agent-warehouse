@@ -654,6 +654,13 @@ def argv(target: Target, command: Sequence[str]) -> list[str]:
     return [target.ssh, *options(target), *_place(target), _command(command)]
 
 
+def shown_argv(target: Target) -> list[str]:
+    """ssh -G with target's whole line - ssh, its options (options), the account, the port, -- and the address - and no
+    command: what this computer's ssh would use for target, the person's own ~/.ssh/config read as a connection reads
+    it. It dials nothing."""
+    return [target.ssh, "-G", *options(target), *_place(target)]
+
+
 def _far_end(seconds: object) -> list[str]:
     """What a forward runs at its far end: sleep for seconds, rounded up, so that the local end, ended at seconds, ends
     it first, and the far end ends it where nothing here can."""
@@ -723,6 +730,8 @@ class Limits:
 # Today's: a line of 16 MiB, 45 s in all, 20 s to say a first word, 64 KiB of standard error (status/reach.py's), and
 # four of the longest lines in all.
 LIMITS = Limits()
+# ssh -G's: it reads the configuration and dials nothing, though a person's Match exec may take a few seconds.
+SHOWN = Limits(seconds=20.0, silent=None)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -960,9 +969,25 @@ async def run(
     of its own with env and the job's marker, entered in the run's registry as an ssh child; started(process) called;
     stdin written, drained and closed; its standard output read a line at a time; on a breach its group killed. Every
     value is held before anything starts."""
+    return await _ran(job, argv(target, command), stdin, limits, env, started)
+
+
+async def shown(job: Job, target: Target, env: Mapping[str, str]) -> Result:
+    """What this computer's ssh resolves for target (shown_argv), run as run runs a command, under SHOWN: a Done whose
+    lines are ssh's own `name value` lines, or how it failed."""
+    return await _ran(job, shown_argv(target), None, SHOWN, env)
+
+
+async def _ran(
+    job: Job,
+    words: list[str],
+    stdin: Input,
+    limits: Limits,
+    env: Mapping[str, str],
+    started: Callable[[Process], None] | None = None,
+) -> Result:
     import asyncio
 
-    words = argv(target, command)
     _input(stdin)
     if not isinstance(limits, Limits):
         raise Refused("limits is a Limits")
