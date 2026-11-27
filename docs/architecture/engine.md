@@ -4006,7 +4006,8 @@ confirmation is the verb's own, not `engine/confirm.py`'s. `tests/unit/test_aw_h
 and never installed there, and the inputs of the system layer, which Ansible converges as a child with built-in modules
 only, and layer 2, the rest of the work, in plain code. It imports `ssh/`, `schema/`, `fleet/` and `runs/` (the one
 starter of a child, and the run's directory), and of `vendors/` the verified downloads, the vendored keys, the proxy's
-choice and the trust's refusal, which layer 2's install of Claude Code reads its release by; nothing of `engine/`, `cli/` or `control/`, and no pydantic. A plugin
+choice and the trust's refusal, which layer 2's install of Claude Code reads its release by, and the one transport,
+which layer 2's clones read GitHub's published SSH host keys by; nothing of `engine/`, `cli/` or `control/`, and no pydantic. A plugin
 of that Ansible child is the one code of the new engine that imports `ansible`. It lives under `guest/ansible/`, where
 the child's own configuration names it.
 
@@ -4023,9 +4024,12 @@ that. What comes before the mark's line, a password's line that `sudo -S` was ha
 dropped, never executed or said back: the mark's line is the whole of a line, and such a line holds a newline only at
 its end. What comes after the script is the verb's own standard input, which it reads on from where the bootstrap
 stopped (`sys.stdin.buffer`), never compiled with the script; no whole script is one line on standard error and exit
-status 2, nothing executed. Its one verb is `probe`, today's status probe unchanged, with its fixed list of reads; a
-verb it does not know, a word too many or an ask that is not a JSON object is one line on standard error and exit status
-2, nothing run. The sources are read by `sources()` alone, the one function of `lib/claude_vm/` outside `status/` that
+status 2, nothing executed. Its verbs are `probe`, today's status probe unchanged, with its fixed list of reads, and
+`clones` (`lib/claude_vm/guest/helper/clones.py`), the checkouts' writer of layer 2's clones, below; each script packs
+its own verb's sources alone (`sources(verb)`, `OWN` naming a verb of the helper's own files), so that the probe's,
+which `just status`'s rule holds to reads, carries no writer, and a verb whose module the script does not carry is
+refused. A verb it does not know, a word too many or an ask that is not a JSON object is one line on standard error and
+exit status 2, nothing run. The sources are read by `sources()` alone, the one function of `lib/claude_vm/` outside `status/` that
 names `playbooks/module_utils/`: the probe's three files stay there until the cutover, since today's Ansible modules
 import them as `module_utils`, and `sources()` finds them from the package's own place, two folders below the checkout's
 top, never the working directory. A release is a checkout of a signed tag, so it holds the same files; the cutover moves
@@ -4514,6 +4518,35 @@ sentences. The token joins the run's redaction list before anything is read, and
 difference carries it. `tests/unit/test_aw_github_credential.py` carries `test_github_auth.py`'s cases of the sign-in
 against `tests/molecule/fake_gh.sh` on stand-in machines, greps every event, file of the run and call of the stand-in
 `ssh` for every canned token, and holds that no sign-out is decided from a token's prefix.
+
+**The listing and the clones.** `lib/claude_vm/guest/layer2/clones.py`'s step `clones` is today's
+`roles/github_projects/tasks/clone.yml` and the two modules it runs, `github_repos.py` and `git_clone_many.py`, in plain
+code; the modules stay in the role until the cutover. The listing runs on the machine, where the token is: `LISTING`, a
+program for the machine's `python3` of the standard library alone, started with the store's token on its standard input
+where one is held, else with the token gh stored there, which `gh auth token` pipes into it on the machine, so that gh's
+token never leaves the machine and this computer makes no call to GitHub with one. It asks GitHub's API as
+`github_repos.py` did (the token's own account first; the account's every repository where the token is its, else its
+public ones; a next link followed only to the API's own scheme and host; no redirect followed; a token over plain http to
+loopback alone), and prints a line a repository, then the count, the account and whether a token listed. The selection
+is in the engine: `filter_repos`, `github_repos.py`'s copied whole (a test hands both the same listings), then
+`select`, the role's `vars/main.yml`: forks and archived ones out but where the machine's own list names them, empty
+ones out, a name with a leading dot never cloned and named, the exclude list out, and in, the machine's own list where
+its record keeps one (it replaces `github_projects`, and a name is only compared with the listing), else
+`github_projects`, else every one. A private repository is cloned only where git has a credential for it, over ssh,
+or over https with gh signed in and gh git's helper (made so by this run under `github_auth`, or by hand), never keyed
+off `github_auth` alone; otherwise it is skipped and named. The git identity is read first, each key on its own, and
+only under `github_auth`: a value of `git_user_name` or `git_user_email` is written; else the account's name and
+GitHub's noreply address, where the key is unset, so one set by hand stays; an organisation gives none, which NEXT
+STEPS' `github_identity` says. The checkouts are the helper's verb `clones`, run as the account: asked first to change
+nothing, the probe's and the check's read, then to make each missing clone in a partial folder renamed into place once
+whole, and under `github_projects_update_existing` to pull a checkout that was there by a fast-forward alone, one with
+local changes named and left. Nothing removes a checkout. Over ssh, GitHub's published SSH host keys (the API's `/meta`,
+which takes no token) are read on this computer by the one transport, and the verb puts them in the account's
+`known_hosts`, replacing a stale line of github.com's. A repository not cloned or a checkout not pulled fails the step,
+each named with git's last line, the rest cloned. The token joins the run's redaction list before anything is read
+(`github.wanted`). `tests/unit/test_aw_clones.py` carries the cases of `test_github_repos.py`,
+`test_git_clone_many.py` and `test_vm_repos.py` against `tests/molecule/fake_github_api.py`, local bare repositories
+and stand-in machines, and holds that the copy chooses what today's module chooses.
 
 **A person's keys.** The keys a machine accepts are the person's own, `vm_ssh_public_keys`, and layer 1 alone adds them:
 `common`'s keys tasks (`roles/common/tasks/keys.yml`) put each listed key on the account, every line of it made the

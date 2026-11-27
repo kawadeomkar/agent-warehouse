@@ -7,6 +7,11 @@ it is imported by, so a verb's module is taken from sys.modules, never from the 
 
 - probe: today's status probe (playbooks/module_utils/status_probe.py), unchanged, given what it is asked for: one JSON
   document a line on standard output, every program it runs one of its fixed list of reads.
+- clones: the checkouts of the projects folder cloned where missing and pulled where asked, GitHub's host keys in
+  known_hosts (clones.py), run as the machine's account: one JSON document.
+
+The script packs the sources of the verb it carries alone (guest/bundle.py's sources), so a verb's module is defined
+only in the script made for it.
 
 A verb that is not one of these, words a verb does not take, or what it is asked not being what it reads, is one line
 on standard error and exit status 2, with nothing run.
@@ -18,7 +23,7 @@ import json
 import sys
 
 # Each verb, by the module the script defines for it, whose main(asked) runs it.
-VERBS = {"probe": "ansible.module_utils.status_probe"}
+VERBS = {"probe": "ansible.module_utils.status_probe", "clones": "clones"}
 # The exit status of a verb not run: it, its words or what it was asked are not what it takes.
 REFUSED = 2
 
@@ -41,5 +46,7 @@ def main(entry, asked):
         return _refused(f"{verb} takes no words")
     if not isinstance(asked, dict):
         return _refused(f"{verb} is asked for a JSON object")
+    if VERBS[verb] not in sys.modules:
+        return _refused(f"{verb} is not carried by this script")
     sys.modules[VERBS[verb]].main(asked)
     return 0
