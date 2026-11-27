@@ -1444,8 +1444,9 @@ times; a text that changes nothing is not written. Then the `Include` of the man
 there before the file's first `Host` or `Match` line (an `Include` below one is read for that block's hosts alone, so
 there `ssh` is asked), or where a line names the file in a spelling `ssh` reads (its path, `~/`, `${HOME}/`, its bare
 name) and `ssh -G` through that config gives the alias just written; otherwise the one line put above the rest, ending
-as the file's first line does, the rest byte for byte (both files are read with their line endings as they are, so a
-CRLF file stays one) and the file's mode kept, never another line rewritten or removed. Every `ssh -G` is
+as the file's first line does, the rest byte for byte (the person's file is read with its line endings as they are, so
+a CRLF file stays one; the managed file with universal newlines, so a CRLF copy's blocks are found and it is written
+back as LF) and the file's mode kept, never another line rewritten or removed. Every `ssh -G` is
 `ssh/resolved.py`'s, a child of the run's of the ssh kind, its group ended past `LIMIT` seconds. Through the Proxmox
 host an alias gains `ProxyJump` (`Route.proxy_jump`) only once `Route.targets` returned for its VM, and only where that
 `Target` takes the hop: a VM with a jump of its own keeps its own, a `ProxyJump` or `ProxyCommand` in

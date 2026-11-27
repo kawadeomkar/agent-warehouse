@@ -384,6 +384,28 @@ def test_a_removal_takes_out_a_block_whatever_it_records(files) -> None:
     assert files.config.read_text() == ""
 
 
+def _crlf(files: Files) -> None:
+    """The managed file saved with CRLF, as a hand edit or a dotfiles sync might leave it."""
+    files.config.write_bytes(files.config.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+
+
+def test_a_crlf_managed_file_s_blocks_are_found_by_a_write_a_removal_and_destroy(job, files, ssh, home) -> None:
+    _write(job, files, [ALPHA, BETA], _rules(ssh, home))
+    _crlf(files)
+    # A new address rewrites alpha's block in its place: one block of each name, and ssh takes the new address.
+    _write(job, files, [Alias("alpha", "192.0.2.98", "dev", IDENTITY)], _rules(ssh, home))
+    managed = files.config.read_text()
+    assert _blocks(managed) == ["alpha", "beta"] and "192.0.2.51" not in managed
+    assert b"\r" not in files.config.read_bytes()
+    assert _resolve(ssh, home, files.config)["hostname"] == "192.0.2.98"
+    _crlf(files)
+    assert asyncio.run(engine_aliases.remove(files, ["beta"])) == ("beta",)
+    assert _blocks(files.config.read_text()) == ["alpha"]
+    _crlf(files)
+    assert _forget(home, ssh) == ("done", [])
+    assert _blocks(files.config.read_text()) == []
+
+
 # ---------------------------------------------------------------- the Include ----
 
 
@@ -734,6 +756,16 @@ def test_a_fleet_wide_refresh_prunes_this_host_s_blocks_of_vms_gone_and_never_an
     assert "Left alone, recorded for a host this fleet does not have: theirs (nuc)." in said
     # Read-only against Proxmox, and no key filed or touched: neither the product's file nor the person's own.
     assert not files.known_hosts.exists() and not (files.config.parent / "known_hosts").exists()
+
+
+def test_a_fleet_wide_refresh_of_a_crlf_managed_file_prunes_its_block_of_a_vm_gone(fake) -> None:
+    files = fake.files
+    _planted(files, "gone", "pve")
+    _crlf(files)
+    ran = _deploy(fake, "--set", "claude_ssh_config_include=false")
+    _ok(ran)
+    assert _blocks(files.config.read_text()) == ["alpha", "beta"]
+    assert "Pruned, no VM of that name exists any more: gone." in _said(ran)
 
 
 def test_a_refresh_that_names_vms_prunes_nothing_and_a_vm_the_fleet_does_not_own_is_refused_named(fake) -> None:
