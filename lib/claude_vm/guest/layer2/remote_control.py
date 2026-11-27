@@ -124,7 +124,7 @@ if [ ! -e "$1" ]; then echo absent; elif [ ! -d "$1" ]; then echo other
 elif [ -n "$(find "$1" -prune -perm 0755)" ]; then echo "mode held"; else echo "mode other"; fi
 if [ -e "$1/.git" ]; then echo "git yes"; else echo "git no"; fi
 """
-MAKE_DIRECTORY = 'mkdir -p -- "$1" && chmod 0755 -- "$1"'
+MAKE_DIRECTORY = 'mkdir -p -- "$1" && chmod -- 0755 "$1"'
 # A unit's file written from standard input, $1 its path: into a file beside it, then renamed into place.
 INSTALL = """set -eu
 umask 022
