@@ -1,0 +1,32 @@
+---
+# What converge.yml cannot show: that a global npm package npm already has is
+# left as it is, whether the list names it alone or at the version it is at.
+# Converge installed cowsay, and its idempotence run installed nothing again;
+# here the node tasks run over cowsay by both names, and install neither. The
+# container is left as converge.yml made it, so verify.yml checks that state.
+- name: Side effect
+  hosts: all
+  become: true
+  tasks:
+    - name: Read what npm has installed globally
+      ansible.builtin.command:
+        argv: [npm, ls, -g, --depth=0, --json]
+      register: dev_tools_side_effect_listed
+      changed_when: false
+
+    - name: Run the node tasks over cowsay by its name and at the version it is at
+      ansible.builtin.include_role:
+        name: dev_tools
+        tasks_from: node
+      vars:
+        dev_tools_npm_global_packages:
+          - cowsay
+          - "cowsay@{{ (dev_tools_side_effect_listed.stdout | from_json).dependencies.cowsay.version }}"
+
+    - name: Assert npm installed neither
+      ansible.builtin.assert:
+        that:
+          - dev_tools_npm_installed.results == []
+          - not dev_tools_npm_installed.changed
+        fail_msg: "npm installed again what it had: {{ dev_tools_npm_installed.results | map(attribute='item') | list }}"
+        quiet: true

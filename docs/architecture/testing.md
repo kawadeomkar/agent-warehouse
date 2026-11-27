@@ -794,9 +794,17 @@ the role's, at the task named where one is, with a message that matches every pa
 runs the role over it, asserts the failure names the setting and the file, and removes the drop-in
 whatever happened: `AllowTcpForwarding no` sorted before the role's drop-in, `DisableForwarding yes`,
 and a `Match User dev` block sorted last that limits forwarding to the remote direction - the case a
-global `sshd -T` cannot see. Then it runs the role switched off and asserts both files are gone, and
+global `sshd -T` cannot see. Where `/proc/sys` is writable (the container is privileged, and the run
+is told that no virtualisation type is a container's) it runs the role with the watch limit one above
+the kernel's: the run writes the file and applies it; the kernel's own put back by hand stays through a
+second run, which writes and applies nothing; and the kernel's own is left whatever happened. Then it
+runs the role switched off and asserts both files are gone, and
 switched on again for verify, which reads the drop-in, the sysctl file and `sshd -T` (forwarding on,
 converge's keepalive values in effect).
+
+`dev_tools`' converge installs one global npm package, `cowsay`, which verify runs, and its
+idempotence run installs nothing again. The side effect runs the node tasks over it named alone and at
+the version npm lists, and asserts npm was asked to install neither.
 
 `tailscale`'s scenario runs two VMs - one that never had Tailscale and one where it was installed and
 signed in by hand - with the real package and daemon, log upload off, and the stand-in `tailscale` in front
@@ -824,10 +832,16 @@ is. Converge starts the first and, with no port in the container, leaves the age
 effect finds it stopped, gives the role a stand-in for the port and runs its services again, and verify
 finds both running.
 
-Last, the side effect puts a line of the user's own into `/etc/tmux.conf` and runs the tmux tasks with
+The side effect then puts a line of the user's own into `/etc/tmux.conf` and runs the tmux tasks with
 `common_tmux_settings: []`, which takes the block out and leaves that line alone, then as converge ran them.
 Verify finds the block back beside the user's line, the file still 0644, and a tmux of its own loading the
 file with no error and each setting in effect, the user's among them.
+
+Last, the side effect adds the person's keys over a keys file that holds more, through a `~/.ssh` that is a link
+to a folder of the user's open to all: the line of the listed key with options in front and another comment
+becomes the listed form, the line of a key not on the list is kept, and the folder the link names is made
+0700 and the file 0600, the user's. A listed key that is no public key is refused. Then `~/.ssh` is put
+back as converge left it, for verify to find the listed key there.
 
 `proxmox_vm`'s scenario is the interesting one: it runs against the fake PVE API and asserts the VMID
 came from Proxmox (9001, the next free one) and that the address came from the VM's own NIC —
