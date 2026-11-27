@@ -405,7 +405,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       the project's playbooks through an overlay against two fake Proxmox hosts with different secrets; the
       `provision` scenario's `second_host.yml` provisions, aliases and destroys a VM through one.
     - The new engine's hosts are `fleet/hosts/<name>/`, read by `lib/claude_vm/fleet/hosts.py`; `host.yml` and its
-      anchor are written by `hosts.write` alone and hold no field of one computer's (`test_aw_fleet_hosts.py`,
+      anchor hold no field of one computer's (`tests/unit/test_aw_fleet_hosts.py`) and are written by `hosts.write`
+      alone (`tests/unit/test_aw_fleet_host_writer.py`,
       [§16.9](docs/architecture/engine.md#169-fleet--the-fleets-files-the-settings-the-secrets-and-the-fleets-mark)).
 - **The project writes exactly four things outside the repo on the controller, and has VS Code's own CLI
   write a fifth, and Claude Code's own CLI a sixth.** Read [On the controller](docs/architecture/security-model.md#on-the-controller) and
@@ -527,7 +528,10 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       the route sets its own, its sockets in a directory of the test's.
     - The new engine settles a run's route once, in `lib/claude_vm/engine/routes.py` alone, over `route.py` as it
       stands, and nothing dials a machine past a hop that cannot be used (`tests/unit/test_aw_routes.py`,
-      [§16.4](docs/architecture/engine.md#164-engine--the-workflows-one-module-a-verb)).
+      [§16.4](docs/architecture/engine.md#164-engine--the-workflows-one-module-a-verb)). The shared masters' directory
+      is refused as `Unsafe` where it is a link, another account's, or writable by its group or others, and the hop's
+      own `ssh` pins `ForwardX11=no`, `PermitLocalCommand=no` and `ClearAllForwardings=yes` first
+      (`tests/unit/test_aw_ssh_connections.py`, [§16.6](docs/architecture/engine.md#166-ssh--the-runner-over-openssh)).
 - **`just code` writes in one directory of its own on the VM, the session copies, the rest of Claude Code it
   carries and one fast-forward aside, and never answers VS Code's, Zed's or Claude Code's security questions.** Read
   [§4.9](docs/architecture/lifecycle.md#49-playbookscodeyml),
@@ -660,10 +664,11 @@ if apt fails to resolve a mirror, that is the machine, not the change.
 - **Tests never read or write the developer's fleet folder.** Read
   [§16.9](docs/architecture/engine.md#169-fleet--the-fleets-files-the-settings-the-secrets-and-the-fleets-mark)
   first. Only `lib/claude_vm/fleet/paths.py` names a fleet's folders and `AGENT_WAREHOUSE_HOME`, and only it and
-  `fleet/vaultkey.py` the key file; outside `fleet/` nothing removes what reaches the key, and a change that removes
-  files holds the key byte for byte in its own test. The autouse `aw_home` (`tests/unit/conftest.py`, never
-  session-scoped) points every test's home into its own directory, and the session fails if a name `paths` owns
-  changed in a fleet folder of the developer's. `tests/unit/test_aw_fleet_paths.py` holds it.
+  `fleet/vaultkey.py` the key file, which a module reads only where `READ_THE_KEY` says why; a home is the installed
+  program's by the file system's identity (`paths.inside`), never its text; outside `fleet/` nothing removes what
+  reaches the key, and each change that removes files holds it byte for byte. The autouse `aw_home` (never
+  session-scoped) points every test's home into its own directory, and the session fails on a change to a fleet
+  folder of the developer's. `tests/unit/test_aw_fleet_paths.py` holds it.
 - **Tests never touch the login keychain, an engine test's own process is guarded as a run is, and a test reaches
   `tools/aw` only through its kit.** Read [§11.1](docs/architecture/testing.md#111-unit--just-test-unit) first.
     - `tests/unit/aw_kit.py`'s `engine_guard` holds every `engine` test: failing stand-ins first on `PATH` (the
@@ -696,8 +701,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       (`engine.choosing`) asks it under `Display`'s lock, reads stdin, never `/dev/tty`, and hands anything else to
       Ansible's own prompt; a hidden question never carries its answers.
     - The new engine asks each question through `lib/claude_vm/runs/ask.py`, one at a time, its default taken where
-      no terminal is the run's, never from `/dev/tty`, `getpass` or a thread, a hidden answer a `Secret`; a Ctrl-C or
-      a Ctrl-Z puts the terminal's settings back as found, the region's too (`tests/unit/test_aw_ask.py`,
+      no terminal is the run's, never from `/dev/tty`, `getpass` or a thread, a hidden answer a `Secret`; what was
+      typed and not read is thrown away, never left for the shell, and a Ctrl-C or a Ctrl-Z puts the terminal's
+      settings back as found, the region's too (`tests/unit/test_aw_ask.py`,
       [§16.8](docs/architecture/engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run)).
     - What the callbacks, engines and tools share is one package, `claude_vm` in `lib/`, imported, never loaded
       by path ([§7.10](docs/architecture/custom-code.md#710-libclaude_vm--the-controllers-python-as-one-package)),
@@ -934,11 +940,12 @@ if apt fails to resolve a mirror, that is the machine, not the change.
 - **Layer 1 is held to state modules, and reaches nothing of this computer.** Read
   [§16.10](docs/architecture/engine.md#1610-guest--the-helper-the-system-layers-inputs-layer-2) first.
     - Every task `playbooks/system.yml` reaches is a converging module of `ansible.builtin`, by ansible-core's own
-      routing table, or a command `REASONS` lists with its reason (changed with it); none sets an `ansible_` variable,
+      routing table, or a command `REASONS` lists with why, changed with it; none sets an `ansible_` variable,
       delegates, runs or writes here, asks this computer of a path, or looks up past `LOOKUPS`. A road the walk does not
-      follow raises `Unfollowed`: follow it in the walk, never pass it over (`tests/unit/test_aw_layer1_ratchet.py`).
-    - A filter a role calls goes in `lib/claude_vm/guest/ansible/filter_plugins/`, never today's `filter_plugins/`; the
-      play's opening tasks are `playbooks/configure.yml`'s, changed in both (`tests/unit/test_aw_layer1_play.py`).
+      follow raises `Unfollowed`: follow it, never pass it over (`tests/unit/test_aw_layer1_ratchet.py`).
+    - A role's filter goes in `lib/claude_vm/guest/ansible/filter_plugins/`, never today's `filter_plugins/`; the child
+      runs in the run's own directory (`test_aw_layer1.py`); the play opens with `playbooks/configure.yml`'s tasks,
+      changed in both, and reads the inventory by `ansible_inventory_sources` (`test_aw_layer1_play.py`).
 - **Every command line the new engine prints, and every command a sentence of it names, is the printer's.** Read
   [§16.2](docs/architecture/engine.md#162-schema--the-command-lines-patterns-and-its-table-of-verbs-and-options) and
   [§16.3](docs/architecture/engine.md#163-cli--the-aw-program) first.
@@ -984,13 +991,13 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       always `True`, a lock's descriptor is refused before a child starts, and nothing forks without an exec.
       `tests/unit/test_aw_children.py` holds it, with scans of the new engine's code.
 - **Every `ssh` the new engine starts carries `BatchMode=yes` and names the machine by its identity.** Read
-  [§16.6](docs/architecture/engine.md#166-ssh--the-runner-over-openssh) first.
-    - `lib/claude_vm/ssh/runner.py` builds every line from a `Target`, each value held first, the product's options
-      before the person's `vm_ssh_options`, which may name no key the product writes nor one of `UNDOING_OPTIONS`.
-      `accept-new` only for a first use, into a scratch file; a key is filed only by `lib/claude_vm/ssh/hostkeys.py`,
-      which takes no address and replaces nothing. A secret reaches a child only on its standard input. A 255 is
-      `Unreachable`: a caller whose command changes something reads the machine again before it tries again.
-      `tests/unit/test_aw_ssh_runner.py` and `tests/unit/test_aw_hostkeys.py` hold it.
+  [§16.6](docs/architecture/engine.md#166-ssh--the-runner-over-openssh) first. `lib/claude_vm/ssh/runner.py` builds
+  every line from a `Target`, each value held first, its options ahead of the person's `vm_ssh_options`, which give
+  `StrictHostKeyChecking` only as `yes` and none of `REFUSED_OPTIONS` (what the product writes, `GlobalKnownHostsFile`,
+  `KnownHostsCommand`) or `UNDOING_OPTIONS`. `accept-new` only for a first use, into a scratch file, and for the
+  Proxmox host, into the person's own `known_hosts`; a key is filed only by `lib/claude_vm/ssh/hostkeys.py`, by no
+  address, replacing nothing. A secret reaches a child on standard input alone, and after a 255 (`Unreachable`) a
+  command that changes something reads the machine again first (`test_aw_ssh_runner.py`, `test_aw_hostkeys.py`).
 
 ## Architecture, and why it looks like this
 
@@ -1017,9 +1024,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   the host (`add_host`), and the delete play forces `ansible_connection: local`. GitHub's release only signs gh
   out and revokes no token: revoking the one this project's device flow made ended every GitHub CLI sign-in of
   the account. Tailscale's device is deleted from the controller by the node's `Self.ID`, held to
-  `tailscale_node_id_pattern` before it goes into the API's path (the new engine holds it in
-  `lib/claude_vm/vendors/tailscale.py` alone, `NODE_ID` by `fullmatch`, which `tests/unit/test_aw_tailscale_api.py`
-  holds equal to the role's), and only when its name is the VM's or Tailscale's
+  `tailscale_node_id_pattern` before it goes into the API's path (the new engine's `NODE_ID`, by `fullmatch`:
+  [§16.7](docs/architecture/engine.md#167-vendors--one-https-transport-tailscales-calls-verified-downloads),
+  `tests/unit/test_aw_tailscale_api.py`), and only when its name is the VM's or Tailscale's
   `-<n>` of it that is not the name another VM joins as - one of the listing's, or the other hosts' aliases'
   (`tailscale_release_other_vms`), made from its name as `tailscale_hostname` is made from this VM's - and no other VM
   may join under the VM's own (`tailscale_sibling_labels`). The pre-check honours
