@@ -210,6 +210,9 @@ def _init(name: str) -> str:
 
 # The command that makes a host the current one, as a sentence names it.
 _HOST = Line("host", {"name": PLACEHOLDER})
+# The runs that write a VM's alias: a deploy, named by its verb alone, and an editor's opening of one VM.
+_DEPLOY = Line("deploy", host_flag="")
+_CODE = Line("code", {"name": PLACEHOLDER}, host_flag="")
 
 
 def _them(names: list[str]) -> str:
@@ -378,6 +381,12 @@ class Layout:
         self.environ = os.environ if environ is None else environ
         self.hosts_dir = paths.fleet_dir(home) / overrides.HOSTS
         self.hosts_rel = HOSTS_REL
+
+    @property
+    def writing_runs(self) -> str:
+        """The runs that write a VM's alias, as hosts/choose.py's warning of a name another host's alias records says
+        them: in the program's words."""
+        return said("{deploy}, {code}", {"deploy": _DEPLOY, "code": _CODE})
 
     # ------------------------------------------------------------------------------------------- reading ----
 

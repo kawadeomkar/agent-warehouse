@@ -3756,6 +3756,19 @@ or imports Ansible. `--json` prints today's keys (`target`, `changed_only`, `set
 today's, `home` added, and each row of `--all` its `section`, its group). `--value`, `--reset` and `edit` are refused
 naming card D10. `tests/unit/test_aw_settings_verb.py` holds it.
 
+**The host verb: `host_verb.py`.** `host` is `host`'s handler. The list and its JSON are today's `hosts/choose.py`'s
+`listing` and `where` over `hosts.py`'s layout, from the files alone, the JSON through `wire.to_wire` with today's keys;
+`--for` and `--host` beside `--json` say which host that run would reach, and `hosts/choose.py`'s warning of a name
+another host's alias records names the runs that would write it as the layout's `writing_runs`, in `aw`'s words. With a
+name it is no run and makes no job: where `runs/lock_sets.py`'s `locks_for` says `fleet`, it holds the fleet's lock
+through `runs/locks.py`'s `exclusive` for its one change, titled with the command as the printer writes it, so it is
+refused naming the run while any run lives, and a run is refused while it holds it. `host <name>` writes
+`client.yml`'s `current_host` through `hosts.make_current`. `host <name> --remove`, with no terminal refused before
+anything is read, refuses the fleet's one host and the current host, asks for the name to be typed and deletes the
+host's folder under the lock its `host.yml`'s writer takes; its VMs and their aliases stay, and so does its token in
+the vault, which the line it prints names (`aw vault --host <name>`; O16 item 18 waits on the owner). The typed
+confirmation is the verb's own, not `engine/confirm.py`'s. `tests/unit/test_aw_host_verb.py` holds it.
+
 ## 16.10 `guest/` — the helper, the system layer's inputs, layer 2
 
 `lib/claude_vm/guest/` is where what the engine does inside a machine goes: the helper, which is sent to the machine

@@ -862,7 +862,7 @@ _VERBS: tuple[Verb, ...] = (
             ),
         ),
         rules=("host.1", "host.2", "host.3", "check.names.1", "host.4"),
-        handler=None,
+        handler="fleet.host_verb:host",
         card="D12",
         locks="words",
         changes=False,
