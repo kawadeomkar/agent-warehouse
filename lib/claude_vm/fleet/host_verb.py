@@ -8,10 +8,11 @@ those names and that --host would reach. With a name, it is no run and makes no 
 exclusively for its one change, where runs/lock_sets.py's `locks_for` says `fleet`, through runs/locks.py's
 `exclusive`, so it is refused, naming the run, while any run of the fleet lives, and a run is refused while it holds
 the lock. `host <name>` writes client.yml's current_host (fleet/hosts.py's make_current). `host <name> --remove` asks
-for the host's name to be typed at a terminal, refuses with none, and deletes that host's folder, under the lock its
-host.yml's writer takes: never the current host's, nor the fleet's one host's. Its VMs stay on it and their aliases
-here, and its token stays in the vault, which the line it prints names (the owner's word waits at O16 item 18). This
-typed confirmation is this verb's own, as today's recipe's is.
+for the host's name to be typed at a terminal, refuses with none, asks before it takes the fleet's lock, so that no run
+is refused while the question waits, and once the name is typed makes its checks again under that lock and deletes that
+host's folder, under the lock its host.yml's writer takes: never the current host's, nor the fleet's one host's. Its VMs
+stay on it and their aliases here, and its token stays in the vault, which the line it prints names (the owner's word
+waits at O16 item 18). This typed confirmation is this verb's own, as today's recipe's is.
 
 Standard library, the hosts' layout, the locks and the printer of a command at import; the YAML reader through the
 layout.
@@ -133,19 +134,28 @@ def _current(layout: hosts.Layout) -> str:
     return found.name if found else ""
 
 
-def removal(layout: hosts.Layout, name: str) -> int:
-    """name's folder deleted once its name is typed at the terminal: never the current host's, nor the one host's."""
-    folder = layout.hosts_dir / name
+def _unremovable(layout: hosts.Layout, name: str) -> str | None:
+    """Why name's folder is not removed, or None: no such host, a link, the fleet's one host or the current host."""
     shown = f"{layout.hosts_rel}/{name}"
     if model.name_refusal(name) or name not in layout.folders():
-        return _refused(said(NO_SUCH, {"folder": shown, "hosts": _LIST}))
-    if os.path.islink(folder):
-        return _refused(said(LINKED, {"folder": shown}))
+        return said(NO_SUCH, {"folder": shown, "hosts": _LIST})
+    if os.path.islink(layout.hosts_dir / name):
+        return said(LINKED, {"folder": shown})
     if layout.folders() == [name]:
-        return _refused(said(ONLY, {"name": name}))
+        return said(ONLY, {"name": name})
     if _current(layout) == name:
-        return _refused(said(CURRENT, {"name": name, "switch": _SWITCH}))
-    print(said(ASK, {"folder": shown, "name": name}), end="", file=sys.stderr, flush=True)
+        return said(CURRENT, {"name": name, "switch": _SWITCH})
+    return None
+
+
+def asked(layout: hosts.Layout, name: str) -> int | None:
+    """None once name is typed at the terminal to delete its folder, else the exit status: refused where it is not to
+    be removed, or the name is mistyped; cancelled by an interrupt. Asked holding no lock, so that no run of the
+    fleet is refused while the question waits."""
+    refusal = _unremovable(layout, name)
+    if refusal is not None:
+        return _refused(refusal)
+    print(said(ASK, {"folder": f"{layout.hosts_rel}/{name}", "name": name}), end="", file=sys.stderr, flush=True)
     try:
         answer = sys.stdin.readline().rstrip("\n")
     except KeyboardInterrupt:
@@ -154,6 +164,17 @@ def removal(layout: hosts.Layout, name: str) -> int:
     if answer != name:
         print(NOT_DELETED, file=sys.stderr)
         return EXITS["refused"]
+    return None
+
+
+def removal(layout: hosts.Layout, name: str) -> int:
+    """name's folder deleted, under the fleet's lock, once asked has had its name typed: the checks made again first,
+    since the fleet may have changed while the question waited. Never the current host's, nor the one host's."""
+    folder = layout.hosts_dir / name
+    shown = f"{layout.hosts_rel}/{name}"
+    refusal = _unremovable(layout, name)
+    if refusal is not None:
+        return _refused(refusal)
     # Under the lock host.yml's one writer takes, so that no write of the host's is under way as its folder goes.
     try:
         with store.locked(folder / hosts.HOST_FILE):
@@ -186,6 +207,8 @@ def host(
         if lock_sets.locks_for("host", given) != lock_sets.FLEET:
             return listing(layout, json is True, _names(for_), host or "")
         assert name is not None
+        if removing and (status := asked(layout, name)) is not None:
+            return status
         typed = printer.line("host", {"name": name, "remove": removing}, refused=False)
         with locks.exclusive(paths.state(home), typed):
             return removal(layout, name) if removing else switch(home, layout, name)

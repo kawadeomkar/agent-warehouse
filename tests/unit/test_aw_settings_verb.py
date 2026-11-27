@@ -1,4 +1,4 @@
-"""aw settings's reads, from the settings table under the overrides, with no Ansible
+"""aw settings's reads, from the settings table under the overrides, with no Ansible, and its writes of one typed value
 (lib/claude_vm/fleet/settings_verb.py; docs/architecture/engine.md §16.9).
 
 The scenario of tests/unit/test_settings.py on the new files: two hosts, lab current and lab2, each with the settings
@@ -9,24 +9,46 @@ lists, as today's settings <role> does; a name, its value, its file and the line
 each name of today's documented settings with a row and each of the vault's, set or not set, and every key today's
 JSON promises; --changed; --host. No made-up secret is in anything any form prints. The vault is opened by --all alone,
 and once, and a vault it cannot open is one note. A run of tools/aw for each form starts no child, with stand-ins that
-refuse for ansible-playbook and ssh first on PATH. The writes are refused, naming the card that builds them.
+refuse for ansible-playbook and ssh first on PATH.
+
+The writes, each of the tests of test_settings.py that holds today's --value and --reset run against the new verb: a
+value takes its place in the file of its home and the same again changes nothing; a write waits while another writer
+holds the file; a secret, a name the vault holds and a value equal to a secret the vault holds are refused and the
+value never said, the last looked for in the text and again in the value YAML's escapes spell; an expression (a
+statement and a comment too, as tests/unit/test_init_local_setting.py holds for init's writes) and a control character
+are refused; what is not one setting for every machine is refused with today's sentence; a value set and then reset
+leaves the file as it was; --reset of a secret or of the host's address is refused; --host's file is the one changed.
+edit, with a stand-in editor that rewrites its file: no change writes nothing, one changed line is one write, a line
+taken out is a reset, and an expression or a secret in the document is refused by its line and the document offered
+again. No refusal says the value given back.
 """
 
 from __future__ import annotations
 
 import functools
+import io
 import json
 import shlex
+import sys
+import textwrap
+import threading
 from pathlib import Path
 
 import pytest
+import yaml
 from aw_kit import run_aw
 from fleet_fixture import pinned
 from harness import REPO
 from test_aw_fleet_registry_today import EXAMPLE, NO_ROW
-from test_settings import PROMISED_KEYS, PROMISED_ROW_KEYS, PROMISED_SETTING_ROW_KEYS
+from test_settings import (
+    PROMISED_KEYS,
+    PROMISED_RESET_KEYS,
+    PROMISED_ROW_KEYS,
+    PROMISED_SETTING_ROW_KEYS,
+    PROMISED_WRITE_KEYS,
+)
 
-from claude_vm import wiring
+from claude_vm import store, wiring
 from claude_vm.fleet import (
     hosts,
     overrides,
@@ -267,20 +289,6 @@ def test_a_fleet_with_no_host_yet_is_read_for_none(capsys) -> None:
     assert (row["value"], row["evaluated_as"]) == (registry.row("vm_cores").default, None)
 
 
-@pytest.mark.parametrize(
-    "values",
-    [{"name": "vm_cores", "value": "8"}, {"name": "vm_cores", "reset": True}, {"name": "edit"}],
-    ids=["--value", "--reset", "edit"],
-)
-def test_a_write_is_refused_naming_its_card(capsys, values) -> None:
-    where = _fleet()
-    before = overrides.read(where, "lab")
-    status, out, err = _show(capsys, **values)
-    assert status == EXITS["refused"] and out == ""
-    assert err.startswith("error: ") and "D10" in err
-    assert overrides.read(where, "lab") == before
-
-
 def test_an_unknown_name_is_refused_never_said_back(capsys) -> None:
     _fleet()
     status, out, err = _show(capsys, name=GITHUB.replace("_", "x"))
@@ -317,3 +325,453 @@ def test_a_run_of_aw_settings_starts_no_child(home, tmp_path, words) -> None:
     assert not ran.exists(), ran.read_text()
     assert not [secret for secret in SECRETS if secret in result.stdout + result.stderr]
     assert "\x1b[" not in result.stdout
+
+
+# ---------------------------------------------------------------------------------------------- the writes ----
+
+# What a person typed after --value, in a refusal's place: never said back.
+TYPED = "typed-on-the-command-line-0000"
+# Words given as a name and as a value, which no refusal says back.
+GIVEN_NAME = "zq_given_words_7731"
+GIVEN = "zq-given-words-7731"
+
+
+def _settings(capsys, **values) -> tuple[int, str, str]:
+    """The handler, as the dispatch calls it with what the parser hands it; no made-up secret in what it printed."""
+    status = settings_verb.settings(None, **values)
+    out, err = capsys.readouterr()
+    assert not [secret for secret in SECRETS if secret in out + err], "a made-up secret was printed"
+    return status, out, err
+
+
+def _files(where: paths.Home) -> dict[str, bytes | None]:
+    """Every file of overrides of the scenario's, byte for byte, None where it is not there."""
+    found: dict[str, bytes | None] = {}
+    for host in (*HOSTS, None):
+        for path in overrides.files(where, host):
+            if path is not None:
+                found[str(path)] = path.read_bytes() if path.exists() else None
+    return found
+
+
+def _refused(capsys, where: paths.Home, says: str, **values) -> str:
+    """A write that refuses, saying says: nothing on standard output, every file as it was. Returns its error."""
+    before = _files(where)
+    status, out, err = _settings(capsys, **values)
+    assert status == EXITS["refused"] and out == "" and err.startswith("error: "), err
+    assert says in err, err
+    assert _files(where) == before
+    return err
+
+
+def _fleet_file(where: paths.Home) -> Path:
+    return overrides.files(where, None)[0]
+
+
+def _host_file(where: paths.Home, host: str) -> Path:
+    own = overrides.files(where, host)[1]
+    assert own is not None
+    return own
+
+
+def _literals(path: Path) -> dict:
+    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+
+def test_a_value_takes_its_place_in_its_home_and_the_same_again_changes_nothing(capsys) -> None:
+    where = _fleet()
+    status, out, err = _settings(capsys, name="vm_cores", value="6", json=True)
+    assert status == EXITS["done"], err
+    report = json.loads(out)
+    assert PROMISED_WRITE_KEYS <= set(report), sorted(PROMISED_WRITE_KEYS - set(report))
+    assert report["wrote"]["wrote"] == "vm_cores: 6" and report["now"]["value"] == 6
+    assert any("a VM gets it when it is created" in note for note in report["notes"]), report["notes"]
+    assert _literals(_fleet_file(where))["vm_cores"] == 6
+    before = _files(where)
+    status, out, _err = _settings(capsys, name="vm_cores", value="6")
+    assert status == EXITS["done"] and "sets it already: nothing was written" in out
+    assert _files(where) == before
+
+
+def test_a_write_says_what_applies_it(capsys) -> None:
+    _fleet()
+    _status, out, _err = _settings(capsys, name="tailscale_ssh", value="false", json=True)
+    notes = json.loads(out)["notes"]
+    assert any("configure" in note and "tailscale" in note and "applies it to every VM" in note for note in notes)
+    _status, out, _err = _settings(capsys, name="run_lock", value="fleet", json=True)
+    assert json.loads(out)["notes"] == [settings_verb.NEXT_RUN]
+
+
+def test_a_fleet_with_no_vault_yet_is_written(capsys) -> None:
+    where = _fleet(vault=False)
+    status, _out, err = _settings(capsys, name="vm_cores", value="6")
+    assert status == EXITS["done"], err
+    assert _literals(_fleet_file(where))["vm_cores"] == 6
+
+
+def test_a_write_waits_while_another_writer_holds_the_file_and_then_writes() -> None:
+    # Two writes at once each read the file and replace it: without the lock between them, one would be lost.
+    where = _fleet()
+    path = _fleet_file(where)
+    before = path.read_bytes()
+    done: list[int] = []
+    with store.locked(path):
+        writer = threading.Thread(target=lambda: done.append(settings_verb.settings(None, name="vm_cores", value="8")))
+        writer.start()
+        writer.join(timeout=3)
+        assert writer.is_alive() and path.read_bytes() == before, "it wrote while the lock was held"
+    writer.join(timeout=60)
+    assert done == [EXITS["done"]]
+    assert _literals(path)["vm_cores"] == 8
+
+
+@pytest.mark.parametrize("name", ["github_token", "vault_github_token", "token", "claude_code_settings"])
+def test_a_secret_is_refused_and_the_value_never_said(capsys, name) -> None:
+    err = _refused(capsys, _fleet(), "your shell's history keeps it", name=name, value=TYPED)
+    assert TYPED not in err
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "tailscale_auth_key",
+        "vault_tailscale_auth_key",
+        "github_projects_token",
+        "proxmox_vm_password",
+        "vault_vm_password",
+        "github_projects_username",
+        "claude_code_anthropic_api_key",
+        "vault_anything_at_all",
+    ],
+)
+def test_today_s_secrets_are_refused_and_the_value_never_said(capsys, name) -> None:
+    err = _refused(capsys, _fleet(), "", name=name, value=TYPED)
+    assert TYPED not in err
+    if name == "vault_anything_at_all":
+        assert name not in err and settings_verb.VAULT_NAMED in err
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("vm_default_name", GITHUB),
+        ("vm_default_name", f"x{TOKENS['lab2']}x"),
+        ("vm_cores", GITHUB),
+        ("tailscale_advertise_tags", '["\\x' + format(ord(GITHUB[0]), "02x") + GITHUB[1:] + '"]'),
+    ],
+    ids=["equal", "within", "before its type", "spelt with YAML's escapes"],
+)
+def test_a_value_that_holds_a_secret_the_vault_holds_is_refused_never_said(capsys, name, value) -> None:
+    err = _refused(capsys, _fleet(), "a secret the vault holds", name=name, value=value)
+    assert GITHUB[1:] not in err and TOKENS["lab2"] not in err
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "{{ lookup('pipe', 'id') }}",
+        "{% if true %}x{% endif %}",
+        "{# x #}",
+        "[\"\\x7b{ lookup('pipe', 'id') }}\"]",
+    ],
+    ids=["expression", "statement", "comment", "spelt with YAML's escapes"],
+)
+def test_a_value_that_opens_a_template_is_refused_whatever_its_form(capsys, value) -> None:
+    name = "tailscale_advertise_tags" if value.startswith("[") else "vm_default_name"
+    _refused(capsys, _fleet(), "never an expression", name=name, value=value)
+
+
+def test_a_control_character_is_refused(capsys) -> None:
+    _refused(capsys, _fleet(), "control character", name="vm_default_name", value="a\tb")
+
+
+@pytest.mark.parametrize(
+    ("name", "says"),
+    [
+        ("tailscale_hostname", "made from each machine's own name"),
+        ("proxmox_vm_force_update", "given for one run alone"),
+        ("proxmox_vm_cores", "set through vm_cores"),
+        ("tailscale_sign_in_follows", "set by a run"),
+        ("ansible_host", "the Proxmox host's address is a field of the host's own host.yml"),
+        ("vm_ssh_jump", "the hop's account"),
+        ("address", "is a field of the host's own host.yml"),
+        ("proxmox_api_module_defaults", "internal to the project"),
+    ],
+)
+def test_what_is_not_one_setting_for_every_machine_is_refused(capsys, name, says) -> None:
+    err = _refused(capsys, _fleet(), says, name=name, value="anything")
+    if says.endswith("host.yml"):
+        assert "hosts/lab/host.yml" in err
+
+
+def test_an_inline_vault_value_typed_is_refused(capsys) -> None:
+    _refused(capsys, _fleet(), "not YAML", name="tailscale_advertise_tags", value="[!vault x]")
+
+
+def test_a_file_the_reader_refuses_is_never_written_over(capsys) -> None:
+    where = _fleet()
+    path = _fleet_file(where)
+    path.write_text(path.read_text(encoding="utf-8") + "vm_user: !vault |\n  $ANSIBLE_VAULT;1.1;AES256\n", "utf-8")
+    _refused(capsys, where, "", name="vm_cores", value="8")
+
+
+def test_a_vault_that_cannot_be_opened_refuses_the_write(capsys) -> None:
+    where = _fleet()
+    paths.key_file(where).unlink()
+    _refused(capsys, where, settings_verb.VAULT_SHUT, name="vm_cores", value="8")
+
+
+def _option() -> str:
+    return next(each.name for each in passthrough.options() if each.refused is None and each.type == "bool")
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "host"),
+    [
+        ("vm_memory_mb", "8192", None),
+        ("proxmox_template_vmid", "9100", None),
+        ("proxmox_template_vmid", "9200", "lab2"),
+        ("run_lock", "fleet", None),
+        (None, "true", None),
+    ],
+    ids=["the fleet's", "the host's", "another host's", "this computer's", "an option passed through"],
+)
+def test_a_value_set_and_then_reset_leaves_the_file_as_it_was(capsys, name, value, host) -> None:
+    where = _fleet()
+    name = name or _option()
+    before = _files(where)
+    status, _out, err = _settings(capsys, name=name, value=value, host=host)
+    assert status == EXITS["done"], err
+    assert _files(where) != before
+    status, out, err = _settings(capsys, name=name, reset=True, host=host, json=True)
+    assert status == EXITS["done"], err
+    report = json.loads(out)
+    assert PROMISED_RESET_KEYS <= set(report) and report["reset"]["removed"] == [name]
+    assert _files(where) == before
+    _status, out, _err = _settings(capsys, name=name, reset=True, host=host)
+    assert "so it is at its default already: nothing was written" in " ".join(out.split())
+
+
+@pytest.mark.parametrize(
+    ("name", "says"),
+    [
+        ("ansible_host", "hosts/lab/host.yml"),
+        ("github_token", "vault github_token"),
+        ("vault_github_token", "vault github_token"),
+        ("claude_code_settings", "fleet/settings.yml"),
+        ("nonsense_name", "that is neither a group"),
+    ],
+)
+def test_reset_of_a_secret_or_the_host_s_address_is_refused(capsys, name, says) -> None:
+    _refused(capsys, _fleet(), says, name=name, reset=True)
+
+
+def test_host_s_own_file_is_the_one_changed_and_a_fleet_row_says_it_is_the_fleet_s(capsys) -> None:
+    where = _fleet()
+    lab, fleet = _host_file(where, "lab").read_bytes(), _fleet_file(where).read_bytes()
+    status, out, err = _settings(capsys, name="proxmox_storage", value="tank", host="lab2", json=True)
+    assert status == EXITS["done"], err
+    assert _literals(_host_file(where, "lab2"))["proxmox_storage"] == "tank"
+    assert _host_file(where, "lab").read_bytes() == lab and _fleet_file(where).read_bytes() == fleet
+    assert json.loads(out)["wrote"]["file"].endswith("hosts/lab2/settings.yml")
+    status, out, err = _settings(capsys, name="vm_cores", value="3", host="lab2")
+    assert status == EXITS["done"], err
+    assert "the fleet's, one value for every host" in out and _literals(_fleet_file(where))["vm_cores"] == 3
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"name": "github_token", "value": GIVEN},
+        {"name": "claude_code_settings", "value": GIVEN},
+        {"name": f"vault_{GIVEN_NAME}", "value": "x"},
+        {"name": GIVEN_NAME, "value": "x"},
+        {"name": GIVEN_NAME, "reset": True},
+        {"name": "vm_cores", "value": GIVEN},
+        {"name": "run_lock", "value": GIVEN},
+        {"name": "vm_default_name", "value": "{{ " + GIVEN + " }}"},
+        {"name": "vm_default_name", "value": GIVEN + "\t"},
+        {"name": "tailscale_advertise_tags", "value": "[" + GIVEN},
+        {"name": "tailscale_hostname", "value": GIVEN},
+        {"name": "ansible_host", "value": GIVEN},
+        {"name": "vm_default_name", "value": GITHUB + GIVEN},
+    ],
+    ids=[
+        "a secret",
+        "a row that may hold one",
+        "a vault_ name",
+        "an unknown name",
+        "an unknown name reset",
+        "a value its row does not take",
+        "a choice it is not",
+        "an expression",
+        "a control character",
+        "a list that is not YAML",
+        "not one setting",
+        "the host's address",
+        "a value of the vault's",
+    ],
+)
+def test_no_refusal_of_a_write_says_the_words_given_back(capsys, values) -> None:
+    err = _refused(capsys, _fleet(), "", **values)
+    assert GIVEN not in err and GIVEN_NAME not in err
+
+
+def test_no_setting_is_named_edit() -> None:
+    names = {
+        *(each.name for each in registry.rows()),
+        *(each.name for each in passthrough.options()),
+        *secrets.names(),
+        *registry.GROUPS,
+        *passthrough.described(),
+    }
+    assert settings_verb.EDIT not in names
+
+
+def test_the_roles_deploy_configures_are_configure_yml_s() -> None:
+    found: list[str] = []
+
+    def walk(tasks) -> None:
+        for task in tasks or []:
+            if isinstance(task, dict):
+                for key in ("ansible.builtin.import_role", "ansible.builtin.include_role"):
+                    if key in task:
+                        found.append(task[key]["name"])
+                for key in ("block", "rescue", "always"):
+                    walk(task.get(key))
+
+    for play in yaml.safe_load((REPO / "playbooks" / "configure.yml").read_text(encoding="utf-8")):
+        found.extend(each["role"] if isinstance(each, dict) else each for each in play.get("roles") or [])
+        for section in ("pre_tasks", "tasks", "post_tasks", "handlers"):
+            walk(play.get(section))
+    assert set(found) == set(settings_verb.CONFIGURED)
+
+
+# ------------------------------------------------------------------------------------------------- edit ----
+
+
+class _Terminal(io.StringIO):
+    """Standard input at a terminal, with what the person types."""
+
+    def isatty(self) -> bool:
+        return True
+
+
+def _editor(tmp_path: Path, monkeypatch, *runs: list[tuple[str, str]]) -> Path:
+    """A stand-in editor, as VISUAL names it: its nth run keeps what it was given in seen-<n>, then makes each change of
+    runs[n], (old, new), in the file, where old "" puts new first. Returns the file that counts its runs."""
+    plan = tmp_path / "editor.json"
+    plan.write_text(json.dumps([[list(change) for change in each] for each in runs]))
+    count = tmp_path / "editor-runs"
+    script = tmp_path / "editor.txt"
+    script.write_text(
+        textwrap.dedent(
+            f"""\
+            import json, sys
+            from pathlib import Path
+            count = Path({str(count)!r})
+            run = int(count.read_text()) if count.exists() else 0
+            count.write_text(str(run + 1))
+            path = Path(sys.argv[1])
+            text = path.read_text(encoding="utf-8")
+            (count.parent / f"seen-{{run}}").write_text(text, encoding="utf-8")
+            for old, new in json.loads(Path({str(plan)!r}).read_text())[run]:
+                assert not old or old in text, old
+                text = new + text if not old else text.replace(old, new, 1)
+            path.write_text(text, encoding="utf-8")
+            """
+        )
+    )
+    monkeypatch.setenv("VISUAL", f"{shlex.quote(sys.executable)} -I {shlex.quote(str(script))}")
+    return count
+
+
+def _written(monkeypatch) -> list[tuple[str, object]]:
+    """Each write of the overrides' a run makes, by name and value (None for a reset)."""
+    made: list[tuple[str, object]] = []
+    real_set, real_unset = overrides.set, overrides.unset
+
+    def counted_set(home, name, value, *args, **kwargs):
+        made.append((name, value))
+        return real_set(home, name, value, *args, **kwargs)
+
+    def counted_unset(home, name, *args, **kwargs):
+        made.append((name, None))
+        return real_unset(home, name, *args, **kwargs)
+
+    monkeypatch.setattr(overrides, "set", counted_set)
+    monkeypatch.setattr(overrides, "unset", counted_unset)
+    return made
+
+
+def test_edit_refuses_with_no_terminal(capsys, monkeypatch) -> None:
+    monkeypatch.setattr("sys.stdin", io.StringIO(""))
+    monkeypatch.setenv("VISUAL", "false")
+    _refused(capsys, _fleet(), "at a terminal", name="edit")
+
+
+@pytest.mark.parametrize("values", [{"json": True}, {"changed": True}], ids=["--json", "--changed"])
+def test_edit_takes_host_alone(capsys, values) -> None:
+    _refused(capsys, _fleet(), "it takes --host alone", name="edit", **values)
+
+
+def test_edit_with_no_change_writes_nothing_and_shows_no_secret(capsys, monkeypatch, tmp_path) -> None:
+    where = _fleet()
+    runs = _editor(tmp_path, monkeypatch, [])
+    monkeypatch.setattr("sys.stdin", _Terminal(""))
+    made = _written(monkeypatch)
+    before = _files(where)
+    status, out, err = _settings(capsys, name="edit")
+    assert status == EXITS["done"], err
+    assert settings_verb.UNCHANGED in out and made == [] and _files(where) == before and runs.read_text() == "1"
+    seen = (tmp_path / "seen-0").read_text(encoding="utf-8")
+    assert "\nvm_cores: 4\n" in seen and "\n# vm_memory_mb: 4096\n" in seen
+    assert not [secret for secret in SECRETS if secret in seen] and "\nclaude_code_settings:" not in seen
+
+
+def test_edit_writes_one_changed_line_as_one_write_and_a_line_taken_out_as_a_reset(
+    capsys, monkeypatch, tmp_path
+) -> None:
+    where = _fleet()
+    _editor(tmp_path, monkeypatch, [("\nvm_cores: 4\n", "\nvm_cores: 6\n"), ("\ntailscale_ssh: true\n", "\n")])
+    monkeypatch.setattr("sys.stdin", _Terminal(""))
+    made = _written(monkeypatch)
+    status, out, err = _settings(capsys, name="edit")
+    assert status == EXITS["done"], err
+    assert made == [("vm_cores", 6), ("tailscale_ssh", None)]
+    fleet = _literals(_fleet_file(where))
+    assert fleet["vm_cores"] == 6 and "tailscale_ssh" not in fleet
+    assert "wrote vm_cores: 6" in out and "reset tailscale_ssh" in out
+
+
+def test_an_expression_in_the_document_is_refused_by_its_line_and_the_document_offered_again(
+    capsys, monkeypatch, tmp_path
+) -> None:
+    _fleet()
+    expression = "{{ lookup('pipe', 'id') }}"
+    _editor(tmp_path, monkeypatch, [("", f"vm_default_name: {expression}\n")], [(expression, "dev-box")])
+    monkeypatch.setattr("sys.stdin", _Terminal("\n"))
+    made = _written(monkeypatch)
+    status, _out, err = _settings(capsys, name="edit")
+    assert status == EXITS["done"], err
+    assert "error: line 1: vm_default_name takes a value, never an expression" in err
+    assert made == [("vm_default_name", "dev-box")]
+
+
+def test_a_secret_in_the_document_is_refused_by_its_line_and_no_writes_nothing(capsys, monkeypatch, tmp_path) -> None:
+    where = _fleet()
+    _editor(tmp_path, monkeypatch, [("", f"vm_default_name: {GITHUB}\n"), ("\nvm_cores: 4\n", "\nvm_cores: 6\n")])
+    monkeypatch.setattr("sys.stdin", _Terminal("n\n"))
+    made = _written(monkeypatch)
+    err = _refused(capsys, where, "nothing was written", name="edit")
+    assert "error: line 1: that value is a secret the vault holds" in err
+    assert made == []
+
+
+def test_a_run_of_aw_settings_writes_and_edit_with_no_terminal_refuses(home) -> None:
+    where = _fleet()
+    result = run_aw("settings", "vm_cores", "--value=6", home=home)
+    assert result.returncode == EXITS["done"], result.stderr
+    assert _literals(_fleet_file(where))["vm_cores"] == 6
+    result = run_aw("settings", "edit", home=home)
+    assert result.returncode == EXITS["refused"] and "at a terminal" in result.stderr

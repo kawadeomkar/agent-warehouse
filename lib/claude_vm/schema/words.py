@@ -764,7 +764,7 @@ _VERBS: tuple[Verb, ...] = (
             ),
         ),
         rules=("settings.1", "settings.2", "settings.3", "settings.4", "settings.5"),
-        handler="fleet.settings_verb:show",
+        handler="fleet.settings_verb:settings",
         card="D9",
         locks="none",
         changes=False,

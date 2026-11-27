@@ -3527,7 +3527,8 @@ encoding, read back as meant before `store.replace` puts it in place, a new file
 through `files.py` at `paths.DIR_MODE`, a link where one goes refused. A write lays the whole file out anew, so it keeps
 no comment a person wrote in it (the owner's answer of 2026-11-22). A scratch file a write killed part way left beside
 the file, which would travel with `fleet/`, is taken out by the next write of that file, under its lock, before it
-reads (`files.sweep`). A file is opened once, with no link followed and no wait on a pipe, and read only where it is a
+reads (`files.sweep`), by the name `mkstemp` gives a scratch alone, so that a person's own `.settings.yml.<x>.tmp`
+stays; a scratch stays until that file's next write. A file is opened once, with no link followed and no wait on a pipe, and read only where it is a
 regular file: a link or a FIFO there is refused by its path. A file's integer is YAML 1.2's, its digits in decimal, as typed text's
 is (`WHOLE`): `0777` in a file is 777, as typed, where YAML 1.1 reads 511, and `0x10`, `1_000` or `1:30` is text,
 refused for a row of type `int` by its line; `set_current` writes
@@ -3771,8 +3772,9 @@ open a host the one way; `tests/unit/test_aw_ownership.py` holds that it imports
 Ansible, Jinja2 or the MCP SDK, and `tests/unit/test_aw_fleet.py` the refusal on each road, the repr and what the route
 is settled from.
 
-**The settings verb's reads: `settings_verb.py`.** `show` is `settings`'s handler, here and not in `engine/` so that a
-read imports no workflow. Alone it says how to use it and lists the groups (`registry.GROUPS` and each role, its spec's
+**The settings verb: `settings_verb.py`.** `settings` is the verb's handler, here and not in `engine/` so that a read
+imports no workflow: `--value` is `write`'s, `--reset` `reset`'s, the word `edit` `edit`'s, and anything else a read,
+`show`'s. Alone it says how to use it and lists the groups (`registry.GROUPS` and each role, its spec's
 short description beside it); a group lists its rows and, for a role, every option of its spec no row names
 (`passthrough.options()`), passed through with its value or its role's own default (an expression of the role's shown
 as text, `wiring` and `wiring_in`), or said why it is no setting, with the value of the row it is set through (`via`);
@@ -3786,8 +3788,31 @@ a value; the check of every printed value against every decrypted secret that to
 the reads. `--all` alone opens the vault, with the key `vaultkey.open` finds from `vault_key_file` and
 `vault_key_command`, to read which names it holds, and says in one note where it cannot; no read writes, starts a child
 or imports Ansible. `--json` prints today's keys (`target`, `changed_only`, `settings`, `notes`; each row every key of
-today's, `home` added, and each row of `--all` its `section`, its group). `--value`, `--reset` and `edit` are refused
-naming card D10. `tests/unit/test_aw_settings_verb.py` holds it.
+today's, `home` added, and each row of `--all` its `section`, its group).
+
+The writes change one setting in the file that is its home, through `overrides.set` and `overrides.unset`,
+compare-and-swap on the digest `overrides.read` gave at the start, under the file's short lock those take and no lock of
+a run, as today's `just settings` takes none; `--host` names the host whose file a host's row is written in, and a
+fleet's row says that it is the fleet's. What a name can be written as is one function, `settable`: a name the vault
+holds (its closed list, or today's `vault_` names), the host's address and the other fields of its `host.yml` (today's
+`ansible_host` and `vm_ssh_jump` among them), each role option `passthrough.refusal` refuses (a secret, set through a
+row, made from each machine's name, set by a run), an internal value of today's defaults, a row that may hold a secret,
+one given for one run alone (`--set`) and one that is each machine's own are refused with today's sentence, which names
+`aw vault` where today's named `just vault`, and says a name back only where it is one the program knows. A value is
+typed by `overrides.typed`; before that and after it, a value that holds a secret the vault holds is refused, looked for
+by `overrides.holds_a_secret` in the text and in every string `overrides.strings` finds in the value, the vault opened
+with its key (a vault that cannot be opened refuses the write; no vault yet holds nothing), as today but for the
+identifier and a secret of fewer than four characters, whose length `_hunted` alone reads (`REVEALS`). No refusal says the value back. A file the overrides' reader
+refuses (an inline `!vault` among what it refuses) is never written over; the file is written whole, which the
+sentence after a write says, with what applies the value, by the roles of the variables it sets (`wiring`; the roles
+configure runs are `CONFIGURED`, held to `playbooks/configure.yml`), and `--json` today's `wrote`/`reset`, `now` and
+`notes`. `--reset` takes the setting out of its file, and that is all: a file of overrides keeps no example's line to
+put back. `edit` refuses with no terminal; it writes every setting `settable` takes and one line holds, each under its
+description, set or commented out with its value, to a file in a folder of its own, opens `VISUAL`, `EDITOR` or `vi` on
+it (the one child a verb that is no run starts, in the foreground and holding no lock: `STARTERS` in
+`tests/unit/test_aw_children.py`), and on return types each changed line as `--value` does and takes a line that is gone as `--reset`: all of them
+once no line is refused, a line refused said by its number and the document offered again. A row that may hold a
+secret is never in the document. `tests/unit/test_aw_settings_verb.py` holds it.
 
 **The host verb: `host_verb.py`.** `host` is `host`'s handler. The list and its JSON are today's `hosts/choose.py`'s
 `listing` and `where` over `hosts.py`'s layout, from the files alone, the JSON through `wire.to_wire` with today's keys;
@@ -3797,8 +3822,9 @@ name it is no run and makes no job: where `runs/lock_sets.py`'s `locks_for` says
 through `runs/locks.py`'s `exclusive` for its one change, titled with the command as the printer writes it, so it is
 refused naming the run while any run lives, and a run is refused while it holds it. `host <name>` writes
 `client.yml`'s `current_host` through `hosts.make_current`. `host <name> --remove`, with no terminal refused before
-anything is read, refuses the fleet's one host and the current host, asks for the name to be typed and deletes the
-host's folder under the lock its `host.yml`'s writer takes; its VMs and their aliases stay, and so does its token in
+anything is read, refuses the fleet's one host and the current host, asks for the name to be typed holding no lock, so
+that no run is refused while the question waits, then takes the fleet's lock, makes the same checks again and deletes
+the host's folder under the lock its `host.yml`'s writer takes; its VMs and their aliases stay, and so does its token in
 the vault, which the line it prints names (`aw vault --host <name>`; O16 item 18 waits on the owner). The typed
 confirmation is the verb's own, not `engine/confirm.py`'s. `tests/unit/test_aw_host_verb.py` holds it.
 

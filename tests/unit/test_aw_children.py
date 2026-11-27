@@ -730,6 +730,9 @@ def test_route_s_ssh_in_a_group_of_its_own_is_watched_and_said_asking_and_one_in
 # outside it.
 STARTERS = {
     "lib/claude_vm/runs/children.py": "the one way a run starts a child",
+    "lib/claude_vm/fleet/settings_verb.py": "settings edit's editor, the person's own (VISUAL, EDITOR or vi), in the"
+    " foreground at their terminal, in _edited alone: no run's child, so no job's marker, and started while no lock is"
+    " held, every descriptor but its standard streams closed, and waited for before anything is written",
 }
 # What starts a child process, by the name it is imported under: each of subprocess's and asyncio's ways, the os
 # module's and posix's under it, pty's spawn, the fork and exec under subprocess, a browser's opener, the standard

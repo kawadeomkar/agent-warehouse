@@ -223,6 +223,37 @@ def test_a_host_typed_is_removed_and_the_line_it_prints_reads_back(capsys, monke
     assert (reading.verb, reading.values) == ("vault", {"host": "lab2"})
 
 
+class _Asked(_Terminal):
+    """A terminal whose person, while the question waits, starts a run of the fleet, and then makes the host to be
+    removed the current one where told to, before typing its name."""
+
+    def __init__(self, where: paths.Home, typed: str, current: bool) -> None:
+        super().__init__(typed)
+        self.where, self.current, self.ran = where, current, False
+
+    def readline(self, *args) -> str:
+        with _a_run(self.where):
+            self.ran = True
+        if self.current:
+            hosts.make_current(hosts.Layout(self.where), "lab2", overrides.read(self.where, None).client.digest)
+        return super().readline(*args)
+
+
+@pytest.mark.parametrize("current", [False, True], ids=["as it was", "made current meanwhile"])
+def test_a_removal_asks_holding_no_lock_and_checks_again_under_it(capsys, monkeypatch, current) -> None:
+    where = _fleet()
+    folder = paths.fleet_dir(where) / "hosts" / "lab2"
+    terminal = _Asked(where, "lab2\n", current)
+    monkeypatch.setattr("sys.stdin", terminal)
+    status, out, err = _host(capsys, name="lab2", remove=True)
+    assert terminal.ran, "a run was refused while the question waited"
+    if current:
+        assert status == EXITS["refused"] and out == "" and "the current host" in err and folder.is_dir()
+    else:
+        assert status == EXITS["done"], err
+        assert not folder.exists()
+
+
 def test_a_host_mistyped_is_not_removed(capsys, monkeypatch) -> None:
     where = _fleet()
     monkeypatch.setattr("sys.stdin", _Terminal("lab\n"))
