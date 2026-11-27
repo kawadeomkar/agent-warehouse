@@ -26,7 +26,7 @@ character, kept in the fleet's settings.yml as YAML's block holds it, and never 
 
 Which setting reaches which role variable is today's wiring (lib/claude_vm/wiring.py: the roles' defaults and the
 project's) until the cutover, when the guest's own table of the role variables takes its place. Standard library, the
-table and today's wiring at import; the YAML reader is imported by the functions that read the roles' files.
+table and today's wiring at import; the roles' files are read by today's wiring, each parsed once for the table.
 """
 
 from __future__ import annotations
@@ -171,15 +171,11 @@ class _Table:
     rows: Mapping[str, Row]
 
 
-def _entry_points(role: str) -> dict[str, str]:
-    """Each option of role's spec, with the first entry point that lists it, main first, as wiring.specs merges them."""
-    import yaml
-
-    path = wiring.ROOT / "roles" / role / "meta" / "argument_specs.yml"
+def _entry_points(read: Mapping[str, object]) -> dict[str, str]:
+    """Each option of a role's spec, as wiring.argument_specs read it, with the first entry point that lists it, main
+    first, as wiring.specs merges them."""
     found: dict[str, str] = {}
-    for entry_point, spec in sorted(
-        yaml.safe_load(path.read_text())["argument_specs"].items(), key=lambda item: item[0] != MAIN
-    ):
+    for entry_point, spec in sorted(read.items(), key=lambda item: item[0] != MAIN):
         for name in (spec or {}).get("options") or {}:
             found.setdefault(name, entry_point)
     return found
@@ -212,7 +208,8 @@ def _row_type(name: str, spec: Mapping[str, object]) -> str:
 @functools.cache
 def _table() -> _Table:
     """Every option of the roles, sorted out once: the ones a row names, the ones passed through, the ones refused."""
-    specs = wiring.specs()
+    read = wiring.argument_specs()
+    specs = wiring.specs(read)
     _defaults, feeds = wiring.wiring()
     rows = registry.rows()
     reached_by_a_row: dict[str, str] = {}
@@ -227,8 +224,8 @@ def _table() -> _Table:
     options: list[Option] = []
     refusals: dict[str, str] = {}
     made: dict[str, Row] = {}
-    for role in wiring.roles():
-        entry_points = _entry_points(role)
+    for role in read:
+        entry_points = _entry_points(read[role])
         for name, spec in specs[role].items():
             if name in row_names:
                 continue

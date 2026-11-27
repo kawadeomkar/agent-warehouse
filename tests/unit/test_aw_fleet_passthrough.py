@@ -35,6 +35,7 @@ import os
 import re
 import subprocess
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -1342,3 +1343,66 @@ def test_every_name_today_s_tool_lets_a_person_set_is_taken_and_every_name_it_re
         assert {name for name in mine if passthrough.refusal(name) == SECRET} == {
             name for name, (change, _why) in refused.items() if change == TODAY_VAULT
         } - rows - set(FROM_THE_VAULT_TO_A_ROW)
+
+
+def _table_read(monkeypatch: pytest.MonkeyPatch, *, pure: bool) -> tuple[tuple, tuple, set]:
+    """The table built anew, and today's wiring read, by the pure-Python loader or by libyaml's: each in a plain form,
+    with every loader the reads used."""
+    used: set = set()
+    real = yaml.load
+
+    def load(stream, Loader):
+        used.add(Loader)
+        return real(stream, Loader=Loader)
+
+    with monkeypatch.context() as patch:
+        if pure:
+            patch.delattr(yaml, "CSafeLoader")
+        patch.setattr(yaml, "load", load)
+        table = passthrough._table.__wrapped__()
+        wired = (wiring.specs(), wiring.wiring())
+    plain = (table.options, dict(table.by_name), dict(table.refusals), dict(table.rows))
+    return plain, wired, used
+
+
+def test_the_table_libyaml_reads_is_the_table_the_pure_python_loader_reads(monkeypatch) -> None:
+    # Where PyYAML has libyaml, the roles' specs and defaults are read by its loader, several times faster, and the
+    # table that comes out is the one PyYAML's own loader makes, to the last option, refusal and row.
+    if not yaml.__with_libyaml__:
+        pytest.skip("this PyYAML was built without libyaml, so its own loader is the one the table is read with")
+    fast, fast_wired, fast_used = _table_read(monkeypatch, pure=False)
+    slow, slow_wired, slow_used = _table_read(monkeypatch, pure=True)
+    assert fast_used == {yaml.CSafeLoader} and slow_used == {yaml.SafeLoader}
+    assert fast[0] and fast == slow
+    assert fast_wired == slow_wired
+    table = passthrough._table()
+    assert fast == (table.options, dict(table.by_name), dict(table.refusals), dict(table.rows))
+
+
+def test_the_table_reads_and_parses_each_of_the_roles_files_once(monkeypatch) -> None:
+    # Every role's spec and defaults, and the project's defaults: each read from disk once and parsed once, for
+    # wiring.specs and the entry points alike.
+    files = [wiring.ROOT / "roles" / role / "meta" / "argument_specs.yml" for role in wiring.roles()]
+    files += sorted((wiring.ROOT / "roles").glob("*/defaults/main.yml")) + [wiring.GROUP_VARS / "defaults.yml"]
+    texts = {path: path.read_text() for path in files}
+    read: Counter = Counter()
+    parsed: Counter = Counter()
+    real_read, real_load = Path.read_text, wiring._load
+
+    def read_text(self, *args, **kwargs):
+        read[self] += 1
+        return real_read(self, *args, **kwargs)
+
+    def load(text):
+        parsed[text] += 1
+        return real_load(text)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    monkeypatch.setattr(wiring, "_load", load)
+    passthrough._table.__wrapped__()
+    alike = Counter(texts.values())
+    assert len(files) > len(wiring.roles()) + 1
+    assert {path.relative_to(wiring.ROOT): read[path] for path in files if read[path] != 1} == {}
+    assert {
+        path.relative_to(wiring.ROOT): parsed[text] for path, text in texts.items() if parsed[text] != alike[text]
+    } == {}
