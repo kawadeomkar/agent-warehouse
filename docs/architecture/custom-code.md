@@ -892,7 +892,9 @@ copy of that logic.
 bold, dim, and the colours of done, to do, failed, running and waiting. `cut` (to a width, ending in a dim
 "…"), `pad`, `right` (a tail aligned to the edge, dropped before it would crowd the line), `render` (in the
 palette or plain, `PENDING` drawn as the spinner's glyph), `bar`, `spark`, `fill` (wrapped, never cut),
-`duration` and `clock`, and `plural`. A line is measured in characters, one each: a terminal set to draw
+`duration` and `clock`, and `plural`; and what a run draws, today's (`tui/run.py`) and the new engine's
+(`runs/view.py`) alike: `MARKS`, a state's mark and style, `cut_head` and `flow`, a summary's head and its parts, and
+`report_lines` and `failure_lines`, a report and a failure said whole above the region. A line is measured in characters, one each: a terminal set to draw
 East Asian ambiguous-width characters double-wide (`█`, `●`, `·`) wraps a frame drawn with them.
 
 **Loading.** A filter plugin is no module another can import, and a callback cannot ask for one by name, so
