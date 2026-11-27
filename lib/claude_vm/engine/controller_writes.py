@@ -220,6 +220,21 @@ ROWS: tuple[Row, ...] = (
         ),
     ),
     Row(
+        id="settings_edit",
+        path=(
+            "the document `aw settings edit` opens, `settings.yml` in a folder of its own, `aw-settings-<random>`, in"
+            " the per-user temporary directory"
+        ),
+        what=(
+            "every setting the writes take, each under its description, set or commented out with its value; never a"
+            " setting that may hold a secret"
+        ),
+        writer="`aw settings edit` (fleet/settings_verb.py's `edit`), and the editor it opens on it",
+        when="each `aw settings edit`, while the editor is open",
+        removed_by="the edit, with its folder, when it returns; the settings it writes go to the fleet's files",
+        sources=(f"{FLEET}settings_verb.py",),
+    ),
+    Row(
         id="control_dir",
         path="Ansible's own `~/.ansible/cp`",
         what=(
