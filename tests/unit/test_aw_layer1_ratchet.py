@@ -34,9 +34,8 @@ and name, one REASONS lists that is no longer reached fails, and so does one who
 REASONS holds with its reason, so that a reason is held to what runs and the list tightens by itself; two such tasks of
 one file and name fail as one key. A module that does not resolve within ansible.builtin fails by name - one written
 outside it, and a name of ansible.builtin that ansible-core's own routing table, read from the installed package, sends
-to a collection (ansible.builtin.synchronize is ansible.posix's, whose rsync starts here) or has removed - but for the
-three OUTSIDE lists, which F6a replaces with built-in ones, so that the product needs no Galaxy collection: then OUTSIDE
-is empty. Nothing
+to a collection (ansible.builtin.synchronize is ansible.posix's, whose rsync starts here) or has removed, with none
+allowed, so that the product needs no Galaxy collection. Nothing
 the play reaches sets a variable whose name begins ansible_, which would outrank the connection the engine wrote: a
 play's vars, vars_files and vars_prompt, a role entry's params and vars, a role's defaults and vars, a block's or a
 task's vars, a fact (a templated name refused), a register, a loop's variable, an include's apply, add_host, and any
@@ -311,6 +310,27 @@ REASONS: dict[tuple[str, str], tuple[str, str, dict]] = {
             ],
         },
     ),
+    ("roles/vscode_server/tasks/main.yml", "Raise the inotify watch limit for the editor's file watcher"): (
+        "sysctl -p of the role's own file, only when the copy changed it: no module of ansible.builtin sets a sysctl",
+        "ansible.builtin.command",
+        {
+            "argv": ["sysctl", "-p", "/etc/sysctl.d/60-vscode-server.conf"],
+        },
+    ),
+    ("roles/dev_tools/tasks/node.yml", "node | Read the global npm packages"): (
+        "a read: npm ls -g, what npm has installed globally",
+        "ansible.builtin.command",
+        {
+            "argv": ["npm", "ls", "-g", "--depth=0", "--json"],
+        },
+    ),
+    ("roles/dev_tools/tasks/node.yml", "node | Install global npm packages"): (
+        "npm install -g, only of those npm's own list lacks: no module of ansible.builtin installs an npm package",
+        "ansible.builtin.command",
+        {
+            "argv": ["npm", "install", "-g", "{{ item }}"],
+        },
+    ),
     ("roles/dev_tools/tasks/main.yml", "Take the user out of the docker group"): (
         "gpasswd --delete, one group at a time: the user module sets a whole list of groups or appends",
         "ansible.builtin.command",
@@ -353,19 +373,6 @@ REASONS: dict[tuple[str, str], tuple[str, str, dict]] = {
     ),
 }
 
-# The modules outside ansible.builtin the play reaches, by file and name: three, each replaced by a built-in one in
-# F6a, which takes them off this list.
-OUTSIDE = {
-    ("roles/common/tasks/main.yml", "Authorise SSH keys"): ("ansible.posix.authorized_key", "replaced by F6a"),
-    ("roles/vscode_server/tasks/main.yml", "Raise the inotify watch limit for the editor's file watcher"): (
-        "ansible.posix.sysctl",
-        "replaced by F6a",
-    ),
-    ("roles/dev_tools/tasks/node.yml", "node | Install global npm packages"): (
-        "community.general.npm",
-        "replaced by F6a",
-    ),
-}
 
 # Every string the play reaches that runs a lookup, on this computer, by its file and the whole string: what it reads.
 LOOKUPS = {
@@ -1069,13 +1076,10 @@ def test_every_command_shell_or_raw_the_play_reaches_has_its_reason_held_to_what
     assert all(reason for reason, _, _ in REASONS.values())
 
 
-def test_every_module_the_play_reaches_is_ansible_builtin_but_the_three_f6a_replaces() -> None:
+def test_every_module_the_play_reaches_is_ansible_builtin() -> None:
+    # So the product needs no Galaxy collection: none is listed, and none is allowed.
     found = outside()
-    assert found == {key: module for key, (module, _) in OUTSIDE.items()}, (
-        "a module outside ansible.builtin that layer 1 reaches, which a Galaxy collection would have to bring: "
-        f"{sorted(set(found.items()) - {(key, module) for key, (module, _) in OUTSIDE.items()})}"
-    )
-    assert {reason for _, reason in OUTSIDE.values()} == {"replaced by F6a"}
+    assert found == {}, f"modules outside ansible.builtin, which a Galaxy collection would have to bring: {found}"
 
 
 def test_nothing_the_play_reaches_sets_an_ansible_variable() -> None:
@@ -2303,7 +2307,7 @@ def made(home: Path) -> Iterator[jobs.Job]:
 
 def _collections() -> Path:
     """The folder of collections the run's environment names (ANSIBLE_COLLECTIONS_PATH, as just test gives it) that
-    holds ansible.posix until F6a: the road that runs a collection's code needs it."""
+    holds ansible.posix: the road that runs a collection's code needs it, which the roles never take."""
     for folder in os.environ.get("ANSIBLE_COLLECTIONS_PATH", "").split(os.pathsep):
         if folder and (Path(folder) / "ansible_collections" / "ansible" / "posix").is_dir():
             return Path(folder)

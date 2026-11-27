@@ -187,3 +187,105 @@
       ansible.builtin.include_role:
         name: common
         tasks_from: tmux
+
+# The person's keys over a keys file that holds more, through a ~/.ssh that is a
+# link to a folder of dev's: the line of the listed key with options in front
+# and another comment becomes the listed form, the line of a key not on the
+# list is kept, and the folder the link names is made 0700, as the user. A key
+# that is none is refused. Then ~/.ssh is put back as converge left it, for
+# verify.yml to find the listed key there.
+- name: Authorise the keys over a keys file that holds more, through a linked ~/.ssh
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    common_side_effect_listed: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMoleculeTestKeyDoNotUse0000000000000000000 molecule@test
+    common_side_effect_other: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOtherKeyKeptDoNotUse0000000000000000000000 kept@test
+    common_side_effect_home: "{{ ansible_facts.getent_passwd.dev[4] }}"
+  tasks:
+    - name: Read dev's home
+      ansible.builtin.getent:
+        database: passwd
+        key: dev
+
+    - name: Move ~/.ssh to a folder of dev's, open to all
+      ansible.builtin.command:
+        argv: [mv, "{{ common_side_effect_home }}/.ssh", "{{ common_side_effect_home }}/keys-elsewhere"]
+      changed_when: true
+
+    - name: Open that folder up
+      ansible.builtin.file:
+        path: "{{ common_side_effect_home }}/keys-elsewhere"
+        state: directory
+        mode: "0755"
+
+    - name: Link ~/.ssh to it
+      ansible.builtin.file:
+        src: "{{ common_side_effect_home }}/keys-elsewhere"
+        dest: "{{ common_side_effect_home }}/.ssh"
+        state: link
+        owner: dev
+        group: dev
+        follow: false
+
+    - name: Write the listed key with options and another comment, and a key not on the list
+      ansible.builtin.copy:
+        content: |
+          no-agent-forwarding,no-pty {{ common_side_effect_listed.rsplit(' ', 1)[0] }} another@comment
+          {{ common_side_effect_other }}
+        dest: "{{ common_side_effect_home }}/keys-elsewhere/authorized_keys"
+        owner: dev
+        group: dev
+        mode: "0644"
+
+    - name: Run the role's keys tasks
+      ansible.builtin.include_role:
+        name: common
+        tasks_from: keys
+      vars:
+        common_user_ssh_public_keys: ["{{ common_side_effect_listed }}"]
+
+    - name: Read what that left of the keys file
+      ansible.builtin.slurp:
+        src: "{{ common_side_effect_home }}/keys-elsewhere/authorized_keys"
+      register: common_side_effect_keys
+
+    - name: Look at the link, the folder it names and the keys file
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+      loop:
+        - "{{ common_side_effect_home }}/.ssh"
+        - "{{ common_side_effect_home }}/keys-elsewhere"
+        - "{{ common_side_effect_home }}/keys-elsewhere/authorized_keys"
+      register: common_side_effect_keys_stat
+
+    - name: Assert the listed form replaced its line, the other was kept, and the link was followed
+      ansible.builtin.assert:
+        that:
+          - (common_side_effect_keys.content | b64decode) == common_side_effect_listed ~ "\n" ~ common_side_effect_other ~ "\n"
+          - common_side_effect_keys_stat.results[0].stat.islnk
+          - common_side_effect_keys_stat.results[1].stat.mode == '0700'
+          - common_side_effect_keys_stat.results[2].stat.mode == '0600'
+          - common_side_effect_keys_stat.results | map(attribute='stat.pw_name') | list == ['dev'] * 3
+        quiet: true
+
+    - name: Run the role's keys tasks over a key that is none
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
+      vars:
+        refused_role: common
+        refused_tasks_from: keys
+        refused_at: Refuse a listed key that is no public key
+        refused_because: ['no public key', 'not-a-key']
+        refused_unless: the role took a key that is no public key
+        common_user_ssh_public_keys: [not-a-key]
+
+    - name: Take the link away
+      ansible.builtin.file:
+        path: "{{ common_side_effect_home }}/.ssh"
+        state: absent
+
+    - name: Put the folder back as ~/.ssh
+      ansible.builtin.command:
+        argv: [mv, "{{ common_side_effect_home }}/keys-elsewhere", "{{ common_side_effect_home }}/.ssh"]
+      changed_when: true

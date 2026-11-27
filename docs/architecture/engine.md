@@ -3791,27 +3791,11 @@ collection: the product's own (the callback's, and the engine's filter folder,
 `lib/claude_vm/guest/ansible/filter_plugins/`, whose one adapter, `aw_filters.py`, gives `plain_text` and
 `sshd_match_spec`, the two the roles call, each the core's function of its name - never today's `filter_plugins/`, whose
 filters run on this computer as a play calls them, `proxmox_trust_holds` opening a connection to the address it is
-given; a role that calls another filter adds it to the adapter) and, for every other kind, an empty folder of the run's
-directory, Python's path not scanned for
-collections, so that nothing under the caller's home or `/usr/share/ansible` is searched (a vars plugin in
-`~/.ansible/plugins/vars` runs without being enabled), but for one folder, for now. **Until F6a** (the owner's answer
-of 2026-11-23), the collections' path is the checkout's own folder of Galaxy collections, the one today's product's
-runs read and `just install` fills from `requirements.yml`, under the caller's data folder: three tasks of the system
-play's roles call a collection's module, which ansible-core resolves as the play loads, so with no folder of
-collections named the product's own child cannot load the play at all. `checkout_collections` asks `tools/env-run
---collections` for it, a `program` child of the run given only the run's `PATH`, `HOME` and `XDG_DATA_HOME`, so that
-it is found as every recipe finds it and never worked out a second way; an answer that is not one absolute path, or
-none within 30 s, is refused before anything is written. The folder it names is then held to `requirements.yml`'s pins
-before the play's child starts (`held_collections`), as today's `tools/check collections` holds it before every
-recipe's run: each collection pinned there, at its pin, by its own `MANIFEST.json`, where `ansible-galaxy` reads an
-installed collection's version, read by the engine itself rather than by a second child (about 2 s of `ansible-galaxy`
-a run). A folder that is not there, a collection at another version or not there, and a `tools/env-run` that is not
-there to run (no file, none executable, or one the system cannot run) are each refused in one sentence that names `just
-install`, which fills the folder, before anything is written, never Ansible's exit 4 at the load or a bare
-`FileNotFoundError`. For that time this folder is the one place under the caller's
-home that Ansible searches: it holds the collections pinned there, and a collection's vars plugin runs only where it
-is enabled, which the configuration enables none of. F6a, once built-in modules replace those three, takes the folder
-out, and the collections' path is the run's empty folder again. Ansible still adds the play's own folders beside it
+given; a role that calls another filter adds it to the adapter) and, for every other kind and for the collections, an
+empty folder of the run's directory, Python's path not scanned for collections, so that nothing under the caller's home
+or `/usr/share/ansible` is searched (a vars plugin in `~/.ansible/plugins/vars` runs without being enabled): every
+module the system play's roles call is `ansible.builtin`'s (the ratchet, below), so the play needs no Galaxy
+collection. Ansible still adds the play's own folders beside it
 (`playbooks/library/`, `action_plugins/` and `module_utils/`, today's) and each role's, and searches a `collections/`
 beside the play whatever the configuration names: the ratchet (below) holds the play's folder to those three, none
 holding a name of Ansible's own, and the roles to none. `ssh_args`, the one place ahead
@@ -3842,12 +3826,10 @@ for no protection more), the events pipe's descriptor
 runs (cancelled) ends the child with its tree (`claude_vm.proc`), its detached task worker among it. Only a test passes
 `test_connection`, the host variables of a test-only connection: `local` for a play of one task on a stand-in machine,
 `community.docker.docker` for a Molecule container, with the folder of collections that connection is found in beside it
-(`test_collections`), named in place of the checkout's. `tests/unit/test_aw_layer1.py` holds it: the configuration read
-back by `ansible-config dump --only-changed`, every folder ansible-core's own definitions search under its home named,
-a run's folder of collections the one `tools/env-run --collections` names for the run's environment, which is given
-only what it reads, and an answer of it that is no folder refused, the folder held to `requirements.yml`'s pins with
-today's `tools/check collections`'s own verdict over the same folders, each way it is not ready and a `tools/env-run`
-not there to run refused in its sentence, a vars plugin under the caller's home never run, a
+(`test_collections`), named in place of the empty folder. `tests/unit/test_aw_layer1.py` holds it: the configuration
+read back by `ansible-config dump --only-changed`, every folder ansible-core's own definitions search under its home
+named, a run's collections' path its empty folder whatever the caller's environment names, a vars plugin under the
+caller's home never run, a
 play of one ping on a stand-in with its child in the run's registry, the environment as a task's module sees it, each
 refusal before anything is written, SIGINT to the child's group and a cancelled call each leaving nothing, the words
 Ansible's own ssh connection gave the stand-in `ssh` held by this computer's `ssh -G` over a `Host *` that loosens
@@ -3920,8 +3902,9 @@ name fail as one key. A module of `ansible.builtin` is one written so that ansib
 module, neither removed, and that names one of ansible-core's own actions or modules there: the table sends
 `ansible.builtin.synchronize` (whose rsync starts here), `ansible.builtin.patch` and hundreds more to a collection, and
 a test holds that no name it keeps within `ansible.builtin` comes to one of those the scans read by name. A module
-outside `ansible.builtin` fails but the three F6a replaces with built-in ones
-(`ansible.posix.authorized_key`, `ansible.posix.sysctl`, `community.general.npm`). Nothing it reaches sets a variable
+outside `ansible.builtin` fails, and none is allowed, so that the product needs no Galaxy collection: the person's keys
+are `file` and `lineinfile`, the watch limit `copy` and a `sysctl -p` of its file, the global npm packages a read of
+`npm ls -g` and an `npm install -g` of each it lacks, its three commands in `REASONS` with the rest. Nothing it reaches sets a variable
 whose name begins `ansible_` - the vars of a play, block, task, role entry or dependency, `vars_files`, `vars_prompt`, a
 role's defaults and vars, a fact (a templated name refused), a register, a loop's variable, an include's `apply`,
 `add_host` - nor includes variables at all, which the play's first check cannot see. And nothing runs or writes on this
@@ -3952,20 +3935,15 @@ writes a mark in the test's own folder - a copy given its `src` by `module_defau
 interpreter so given, `ansible.builtin.synchronize`'s rsync, a copy, template or include of a name that starts with `~`,
 `q` named apart from its call, a template's own delimiters and its `#jinja2:` line, an include in a task's string, and
 an import two files below the play; and review 67's `loop_with: pipe` and a role's `files/` linked to a folder
-elsewhere. Until F6a those
-three modules need their collections, from
-the checkout's own folder that layer 1's configuration names for now (above), or a test's in its place, the
-scenario's. The `system` scenario
+elsewhere. The `system` scenario
 (`molecule/system/`, [§11.3](testing.md#113-playbook-scenarios--just-test-integration-and-provision)) converges a
 container through `layer1.run` with the test-only `community.docker.docker` connection, twice, the second changing
 nothing. `tests/unit/test_aw_layer1_play.py` holds the opening tasks equal to the guest play's, a part asked for running
 that role alone, the check passing the inventory the engine wrote and failing a fact or a variables file beside the play
 by the variable's name, a machine's output holding `{{` read as its text by a message, a fact, a condition and an
 assert, a file beside the play that points `inventory_file` at a forged copy failing the check, the refusal, and the
-product's own child, started as the engine starts it, loading the play from the checkout's folder of collections: with
-none there the run is refused, naming `just install`, before anything starts; held at its pins with no module in it,
-the child exits 4 at the load, unable to resolve `ansible.posix.authorized_key` (F6's finding), so the play needs what
-is in it; and with the checkout's real folder the play starts.
+product's own child, started as the engine starts it, loading the play and starting it with no folder of collections
+at all (ansible-core resolves a role's modules as the play loads, and a collection's would fail the load).
 
 **A play's variables.** ansible-core loads an extra-variables file as a trusted source, so a string in it that holds
 `{{`, `{%` or `{#` would be rendered as a template: a setting would be code. `lib/claude_vm/guest/variables.py`'s

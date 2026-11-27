@@ -7,8 +7,7 @@
 # equal). Nothing here prompts, reports or calls a vendor: the sign-ins, layer 2 and the VPN are the engine's own.
 #
 # Every task this play reaches calls a state module of ansible.builtin, or is a command, shell or raw with its reason
-# listed (tests/unit/test_aw_layer1_ratchet.py), but for the three tasks of the roles that call a Galaxy collection
-# today, which built-in modules replace before the product needs none.
+# listed (tests/unit/test_aw_layer1_ratchet.py), so that the product needs no Galaxy collection.
 - name: Converge the machine's system layer
   hosts: all
   become: true

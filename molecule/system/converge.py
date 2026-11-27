@@ -44,8 +44,8 @@ from claude_vm.runs import rundir
 from claude_vm.ssh import hostkeys, runner
 
 # What the scenario sets, as a person sets it: in the fleet's settings.yml, the person's key, a placeholder; no Docker
-# Engine, whose daemon cannot run in the container; a global npm package, so that every task of the roles that calls a
-# Galaxy collection today runs here. And for the run, as --set gives it: a container has no cloud-init to wait for.
+# Engine, whose daemon cannot run in the container; a global npm package, so that dev_tools' read of npm's global list
+# and its install run here. And for the run, as --set gives it: a container has no cloud-init to wait for.
 FLEET = {
     "vm_ssh_public_keys": [
         "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMoleculeTestKeyDoNotUse0000000000000000000 molecule@test"

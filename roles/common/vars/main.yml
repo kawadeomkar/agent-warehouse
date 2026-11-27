@@ -25,6 +25,11 @@ common_ssh_path_dropin: /etc/ssh/sshd_config.d/15-agent-warehouse-path.conf
 # creates, read after cloud.cfg and every drop-in sorted before it.
 common_cloud_init_user_cfg: /etc/cloud/cloud.cfg.d/99-agent-warehouse-user.cfg
 
+# A public key as an authorized_keys line holds it, options before it and a
+# comment after: its type and its base64, by which keys.yml finds a line of the
+# same key.
+common_ssh_key_pattern: '(?:^|\s)((?:ssh|ecdsa|sk)-\S+)\s+(AAAA[0-9A-Za-z+/]+=*)(?:\s|\Z)'
+
 # The sshd hardening and apt's setting, by path.
 common_sshd_hardening: /etc/ssh/sshd_config.d/10-agent-warehouse.conf
 common_apt_downloads: /etc/apt/apt.conf.d/90agent-warehouse-downloads

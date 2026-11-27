@@ -161,7 +161,7 @@ LINES = [
     ("roles/common/tasks/sshd.yml", 'dest: "{{ common_sshd_hardening }}"'),
     ("roles/common/tasks/apt.yml", 'dest: "{{ common_apt_downloads }}"'),
     ("roles/vscode_server/tasks/main.yml", "dest: /etc/ssh/sshd_config.d/20-vscode-server.conf"),
-    ("roles/vscode_server/tasks/main.yml", "sysctl_file: /etc/sysctl.d/60-vscode-server.conf"),
+    ("roles/vscode_server/tasks/main.yml", "dest: /etc/sysctl.d/60-vscode-server.conf"),
     # The settings' block in /etc/tmux.conf, written and taken out by its marker: under a new one, blockinfile would
     # add a second block and never take the first out.
     ("roles/common/tasks/tmux.yml", 'marker: "# {mark} agent-warehouse: common_tmux_settings"'),

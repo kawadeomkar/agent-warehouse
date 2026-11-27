@@ -8,9 +8,7 @@ which `just test engine` runs alone, and registers this kit, so that its fixture
   and the XDG folders in the test's own home (conftest.py's `aw_home`, AGENT_WAREHOUSE_HOME), failing stand-ins first
   on PATH and BROWSER one of them, every variable gone but harness.PASSED_ON's and the kit's own, and no connection
   over IP but to loopback; once the test ends, a stand-in that was reached or a connection that was refused fails it;
-- `home`: that home, made;
-- `installed`: until F6a, the folder of Galaxy collections tools/env-run names for that home, planted at
-  requirements.yml's pins (`plant_collections`), which layer 1 holds the checkout's folder to before its child starts.
+- `home`: that home, made.
 
 A test reaches the program through this kit and no other way (tests/unit/test_aw_guards.py reads every test file's
 syntax tree for one):
@@ -303,56 +301,6 @@ def home(aw_home: Path) -> Path:
     has made HOME and the XDG folders' home in this process too. No second mechanism: the home is aw_home's."""
     aw_home.mkdir()
     return aw_home
-
-
-# ---------------------------------------------------------------- the checkout's Galaxy collections, until F6a ----
-
-
-def collections_folder(env: Mapping[str, str]) -> Path:
-    """The folder of Galaxy collections this checkout's tools/env-run --collections names for env's HOME and
-    XDG_DATA_HOME, asked as layer 1 asks it (given PATH, HOME and XDG_DATA_HOME alone)."""
-    found = subprocess.run(
-        [str(harness.REPO / "tools" / "env-run"), "--collections"],
-        env={name: env[name] for name in ("PATH", "HOME", "XDG_DATA_HOME") if name in env},
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=True,
-    )
-    return Path(found.stdout.removesuffix("\n"))
-
-
-def requirements_pins() -> dict[str, str]:
-    """Each Galaxy collection this checkout's requirements.yml pins, by its name, at its version: read here, by the kit
-    itself, never through the code a test holds."""
-    import yaml
-
-    listed = yaml.safe_load((harness.REPO / "requirements.yml").read_text())["collections"]
-    return {entry["name"]: entry["version"] for entry in listed}
-
-
-def plant_collections(folder: Path, pins: Mapping[str, str] | None = None) -> Path:
-    """folder made a folder of Galaxy collections that holds, for each collection of pins (requirements.yml's, by
-    default) at its version, its MANIFEST.json alone, as ansible-galaxy writes and reads an installed one's: what layer
-    1 holds the checkout's folder to until F6a, and what today's tools/check collections passes too. It holds no
-    module: the system play does not load from it."""
-    for name, version in (requirements_pins() if pins is None else pins).items():
-        namespace, short = name.split(".")
-        where = folder / "ansible_collections" / namespace / short
-        where.mkdir(parents=True, exist_ok=True)
-        info = {"namespace": namespace, "name": short, "version": version, "dependencies": {}}
-        (where / "MANIFEST.json").write_text(json.dumps({"collection_info": info, "format": 1}))
-    return folder
-
-
-@pytest.fixture
-def installed(home: Path) -> Path:
-    """The folder of Galaxy collections tools/env-run names for this test's home, planted at requirements.yml's pins
-    (plant_collections): until F6a layer 1 holds the checkout's folder to them before its child starts, so a test that
-    runs layer1.run with no folder of collections of its own asks for this one (pytest.mark.usefixtures). F6a takes it
-    out with the check."""
-    return plant_collections(collections_folder(os.environ))
 
 
 # ---------------------------------------------------------------- tools/aw run as a person runs it ----
