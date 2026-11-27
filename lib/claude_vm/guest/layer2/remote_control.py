@@ -227,6 +227,12 @@ class Unit:
     def enabled(self) -> bool:
         return self.shown.get("UnitFileState") == "enabled"
 
+    @property
+    def stopped(self) -> bool:
+        """Whether nothing of the unit runs or waits to: inactive, or not loaded at all. A server systemd restarts after
+        a refusal is activating (auto-restart) and so is not stopped, as systemd_service's state=stopped reads it."""
+        return self.shown.get("ActiveState") in (None, "", "inactive")
+
 
 @dataclasses.dataclass(frozen=True)
 class Found:
@@ -484,7 +490,7 @@ class RemoteControl:
                     actions.append(("reload",))
                 if not (path.enabled and path.active):
                     actions.append(("watch", path.name))
-            if service.enabled or service.active:
+            if service.enabled or not service.stopped:
                 actions.append(("stop", service.name))
             report, nexts = self._not_started(ctx, account, status, blocked, bridge, lines)
         return Found(True, service, path, tuple(actions), report, nexts, seed, stay_up)

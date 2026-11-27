@@ -240,6 +240,9 @@ def _due(now: File, wanted: str | None) -> bool:
 def planned(file: File, wanted: Mapping) -> tuple[str | None, tuple[str, ...]]:
     """settings.json's text as the run writes it (None where it writes nothing) and the settings that change."""
     names_key = file.there and KEY in file.content
+    if "env" in wanted and wanted["env"] is None:
+        # An env of null is no env: what the file's env holds is kept, and the key no setting manages still goes.
+        wanted = {name: value for name, value in wanted.items() if name != "env"}
     if not wanted and not names_key:
         return None, ()
     on_disk: object = {}
@@ -259,7 +262,8 @@ def planned(file: File, wanted: Mapping) -> tuple[str | None, tuple[str, ...]]:
         return None, ()
     merged = combined(on_disk, wanted)
     if stale:
-        left = {name: value for name, value in merged["env"].items() if name != KEY}
+        now = merged.get("env")
+        left = {name: value for name, value in (now.items() if isinstance(now, Mapping) else ()) if name != KEY}
         merged = {name: value for name, value in merged.items() if name != "env"}
         if left:
             merged["env"] = left
