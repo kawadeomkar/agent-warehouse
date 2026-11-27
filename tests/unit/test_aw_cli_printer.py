@@ -1203,6 +1203,9 @@ PRINTERS = {PRINTER}
 NAMED_IN_A_SENTENCE = {
     ("lib/claude_vm/cli/dispatch.py", "not_built"): "today's just <verb>, which does a verb's work until the flip, "
     "when K14 takes the clause out: no command of aw's, so none the printer writes",
+    ("lib/claude_vm/engine/controller_writes.py", ""): "the list of what the engine writes on the computer, data a "
+    "person reads as today's playbooks/vars/controller_writes.yml is, names the commands that write and take out each "
+    "place: no line to run, so none the printer writes",
 }
 # The printer's names of the program: as it was started (program, _program) and its constant (PROGRAM). Only the
 # printer names them: help says the program through the check's command, and main.py hands it on by started_as.

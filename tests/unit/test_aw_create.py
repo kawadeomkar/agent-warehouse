@@ -332,7 +332,6 @@ def test_a_size_is_read_by_one_reader_into_its_capital_form(home) -> None:
     ("values", "card", "shown"),
     [
         ({"names": ["delta"]}, "G10", "aw deploy --only provision"),
-        ({"only": "ssh-config"}, "G8", "aw deploy --only ssh-config"),
         ({"check": True}, "G20", "aw deploy --check"),
         ({"only": "provision", "adopt": True}, "J7", "deploy's --adopt"),
         ({"only": "provision", "take_over": True}, "L25", "deploy's --take-over"),
@@ -346,6 +345,8 @@ def test_each_stage_and_option_not_built_yet_is_refused_naming_its_card(values, 
     assert sentence is not None and sentence.startswith("error: ") and f"card {card}" in sentence, sentence
     assert shown in sentence and "delta" not in sentence and "AAAA" not in sentence
     assert deploy.not_yet({"only": "provision", "names": ["delta"]}) is None
+    # --only ssh-config is card G8's branch (tests/unit/test_aw_aliases.py).
+    assert deploy.not_yet({"only": "ssh-config", "names": ["delta"]}) is None
     # --only template is card E13's branch (tests/unit/test_aw_engine_template.py).
     assert deploy.not_yet({"only": "template"}) is None
     # Built: configure (card G4), with its parts of layer 1 or none, and --tags beside names, which is configure.

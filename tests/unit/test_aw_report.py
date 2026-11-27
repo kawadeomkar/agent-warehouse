@@ -60,7 +60,7 @@ TODAYS = (
     "editor",
     "destroy",
 )
-ENGINES = {"fleet": "init_check", "route": "fleet", "template": "route", "configure": "vm"}
+ENGINES = {"fleet": "init_check", "route": "fleet", "template": "route", "configure": "vm", "aliases": "configure"}
 ALPHA = "agent-warehouse-4f1c0000-0000-4000-8000-000000000001"
 BETA = "agent-warehouse-4f1c0000-0000-4000-8000-000000000002"
 

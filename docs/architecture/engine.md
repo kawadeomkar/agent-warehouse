@@ -1228,9 +1228,10 @@ see is the runner's to refuse.
 **A VM made: `create.py`, and `deploy`'s handler: `deploy.py`.** `aw deploy --only provision` makes or resumes each VM
 named, the default VM where none is (`vm_default_name`), side by side, under each VM's lock (C7's `machines`); `aw
 deploy --only template` is `template.ensure` and nothing after it (above), under the fleet's lock held exclusively, since
-it names no machine; every other stage of `deploy` but `--only configure` (`configure.py`, below), and `--check`,
-`--adopt` and `--take-over`, is refused naming the card that builds it; `--remove-key` is a configure's alone
-(below). Before anything is created, the run reads the fleet (`fleet.requested`, a changing read, so a VM it may not
+it names no machine; every other stage of `deploy` but `--only configure` (`configure.py`, below) and `--only
+ssh-config` (`aliases.py`, below: under the fleet's lock where it names no VM, each VM's where it does), and
+`--check`, `--adopt` and `--take-over`, is refused naming the card that builds it; `--remove-key` is a configure's
+alone (below). Before anything is created, the run reads the fleet (`fleet.requested`, a changing read, so a VM it may not
 change refuses the run), settles the route (`routes.settle`, whose hop that cannot be used stops the run), refuses a VM
 with no key in `vm_ssh_public_keys` and no console password in the vault (`vm_password`), and compares the base template
 (`template.compare`): only one it may clone from is cloned from, any other said with why, and none with no cloud-init
@@ -1334,14 +1335,18 @@ line that answers it, exit 1. In the run, the live view made first:
   stop, and the VM confirmed gone from `resources("vm")` - no VM at its VMID, or another's - never from a refusal's
   words; a deletion whose answer was lost, or whose task's end could not be read, is decided there too. A task that
   ended `WARNINGS: <n>` is a success whose lines are said.
+- **Its alias.** Still in the shield, only for a VM said gone, its stage `aliases` (declared beside the deletion's):
+  `aliases.forget` takes its block out of the managed SSH config, unless the block records another host of the fleet,
+  whose VM of the name it is (kept, and said); with `claude_ssh_config` off the stage is skipped. A removal that fails
+  is said with the fleet-wide `aw deploy --only ssh-config` that prunes it, and fails nothing: the VM is gone.
 
 Every VM is said in one line, which the view draws under its name: `deleted, with its disks.`, or `not deleted - <why>,
 so it is still there: run aw destroy <name> again once that is fixed.` The run exits 0 where every VM was deleted, 2
 (`EXITS`' `failed`) where one was not, the others gone on, and 130 where a person stopped it. Each report goes
 through `report.py`'s `say`, matter `destroy`: a VM a stopped run left records `aw destroy <name>`, with the host's
 flag, as its NEXT STEPS line; every other report, none. The VM's line in the
-product's known-hosts file stays, the tombstone of its identity; nothing here writes a record, an alias (card G8) or a
-session. `tests/unit/test_aw_destroy.py` holds it on a whole fleet folder against the fake: a VM and its disks deleted
+product's known-hosts file stays, the tombstone of its identity; nothing here writes a record or a session.
+`tests/unit/test_aw_destroy.py` holds it on a whole fleet folder against the fake: a VM and its disks deleted
 after its stop, a stopped one with none; the refusal while either setting is on, and the declined deletion with no
 terminal, each before anything is sent; `--confirm` naming another VM refused, in the handler too; an unrecorded member
 refused and deleted under the override, and a template, a VM outside the pool and another's record refused whatever is
@@ -1410,6 +1415,66 @@ ending the run 130 with the system layer drawn stopped and nothing drawn failed;
 connection, a configure through the stand-in hop, and a hop
 refused that stops before the VM.
 
+**The aliases: `aliases.py`.** `aw deploy --only ssh-config` gives each VM named, or every VM of the pool the fleet
+owns where none is, its alias in the managed SSH config (`~/.ssh/agent-warehouse.conf` under the run's home,
+`hosts.ALIASES`), from a live read of the fleet that changes nothing (`fleet.requested`, `change=False`); `deploy` runs
+it under the fleet's lock where it names no VM, each VM's where it does, and it is read-only against Proxmox. A VM
+`fleet.refusal` says the fleet does not own refuses the run where it is named and is left out, said, where none is; a
+VM with no address (stopped, booting, without its agent) keeps the alias it had, said. A block is today's
+(`playbooks/tasks/ssh_config.yml`), between `# BEGIN agent-warehouse: <name>` and its `# END`: `# origin: <host>`,
+`Host`, `HostName` (the address, or `<name>.<claude_ssh_host_domain>`, a domain never used through the hop), `User`,
+`ProxyJump` where it goes through the host, `HostKeyAlias` (the VM's identity), `UserKnownHostsFile` (the product's
+known-hosts file), `CheckHostIP no`, `UpdateHostKeys no`, `StrictHostKeyChecking` (accept-new, or a stricter one the
+options give), `IdentityFile`, `ForwardAgent`, then `claude_ssh_options`. So a VM's key is looked up under its
+identity, never an address, in the product's file alone, which the alias never writes but through the person's own ssh
+taking a key at first use under that identity; a deleted VM's key stays there. Refused before anything is written: a
+name, an account, an address, an identity (`checks.HOST_KEY_ALIAS_RE`) or a jump that is not one plain word; an option
+the block writes itself, or a `StrictHostKeyChecking` looser than accept-new; a name a `Host` line of the person's own
+config names; and, named, a name `ssh` would take for another host (`checks.ssh_alias_refusals`: an address, a name
+this computer reaches a host of the fleet by, a dotted name given by no run that names it) or whose block records
+another host of the fleet (`proxmox.ssh_config_elsewhere`), which fleet-wide are left out and said, the dotted one with
+the line that names it and an alias it has left as it was. A block of a host the fleet no longer has is taken over.
+
+Each write is a compare-and-swap: the file read, the text worked out, validated by `ssh -G -F` of a scratch copy in the
+run's directory (`rundir.path_for`, `ssh-config-check`) for each alias written, and replaced (`store.replace`, 0600 when
+new, its folder 0700) under the file's lock only where it is still what was read, otherwise worked out again, at most
+`TRIES` times; a text that changes nothing is not written. Then the `Include` of the managed file at the top of the
+person's `~/.ssh/config`, once: none with `claude_ssh_config_include` off (the line said to add by hand), none where the
+line is there already, or where a line names the file in a spelling `ssh` reads (its path, `~/`, `${HOME}/`, its bare
+name) and `ssh -G` through that config gives the alias just written; otherwise the one line put above the rest, the rest
+and the file's mode kept, never another line rewritten or removed. Every `ssh -G` is `ssh/resolved.py`'s, a child of the
+run's of the ssh kind, its group ended past `LIMIT` seconds. Through the Proxmox host an alias gains `ProxyJump`
+(`Route.proxy_jump`) only once `Route.targets` returned for its VM, and only where that `Target` takes the hop: a VM
+with a jump of its own keeps its own, a `ProxyJump` or `ProxyCommand` in `claude_ssh_options` takes the hop's place for
+every alias, a VM the route refuses is left out and said, and a host that cannot be the hop (at the route's settling or
+a target's) gives no alias through it, said with `vm_ssh_route: direct`, while the prune still runs; where `ssh -G` of
+the hop through the person's config would not offer the key the host's settings name, the lines that give it are said.
+Each alias written is said with its connect line (`ssh <name>`, `aw code <name>`, the workspace it opens).
+
+With no VM named, the run prunes: the host's listing (`resources("vm")` and `fleet.members`, a member tagged owned
+where `fleet.refusal` says the fleet owns it, or where the pool lists it with no name) handed to
+`proxmox.ssh_config_prune` with this host as the origin and the fleet's other hosts. It removes this host's blocks of
+VMs gone (a VM outside the pool is one gone where the token cannot see it, without `VM.Audit` on `/vms`: under
+`proxmox_audit_scope: pool`) and those whose name no alias may have, and says what it left: a block of a VM the fleet
+does not own, one recorded for a host the fleet does not have, one with no record while the fleet has other hosts; a
+pool member listed with no name prunes nothing. A block recorded for another host of the fleet is never touched. With
+`claude_ssh_config` off nothing is written, and the run says so. `aw destroy` removes a deleted VM's (`aliases.forget`,
+above). Its reports are matter `aliases`. `tests/unit/test_aw_aliases.py` holds it, every file in the test's own home
+and `ssh -G` this computer's own through F30's stand-in: today's cases of `tests/unit/test_ssh_config.py` and the key's
+of `tests/unit/test_host_keys.py` (but the 1.x file's move, not built), the compare-and-swap against a write between the
+read and the swap, the jump's rules against a route of the test's own, and against the fake: the same file
+`playbooks/ssh_config.yml` gives for the same fleet, the prune, a VM the fleet does not own, and a destroy that leaves
+no block of its VM and its key in place.
+
+**What the engine writes on this computer: `controller_writes.py`.** One row a place the new engine writes outside the
+checkout, in the form of today's `playbooks/vars/controller_writes.yml`: where (as a person reads it, or the function of
+`fleet/paths.py` that gives it), what, who, when, what takes it out, the setting that moves or turns it off, and its
+sources, the engine's files that make the write; a write no card has built yet names its card and no source. Data alone.
+`tests/unit/test_aw_controller_writes.py` finds each row's write where the engine makes it by its own spelling, and
+scans every file of the new engine for a write (a file written, replaced, created, appended to, a folder, a scratch
+file, a link): one that is the source of no row fails, so a card that writes somewhere new adds its row in the same
+commit. Today's list and `tests/unit/test_controller_writes.py` hold today's product until the cutover.
+
 **What a run says, and NEXT STEPS: `report.py`.** `say(run, machine, matter, text, line)` is the one way a workflow or a
 layer-2 step tells a person something: it emits the `report`, printed above the region and kept for the summary, and
 straight after it the `next` record of that machine and matter, the line while something is left and `""` once nothing
@@ -1417,7 +1482,9 @@ is, which takes back a line an earlier report of the same machine and matter lef
 report and never read off what was said, as today's report tasks record theirs
 ([§7.5](custom-code.md#75-callback_pluginsagent_warehousepy--the-waits-and-next-steps)). The machine is its identity, or a VM's stand-in key until its join, or none for the
 run's own; the matter is one of `run/next_steps.py`'s `MATTERS`, today's and the engine's own, which no report of today's
-records, each at a named place (`fleet`, `route` and `template` after `init`'s two, `configure` after `vm`), so today's
+records, each at a named place (`fleet`, `route` and `template` after `init`'s two, `configure` after `vm`, `aliases`
+after
+`configure`), so today's
 NEXT STEPS keeps its lines and their order. The line is the printer's whole line, or a sentence `said` writes, made by
 the caller with the host's flag, so that with more than one host it ends `--host <name>`, and handed on whole: one line,
 never a form. The run's model folds the records in today's order and the run's end prints them after the summary, which

@@ -10,7 +10,7 @@ engine at the end of a run in parts, the same way. Pure: nothing read or written
 # The new engine's own matters (its reports' say), which no report of
 # today's records, so today's lines and their order stay as they are: what a fleet's
 # read left out, the route's notes and the base template, after init's two and before
-# vm, as a deploy reaches them; layer 1's parts of a configure after vm, before claude.
+# vm, as a deploy reaches them; layer 1's parts of a configure after vm, then the SSH aliases, before claude.
 NEXT_STATS = ("claude_vm_next", "claude_code_next", "github_projects_next", "tailscale_next", "vpn_next", "code_next")
 MATTERS = (
     "init_settings",
@@ -20,6 +20,7 @@ MATTERS = (
     "template",
     "vm",
     "configure",
+    "aliases",
     "claude",
     "remote_control",
     "github",

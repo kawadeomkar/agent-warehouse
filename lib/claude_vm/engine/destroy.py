@@ -1,5 +1,5 @@
-"""destroy's handler and the deletion of the VMs it names, the core (card G5; docs/architecture/engine.md §16.4): the
-names confirmed, each VM read again, deleted with its disks.
+"""destroy's handler and the deletion of the VMs it names, the core (cards G5 and G8; docs/architecture/engine.md
+§16.4): the names confirmed, each VM read again, deleted with its disks, and its SSH alias removed.
 
 **Before the run.** The host chosen (fleet/hosts.py's reach) and the settings read for it with the run's `--set` values.
 `--confirm=<names>` is held to the VMs given once more, in this process, by engine/confirm.py's `names`, the one
@@ -31,10 +31,13 @@ was not confirmed.` - before any job is made, exit 1 (EXITS' refused), as today'
    which a Ctrl-C lets finish and says so: the `DELETE` (the client's `delete`, holding the configuration's identity
    and digest to the read, `destroy-unreferenced-disks` alone, no `purge`), its task followed with no stop, and the VM
    confirmed gone from `resources("vm")` - its VMID no VM's of the cluster's, or another's than the one deleted - never
-   from a refusal's words. A task that ended `WARNINGS: <n>` is a success whose lines are said.
+   from a refusal's words. A task that ended `WARNINGS: <n>` is a success whose lines are said. Then, still in the
+   shield and only for a VM said gone (a `DELETE` whose answer was lost among them), its alias's block taken out of the
+   managed SSH config (engine/aliases.py's forget), unless the block records another host of the fleet, whose VM of the
+   name it is: kept, and said. A removal that fails is said with the run that prunes it, and fails nothing.
 
-The VM's line in the product's known-hosts file stays, as the tombstone of its identity; nothing here writes a record,
-an alias (card G8) or a session (G13). Exits 0 where every VM was deleted, 2 (EXITS' failed) where one was not, the
+The VM's line in the product's known-hosts file stays, as the tombstone of its identity; nothing here writes a record
+or a session (G13). Exits 0 where every VM was deleted, 2 (EXITS' failed) where one was not, the
 others gone on, 1 for a refusal, and 130 for a run a person stopped; a lock another run holds is refused by cli/main.py,
 in runs/locks.py's Held's sentence. Blocking calls of the client run in threads; asyncio is imported where it is used.
 """
@@ -56,7 +59,7 @@ from ..schema.printer import line, said
 from ..schema.words import EXITS, Line
 from ..text import banner, one_line
 from ..vendors.transport import TransportError, Unknown
-from . import confirm, fleet, report
+from . import aliases, confirm, fleet, report
 
 if TYPE_CHECKING:
     from ..runs.attached import Context
@@ -64,12 +67,13 @@ if TYPE_CHECKING:
 PROGRAM_ROOT = Path(__file__).resolve().parents[3]
 CHECK, DELETE = "check", "delete"
 STOP_STEP, DELETE_STEP = "stop", "delete"
-# The run's stages, as the live view draws them: a run declares only what it runs (cards G13, G14 and G8 add theirs).
+# The run's stages, as the live view draws them: a run declares only what it runs (cards G13 and G14 add theirs).
 DECLARED = Declared(
     "destroy",
     (
         Stage(CHECK, "check", each_machine=False),
         Stage(DELETE, "delete", steps=(Step(STOP_STEP, "stop"), Step(DELETE_STEP, "delete"))),
+        Stage(aliases.STAGE, "SSH aliases"),
     ),
 )
 # What the VM's own endpoint says of one that runs.
@@ -403,6 +407,8 @@ async def _one(ctx: Context, host: fleet.Host, target: fleet.Target, how: How) -
                     if lost
                     else "Proxmox's deletion task ended, but the cluster still lists it"
                 )
+            # Gone, so its alias would point at nothing, or at whatever takes its address next.
+            forgotten = await aliases.forget(ctx, host, target, MATTER)
         step(DELETE_STEP, "done")
     except Failed as failed:
         return _not_deleted(ctx, key, failed.sentence, again)
@@ -410,6 +416,8 @@ async def _one(ctx: Context, host: fleet.Host, target: fleet.Target, how: How) -
         why = f"its deletion failed ({one_line(fleet.sentence(error), None).rstrip('.')})"
         return _not_deleted(ctx, key, why, again)
     ctx.emit("stage", key, DELETE, outcome="done")
+    ctx.emit("stage", key, aliases.STAGE)
+    ctx.emit("stage", key, aliases.STAGE, outcome=forgotten)
     report.say(ctx, key, MATTER, DELETED, "")
     ctx.emit("end", key, "deleted", outcome="succeeded")
     return "deleted"
