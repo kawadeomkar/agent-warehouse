@@ -647,7 +647,7 @@ _VERBS: tuple[Verb, ...] = (
             VERBOSE,
         ),
         rules=("code.1", "code.2", "check.project.2"),
-        handler=None,
+        handler="engine.code:run",
         card="G17",
         locks="machines",
         changes=True,

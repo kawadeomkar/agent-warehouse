@@ -126,6 +126,12 @@ def installed(environ: Mapping[str, str] | None = None) -> tuple[Path, Path, Pat
     )
 
 
+def config_home(environ: Mapping[str, str] | None = None) -> Path:
+    """The person's own configuration folder, as the XDG Base Directory specification gives it (`_xdg`), where another
+    program keeps its settings: `code` reads an editor's there (card G17). Refused where the home is not known."""
+    return _xdg(os.environ if environ is None else environ, "XDG_CONFIG_HOME", ".config")
+
+
 def _absolute(value: str, environ: Mapping[str, str], what: str) -> Path:
     """value as an absolute folder, a leading ~ the user's home."""
     if value == "~" or value.startswith("~/"):

@@ -276,7 +276,7 @@ def test_aw_version_names_this_checkout(tmp_path, home) -> None:
     ("words", "said"),
     [
         (("vault",), not_built(VERBS["vault"])),
-        (("code", "alpha"), not_built(VERBS["code"])),
+        (("release", "alpha"), not_built(VERBS["release"])),
         (("hunter2",), no_such_command()),
     ],
 )

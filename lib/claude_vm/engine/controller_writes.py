@@ -115,7 +115,7 @@ ROWS: tuple[Row, ...] = (
         writer="VS Code's own command line, when `aw code` finds it missing",
         when="`editor: vscode`",
         removed_by="VS Code",
-        card="G17",
+        sources=(f"{ENGINE}code.py",),
     ),
     Row(
         id="editor_records",
@@ -124,7 +124,7 @@ ROWS: tuple[Row, ...] = (
         writer="the editor itself, when `aw code` opens a window",
         when="every window",
         removed_by="the editor",
-        card="G17",
+        sources=(f"{ENGINE}code.py",),
     ),
     Row(
         id="mcp",

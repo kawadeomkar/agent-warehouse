@@ -268,6 +268,7 @@ def _emitted_otherwise(source: str) -> list[int]:
     of SAID anywhere but a docstring, so that a kind kept in a name, a partial or a mapping is found too."""
     tree = ast.parse(source)
     docstrings = _docstrings(tree)
+    keys: set[int] = set()
     found = []
 
     def walk(node: ast.AST, wrapper: set[str]) -> None:
@@ -283,8 +284,11 @@ def _emitted_otherwise(source: str) -> list[int]:
                 handed_on = isinstance(kind, ast.Name) and kind.id in wrapper
                 if not (written or handed_on):
                     found.append(node.lineno)
-        if isinstance(node, ast.Constant) and node.value in SAID and id(node) not in docstrings:
+        if isinstance(node, ast.Constant) and node.value in SAID and id(node) not in docstrings | keys:
             found.append(node.lineno)
+        if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant):
+            # A key looked up by its name, as code reads the editor's plan's report: no kind of an event.
+            keys.add(id(node.slice))
         for child in ast.iter_child_nodes(node):
             walk(child, wrapper)
 
@@ -315,6 +319,8 @@ def test_no_report_and_no_next_steps_record_is_emitted_but_by_say() -> None:
         'functools.partial(ctx.emit, "report")(None, "said")',
         'ctx.emit(*("report", None, "said"))',
         'ctx.emit("re" + "port", None, "said")',
+        'ctx.emit(KINDS["report"], None, "said")',
+        'kind = "report"\nplan["report"]',
         "def emit(self, text):\n    self.ctx.emit(self.kind, self.key, text)",
         "def say(self, kind, text):\n    self.ctx.emit(kind, self.key, text)",
     ],

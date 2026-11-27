@@ -82,6 +82,9 @@ VSCODE_ELSEWHERE = {
     # The list of what the new engine writes on the computer carries today's row of VS Code's extension, data a person
     # reads, as playbooks/vars/controller_writes.yml does (card G8).
     "lib/claude_vm/engine/controller_writes.py": 6,
+    # aw code, the engine's code.yml (card G17): the family whose extension it installs and whose settings it reads,
+    # where they are, and the helpers of the family's terminal, imported from its module.
+    "lib/claude_vm/engine/code.py": 6,
     "playbooks/code.yml": 14,
     "playbooks/configure.yml": 1,
     "playbooks/destroy.yml": 1,
@@ -143,6 +146,8 @@ PROXMOX_ELSEWHERE = {
     # The aliases' prune: the host's VMs listed by VMID as proxmox.ssh_config_prune reads a cluster's listing, and the
     # sentence that names a member of the pool listed with no name by its VMID.
     "lib/claude_vm/engine/aliases.py": 5,
+    # aw code's window (card G17): the VM by name and VMID, as the editor's plan takes it.
+    "lib/claude_vm/engine/code.py": 1,
     "lib/claude_vm/mcp/confirm.py": 4,
     "lib/claude_vm/refs.py": 3,
     "lib/claude_vm/run/model.py": 4,
@@ -208,6 +213,8 @@ ZED_ELSEWHERE = {
     "lib/claude_vm/cli/status_inputs.py": 6,
     "lib/claude_vm/editors/model.py": 1,
     "lib/claude_vm/editors/registry.py": 4,
+    # aw code, the engine's code.yml (card G17): Zed's task file's place, imported from its module.
+    "lib/claude_vm/engine/code.py": 1,
     # The new engine's settings table names the editors as data, by design: editor's choices and its sentences.
     "lib/claude_vm/fleet/registry.py": 4,
     "lib/claude_vm/run/recipes.py": 1,
