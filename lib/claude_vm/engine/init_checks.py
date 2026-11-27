@@ -1,28 +1,31 @@
 """init's checks: what a first deploy needs of the host, each said as one of today's `ok` and `!!` lines
 (docs/architecture/engine.md §16.4).
 
-`check(home, host, environ=, job=, write=)` opens the host as every workflow does (fleet/opened.py's `connect`, lenient
-as `settings` and `vault` are, so that a host whose own settings.yml sets no node yet is opened), and `run(host, job=,
-own=, write=)` checks it, in today's order: the API answers and is Proxmox VE 9 or later, and the token is accepted; the
-pool is there and its mark names this fleet with `controller=none` (fleet/mark.py's `may_change`, D2's sentence for any
-other); the node, settled where the host's own settings.yml sets none (the one node online, else the node root SSH says
-the host is, `hostname -s`); the base template, compared with its settings (engine/template.py's `compare`, E11); the
-permission check, the token's privileges on each path read from `/access/permissions` with no `userid` (with one, a
-token is refused on `/access` even for its own user) and held to what pve/privileges.py's one table needs there
-(`needed`), on the pool, the storage, each bridge a clone's source has a network card on and the node, each missing
-privilege named with its path; `VM.Audit` on `/vms` where `proxmox_audit_scope` is `node`, a `--` line where it is not
-held, and a `!!` line where the token holds more there, which lets it change every VM of the node; a template of the
-person's own held to the clone grant on its own path; root SSH, where the template is missing or is to be rebuilt; the
-route to the VMs, settled by engine/routes.py, and the hop's login where it goes through the host, an SSH connection
-that runs nothing; the storage and, before the template is built, the bridge, each as the node lists it to the token;
-and that the machines get an SSH key.
+`check(home, host, environ=, job=, write=, staged=)` opens the host as every workflow does (fleet/opened.py's `connect`,
+lenient as `settings` and `vault` are, so that a host whose own settings.yml sets no node yet is opened), and `run(host,
+job=, own=, write=, staged=)` checks it, in today's order: the API answers and is Proxmox VE 9 or later, and the token
+is accepted; the pool is there and its mark names this fleet with `controller=none` (fleet/mark.py's `may_change`, D2's
+sentence for any other); the node, settled where the host's own settings.yml sets none (the one node online, else the
+node root SSH says the host is, `hostname -s`); the base template, compared with its settings (engine/template.py's
+`compare`, E11); the permission check, the token's privileges on each path read from `/access/permissions` with no
+`userid` (with one, a token is refused on `/access` even for its own user) and held to what pve/privileges.py's one
+table needs there (`needed`), on the pool, the storage, each bridge a clone's source has a network card on and the node,
+each missing privilege named with its path; `VM.Audit` on `/vms` where `proxmox_audit_scope` is `node`, a `--` line
+where it is not held, and a `!!` line where the token holds more there, which lets it change every VM of the node; a
+template of the person's own held to the clone grant on its own path; root SSH, where the template is missing or is to
+be rebuilt; the route to the VMs, settled by engine/routes.py, and the hop's login where it goes through the host, an
+SSH connection that runs nothing; the storage and, before the template is built, the bridge, each as the node lists it
+to the token; and that the machines get an SSH key.
 
 Each check is a `Check(state, text, fix)`, its state one of today's four prefixes (`ok`, `!!`, `--` and `note`), its
 line today's form (`line`). A `!!` is a problem for deploy, and init exits 1 exactly when it said one (`Checked.exit`).
 Every call the checks make is a read: the client's GETs, which follow no redirect (B's client's rule, the transport
 following none), and over root SSH `true` and `hostname -s`. Nothing is written but, under init's own writing rule
 (write true: never `init --check`), the node, the storage and the bridge settled, each only where the host's own
-settings.yml sets none, through fleet/overrides.py's one writer. No request carries the token before init settled
+settings.yml sets none, through fleet/overrides.py's one writer. A further host's (card E10: `staged`, the settings
+it sets for itself that its init gives, which the checks read as set) are written only once every check has passed,
+with no `!!` and no `--` line: what the checks settle is staged with them, and each is then written where the host's
+settings.yml sets none, or none of them, said (`_keep`). No request carries the token before init settled
 the certificate: the host is opened through the anchor init kept, and a run whose certificate was refused (an
 `impostor`'s among them) never reaches here.
 
@@ -193,6 +196,8 @@ class _Run:
     settings: dict[str, object]
     checks: list[Check] = dataclasses.field(default_factory=list)
     wrote: list[str] = dataclasses.field(default_factory=list)
+    # A further host's own settings, written once every check has passed (card E10); None for the fleet's one host.
+    staged: dict[str, object] | None = None
 
     @property
     def client(self) -> Proxmox:
@@ -209,6 +214,14 @@ class _Run:
     @property
     def settings_file(self) -> str:
         return f"{hosts.HOSTS_REL}/{self.host.name}/{overrides.SETTINGS}"
+
+    @property
+    def into(self) -> str:
+        """Where a value settled goes, as a line says it: the host's settings.yml now, or, for a further host's,
+        once every check has passed."""
+        if self.staged is not None:
+            return f"to be written into {self.settings_file} once every check has passed"
+        return f"written into {self.settings_file}"
 
     def say(self, state: str, text: str, fix: str = "") -> None:
         self.checks.append(Check(state, text, fix))
@@ -240,10 +253,14 @@ class _Run:
 
     def settle(self, setting: str, value: str) -> bool:
         """value written as setting for the host, where its own settings.yml sets none and the run writes (init's own
-        writing rule): whether it was written. The settings the later checks read take it either way."""
+        writing rule), or for a further host staged, written with the rest once every check has passed (_keep):
+        whether it was kept. The settings the later checks read take it either way."""
         self.settings[setting] = value
         if not self.write or self.own.get(setting) not in (None, ""):
             return False
+        if self.staged is not None:
+            self.staged[setting] = value
+            return True
         home, name, environ = self.host.home, self.host.name, self.host.environ
         try:
             layers = overrides.read(home, name, environ=environ)
@@ -391,7 +408,7 @@ async def _node(at: _Run) -> str:
             return ""
         node, why = named, f"root SSH to {address} says it is that node"
     if at.settle("proxmox_node", node):
-        at.say(OK, f"node {node}: written into {at.settings_file} as proxmox_node, since {why}")
+        at.say(OK, f"node {node}: {at.into} as proxmox_node, since {why}")
     elif not at.write:
         at.say(
             PROBLEM,
@@ -621,7 +638,7 @@ async def _storage(at: _Run, node: str) -> None:
         )
         return
     written = at.settle("proxmox_storage", storage)
-    at.say(OK, f"storage {storage}: the token can use it{f', written into {at.settings_file}' if written else ''}")
+    at.say(OK, f"storage {storage}: the token can use it{f', {at.into}' if written else ''}")
 
 
 async def _bridge(at: _Run, node: str, found: judging.Compared | None, bridges: Sequence[str]) -> None:
@@ -634,7 +651,7 @@ async def _bridge(at: _Run, node: str, found: judging.Compared | None, bridges: 
         # bridges holds the names of Proxmox's format alone: where the cards name none, nothing is settled.
         written = bool(bridges) and at.settle("proxmox_bridge", bridges[0])
         if written:
-            at.say(OK, f"bridge {bridges[0]}, the template's: written into {at.settings_file}")
+            at.say(OK, f"bridge {bridges[0]}, the template's: {at.into}")
         return
     bridge = str(at.settings["proxmox_bridge"])
     if not node:
@@ -654,7 +671,7 @@ async def _bridge(at: _Run, node: str, found: judging.Compared | None, bridges: 
         )
         return
     written = at.settle("proxmox_bridge", bridge)
-    at.say(OK, f"bridge {bridge}: the token can use it{f', written into {at.settings_file}' if written else ''}")
+    at.say(OK, f"bridge {bridge}: the token can use it{f', {at.into}' if written else ''}")
 
 
 def _key(at: _Run) -> None:
@@ -670,15 +687,58 @@ def _key(at: _Run) -> None:
     )
 
 
+def _keep(at: _Run) -> None:
+    """A further host's own settings (card E10): those its init gave and those the checks settled, written into the
+    host's own settings.yml once every check has passed - no `!!` and no `--` line - each where the file sets none, so
+    that a value the checks could not hold to the host is never written for it; else none of them, said, and the host
+    is not set up until a run of init passes them all."""
+    staged = at.staged or {}
+    if not staged:
+        return
+    named = ", ".join(f"{setting} {value}" for setting, value in staged.items())
+    if any(each.state in (PROBLEM, UNCHECKED) for each in at.checks):
+        at.say(
+            NOTE,
+            f"{named}: not written into {at.settings_file}, since a further host's own settings are written once every"
+            " check has passed",
+            at.fix("{init} given the same values writes them once every check passes"),
+        )
+        return
+    home, name, environ = at.host.home, at.host.name, at.host.environ
+    try:
+        layers = overrides.read(home, name, environ=environ)
+        own = {} if layers.host is None else layers.host.settings
+        digest = layers.host.digest if layers.host is not None else overrides.MISSING
+        for setting, value in staged.items():
+            if own.get(setting) in (None, ""):
+                digest = overrides.set(home, setting, value, name, digest, environ=environ)
+    except (overrides.Refused, paths.Refused, OSError) as error:
+        at.say(PROBLEM, f"{named} could not be written into {at.settings_file} ({_error(error)})")
+        return
+    if at.settings_file not in at.wrote:
+        at.wrote.append(at.settings_file)
+    at.say(OK, f"{named}: written into {at.settings_file}, since every check passed")
+
+
 # ---------------------------------------------------------------- the checks ----
 
 
-async def run(host: opened.Host, *, job: Job, own: Mapping[str, object], write: bool) -> Checked:
+async def run(
+    host: opened.Host,
+    *,
+    job: Job,
+    own: Mapping[str, object],
+    write: bool,
+    staged: Mapping[str, object] | None = None,
+) -> Checked:
     """Every check against host, opened (fleet/opened.py's connect), in the module's order: own is what the host's
     own settings.yml sets, where a value the checks settle is written only where it sets none, and only with write
-    (init's own writing rule; never init --check). The checks that need the API are left, one `--` line, where it
-    does not answer or does not take the token; the route and the key are checked either way."""
-    at = _Run(host, job, own, write, {name: value.value for name, value in host.values.items()})
+    (init's own writing rule; never init --check). staged, for a further host (card E10), is the settings it sets for
+    itself that its init gave, and own holds them too: nothing is written then until every check has passed, and then
+    they and what the checks settled are (_keep). The checks that need the API are left, one `--` line, where it does
+    not answer or does not take the token; the route and the key are checked either way."""
+    values = {name: value.value for name, value in host.values.items()}
+    at = _Run(host, job, own, write, values, staged=None if staged is None else dict(staged))
     if await _api(at):
         await _pool(at)
         node = await _node(at)
@@ -694,24 +754,36 @@ async def run(host: opened.Host, *, job: Job, own: Mapping[str, object], write: 
         at.say(UNCHECKED, "nothing else of the Proxmox host is checked: the API did not take the token, as above")
     await _route(at)
     _key(at)
+    _keep(at)
     return Checked(tuple(at.checks), tuple(at.wrote))
 
 
 async def check(
-    home: paths.Home, host: str, *, environ: Mapping[str, str], job: Job, write: bool
+    home: paths.Home,
+    host: str,
+    *,
+    environ: Mapping[str, str],
+    job: Job,
+    write: bool,
+    staged: Mapping[str, object] | None = None,
 ) -> tuple[Checked, str]:
     """The checks against the host called host ("" for the one a run reaches with none named), opened from the
     fleet's files as every workflow opens it, lenient as settings and vault are, since the node is the checks' to
-    settle; and the host's flag a line names. A host that cannot be opened is one `--` line: nothing is checked."""
+    settle; and the host's flag a line names. staged, for a further host (card E10): the settings it sets for itself
+    that its init gave and has not written, read by the checks as set (the host opened with them, as values of the
+    run) and written with what the checks settle once every check has passed (run's). A host that cannot be opened is
+    one `--` line: nothing is checked."""
     layout = hosts.Layout(home, environ)
     try:
         reached = hosts.reach(layout, model.Request(host=host, lenient=True))
-        own_layers = overrides.read(home, reached.host.name, environ=environ).host
-        opened_host = opened.connect(home, reached, environ=environ)
+        name = reached.host.name
+        own_layers = overrides.read(home, name, environ=environ).host
+        values = None if staged is None else overrides.resolve(home, name, dict(staged), environ=environ)
+        opened_host = opened.connect(home, reached, values, environ=environ)
     except (hosts.Refused, opened.Refused, overrides.Refused, paths.Refused) as error:
         flag = host
         return Checked((Check(UNCHECKED, f"nothing is checked on the Proxmox host: {_error(error)}"),)), flag
     with opened_host:
         own = {} if own_layers is None else dict(own_layers.settings)
-        found = await run(opened_host, job=job, own=own, write=write)
+        found = await run(opened_host, job=job, own={**own, **(staged or {})}, write=write, staged=staged)
         return found, opened_host.host_flag

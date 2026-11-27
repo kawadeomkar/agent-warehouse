@@ -55,6 +55,17 @@ alone. The invariants with tests of their own: the secret is in no question, no 
 the host's and no file in clear; nothing runs on Proxmox without a y, but the delete of the token the run made. And `aw
 init --print-commands` through tools/aw prints the script the offer runs and writes nothing, and that script, run by
 hand with --dry-run on a host with nothing yet, gives a command for each object of the list.
+
+A further host (card E10), against two fake Proxmox hosts with different secrets and certificates of their own, the
+first set up by a first run: `aw init --host nuc --address ...` with nobody there keeps nuc's token as nuc's own secret
+in the one vault, sends each host its own token and the first host nothing, leaves the first host's files and the
+fleet's own as they were, and writes nuc's own settings (the pool, the node, the storage and the bridge its checks
+settle) only once every check passed: a failed check leaves them unwritten, and the same run once the host is set up
+writes them. The name of a host there with another address is refused, naming both; a --host with a dot or a colon is
+refused as any name outside the pattern, never taken for --address; AGENT_WAREHOUSE_TOKEN_SECRET, which may be the
+first host's, and the fleet's own values are refused for it, with nothing written or sent; a mark on its pool that names
+another fleet is refused, and --print-commands renders its script with the fleet's own ID. At a terminal it is asked its
+certificate and its secret alone: none of the fleet's questions, nor the node, the storage and the bridge.
 """
 
 from __future__ import annotations
@@ -105,6 +116,8 @@ from harness import (
 )
 from pki import proxmox_pki
 from test_aw_access_script import _found
+from test_aw_engine_init_checks import GRANTS
+from test_aw_engine_template import Fleet as Templates
 from vt import VT
 
 from claude_vm import route, trust
@@ -818,15 +831,269 @@ def test_a_mode_another_card_builds_is_refused_by_name_and_nothing_is_made(fake,
     assert _untouched()
 
 
-def test_a_further_host_is_card_e10_s(fake, secret_file) -> None:
+# ---------------------------------------------------------------- a further host (card E10) ----
+
+# The further host of these tests, and its two files, as a sentence names them.
+FURTHER = "nuc"
+FURTHER_FILE = f"fleet/hosts/{FURTHER}/host.yml"
+FURTHER_SETTINGS = f"fleet/hosts/{FURTHER}/settings.yml"
+# What a further host whose checks passed sets for itself: the pool init gives, and what the checks settle.
+FURTHER_OWN = {
+    "proxmox_pool": ENGINE_POOL,
+    "proxmox_node": "pve",
+    "proxmox_storage": "local-lvm",
+    "proxmox_bridge": "vmbr0",
+}
+
+
+@pytest.fixture
+def nuc(fake, tmp_path):
+    """A second fake Proxmox, the further host's, with the engine's objects and a token of its own, whose secret is
+    not the first fake's, serving certificates of its own; its runs find the first fake's refusing ssh on PATH."""
+    directory = tmp_path / "nuc"
+    directory.mkdir()
+    pki = proxmox_pki(tmp_path / "nuc-pki", key_usage=True)
+    for base in fake_fleet(directory, engine=True, certificate=(pki["cert"], pki["key"]), enforce=True):
+        token, secret = engine_token(directory)
+        assert secret != fake.secret
+        yield Fake(base, directory, int(base.rsplit(":", 1)[1]), pki, token, secret, fake.ssh)
+
+
+def _further(nuc: Fake, tmp_path: Path, *words: str) -> list[str]:
+    """init's options for the further host with nobody there: its name and address, its certificate's fingerprint, its
+    own secret in a file of the test's own, and words."""
+    path = tmp_path / "nuc-secret"
+    path.write_text(nuc.secret + "\n")
+    os.chmod(path, 0o600)
+    fingerprint = trust.pem_fingerprint(nuc.pki["node"])
+    return ["--no-prompt", "--host", FURTHER, "--address", "127.0.0.1", "--certificate", fingerprint, *words] + [
+        "--token-secret-file",
+        str(path),
+    ]
+
+
+def _beside(nuc: Fake, fleet: str) -> None:
+    """The further host as its administrator's printed commands leave it: its pool marked with the fleet's own ID, and
+    its host.yml given the fake's port, as a person with a port of their own writes it."""
+    mark_pool(nuc.base, fleet)
+    with_port(nuc.port, FURTHER)
+
+
+def _set_up(nuc: Fake) -> None:
+    """The further host as init sets one up, so that every check passes: the grants of E1's list beside the role on the
+    pool, the engine's template, and the fleet's VMs an SSH key."""
+    for path, privs in GRANTS.items():
+        engine_grant(nuc.base, path, privs)
+    Templates(nuc.base, nuc.directory, Token(nuc.token, Secret(nuc.secret)), nuc.pki).built()
+    where = _home()
+    if not overrides.read(where, None).fleet.settings.get("vm_ssh_public_keys"):
+        overrides.set(where, "vm_ssh_public_keys", [PUBLIC_KEY], None, overrides.read(where, None).fleet.digest)
+
+
+def _own(host: str) -> dict:
+    """What the host's own settings.yml sets."""
+    found = overrides.read(_home(), host).host
+    return {} if found is None else dict(found.settings)
+
+
+def _not_nuc_s(files: dict[str, bytes]) -> dict[str, bytes]:
+    """Every file of the fleet's home but the further host's folder and the one vault: the first host's and the
+    fleet's own."""
+    vault = str(sealed.path(_home()).relative_to(_home().root))
+    return {
+        path: data for path, data in files.items() if not path.startswith(f"fleet/hosts/{FURTHER}/") and path != vault
+    }
+
+
+def _engine_s_tokens(fake: Fake) -> set[str | None]:
+    """The token ID every request of the engine's client to the fake carried."""
+    return {entry["token"] for entry in fake.calls() if entry["agent"] == pin.USER_AGENT}
+
+
+def test_a_further_host_keeps_its_own_token_and_writes_its_own_settings_once_its_checks_pass(
+    fake, nuc, secret_file, tmp_path
+) -> None:
+    fleet = _first(fake, secret_file, *EVERY)
+    _beside(nuc, fleet)
+    _set_up(nuc)
+    files, first_sent = _files(), len(fake.calls())
+    ran = _init(fake, *_further(nuc, tmp_path))
+    assert ran.returncode == 0 and "!!" not in ran.stdout and "  --   " not in ran.stdout, ran
+    # Its token's secret is its own, a named secret of the one vault beside the first host's.
+    assert {entry: _revealed(value) for entry, value in _opened().items()} == {
+        "token@pve": fake.secret,
+        "token@nuc": nuc.secret,
+    }
+    _sealed(fake.secret)
+    _sealed(nuc.secret)
+    # Each host is sent its own token: the first host nothing at all, the further host its own, which its fake takes
+    # (a request with the first host's secret is refused there), its pool's mark the fleet's own.
+    assert len(fake.calls()) == first_sent
+    assert _engine_s_tokens(nuc) == {ENGINE_TOKEN}
+    assert f"accepted {ENGINE_USER}!{ENGINE_TOKEN}" in ran.stdout and f"(fleet {fleet}, controller=none)" in ran.stdout
+    # Its own settings, written once every check passed; the first host's files and the fleet's own as they were, its
+    # current host the first host still.
+    assert _own(FURTHER) == FURTHER_OWN
+    assert f"written into {FURTHER_SETTINGS}, since every check passed" in ran.stdout, ran.stdout
+    assert _not_nuc_s(_files()) == _not_nuc_s(files)
+    assert overrides.read(_home(), None).client.own.get("current_host") == "pve"
+    assert hosts.reach(hosts.Layout(_home()), Request(host=FURTHER)).host.problem == ""
+    # Checked again, the first host is sent its own token, and the further host nothing.
+    nuc_sent = len(nuc.calls())
+    checked = _init(fake, "--check", "--host", "pve")
+    assert f"at 127.0.0.1:{fake.port} accepted {ENGINE_USER}!{ENGINE_TOKEN}" in checked.stdout, checked
+    assert len(nuc.calls()) == nuc_sent and len(fake.calls()) > first_sent
+    # The same again writes nothing.
+    files = _files()
+    again = _init(fake, *_further(nuc, tmp_path))
+    assert again.returncode == 0 and _files() == files, again
+
+
+def test_a_failed_check_leaves_the_further_host_s_own_settings_unwritten(fake, nuc, secret_file, tmp_path) -> None:
+    fleet = _first(fake, secret_file, *EVERY)
+    _beside(nuc, fleet)
+    files = _files()
+    # No template of the engine's, root SSH refused, no key for the VMs: its checks do not pass.
+    ran = _init(fake, *_further(nuc, tmp_path, "--storage", "local-lvm", "--bridge", "vmbr0"))
+    assert ran.returncode == 1 and "!!" in ran.stdout, ran
+    assert _own(FURTHER) == {}
+    noted = [line for line in ran.stdout.splitlines() if f"not written into {FURTHER_SETTINGS}" in line]
+    assert len(noted) == 1 and noted[0].startswith("  note ") and "proxmox_storage local-lvm" in noted[0], ran.stdout
+    assert "proxmox_pool aw-fleet" in noted[0] and "proxmox_node pve" in noted[0], noted
+    wrote = [line for line in ran.stdout.splitlines() if line.startswith("wrote ")]
+    assert len(wrote) == 1 and FURTHER_FILE in wrote[0] and FURTHER_SETTINGS not in wrote[0], ran.stdout
+    # The authority is kept: its host.yml and its token's secret, which the next run reads; the host is not set up.
+    assert (_home().root / FURTHER_FILE).is_file()
+    assert _revealed(_opened()["token@nuc"]) == nuc.secret
+    with pytest.raises(hosts.Refused, match="does not set proxmox_node"):
+        hosts.reach(hosts.Layout(_home()), Request(host=FURTHER))
+    assert _not_nuc_s(_files()) == _not_nuc_s(files)
+    # Once the host is set up, the same run writes them.
+    _set_up(nuc)
+    ran = _init(fake, *_further(nuc, tmp_path, "--storage", "local-lvm", "--bridge", "vmbr0"))
+    assert ran.returncode == 0, ran
+    assert _own(FURTHER) == FURTHER_OWN
+
+
+def test_the_name_of_a_host_there_with_another_address_is_refused_naming_both(fake, nuc, secret_file) -> None:
+    fleet = _first(fake, secret_file)
+    _beside(nuc, fleet)
+    files = _files()
+    for host in ("pve", FURTHER):
+        ran = _init(fake, "--no-prompt", "--host", host, "--address", "127.0.0.2")
+        assert (ran.returncode, ran.stdout) == (1, ""), ran
+        assert ran.stderr == (
+            f"error: --address 127.0.0.2, but fleet/hosts/{host}/host.yml already sets 127.0.0.1. aw init never writes"
+            " over a value: edit the file to change it.\n"
+        ), ran
+        assert _files() == files
+
+
+def test_a_host_name_with_a_dot_or_a_colon_is_refused_as_any_outside_the_pattern(fake, secret_file) -> None:
     _first(fake, secret_file)
     files = _files()
-    ran = _init(fake, "--no-prompt", "--host", "nuc", "--address", "127.0.0.1")
-    assert ran.returncode == 1 and ran.stderr == (
-        "error: nuc is no host of the fleet's (pve): a further host is set up by aw init --host nuc --address"
-        " <address>, not built yet (card E10 builds it)\n"
-    ), ran
+    outside = _init(fake, "--no-prompt", "--host", "NUC")
+    assert outside.returncode != 0 and "--host" in outside.stderr, outside
+    for named in ("nuc.lan", "192.0.2.20", "nuc:8006"):
+        ran = _init(fake, "--no-prompt", "--host", named)
+        # Never taken for --address: the same refusal as any name outside the pattern, nothing written.
+        assert (ran.returncode, ran.stdout) == (outside.returncode, ""), ran
+        assert ran.stderr.replace(named, "<it>") == outside.stderr.replace("NUC", "<it>"), (ran.stderr, outside.stderr)
+        assert _files() == files
+
+
+def test_the_exported_secret_is_never_taken_for_a_further_host_and_nothing_is_sent(fake, nuc, secret_file) -> None:
+    fleet = _first(fake, secret_file)
+    _beside(nuc, fleet)
+    files, sent, first_sent = _files(), len(nuc.calls()), len(fake.calls())
+    fingerprint = trust.pem_fingerprint(nuc.pki["node"])
+    for secret in (fake.secret, nuc.secret):
+        ran = _init(
+            fake,
+            *("--no-prompt", "--host", FURTHER, "--certificate", fingerprint),
+            env={engine_init.SECRET_VARIABLE: secret},
+        )
+        assert (ran.returncode, ran.stdout) == (1, ""), ran
+        assert ran.stderr.startswith(
+            "error: AGENT_WAREHOUSE_TOKEN_SECRET is set, and this init is nuc's, a further host's, whose token is its"
+            " own: that secret may be the first host's, so unset it and give nuc's secret in a file only you can read,"
+            " as aw init "
+        ), ran
+        assert "--host nuc" in ran.stderr and "--token-secret-file <file>" in ran.stderr
+        assert ran.stderr.endswith("; nothing was written\n") and secret not in ran.stderr
+        assert _files() == files and len(nuc.calls()) == sent and len(fake.calls()) == first_sent
+
+
+def test_a_further_host_takes_no_value_of_the_fleet_s_own(fake, nuc, secret_file, tmp_path) -> None:
+    fleet = _first(fake, secret_file)
+    _beside(nuc, fleet)
+    files, sent = _files(), len(nuc.calls())
+    for words, flags, verb in (
+        (("--github-user", "octocat"), "--github-user", "sets"),
+        (("--tailscale", "off"), "--tailscale", "sets"),
+        (("--github-user", "octocat", "--tailscale", "on"), "--github-user and --tailscale", "set"),
+    ):
+        ran = _init(fake, *_further(nuc, tmp_path, *words))
+        assert (ran.returncode, ran.stdout) == (1, ""), ran
+        assert ran.stderr == (
+            f"error: {flags} {verb} the fleet's own settings, every host's (github_username and vpn, in"
+            " fleet/settings.yml), and this init is nuc's, a further host's, which never writes them: nothing was"
+            " written\n"
+        ), ran
+        assert _files() == files and len(nuc.calls()) == sent
+
+
+def test_a_further_host_s_pool_carries_the_fleet_s_own_mark(fake, nuc, secret_file, tmp_path) -> None:
+    fleet = _first(fake, secret_file)
+    _beside(nuc, fleet)
+    files = _files()
+    # The script printed for it is rendered with the fleet's own ID, and writes nothing.
+    printed = _init(fake, "--print-commands", "--host", FURTHER)
+    assert printed.returncode == 0 and fleet in printed.stdout, printed
     assert _files() == files
+    # A mark on its pool that names another fleet is refused, with nothing written.
+    mark_pool(nuc.base, record.new_id())
+    ran = _init(fake, *_further(nuc, tmp_path))
+    assert ran.returncode == 1 and ran.stderr.startswith("error: ") and "nothing was written" in ran.stderr, ran
+    assert _files() == files and "token@nuc" not in _opened()
+
+
+def test_a_further_host_that_is_not_there_yet_needs_its_address(fake, secret_file) -> None:
+    _first(fake, secret_file)
+    files = _files()
+    ran = _init(fake, "--no-prompt", "--host", "lab")
+    assert (ran.returncode, ran.stdout) == (1, ""), ran
+    assert ran.stderr.startswith("error: the host lab has no address yet: give it, as aw init ") and (
+        ran.stderr.endswith("; nothing was written\n")
+    ), ran
+    assert _files() == files and not (_home().root / "fleet" / "hosts" / "lab").exists()
+
+
+def test_at_a_terminal_a_further_host_is_asked_its_authority_alone(fake, nuc, secret_file, tmp_path) -> None:
+    # The first host's own run left the fleet's questions unanswered, a public key is there to offer, and the token may
+    # use the further host's node, storage and bridge: a first host's init would ask each, its menus a yes or no; the
+    # further host's asks none of them, nor its node, its storage or its bridge.
+    fleet = _first(fake, secret_file)
+    _beside(nuc, fleet)
+    _grants(nuc)
+    _public_key("laptop.pub", PUBLIC_KEY)
+    shared = _home().root / "fleet" / "settings.yml"
+    before = shared.read_bytes() if shared.exists() else None
+    plan: Plan = [(TRUST_ASKED, [UP, ENTER], True), (SECRET_ASKED, [nuc.secret.encode() + b"\n"], False)]
+    rc, raw = _asked(fake, plan, "--host", FURTHER)
+    said = raw.decode(errors="replace")
+    assert rc == _due(said), said
+    for asked in (GITHUB_ASKED, VPN_ASKED, SSH_KEY_ASKED, KEY_ASKED, b"Use pve?", b"Use local-lvm?", b"Use vmbr0?"):
+        assert asked not in raw, (asked, said)
+    assert said.count(engine_init.ASKED) == len(plan), said
+    assert {entry: _revealed(value) for entry, value in _opened().items()} == {
+        "token@pve": fake.secret,
+        "token@nuc": nuc.secret,
+    }
+    _no_secret_said(raw, tmp_path, nuc.secret)
+    # Its checks did not pass (no template, root SSH refused): its own settings are unwritten, the fleet's untouched.
+    assert rc == 1 and _own(FURTHER) == {}
+    assert (shared.read_bytes() if shared.exists() else None) == before
 
 
 def test_no_vault_is_made_under_the_key_the_variable_names(fake, secret_file, tmp_path) -> None:
