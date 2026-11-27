@@ -55,10 +55,11 @@ none of them, and runs against it refuse it until it has. client.yml's current h
 
 **The checks** (card E6, engine/init_checks.py): once the run has written, at a terminal or with nobody there, init
 checks the host as the fleet's files now open it and says one of today's `ok`, `!!`, `--` and `note` lines a check,
-settling the node, the storage and the bridge where the host's own settings.yml sets none, with nobody there alone (at
-a terminal the person's answers are the rule); it exits 1 exactly where a `!!` line was said. `aw init --check` runs
-the same checks under the same lock, takes no value but `--host` (`--set` among those refused), and writes nothing.
-The checks read the fleet's files alone, never a `--set` value of the run.
+settling the node, the storage and the bridge where the host's own settings.yml sets none, with nobody there alone (at a
+terminal the person's answers are the rule), but a further host's (above); it exits 1 exactly where a `!!` line was
+said. `aw init --check` runs the same checks under the same lock, takes no value but `--host` (`--set` among those
+refused), and writes nothing. The checks read the fleet's files alone, but a further host's (above), never a `--set`
+value of the run.
 
 **The offer** (card E7), at a terminal alone, between the token's ID and its secret, once the certificate is settled:
 the access script, engine/access.py's `as_script` rendered for the host's values and the fleet's ID (fleet.json's where
