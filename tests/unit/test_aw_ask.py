@@ -1216,23 +1216,8 @@ def test_a_questions_mode_keeps_what_the_terminal_has_not_read_at_a_ctrl_c_but_a
             default = Secret("") if hidden else ""
             # The change back is a draining one with the echo still unread here: macOS waits for that read
             # (ttywait), so the master is read on a thread of its own while the question runs.
-            reading = threading.Event()
-
-            def echoes() -> None:
-                while not reading.is_set():
-                    if select.select([master], [], [], 0.05)[0]:
-                        try:
-                            os.read(master, 4096)
-                        except OSError:
-                            return
-
-            reader = threading.Thread(target=echoes, daemon=True)
-            reader.start()
-            try:
+            with _read_meanwhile(master):
                 answer = asyncio.run(asking.ask(context, "Proxmox host address:", default, hidden=hidden))
-            finally:
-                reading.set()
-                reader.join()
         assert (answer.reveal() if isinstance(answer, Secret) else answer) == "192.0.2.1"
         assert [when for when, _ in changes] == [termios.TCSAFLUSH] * 2, changes
         (_, mode), (_, back) = changes
@@ -1256,6 +1241,30 @@ class _Told(io.StringIO):
     def write(self, text: str) -> int:
         self.noted.append(("write", text))
         return super().write(text)
+
+
+@contextlib.contextmanager
+def _read_meanwhile(master: int) -> Iterator[None]:
+    """The master read on a thread of its own while the block runs, as a terminal's emulator reads what is written to
+    it: a draining change of the terminal's settings waits on macOS till all its output is read (ttywait), the echo of
+    what was typed among it - and there an end of input (Ctrl-D) typed in a canonical mode is echoed too, as ^D."""
+    reading = threading.Event()
+
+    def echoes() -> None:
+        while not reading.is_set():
+            if select.select([master], [], [], 0.05)[0]:
+                try:
+                    os.read(master, 4096)
+                except OSError:
+                    return
+
+    reader = threading.Thread(target=echoes, daemon=True)
+    reader.start()
+    try:
+        yield
+    finally:
+        reading.set()
+        reader.join()
 
 
 def _noting(monkeypatch: pytest.MonkeyPatch, noted: list[tuple[str, object]]) -> None:
@@ -1295,8 +1304,10 @@ def test_a_questions_own_words_are_written_while_its_mode_keeps_them_at_a_ctrl_c
                 assert not noted[changes[0]][1] & termios.ICANON, noted
             else:
                 # The end of the input (Ctrl-D) before any Enter: the read ends with the line unended on the screen.
+                # macOS echoes the Ctrl-D (^D) at the master, where the change back drains: read there meanwhile.
                 context = _Typing(made, master, [b"\x04"])
-                assert asyncio.run(asking.ask(context, "Proxmox host address:", "")) == ""
+                with _read_meanwhile(master):
+                    assert asyncio.run(asking.ask(context, "Proxmox host address:", "")) == ""
                 assert noted[-2:] == [("write", "\n"), ("change", found[3])], noted
                 made_mode, _ = (text for kind, text in noted if kind == "change")
                 assert made_mode & termios.NOFLSH, noted

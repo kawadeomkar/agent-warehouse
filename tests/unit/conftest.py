@@ -263,11 +263,14 @@ def drainwatch() -> Iterator[list[str]]:
     there until the master has read everything (ttywait), where Linux returns at once, so such a test hangs on macOS
     alone (#310's hang); here it fails on Linux too. Each master opened during the test (os.openpty, which pty.openpty
     calls) is watched by its terminal's name; at such a change, one still holding output after DRAIN_GRACE - which
-    another thread reading it would have taken - is noted, and the test fails at its end. Off Linux nothing is noted:
-    FIONREAD on a master there counts what its slave has not read, never the slave's output, so it would fail a test
-    that leaves what was typed unread and never see the output it is for. Then, on every platform, the hold of a
-    terminal tui/live_region.py keeps for this process, which a region a test started and never finished would leave
-    to the next test, given back. Function scoped, as aw_home is, and by a MonkeyPatch of its own."""
+    another thread reading it would have taken - is noted, and the test fails at its end. Output macOS makes where Linux
+    makes none is made too: the end of input (VEOF) typed at a master while the terminal is canonical and echoes is
+    echoed there as ^D on macOS, where Linux echoes nothing, so on Linux that echo is written at the slave (macos_echo).
+    Off Linux nothing is noted: FIONREAD on a master there counts what its slave has not read, never the slave's output,
+    so it would fail a test that leaves what was typed unread and never see the output it is for. Then, on every
+    platform, the hold of a terminal tui/live_region.py keeps for this process, which a region a test started and never
+    finished would leave to the next test, given back. Function scoped, as aw_home is, and by a MonkeyPatch of its
+    own."""
     import fcntl
     import struct
     import termios
@@ -277,8 +280,9 @@ def drainwatch() -> Iterator[list[str]]:
     from claude_vm.tui import live_region
 
     masters: dict[str, tuple[int, int, int]] = {}  # the terminal's name: its master, by descriptor and identity
+    echoed: set[str] = set()  # the terminals given an echo of macOS's own (macos_echo)
     found: list[str] = []
-    opened, changed = os.openpty, termios.tcsetattr
+    opened, changed, wrote = os.openpty, termios.tcsetattr, os.write
 
     def openpty() -> tuple[int, int]:
         master, slave = opened()
@@ -286,6 +290,37 @@ def drainwatch() -> Iterator[list[str]]:
             stat = os.fstat(master)
             masters[os.ttyname(slave)] = (master, stat.st_dev, stat.st_ino)
         return master, slave
+
+    def watched(fd: int) -> str | None:
+        """The terminal whose master fd is, still the one opened."""
+        for name, (master, dev, ino) in masters.items():
+            if master == fd:
+                with contextlib.suppress(OSError):
+                    stat = os.fstat(fd)
+                    if (stat.st_dev, stat.st_ino) == (dev, ino):
+                        return name
+        return None
+
+    def macos_echo(fd, data):
+        """What is typed at a watched master (os.write), with the echo macOS makes there and Linux does not made too:
+        an end of input typed while the terminal is canonical and echoes is echoed as ^D and two backspaces over it
+        (XNU's ttyinput), written at the slave, so that the master holds it as it would on macOS till it is read."""
+        wrote_now = wrote(fd, data)
+        name = watched(fd) if masters else None
+        if name is not None:
+            with contextlib.suppress(OSError, termios.error):
+                mode = termios.tcgetattr(fd)
+                lflag, eof = mode[3], mode[6][termios.VEOF]
+                eof = eof if isinstance(eof, bytes) else bytes([eof])
+                ends = bytes(data[:wrote_now]).count(eof) if eof != b"\0" else 0
+                if ends and lflag & termios.ICANON and lflag & termios.ECHO:
+                    slave = os.open(name, os.O_WRONLY | os.O_NOCTTY)
+                    try:
+                        wrote(slave, b"^D\b\b" * ends)
+                    finally:
+                        os.close(slave)
+                    echoed.add(name)
+        return wrote_now
 
     def unread(name: str) -> int:
         master, dev, ino = masters[name]
@@ -308,15 +343,18 @@ def drainwatch() -> Iterator[list[str]]:
                 time.sleep(0.02)
             if left:
                 kind = "TCSADRAIN" if when == termios.TCSADRAIN else "TCSAFLUSH"
+                mac = ", an end of input's echo of macOS's among them" if name in echoed else ""
                 found.append(
                     f"a {kind} change of {name}'s settings, in {threading.current_thread().name}, with {left} bytes"
-                    " unread at its master and nothing reading them: macOS waits there for good"
+                    f" unread at its master{mac}, and nothing reading them: macOS waits there for good"
                 )
         return changed(fd, when, settings)
 
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(os, "openpty", openpty)
         patch.setattr(termios, "tcsetattr", tcsetattr)
+        if sys.platform == "linux":
+            patch.setattr(os, "write", macos_echo)
         yield found
     hold = live_region._HOLD
     if hold.found is not None and threading.current_thread() is threading.main_thread():
