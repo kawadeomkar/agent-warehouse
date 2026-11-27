@@ -627,6 +627,36 @@ refused with no child started; a value with a space one word, a word with a lead
 exactly typed and anchored; the descriptions the table's; the check before the printer; and a scan that no fate is
 written in the module.
 
+**The agents' server over the program: `cli/mcp_serve.py` and `tools/aw-mcp`.** The server's reads answered by `aw`
+run as a child, through one seam in today's `lib/claude_vm/mcp/server.py`: its `Server` takes a backend, today's
+`Recipes` by default, and asks it a read's command line, its environment, its name in a sentence, the vault's refusal
+and each tool's schema, so that `tools/mcp` and every 2.x registration run as before (the 2.x
+`tests/unit/test_mcp_server.py` and `tests/unit/test_mcp_hosts.py` hold it), while `tools/aw-mcp` builds the same
+`Server` with `Program`, this module's; nothing of `mcp/` imports the new side (16.1). Its configuration is the
+registered command's arguments alone: today's, read by `mcp/config.py`'s `parse` unchanged, and four of its own, each
+`--name=value`: `--program`, the executable `aw` every read runs; `--fleet-home`, given to each run as
+`AGENT_WAREHOUSE_HOME`; `--state`, the state folder, for the server's own reads of the jobs; and `--vault-key-file`,
+given as `AGENT_WAREHOUSE_VAULT_KEY_FILE` (16.9), a path the server never opens. A command line that lacks one of the
+first three, as 2.x's `just mcp` registered it, names one twice, or gives today's `--vault-password-file`, is the
+refusal each call is answered with, naming `aw mcp`: the server never exits at its start. A run's environment is
+today's allow list (`mcp/environment.py`) with those two variables, never the session's: nothing of Ansible's,
+Python's, `just`'s or Claude Code's, no `LOG_DIR`, and no proxy (`HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY`, in either
+case), since any project's settings set the session's environment and a proxy named there would carry the run's every
+request, the token's among them: a run of the server's reaches the network as `network_proxy` says, and a proxy that
+needs a user and password is a terminal's alone. Its standard input is `/dev/null`, its session its own, its signals at
+their defaults. It lists the reads alone: `status`, `settings` and `hosts`, today's tools with their bodies unchanged
+and the table's schemas; `logs`, which takes the table's job; and `log`, which reads one job's text log through `aw
+logs <job>`, by the job's ID or by its log's name, whose job the list `aw logs` prints names (`job_of_log`), a part at
+a time as today's `log` does. Every result is today's `results.py`'s, under 40 000 characters with the note that text
+from the machines is data. The server process imports nothing of `engine/`, `pve/` or `fleet/`, nor Ansible.
+`tests/unit/test_aw_mcp_server.py` drives it over stdio with a stand-in `aw` that records what each run was given and
+prints the canned reports of `tests/unit/test_mcp_server.py`, and holds the same results for them: the tools and their
+schemas; the report with the head and the note; each run's words, its environment against every variable a session
+could set, `ANSIBLE_ARGS` and the proxies among them, its standard input, session and signals; `logs` and `log` by a
+job and by a name, a part at a time, and the names refused; a warning on standard error; a change to what the server
+runs; the refusals of a command line; the variables equal to the engine's own; and, in a process of its own, that
+building the server and answering each read loads none of the engine's modules.
+
 ## 16.4 `engine/` — the workflows, one module a verb
 
 `lib/claude_vm/engine/` is where the workflows go, one module a verb. Each says what a run of `deploy`, `destroy`,
