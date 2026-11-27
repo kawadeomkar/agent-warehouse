@@ -36,6 +36,9 @@ IDENTITY = "agent-warehouse-00000000-0000-4000-8000-00000000f021"
 # A canned secret holding what JSON and repr escape: a quote, a backslash, a line break's escape and a character
 # outside ASCII.
 CANNED = 'f21-canned-"\\é-secret'
+OK = {"event": "ok"}
+# A condition that is false.
+NO = "1 == 2"
 
 
 @pytest.fixture
@@ -90,26 +93,50 @@ def test_each_task_is_said_as_check_mode_makes_it_and_nothing_on_the_machine_cha
     (home / "drifted.txt").write_text("as it drifted\n")
     (home / "kept.txt").write_text("as wanted\n")
     (home / "hidden.txt").write_text("hidden as it drifted\n")
+    script = tmp_path / "script.sh"
+    script.write_text(f"#!/bin/sh\ntouch {home / 'scripted'}\n")
+    script.chmod(0o755)
     play = _play(
         tmp_path,
         _copy("drifted", home / "drifted.txt", "as wanted\n"),
         _copy("kept", home / "kept.txt", "as wanted\n"),
         {"name": "a command", "ansible.builtin.command": {"argv": ["touch", str(home / "touched")]}},
         _copy("hidden", home / "hidden.txt", "hidden as wanted\n", no_log=True),
+        # Review 96's 2: check mode skips these unrun, whatever their module, and a false condition is evaluated.
+        {"name": "a tempfile", "ansible.builtin.tempfile": {"path": str(home), "prefix": "f21-"}},
+        {"name": "a script", "ansible.builtin.script": {"cmd": str(script)}},
+        {"name": "a command not wanted", "ansible.builtin.command": {"argv": ["touch", str(home / "x")]}, "when": NO},
+        {"name": "a loop not wanted", "ansible.builtin.command": {"argv": ["true"]}, "loop": [1, 2], "when": NO},
+        {"name": "a command with creates", "ansible.builtin.command": {"cmd": "true", "creates": str(home / "none")}},
     )
     checked = _check(made, alpha, play)
     assert checked.ended.status == 0, checked.ended.said
     verdicts = {task.task: (task.verdict, task.diff) for task in checked.tasks}
-    assert list(verdicts) == ["drifted", "kept", "a command", "hidden"]
+    assert list(verdicts) == [
+        "drifted",
+        "kept",
+        "a command",
+        "hidden",
+        "a tempfile",
+        "a script",
+        "a command not wanted",
+        "a loop not wanted",
+        "a command with creates",
+    ]
     verdict, diff = verdicts["drifted"]
     assert verdict == "would change" and "-as it drifted" in diff and "+as wanted" in diff, diff
     assert verdicts["kept"] == ("would not change", "")
     assert verdicts["a command"] == ("not evaluated", "")
     # A no_log task's diff is absent: what it would change, said; never the file's text.
     assert verdicts["hidden"] == ("would change", "")
+    assert verdicts["a tempfile"] == ("not evaluated", "") and verdicts["a script"] == ("not evaluated", "")
+    assert verdicts["a command not wanted"] == ("would not change", "")
+    assert verdicts["a loop not wanted"] == ("would not change", "")
+    assert verdicts["a command with creates"][0] == "would change"
     assert (home / "drifted.txt").read_text() == "as it drifted\n"
     assert (home / "hidden.txt").read_text() == "hidden as it drifted\n"
-    assert not (home / "touched").exists()
+    assert not (home / "touched").exists() and not (home / "scripted").exists()
+    assert not list(home.glob("f21-*"))
 
 
 def test_a_secret_in_a_file_s_content_is_struck_from_its_diff(made, root, tmp_path):
@@ -141,7 +168,7 @@ def test_a_secret_is_struck_in_the_forms_ansible_quotes_it_in():
 def test_a_mapping_s_diff_heard_holds_its_secret_in_no_form(made):
     reader = events.Heard(made, IDENTITY, "alpha", [Secret(CANNED)])
     heard = _heard(made)
-    reader.hand(json.dumps({"event": "task", "task": "t", "part": None, "handler": False, "action": "debconf"}))
+    reader.hand(json.dumps({"event": "task", "task": "t", "part": None, "handler": False}))
     said = "--- before\n+++ after\n" + json.dumps({"before": {"pw": "old"}, "after": {"pw": CANNED}}, indent=4)
     reader.hand(json.dumps({"event": "diff", "task": "t", "part": None, "diff": said}))
     reader.hand(json.dumps({"event": "changed", "task": "t", "part": None}))
@@ -152,22 +179,24 @@ def test_a_mapping_s_diff_heard_holds_its_secret_in_no_form(made):
 
 
 @pytest.mark.parametrize(
-    ("action", "kinds", "verdict"),
+    ("results", "verdict"),
     [
-        ("ansible.builtin.shell", ["skipped"], "not evaluated"),
-        ("ansible.legacy.raw", ["skipped"], "not evaluated"),
-        ("command", ["ok"], "would not change"),
-        ("ansible.builtin.copy", ["skipped"], "would not change"),
-        ("ansible.builtin.copy", ["ok", "changed"], "would change"),
-        ("ansible.builtin.copy", ["failed"], "not evaluated"),
-        ("ansible.builtin.copy", [], "not evaluated"),
+        ([{"event": "skipped", "condition": False}], "not evaluated"),
+        ([{"event": "skipped"}], "not evaluated"),
+        ([{"event": "skipped", "condition": True}], "would not change"),
+        ([OK], "would not change"),
+        ([{"event": "ok", "item": 1}, {"event": "skipped", "item": 2, "condition": False}, OK], "not evaluated"),
+        ([{"event": "ok", "item": 1}, {"event": "skipped", "item": 2, "condition": True}, OK], "would not change"),
+        ([{"event": "ok"}, {"event": "changed"}], "would change"),
+        ([{"event": "failed"}], "not evaluated"),
+        ([], "not evaluated"),
     ],
 )
-def test_check_mode_s_verdict_of_a_task(made, action, kinds, verdict):
+def test_check_mode_s_verdict_of_a_task(made, results, verdict):
     reader = events.Heard(made, IDENTITY, "alpha")
-    reader.hand(json.dumps({"event": "task", "task": "t", "part": "common", "handler": False, "action": action}))
-    for kind in kinds:
-        reader.hand(json.dumps({"event": kind, "task": "t", "part": "common"}))
+    reader.hand(json.dumps({"event": "task", "task": "t", "part": "common", "handler": False}))
+    for result in results:
+        reader.hand(json.dumps({"task": "t", "part": "common", **result}))
     assert reader.checked == (events.Checked("t", "common", verdict),)
 
 
@@ -187,6 +216,22 @@ class _Unread:
 
     def difference(self, state):
         raise AssertionError("a step with no read has no difference")
+
+
+class _Saying:
+    """A step whose probe fails with what it read, a secret of the run's among it."""
+
+    name = "saying"
+    part = "claude_code"
+
+    async def probe(self, ctx):
+        raise step.Failed(f"the file holds {CANNED}, which is no JSON")
+
+    async def apply(self, ctx, state):
+        raise AssertionError("a check applies nothing")
+
+    def difference(self, state):
+        raise AssertionError("a probe that failed has no difference")
 
 
 @pytest.fixture
@@ -223,3 +268,7 @@ def test_layer_2_answers_from_each_step_s_probe_and_difference_and_writes_nothin
     checked = asyncio.run(step.check_steps(ctx, _steps(alpha)))
     assert checked[0].verdict == "not evaluated" and "is not a JSON object" in checked[0].why
     assert on_disk.read_text() == "{not json"
+    # Review 96's 5: why is struck of the run's secrets, as every event is.
+    job.redact(Secret(CANNED))
+    [said] = asyncio.run(step.check_steps(ctx, [_Saying()]))
+    assert said.why == f"the file holds {MARK}, which is no JSON"
