@@ -1048,7 +1048,7 @@ def test_the_drain_watch_makes_the_echo_macos_makes_of_an_end_of_input_on_linux_
     # macOS echoes an end of input (Ctrl-D) typed in a canonical mode as ^D at the master, where Linux echoes nothing:
     # a draining change with that echo unread waits there for good (#310's hang in test_aw_ask.py, at a line the
     # input's end cuts short). On Linux the watch makes that echo too, so the change with it unread is noted; read at
-    # the master, as an emulator reads it, it is nothing.
+    # the master, as an emulator reads it, it is nothing. Only as macOS makes it: in the mode of the moment it is typed.
     master, slave = os.openpty()
     try:
         os.write(master, b"\x04")
@@ -1069,7 +1069,61 @@ def test_the_drain_watch_makes_the_echo_macos_makes_of_an_end_of_input_on_linux_
         assert echo == b"^D\b\b", echo
         termios.tcsetattr(slave, termios.TCSADRAIN, termios.tcgetattr(slave))
         assert drainwatch == [], drainwatch
+        # Typed while the terminal is raw, as at a menu, a Ctrl-D is a key, which macOS echoes not at all: nothing is
+        # made, even once the canonical mode is back.
+        canonical = termios.tcgetattr(slave)
+        raw = list(canonical)
+        raw[3] &= ~(termios.ICANON | termios.ECHO)
+        termios.tcsetattr(slave, termios.TCSANOW, raw)
+        os.write(master, b"\x04")
+        assert os.read(slave, 16) == b"\x04"
+        termios.tcsetattr(slave, termios.TCSANOW, canonical)
+        assert not select.select([master], [], [], 0.2)[0], os.read(master, 64)
     finally:
+        os.close(master)
+        os.close(slave)
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="the drain watch looks on Linux only")
+def test_the_drain_watch_decides_the_echo_by_the_mode_a_ctrl_d_is_typed_in_never_the_one_after(drainwatch, monkeypatch):
+    # macOS echoes a key by the mode of the moment it is typed. A program at a menu (raw) that reads a Ctrl-D as a key
+    # and puts the canonical mode back has had nothing echoed, however soon it does so: the watch reads the mode before
+    # what was typed reaches the master, never after (batch 27's ^D after test_aw_cli_rules.py's "Nothing was run.").
+    # Here the program is a thread, and the watch's look at the master after the write is held a while, which gives it
+    # the time to put its mode back first.
+    master, slave = os.openpty()
+    canonical = termios.tcgetattr(slave)
+    raw = list(canonical)
+    raw[3] &= ~(termios.ICANON | termios.ECHO)
+    termios.tcsetattr(slave, termios.TCSANOW, raw)
+    typed = threading.Event()
+    stat = os.fstat
+
+    def held(fd, *args, **kwargs):
+        if fd == master and typed.is_set():
+            time.sleep(0.3)
+        return stat(fd, *args, **kwargs)
+
+    def program() -> None:
+        assert os.read(slave, 16) == b"\x04"
+        termios.tcsetattr(slave, termios.TCSANOW, canonical)
+
+    reader = threading.Thread(target=program)
+    reader.start()
+    try:
+        monkeypatch.setattr(os, "fstat", held)
+        # The first look (watched) before the write, then the write, then any look after it held.
+        original = os.write
+        monkeypatch.setattr(os, "write", lambda fd, data: (typed.set(), original(fd, data))[1])
+        os.write(master, b"\x04")
+        reader.join(5)
+        monkeypatch.undo()
+        assert not reader.is_alive()
+        assert not select.select([master], [], [], 0.3)[0], os.read(master, 64)
+    finally:
+        monkeypatch.undo()
+        reader.join(5)
+        termios.tcsetattr(slave, termios.TCSANOW, canonical)
         os.close(master)
         os.close(slave)
 
