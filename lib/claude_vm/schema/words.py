@@ -112,7 +112,9 @@ class Words:
     shows without brackets (aw code <name>); refused, that the words are no word to give, as today's EXTRA is (init's
     and mcp's, which each refuse any): help leaves them out of a usage line and the command reference out of its rows,
     and says no form for them, nor does the refusal of one outside its pattern, and the one check refuses no
-    placeholder of them, which the verb's own rule refuses as any word."""
+    placeholder of them, which the verb's own rule refuses as any word. agent_needed, that an agent's tool needs a word
+    the terminal does not, where none would reach what nobody named (destroy's names, the default VM; cancel's job, the
+    one job that runs, a terminal's among them)."""
 
     name: str
     plural: bool
@@ -124,6 +126,7 @@ class Words:
     example: str | None = None
     needed: bool = False
     refused: bool = False
+    agent_needed: bool = False
 
 
 @dataclass(frozen=True)
@@ -760,7 +763,7 @@ _VERBS: tuple[Verb, ...] = (
                 {"settings": refused(VALUE_LEFT_OUT), "settings_set": PROPERTY},
             ),
         ),
-        rules=("settings.1", "settings.2", "settings.3", "settings.4"),
+        rules=("settings.1", "settings.2", "settings.3", "settings.4", "settings.5"),
         handler="fleet.settings_verb:show",
         card="D9",
         locks="none",
@@ -772,7 +775,9 @@ _VERBS: tuple[Verb, ...] = (
         group="use",
         doc="Save the VM(s)' own Claude sessions here, release them from Claude, GitHub and Tailscale, then delete "
         "them",
-        words=Words("name", True, "names", "vm_name", "The VMs; none means agent-warehouse-default", PROPERTY),
+        words=Words(
+            "name", True, "names", "vm_name", "The VMs; none means agent-warehouse-default", PROPERTY, agent_needed=True
+        ),
         options=(
             _value(
                 "confirm",
@@ -907,6 +912,7 @@ _VERBS: tuple[Verb, ...] = (
             "job_id",
             "The job to stop, by its ID as logs lists it; none stops the one job that runs",
             PROPERTY,
+            agent_needed=True,
         ),
         options=(),
         rules=(),

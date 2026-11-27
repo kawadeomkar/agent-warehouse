@@ -116,7 +116,9 @@ order help lists them, today's thirteen and `release` and `cancel`: the base's a
 which adds its row when it is built. Each row is a `Verb`: its group and its sentence; its `Words`, what the usage calls
 one, whether it takes several, the name the handler receives them by, their pattern and help, and side by side whether
 the verb needs its one word (`needed`: `code`'s VM and `release`'s machine, which a usage line shows without brackets)
-and whether the words are no word to give (`refused`: `init`'s and `mcp`'s, which refuse any); its `Option`s; the codes
+and whether the words are no word to give (`refused`: `init`'s and `mcp`'s, which refuse any), and whether an agent's
+tool needs a word the terminal does not, where none would reach what nobody named (`agent_needed`: `destroy`'s names,
+the default VM, and `cancel`'s job, the one job that runs); its `Option`s; the codes
 of the rules between its options (`deploy.4`, `check.names.1`), which the one check runs in that order; its handler, as
 `module:function`, or none while no change has built the verb, and then the card that builds it; the locks a run of it
 takes, one of `machines`, `fleet`, `none` or `words`, where the kind depends on the words given (16.8, `lock_sets.py`);
@@ -603,17 +605,20 @@ tool's schema is a small function of its verb's row (16.2): one flat object, `ad
 for each option and the verb's words whose fate for that tool is `property`, with exact JSON types (a string, a
 boolean, a list of strings for several words), the table's pattern as `^(?:<text>)$`, since a JSON Schema pattern is not
 anchored, and the table's help said through `said` with its form as the description; a word the verb needs (`code`'s,
-`release`'s) is required, and a tool whose verb's run is a job has the server's own `wait_seconds` beside them. The
+`release`'s) or its tool does (`agent_needed`: `destroy`'s names, `cancel`'s job) is required, and refused when none is
+given, so that no default is implied through an agent, and a tool whose verb's run is a job has the server's own `wait_seconds` beside them. The
 module holds no fate, reason or tool's name of its own: a fate the table does not write for a tool raises `Unfated`,
 naming the verb, the word and the tool. `command(tool, arguments, given)` is the command line a call runs, the
 printer's `argv` with `refused` false, so `settings_set`'s value reaches the run: each value one argument word, never
 through a shell; each fixed value the table writes (`--json`, `init --no-prompt`, `--detach` on every verb whose run
-is a job), and in `given` those the server works out for each call (`--confirm`'s names, `--attended`), the only words
-before the verb, since `aw` reads its settings from the fleet's files. A call is refused with `Refused`, before any
+is a job), and in `given` those the server works out for each call (`--confirm`'s names, `--attended`), each a value
+(an empty one is the server's fault, `TypeError`, since `--confirm=` with no names would reach the default VM), the only
+words before the verb, since `aw` reads its settings from the fleet's files. A call is refused with `Refused`, before any
 child starts and in a sentence for the agent: an argument the tool does not take, with the table's reason (`--set`,
 `-v`, `--adopt`, `logs --follow`, which would wait until the job ends, and the rest); a verb's word that starts with
 `-`, which `aw` would read as an option, while an option's value that does is written `--long=value`, one word; then
-what the one check refuses, its rules among them, so that the printer's words that the program is at fault are never
+what the one check refuses, its rules among them (`settings.5` refuses `settings edit` beside `--json`, which both settings
+tools give, so neither opens an editor on the person's screen), so that the printer's words that the program is at fault are never
 said of an agent's value; and last a line the printer will not write, its `Unwritten` said as the refusal. It imports
 `schema/` and the standard library alone. `tests/unit/test_aw_mcp_tools.py` carries `test_mcp_tools.py`'s holds against
 the table: every verb a tool or a reason, every option and word one fate for each tool that runs it, one added with
