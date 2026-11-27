@@ -21,6 +21,8 @@ import hashlib
 import os
 import re
 import stat
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -430,8 +432,8 @@ def test_a_file_that_is_not_text_or_too_large_is_refused(home) -> None:
 DEEP = 400
 # What YAML's safe reader cannot make a value of, each a Python error of its own, which may say the value, with the line
 # its refusal names (None where YAML knows none): an integer, a float, a boolean and a date of a tag's that are none, a
-# plain date that is none, alone and in a list, a number past Python's limit of digits, one in hexadecimal that is read
-# past it and that nothing could write back, and a mapping and a list nested past Python's recursion.
+# plain date that is none, alone and in a list, a number past Python's limit of digits, one in hexadecimal tagged an
+# integer, which a file's integer, decimal alone, is not, and a mapping and a list nested past Python's recursion.
 CANNOT_BE_MADE = [
     pytest.param("vm_cores: !!int abc\n", 1, id="int"),
     pytest.param("vm_cores: !!float abc\n", 1, id="float"),
@@ -440,7 +442,7 @@ CANNOT_BE_MADE = [
     pytest.param("vm_user: dev\ngit_user_name: 2026-02-30\n", 2, id="a plain date"),
     pytest.param("vm_extra_packages:\n  - jq\n  - 2026-02-30\n", 3, id="a date in a list"),
     pytest.param(f"vm_cores: {'9' * 5000}\n", 1, id="5000 digits"),
-    pytest.param(f"vm_cores: 0x{'f' * 4000}\n", 1, id="4000 hexadecimal digits"),
+    pytest.param(f"vm_cores: !!int 0x{'f' * 4000}\n", 1, id="4000 hexadecimal digits"),
     pytest.param(
         "claude_code_settings:\n" + "".join(f"{'  ' * level}a:\n" for level in range(1, DEEP)) + f"{'  ' * DEEP}b: 1\n",
         None,
@@ -675,7 +677,9 @@ A_LIST_NOT_YAML = (
         pytest.param(f"claude_ssh_options={{a: !!timestamp {TYPED}}}", A_MAPPING_NOT_YAML, id="timestamp"),
         pytest.param("vm_extra_packages=[jq, 2026-02-30]", A_LIST_NOT_YAML, id="a plain date"),
         pytest.param(f"claude_ssh_options={{a: {'9' * 5000}}}", A_MAPPING_NOT_YAML, id="5000 digits in a mapping"),
-        pytest.param(f"claude_ssh_options={{a: 0x{'f' * 4000}}}", A_MAPPING_NOT_YAML, id="4000 hexadecimal digits"),
+        pytest.param(
+            f"claude_ssh_options={{a: !!int 0x{'f' * 4000}}}", A_MAPPING_NOT_YAML, id="4000 hexadecimal digits"
+        ),
         pytest.param(
             f"vm_cores={'9' * 5000}", "vm_cores takes a whole number: the value given is not one", id="5000 digits"
         ),
@@ -789,10 +793,10 @@ def test_a_new_file_is_made_private_in_private_folders(aw_home) -> None:
     for file in (_fleet_file(where), _client_file(where)):
         assert stat.S_IMODE(file.stat().st_mode) == paths.FILE_MODE, file
     assert yaml.safe_load(_fleet_file(where).read_text()) == {"vm_cores": 4}
-    # A value outside ASCII is written as YAML's escape, whatever the locale.
+    # A value outside ASCII is written in UTF-8 as it is, whatever the locale.
     digest = overrides.read(where, None).fleet.digest
     overrides.set(where, "git_user_name", "Zoë", None, digest)
-    assert _fleet_file(where).read_bytes().isascii()
+    assert "Zoë".encode() in _fleet_file(where).read_bytes()
     assert overrides.resolve(where, None)["git_user_name"].value == "Zoë"
 
 
@@ -1126,3 +1130,79 @@ def test_the_rows_held_to_more_take_what_their_readers_use() -> None:
     assert overrides.typed(registry.row("github_username"), "") == ""
     for pool in ("", "aw-fleet", "dev.vms_1"):
         assert overrides.typed(registry.row("proxmox_pool"), pool) == pool
+
+
+# ---------------------------------------------------------------- a file read as typed, written in UTF-8 ----
+
+
+@pytest.mark.parametrize(("text", "value"), [("0777", 777), ("012", 12), ("+12", 12), ("7", 7)])
+def test_a_file_s_integer_is_yaml_1_2_s_in_decimal_as_typed_text_is(text: str, value: int) -> None:
+    # PyYAML's safe loader is YAML 1.1's, which reads 0777 as 511: a file and the same text typed are one value.
+    where = _where()
+    _put(_fleet_file(where), f"vm_cores: {text}\n")
+    assert overrides.resolve(where, None)["vm_cores"] == Value("vm_cores", value, "fleet")
+    assert overrides.typed(registry.row("vm_cores"), text) == value
+
+
+@pytest.mark.parametrize("text", ["0x10", "0o17", "0b11", "1_000", "1:30", "!!int 0x10"])
+def test_a_file_s_integer_in_another_form_of_yaml_1_1_s_is_refused_for_an_int_row(text: str) -> None:
+    where = _where()
+    path = _put(_fleet_file(where), f"vm_cores: {text}\n")
+    with pytest.raises(Refused) as refused:
+        overrides.resolve(where, None)
+    assert str(path) in str(refused.value) and text.split()[-1] not in str(refused.value)
+    with pytest.raises(Refused):
+        overrides.typed(registry.row("vm_cores"), text)
+
+
+# A write of a name outside ASCII, by a Python of its own whose locale is C, with no UTF-8 mode: its encoding is ASCII.
+IN_THE_C_LOCALE = """
+import sys
+sys.path.insert(0, sys.argv[1])
+from claude_vm.fleet import overrides, paths
+overrides.set(paths.home(sys.argv[2]), "git_user_name", "Zo\\u00eb \\u00c5ngstr\\u00f6m", None, overrides.MISSING)
+"""
+
+
+def test_a_write_is_utf_8_whatever_the_locale_s_encoding() -> None:
+    environ = {**os.environ, "LC_ALL": "C", "LANG": "C", "PYTHONUTF8": "0"}
+    environ.pop("PYTHONIOENCODING", None)
+    argv = [sys.executable, "-X", "utf8=0", "-c", IN_THE_C_LOCALE, str(REPO / "lib"), str(REPO)]
+    ran = subprocess.run(argv, env=environ, capture_output=True, text=True, timeout=60)
+    assert ran.returncode == 0, ran.stderr
+    where = _where()
+    data = _fleet_file(where).read_bytes()
+    assert "Zoë Ångström".encode() in data and b"\\x" not in data and b"\\u" not in data
+    assert overrides.resolve(where, None)["git_user_name"].value == "Zoë Ångström"
+
+
+def test_a_scratch_file_a_killed_write_left_is_taken_out_by_the_next_write() -> None:
+    where = _where()
+    digest = overrides.set(where, "vm_cores", 3, None, overrides.MISSING)
+    folder = _fleet_file(where).parent
+    left = _put(folder / ".settings.yml.k1ll3d.tmp", "vm_cores: 9\n")
+    kept = folder / ".settings.yml.a-folder.tmp"
+    kept.mkdir()
+    other = _put(folder / ".machines.yml.k1ll3d.tmp", "x\n")
+    overrides.set(where, "vm_cores", 4, None, digest)
+    assert not left.exists() and kept.is_dir() and other.exists()
+    assert overrides.resolve(where, None)["vm_cores"].value == 4
+
+
+@pytest.mark.parametrize("kind", ["fifo", "link", "folder"])
+def test_a_settings_file_that_is_no_regular_file_is_refused_by_its_path_never_waited_on(tmp_path, kind: str) -> None:
+    where = _where()
+    path = _fleet_file(where)
+    path.parent.mkdir(parents=True)
+    if kind == "fifo":
+        os.mkfifo(path)
+    elif kind == "link":
+        _put(tmp_path / "elsewhere.yml", "vm_cores: 5\n")
+        path.symlink_to(tmp_path / "elsewhere.yml")
+    else:
+        path.mkdir()
+    with pytest.raises(Refused) as refused:
+        overrides.read(where, None)
+    said = str(refused.value)
+    assert said.startswith(str(path)) and ("link" in said if kind == "link" else "is not a file" in said), said
+    assert stat.S_ISREG(os.lstat(path).st_mode) is False

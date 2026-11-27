@@ -3451,7 +3451,10 @@ the shared files may never supply, is each host's own, and so is `vm_searchdomai
 are; of them `claude_ssh_host_domain` and `vm_ssh_route`, how this computer finds and reaches a host's VMs, are this
 computer's, in `client.yml`'s map `hosts`, so that another computer that copies the fleet's folder reaches them its own
 way. A setting whose default is made from the machine's name is each machine's own. A list's default is a tuple and a
-mapping's read-only, so no reader changes the table. `rows()`, `row(name)` and `group(name)` read it. Nothing generates
+mapping's read-only, so no reader changes the table: `plain(default)` is the copy a reader hands on or prints, and a row
+is compared by identity alone, so that one whose default is a mapping can be hashed. A description names no Ansible,
+playbook, today's `local.yml` or `hosts.yml`, nor a vault variable: a name with `vault_` before it is a row's. `rows()`,
+`row(name)` and `group(name)` read it. Nothing generates
 it, and nothing is generated from it into a tracked file. `tests/unit/test_aw_fleet_registry.py` holds the table, with
 the place of each of today's settings in two literal sets (this computer's, by scope, and each host's, by home), every
 other one the fleet's; `tests/unit/test_aw_fleet_registry_today.py`, the cutover's check, which goes with today's files,
@@ -3486,9 +3489,15 @@ expression. `run_values(texts, secrets=...)` types the words of `--set`: a name 
 hold a secret is never given for one run, and a value that holds one of the vault's secrets (every caller names them,
 each a `Secret`, struck and never revealed) is refused in the text and in the value; the result is what a run records as
 its inputs and `resolve`'s top layer. `set` and `unset` write one value into the file of its home, under `store.locked`,
-only while the file's digest is the one its caller read (`expect`), whole and in ASCII, read back as meant before
-`store.replace` puts it in place, a new file at `paths.FILE_MODE` in folders made through `files.py` at
-`paths.DIR_MODE`, a link where one goes refused; `set_current` writes
+only while the file's digest is the one its caller read (`expect`), whole and in UTF-8 whatever the locale's
+encoding, read back as meant before `store.replace` puts it in place, a new file at `paths.FILE_MODE` in folders made
+through `files.py` at `paths.DIR_MODE`, a link where one goes refused. A write lays the whole file out anew, so it keeps
+no comment a person wrote in it (the owner's answer of 2026-11-22). A scratch file a write killed part way left beside
+the file, which would travel with `fleet/`, is taken out by the next write of that file, under its lock, before it
+reads (`files.sweep`). A file is opened once, with no link followed and no wait on a pipe, and read only where it is a
+regular file: a link or a FIFO there is refused by its path. A file's integer is YAML 1.2's, its digits in decimal, as typed text's
+is (`WHOLE`): `0777` in a file is 777, as typed, where YAML 1.1 reads 511, and `0x10`, `1_000` or `1:30` is text,
+refused for a row of type `int` by its line; `set_current` writes
 `client.yml`'s `current_host` the same way. `literals(path)` is the one reader of a file of literals the fleet keeps, a
 host's `host.yml` too. Every refusal is a `Refused`, whose sentence never says a value back. Nothing else in `fleet/`
 writes a file but `files.py`, for `fleet.json` and `vault.age`, and `hosts.py`'s `write`, a host's `host.yml` and
@@ -3516,9 +3525,11 @@ on a call; the ownership tags, since a VM is the fleet's by its pool and its rec
 the one that names it in the VPN's messages; the template a run chooses and the golden's build VM a role sets for
 itself; a folder of this computer's; each machine's own repositories and whether its Tailscale had a login, which its
 record keeps; the three lines that name a machine's host and the two routes to it, the run's; and one a row of another
-name stands for (`destroy_allow_unrecorded`).
-`refusal(name)` says why of any other option of the roles a row does not have too: one a row's setting reaches is set
-through that row alone, and one whose spec takes any value has no type. Of today's 203 options, 71 are passed through.
+name stands for (`destroy_allow_unrecorded`). `options()` lists too each option a row's setting reaches, refused as set
+through that row alone, with the row's name (`through`), and the one whose spec takes any value, which has no type: so a
+role's every option is there for the settings verb to list beside its rows. `refusal(name)` says the same why by name,
+`default(option)` gives the role's own default, which applies where an option is set nowhere, and `described()` each
+role's short description. Of today's 203 options, 71 are passed through.
 The two whose value is several lines by what it is (`TEXT`: `proxmox_template_image_key`, an armored key, and
 `claude_code_global_instructions`, a whole `CLAUDE.md`) are each read by a row of type `text`.
 `overrides.py` takes the name of one passed through where it takes a row's, at home `fleet` and scope `global`: at the
@@ -3603,7 +3614,9 @@ mode, since the data folder already holds `tools/env-run`'s `checkouts/` at the 
 asked for that is there is the person's and taken as it is, a link among them (a `~/.config` kept in a dotfiles folder,
 macOS's `/var`). `write(path, text)` writes a file whole through `store.replace`, its folder made by `folder`, a new
 file at 0600, one that is there keeping its mode, and through a link the file it names replaced: a file is one a person
-may keep elsewhere on purpose, a folder everything beneath it. `fleet.json`, `vault.age` (`sealed.py`), the overrides'
+may keep elsewhere on purpose, a folder everything beneath it. `sweep(path)` takes out the scratch files
+`store.replace` left beside a file where a write was killed between its scratch file and its rename, its caller holding
+`store.locked(path)`. `fleet.json`, `vault.age` (`sealed.py`), the overrides'
 folders (`overrides.py`), a host's folders (`hosts.py`'s `write`), the jobs folder (`runs/job.py`) and the locks
 folder (`runs/locks.py`) are made through it, and nothing else of `fleet/` or `runs/` makes a folder but a job's own,
 inside the jobs folder, and a run's short-lived directory (16.8).
@@ -3724,6 +3737,24 @@ and not in `engine/` so that every workflow (`engine/fleet.py`, 16.4) and `statu
 open a host the one way; `tests/unit/test_aw_ownership.py` holds that it imports nothing of the engine, pydantic,
 Ansible, Jinja2 or the MCP SDK, and `tests/unit/test_aw_fleet.py` the refusal on each road, the repr and what the route
 is settled from.
+
+**The settings verb's reads: `settings_verb.py`.** `show` is `settings`'s handler, here and not in `engine/` so that a
+read imports no workflow. Alone it says how to use it and lists the groups (`registry.GROUPS` and each role, its spec's
+short description beside it); a group lists its rows and, for a role, every option of its spec no row names
+(`passthrough.options()`), passed through with its value or its role's own default (an expression of the role's shown
+as text, `wiring` and `wiring_in`), or said why it is no setting, with the value of the row it is set through (`via`);
+a name explains one row or option, its file, its default and the line that changes it; `--all` lists every row, each
+option the fleet's file sets and each name of the vault's closed list, set or not set; `--changed` only what the files
+change; `--host` names whose values. The host is the one `hosts.reach` gives a lenient request, or none where the fleet
+has none yet; the values are `overrides.resolve`'s, each row naming its file and its home, the computer's own among
+them (O16 item 17 waits on the owner). A secret is masked by its row's kind alone: a row that may hold one
+(`claude_code_settings`), an option its role marks the vault's, and each of the vault's names are set or not set, never
+a value; the check of every printed value against every decrypted secret that today's `tools/settings` makes goes for
+the reads. `--all` alone opens the vault, with the key `vaultkey.open` finds from `vault_key_file` and
+`vault_key_command`, to read which names it holds, and says in one note where it cannot; no read writes, starts a child
+or imports Ansible. `--json` prints today's keys (`target`, `changed_only`, `settings`, `notes`; each row every key of
+today's, `home` added, and each row of `--all` its `section`, its group). `--value`, `--reset` and `edit` are refused
+naming card D10. `tests/unit/test_aw_settings_verb.py` holds it.
 
 ## 16.10 `guest/` — the helper, the system layer's inputs, layer 2
 

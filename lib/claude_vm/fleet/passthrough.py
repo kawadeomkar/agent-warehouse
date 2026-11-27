@@ -10,19 +10,20 @@ value here, so the role's own default applies where the role runs. Where layer 1
 handed to the role variable of the same name; where a role's work moved into layer 2 or into the engine, the step
 that took it reads the option by its name.
 
-`options()` returns every typed option of the roles that no row names - neither a row's name nor reached by a row's
-setting through the wiring - with its role, the entry point that first lists it, the spec's type, choices, list
-elements, no_log and description, and `refused`: None for one passed through, else why it is no setting, as today's
-tools/settings refuses it, in the words a refusal says after its name: one the spec marks no_log, or that a name the
-vault holds reaches, is the vault's; one made from the machine's name is each machine's own; one a run sets for itself
-(`BY_A_RUN`); and `LEFT_OUT`, each with its reason. `refusal(name)` says why any other name of a role's option is no
-setting too: an option a row's setting reaches is set through that row alone (vm_cores, for proxmox_vm_cores), and one
-whose spec takes any value has no type to hold a value to. `typed(option, text)` holds typed text to the option's spec
-as overrides.typed holds text to a row: its type, its choices, the elements of a list, no expression and no control
-character; a path is one on the machine the role runs on, kept as typed, never made this computer's. `row(name)` is the
-row overrides.py reads an option passed through by. An option `TEXT` names, whose value is text of several lines by
-what it is (an armored key, a whole CLAUDE.md), is read by a row of type text: line breaks and no other control
-character, kept in the fleet's settings.yml as YAML's block holds it, and never typed.
+`options()` returns every option of the roles whose name is no row's, with its role, the entry point that first lists
+it, the spec's type, choices, list elements, no_log and description, and `refused`: None for one passed through, else
+why it is no setting, as today's tools/settings refuses it, in the words a refusal says after its name: one a row's
+setting reaches is set through that row alone (vm_cores, for proxmox_vm_cores); one whose spec takes any value has no
+type to hold a value to; one the spec marks no_log, or that a name the vault holds reaches, is the vault's; one made
+from the machine's name is each machine's own; one a run sets for itself (`BY_A_RUN`); and `LEFT_OUT`, each with its
+reason. So a role's every option is listed beside its rows by the settings verb. `refusal(name)` says the same why by
+name, and `default(option)` gives the role's own default, which applies where the option is set nowhere. `typed(option,
+text)` holds typed text to the option's spec as overrides.typed holds text to a row: its type, its choices, the
+elements of a list, no expression and no control character; a path is one on the machine the role runs on, kept as
+typed, never made this computer's. `row(name)` is the row overrides.py reads an option passed through by. An option
+`TEXT` names, whose value is text of several lines by what it is (an armored key, a whole CLAUDE.md), is read by a
+row of type text: line breaks and no other control character, kept in the fleet's settings.yml as YAML's block holds
+it, and never typed.
 
 Which setting reaches which role variable is today's wiring (lib/claude_vm/wiring.py: the roles' defaults and the
 project's) until the cutover, when the guest's own table of the role variables takes its place. Standard library, the
@@ -161,6 +162,8 @@ class Option:
     no_log: bool
     description: str
     refused: str | None
+    # The row's setting it is set through, where it is refused THROUGH that row.
+    through: str | None = None
 
 
 @dataclass(frozen=True)
@@ -169,6 +172,8 @@ class _Table:
     by_name: Mapping[str, Option]
     refusals: Mapping[str, str]
     rows: Mapping[str, Row]
+    defaults: Mapping[str, object]
+    described: Mapping[str, str]
 
 
 def _entry_points(read: Mapping[str, object]) -> dict[str, str]:
@@ -210,7 +215,7 @@ def _table() -> _Table:
     """Every option of the roles, sorted out once: the ones a row names, the ones passed through, the ones refused."""
     read = wiring.argument_specs()
     specs = wiring.specs(read)
-    _defaults, feeds = wiring.wiring()
+    defaults, feeds = wiring.wiring()
     rows = registry.rows()
     reached_by_a_row: dict[str, str] = {}
     for each in rows:
@@ -229,15 +234,13 @@ def _table() -> _Table:
         for name, spec in specs[role].items():
             if name in row_names:
                 continue
-            if name in reached_by_a_row and name not in LEFT_OUT:
-                refusals[name] = THROUGH.format(row=reached_by_a_row[name])
-                continue
-            if spec.get("type") == "raw":
-                refusals[name] = ANY_VALUE
-                continue
             no_log = bool(spec.get("no_log"))
-            if name in LEFT_OUT:
-                refused: str | None = LEFT_OUT[name]
+            if name in reached_by_a_row and name not in LEFT_OUT:
+                refused: str | None = THROUGH.format(row=reached_by_a_row[name])
+            elif spec.get("type") == "raw":
+                refused = ANY_VALUE
+            elif name in LEFT_OUT:
+                refused = LEFT_OUT[name]
             elif no_log or name in the_vault_s:
                 refused = SECRET
             elif name in per_machine:
@@ -250,8 +253,18 @@ def _table() -> _Table:
             elements = None if spec.get("elements") is None else str(spec["elements"])
             # The spec's own sentence for the option, what a person reads of it: no VM's description, and never sent.
             said = _one_line(spec.get("description"))
+            through = reached_by_a_row[name] if name in reached_by_a_row and name not in LEFT_OUT else None
             option = Option(
-                name, role, entry_points[name], str(spec.get("type", "str")), choices, elements, no_log, said, refused
+                name,
+                role,
+                entry_points[name],
+                str(spec.get("type", "str")),
+                choices,
+                elements,
+                no_log,
+                said,
+                refused,
+                through,
             )
             options.append(option)
             if refused is None:
@@ -264,13 +277,30 @@ def _table() -> _Table:
         by_name=MappingProxyType({each.name: each for each in options}),
         refusals=MappingProxyType(refusals),
         rows=MappingProxyType(made),
+        defaults=MappingProxyType({each.name: defaults[each.name] for each in options if each.name in defaults}),
+        described=MappingProxyType(
+            {role: _one_line(((read[role] or {}).get(MAIN) or {}).get("short_description")) for role in read}
+        ),
     )
 
 
 def options() -> tuple[Option, ...]:
-    """Every typed option of the roles that no row names, refused or passed through, by role and in its spec's order:
-    what the settings verb lists of a role beside its rows."""
+    """Every option of the roles that no row names, refused or passed through, by role and in its spec's order: what
+    the settings verb lists of a role beside its rows. One a row's setting reaches is refused THROUGH that row, and one
+    whose spec takes any value ANY_VALUE."""
     return _table().options
+
+
+def described() -> Mapping[str, str]:
+    """Each role, by its name, with its spec's short description, in the order the roles are read."""
+    return _table().described
+
+
+def default(option: Option) -> tuple[bool, object]:
+    """The role's own default of option, as its defaults/main.yml holds it, which applies where the option is set
+    nowhere: (True, the value), the text of an expression among them, or (False, None) where the role has none."""
+    found = _table().defaults
+    return (True, found[option.name]) if option.name in found else (False, None)
 
 
 def option(name: str) -> Option:

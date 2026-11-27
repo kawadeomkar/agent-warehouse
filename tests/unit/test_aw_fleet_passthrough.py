@@ -172,7 +172,7 @@ def test_an_option_passed_through_carries_its_role_s_spec() -> None:
     specs = wiring.specs()
     for each in passthrough.options():
         spec = specs[each.role][each.name]
-        assert each.type == spec["type"], each.name
+        assert each.type == spec.get("type", "str"), each.name
         assert each.choices == tuple(spec.get("choices") or ()), each.name
         assert each.elements == spec.get("elements"), each.name
         assert each.no_log is bool(spec.get("no_log")), each.name
@@ -1361,8 +1361,13 @@ def _table_read(monkeypatch: pytest.MonkeyPatch, *, pure: bool) -> tuple[tuple, 
         patch.setattr(yaml, "load", load)
         table = passthrough._table.__wrapped__()
         wired = (wiring.specs(), wiring.wiring())
-    plain = (table.options, dict(table.by_name), dict(table.refusals), dict(table.rows))
-    return plain, wired, used
+    return _plain(table), wired, used
+
+
+def _plain(table) -> tuple:
+    """A table in a plain form: a row is compared by identity (fleet/registry.py), so each row by its fields."""
+    rows = {name: tuple(getattr(row, it.name) for it in dataclasses.fields(row)) for name, row in table.rows.items()}
+    return (table.options, dict(table.by_name), dict(table.refusals), rows)
 
 
 def test_the_table_libyaml_reads_is_the_table_the_pure_python_loader_reads(monkeypatch) -> None:
@@ -1376,7 +1381,7 @@ def test_the_table_libyaml_reads_is_the_table_the_pure_python_loader_reads(monke
     assert fast[0] and fast == slow
     assert fast_wired == slow_wired
     table = passthrough._table()
-    assert fast == (table.options, dict(table.by_name), dict(table.refusals), dict(table.rows))
+    assert fast == _plain(table)
 
 
 def test_the_table_reads_and_parses_each_of_the_roles_files_once(monkeypatch) -> None:

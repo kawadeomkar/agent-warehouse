@@ -791,6 +791,8 @@ NAMES_A_DESCRIPTION = {
     "lib/claude_vm/pve/answers.py": "a configuration read back, its description among its fields",
     "lib/claude_vm/fleet/passthrough.py": "a role's spec read, whose description of an option is what a person reads of"
     " it: no VM's, and nothing sent",
+    "lib/claude_vm/fleet/settings_verb.py": "the settings verb's reads, which print what a setting or an option does as"
+    " its description, for a person to read: no VM's, and nothing sent",
     "lib/claude_vm/engine/create.py": "the clone, which carries the record's first form, rendered by pve/record.py,"
     " as its notes from the call on (card G24): the first write of the new VM's is engine/record.py's",
     "lib/claude_vm/pve/template.py": "a template's record handed to today's proxmox_template_drift as the line of notes"

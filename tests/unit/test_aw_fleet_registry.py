@@ -113,6 +113,32 @@ def test_a_description_is_one_line_of_plain_text_that_names_no_command_as_text(e
     # never says just (the owner's word 1): a verb is named alone, as the table of verbs' help names one.
     assert all(character.isprintable() for character in each.description), each.description
     assert re.search(r"\bjust\b", each.description) is None, each.description
+    # Nor the program the engine left behind, nor today's files: a person of the new engine has no playbook, local.yml
+    # or hosts.yml, and a name with vault_ before it is a setting's row, never a vault's variable (review/code/D3.md 5).
+    assert re.search(r"ansible|playbook|local\.yml|hosts\.yml", each.description, re.IGNORECASE) is None
+    named = set(re.findall(r"\bvault_[a-z_]+", each.description))
+    assert named <= {row.name for row in registry.rows()}, named
+
+
+@pytest.mark.parametrize("each", registry.rows(), ids=lambda each: each.name)
+def test_a_row_hashes_and_its_default_is_handed_on_as_plain_values(each: Row) -> None:
+    # A row is one object, compared by identity, so that one whose default is a mapping can be hashed and kept in a set;
+    # plain is the copy a reader hands on, no tuple and no read-only mapping at any depth (review/code/D3.md 6).
+    assert {each: 1}[each] == 1 and each == each and each != dataclasses.replace(each)
+    plain = registry.plain(each.default)
+
+    def held(value: object) -> bool:
+        if isinstance(value, list):
+            return all(held(item) for item in value)
+        if isinstance(value, dict):
+            return all(held(item) for item in value.values())
+        return not isinstance(value, (tuple, MappingProxyType))
+
+    assert held(plain)
+    if isinstance(each.default, tuple):
+        assert isinstance(plain, list) and len(plain) == len(each.default)
+    if isinstance(each.default, MappingProxyType):
+        assert isinstance(plain, dict) and plain.keys() == each.default.keys()
 
 
 def test_no_two_rows_share_a_name() -> None:
@@ -336,7 +362,12 @@ def test_five_rows_are_held_to_more_than_their_type_by_one_rule_each() -> None:
         assert not registry.PROXMOX_POOL.allows(pool) and not registry.POOL_NAME.allows(pool), pool
     assert not registry.POOL_NAME.allows("")
     assert registry.PROXMOX_POOL.said == f"a pool's name: {registry.POOL_NAME.said}"
-    assert {each.name: each.least for each in registry.rows() if each.least is not None} == {"run_forks": 1}
+    # And the least a whole number may be: one run at once at the least, and no negative bound (D5's hand-back).
+    assert {each.name: each.least for each in registry.rows() if each.least is not None} == {
+        "run_forks": 1,
+        "run_detached_limit": 0,
+        "agents_vm_cap": 0,
+    }
     assert registry.row("run_lock").choices == locks.POLICIES
 
 

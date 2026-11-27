@@ -30,7 +30,9 @@ text)` holds typed text to a row's type, choices, form and least value, a path's
 still relative refused by name, `""` unset) and `network_proxy` to vendors/proxy.py's one check of it, which refuses a
 user and a password; a file's value is held the same way. `run_values(texts, secrets=...)` holds the words of `--set`;
 `set` and `unset` write one value, and `set_current` client.yml's current host, under `store.locked`, compare-and-swap
-on the digest of the file as the caller read it. `literals(path)` is the one reader of a file of literals the fleet
+on the digest of the file as the caller read it: the whole file laid out anew, in UTF-8, so a write keeps no comment a
+person wrote in it, and a scratch file a killed write left beside it is taken out first. A file's integers are YAML
+1.2's, in decimal, as typed text's are. `literals(path)` is the one reader of a file of literals the fleet
 keeps, a host's host.yml too. Every refusal is a `Refused`, whose sentence never says a value back: a secret pasted in
 the wrong place would be on the screen. A machine's recorded choices, the design's third layer, are in the machine's
 record, which is not read here.
@@ -49,6 +51,7 @@ import json
 import math
 import os
 import re
+import stat
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -93,6 +96,12 @@ FALSE = ("false", "no", "off", "n", "f", "0")
 # A whole number typed: at most 18 digits, more than any setting takes, so that int() never meets Python's limit of
 # digits, whose error says the value.
 WHOLE = re.compile(r"[+-]?[0-9]{1,18}")
+# A file's integer, as YAML 1.2 reads one and typed text takes one (WHOLE): digits in decimal, a leading zero among
+# them, so that 0777 is 777 in a file as typed, where PyYAML's safe loader, YAML 1.1's, reads 511. YAML 1.1's other
+# forms (0x10, 0b11, 1_000, 1:30 in base 60) are text, which a row of type int refuses by its line, as it refuses them
+# typed.
+INTEGER = re.compile(r"[-+]?[0-9]+\Z")
+INT_TAG = "tag:yaml.org,2002:int"
 # One machine's name in a map's key, after its host's and a /.
 MACHINE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 # What each type takes, as a refusal says it.
@@ -489,6 +498,12 @@ def _loader():
     import yaml
 
     class Literals(yaml.SafeLoader):
+        # YAML 1.2's integers alone (INTEGER), in place of YAML 1.1's, which the safe loader resolves.
+        yaml_implicit_resolvers = {
+            first: [(tag, pattern) for tag, pattern in resolvers if tag != INT_TAG]
+            for first, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
+        }
+
         def compose_node(self, parent, index):
             event = self.peek_event()
             if isinstance(event, yaml.AliasEvent) or getattr(event, "anchor", None) is not None:
@@ -520,6 +535,9 @@ def _loader():
                 raise yaml.constructor.ConstructorError(None, None, UNREADABLE, node.start_mark) from None
             return data
 
+    Literals.add_implicit_resolver(INT_TAG, INTEGER, list("-+0123456789"))
+    # In decimal, a leading zero and all; anything else tagged an integer (!!int 0x10) is refused by its line.
+    Literals.add_constructor(INT_TAG, lambda loader, node: int(loader.construct_scalar(node), 10))
     return Literals
 
 
@@ -567,15 +585,34 @@ def _lines(text: str) -> dict[tuple[str, ...], int]:
 
 def _bytes(path: Path, what: tuple[str, str] = SETTING) -> bytes | None:
     """The file's bytes, at most MOST of them; None where it is not there. what names what the file holds, as a
-    refusal says it (SETTING, or fleet/hosts.py's for a host's host.yml)."""
+    refusal says it (SETTING, or fleet/hosts.py's for a host's host.yml). Opened once, never through a link and without
+    waiting on a pipe, and read only where it is a regular file: a FIFO there would hold every read until a writer came,
+    and a link would read a file anywhere as the fleet's, as vaultkey.py's _read refuses both."""
     many = what[1]
     try:
-        with open(path, "rb") as stream:
-            data = stream.read(MOST + 1)
+        handle = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC)
     except FileNotFoundError:
         return None
     except OSError as error:
+        if os.path.islink(path):
+            raise Refused(f"{path} is a link, which is never followed: put the file itself there") from None
         raise Refused(f"{path} cannot be read ({error.strerror or error}): the {many} are not known") from None
+    try:
+        if not stat.S_ISREG(os.fstat(handle).st_mode):
+            raise Refused(f"{path} is not a file: the {many} are not known")
+        chunks: list[bytes] = []
+        size = 0
+        while size <= MOST:
+            more = os.read(handle, MOST + 1 - size)
+            if not more:
+                break
+            chunks.append(more)
+            size += len(more)
+        data = b"".join(chunks)
+    except OSError as error:
+        raise Refused(f"{path} cannot be read ({error.strerror or error}): the {many} are not known") from None
+    finally:
+        os.close(handle)
     if len(data) > MOST:
         raise Refused(f"{path} holds more than a file of {many} does ({MOST} bytes at most): the {many} are not known")
     return data
@@ -828,12 +865,8 @@ def _from_files(row: Row, layers: Layers, host: str | None, machine: str | None)
 
 
 def _copied(value: object) -> object:
-    """A table's default as a reader may change it: a tuple a list, a read-only mapping a dict, at every depth."""
-    if isinstance(value, tuple):
-        return [_copied(item) for item in value]
-    if isinstance(value, Mapping):
-        return {key: _copied(item) for key, item in value.items()}
-    return value
+    """A table's default as a reader may change it: registry.plain's copy."""
+    return registry.plain(value)
 
 
 def resolve(
@@ -941,8 +974,8 @@ def _dumped(raw: dict) -> str:
 
     if not raw:
         return ""
-    # ASCII alone, YAML's escapes for the rest, so that the bytes written are the same whatever the locale's encoding.
-    return yaml.safe_dump(raw, default_flow_style=False, sort_keys=False, allow_unicode=False, width=1 << 30)
+    # UTF-8, written as such whatever the locale's encoding (_write), so that a name like Zoë reads as typed.
+    return yaml.safe_dump(raw, default_flow_style=False, sort_keys=False, allow_unicode=True, width=1 << 30)
 
 
 def _folders(home: paths.Home, place: _Place) -> None:
@@ -986,6 +1019,8 @@ def _write(
             return MISSING
     _folders(home, place)
     with store.locked(place.path):
+        # A scratch file a write killed part way left beside the file, which no later write would take: gone first.
+        fleet_files.sweep(place.path)
         data = _bytes(place.path)
         if _digest(data) != expect:
             raise Refused(f"{place.path} changed since it was read: nothing was written, so read it again")
@@ -998,7 +1033,7 @@ def _write(
         written, again = _file(place.path, text.encode("utf-8"), place.kind, environ)
         if again != after or (place.kind == CLIENT and dict(written.own) != {**before.own, **own}):
             raise Refused(f"{place.path} would not read back as it is meant to once written: nothing was written")
-        store.replace(place.path, text, mode_if_new=paths.FILE_MODE)
+        store.replace(place.path, text, mode_if_new=paths.FILE_MODE, encoding="utf-8")
         return written.digest
 
 
