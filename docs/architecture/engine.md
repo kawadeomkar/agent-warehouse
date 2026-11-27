@@ -1435,21 +1435,25 @@ this computer reaches a host of the fleet by, a dotted name given by no run that
 another host of the fleet (`proxmox.ssh_config_elsewhere`), which fleet-wide are left out and said, the dotted one with
 the line that names it and an alias it has left as it was. A block of a host the fleet no longer has is taken over.
 
-Each write is a compare-and-swap: the file read, the text worked out, validated by `ssh -G -F` of a scratch copy in the
-run's directory (`rundir.path_for`, `ssh-config-check`) for each alias written, and replaced (`store.replace`, 0600 when
-new, its folder 0700) under the file's lock only where it is still what was read, otherwise worked out again, at most
-`TRIES` times; a text that changes nothing is not written. Then the `Include` of the managed file at the top of the
-person's `~/.ssh/config`, once: none with `claude_ssh_config_include` off (the line said to add by hand), none where the
-line is there already, or where a line names the file in a spelling `ssh` reads (its path, `~/`, `${HOME}/`, its bare
-name) and `ssh -G` through that config gives the alias just written; otherwise the one line put above the rest, the rest
-and the file's mode kept, never another line rewritten or removed. Every `ssh -G` is `ssh/resolved.py`'s, a child of the
-run's of the ssh kind, its group ended past `LIMIT` seconds. Through the Proxmox host an alias gains `ProxyJump`
-(`Route.proxy_jump`) only once `Route.targets` returned for its VM, and only where that `Target` takes the hop: a VM
-with a jump of its own keeps its own, a `ProxyJump` or `ProxyCommand` in `claude_ssh_options` takes the hop's place for
-every alias, a VM the route refuses is left out and said, and a host that cannot be the hop (at the route's settling or
-a target's) gives no alias through it, said with `vm_ssh_route: direct`, while the prune still runs; where `ssh -G` of
-the hop through the person's config would not offer the key the host's settings name, the lines that give it are said.
-Each alias written is said with its connect line (`ssh <name>`, `aw code <name>`, the workspace it opens).
+Each write is a compare-and-swap: the file read, the text worked out, validated by `ssh -G -F` of a scratch copy of that
+check's own in the run's directory (`tempfile.mkstemp`, `ssh-config-check-`, removed after, so that writes of one run
+side by side never read or remove each other's) for each alias written, and replaced (`store.replace`, 0600 when new,
+its folder 0700) under the file's lock only where it is still what was read, otherwise worked out again, at most `TRIES`
+times; a text that changes nothing is not written. Then the `Include` of the managed file at the top of the person's
+`~/.ssh/config`, once: none with `claude_ssh_config_include` off (the line said to add by hand), none where the line is
+there before the file's first `Host` or `Match` line (an `Include` below one is read for that block's hosts alone, so
+there `ssh` is asked), or where a line names the file in a spelling `ssh` reads (its path, `~/`, `${HOME}/`, its bare
+name) and `ssh -G` through that config gives the alias just written; otherwise the one line put above the rest, ending
+as the file's first line does, the rest byte for byte (both files are read with their line endings as they are, so a
+CRLF file stays one) and the file's mode kept, never another line rewritten or removed. Every `ssh -G` is
+`ssh/resolved.py`'s, a child of the run's of the ssh kind, its group ended past `LIMIT` seconds. Through the Proxmox
+host an alias gains `ProxyJump` (`Route.proxy_jump`) only once `Route.targets` returned for its VM, and only where that
+`Target` takes the hop: a VM with a jump of its own keeps its own, a `ProxyJump` or `ProxyCommand` in
+`claude_ssh_options` takes the hop's place for every alias, a VM the route refuses is left out and said, and a host that
+cannot be the hop (at the route's settling or a target's) gives no alias through it, said with `vm_ssh_route: direct`,
+while the prune still runs; where `ssh -G` of the hop through the person's config would not offer the key the host's
+settings name, the lines that give it are said. Each alias written is said with its connect line (`ssh <name>`,
+`aw code <name>`, the workspace it opens).
 
 With no VM named, the run prunes: the host's listing (`resources("vm")` and `fleet.members`, a member tagged owned
 where `fleet.refusal` says the fleet owns it, or where the pool lists it with no name) handed to
