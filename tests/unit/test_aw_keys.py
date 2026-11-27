@@ -103,6 +103,10 @@ def test_a_fingerprint_is_the_one_ssh_keygen_prints(tmp_path) -> None:
         ("no-pty " + _key(A, "a@test"), A),
         ('command="echo hello there",no-pty ' + _key(A), A),
         ('command="echo \\" quoted \\" ' + _key(B) + '" ' + _key(A), A),
+        # sshd escapes a quote alone: a backslash before a backslash is a plain one, so this quote stays open over A
+        # and the line is B's (review 93; ssh-keygen -l and sshd -i read B).
+        ('command="true \\\\" ' + _key(A) + ' " ' + _key(B), B),
+        ("no-pty\\x " + _key(A), A),
         # Another key named in an option, or in the comment: the line is the key it authorises.
         ('command="echo ' + _key(A) + '" ' + _key(B), B),
         (_key(B, _key(A)), B),
@@ -143,12 +147,32 @@ def test_the_pattern_finds_the_key_s_lines_and_no_other_s() -> None:
         "   # " + _key(A, "commented"),
         'command="echo ' + _key(A) + ' x" ' + _key(B, "names A in an option"),
         _key(B, _key(A)),
+        'command="true \\\\" ' + _key(A) + ' " ' + _key(B, "a quote sshd reads as escaped"),
         "",
     ]
     regexp = keys.pattern(keys.parsed(_key(A)))
     assert _matched(regexp, mine + others) == mine
     # Within one line: nothing of it reaches over a line's end.
     assert not re.search(regexp, "\n".join(others) + "\n", re.MULTILINE)
+
+
+def test_an_rsa_key_under_a_sha_2_signature_s_name_is_its_key(tmp_path) -> None:
+    """sshd reads an RSA key's line under rsa-sha2-256 or rsa-sha2-512 as that key (review 93): parsed and pattern do,
+    and only where the blob is ssh-rsa's."""
+    data = _rsa_data()
+    blob = base64.b64decode(data)
+    lines = [f"rsa-sha2-512 {data} five-twelve", f"no-pty rsa-sha2-256 {data}", f"ssh-rsa {data} plain"]
+    assert [keys.parsed(line).fingerprint for line in lines] == [keys.fingerprint_of(blob)] * 3
+    assert keys.parsed(f"rsa-sha2-512 {_data(A)}") is None
+    regexp = keys.pattern(*(keys.parsed(line) for line in lines[:2]))
+    assert _matched(regexp, [*lines, _key(A)]) == lines[:2]
+    program = shutil.which("ssh-keygen")
+    if program is not None:
+        public = tmp_path / "rsa.pub"
+        public.write_text(lines[0] + "\n")
+        printed = subprocess.run([program, "-l", "-E", "sha256", "-f", str(public)], capture_output=True, text=True)
+        if printed.returncode == 0:
+            assert printed.stdout.split()[1] == keys.fingerprint_of(blob)
 
 
 def test_a_fingerprint_is_held_to_what_ssh_keygen_prints() -> None:
@@ -213,6 +237,46 @@ def test_the_keys_offered_are_the_agent_s_the_identity_file_s_and_the_default_fi
     assert keys.offered({"HOME": str(home), "SSH_AUTH_SOCK": str(tmp_path / "gone")}) == {_fingerprint(A)}
     assert keys.offered({}, named) == {_fingerprint(B)}
     assert keys.agent_keys(str(named.with_name("work.pub"))) == ()
+
+
+def test_the_keys_offered_are_the_ones_ssh_shows_it_uses(tmp_path) -> None:
+    """With ssh -G's options: the agent its identityagent names, and each identityfile's public half, ~, %d and the
+    tokens of the machine made what ssh makes them; an identity that is there but cannot be read said as unread."""
+    home = tmp_path / "person"
+    (home / ".ssh").mkdir(parents=True)
+    (home / ".ssh" / "id_ed25519.pub").write_text(_key(A, "default") + "\n")
+    (home / ".ssh" / "work-dev-10.0.0.9.pub").write_text(_key(B, "by tokens") + "\n")
+    public_only = tmp_path / "only.pub"
+    public_only.write_text(_key(9, "the file is the public half") + "\n")
+    with _agent(_blob(C)) as agent:
+        shown = keys.shown_options(
+            [
+                "hostname 10.0.0.9",
+                "user dev",
+                "port 22",
+                f"identityagent {agent}",
+                "identityfile ~/.ssh/id_ed25519",
+                "IdentityFile %d/.ssh/work-%r-%h",
+                f"identityfile {public_only}",
+            ]
+        )
+        env = {"HOME": str(home), "SSH_AUTH_SOCK": str(tmp_path / "not-this-one")}
+        found = keys.offered_by(env, shown)
+        assert found.fingerprints == {_fingerprint(A), _fingerprint(B), _fingerprint(C), keys.fingerprint_of(_blob(9))}
+        assert found.unread == ()
+        # The agent named none: no agent; named SSH_AUTH_SOCK, or not at all: the run's.
+        assert _fingerprint(C) not in keys.offered(env, shown={**shown, "identityagent": ["none"]})
+        theirs = {**env, "SSH_AUTH_SOCK": agent}
+        assert _fingerprint(C) in keys.offered(theirs, shown={"identityagent": ["SSH_AUTH_SOCK"]})
+        assert _fingerprint(C) in keys.offered(theirs, shown={})
+    (home / ".ssh" / "id_rsa").write_text("a private key, its public half not beside it")
+    unread = keys.offered_by(env, {"identityfile": ["~/.ssh/id_rsa", "~/.ssh/%C", "~/.ssh/gone"]}).unread
+    assert unread == (
+        "the identity file ~/.ssh/%C",
+        f"the identity file {home}/.ssh/id_rsa, whose public half {home}/.ssh/id_rsa.pub could not be read",
+    ), unread
+    said = keys.refusal(_fingerprint(9), (), env, None, {"identityfile": ["~/.ssh/id_rsa"]})
+    assert said is not None and "cannot tell that the key" in said and "id_rsa.pub" in said
 
 
 def test_a_key_the_list_names_or_this_computer_offers_is_refused_and_another_is_not(tmp_path) -> None:
@@ -343,6 +407,22 @@ def test_a_key_on_no_line_listed_or_offered_is_refused_with_nothing_changed(made
         _remove(made, target(alpha.machine, identity_file=identity), _fingerprint(A))
     with pytest.raises(keys.Refused, match="ssh-keygen -l prints"):
         _remove(made, target(alpha.machine), "SHA256:nope")
+    # What ssh itself is told (ssh -G): an agent vm_ssh_options names, and an identity file the person's own
+    # ~/.ssh/config names (review 93), neither in the run's environment.
+    with _agent(_blob(A)) as agent, pytest.raises(keys.Refused, match="this computer's ssh offers"):
+        _remove(made, target(alpha.machine, given=(("IdentityAgent", agent),)), _fingerprint(A))
+    configured = tmp_path / "configured" / "id_configured"
+    configured.parent.mkdir()
+    configured.write_text("")
+    configured.with_name("id_configured.pub").write_text(_key(A, "configured") + "\n")
+    config = Path(os.environ["HOME"]) / ".ssh" / "config"
+    config.parent.mkdir(exist_ok=True)
+    config.write_text(f"Host *\n  IdentityFile {configured}\n")
+    try:
+        with pytest.raises(keys.Refused, match="this computer's ssh offers"):
+            _remove(made, target(alpha.machine), _fingerprint(A))
+    finally:
+        config.unlink()
     assert path.read_text() == before and alpha.played == []
     # A refusal before the file is read reads nothing on the machine.
     assert [call["argv"][-1] for call in alpha.calls() if call["outcome"] == "ran"] == ["cat -- .ssh/authorized_keys"]
@@ -391,19 +471,26 @@ _BARE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 def _mentions(value: object, names: set[str]) -> bool:
-    """Whether value, any string of it, names the keys or one of the variables names that do."""
+    """Whether value, any string of it, names the keys or one of the variables names that do. Given a whole task, every
+    key of it is read: its arguments, vars, loop and with_ values, loop_control and when."""
     text = json.dumps(value, default=str)
     return bool(NAMES_KEYS.search(text)) or any(re.search(rf"\b{re.escape(name)}\b", text) for name in names)
 
 
-def _naming_variables(found) -> set[str]:
-    """Every variable of the roles' defaults and vars, and of a task's vars, whose value names the keys, followed
-    through each variable that names such a variable."""
+def _role_values(found) -> dict[str, object]:
+    """Every variable of the roles' defaults and vars the play reaches, by its name."""
     values: dict[str, object] = {}
     for path in found.variables:
         loaded = yaml.safe_load(path.read_text()) if path.is_file() else None
         if isinstance(loaded, dict):
             values.update(loaded)
+    return values
+
+
+def _naming_variables(found) -> set[str]:
+    """Every variable of the roles' defaults and vars, and of a task's vars, whose value names the keys, followed
+    through each variable that names such a variable."""
+    values = _role_values(found)
     for _, task in found.entries:
         values.update(task.get("vars") or {})
     names: set[str] = set()
@@ -485,8 +572,115 @@ def _crosses_a_line(regexp: str) -> list[str]:
     return found
 
 
+# The keys a listed item is rendered for, and the lines of other keys none of a task's patterns may find for it: each
+# line one sshd reads as another key's (ssh-keygen -l and a real sshd -i agree, review 93): the other key bare and with
+# a comment, its comment or its forced command naming the listed key, a backslash before a quote sshd reads as an
+# escaped quote, a base64 that starts with the listed key's, an RSA key under a SHA-2 signature's name, one commented
+# out.
+LISTED = (_key(A, "listed@test"), _key(C))
+
+
+def _others(item: str) -> list[str]:
+    listed = keys.parsed(item)
+    assert listed is not None
+    other = _key(B, "other@test")
+    return [
+        _key(B),
+        other,
+        f"{other} names {item}",
+        f'command="echo {item} x" {other}',
+        f'command="true \\\\" {item} " {other}',
+        f"no-pty {other} {item}",
+        f"{listed.type} {listed.data}Zz longer",
+        f"rsa-sha2-512 {_rsa_data()} other",
+        f"# {other}",
+    ]
+
+
+def _rsa_data() -> str:
+    """An RSA public key's base64, its modulus 1024 bits: a key no one holds the private half of."""
+    modulus = b"\x00" + bytes([0xC5]) * 127 + b"\x01"
+    return base64.b64encode(_string(b"ssh-rsa") + _string(b"\x01\x00\x01") + _string(modulus)).decode()
+
+
+def _filters() -> dict[str, object]:
+    """The filters a keys task's templates use, as Ansible's core filters give them: re.escape and re.findall."""
+
+    def regex_findall(value: object, regex: str, multiline: bool = False, ignorecase: bool = False) -> list:
+        return re.findall(regex, str(value), (re.MULTILINE if multiline else 0) | (re.IGNORECASE if ignorecase else 0))
+
+    return {"regex_escape": lambda value, re_type="python": re.escape(str(value)), "regex_findall": regex_findall}
+
+
+def _rendered(text: str, variables: dict[str, object], item: str) -> str:
+    """text rendered as Ansible renders a task's argument for one item: each variable of the role's and the task's
+    rendered first, a template that is one expression to its value (a list stays a list), any other to text."""
+    import jinja2
+
+    environment = jinja2.Environment(undefined=jinja2.StrictUndefined, keep_trailing_newline=True)
+    environment.filters.update(_filters())
+    one = re.compile(r"\s*\{\{(.*)\}\}\s*", re.DOTALL)
+
+    def render(value: object, context: dict[str, object]) -> object:
+        if not isinstance(value, str) or "{{" not in value:
+            return value
+        whole = one.fullmatch(value)
+        if whole and "}}" not in whole[1]:
+            found = environment.compile_expression(whole[1].strip(), undefined_to_none=False)(**context)
+            if isinstance(found, jinja2.Undefined):
+                raise jinja2.UndefinedError(f"{whole[1].strip()} is not defined yet")
+            return found
+        return environment.from_string(value).render(**context)
+
+    plain = {name: value for name, value in variables.items() if not (isinstance(value, str) and "{{" in value)}
+    context: dict[str, object] = {**plain, "item": item}
+    waiting = {name: value for name, value in variables.items() if name not in plain}
+    while waiting:
+        done = {}
+        for name, value in waiting.items():
+            # A variable the keys' tasks do not need may use what this renderer has not (a fact, a filter of
+            # Ansible's alone): it is left out, and a task that needs it fails to render below.
+            try:
+                done[name] = render(value, context)
+            except Exception:
+                continue
+        if not done:
+            break
+        context.update(done)
+        for name in done:
+            del waiting[name]
+    return str(render(text, context))
+
+
+def _finds_another_key(action: str, args: dict, variables: dict[str, object]) -> str | None:
+    """Why a task's pattern, rendered for each item of LISTED, could take another key's line, or the listed line is
+    not what it writes; None where neither."""
+    import jinja2
+
+    regexp = str(args.get("regexp") or "")
+    written = "line" if action in ADDS else "replace"
+    for item in LISTED:
+        try:
+            pattern = re.compile(_rendered(regexp, variables, item), re.MULTILINE)
+            value = _rendered(str(args.get(written) or ""), variables, item)
+        except (jinja2.TemplateError, re.error, TypeError, IndexError) as error:
+            return f"a pattern the scan cannot render: {error}"
+        if action in REPLACES:
+            try:
+                value = re.sub(r"\A", value, "", count=1)
+            except (re.error, IndexError) as error:
+                return f"a replacement that is not the listed line: {error}"
+        if value != item:
+            return f"it writes {value!r}, not the listed line, over what it finds"
+        for line in _others(item):
+            if pattern.search(line + "\n"):
+                return f"a pattern that finds another key's line: {line}"
+    return None
+
+
 def _takes_a_line(action: str, args: dict, variables: dict[str, object]) -> str | None:
-    """Why a task that names the keys could take a line of authorized_keys away or write it whole, or None."""
+    """Why a task that names the keys could take a key off authorized_keys or write it whole, or None. variables are
+    the role's and the task's."""
     if action in READS:
         return None
     if action in FOLDER:
@@ -494,29 +688,35 @@ def _takes_a_line(action: str, args: dict, variables: dict[str, object]) -> str 
     if action in ADDS:
         if args.get("state", "present") != "present" or not str(args.get("line") or ""):
             return "a lineinfile that takes a line away, or adds none"
-        return None
-    if action in REPLACES:
-        replacement = str(args.get("replace") or "")
-        if not replacement.strip():
+        if args.get("search_string") is not None or args.get("backrefs"):
+            return "a lineinfile with search_string or backrefs, which rewrites any line it finds"
+        if args.get("regexp") is None:
+            return None
+    elif action in REPLACES:
+        if not str(args.get("replace") or "").strip():
             return "a replace with no replacement, which takes what it matches away"
-        crossing = _crosses_a_line(_inlined(str(args.get("regexp") or ""), variables))
-        return f"a replace whose pattern can reach over a line's end: {', '.join(crossing)}" if crossing else None
-    return f"{action}, which may write the file whole or take a line away"
+    else:
+        return f"{action}, which may write the file whole or take a line away"
+    crossing = _crosses_a_line(_inlined(str(args.get("regexp") or ""), variables))
+    if crossing:
+        return f"a pattern that can reach over a line's end: {', '.join(crossing)}"
+    return _finds_another_key(action, args, variables)
 
 
 def _keys_tasks(play: Path = PLAY_PATH) -> dict[tuple[str, str], str | None]:
-    """Each task the play reaches that names the keys, by its file and name: why it could take a line away, or None."""
+    """Each task the play reaches that names the keys, by its file and name: why it could take a key off, or None."""
     import test_aw_layer1_ratchet as ratchet
 
     found = ratchet.walk(play, REPO)
     names = _naming_variables(found)
+    values = _role_values(found)
     tasks = {}
     for path, task in found.entries:
         if any(key in task for key in ratchet.BLOCK):
             continue
         action, args, _ = ratchet._parsed(task)
-        if _mentions(args, names) or _mentions(task.get("vars") or {}, names):
-            variables = {name: value for name, value in (task.get("vars") or {}).items()}
+        if _mentions(task, names):
+            variables = {**values, **(task.get("vars") or {})}
             tasks[(str(path.relative_to(REPO)), task.get("name", ""))] = _takes_a_line(action, args, variables)
     return tasks
 
@@ -563,6 +763,35 @@ def test_no_task_the_system_play_reaches_takes_a_line_of_authorized_keys_or_writ
         ({"ansible.builtin.copy": {"dest": "~/.ssh/authorized_keys", "content": "x", "mode": "0600"}}, "whole"),
         ({"ansible.builtin.file": {"path": "~/.ssh", "state": "absent"}}, "state 'absent'"),
         ({"ansible.builtin.command": {"argv": ["sed", "-i", "/x/d", "{{ common_keys_path }}"]}}, "take a line away"),
+        # Review 93's three: the file named in a loop alone; a lineinfile whose regexp finds any key; every key
+        # commented out by a replace within one line.
+        (
+            {"ansible.builtin.copy": {"dest": "{{ item }}", "content": ""}, "loop": ["~/.ssh/authorized_keys"]},
+            "whole",
+        ),
+        (
+            {"ansible.builtin.lineinfile": {"path": "~/.ssh/authorized_keys", "regexp": "^ssh-", "line": "# gone"}},
+            "not the listed line",
+        ),
+        (
+            {
+                "ansible.builtin.lineinfile": {
+                    "path": "~/.ssh/authorized_keys",
+                    "regexp": "^ssh-",
+                    "line": "{{ item }}",
+                },
+                "loop": ["{{ common_user_ssh_public_keys }}"],
+            },
+            "finds another key's line",
+        ),
+        (
+            {"ansible.builtin.replace": {"path": "~/.ssh/authorized_keys", "regexp": "^(ssh-.*)$", "replace": "# \\1"}},
+            "not the listed line",
+        ),
+        (
+            {"ansible.builtin.lineinfile": {"path": "~/.ssh/authorized_keys", "search_string": "ssh-", "line": "x"}},
+            "search_string",
+        ),
     ],
 )
 def test_the_scan_refuses_each_task_that_could_take_a_line_away(tmp_path, task, why) -> None:
@@ -581,18 +810,55 @@ def test_the_scan_refuses_each_task_that_could_take_a_line_away(tmp_path, task, 
     names = _naming_variables(found)
     [(path, entry)] = [(path, each) for path, each in found.entries if each.get("name") == "planted"]
     action, args, _ = ratchet._parsed(entry)
-    assert _mentions(args, names)
-    said = _takes_a_line(action, args, {})
+    assert _mentions(entry, names)
+    said = _takes_a_line(action, args, {**_role_values(found), **(entry.get("vars") or {})})
     assert said is not None and why in said, said
 
 
+def _keys_yml() -> tuple[list[dict], dict[str, object]]:
+    tasks = yaml.safe_load((REPO / "roles" / "common" / "tasks" / "keys.yml").read_text())
+    values = yaml.safe_load((REPO / "roles" / "common" / "vars" / "main.yml").read_text())
+    return tasks, values
+
+
 def test_the_scan_takes_the_keys_replace_as_it_is_and_reads_its_variables() -> None:
-    """F6a's replace, its pattern made of its task's variables and escaped values alone, matches within one line."""
-    task = yaml.safe_load((REPO / "roles" / "common" / "tasks" / "keys.yml").read_text())
-    [replace] = [each for each in task if "ansible.builtin.replace" in each]
-    regexp = _inlined(replace["ansible.builtin.replace"]["regexp"], replace["vars"])
-    assert "{{ common_key_line }}" not in regexp and _crosses_a_line(regexp) == []
+    """F6a's replace, its pattern made of its task's and its role's variables and escaped values alone, matches within
+    one line."""
+    tasks, values = _keys_yml()
+    [replace] = [each for each in tasks if "ansible.builtin.replace" in each]
+    regexp = _inlined(replace["ansible.builtin.replace"]["regexp"], {**values, **replace["vars"]})
+    assert "{{ common_key_line }}" not in regexp and "common_ssh_key_options" not in regexp
+    assert _crosses_a_line(regexp) == []
     assert _crosses_a_line(regexp.replace("[ \\t]", "\\s")) != []
+
+
+@pytest.mark.parametrize("item", LISTED)
+def test_the_keys_patterns_rendered_find_the_listed_key_s_lines_and_no_other_s(item: str) -> None:
+    """keys.yml's two patterns, rendered for a listed key as Ansible renders them: each finds that key's lines, at the
+    line's start or after its options, and no line sshd reads as another key's (review 93: a comment or a forced
+    command that names the listed key, a backslash before a quote)."""
+    tasks, values = _keys_yml()
+    key = keys.parsed(item)
+    own = [
+        f"{key.type}  {key.data}",
+        f"  {key.type} {key.data} another comment",
+        f'no-pty,command="echo two words" {key.type} {key.data} with options',
+        f'command="a \\" quoted" {key.type}\t{key.data}',
+    ]
+    for task in tasks:
+        module = task.get("ansible.builtin.replace") or task.get("ansible.builtin.lineinfile")
+        if not module or "regexp" not in module:
+            continue
+        pattern = re.compile(_rendered(module["regexp"], {**values, **task["vars"]}, item), re.MULTILINE)
+        assert [line for line in own if pattern.search(line + "\n")] == own, (task["name"], pattern.pattern)
+        assert [line for line in _others(item) if pattern.search(line + "\n")] == [], (task["name"], pattern.pattern)
+        # The listed line itself: the replace leaves it as it is, lineinfile finds it.
+        assert bool(pattern.search(item + "\n")) is ("ansible.builtin.lineinfile" in task), task["name"]
+
+
+def test_the_role_reads_a_key_s_options_as_keys_py_does() -> None:
+    _, values = _keys_yml()
+    assert values["common_ssh_key_options"] == keys._OPTIONS
 
 
 # Each module of the new engine that names Proxmox's sshkeys, with why: the create's settings call alone sends it.

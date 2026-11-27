@@ -1998,30 +1998,31 @@ hash `ssh` wrote. Neither ever reads or writes the person's own `known_hosts`.
 
 **The command line.** `argv(target, command)` is `ssh`, then the product's options, then the hop's, then the person's,
 then `-l <account> -p <port> -- <address>` and the command joined with `shlex.join`; every value is one word and none
-passes a shell. No `-F`: the person's own `~/.ssh/config` is read, as today, where a key, an agent or a jump of theirs
-is named. The product's options, in order: `checks.vm_ssh_args` as it stands (the known-hosts file, `CheckHostIP=no`,
-`UpdateHostKeys=no`, `HostKeyAlias` the identity, `ForwardAgent=no`; for the Proxmox host `UpdateHostKeys=no` and
-`ForwardAgent=no` alone), `ControlPath=<the shared directory>/<checks.vm_control_name>-%r-%p` (`none` for a first use),
-`ControlMaster=no`, `BatchMode=yes`, `ForwardX11=no` and `PermitLocalCommand=no` (pinned, where a person's
-`ForwardX11 yes`, or Ubuntu's own `ForwardX11Trusted yes`, would hand the machine this computer's display),
-`StrictHostKeyChecking=yes` (or `accept-new` for the two forms above), `ConnectTimeout=10`, `ServerAliveInterval=15`,
-`ServerAliveCountMax=3`, `PreferredAuthentications=publickey`, `ClearAllForwardings=yes`, `RequestTTY=no`,
-`LogLevel=ERROR`, and the identity file where there is one. `BatchMode=yes` on every `ssh` the engine starts means a key
-that wants a passphrase fails in one sentence and never waits at a terminal it cannot reach. Every connection
-authenticates by public key alone, the Proxmox host's too: today's Ansible connection also offers GSSAPI and host-based
-authentication, and those are added only if someone asks. `ControlMaster=no` means a child rides a master the engine
-opened in the shared directory (`connections.py`'s `ensure`), or connects alone where none lives, and is never a master
-itself. The hop's own `ssh`
-keeps `LogLevel=INFO`, which route.py pins because it reads `ssh`'s words, and the new engine's pins `ForwardX11=no`,
-`PermitLocalCommand=no` and `ClearAllForwardings=yes` first on every line it is run with, the `ProxyCommand` a machine
-is given among them (`route.hop_settings`' `pinned`, which today's callers do not pass): a master the hop's open makes,
-or a `ProxyCommand`'s `ssh` that finds none live and becomes one, would otherwise run a person's `LocalCommand` here,
-and `-W` clears forwards only where a person's configuration says nothing of it, so their `ClearAllForwardings no`
-would have the `ProxyCommand` and the forward check open each `LocalForward`, `RemoteForward`, `DynamicForward` and
-`Tunnel` they give the host. `ansible_vars(target)` gives layer 1's
-Ansible child the address, the port, the account, the program and `ansible_ssh_common_args` holding exactly the same
-options in the same order, so that its `ssh`, `sftp` and `scp` ride the same master and a jump of the person's reaches
-the file transfers too.
+passes a shell. `shown_argv(target)` is the same line with `-G` and no command, which dials nothing, and `shown` runs it
+as `run` runs a command: what this computer's ssh would use for the machine, which `keys.py` reads its agent and
+identity files from (§16.10). No `-F`: the person's own `~/.ssh/config` is read, as today, where a key, an agent or a
+jump of theirs is named. The product's options, in order: `checks.vm_ssh_args` as it stands (the known-hosts file,
+`CheckHostIP=no`, `UpdateHostKeys=no`, `HostKeyAlias` the identity, `ForwardAgent=no`; for the Proxmox host
+`UpdateHostKeys=no` and `ForwardAgent=no` alone), `ControlPath=<the shared directory>/<checks.vm_control_name>-%r-%p`
+(`none` for a first use), `ControlMaster=no`, `BatchMode=yes`, `ForwardX11=no` and `PermitLocalCommand=no` (pinned,
+where a person's `ForwardX11 yes`, or Ubuntu's own `ForwardX11Trusted yes`, would hand the machine this computer's
+display), `StrictHostKeyChecking=yes` (or `accept-new` for the two forms above), `ConnectTimeout=10`,
+`ServerAliveInterval=15`, `ServerAliveCountMax=3`, `PreferredAuthentications=publickey`, `ClearAllForwardings=yes`,
+`RequestTTY=no`, `LogLevel=ERROR`, and the identity file where there is one. `BatchMode=yes` on every `ssh` the engine
+starts means a key that wants a passphrase fails in one sentence and never waits at a terminal it cannot reach. Every
+connection authenticates by public key alone, the Proxmox host's too: today's Ansible connection also offers GSSAPI and
+host-based authentication, and those are added only if someone asks. `ControlMaster=no` means a child rides a master the
+engine opened in the shared directory (`connections.py`'s `ensure`), or connects alone where none lives, and is never a
+master itself. The hop's own `ssh` keeps `LogLevel=INFO`, which route.py pins because it reads `ssh`'s words, and the
+new engine's pins `ForwardX11=no`, `PermitLocalCommand=no` and `ClearAllForwardings=yes` first on every line it is run
+with, the `ProxyCommand` a machine is given among them (`route.hop_settings`' `pinned`, which today's callers do not
+pass): a master the hop's open makes, or a `ProxyCommand`'s `ssh` that finds none live and becomes one, would otherwise
+run a person's `LocalCommand` here, and `-W` clears forwards only where a person's configuration says nothing of it, so
+their `ClearAllForwardings no` would have the `ProxyCommand` and the forward check open each `LocalForward`,
+`RemoteForward`, `DynamicForward` and `Tunnel` they give the host. `ansible_vars(target)` gives layer 1's Ansible child
+the address, the port, the account, the program and `ansible_ssh_common_args` holding exactly the same options in the
+same order, so that its `ssh`, `sftp` and `scp` ride the same master and a jump of the person's reaches the file
+transfers too.
 
 **A bounded call.** `run(job, target, command, stdin, limits, env, started)` is a coroutine. The child is started
 through `children.start` as an `ssh` child of the job's run, in a process group of its own, with `env` and the job's
@@ -4283,29 +4284,37 @@ installed over, the download gone whatever happened, `stable` never npm's versio
 version `guest.states` reads after it by each method, the steps' runner, and a scan of the step's source: no channel's name in an
 `install` argument and no URL of the installer script.
 
-**A person's keys.** The keys a machine accepts are the person's own, `vm_ssh_public_keys`, and layer 1 alone adds
-them: `common`'s keys tasks (`roles/common/tasks/keys.yml`) put each listed key on the account, every line of it made
-the listed form, and leave every other line, so the list only adds and a key that is on a machine and not in the list
-stays. No task the system play reaches takes a line of `authorized_keys` away or writes the file whole: each task that
-names the file or `~/.ssh`, or a variable that does, is a read, `~/.ssh` made a folder, a `lineinfile` that adds its
-line, or a `replace` whose replacement is never empty and whose pattern, its task's variables put in and each value a
-template gives escaped, matches within one line (`tests/unit/test_aw_keys.py`, through the ratchet's walk). And nothing
-of the engine sends Proxmox's `sshkeys` but the create's settings call (`create.settings_call`), since a changed
-`sshkeys` makes a living VM's next start a new cloud-init instance; the same test holds it by a scan. Taking a key off
-is an act of its own, never the side effect of two lists that differ: `aw deploy --only configure --remove-key
+**A person's keys.** The keys a machine accepts are the person's own, `vm_ssh_public_keys`, and layer 1 alone adds them:
+`common`'s keys tasks (`roles/common/tasks/keys.yml`) put each listed key on the account, every line of it made the
+listed form, and leave every other line, so the list only adds and a key that is on a machine and not in the list stays.
+They find a listed key where `sshd` reads a line's key, at its start or after one word of options
+(`common_ssh_key_options`, a backslash escaping a double quote alone), so a line of another key whose comment or forced
+command names a listed key is not its line. No task the system play reaches takes a key off `authorized_keys` or writes
+the file whole: each task that names the file or `~/.ssh`, or a variable that does, in any of its keys (its arguments,
+`vars`, `loop` and `with_` values, `when`), is a read, `~/.ssh` made a folder, a `lineinfile` that adds its line with no
+pattern, or a `lineinfile` or `replace` whose pattern, its task's and its role's variables put in and each value a
+template gives escaped, matches within one line, and which, rendered for a listed key as Ansible renders it, writes the
+listed line and finds no line `sshd` reads as another key's (`tests/unit/test_aw_keys.py`, through the ratchet's walk).
+And nothing of the engine sends Proxmox's `sshkeys` but the create's settings call (`create.settings_call`), since a
+changed `sshkeys` makes a living VM's next start a new cloud-init instance; the same test holds it by a scan. Taking a
+key off is an act of its own, never the side effect of two lists that differ: `aw deploy --only configure --remove-key
 <fingerprint>`, whose `lib/claude_vm/guest/keys.py` `remove(job, target, fingerprint, ...)` reads the account's
 `~/.ssh/authorized_keys` through the runner, finds each line whose key has that SHA256 fingerprint (read as `sshd` reads
-it: options in front skipped, a quoted one whole, a line commented out no key's), and takes those lines off with
-`ansible.builtin.lineinfile`, `state: absent`, in a one-task play of its own, `lib/claude_vm/guest/plays/remove_key.yml`,
-which layer 1's child runs as the account, never as root (`layer1.PLAY_NAMES` holds its one variable, the key's
-pattern, given in the play's variables file, which no template reads). The pattern is the key's type and base64 at the
-place `sshd` reads a key, within one line, so a line of another key whose option or comment names this one is kept;
-`lineinfile` writes through a linked `~/.ssh` and keeps the file's mode. The file is read again after, and must be what
-it was less those lines. Refused with nothing changed: a key the list names, which the next configure would put back; a
-key this computer's ssh offers a machine (`keys.offered`: the agent's at the run's `SSH_AUTH_SOCK`, the identity file
-the target names, ssh's default identity files under the run's `HOME`), which the run may be using; and a fingerprint
-on no line. An identity file or an agent that only the person's own `~/.ssh/config` names is not read. A computer that
-is lost has the one procedure: its key out of `vm_ssh_public_keys`, then `--remove-key` from another computer.
+it: options in front skipped, a quoted one whole, a backslash escaping a quote alone, an RSA key under `rsa-sha2-256` or
+`rsa-sha2-512` its key, a line commented out no key's), and takes those lines off with `ansible.builtin.lineinfile`,
+`state: absent`, in a one-task play of its own, `lib/claude_vm/guest/plays/remove_key.yml`, which layer 1's child runs
+as the account, never as root (`layer1.PLAY_NAMES` holds its one variable, the key's pattern, given in the play's
+variables file, which no template reads). The pattern is the key's type and base64 at the place `sshd` reads a key,
+within one line, so a line of another key whose option or comment names this one is kept; `lineinfile` writes through a
+linked `~/.ssh` and keeps the file's mode. The file is read again after, and must be what it was less those lines.
+Refused with nothing changed: a key the list names, which the next configure would put back; a key this computer's ssh
+offers the machine, which the run may be using; and a fingerprint on no line. What ssh offers is asked of ssh for each
+machine (`runner.shown`, `ssh -G` with the machine's whole line: the product's options, `vm_ssh_options`, the person's
+own `~/.ssh/config`): the agent its `identityagent` names (else the run's `SSH_AUTH_SOCK`), asked for its keys, and each
+`identityfile`'s public half; an identity file that is there whose public half cannot be read, or one named with a token
+`keys.py` does not expand, refuses the key too. `deploy` refuses a listed key, and one the run's own environment offers,
+before the run. A computer that is lost has the one procedure: its key out of `vm_ssh_public_keys`, then `--remove-key`
+from another computer.
 
 **How the engine's tests reach a machine.** A test of the new engine reaches no real machine: it reaches a stand-in,
 a directory of the test's own that `tests/unit/aw_machine.py` makes, through the SSH runner (§16.6) as it reaches a
