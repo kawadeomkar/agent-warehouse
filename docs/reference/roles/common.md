@@ -50,7 +50,7 @@ Also takes, as described under `main`: `common_user`, `common_user_shell`, `comm
 
 ## Internal values
 
-Set in `roles/common/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 2 of the 10 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
+Set in `roles/common/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 2 of the 13 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
 
 | Name | Purpose | Value |
 |---|---|---|
@@ -60,6 +60,9 @@ Set in `roles/common/vars/main.yml`. These are not settings: Ansible ranks a rol
 | `common_ssh_path_dropin` |  | `/etc/ssh/sshd_config.d/15-agent-warehouse-path.conf` |
 | `common_cloud_init_user_cfg` | With common_user_passwordless_sudo off: cloud-init's settings for the user it creates, read after cloud.cfg and every drop-in sorted before it. | `/etc/cloud/cloud.cfg.d/99-agent-warehouse-user.cfg` |
 | `common_ssh_key_pattern` | A public key as an authorized_keys line holds it, options before it and a comment after: its type and its base64, by which keys.yml finds a line of the same key. | <code>(?:^&#124;\s)((?:ssh&#124;ecdsa&#124;sk)-\S+)\s+(AAAA[0-9A-Za-z+/]+=*)(?:\s&#124;\Z)</code> |
+| `common_ssh_key_line_break` | What keys.yml refuses in an item, a line break and a line commented out, and the backslash it doubles in a replacement: here, in YAML's single quotes, so that each reaches Python's re as written, never through a Jinja string. | `[\r\n]` |
+| `common_ssh_key_commented` |  | `[ \t]*#` |
+| `common_backslash` |  | `\` |
 | `common_sshd_hardening` | The sshd hardening and apt's setting, by path. | `/etc/ssh/sshd_config.d/10-agent-warehouse.conf` |
 | `common_apt_downloads` |  | `/etc/apt/apt.conf.d/90agent-warehouse-downloads` |
 | `common_names_1x` | Each file by its name through 1.x and its name from 2.0, which names.yml moves it to (2.x), and the tmux block's 1.x marker, which tmux.yml takes out. | `[{"old": "/etc/ssh/sshd_config.d/10-claude-on-proxmox.conf", "new": "{{ common_sshd_hardening }}"}, {"old": "/etc/ssh/sshd_config.d/15-claude-on-proxmox-path.conf", "new": "{{ common_ssh_path_dropin }}"}, {"old": "/etc/apt/apt.conf.d/90claude-on-proxmox-downloads", "new": "{{ common_apt_downloads }}"}, {"old": "/etc/cloud/cloud.cfg.d/99-claude-on-proxmox-user.cfg", "new": "{{ common_cloud_init_user_cfg }}"}]` |

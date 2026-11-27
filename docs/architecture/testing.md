@@ -839,8 +839,11 @@ file with no error and each setting in effect, the user's among them.
 
 Last, the side effect adds the person's keys over a keys file that holds more, through a `~/.ssh` that is a link
 to a folder of the user's open to all: both lines of the listed key, the first with options in front and another
-comment, become the listed form, the line of a key not on the list is kept and so is a line of the key commented
-out, the folder the link names is made 0700 and the file 0600, the user's, and a second run changes nothing. A
+comment, become the listed form, the line of a key not on the list is kept (directly before one of them, which a
+pattern that reached over a line's end would take in) and so is a line of the key commented out, a real key's line
+becomes its listed form, whose options hold a backslash, as written, the folder the link names is made 0700 and the
+file 0600, the user's, and a second run changes nothing. Converge lists that real key too, whose base64 holds `r`,
+`n` and `+`. A
 listed key that is no public key is refused, and so are an item of two lines, one commented out and a key listed
 twice. Then `~/.ssh` is put back as converge left it, for verify to find the listed key there.
 
