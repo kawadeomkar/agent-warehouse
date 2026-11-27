@@ -633,13 +633,20 @@ run as a child, through one seam in today's `lib/claude_vm/mcp/server.py`: its `
 and each tool's schema, so that `tools/mcp` and every 2.x registration run as before (the 2.x
 `tests/unit/test_mcp_server.py` and `tests/unit/test_mcp_hosts.py` hold it), while `tools/aw-mcp` builds the same
 `Server` with `Program`, this module's; nothing of `mcp/` imports the new side (16.1). Its configuration is the
-registered command's arguments alone: today's, read by `mcp/config.py`'s `parse` unchanged, and four of its own, each
+registered command's arguments alone: today's, read by `mcp/config.py`'s `parse` unchanged, and six of its own, each
 `--name=value`: `--program`, the executable `aw` every read runs; `--fleet-home`, given to each run as
-`AGENT_WAREHOUSE_HOME`; `--state`, the state folder, for the server's own reads of the jobs; and `--vault-key-file`,
-given as `AGENT_WAREHOUSE_VAULT_KEY_FILE` (16.9), a path the server never opens. A command line that lacks one of the
-first three, as 2.x's `just mcp` registered it, names one twice, or gives today's `--vault-password-file`, is the
-refusal each call is answered with, naming `aw mcp`: the server never exits at its start. A run's environment is
-today's allow list (`mcp/environment.py`) with those two variables, never the session's: nothing of Ansible's,
+`AGENT_WAREHOUSE_HOME`; `--state`, the state folder, for the server's own reads of the jobs; `--vault-key-file`,
+given as `AGENT_WAREHOUSE_VAULT_KEY_FILE` (16.9), a path the server never opens; and `--config-home` and
+`--state-home`, the terminal's `XDG_CONFIG_HOME` and `XDG_STATE_HOME` where they are not the defaults, given as those
+two, since `fleet/paths.py` places the installed home's state folder and key by them: a run's state is then `--state`
+and its key the terminal's. The module names each variable only where a run's environment is given it, and opens no
+file, which a test holds by its syntax and on which the fleet scans' exceptions for it rest. A command line that lacks
+one of the first three, as 2.x's `just mcp` registered it, names one twice, or gives today's
+`--vault-password-file`, is the refusal each call is answered with, naming `aw mcp`: the server never exits at its
+start. A call that gives an argument its tool's schema has no property for is refused with `cli/mcp_backend.py`'s
+`command`'s sentence for it, before the SDK, which checks a call against the tool's function alone, would drop it;
+each tool's function takes its schema's properties exactly. A run's environment is today's allow list
+(`mcp/environment.py`) with those variables, never the session's: nothing of Ansible's,
 Python's, `just`'s or Claude Code's, no `LOG_DIR`, and no proxy (`HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY`, in either
 case), since any project's settings set the session's environment and a proxy named there would carry the run's every
 request, the token's among them: a run of the server's reaches the network as `network_proxy` says, and a proxy that
