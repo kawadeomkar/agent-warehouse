@@ -1,0 +1,43 @@
+---
+# The person's keys, added as the user, never as root: ~/.ssh may be a link,
+# which these follow. As root they would make the keys file in the link's
+# target and set that directory to 0700, wherever it was; as the user, a link
+# reaches nothing the user could not change already.
+- name: keys | Refuse a listed key that is no public key
+  ansible.builtin.assert:
+    that: common_keys_unread | length == 0
+    fail_msg: >-
+      common_user_ssh_public_keys holds what is no public key an authorized_keys
+      line holds: {{ common_keys_unread | join(', ') }}
+    quiet: true
+  vars:
+    common_keys_unread: "{{ common_user_ssh_public_keys | reject('search', common_ssh_key_pattern) | list }}"
+
+- name: keys | Make ~/.ssh, its target where it is a link
+  ansible.builtin.file:
+    path: "~{{ common_user }}/.ssh"
+    state: directory
+    mode: "0700"
+  become: true
+  become_user: "{{ common_user }}"
+  when: common_user_ssh_public_keys | length > 0
+
+# A line of the same key, by its type and base64, becomes the listed form,
+# whatever options or comment it had; a key not there is added at the end. No
+# other line changes, and nothing takes a key away.
+- name: keys | Authorise each SSH key
+  ansible.builtin.lineinfile:
+    path: "~{{ common_user }}/.ssh/authorized_keys"
+    regexp: >-
+      (^|\s){{ common_key_parts[0] | regex_escape }}\s+{{ common_key_parts[1] | regex_escape }}(\s|$)
+    line: "{{ item }}"
+    create: true
+    mode: "0600"
+  become: true
+  become_user: "{{ common_user }}"
+  loop: "{{ common_user_ssh_public_keys }}"
+  loop_control:
+    label: "{{ item.split(' ')[-1] if item.count(' ') > 1 else item[:32] ~ '...' }}"
+  vars:
+    # The key's type and base64, the pattern's two groups.
+    common_key_parts: "{{ item | regex_findall(common_ssh_key_pattern) | first }}"

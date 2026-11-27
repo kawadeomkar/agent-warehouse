@@ -10,34 +10,26 @@ the roles of this checkout or release (`ROLES`), Ansible's local temporary files
 folder Ansible looks for a plugin or a collection in: the product's own (the callback's, `CALLBACKS`, and the two
 filters the roles call, `FILTERS`, a folder of the engine's own beside the callback's that holds them alone - never
 today's filter_plugins/, whose filters reach out from this computer), and an empty folder of the run's directory
-(`NONE`) for every other kind, with Python's path not scanned for collections, so that nothing under the caller's HOME
-or under /usr/share/ansible is searched (a vars plugin in ~/.ansible/plugins/vars runs without being enabled) - but,
-until F6a, the collections: three tasks of the roles call a Galaxy collection's module, which ansible-core resolves as
-the play loads, so the system play loads only where one is found. Until then the collections' path is the checkout's own
-folder, the one today's product's runs read, asked of its tools/env-run for the run's environment
-(`checkout_collections`): under the person's XDG_DATA_HOME, or HOME's .local/share, filled by `just install` from
-requirements.yml. Before the child starts it is held to requirements.yml's pins (`held_collections`), as today's
-tools/check collections holds it before every recipe's run: a folder, with each collection pinned there at its pin by
-the collection's own MANIFEST.json, as ansible-galaxy reads an installed one; a folder that is not there, a collection
-at another version or not there, and a tools/env-run that is not there to run are each refused in one sentence that
-names `just install` (`_unready`), before anything is written. F6a takes all of it out, and the collections' path is
-NONE's again. `ssh_args`, the one place ahead of Ansible's own words to ssh, holds `SSH_ARGS`: public keys and no other
-way to log in, as the runner offers (Ansible's own `PreferredAuthentications` puts GSSAPI and host-based first), never
-Ansible's default, which would put `ControlMaster=auto` ahead of the host's options and make the child a connection's
-master. The inventory's one host is named by the machine's identity, `agent-warehouse-<its SMBIOS UUID>`, never by a
-name a person chose, which is a variable (`NAME_VARIABLE`): a VM named after an inventory host once had today's status
-send the API token to the address its own agent reported. Its variables are the address, the account, `/usr/bin/python3`
-and `/usr/bin/sudo` by their paths, and the connection exactly as the SSH runner makes it (`runner.ansible_vars`): its
-options first, `StrictHostKeyChecking=yes` against the product's own known-hosts file under the identity, the shared
-control socket (the master `connections.ensure` opened before) with `ControlMaster=no`, and the hop only where the
-target carries one. The child never takes a key at first use: a target whose identity has no key filed is refused by
-name before anything starts, with the line that files it (`NoKey`), and so is a first use's target. The inventory is a
-source Ansible templates, so a value of it that would open a template is refused, never written. The variables file is
-held first to what guest/variables.py writes, since an extra variable outranks the inventory, the play's own variables
-and its roles': no `ansible_` name, which would replace the connection's; no name but those the play takes, from
-layer 1's own list of each play's (`PLAY_NAMES`, guest/system.py's `NAMES` for the system play), never a caller's, so
-that a variables file beside a play with no list is refused; and every string wrapped, so that none is read as a
-template.
+(`NONE`) for every other kind and for the collections, with Python's path not scanned for collections, so that nothing
+under the caller's HOME or under /usr/share/ansible is searched (a vars plugin in ~/.ansible/plugins/vars runs without
+being enabled): every module the system play's roles call is ansible.builtin's, so the play needs no Galaxy collection
+(tests/unit/test_aw_layer1_ratchet.py). `ssh_args`, the one place ahead of Ansible's own words to ssh, holds `SSH_ARGS`:
+public keys and no other way to log in, as the runner offers (Ansible's own `PreferredAuthentications` puts GSSAPI and
+host-based first), never Ansible's default, which would put `ControlMaster=auto` ahead of the host's options and make
+the child a connection's master. The inventory's one host is named by the machine's identity, `agent-warehouse-<its
+SMBIOS UUID>`, never by a name a person chose, which is a variable (`NAME_VARIABLE`): a VM named after an inventory host
+once had today's status send the API token to the address its own agent reported. Its variables are the address, the
+account, `/usr/bin/python3` and `/usr/bin/sudo` by their paths, and the connection exactly as the SSH runner makes it
+(`runner.ansible_vars`): its options first, `StrictHostKeyChecking=yes` against the product's own known-hosts file under
+the identity, the shared control socket (the master `connections.ensure` opened before) with `ControlMaster=no`, and the
+hop only where the target carries one. The child never takes a key at first use: a target whose identity has no key
+filed is refused by name before anything starts, with the line that files it (`NoKey`), and so is a first use's target.
+The inventory is a source Ansible templates, so a value of it that would open a template is refused, never written. The
+variables file is held first to what guest/variables.py writes, since an extra variable outranks the inventory, the
+play's own variables and its roles': no `ansible_` name, which would replace the connection's; no name but those the
+play takes, from layer 1's own list of each play's (`PLAY_NAMES`, guest/system.py's `NAMES` for the system play), never
+a caller's, so that a variables file beside a play with no list is refused; and every string wrapped, so that none is
+read as a template.
 
 The child's environment is an allow list (`KEPT`, then the engine's own): `PATH`, `HOME`, `LANG` and `SSH_AUTH_SOCK`
 where the caller's environment has them, `ANSIBLE_CONFIG` naming the generated configuration, the untrusted-template
@@ -65,12 +57,11 @@ child still running when it ends is ended with its tree (claude_vm.proc).
 Only tests pass `test_connection`: the host variables of a test-only connection, `local` for a play of one task on a
 stand-in machine (tests/unit/aw_machine.py's `layer1_host`) and `community.docker.docker` for a Molecule container,
 whose collection the configuration finds in the folder a test gives beside it (`test_collections`), named in the
-place of the checkout's, which F6a does not take out; no product code passes either, which tests/unit/test_aw_layer1.py
-holds. The real roles never run over `local`: they would
-run as root on the computer running the tests.
+place of the empty folder; no product code passes either, which tests/unit/test_aw_layer1.py holds. The real roles
+never run over `local`: they would run as root on the computer running the tests.
 
-Standard library only; asyncio, tempfile and claude_vm.proc are imported inside the coroutines that start a child, and
-yaml inside the one function that reads requirements.yml's pins until F6a. The callback, which imports Ansible, runs in
+Standard library only; asyncio, tempfile and claude_vm.proc are imported inside the coroutine that starts the child. The
+callback, which imports Ansible, runs in
 the child alone: nothing here imports it.
 """
 
@@ -130,20 +121,6 @@ ROLES = Path(__file__).resolve().parents[3] / "roles"
 # that holds them alone: today's filter_plugins/ holds filters that reach out from this computer (proxmox_trust_holds
 # opens a connection to the address it is given), which a play could call.
 FILTERS = Path(__file__).resolve().parent / "ansible" / "filter_plugins"
-# Until F6a, the checkout's own folder of Galaxy collections, which the three tasks of the roles that call a collection
-# need for the play to load at all: asked of this checkout's tools/env-run (--collections), as every recipe of today's
-# product asks it, never worked out a second way. It reads the person's HOME and XDG_DATA_HOME and runs the programs on
-# PATH, of the run's environment; it answers one line, at once.
-ENV_RUN = Path(__file__).resolve().parents[3] / "tools" / "env-run"
-ENV_RUN_KEPT = ("PATH", "HOME", "XDG_DATA_HOME")
-ENV_RUN_SECONDS = 30
-ENV_RUN_MOST = 4096
-# Until F6a, what that folder is held to before the child starts: requirements.yml beside the roles, whose pins `just
-# install` fills it with, as today's tools/check collections holds it before every recipe's run. Each collection is
-# read by its own MANIFEST.json, where ansible-galaxy reads an installed one's version, at most MANIFEST_MOST bytes.
-REQUIREMENTS = ROLES.parent / "requirements.yml"
-MANIFEST = "MANIFEST.json"
-MANIFEST_MOST = 1024 * 1024
 # The empty folder of the run's directory that every other plugin folder and the collections' path name, so that none
 # of Ansible's defaults under the caller's HOME, or /usr/share/ansible, is searched.
 NONE = "ansible-none"
@@ -208,10 +185,6 @@ TEST_HOST_VARIABLES = frozenset(
 
 # A part asked for with --tags: a role's name, as today's tags are.
 _TAG = re.compile(r"[a-z][a-z0-9_]{0,63}")
-# A collection's name as requirements.yml pins it, its namespace and its name, each a Galaxy name.
-_COLLECTION = re.compile(r"[a-z0-9][a-z0-9_]{0,63}\.[a-z0-9][a-z0-9_]{0,63}")
-# An installed collection's version as a sentence may say it: a semantic version's characters.
-_VERSION = re.compile(r"[0-9A-Za-z.+-]{1,64}")
 # What opens a template where Ansible templates a value: an inventory's strings are trusted as templates.
 _TEMPLATE = ("{{", "{%", "{#")
 # What a path in the configuration may not hold: an ini file's comment, configparser's interpolation, a pathspec's
@@ -376,18 +349,6 @@ def _collections(given: object, test_connection: object) -> Path | None:
     return Path(given)
 
 
-def _findable(env: Mapping[str, str]) -> dict[str, str]:
-    """What tools/env-run is given of the run's environment to find the checkout's collections: ENV_RUN_KEPT's where
-    env has them, a HOME or an XDG_DATA_HOME among them, under which the folder is."""
-    given = {name: env[name] for name in ENV_RUN_KEPT if isinstance(env.get(name), str)}
-    if not given.get("HOME") and not given.get("XDG_DATA_HOME"):
-        raise Refused(
-            "the run's environment names neither HOME nor XDG_DATA_HOME, under which tools/env-run --collections finds"
-            " the checkout's Galaxy collections, which the system play needs until F6a"
-        )
-    return given
-
-
 def _redacted(given: object) -> tuple[Secret, ...]:
     """The run's redaction list: every secret the run opened, each a Secret."""
     if isinstance(given, (str, bytes, Secret)) or not isinstance(given, Sequence):
@@ -416,136 +377,9 @@ def program() -> Path:
     return found
 
 
-def _unready(folder: Path | None, differ: Sequence[str] = ()) -> str:
-    """The one sentence of a checkout whose Galaxy collections the system play cannot be loaded from until F6a, each
-    naming `just install`, which fills them: no tools/env-run there to run, which finds them (folder None); the folder
-    not there; or collections that are not the ones requirements.yml pins (differ, each said with its version and its
-    pin)."""
-    if folder is None:
-        return (
-            f"{ENV_RUN}, which finds this checkout's Galaxy collections that the system play needs until F6a, is not"
-            " there to run: take it from git again, then run just install"
-        )
-    if not differ:
-        return (
-            f"this checkout's Galaxy collections, which the system play needs until F6a, are not installed ({folder} is"
-            " no folder): run just install"
-        )
-    return (
-        f"this checkout's Galaxy collections in {folder} are not the ones requirements.yml pins ({'; '.join(differ)}),"
-        " and the system play needs them until F6a: run just install"
-    )
-
-
-def pins(requirements: Path | None = None) -> dict[str, str]:
-    """Each collection requirements.yml (REQUIREMENTS, or requirements) pins, by its name, at its version, in its
-    order: what the checkout's folder of collections is held to until F6a. Refused where the file cannot be read, or
-    is no list of collections each named once and pinned to one version."""
-    import yaml
-
-    path = REQUIREMENTS if requirements is None else requirements
-    try:
-        listed = yaml.safe_load(path.read_text())
-    except (OSError, UnicodeDecodeError, yaml.YAMLError) as error:
-        raise Refused(
-            f"{path}, which pins the checkout's Galaxy collections, cannot be read: {type(error).__name__}"
-        ) from None
-    entries = listed.get("collections") if isinstance(listed, dict) else None
-    found: dict[str, str] = {}
-    for entry in entries if isinstance(entries, list) else [None]:
-        name = entry.get("name") if isinstance(entry, dict) else None
-        version = entry.get("version") if isinstance(entry, dict) else None
-        if not (isinstance(name, str) and _COLLECTION.fullmatch(name)) or name in found or not isinstance(version, str):
-            raise Refused(f"{path} is no list of Galaxy collections, each named once and pinned to one version")
-        found[name] = version
-    return found
-
-
-def _version(manifest: Path) -> str | None:
-    """An installed collection's version, as its own MANIFEST.json says it: None where there is none, and an empty
-    string where it cannot be read or says no version."""
-    try:
-        with manifest.open("rb") as file:
-            data = file.read(MANIFEST_MOST + 1)
-    except FileNotFoundError:
-        return None
-    except OSError:
-        return ""
-    try:
-        version = json.loads(data)["collection_info"]["version"] if len(data) <= MANIFEST_MOST else ""
-    except (ValueError, KeyError, TypeError):
-        return ""
-    return version if isinstance(version, str) else ""
-
-
-def held_collections(folder: Path, requirements: Path | None = None) -> Path:
-    """folder, the checkout's own folder of Galaxy collections, held to requirements.yml's pins before the child
-    starts, as today's tools/check collections holds it: a folder, and in it each collection pinned, at its pin, by its
-    own MANIFEST.json. Refused otherwise, in one sentence that names just install (_unready). Until F6a."""
-    pinned = pins(requirements)
-    if not folder.is_dir():
-        raise Refused(_unready(folder))
-    differ = []
-    for name, version in pinned.items():
-        namespace, short = name.split(".")
-        found = _version(folder / "ansible_collections" / namespace / short / MANIFEST)
-        if found != version:
-            said = found if found is not None and _VERSION.fullmatch(found) else "of a version it cannot say"
-            differ.append(f"{name} {'not there' if found is None else said}, pinned {version}")
-    if differ:
-        raise Refused(_unready(folder, differ))
-    return folder
-
-
-async def checkout_collections(job: Job, env: Mapping[str, str]) -> Path:
-    """The checkout's own folder of Galaxy collections, for the run's environment env, as tools/env-run --collections
-    finds it: under XDG_DATA_HOME, or HOME's .local/share, a folder named for this checkout. Asked of it as a program
-    child of job's run, in a session of its own, given only what it reads (ENV_RUN_KEPT); its one line held to an
-    absolute path, and the folder it names held to requirements.yml's pins (held_collections). A tools/env-run that is
-    not there to run (no file, none executable, one this system cannot run) is refused by name, in the sentence that
-    names just install, never as the bare OSError its start raises. Until F6a, which takes it out."""
-    import asyncio
-
-    from claude_vm import proc
-
-    given = _findable(env)
-    pipe = asyncio.subprocess.PIPE
-    try:
-        process = await children.start(
-            job,
-            [str(ENV_RUN), "--collections"],
-            children.SESSION,
-            given,
-            asyncio.subprocess.DEVNULL,
-            pipe,
-            pipe,
-            children.PROGRAM,
-        )
-    except OSError:
-        # Not started, and so never entered among the run's children: no file there, or one this system cannot run.
-        raise Refused(_unready(None)) from None
-    try:
-        out, err = await asyncio.wait_for(process.communicate(), ENV_RUN_SECONDS)
-    except TimeoutError:
-        raise Refused(f"tools/env-run --collections said nothing in {ENV_RUN_SECONDS} s") from None
-    finally:
-        if process.returncode is None:
-            proc.end(process.pid)
-            await process.wait()
-    if process.returncode != 0:
-        why = next(iter(err.decode("utf-8", "replace").splitlines()), "")
-        why = re.sub(r"[\x00-\x1f\x7f]", "", why).strip()[:200]
-        raise Refused(f"tools/env-run --collections ended with exit {process.returncode}: {why or 'it said nothing'}")
-    text = out.decode("utf-8", "replace")
-    if len(out) > ENV_RUN_MOST or not text.endswith("\n") or "\n" in text[:-1] or not Path(text[:-1]).is_absolute():
-        raise Refused("tools/env-run --collections answered no one absolute path")
-    return held_collections(Path(text[:-1]))
-
-
 def configuration_text(directory: Path, collections: Path | None = None) -> str:
     """The child's configuration for a run whose directory is directory: every plugin folder named, the product's own or
-    NONE there, and the collections' path the folder given - the checkout's own until F6a (checkout_collections), or a
-    test's - or NONE where none is."""
+    NONE there, and the collections' path NONE, or the folder a test gives (test_collections)."""
     none = _ini(directory / NONE, "the empty plugin folder")
     found = none if collections is None else _ini(collections, "the folder of collections")
     return "\n".join(
@@ -689,22 +523,18 @@ async def run(
     test_collections: Path | None = None,
 ) -> Ended:
     """play run on target by one ansible-playbook, a child of job's run in a session of its own, with the configuration
-    and the inventory written into the run's directory, where it works, and the environment built from env's allow
-    list; started(process) called once it runs; each event of the play handed to job's emit as a step event of the
-    machine, keyed by target's identity with name beside it, as it comes, every secret of redacted (every secret the run
-    opened) struck from it; its exit status, the end of what it printed, and the counts. The configuration names the
-    checkout's own folder of collections for env (checkout_collections) until F6a, or test_collections where a test
-    gives it. name is the name a person chose for the machine, and host_flag the host a line that names it names (the
-    printer's). A variables file holds the names its play takes and no other, from layer 1's own list of the play's
-    (PLAY_NAMES: guest/system.py's NAMES for the system play), never a caller's. Everything is held before anything is
-    written or started: a target that is no machine's, a first use's, or whose identity has no key filed, a play or a
-    variables file that is not there, a variables file beside a play with no list, one that is not what
-    guest/variables.py writes or that holds a name the play does not take, a part, a flag, a verbosity or a redaction
-    list that is not one, a test's folder of collections given without a test-only connection, an environment that
-    names neither HOME nor XDG_DATA_HOME where no test gives its folder; and, where none does, the checkout's folder of
-    collections not there or not at requirements.yml's pins, or no tools/env-run to find it, in the sentence that names
-    just install. A listener of job's that fails while the child runs ends the
-    child, and its error is raised."""
+    and the inventory written into the run's directory, where it works, and the environment built from env's allow list;
+    started(process) called once it runs; each event of the play handed to job's emit as a step event of the machine,
+    keyed by target's identity with name beside it, as it comes, every secret of redacted (every secret the run opened)
+    struck from it; its exit status, the end of what it printed, and the counts. The configuration names no folder of
+    collections but test_collections, where a test gives it. name is the name a person chose for the machine, and
+    host_flag the host a line that names it names (the printer's). A variables file holds the names its play takes and
+    no other, from layer 1's own list of the play's (PLAY_NAMES: guest/system.py's NAMES for the system play), never a
+    caller's. Everything is held before anything is written or started: a target that is no machine's, a first use's, or
+    whose identity has no key filed, a play or a variables file that is not there, a variables file beside a play with
+    no list, one that is not what guest/variables.py writes or that holds a name the play does not take, a part, a flag,
+    a verbosity or a redaction list that is not one, and a test's folder of collections given without a test-only
+    connection. A listener of job's that fails while the child runs ends the child, and its error is raised."""
     import asyncio
     import tempfile
 
@@ -722,17 +552,10 @@ async def run(
     heard = events.Heard(job, str(machine.identity), name, _redacted(redacted))
     document = inventory_document(machine, name, test_connection)
     collections = _collections(test_collections, test_connection)
-    if collections is None:
-        _findable(env)
     directory = _directory(job)
     config = directory / CONFIG
     configuration = configuration_text(directory, collections)
     program()
-    # Until F6a, the checkout's own folder of collections where no test gives its own, asked once everything else is
-    # held: the one child started before the play's, and ended before anything is written; the folder it names held to
-    # requirements.yml's pins before the play's child starts.
-    if collections is None:
-        configuration = configuration_text(directory, await checkout_collections(job, env))
 
     with contextlib.suppress(FileExistsError):
         os.mkdir(directory / NONE, 0o700)

@@ -411,7 +411,7 @@ def job(made) -> Iterator[jobs.Job]:
 
 
 def test_in_process_each_report_is_followed_by_its_record_and_the_view_says_each_machine_once(
-    made, job, monkeypatch, tmp_path, installed, engine_guard
+    made, job, monkeypatch, tmp_path, engine_guard
 ) -> None:
     engine_guard.first_on_path(made.root / SSH_FOLDER)
     swapped = Swapped(monkeypatch, tmp_path / "play", True)

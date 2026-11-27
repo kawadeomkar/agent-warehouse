@@ -345,7 +345,7 @@ class Swapped:
 
 
 @pytest.fixture
-def swapped(monkeypatch, tmp_path, installed, made, engine_guard) -> Swapped:
+def swapped(monkeypatch, tmp_path, made, engine_guard) -> Swapped:
     """The play swapped and layer 1 over the local connection; the stand-in ssh first on this process's PATH."""
     engine_guard.first_on_path(made.root / SSH_FOLDER)
     return Swapped(monkeypatch, tmp_path / "play", True)
@@ -614,7 +614,7 @@ def test_a_task_that_failed_as_the_stop_came_is_still_the_vm_s_failure_drawn_fai
     assert fed.mark(machine.identity, "configure") == "failed"
 
 
-def test_a_layer_1_child_a_ctrl_c_stopped_is_drawn_stopped_never_failed(made, tmp_path, installed) -> None:
+def test_a_layer_1_child_a_ctrl_c_stopped_is_drawn_stopped_never_failed(made, tmp_path) -> None:
     # The first checkpoint's finding 3: the run's own Ctrl-C ends layer 1's child in the middle of a task, through the
     # run's ladder, and its exit status alone fails nothing: the system layer is drawn stopped, as the VM's end says.
     [(_, machine)] = _provisioned(made, "delta").values()
@@ -679,7 +679,7 @@ def short() -> Iterator[Path]:
 
 
 @pytest.fixture
-def hopped(monkeypatch, tmp_path, installed, made, engine_guard) -> Swapped:
+def hopped(monkeypatch, tmp_path, made, engine_guard) -> Swapped:
     """The play swapped, layer 1 over its own SSH connection; the stand-in Proxmox host the hop, at the fake's own
     address, where host.yml points the host."""
     if not Path(layer1.PYTHON).is_file():

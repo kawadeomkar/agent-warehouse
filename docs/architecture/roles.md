@@ -101,6 +101,12 @@ Notable choices:
 
 - **Timezone via `/etc/localtime` + `/etc/timezone`**, not `community.general.timezone`, so it also
   works in containers with no `timedatectl`/dbus.
+- **The person's keys are added with `ansible.builtin` alone, as the user** (`tasks/keys.yml`): `file` makes
+  `~/.ssh` 0700 and `lineinfile` puts each listed key in `authorized_keys` (0600), finding a line of the same key by
+  its type and base64, whatever options or comment it has, and replacing it with the listed form; a key not there is
+  added at the end, no other line changes and nothing takes a key away. As the user, not root, since `~/.ssh` may be
+  a link, which both follow: as root they would make the keys file in the link's target and set that folder to 0700,
+  wherever it was. A listed key that is no public key is refused first.
 - **Every toggle is a pair of tasks** (`Grant`/`Revoke` sudo, `Harden`/`Remove` sshd). `template` has
   no `state: absent`, so this is the idiom for a reversible setting.
 - **Passwordless sudo off takes away cloud-init's rule too** (`tasks/sudo.yml`). The user cloud-init creates
@@ -206,7 +212,9 @@ supply its own key. **uv is pinned by version and SHA-256 per architecture**, wi
 in `defaults/main.yml` rather than fetched alongside the archive, so a compromised release endpoint
 cannot swap both. Its download waits a minute and is tried three times more, since GitHub's release downloads
 fail now and then: two deploys in four did so in one outage. Node.js is apt-pinned to NodeSource over the distro
-package.
+package. The global npm packages a person lists (`dev_tools_npm_global_packages`) are read from `npm ls -g --json`,
+and only those it lacks are installed, with `npm install -g`: one there at any version, or named at the version it is
+at, is left as it is.
 
 **Rust, where `dev_tools_install_rust` turns it on, comes from rustup, never Ubuntu's `rustc` and
 `cargo`.** Noble's `rustup` package conflicts with
@@ -762,8 +770,9 @@ two, and proves the sshd one.
   included, since that is how a `Match` block's settings are written). `sshd -T` parses the files
   on disk, so this checks the configuration the end-of-play restart will load; nothing is restarted
   first.
-- **`fs.inotify.max_user_watches` = 524288** through `ansible.posix.sysctl`, written for the record
-  everywhere and applied only where `/proc/sys` is writable (`vscode_server_container_virt_types`).
+- **`fs.inotify.max_user_watches` = 524288**, written for the record everywhere by `copy` into
+  `/etc/sysctl.d/60-vscode-server.conf` and applied by `sysctl -p` of that file only when the copy changed it and
+  `/proc/sys` is writable (`vscode_server_container_virt_types`); at boot systemd-sysctl applies it again.
 - **Off removes both files**, as Remote Control's off path removes its unit. The live sysctl stays
   raised until the next boot: a limit is harmless to leave high, and lowering it under a running
   watcher is not.
