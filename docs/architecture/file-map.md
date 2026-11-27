@@ -314,7 +314,9 @@ lib/claude_vm/guest/              inside a machine: the helper, the system layer
                                   ansible/callback_plugins/aw_events.py, its stdout callback, each event of the
                                   play a line of JSON on that pipe; system.py, the system play (playbooks/system.yml),
                                   its parts, and its variables' writer, which refuses what the engine cannot serve yet;
-                                  wiring.py, the play's variables for one machine, a pure function of the settings
+                                  wiring.py, the play's variables for one machine, a pure function of the settings;
+                                  keys.py, one key taken off a machine's account by its fingerprint, through a
+                                  one-task play of its own, plays/remove_key.yml
 lib/claude_vm/control/            the add-on's, with a control VM only: nothing of the base writes here
 lib/claude_vm/secret.py           the new engine's Secret: a value shown as a mark wherever it is shown, never pickled
                                   or turned into JSON, read only by reveal() in the modules a test names (§16.1)
@@ -394,7 +396,8 @@ molecule/
   configure/                      configure.yml end to end in a container
                                   (in both, group_vars/all/defaults.yml is a symlink to the real one; keep it a git checkout)
   system/                         the new engine's system play in a container, converged by its layer-1 child from
-                                  converge.py, the scenario's driver, over the child's test-only connection
+                                  converge.py, the scenario's driver, over the child's test-only connection; its
+                                  side effect a key kept and one taken off by remove_key.py, through guest/keys.py
 .config/molecule/config.yml       driver, shared provisioner settings, the dependency step off
 .config/ansible-lint-rules/       agent_warehouse_module_utils.py, no rule: puts playbooks/module_utils/ on the
                                   path in ansible-lint's own process, where its args rule imports the modules in

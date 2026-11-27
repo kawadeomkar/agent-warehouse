@@ -5,6 +5,9 @@ VM of the pool this fleet may change where none is (engine/configure.py); `--tag
 `--only configure` (the one check's deploy.7 refuses it alone). Every other stage is refused with the card that builds
 it - `--only ssh-config` G8, and a bare deploy, the whole chain, G10 - and so are `--check` (G20) and a `--tags` that
 names a part of the VM's second layer (G9), so that each of those cards adds its own branch here and G10 composes them.
+`--remove-key` (F8) is a configure's alone: its key is taken off each VM's account first (guest/keys.py), and refused
+before the run where `vm_ssh_public_keys` lists it, which the next configure would put back, or where this computer's
+ssh offers it, which the run may be using.
 
 Before the run: the size and the repositories held, the host chosen (fleet/hosts.py's reach) and the settings read for
 its locks: each VM's lock under the fleet's shared, the default VM's where a provision names none; a configure that
@@ -27,6 +30,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..fleet import hosts, overrides, paths, sealed
+from ..guest import keys
 from ..hosts import model
 from ..schema.printer import line, said
 from ..schema.words import EXITS, Line
@@ -40,7 +44,7 @@ PROGRAM_ROOT = Path(__file__).resolve().parents[3]
 # Each stage not built yet, by --only's value, and the card that builds it; a bare deploy's (None) is the whole chain.
 NOT_YET = {"ssh-config": "G8", None: "G10"}
 # Each option of deploy's not built yet, by its field, the option as typed, and the card that builds it.
-OPTIONS_NOT_YET = {"adopt": ("adopt", "J7"), "take_over": ("take-over", "L25"), "remove_key": ("remove-key", "F8")}
+OPTIONS_NOT_YET = {"adopt": ("adopt", "J7"), "take_over": ("take-over", "L25")}
 # The card that builds deploy's dry run, --check.
 CHECK_CARD = "G20"
 STAGE = "provision"
@@ -77,6 +81,11 @@ def not_yet(values: Mapping[str, object]) -> str | None:
                 "error: deploy's --{option} is not built yet (card {card} builds it)", {"option": option, "card": card}
             )
     only = stage_of(values)
+    if values.get("remove_key") not in (None, "") and only != configure.STAGE:
+        return said(
+            "error: --remove-key takes a key off each VM's account in a configure alone: {configure}",
+            {"configure": Line("deploy", {"only": configure.STAGE}, host_flag="")},
+        )
     if only == configure.STAGE:
         return configure.unbuilt(values.get("tags"))
     if only in BUILT:
@@ -130,7 +139,7 @@ def deploy(run: Any, **values: object) -> int:
     words = tuple(str(word) for word in getattr(run, "set", ()) or ())
     try:
         size = create.Size.read(values.get("cores"), values.get("memory"), values.get("disk"))
-        configuring = configure.Plan.read(values.get("tags"), values.get("start"))
+        configuring = configure.Plan.read(values.get("tags"), values.get("start"), values.get("remove_key"))
         repos = tuple(name for name in str(values.get("repos") or "").split(",") if name)
         home = paths.home(PROGRAM_ROOT, environ)
         asked = model.Request(host=str(values.get("host") or ""), names=names)
@@ -141,6 +150,12 @@ def deploy(run: Any, **values: object) -> int:
             print(f"warning: {note.text}" if note.level == "warning" else note.text, file=sys.stderr)
         given = overrides.run_values(words, secrets=(), environ=environ)
         settings = overrides.resolve(home, reached.host.name, given, environ=environ)
+        if configuring.remove_key:
+            # Before the run: a key the list puts back, or one this computer's ssh offers, is taken off no VM.
+            listed = settings["vm_ssh_public_keys"].value or ()
+            why = keys.refusal(configuring.remove_key, listed, environ)
+            if why is not None:
+                raise keys.Refused(why)
     except (hosts.Refused, overrides.Refused, paths.Refused, ValueError) as error:
         return _refused(f"error: {one_line(str(error), None).removeprefix('error: ')}")
 

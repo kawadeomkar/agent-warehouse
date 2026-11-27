@@ -79,7 +79,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from claude_vm import checks
-from claude_vm.guest import events, system
+from claude_vm.guest import events, keys, system
 from claude_vm.guest import variables as play_variables
 from claude_vm.runs import children, rundir
 from claude_vm.schema import patterns, printer
@@ -103,9 +103,10 @@ PREFIX = "agent-warehouse-"
 # The host variable that carries the name a person chose for the machine, which is never the inventory's name.
 NAME_VARIABLE = "aw_name"
 # The names each play's variables may hold, by the play: a variables file is given only beside a play listed here, and
-# holds its names alone. Each list is its play's module's, never a caller's, since a name the play does not take would
-# outrank its own variables, its checks' and its roles' for every task.
-PLAY_NAMES: Mapping[Path, frozenset[str]] = MappingProxyType({system.PLAY: system.NAMES})
+# holds its names alone. Two plays: the system play, and the one task that takes a key off (guest/keys.py). Each list
+# is its play's module's, never a caller's, since a name the play does not take would outrank its own variables, its
+# checks' and its roles' for every task.
+PLAY_NAMES: Mapping[Path, frozenset[str]] = MappingProxyType({system.PLAY: system.NAMES, keys.PLAY: keys.NAMES})
 # The machine's own interpreter and sudo, by their paths: a python3 or a sudo on the account's PATH (~/.local/bin is
 # first there) would run as root.
 PYTHON = "/usr/bin/python3"
