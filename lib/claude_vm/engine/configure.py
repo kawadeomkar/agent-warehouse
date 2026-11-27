@@ -22,17 +22,20 @@ not run, and leaves the VM `unfinished`. The record's stage becomes `finished` o
    (layer1.key_filed), else the VM fails with the line that files it. Its Target is the route's (Route.targets, one
    VM a call, so that one refused fails that VM alone), its master made sure of (Route.ensure) and `true` run through
    the runner until it answers, for SSHD seconds at most: its sshd may still be coming up.
-4. Layer 1: the play's variables made from the settings for the parts run (wiring.role_variables, the same parts as
+4. Where `--remove-key` names a key (`Plan.remove_key`), that key taken off the account by guest/keys.py's `remove`, a
+   one-task play of layer 1's, before anything else: a key `vm_ssh_public_keys` lists, one this computer's ssh offers,
+   or one on no line of the VM's fails the VM with why, nothing changed; then said, with the lines it took.
+5. Layer 1: the play's variables made from the settings for the parts run (wiring.role_variables, the same parts as
    the child's `--tags`) and written in the run's directory through `system.variables`, held to every secret the run
    holds; then the child, every one of those secrets struck from what it says. A failed task fails the VM, said in
    this engine's words with the task named (cloud-init's own failure with this engine's lines), a VM layer 1 could not
    reach fails saying so, a child that ended otherwise fails with its last words (a play that did not load among
    them), and a run that ended well with no recap heard from the product's callback fails too: a callback of the same
    name beside the play or in a role was loaded in its place (F5).
-5. The VM user's real home read from the password database through the runner (`getent passwd`), and the workspace
+6. The VM user's real home read from the password database through the runner (`getent passwd`), and the workspace
    made from it as every other reader makes it (sessions.projects_dir): the outcome G8's alias is written from, given
    only for a VM that succeeded.
-6. The record written where the stage changed (record.write, under its Owned), else nothing is sent.
+7. The record written where the stage changed (record.write, under its Owned), else nothing is sent.
 
 A step that fails fails its VM alone, and the others go on; a route that cannot be used stops the run (routes.Unusable).
 Before the machines are reached side by side, the hop's shared connection is made sure of again (Route.ready). The
@@ -49,7 +52,7 @@ from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING
 
 from .. import sessions
-from ..guest import layer1, system, wiring
+from ..guest import keys, layer1, system, wiring
 from ..pve.client import ProxmoxError
 from ..runs.stages import Declared, Stage, Step
 from ..schema import printer
@@ -72,6 +75,7 @@ STAGE = "configure"
 STEPS = (
     Step("start", "start"),
     Step("reach", "reach"),
+    Step("key", "key taken off"),
     Step("system", "system layer"),
     Step("home", "home"),
 )
@@ -115,6 +119,7 @@ NO_RECAP = (
     " again."
 )
 NO_HOME = "{name}: the home of its user {user} could not be read: {why}"
+KEY_TAKEN_OFF = "{name}: the key {fingerprint} was taken off its account ({lines} {noun} of ~/.ssh/authorized_keys)."
 
 
 class Failed(Exception):
@@ -133,22 +138,25 @@ class Failed(Exception):
 
 @dataclasses.dataclass(frozen=True)
 class Plan:
-    """What a configure asks: its parts, in CONFIGURE_ROLES' order (every one where --tags named none), and whether a
-    stopped VM is started first (the whole chain's --start; deploy --only configure never gives it)."""
+    """What a configure asks: its parts, in CONFIGURE_ROLES' order (every one where --tags named none), whether a
+    stopped VM is started first (the whole chain's --start; deploy --only configure never gives it), and the
+    fingerprint of the key --remove-key takes off each VM's account, "" for none."""
 
     parts: tuple[str, ...] = CONFIGURE_ROLES
     start: bool = False
+    remove_key: str = ""
 
     @classmethod
-    def read(cls, tags: object = None, start: object = False) -> Plan:
+    def read(cls, tags: object = None, start: object = False, remove_key: object = None) -> Plan:
         """The plan of --tags' value as the one check holds it (roles separated by single commas, each one of
-        CONFIGURE_ROLES): every part where it names none."""
+        CONFIGURE_ROLES): every part where it names none; and --remove-key's fingerprint, held (guest/keys.py)."""
         named = [part for part in str(tags or "").split(",") if part]
         unknown = [part for part in named if part not in CONFIGURE_ROLES]
         if unknown:
             raise ValueError(f"--tags may name only {', '.join(CONFIGURE_ROLES)}")
         parts = tuple(part for part in CONFIGURE_ROLES if part in named) if named else CONFIGURE_ROLES
-        return cls(parts=parts, start=start is True)
+        removing = keys.held(remove_key) if remove_key not in (None, "") else ""
+        return cls(parts=parts, start=start is True, remove_key=removing)
 
     @property
     def system_parts(self) -> tuple[str, ...]:
@@ -335,8 +343,10 @@ class Configuring:
             raise
         except routes.Refused as refused:
             raise Failed(f"{self.name}: {refused.sentence}") from None
-        except layer1.Refused as refused:
+        except (layer1.Refused, keys.Refused) as refused:
             raise Failed(f"{self.name}: {one_line(str(refused), None)}") from None
+        except keys.Failed as failed:
+            raise Failed(f"{self.name}: {one_line(str(failed), None)}", own=True) from None
         except (ProxmoxError, TransportError, fleet.Refused, record.Unreadable, record.TooLong) as error:
             raise Failed(f"{self.name}: {fleet.sentence(error)}") from None
         except (wiring.Refused, ValueError) as error:
@@ -362,6 +372,7 @@ class Configuring:
         # against (runner.KNOWN_HOSTS), or the line that files it.
         layer1.key_filed(runner.KNOWN_HOSTS, target.identity, self.name, self.host.host_flag)
         reached = await self._reach()
+        await self._remove_key(reached)
         ran = await self._system(reached)
         await self._home(reached)
         stage = stage_after(ran)
@@ -418,7 +429,30 @@ class Configuring:
         self.step("reach", "done")
         return reached
 
-    # ------------------------------------------------------------ step 4: layer 1 ----
+    # ------------------------------------------------------------ step 4: a key taken off ----
+
+    async def _remove_key(self, reached: runner.Target) -> None:
+        """--remove-key's key taken off the VM's account (guest/keys.py), before its system layer: a key of a computer
+        that is lost is the first thing a configure takes away."""
+        if not self.plan.remove_key:
+            return
+        self.step("key")
+        removed = await keys.remove(
+            self.ctx.job,
+            reached,
+            self.plan.remove_key,
+            name=self.name,
+            host_flag=self.host.host_flag,
+            env=dict(self.host.environ),
+            listed=tuple(self.values.get("vm_ssh_public_keys") or ()),
+            redacted=self.secrets,
+        )
+        noun = "line" if removed.lines == 1 else "lines"
+        filled = {"name": self.name, "fingerprint": removed.fingerprint, "lines": removed.lines, "noun": noun}
+        report.say(self.ctx, self.key, "configure", KEY_TAKEN_OFF.format(**filled), "")
+        self.step("key", "done")
+
+    # ------------------------------------------------------------ step 5: layer 1 ----
 
     async def _system(self, reached: runner.Target) -> tuple[str, ...]:
         """The system play run for the parts asked that it runs: those parts, which ran."""
@@ -490,7 +524,7 @@ class Configuring:
             return said(NO_RECAP, {"name": self.name, "line": self.line()})
         return ""
 
-    # ------------------------------------------------------------ step 5: the home ----
+    # ------------------------------------------------------------ step 6: the home ----
 
     async def _home(self, reached: runner.Target) -> None:
         """The VM user's real home, read from the password database, and the workspace made from it."""
@@ -508,7 +542,7 @@ class Configuring:
         self.workspace = sessions.projects_dir(self.values.get("vm_projects_dir"), self.home)
         self.step("home", "done")
 
-    # ------------------------------------------------------------ step 6: the record ----
+    # ------------------------------------------------------------ step 7: the record ----
 
     async def _record(self, stage: str) -> None:
         owned = self.target.owned

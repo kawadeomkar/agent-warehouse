@@ -1229,7 +1229,8 @@ see is the runner's to refuse.
 named, the default VM where none is (`vm_default_name`), side by side, under each VM's lock (C7's `machines`); `aw
 deploy --only template` is `template.ensure` and nothing after it (above), under the fleet's lock held exclusively, since
 it names no machine; every other stage of `deploy` but `--only configure` (`configure.py`, below), and `--check`,
-`--adopt`, `--take-over` and `--remove-key`, is refused naming the card that builds it. Before anything is created, the run reads the fleet (`fleet.requested`, a changing read, so a VM it may not
+`--adopt` and `--take-over`, is refused naming the card that builds it; `--remove-key` is a configure's alone
+(below). Before anything is created, the run reads the fleet (`fleet.requested`, a changing read, so a VM it may not
 change refuses the run), settles the route (`routes.settle`, whose hop that cannot be used stops the run), refuses a VM
 with no key in `vm_ssh_public_keys` and no console password in the vault (`vm_password`), and compares the base template
 (`template.compare`): only one it may clone from is cloned from, any other said with why, and none with no cloud-init
@@ -1359,8 +1360,8 @@ stage becomes `finished` only where one configure ran all six (`stage_after`), s
 converged digest stays empty, and so unwritten, until F28. Before anything reaches a VM the run reads the fleet by a
 changing read (`fleet.requested`: a VM it may not change refuses the run where it is named, and is left out and said
 where none is) and settles the route; `Route.ready()` is asked before the machines are reached side by side, under a
-task group. Then for each VM, each step an event of the run, declared as configure's (`DECLARED`: start, reach, system
-layer, home), and layer 1's own events lines of that machine's work:
+task group. Then for each VM, each step an event of the run, declared as configure's (`DECLARED`: start, reach, key
+taken off, system layer, home), and layer 1's own events lines of that machine's work:
 
 - **Provisioned and running.** A VM whose record is not provisioned fails, naming the provision line. A stopped one is
   said and left, never waited on, unless the plan starts it (`start`, which only the whole chain, G10, gives: `deploy`
@@ -1369,6 +1370,10 @@ layer, home), and layer 1's own events lines of that machine's work:
   the VM fails before any connection, with the line that files it. Its `Target` is the route's (`Route.targets`, one VM
   a call, so that one refused fails it alone), its master made sure of (`Route.ensure`) and `true` run through the
   runner until its `sshd` answers, for `SSHD` seconds at most.
+- **A key taken off.** Where `--remove-key` names a key (`Plan.remove_key`, its fingerprint held as `ssh-keygen -l`
+  prints one), `keys.remove` takes it off the VM's account before its system layer (§16.10, "A person's keys"): a key
+  `vm_ssh_public_keys` lists, or one this computer's ssh offers, is refused by `deploy` before the run, and again for
+  each VM; one on no line of the VM's fails that VM with why, nothing changed; the lines it took are said.
 - **The system layer.** The play's variables are made for the parts run (`wiring.role_variables`, the same parts as the
   child's `--tags`) and written in the run's directory through `system.variables`, held to every secret the run holds
   (each host's token, the console password), which layer 1 also strikes from what it says. A failed task fails the VM
@@ -4277,6 +4282,30 @@ the two calls), a launcher that resolves elsewhere refused and removed on every 
 installed over, the download gone whatever happened, `stable` never npm's version, npm not answering and a sudo that wants a password each a named failure, the
 version `guest.states` reads after it by each method, the steps' runner, and a scan of the step's source: no channel's name in an
 `install` argument and no URL of the installer script.
+
+**A person's keys.** The keys a machine accepts are the person's own, `vm_ssh_public_keys`, and layer 1 alone adds
+them: `common`'s keys tasks (`roles/common/tasks/keys.yml`) put each listed key on the account, every line of it made
+the listed form, and leave every other line, so the list only adds and a key that is on a machine and not in the list
+stays. No task the system play reaches takes a line of `authorized_keys` away or writes the file whole: each task that
+names the file or `~/.ssh`, or a variable that does, is a read, `~/.ssh` made a folder, a `lineinfile` that adds its
+line, or a `replace` whose replacement is never empty and whose pattern, its task's variables put in and each value a
+template gives escaped, matches within one line (`tests/unit/test_aw_keys.py`, through the ratchet's walk). And nothing
+of the engine sends Proxmox's `sshkeys` but the create's settings call (`create.settings_call`), since a changed
+`sshkeys` makes a living VM's next start a new cloud-init instance; the same test holds it by a scan. Taking a key off
+is an act of its own, never the side effect of two lists that differ: `aw deploy --only configure --remove-key
+<fingerprint>`, whose `lib/claude_vm/guest/keys.py` `remove(job, target, fingerprint, ...)` reads the account's
+`~/.ssh/authorized_keys` through the runner, finds each line whose key has that SHA256 fingerprint (read as `sshd` reads
+it: options in front skipped, a quoted one whole, a line commented out no key's), and takes those lines off with
+`ansible.builtin.lineinfile`, `state: absent`, in a one-task play of its own, `lib/claude_vm/guest/plays/remove_key.yml`,
+which layer 1's child runs as the account, never as root (`layer1.PLAY_NAMES` holds its one variable, the key's
+pattern, given in the play's variables file, which no template reads). The pattern is the key's type and base64 at the
+place `sshd` reads a key, within one line, so a line of another key whose option or comment names this one is kept;
+`lineinfile` writes through a linked `~/.ssh` and keeps the file's mode. The file is read again after, and must be what
+it was less those lines. Refused with nothing changed: a key the list names, which the next configure would put back; a
+key this computer's ssh offers a machine (`keys.offered`: the agent's at the run's `SSH_AUTH_SOCK`, the identity file
+the target names, ssh's default identity files under the run's `HOME`), which the run may be using; and a fingerprint
+on no line. An identity file or an agent that only the person's own `~/.ssh/config` names is not read. A computer that
+is lost has the one procedure: its key out of `vm_ssh_public_keys`, then `--remove-key` from another computer.
 
 **How the engine's tests reach a machine.** A test of the new engine reaches no real machine: it reaches a stand-in,
 a directory of the test's own that `tests/unit/aw_machine.py` makes, through the SSH runner (§16.6) as it reaches a
