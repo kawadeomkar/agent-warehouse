@@ -119,7 +119,9 @@ process while the master it opened holds output nothing reads: macOS waits there
 where Linux returns at once, so such a test would hang on macOS alone. It looks on Linux only: on macOS `FIONREAD` on
 a master counts what its slave has not read, never the slave's output. Each master the test opens is watched by its
 terminal's name, and a change that still finds output unread after two seconds, which another thread reading it
-would have taken, is the failure. It then gives back the hold of the terminal `tui/live_region.py` keeps for the
+would have taken, is the failure. What macOS writes there and Linux does not is made too: an end of input (Ctrl-D) typed
+at the master in a canonical mode that echoes is echoed as `^D` on macOS alone, so on Linux the watch writes that echo
+at the slave. It then gives back the hold of the terminal `tui/live_region.py` keeps for the
 process, which a region a test started and never finished would leave to the next test.
 
 A test reaches `tools/aw` through the kit alone. `run_aw` runs the program under `python -I` in an environment built

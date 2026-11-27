@@ -3174,8 +3174,9 @@ question's end), and from an interactive shell, nothing typed unseen left on its
 the run as a SIGTERM does, the tree ended with SIGTERM and the run dying of SIGQUIT, and an end that raises nothing, the
 run already closing, still telling the terminal's hold it waits no more. In every in-process test on
 Linux, a draining change of a pseudo-terminal's settings made with output unread at its master and nothing reading it
-fails the test (`tests/unit/conftest.py`'s `drainwatch`), as macOS would wait there for good; off Linux it notes
-nothing, since `FIONREAD` on a master there counts what its slave has not read, never the slave's output.
+fails the test (`tests/unit/conftest.py`'s `drainwatch`), as macOS would wait there for good, an end of input typed in
+a canonical mode echoed as the `^D` macOS echoes for it and Linux does not; off Linux it notes nothing, since
+`FIONREAD` on a master there counts what its slave has not read, never the slave's output.
 
 ## 16.9 `fleet/` — the fleet's files, the settings, the secrets and the fleet's mark
 

@@ -1043,6 +1043,37 @@ def test_off_linux_the_drain_watch_notes_nothing(drainwatch, monkeypatch):
         os.close(slave)
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="the drain watch looks on Linux only")
+def test_the_drain_watch_makes_the_echo_macos_makes_of_an_end_of_input_on_linux_too(drainwatch):
+    # macOS echoes an end of input (Ctrl-D) typed in a canonical mode as ^D at the master, where Linux echoes nothing:
+    # a draining change with that echo unread waits there for good (#310's hang in test_aw_ask.py, at a line the
+    # input's end cuts short). On Linux the watch makes that echo too, so the change with it unread is noted; read at
+    # the master, as an emulator reads it, it is nothing.
+    master, slave = os.openpty()
+    try:
+        os.write(master, b"\x04")
+        assert os.read(slave, 16) == b""
+        assert select.select([master], [], [], 5)[0], "no echo reached the master"
+        termios.tcsetattr(slave, termios.TCSADRAIN, termios.tcgetattr(slave))
+        assert len(drainwatch) == 1 and "an end of input's echo of macOS's" in drainwatch[0], drainwatch
+        drainwatch.clear()
+        echo = b""
+        while select.select([master], [], [], 0.2)[0]:
+            echo += os.read(master, 64)
+        assert echo == b"^D\b\b", echo
+        os.write(master, b"\x04")
+        assert os.read(slave, 16) == b""
+        echo = b""
+        while select.select([master], [], [], 0.2)[0]:
+            echo += os.read(master, 64)
+        assert echo == b"^D\b\b", echo
+        termios.tcsetattr(slave, termios.TCSADRAIN, termios.tcgetattr(slave))
+        assert drainwatch == [], drainwatch
+    finally:
+        os.close(master)
+        os.close(slave)
+
+
 def test_a_change_of_the_settings_that_fails_otherwise_goes_through():
     # Only EINTR is tried again: a descriptor that is no terminal is termios.error as it was.
     master, slave = os.openpty()
