@@ -364,14 +364,17 @@ pytest over `tests/unit/`, file by file:
   playbook and its task's worker gone.
 - **`github_repos`** (`test_github_repos.py`) and the **tracked-file guard** (`test_tracked_files.py`), both ways.
 - **The CI gate** (`test_ci.py`): `CI result` needs every job of `ci.yml` but the canary, runs `if:
-  always()`, and no job of the gate may `continue-on-error`; its script, run as GitHub runs it, passes a
-  success or a skip and fails a failure or a cancel. Every Molecule scenario names the one image pinned by
+  always()` joined with the area stack's gate, and no job of the gate may `continue-on-error`; its script, run as
+  GitHub runs it, passes a success or a skip and fails a failure or a cancel. Every job's `if:` is the gate
+  (`!startsWith(github.head_ref, 'stack/')`), joined after its own condition where it has one, and each is read as
+  GitHub reads it for a pull request of the area stack (no job runs), one from `base-first`, a push, the weekly
+  run and a manual run ([§12](ci.md)). Every Molecule scenario names the one image pinned by
   digest, the shared configuration none, and the canary runs that image's repository at `:latest`. The
   `engine` job runs `just test engine` on the other jobs' Ubuntu and on a macOS runner named by its version,
   never `macos-latest`, each on `requires-python`'s floor and the setup action's default Python, held whole: no
-  key but its name, runner, 30 minutes, matrix and three steps, so no job-level `if:` skips it and no `env:`
-  narrows it; and above the jobs, the workflow's own `env:` holds the two colour variables alone, it has no
-  `defaults:`, and its `on:` takes every pull request.
+  key but its name, the gate, runner, 30 minutes, matrix and four steps (the third pulls the guest helper's floor
+  on Linux), so no other `if:` skips it and no `env:` narrows it; and above the jobs, the workflow's own `env:`
+  holds the two colour variables alone, it has no `defaults:`, and its `on:` takes every pull request.
 - **The shards** (`test_shards.py`): `--shard` collected as each CI shard collects it - two, three and six
   shards that between them run every test exactly once, and the tests that share a fixture's run in one; every
   name an `EACH_WORKER` lists a module-scoped fixture of its own module.
