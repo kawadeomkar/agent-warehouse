@@ -448,3 +448,15 @@ def test_the_token_goes_into_the_api_s_header_alone_and_nothing_is_kept(made) ->
     rest = {key: value for key, value in config.items() if key != "fleet"}
     assert made.secret not in json.dumps({**rest, "fleet": {**config["fleet"], "headers": None}}, default=str)
     assert files() == before
+
+
+def test_claude_code_s_method_and_unit_are_the_options_a_person_set(made) -> None:
+    # Review 90b's 10: the method was fixed to native, so aw status never reached npm's read of an install.
+    where = paths.home(REPO)
+    config = status_inputs.load(where, None, status_inputs.Opts(), environ=os.environ)
+    vm = config["vm"]
+    assert (vm["claude"]["method"], vm["claude"]["unit"]) == ("native", "claude-remote-control")
+    given = status_inputs.Opts(set=("claude_code_install_method=npm", "claude_code_remote_control_service=rc-alpha"))
+    vm = status_inputs.load(where, None, given, environ=os.environ)["vm"]
+    assert (vm["claude"]["method"], vm["claude"]["unit"]) == ("npm", "rc-alpha")
+    assert vm["asked"]["claude"] == {"unit": "rc-alpha"}

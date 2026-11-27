@@ -66,6 +66,10 @@ REVEALS: dict[str, str] = {
     "lib/claude_vm/guest/remote.py": "the VM user's sudo password, read in _forms alone, once a run at its first ask,"
     " to make the forms a machine may say it back in, each wrapped again at once as a Secret and struck from what the"
     " machine said (card F33): never sent on, written or said",
+    "lib/claude_vm/guest/layer2/claude_settings.py": "the vault's anthropic_api_key, read in api_key for whether one"
+    " is set and in managed alone, where it goes into settings.json's env as today's settings.yml puts it, struck from"
+    " every event of the run before the probe reads anything, and sent on the step's standard input alone (write_file)"
+    " (card F11): never in a command's words or said",
 }
 
 # The fixtures of the engine's test files whose scope is wider than one test, each with why it may be: pytest makes
