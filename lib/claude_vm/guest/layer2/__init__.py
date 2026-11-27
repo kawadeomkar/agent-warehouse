@@ -10,5 +10,8 @@ Control to what the login and the key allow: running, waiting for a login throug
 in the way said, or removed; whether it is wanted is decided there alone, which aw status reads too
 (cli/status_inputs.py). github.py signs gh in with the store's GitHub token by plain calls of the runner, the token on
 gh's standard input alone, and signs out only the login its marker says the product made, by account; it makes gh
-git's credential helper. Imported by engine/ and that one reader; nothing of today's product imports it.
+git's credential helper. clones.py lists the account's repositories on the machine with whatever token it holds,
+selects them by the settings or the machine's own list, sets the git identity only where it is unset, and clones what
+is missing and pulls what is there by the helper's verb clones, naming what it skipped. Imported by engine/ and that one
+reader; nothing of today's product imports it.
 """

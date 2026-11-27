@@ -456,7 +456,7 @@ def test_a_python3_that_does_not_run_the_bootstrap_is_refused(tmp_path, engine_g
 def test_a_verb_it_does_not_take_is_the_dispatcher_s_one_line(tmp_path, engine_guard, job) -> None:
     alpha = _reached(tmp_path, engine_guard)
     answer = _helper(job, alpha, "nosuch", stdin=b"\nnever said = (\n")
-    assert answer == remote.Answer(2, (), 'helper: no verb "nosuch": the verbs are probe'), answer
+    assert answer == remote.Answer(2, (), 'helper: no verb "nosuch": the verbs are clones, probe'), answer
 
 
 def test_what_a_shell_prints_at_login_is_dropped_and_the_answer_read_whole(tmp_path, engine_guard, job) -> None:
@@ -530,7 +530,7 @@ def test_no_word_nothing_asked_nothing_of_its_input_and_no_password_is_on_ssh_s_
         as_root=True,
         password=remote.Password(lambda: Secret(RIGHT)),
     )
-    assert answer == remote.Answer(2, (), 'helper: no verb "canary-verb": the verbs are probe'), answer
+    assert answer == remote.Answer(2, (), 'helper: no verb "canary-verb": the verbs are clones, probe'), answer
     # Two connections: sudo -n, refused for want of the password, then -S with it.
     calls = alpha.calls()
     assert len(calls) == 2 and [entry["n"] for entry in alpha.sudo_calls()] == [True, False], (

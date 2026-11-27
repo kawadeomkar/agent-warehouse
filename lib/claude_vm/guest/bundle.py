@@ -15,7 +15,9 @@ words and what it is asked travel inside the script as JSON, never on a command 
 Its sources are read by `sources()` alone, the one function of the new engine that names where the probe's are: they
 stay in `playbooks/module_utils/`, which today's Ansible modules import as `ansible.module_utils`, until the cutover
 moves them into `guest/helper/` (card K28), and `sources()` finds them from this package's own place, never the working
-directory. A release is a checkout of a signed tag, so it holds the same files. The script defines `ansible` and
+directory. A release is a checkout of a signed tag, so it holds the same files. A script packs its own verb's sources
+alone: the probe's three for `probe`, and for a verb of the helper's own files (`OWN`: `clones`, the checkouts' writer),
+that file, so that the probe's script, held to reads, carries no writer. The script defines `ansible` and
 `ansible.module_utils` as empty modules, each source put in `sys.modules` before the one that imports it, so the
 probe's own imports resolve on a machine with no Ansible.
 
@@ -67,13 +69,22 @@ PACKAGES = ("ansible", "ansible.module_utils")
 PROBE = ("agent_warehouse", "git_checkouts", "status_probe")
 # The name the script defines the dispatcher (helper/main.py) under, and calls last.
 DISPATCHER = "helper"
+# The verbs whose sources are the helper's own files, each by its verb: the file of this package and the name the
+# script defines it under, the one the dispatcher's VERBS gives. Each script packs its own verb's sources alone, so that
+# the probe's script, which `just status`'s rule holds to reads, carries no writer.
+OWN = {"clones": ("clones.py", "clones")}
 
 
-def sources() -> dict[str, str]:
-    """Every source the script packs, by the module name the script defines it under, in that order: the probe's three,
-    read where they are in this checkout, then the dispatcher. Read now; OSError where one cannot be read."""
-    utils = CHECKOUT / "playbooks" / "module_utils"
-    packed = {f"ansible.module_utils.{name}": (utils / f"{name}.py").read_text(encoding="utf-8") for name in PROBE}
+def sources(verb: str = "probe") -> dict[str, str]:
+    """Every source the script for verb packs, by the module name the script defines it under, in that order: a verb
+    of OWN's, its file; any other, the probe's three, read where they are in this checkout; then the dispatcher. Read
+    now; OSError where one cannot be read."""
+    if verb in OWN:
+        file, name = OWN[verb]
+        packed = {name: (HELPER / file).read_text(encoding="utf-8")}
+    else:
+        utils = CHECKOUT / "playbooks" / "module_utils"
+        packed = {f"ansible.module_utils.{name}": (utils / f"{name}.py").read_text(encoding="utf-8") for name in PROBE}
     packed[DISPATCHER] = (HELPER / "main.py").read_text(encoding="utf-8")
     return packed
 
@@ -95,9 +106,10 @@ def frame(body: str) -> str:
 
 
 def script(entry: Sequence[str], asked: object) -> str:
-    """The helper as one text for a machine's standard input, run by BOOTSTRAP: its mark's line (frame), each of
-    sources() defined in memory under its name, then the dispatcher handed entry, the verb and its words, and asked,
-    what the verb is given, both as JSON. ValueError where entry is not a verb and words, or asked is not JSON."""
+    """The helper as one text for a machine's standard input, run by BOOTSTRAP: its mark's line (frame), each of the
+    verb's sources() defined in memory under its name, then the dispatcher handed entry, the verb and its words, and
+    asked, what the verb is given, both as JSON. ValueError where entry is not a verb and words, or asked is not
+    JSON."""
     if isinstance(entry, str) or not isinstance(entry, Sequence) or not entry:
         raise ValueError("the helper's entry is a list of words, the verb first")
     if not all(isinstance(word, str) for word in entry):
@@ -106,7 +118,7 @@ def script(entry: Sequence[str], asked: object) -> str:
         words, given = _literal(list(entry)), _literal(asked)
     except (TypeError, ValueError) as error:
         raise ValueError(f"what the helper is asked is JSON: {error}") from None
-    packed = _literal(list(sources().items()))
+    packed = _literal(list(sources(entry[0]).items()))
     return frame(
         "import json, sys, types\n"
         "def _module(name, source):\n"

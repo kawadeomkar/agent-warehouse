@@ -733,6 +733,9 @@ STARTERS = {
     "lib/claude_vm/fleet/settings_verb.py": "settings edit's editor, the person's own (VISUAL, EDITOR or vi), in the"
     " foreground at their terminal, in _edited alone: no run's child, so no job's marker, and started while no lock is"
     " held, every descriptor but its standard streams closed, and waited for before anything is written",
+    "lib/claude_vm/guest/helper/clones.py": "the helper's verb clones, a program for a machine run by the machine's own"
+    " python3 and never imported by a run: its git commands, in git_run alone, each in a process group of its own"
+    " (tests/unit/test_aw_clones.py)",
 }
 # What starts a child process, by the name it is imported under: each of subprocess's and asyncio's ways, the os
 # module's and posix's under it, pty's spawn, the fork and exec under subprocess, a browser's opener, the standard
