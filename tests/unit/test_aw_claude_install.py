@@ -17,8 +17,8 @@ holds today's role.
   release older than the first signed one, or a channel that names no version, refused, nothing of it fetched.
 - A launcher the step did not verify (linked outside ~/.local/share/claude/versions/, linked to a file there that is
   not the signed binary, or a file of its own) is installed over, nothing of it run; an install that leaves one is
-  refused on every run, the launcher removed; a download changed on the machine between its download and its install
-  is never run.
+  refused on every run, the launcher removed (whether it resolves elsewhere or to another file in its place); a
+  download changed on the machine between its download and its install is never run.
 - A second run of either method applies nothing; an exact version moves it; the difference names the release
   installed and the one wanted; a platform the release has no binary for is refused; and guest.states reports the
   version installed, natively and by npm.
@@ -128,6 +128,16 @@ printf '%s\\n' "$*" >> "$HOME/asked"
 mkdir -p "$HOME/.local/bin" "$HOME/elsewhere"
 cp "$0" "$HOME/elsewhere/claude"
 ln -sf "$HOME/elsewhere/claude" "$HOME/.local/bin/claude"
+""".encode()
+# One that installs a file of its own where the real one installs itself, and links the launcher to it: the place the
+# step holds, of another digest.
+TAMPERING = f"""#!/bin/sh
+[ "$1" = --version ] && {{ echo "{RELEASE} (Claude Code)"; exit 0; }}
+printf '%s\\n' "$*" >> "$HOME/asked"
+mkdir -p "$HOME/.local/bin" "$HOME/.local/share/claude/versions"
+printf '#!/bin/sh\\necho tampered\\n' > "$HOME/.local/share/claude/versions/$2"
+chmod +x "$HOME/.local/share/claude/versions/$2"
+ln -sf "$HOME/.local/share/claude/versions/$2" "$HOME/.local/bin/claude"
 """.encode()
 # What a test writes over the download on the machine, between the download and the install.
 SWAPPED = b'#!/bin/sh\necho swapped-on-machine >> "$HOME/asked"\n'
@@ -372,7 +382,9 @@ def test_a_binary_that_is_not_the_one_the_signed_manifest_names_is_never_run_and
     assert _downloads(alpha) == []
 
 
-@pytest.mark.parametrize("binary", [REFETCHING, LINKING], ids=["another-binary", "linked-elsewhere"])
+@pytest.mark.parametrize(
+    "binary", [REFETCHING, LINKING, TAMPERING], ids=["another-binary", "linked-elsewhere", "another-file-in-place"]
+)
 @pytest.mark.parametrize("wanted", ["stable", RELEASE])
 def test_an_install_that_puts_something_else_in_place_is_refused_on_every_run(job, alpha, vendor, binary, wanted):
     vendor.release(binary=binary, manifest=_manifest(binary=binary))

@@ -4317,6 +4317,32 @@ cannot list, refuses the key too. `deploy` refuses a listed key, and one the run
 run. A computer that is lost has the one procedure: its key out of `vm_ssh_public_keys`, then `--remove-key` from
 another computer.
 
+**Claude Code's settings and Remote Control.** Two steps follow it, today's `settings.yml`, `main.yml` and
+`remote_control.yml` in plain code. `claude_settings.py`'s `claude-settings` merges the managed settings
+(`claude_code_settings`, the vault's `anthropic_api_key` in its `env` block, natively the update channel where
+`claude_code_version` is one) into `~/.claude/settings.json` as Ansible's recursive `combine` does, read and written as
+the machine's account, its content on the call's standard input and renamed into place, mode 0600; an empty file is
+`{}`, one that is no JSON object fails naming it, and a key an earlier run wrote that no setting manages now is
+removed, with an `env` block it leaves empty. `claude_code_global_instructions` is `~/.claude/CLAUDE.md` as it is. The
+key is on the run's redaction list before the file is read, and no value is an argument, an event or a difference: the
+difference names the settings that change by name. `remote_control.py`'s `remote-control` decides once whether Remote
+Control is wanted (`remote_control_wanted`, today's rule: `claude_code_remote_control` and no key, since a key outranks
+the claude.ai login), the one definition `aw status` reads too. Not wanted, each unit installed is stopped, disabled
+and removed, the path unit first, and a key that turned it off is said. Wanted, it reads the binary, `claude auth
+status`, settings.json's blockers, `~/.claude.json`'s answers and both units, and is eligible only where the login is
+claude.ai's with no `apiKeySource` of any kind and nothing in settings.json in the way. It answers the three prompts
+where one is unanswered, installs the service rendered here from today's template with jinja2 alone (held byte for
+byte to Ansible's template module, since a unit whose text changed is restarted), removes the path unit unless the
+login is the one thing missing, and then starts the service and holds it to have stayed up, or installs and starts the
+path unit (`PathChanged=` on the credentials file, never `PathExists=`), or leaves the service stopped; each outcome
+emits its report and its NEXT STEPS records, and none starts a sign-in. systemctl runs as root through the machine's
+sudo, and a value of the settings that is no single line is refused before a unit is made. The units' folder is a
+test's own on a stand-in, whose systemctl keeps each unit's state where `guest.states` reads it and does what systemd's
+path watch does on a tick of its own. `tests/unit/test_aw_claude_settings.py` carries the cases of
+`test_remote_control_playbooks.py` and `test_remote_control_unit.py` against the steps: both directions converging, a
+login landing starting the service through the path unit, a stopped service left stopped, and the path unit's
+`PathChanged=` with a test of its own.
+
 **How the engine's tests reach a machine.** A test of the new engine reaches no real machine: it reaches a stand-in,
 a directory of the test's own that `tests/unit/aw_machine.py` makes, through the SSH runner (§16.6) as it reaches a
 VM. `machine()` gives each an identity made for the test (`agent-warehouse-<a UUID>`), a made-up ed25519 host key, an
