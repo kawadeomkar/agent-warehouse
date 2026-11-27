@@ -682,7 +682,14 @@ def test_the_units_render_as_ansible_s_template_module_renders_them(tmp_path, na
 # ---------------------------------------------------------------------------------------------- the settings ---
 def test_the_options_read_are_claude_code_s_passed_through_with_the_role_s_own_defaults():
     defaults = yaml.safe_load((ROLE / "defaults" / "main.yml").read_text())
-    every = {row.name for row in registry.rows()} | {option.name for option in passthrough.options()}
+    # The names the settings verb reads by: the rows, and each option passed through or refused as no setting; one a
+    # row's setting reaches (`through`) or that takes any value is read by no name of its own (claude_code_user is
+    # vm_user's, and only the unit's template names it).
+    every = {row.name for row in registry.rows()} | {
+        option.name
+        for option in passthrough.options()
+        if option.through is None and option.refused != passthrough.ANY_VALUE
+    }
     for module, source in SOURCES.items():
         for name, default in module.OPTIONS.items():
             option = passthrough.option(name)
