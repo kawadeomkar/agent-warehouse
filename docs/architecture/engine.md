@@ -914,7 +914,7 @@ its grants where the role is, the user or token is the engine's own and the path
 person gave or `host.yml` sets, which may be an object of the person's own that a
 cleanup by `made` would then remove; the run's report names the fleet the pool's mark gives wherever the secret was
 given, though `made` may then record nothing. A run stopped after any write goes on from what it wrote, and the same
-run again writes nothing. The modes other cards build (`--check`, `--machines`) are refused by name until each lands.
+run again writes nothing. The mode another card builds (`--machines`) is refused by name until it lands.
 
 **`init` at a terminal: `attended`.** With standard input a terminal whose foreground the run is, as `runs/ask.py`'s
 `terminal()` decides for each question (16.8), and no `--no-prompt`, the same steps run drawn live (`INIT`, one stage
@@ -1012,6 +1012,25 @@ so what they left for later stays unset, and `--check` writes nothing. At a term
 `init_check`, said through `report.py`'s `say` after `init_settings`' own, its NEXT STEPS line init's printer's line
 with what running it again does; with nobody there they are printed, a sentence after them saying what is left.
 `tests/unit/test_aw_engine_init_checks.py` holds them against the fake Proxmox and a refusing `ssh`.
+
+**A further host: `aw init --host <name>`** (card E10). Where the fleet holds another host's folder than the one the run
+sets up (`init.py`'s `_further`; `fleet/hosts.py`'s `first` once the host's own folder is there), the run is a further
+host's, with nobody there or at a terminal, by the same road: `--host` held to the host name's pattern and
+`hosts.model.name_refusal`, so that a value with a dot or a colon is refused as any other name outside it, never taken
+for `--address`; its address given or asked; the administrator's authority taken in the same two ways, the offer over
+root SSH and `--print-commands`, each rendered with `fleet.json`'s ID, so that the host's pool carries the fleet's own
+mark, and a mark a secret given reads that names another fleet is refused. Its token's secret is that host's named
+secret in the one vault (`token@<name>`); `AGENT_WAREHOUSE_TOKEN_SECRET` is refused, since it may hold the first host's
+secret, exported for it, and the secret then comes from a file or is typed. Nothing of the fleet's own is taken or
+asked: `--github-user` and `--tailscale` are refused, and at a terminal neither the SSH key, GitHub, the VPN nor
+Tailscale's auth key is asked, nor the node, the storage and the bridge, which its checks settle. What the host sets
+for itself in its own `settings.yml` (the storage, the bridge and the pool given, `aw-fleet` where none is, and the
+node) is not written by the run but staged (`init.py`'s `Further`), and the checks, given it (`init_checks.py`'s
+`staged`, which they read as set, the host opened with it as a run's values), write it with what they settle only once
+every check has passed, no `!!` and no `--` line, each where the file sets none (`_keep`); else none of it, said, and
+runs against the host refuse it until a run of init has passed them all (the node, the storage and the bridge are each
+host's `always`). The first host's files, the fleet's own and `client.yml`'s current host are left as they are.
+`tests/unit/test_aw_engine_init.py` holds it against two fake Proxmox hosts with different secrets.
 
 `tests/unit/test_aw_engine_init.py` holds `init` against the fake Proxmox, through `tools/aw` with a refusing `ssh`
 first on `PATH` and in this process with root SSH a reader of the test's own; its runs through `tools/aw` from a home

@@ -14,7 +14,10 @@ test makes pins it: under auto a run would ask this computer's ssh where it dial
 test that reaches VMs through the host sets the route itself; and the host's node, which no option gives either, and
 which init's checks (card E6) settle only where they can tell it. init ends with those checks, which against the fake,
 no whole host (the role on the pool alone, no template of the engine's, no SSH key), say problems: init then exits 1,
-exactly where they said a `!!` line, and the folder is written all the same. What it returns says where each thing is:
+exactly where they said a `!!` line, and the folder is written all the same. A second host's init (a further host's,
+card E10) leaves the settings the host sets for itself to its checks, written once every check has passed, so where
+they did not pass the storage, the bridge and the pool given are written here too, each where the host's settings.yml
+sets none, as the node is. What it returns says where each thing is:
 the fleet's home, the host, the fleet's ID, the fake's address and port, the token's ID and secret (the fake's, made
 for the test), and the fingerprint kept.
 
@@ -171,5 +174,14 @@ def whole_fleet(
     )
     assert ran.returncode == (1 if PROBLEM in ran.stdout else 0), ran
     where = paths.home(REPO)
-    overrides.set(where, "proxmox_node", node, host, overrides.read(where, host).host.digest)
+    for setting, value in (
+        ("proxmox_node", node),
+        ("proxmox_storage", storage),
+        ("proxmox_bridge", bridge),
+        ("proxmox_pool", ENGINE_POOL),
+    ):
+        own = overrides.read(where, host).host
+        if own is None or own.settings.get(setting) in (None, ""):
+            digest = own.digest if own is not None else overrides.MISSING
+            overrides.set(where, setting, value, host, digest)
     return Fleet(where.root, host, fleet, base, port, token, secret, fingerprint)
