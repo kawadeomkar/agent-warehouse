@@ -3810,9 +3810,14 @@ configure runs are `CONFIGURED`, held to `playbooks/configure.yml`), and `--json
 put back. `edit` refuses with no terminal; it writes every setting `settable` takes and one line holds, each under its
 description, set or commented out with its value, to a file in a folder of its own, opens `VISUAL`, `EDITOR` or `vi` on
 it (the one child a verb that is no run starts, in the foreground and holding no lock: `STARTERS` in
-`tests/unit/test_aw_children.py`), and on return types each changed line as `--value` does and takes a line that is gone as `--reset`: all of them
-once no line is refused, a line refused said by its number and the document offered again. A row that may hold a
-secret is never in the document. `tests/unit/test_aw_settings_verb.py` holds it.
+`tests/unit/test_aw_children.py`), and on return types each changed line as `--value` does and takes a line that is
+gone as `--reset`: all of them once no line is refused, a line refused said by its number and the document offered
+again. A host's row is refused by its line in a fleet with no host. Before writing it reads the files again, and where
+another write changed one meanwhile it writes nothing and offers the document again, its changes still those made to
+what was first read. Each file is then written once with all its changes (`overrides.set_many`); where a later file's
+write is refused, the files written before it are named. An editor that fails, a document it took away, and a
+`VISUAL` or `EDITOR` no shell would split each refuse with nothing written. A row that may hold a secret is never in
+the document. `tests/unit/test_aw_settings_verb.py` holds it.
 
 **The host verb: `host_verb.py`.** `host` is `host`'s handler. The list and its JSON are today's `hosts/choose.py`'s
 `listing` and `where` over `hosts.py`'s layout, from the files alone, the JSON through `wire.to_wire` with today's keys;

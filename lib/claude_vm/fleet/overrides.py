@@ -31,7 +31,8 @@ still relative refused by name, `""` unset) and `network_proxy` to vendors/proxy
 user and a password; a file's value is held the same way. `run_values(texts, secrets=...)` holds the words of `--set`,
 a secret looked for by `holds_a_secret` in the text and in every string `strings` finds in its value, as the settings
 verb's writes look for one;
-`set` and `unset` write one value, and `set_current` client.yml's current host, under `store.locked`, compare-and-swap
+`set` and `unset` write one value, `set_many` several kept in one file in one write (`placed` says which file), and
+`set_current` client.yml's current host, under `store.locked`, compare-and-swap
 on the digest of the file as the caller read it: the whole file laid out anew, in UTF-8, so a write keeps no comment a
 person wrote in it, and a scratch file a killed write left beside it is taken out first. A file's integers are YAML
 1.2's, in decimal, as typed text's are. `literals(path)` is the one reader of a file of literals the fleet
@@ -54,7 +55,7 @@ import math
 import os
 import re
 import stat
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -1068,14 +1069,7 @@ def set(
     except _Off as off:
         raise Refused(f"{name} {off}: nothing was written") from None
     place = _place(home, row, host, machine)
-
-    def change(raw: dict) -> None:
-        within = raw
-        for key in place.under:
-            within = within.setdefault(key, {})
-        within[name] = kept
-
-    return _write(home, place, change, expect, env)
+    return _write(home, place, _setting(place, name, kept), expect, env)
 
 
 def unset(
@@ -1090,8 +1084,67 @@ def unset(
     """Take one setting out of the file of its home, as set finds it, so that its default applies again: a map left
     empty goes with it. Compare-and-swap on expect, as set. Returns the digest of the file after it."""
     env = os.environ if environ is None else environ
-    row = _row(name)
-    place = _place(home, row, host, machine)
+    place = _place(home, _row(name), host, machine)
+    return _write(home, place, _taking_out(place, name), expect, env)
+
+
+def set_many(
+    home: paths.Home,
+    host: str | None,
+    expect: str,
+    *,
+    values: Mapping[str, object] = MappingProxyType({}),
+    removed: Sequence[str] = (),
+    environ: Mapping[str, str] | None = None,
+) -> str:
+    """Write several settings' values and take several out, as set and unset each do, in one write of the one file
+    they are all kept in, for host: all of them or, where one is refused or the file changed since it was read
+    (compare-and-swap on expect), none. Names kept in more than one file are refused. Returns the file's digest."""
+    env = os.environ if environ is None else environ
+    changes: list[Callable[[dict], None]] = []
+    places: list[_Place] = []
+    for name, value in values.items():
+        row = _row(name)
+        try:
+            kept = _held(row, value, env)
+        except _Off as off:
+            raise Refused(f"{name} {off}: nothing was written") from None
+        places.append(_place(home, row, host, None))
+        changes.append(_setting(places[-1], name, kept))
+    for name in removed:
+        places.append(_place(home, _row(name), host, None))
+        changes.append(_taking_out(places[-1], name))
+    if not places:
+        raise Refused("no setting was given to write: nothing was written")
+    if len({place.path for place in places}) != 1:
+        raise Refused("those settings are kept in more than one file: nothing was written")
+
+    def change(raw: dict) -> None:
+        for each in changes:
+            each(raw)
+
+    return _write(home, places[0], change, expect, env)
+
+
+def placed(home: paths.Home, name: str, host: str | None) -> Path:
+    """The file set and unset write a setting in, for host; refused as they refuse it, before any file is read."""
+    return _place(home, _row(name), host, None).path
+
+
+def _setting(place: _Place, name: str, kept: object) -> Callable[[dict], None]:
+    """The change that puts a setting's value where place says, in a file's mapping."""
+
+    def change(raw: dict) -> None:
+        within = raw
+        for key in place.under:
+            within = within.setdefault(key, {})
+        within[name] = kept
+
+    return change
+
+
+def _taking_out(place: _Place, name: str) -> Callable[[dict], None]:
+    """The change that takes a setting out of where place says, in a file's mapping: a map left empty goes with it."""
 
     def change(raw: dict) -> None:
         chain = [raw]
@@ -1107,7 +1160,7 @@ def unset(
             if parent[key] == {}:
                 del parent[key]
 
-    return _write(home, place, change, expect, env)
+    return change
 
 
 def set_current(home: paths.Home, host: str, expect: str, *, environ: Mapping[str, str] | None = None) -> str:

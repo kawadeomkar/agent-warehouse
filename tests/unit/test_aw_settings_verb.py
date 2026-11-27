@@ -689,7 +689,7 @@ def _editor(tmp_path: Path, monkeypatch, *runs: list[tuple[str, str]]) -> Path:
 def _written(monkeypatch) -> list[tuple[str, object]]:
     """Each write of the overrides' a run makes, by name and value (None for a reset)."""
     made: list[tuple[str, object]] = []
-    real_set, real_unset = overrides.set, overrides.unset
+    real_set, real_unset, real_many = overrides.set, overrides.unset, overrides.set_many
 
     def counted_set(home, name, value, *args, **kwargs):
         made.append((name, value))
@@ -699,9 +699,21 @@ def _written(monkeypatch) -> list[tuple[str, object]]:
         made.append((name, None))
         return real_unset(home, name, *args, **kwargs)
 
+    def counted_many(home, host, expect, *, values=None, removed=(), **kwargs):
+        made.extend([*(values or {}).items(), *((name, None) for name in removed)])
+        return real_many(home, host, expect, values=values or {}, removed=removed, **kwargs)
+
     monkeypatch.setattr(overrides, "set", counted_set)
     monkeypatch.setattr(overrides, "unset", counted_unset)
+    monkeypatch.setattr(overrides, "set_many", counted_many)
     return made
+
+
+def _visual(monkeypatch, tmp_path: Path, code: str) -> None:
+    """VISUAL as a stand-in editor that runs code, with the document's path as path."""
+    script = tmp_path / "visual.txt"
+    script.write_text("import sys\nfrom pathlib import Path\npath = Path(sys.argv[1])\n" + textwrap.dedent(code))
+    monkeypatch.setenv("VISUAL", f"{shlex.quote(sys.executable)} -I {shlex.quote(str(script))}")
 
 
 def test_edit_refuses_with_no_terminal(capsys, monkeypatch) -> None:
@@ -766,6 +778,156 @@ def test_a_secret_in_the_document_is_refused_by_its_line_and_no_writes_nothing(c
     err = _refused(capsys, where, "nothing was written", name="edit")
     assert "error: line 1: that value is a secret the vault holds" in err
     assert made == []
+
+
+CHANGED = 'path.write_text(path.read_text(encoding="utf-8").replace("\\nvm_cores: 4\\n", "\\nvm_cores: 6\\n"))\n'
+FAILING = {
+    "an editor that ends with exit 3": (f"{CHANGED}raise SystemExit(3)\n", "the editor ended with exit 3"),
+    "bytes that are not UTF-8": ('path.write_bytes(b"vm_cores: \\xff\\n")\n', "is not UTF-8 text"),
+    "a document taken away": ("path.unlink()\n", "the editor left no document to read"),
+    "a line with no colon": (
+        'path.write_text(path.read_text(encoding="utf-8") + "vm_cores 6\\n")\n',
+        f"{settings_verb.NOT_A_LINE}",
+    ),
+    "a name given twice": (
+        f'{CHANGED}path.write_text(path.read_text(encoding="utf-8") + "vm_cores: 8\\n")\n',
+        "is given on line",
+    ),
+}
+
+
+@pytest.mark.parametrize("code, says", list(FAILING.values()), ids=list(FAILING))
+def test_an_editor_that_fails_or_a_document_refused_writes_nothing(capsys, monkeypatch, tmp_path, code, says) -> None:
+    where = _fleet()
+    _visual(monkeypatch, tmp_path, code)
+    monkeypatch.setattr("sys.stdin", _Terminal("n\n"))
+    made = _written(monkeypatch)
+    _refused(capsys, where, says, name="edit")
+    assert made == []
+
+
+@pytest.mark.parametrize(
+    "visual, says",
+    [("aw-no-such-editor-9f3", "the editor cannot be run"), ("vi 'x", "VISUAL cannot be read as a command")],
+    ids=["not on PATH", "no shell would split it"],
+)
+def test_an_editor_that_cannot_be_run_writes_nothing(capsys, monkeypatch, visual, says) -> None:
+    where = _fleet()
+    monkeypatch.setenv("VISUAL", visual)
+    monkeypatch.setattr("sys.stdin", _Terminal("n\n"))
+    made = _written(monkeypatch)
+    _refused(capsys, where, says, name="edit")
+    assert made == []
+
+
+def test_a_hosts_row_in_a_fleet_with_no_host_is_refused_by_its_line(capsys, monkeypatch, tmp_path) -> None:
+    where = _where()
+    record.write(where, record.first(FLEET))
+    _editor(tmp_path, monkeypatch, [("", "vm_cores: 6\nproxmox_bridge: vmbr1\n")])
+    monkeypatch.setattr("sys.stdin", _Terminal("n\n"))
+    made = _written(monkeypatch)
+    err = _refused(capsys, where, "nothing was written", name="edit")
+    assert "error: line 2: proxmox_bridge is each host's own, and the fleet has no host yet" in err
+    assert "a fleet with no host yet" in (tmp_path / "seen-0").read_text(encoding="utf-8")
+    assert made == [] and not _fleet_file(where).exists()
+
+
+@pytest.mark.parametrize("again", [False, True], ids=["no", "yes"])
+def test_a_file_another_write_changed_while_the_editor_was_open_is_offered_again(
+    capsys, monkeypatch, tmp_path, again
+) -> None:
+    where = _fleet()
+    fleet = _fleet_file(where)
+    # The other write is the editor's own here, in the file it never opened: tailscale_ssh, in the fleet's file.
+    other = (
+        f"Path({str(fleet)!r}).write_text(Path({str(fleet)!r}).read_text()"
+        ".replace('tailscale_ssh: true', 'tailscale_ssh: false'))\n"
+    )
+    _visual(monkeypatch, tmp_path, f"if 'vm_cores: 4' in path.read_text():\n    {other}{CHANGED}")
+    monkeypatch.setattr("sys.stdin", _Terminal("\n" if again else "n\n"))
+    made = _written(monkeypatch)
+    status, out, err = _settings(capsys, name="edit")
+    assert "was changed by another write while the editor was open: nothing was written" in " ".join(err.split())
+    if not again:
+        assert status == EXITS["refused"] and out == "" and made == []
+        assert _literals(fleet)["vm_cores"] == 4 and _literals(fleet)["tailscale_ssh"] is False
+        return
+    # What the person left as it was (tailscale_ssh: true) stays as the other write left it.
+    assert status == EXITS["done"], err
+    assert made == [("vm_cores", 6)]
+    assert _literals(fleet)["vm_cores"] == 6 and _literals(fleet)["tailscale_ssh"] is False
+
+
+def test_each_file_is_written_once_and_a_write_refused_between_files_names_those_written(
+    capsys, monkeypatch, tmp_path
+) -> None:
+    where = _fleet()
+    fleet, own = _fleet_file(where), _host_file(where, "lab")
+    _editor(
+        tmp_path,
+        monkeypatch,
+        [
+            ("\nvm_cores: 4\n", "\nvm_cores: 6\n"),
+            ("\ntailscale_ssh: true\n", "\n"),
+            ("\nproxmox_bridge: vmbr0\n", "\nproxmox_bridge: vmbr1\n"),
+        ],
+    )
+    monkeypatch.setattr("sys.stdin", _Terminal(""))
+    calls: list[Path] = []
+    real = overrides.set_many
+
+    def racing(home, host, expect, **kwargs):
+        names = [*(kwargs.get("values") or {}), *(kwargs.get("removed") or ())]
+        calls.append(overrides.placed(home, names[0], host))
+        after = real(home, host, expect, **kwargs)
+        if len(calls) == 1:
+            # Another writer of the other file, between the two files' writes.
+            other = own if calls[0] == fleet else fleet
+            other.write_text(other.read_text(encoding="utf-8") + "# another write\n", encoding="utf-8")
+        return after
+
+    monkeypatch.setattr(overrides, "set_many", racing)
+    status, out, err = _settings(capsys, name="edit")
+    assert status == EXITS["refused"], err
+    assert sorted(calls) == sorted([fleet, own])
+    first, second = calls
+    label = functools.partial(settings_verb._relative, where)
+    flat = " ".join(err.split())
+    assert "changed since it was read" in flat
+    assert f"{label(first)} was written as said above, and nothing of {label(second)}" in flat
+    if first == fleet:
+        assert "wrote vm_cores: 6" in out and "reset tailscale_ssh" in out and "proxmox_bridge" not in out
+        assert _literals(fleet)["vm_cores"] == 6 and _literals(own)["proxmox_bridge"] == "vmbr0"
+    else:
+        assert "wrote proxmox_bridge" in out and "vm_cores" not in out
+        assert _literals(fleet)["vm_cores"] == 4 and _literals(own)["proxmox_bridge"] == "vmbr1"
+
+
+def test_edit_for_one_host_of_several_names_the_host_in_what_applies_it(capsys, monkeypatch, tmp_path) -> None:
+    _fleet()
+    _editor(tmp_path, monkeypatch, [("\ntailscale_ssh: true\n", "\ntailscale_ssh: false\n")])
+    monkeypatch.setattr("sys.stdin", _Terminal(""))
+    status, out, err = _settings(capsys, name="edit", host="lab2")
+    assert status == EXITS["done"], err
+    assert "--host lab2" in " ".join(out.split())
+
+
+@pytest.mark.parametrize(
+    "values, removed, says",
+    [
+        ({"vm_cores": 6, "proxmox_bridge": "vmbr1"}, (), "kept in more than one file"),
+        ({"vm_cores": 6}, ("proxmox_bridge",), "kept in more than one file"),
+        ({}, (), "no setting was given"),
+    ],
+    ids=["two files", "a set and a reset in two files", "none"],
+)
+def test_set_many_writes_one_file_or_nothing(values, removed, says) -> None:
+    where = _fleet()
+    before = _files(where)
+    digest = overrides.read(where, "lab").fleet.digest
+    with pytest.raises(overrides.Refused, match=says):
+        overrides.set_many(where, "lab", digest, values=values, removed=removed)
+    assert _files(where) == before
 
 
 def test_a_run_of_aw_settings_writes_and_edit_with_no_terminal_refuses(home) -> None:

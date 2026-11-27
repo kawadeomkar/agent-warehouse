@@ -951,7 +951,7 @@ def test_the_scan_for_a_write_sees_each_way_to_name_one(source: str, found: list
     assert _writes(source) == found
 
 
-def test_nothing_in_fleet_writes_a_file_but_through_set_unset_and_set_current() -> None:
+def test_nothing_in_fleet_writes_a_file_but_through_set_unset_set_many_and_set_current() -> None:
     written = {}
     for path in sorted(FLEET.rglob("*.py")):
         writes = _writes(path.read_text())
@@ -961,7 +961,7 @@ def test_nothing_in_fleet_writes_a_file_but_through_set_unset_and_set_current() 
     assert all(REPLACES.values())
     # In files.py, only write replaces a file.
     assert written["lib/claude_vm/fleet/files.py"] == [("write", "store.replace")]
-    # In overrides.py, only _write replaces a file, and only set, unset and set_current call _write.
+    # In overrides.py, only _write replaces a file, and only set, unset, set_many and set_current call _write.
     assert written["lib/claude_vm/fleet/overrides.py"] == [("_write", "store.replace")]
     tree = ast.parse((FLEET / "overrides.py").read_text())
     callers = sorted(
@@ -971,7 +971,7 @@ def test_nothing_in_fleet_writes_a_file_but_through_set_unset_and_set_current() 
         for node in ast.walk(function)
         if isinstance(node, ast.Name) and node.id == "_write" and function.name != "_write"
     )
-    assert callers == ["set", "set_current", "unset"]
+    assert callers == ["set", "set_current", "set_many", "unset"]
 
 
 # ---------------------------------------------------------------- review 12 ----
