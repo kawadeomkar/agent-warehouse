@@ -66,7 +66,7 @@ class ValueRule:
         return re.fullmatch(self.pattern, value) is not None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class Row:
     """One setting: see the module's docstring for what each field holds. A default that is callable is computed: a
     function of this module whose keyword-only parameters name what it reads, each a row's name or one of `GIVEN`.
@@ -322,9 +322,9 @@ ROWS: tuple[Row, ...] = (
         "Build a golden template for new VMs, with the toolchain already installed, and clone them from it: "
         "configure, which still runs every task, then finds most of its work done. A deploy that finds none clones "
         "the template above, as without this, and then builds one once its VMs are ready and its editor open, about "
-        "two minutes more for the run, while code and login are refused there. A later deploy that finds one has its "
-        "VMs ready about a minute sooner, however many it creates. A golden is used for a week. false clones the "
-        "template above, and golden templates already made are deleted as they age.",
+        "two minutes more for the run, while code and login are refused on the VMs it is built from. A later deploy "
+        "that finds one has its VMs ready about a minute sooner, however many it creates. A golden is used for a week. "
+        "false clones the template above, and golden templates already made are deleted as they age.",
     ),
     _fleet(
         "proxmox_nic",
@@ -358,7 +358,7 @@ ROWS: tuple[Row, ...] = (
         "int",
         2,
         "proxmox_vm",
-        "VM sizing: the cores of every VM a run creates.",
+        "VM sizing: the cores of each VM a run creates, where deploy --cores gives it no other.",
         agent=True,
     ),
     _fleet(
@@ -366,7 +366,7 @@ ROWS: tuple[Row, ...] = (
         "int",
         4096,
         "proxmox_vm",
-        "VM sizing: the memory of every VM a run creates, in MB.",
+        "VM sizing: the memory of each VM a run creates, in MB, where deploy --memory gives it no other.",
         agent=True,
     ),
     _fleet(
@@ -386,7 +386,8 @@ ROWS: tuple[Row, ...] = (
         "size",
         "32G",
         "proxmox_vm",
-        "VM sizing: the root disk of every VM a run creates, a whole number with its unit, G or T, capital or small.",
+        "VM sizing: the root disk of each VM a run creates, where deploy --disk gives it no other: a whole number with "
+        "its unit, G or T, capital or small.",
         agent=True,
     ),
     _host(
@@ -419,8 +420,8 @@ ROWS: tuple[Row, ...] = (
         "list[str]",
         (),
         "github_projects",
-        "Which of your GitHub repositories to clone. Leave it empty to clone every repository of that user; list "
-        "names to clone only those.",
+        "Which of your GitHub repositories to clone. Leave it empty to clone every repository of the account "
+        "github_username names; list names to clone only those.",
         agent=True,
     ),
     _fleet(
@@ -664,7 +665,7 @@ ROWS: tuple[Row, ...] = (
         "str",
         "256M",
         "common",
-        "The most one copy of those sessions sends, a size as vm_disk_size is written (256M, 1G; a number alone is "
+        "The most one copy of those sessions sends, a whole number with M or G after it (256M, 1G; a number alone is "
         "gigabytes): the newest first, each with its tool results while it fits, and the rest said and left here. 0 "
         "for no bound. It counts what the VM does not have yet: a first copy sends each whole, a later one what "
         "changed.",
@@ -787,8 +788,8 @@ ROWS: tuple[Row, ...] = (
         "Remote Control: put each VM's Claude Code session in the list at claude.ai/code and in the mobile app. On by "
         "default, and derived from the credentials on the VM (docs/guides/remote-control.md). Set false to turn it off "
         "- also the answer when claude_code_settings.env carries a privacy setting such as DISABLE_TELEMETRY or "
-        "DO_NOT_TRACK on purpose: those disable Remote Control, so the role leaves the service stopped and says so "
-        "until one or the other goes.",
+        "DO_NOT_TRACK on purpose: those disable Remote Control, so the service is left stopped, and a deploy says "
+        "so until one or the other goes.",
         agent=True,
     ),
     _fleet(
@@ -897,7 +898,8 @@ ROWS: tuple[Row, ...] = (
         "path",
         "",
         "common",
-        "A folder per VM and run, <name>-<YYYYMMDD-HHMMSS>, 0700. Empty: .sessions/ in this checkout (git-ignored). "
+        "A folder per VM and run, <name>-<YYYYMMDD-HHMMSS>, 0700. Empty: a folder of this computer's own, outside the "
+        "fleet's folder that travels. "
         "The transcripts hold whatever their tools printed, and stay until you delete them. ~ at its start is your "
         "home; a relative path is refused by name.",
     ),
@@ -1113,6 +1115,7 @@ ADDED: tuple[Row, ...] = (
         "common",
         "The longest a detached run may last, in minutes: at the limit it stops as a run stops at a Ctrl-C, and its "
         "record says why. 0: no limit.",
+        least=0,
     ),
     _fleet(
         "machine_claims",
@@ -1132,6 +1135,7 @@ ADDED: tuple[Row, ...] = (
         "common",
         "How many VMs on a host agents' runs may have made and still have there: a deploy an agent asks for that "
         "would make one more is refused, naming this setting. 0: no cap.",
+        least=0,
     ),
     # Proxmox and the VMs.
     _host(
@@ -1257,6 +1261,17 @@ _ALL = ROWS + ADDED + CONNECTION
 _BY_NAME = {each.name: each for each in _ALL}
 # Each group's name, in the order its first row comes.
 GROUPS = tuple(dict.fromkeys(each.group for each in _ALL))
+
+
+def plain(value: object) -> object:
+    """A default as a reader may hand it on or change it: a tuple a list, a read-only mapping a dict, at every depth.
+    A row is compared by identity alone, so that one whose default is a mapping can be hashed: what a reader keeps or
+    prints of a default is this copy."""
+    if isinstance(value, tuple):
+        return [plain(item) for item in value]
+    if isinstance(value, MappingProxyType | dict):
+        return {key: plain(item) for key, item in value.items()}
+    return value
 
 
 def rows() -> tuple[Row, ...]:

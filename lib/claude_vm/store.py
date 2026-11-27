@@ -25,10 +25,11 @@ def locked(path: Path | str) -> Iterator[None]:
         os.close(folder)
 
 
-def replace(path: Path | str, text: str, mode_if_new: int | None = None) -> None:
+def replace(path: Path | str, text: str, mode_if_new: int | None = None, *, encoding: str | None = None) -> None:
     """path replaced by text atomically: written beside it, flushed to disk, then renamed over it, with path's own
     mode, never leaving a scratch file behind. Through a symlink, the file it names is the one replaced, so the link
-    stays a link. A path that does not exist yet is made with ``mode_if_new``, where it is given."""
+    stays a link. A path that does not exist yet is made with ``mode_if_new``, where it is given. The text is written
+    in ``encoding``, or the locale's where none is given."""
     path = Path(os.path.realpath(path))
     try:
         mode = stat.S_IMODE(path.stat().st_mode)
@@ -38,7 +39,7 @@ def replace(path: Path | str, text: str, mode_if_new: int | None = None) -> None
         mode = mode_if_new
     handle, scratch = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
-        with os.fdopen(handle, "w") as stream:
+        with os.fdopen(handle, "w", encoding=encoding) as stream:
             stream.write(text)
             stream.flush()
             os.fsync(stream.fileno())

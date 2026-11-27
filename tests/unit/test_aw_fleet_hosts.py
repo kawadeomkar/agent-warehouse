@@ -462,8 +462,8 @@ DEEP = 400
 # What YAML's safe reader cannot make a value of, each a Python error of its own, the forms test_aw_fleet_overrides.py's
 # CANNOT_BE_MADE refuses in a file of settings, after the fields given, with the line its refusal names (None where
 # YAML knows none): an integer, a float, a boolean and a date of a tag's that are none, a plain date that is none, in a
-# field and in what was made, a number past Python's limit of digits, one in hexadecimal read past it as a template's
-# ID, which would be made text and refused in Python's words, and what was made nested past Python's recursion as a
+# field and in what was made, a number past Python's limit of digits, one in hexadecimal tagged an integer as a
+# template's ID, which a file's integer, decimal alone, is not, and what was made nested past Python's recursion as a
 # mapping and as a list.
 CANNOT_BE_MADE = [
     pytest.param(f"api_port: !!int {ODD}\n", 4, id="int"),
@@ -474,7 +474,9 @@ CANNOT_BE_MADE = [
     pytest.param("made:\n  - what: template\n    id: 2026-02-30\n    by: engine\n", 6, id="a date in made"),
     pytest.param(f"api_port: {'9' * 5000}\n", 4, id="5000 digits"),
     pytest.param(
-        f"made:\n  - what: template\n    id: 0x{'f' * 4000}\n    by: engine\n", 6, id="4000 hexadecimal digits in made"
+        f"made:\n  - what: template\n    id: !!int 0x{'f' * 4000}\n    by: engine\n",
+        6,
+        id="4000 hexadecimal digits in made",
     ),
     pytest.param(
         "made:\n" + "".join(f"{'  ' * level}a:\n" for level in range(1, DEEP)) + f"{'  ' * DEEP}b: 1\n",

@@ -9,6 +9,10 @@ mode is never a refusal. The folders above the one asked for that are there are 
 links among them (a `~/.config` kept in a dotfiles folder, macOS's `/var`); one this module had to make is held as
 the folder asked for is, since it was not there to be chosen.
 
+`sweep(path)` takes out the scratch files `store.replace` left beside path where a write was killed between its
+scratch file and its rename, which nothing else would remove and which would travel with `fleet/`: its caller holds
+`store.locked(path)`, so that no write under way loses its scratch file.
+
 `write(path, text)` writes a file of the fleet's whole: its folder made by `folder`, then `store.replace`, which
 writes beside it, flushes and renames, so a reader finds the old file or the new one and never a part, a new file at
 `paths.FILE_MODE` (0600). A file that is there keeps its mode, and through a link the file it names is the one
@@ -88,6 +92,25 @@ def folder(path: str | os.PathLike) -> Path:
         # The umask may take bits from mkdir's mode: the mode is set, never asked for.
         os.chmod(made, paths.DIR_MODE)
     return where
+
+
+# The scratch file store.replace writes beside a file it replaces, by the file's name: .<name>.<random>.tmp.
+SCRATCH = ".{name}.*.tmp"
+
+
+def sweep(path: str | os.PathLike) -> list[str]:
+    """Take out each scratch file store.replace left beside path, where a write was killed before its rename; the
+    caller holds store.locked(path). Returns their names. Only a regular file of the scratch's name is taken out."""
+    where = Path(os.path.abspath(path))
+    taken = []
+    for scratch in sorted(where.parent.glob(SCRATCH.format(name=where.name))):
+        try:
+            if stat.S_ISREG(os.lstat(scratch).st_mode):
+                os.unlink(scratch)
+                taken.append(scratch.name)
+        except FileNotFoundError:
+            continue
+    return taken
 
 
 def write(path: str | os.PathLike, text: str) -> None:

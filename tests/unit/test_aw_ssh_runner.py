@@ -1260,6 +1260,9 @@ SSH_AS_A_VALUE = {
     " Ansible names its plugin, and the key of Tailscale's SSH setting; the program is the runner's SSH_PROGRAM",
 }
 BARE = ": 'ssh'"
+# How many bare words each module of SSH_AS_A_VALUE holds, each a value its reason names: one more is a finding the
+# exemption would let through unseen (review/code/D3.md 7).
+SSH_BARE = {"lib/claude_vm/fleet/registry.py": 1, "lib/claude_vm/cli/status_inputs.py": 2}
 
 
 def test_a_child_named_ssh_is_started_only_in_ssh() -> None:
@@ -1287,6 +1290,7 @@ def test_a_module_that_names_ssh_as_a_value_still_does_and_starts_nothing(rel: s
     # a child.
     found = _names_ssh((REPO / rel).read_text())
     assert found and all(each.endswith(BARE) for each in found), found
+    assert len(found) == SSH_BARE[rel], found
     tree = ast.parse((REPO / rel).read_text())
     imported = {
         alias.name.split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names
