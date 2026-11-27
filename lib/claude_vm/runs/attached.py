@@ -66,10 +66,10 @@ hold runs the loop, so no code of the body's runs held, and nothing it starts ta
 loop, which ends the watch and closes the body's generators, runs unheld, where a second Ctrl-C ends the tree and a
 SIGTERM or SIGHUP is what the run dies of, as anywhere else. While the ladder runs, Python's and asyncio's own messages
 stay off the person's terminal: an end Python drops (an Abandoned raised in a fork's hook) and the loop's reports of
-what the ladder ended or left (a task left pending, a callback a cut left half done), which the run's text log (card
-C12) takes. An error of the ladder's own callbacks (a Ctrl-C's stop, the grace's end, the wake) is never one of them:
-each says its own, in a line of aw's own. Standard library only; asyncio, termios and claude_vm.proc are imported
-inside the functions that use them.
+what the ladder ended or left (a task left pending, a callback a cut left half done), which the run's text log
+(runs/textlog.py) takes. An error of the ladder's own callbacks (a Ctrl-C's stop, the grace's end, the wake) is never
+one of them: each says its own, in a line of aw's own. Standard library only; asyncio, termios and claude_vm.proc are
+imported inside the functions that use them.
 """
 
 from __future__ import annotations
@@ -432,11 +432,22 @@ def _end_now(status: int, error: BaseException | None) -> None:
     os._exit(status)
 
 
-def _unsaid(_loop: asyncio.AbstractEventLoop, _context: dict[str, Any]) -> None:
-    """The loop's exception handler: the loop's own reports of what the ladder ended or left - a task destroyed
-    pending, a callback a cut left half done (asyncio's transport of a child whose start a second Ctrl-C cut), a body's
-    own callback - kept off the person's terminal while the run is on; the run's text log (card C12) takes them. No
-    error of the ladder's own callbacks reaches it: each says its own (_Ladder._own)."""
+def _unsaid(job: jobs.Job) -> Callable[[asyncio.AbstractEventLoop, dict[str, Any]], None]:
+    """The loop's exception handler for job's run: the loop's own reports of what the ladder ended or left - a task
+    destroyed pending, a callback a cut left half done (asyncio's transport of a child whose start a second Ctrl-C cut),
+    a body's own callback - kept off the person's terminal while the run is on, and written into the run's text log
+    where it has one (runs/textlog.py's note, which never raises). No error of the ladder's own callbacks reaches it:
+    each says its own (_Ladder._own)."""
+
+    # Imported here, when the ladder is made: a report the loop makes as Python shuts down can import nothing.
+    from claude_vm.runs import textlog
+
+    def unsaid(_loop: asyncio.AbstractEventLoop, context: dict[str, Any]) -> None:
+        error = context.get("exception")
+        message = str(context.get("message") or "the loop reported what the run left")
+        textlog.note(job, f"{message}: {error!r}" if error is not None else message)
+
+    return unsaid
 
 
 def _dropping(previous: Callable[[Any], object]) -> Callable[[Any], object]:
@@ -462,7 +473,7 @@ class _Ladder:
         self.loop = asyncio.new_event_loop()
         try:
             self.loop.set_default_executor(self.threads)
-            self.loop.set_exception_handler(_unsaid)
+            self.loop.set_exception_handler(_unsaid(job))
             # Done when the run is to end at once: the grace over, Ctrl-C twice, SIGHUP or SIGTERM.
             self.now: asyncio.Future[None] = self.loop.create_future()
             self.ctx = Context(job, rundir.made(job), self)

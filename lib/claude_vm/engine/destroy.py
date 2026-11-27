@@ -192,7 +192,7 @@ def destroy(run: Any, **values: object) -> int:
     )
 
     from .. import runs
-    from ..runs import ask, locks
+    from ..runs import ask, locks, textlog
 
     if not confirmed and ask.terminal() is None:
         asked = question(chosen, how.host, takes).splitlines()[-1].rstrip(":")
@@ -241,6 +241,7 @@ def destroy(run: Any, **values: object) -> int:
         values=values,
         lock_machines=[(host_name, name) for name in chosen],
         lock_policy=locks.policy_of(str(settings["run_lock"].value)),
+        logs=textlog.logs(home, run),
     )
     return runs.run(draft, body)
 

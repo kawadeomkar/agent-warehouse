@@ -67,12 +67,14 @@ from claude_vm.secret import Secret
 class Quick(NamedTuple):
     """A quick command line: the words after aw; what it may import beyond the standard library and claude_vm, by the
     packages it may import; whether it is a refusal, which runs whatever the table's handlers, where any other line
-    waits for its verb's; and the exit status any line but a refusal ends with, against the fleet _fleet makes."""
+    waits for its verb's; the exit status any line but a refusal ends with, against the fleet _fleet makes; and what of
+    the standard library it never loads (logs: asyncio, which only a run's ladder needs)."""
 
     words: tuple[str, ...]
     may: frozenset[str] = frozenset()
     refusal: bool = False
     exit: int = EXITS["done"]
+    never: frozenset[str] = frozenset()
 
 
 # The YAML reader, which parses the fleet's files: its hosts', its settings', the overrides'.
@@ -104,9 +106,9 @@ QUICK: tuple[Quick, ...] = (
     Quick(("deploy", "--only=provision", "--tags=common"), refusal=True),
     Quick(("code", "alpha", "beta"), refusal=True),
     # The jobs: a text file read, or tailed until its job ends; and the one job that runs stopped, or that one.
-    Quick(("logs",)),
-    Quick(("logs", JOB)),
-    Quick(("logs", JOB, "--follow")),
+    Quick(("logs",), never=frozenset({"asyncio"})),
+    Quick(("logs", JOB), never=frozenset({"asyncio"})),
+    Quick(("logs", JOB, "--follow"), never=frozenset({"asyncio"})),
     Quick(("cancel",)),
     Quick(("cancel", JOB)),
     # The hosts, each a folder of files a YAML reader parses.
@@ -190,15 +192,18 @@ FLEET_SETTING = ("vm_cores", 4)
 # Each host's token in the vault: made up, a UUID as Proxmox makes a token's secret.
 TOKENS = {"lab": "11111111-1111-4111-8111-111111111111", HOST: "22222222-2222-4222-8222-222222222222"}
 # A job made by a Python of its own, never by the test's process, which would hold its lock for the test's life: one
-# that has ended, for logs; and one that runs in a session of its own until the Ctrl-C cancel sends it, for cancel.
+# that has ended, with its text log in the state folder's logs/, for logs; and one that runs in a session of its own
+# until the Ctrl-C cancel sends it, for cancel.
 JOB_CODE = """import signal, sys
+from pathlib import Path
 sys.path.insert(0, sys.argv[1])
-from claude_vm.runs import job
+from claude_vm.runs import job, textlog
 running = sys.argv[3] == "running"
 signal.signal(signal.SIGINT, signal.default_int_handler)
 starter = {"kind": "detach" if running else "terminal"}
 made = job.create(sys.argv[2], "deploy", "aw deploy alpha", "lab", ["alpha"], starter, not running)
 if not running:
+    textlog.start(made, textlog.Logs(Path(sys.argv[2]).parent / "logs"), "deploy", True)
     made.emit("end", None, "deployed", outcome="succeeded", exit=0)
 print(made.id, flush=True)
 try:
@@ -274,9 +279,9 @@ def logs(run, **values):
         from claude_vm.runs import job
 
         jobs = paths.jobs_dir(_home())
-        if values.get("job_id") is None:
+        if values.get("job") is None:
             return None if job.listed(jobs) else "no job to list"
-        found = job.find(jobs, values["job_id"])
+        found = job.find(jobs, values["job"])
         if found is None:
             return "no such job"
         if values.get("follow") and job.state(found) not in job.OUTCOMES:
@@ -530,6 +535,8 @@ def faults(quick: Quick, run: Run) -> list[Fault]:
             found.append(Fault("beyond", f"{named} loaded {sorted(past)}, beyond what its line gives it"))
         if VAULT not in quick.may and VAULT in {_top(name) for name in everything}:
             found.append(Fault("vault", f"{named} loaded {VAULT}, which its line does not give it"))
+        if each.exit is not None and (never := sorted(quick.never & {_top(name) for name in each.exit - each.start})):
+            found.append(Fault("never", f"{named} loaded {never}, which its line never loads"))
     return found
 
 

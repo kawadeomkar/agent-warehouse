@@ -2627,7 +2627,7 @@ def init(run: Any, **values: object) -> int:
         return _refused(f"error: {error}")
 
     from claude_vm import runs
-    from claude_vm.runs import locks
+    from claude_vm.runs import locks, textlog
 
     async def body(running: Context) -> int:
         if asks and not checking:
@@ -2660,6 +2660,7 @@ def init(run: Any, **values: object) -> int:
         {"kind": "detach" if detached else "terminal"},
         True,
         values=values,
+        logs=textlog.logs(home, run),
     )
     try:
         return runs.run(draft, body)

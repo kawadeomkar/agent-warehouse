@@ -2493,7 +2493,7 @@ fleet's folders (`fleet/files.py`).
 | `starter` | What started it: `{"kind": "terminal"}`, `{"kind": "detach"}`, or `{"kind": "mcp", "server": <id>}`, that server's own ID |
 | `host`, `machines` | The host the run is on, and the machines it names, by identity |
 | `making` | The machines it is making that have no identity yet, each by its stand-in key with the name a person chose, until its join |
-| `names` | The name of each machine joined from `making`, by its identity, `{identity: name}`: the join keeps it there |
+| `names` | The name of each machine, by its identity, `{identity: name}`: given with `machines` at `create`, or joined from `making`, which the join keeps there |
 | `locks` | The names of the locks it holds |
 | `attached` | Whether it runs at a terminal |
 | `pid`, `started` | Its process and when it started: information for a person and for a machine's `job` line, never read to decide a state |
@@ -2536,7 +2536,9 @@ a test probes the run's own lock from its own process. No module of `runs/` keep
 process's start or reads the process table for one, which a scan in the test holds.
 
 **Events.** `emit(kind, machine, text, **data)` hands one event, with its time, to each listener the run registered
-with `listen` (the live view and the text log), in order and in the run's own process. The kinds are `stage`, `step`,
+with `listen` (the text log and the live view), in order and in the run's own process: each hears it whatever one
+before it raised, and the first error is raised once the last has heard, so that a view whose terminal has gone never
+keeps the run's end from its log. The kinds are `stage`, `step`,
 `report`, `waiting`, `next`, `join` and `end`; another is refused, `child` among them, since a child the run started is
 its registry's (`children.py`). Every string an event carries goes through
 `text.plain_text`, and a `Secret` anywhere in one is refused before anything is written or heard. What an agent and
@@ -2577,6 +2579,50 @@ a run that never ran. Only a record already gone is no error of the unlink's, an
 folder's removal. `tests/unit/test_aw_job.py` holds it all, each state made by a run in a child process: a SIGKILL
 reads `lost` with nothing written after it, a child that outlives its killed run holds no lock, and the record is
 unlinked while the drop holds the folder's lock.
+
+**The text log: `textlog.py`.** Each run writes one plain-text log, a listener of its job's events registered before
+the live view: `<LOG_DIR>/<stamp>-<verb>[-<part>].log`, the stamp the run's start (`YYYYMMDD-HHMMSS`, as
+`tools/run-logged` names today's), the verb a row of the table whose run is a job, and the part one of the values of a
+pattern that is no machine's (deploy's `--only`, login's `--only`) or `check`, so that no word a person typed as a name
+becomes a file's (`name`). The folder is made where it is missing and kept at mode 0700; the file is made new at 0600,
+never through a link, and a second run of a verb in the same second takes the next free name (`-2.log`). Its first
+line names the job and its command; then each event is one line a line of its text, with its time, its kind, its
+machine by its name (the record's `names` and `making`, a first event's `name`, a join's: never a stand-in where a
+name is known; a join says the identity it joins) and what it carries; and a line of the program's own for what the
+ladder keeps off the terminal (the loop's own reports: `attached.py`'s `_unsaid`). Each line is written whole with one
+`os.write`, so it is on disk through any end of the process, `os._exit` and a kill among them; the descriptor is no
+child's. A log that cannot be made or written is said once on standard error, and the run goes on without it: the
+listener never raises. The record's `log` names the file. Where it goes (`logs(home, run)`): `LOG_DIR` as the
+environment gives it (`RunWords`), a relative one from the folder the run started in; `LOG_DIR` empty, no text log for
+a run at a terminal and the job's own folder for a detached one, which nobody could follow otherwise; not set, a
+checkout's `.logs/` where the fleet's home is the checkout's own, as today's justfile has it, and the state folder's
+`logs/` for the installed program and for a home `AGENT_WAREHOUSE_HOME` names, a test's among them. `runs.run` opens
+it once the run's locks are taken, after the prune, and closes it once the run has ended; a run whose ladder never
+began, and so left no job, leaves no log either.
+
+**The prune: `prune.py`.** When a run that writes a log starts, `prune(log_dir, jobs_dir, retention)` deletes what is
+older than `LOG_RETENTION_DAYS` (14 where it is not set; a value that is no whole number prunes nothing and says so),
+as `find -mtime +<days>` counts it, and three kinds of thing alone: a file at `LOG_DIR`'s top named as a log is
+(`LOG_NAME`, today's `[0-9]*-*.log`), never a link; a job's folder, named by a job's ID, a directory and never a
+link, whose lock is free (`lock_held`), aged by its end, else its record's last change (a run killed outright), else
+the folder's own (a folder a drop could not empty, which has no record); and the short-lived directory that job's run
+left (`rundir.py`'s, which nothing else removes once its run was killed), only where the record names one of its form,
+`aw-run-<that job's ID>-…`, a directory, this account's. A job whose lock is held is a run that lives and is never
+pruned, whatever its age; one whose lock cannot be read is said by its ID and kept, never read as free. Each path is
+held, before it goes, to be what it is said to be by its real path, so the vault's key file, `client.yml` and the
+fleet's folder, which lie outside every one of them, are never reached, whatever a record says. Today's MCP server
+prunes its own jobs at a fixed 14 days (`lib/claude_vm/mcp/server.py`); this prune is the new engine's.
+
+**`logs`: `listing.py`.** The handler of `logs`, which loads no pydantic, Ansible, asyncio, workflow or MCP module
+(`tests/unit/test_aw_cli_imports.py`). With no job, every job newest first (`listed`): its ID, its state (`state`), its
+start, how long it ran or has run, its command and its log's path; a lost job is said so, its record never written.
+With a job, its text log as written, each line made plain; `--save` says where it is already, since a run's log is
+written as it goes. With `--follow`, the log and then each line added, read as the file grows, until the job's lock is
+free, and then whatever the file gained, since a run writes its end before its lock goes; then its outcome, and each
+machine's by its name (`names`, and `making` for one not yet made). Ctrl-C ends the follow, says the job goes on and
+exits 130. A job with no log is said so; its follow waits for its end all the same. A job whose lock cannot be read is
+said so, never as `lost`. Before any job is read, a fleet's record whose jobs store is newer than this program reads is
+refused by name (`record.refuse_newer`). `tests/unit/test_aw_logs.py` holds the log, the prune and `logs`.
 
 **A run's children: `children.py`.** Every process a run starts carries the job's marker, `AGENT_WAREHOUSE_JOB`, the
 name today's MCP jobs set, with the job's ID: whatever reads it matches the ID, never the name alone. `start` gives it
@@ -3122,7 +3168,8 @@ machine by its name, as the frame does (the model's name for its key, a join's b
 stand-in, is never said. Nothing in `runs/` writes an escape
 sequence or reads the terminal itself: the region, the palette, the title and the echo are `tui/`'s. The model's
 machines are the job's own, `job.json`'s `machines`, by identity, the key every event of a machine names, each with the
-name a person chose where the caller gives it (`names`): the record keeps identities alone, and the view says a machine
+name a person chose where the caller gives it (`names`): the record's `machines` keeps identities alone, with their
+names in its `names`, and the view says a machine
 by its name. A row is keyed by the machine's identity, or, for a VM the run is making, by its stand-in key until its
 join: drawn by its name from its first event (from `job.json`'s `making` where the view is made after that event, and
 from its `names` where it is made after the join), and
