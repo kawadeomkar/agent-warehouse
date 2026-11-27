@@ -70,6 +70,10 @@ REVEALS: dict[str, str] = {
     " is set and in managed alone, where it goes into settings.json's env as today's settings.yml puts it, struck from"
     " every event of the run before the probe reads anything, and sent on the step's standard input alone (write_file)"
     " (card F11): never in a command's words or said",
+    "lib/claude_vm/guest/layer2/github.py": "the store's github_token, read in token for whether one is set and in"
+    " _digest alone for the digest the marker holds, struck from every event of the run before the probe reads anything"
+    " and sent on gh auth login's standard input alone, as the runner's Secret (card F12): never in a command's words,"
+    " a file or said",
 }
 
 # The fixtures of the engine's test files whose scope is wider than one test, each with why it may be: pytest makes
