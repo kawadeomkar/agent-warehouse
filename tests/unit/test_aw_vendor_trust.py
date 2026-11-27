@@ -68,6 +68,9 @@ CONTEXTS: dict[str, str] = {
     "lib/claude_vm/guest/states.py": "a machine's states as status says them: one name of today's status, found.py's"
     " ssh_found, which makes no context and imports none of status that does (its engine reads the Proxmox API); it"
     " makes no context itself",
+    "lib/claude_vm/guest/layer2/github.py": "gh's sign-in: two names of today's status, lines.py's github_login_report"
+    " and github_too_old_said, the words aw status says of gh too, which make no context and import none of status"
+    " that does; it makes no context itself",
     "lib/claude_vm/cli/status.py": "aw status's entry: one name of today's status, its engine's run, whose reads of the"
     " Proxmox API verify against the host's anchor kept in the fleet's folder, or the computer's store; it makes no"
     " context itself; its reader of the pool (cli/status_pool.py) reads through that engine's client too",

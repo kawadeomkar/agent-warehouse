@@ -4400,6 +4400,29 @@ path watch does on a tick of its own. `tests/unit/test_aw_claude_settings.py` ca
 login landing starting the service through the path unit, a stopped service left stopped, and the path unit's
 `PathChanged=` with a test of its own.
 
+**gh's sign-in.** `lib/claude_vm/guest/layer2/github.py`'s step `github-auth` is today's `auth.yml` and
+`auth_status.yml` in plain code, over the rows `github_auth`, `github_auth_method` and `github_login_scopes` and the
+store's `github_token`; a method other than auto, web and token is refused before the machine is read, a GitHub App's
+hourly token named, since nothing standalone renews one. Its probe reads, as the machine's account: whether gh is
+there, `gh auth status --json` (a gh too old for it, before 2.81.0, a named failure where the run manages gh, never
+"signed out"), the active account, and, signed in, the token gh holds piped on the machine into its own `python3`,
+which prints its digest and the kind its prefix tells and never the token, so that the token never leaves the machine;
+the marker `~/.config/agent-warehouse/gh-login`, the digest of a login the product made; and git's helpers for
+github.com. `decide(found, wanted)` is auth.yml's decisions in one function, by digests alone, never by a token's
+prefix: the token signs gh in where gh is signed out, signed in by the product, or the method is token, and a login
+made by hand stays, the token only listing there; with the method taking no token, only the marked login is signed out,
+by account, and the marker goes once gh is signed out; the marker is written wherever the login is the token's; gh is
+made git's helper where git has no entry of gh's. The acts are fixed commands of the runner: `gh auth login
+--with-token --insecure-storage` with the token on its standard input alone (a refusal fails quoting gh, but one for a
+missing scope under auto, which keeps listing and leaves gh signed out, the scopes named), the logout, the marker
+written on its command's standard input or removed, `gh auth setup-git`; the state is read again after a sign-in or a
+sign-out, and nothing is ever revoked. The report is `status/lines.py`'s line with its NEXT STEPS record, but for a
+token short of a scope, a token beside a login of the person's own and a sign-in that follows, auth.yml's own
+sentences. The token joins the run's redaction list before anything is read, and no message, event, argument or
+difference carries it. `tests/unit/test_aw_github_credential.py` carries `test_github_auth.py`'s cases of the sign-in
+against `tests/molecule/fake_gh.sh` on stand-in machines, greps every event, file of the run and call of the stand-in
+`ssh` for every canned token, and holds that no sign-out is decided from a token's prefix.
+
 **A person's keys.** The keys a machine accepts are the person's own, `vm_ssh_public_keys`, and layer 1 alone adds them:
 `common`'s keys tasks (`roles/common/tasks/keys.yml`) put each listed key on the account, every line of it made the
 listed form, and leave every other line, so the list only adds and a key that is on a machine and not in the list stays.

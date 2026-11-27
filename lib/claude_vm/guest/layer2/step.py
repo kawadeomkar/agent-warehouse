@@ -130,10 +130,10 @@ class Context:
         return [remote.ENV, remote.LOCALE, self.become_exe, "-n", "-H", "--", *words]
 
     async def run(
-        self, command: Sequence[str], *, as_root: bool = False, limits: runner.Limits, stdin: bytes = b""
+        self, command: Sequence[str], *, as_root: bool = False, limits: runner.Limits, stdin: runner.Input = b""
     ) -> runner.Result:
-        """command run once on the machine through the SSH runner, under limits: see command. Failed where sudo wants
-        a password, which a step never sends."""
+        """command run once on the machine through the SSH runner, under limits, stdin its standard input (a Secret's
+        value read by the runner alone): see command. Failed where sudo wants a password, which a step never sends."""
         result = await runner.run(self.job, self.target, self.command(command, as_root), stdin, limits, dict(self.env))
         if as_root and isinstance(result, runner.Done) and result.status != 0 and _wants_a_password(result.said):
             raise Failed(
