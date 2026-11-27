@@ -24,7 +24,8 @@ read again and replaced whole (`store.replace`) only while it is what was read, 
 host); otherwise only where `ssh -G -F ~/.ssh/config <first alias>` does not come back with the `HostName` just written,
 or no line of the file names the managed file in a spelling ssh reads: one line at its top, ending as the file's first
 line does, the rest of the file byte for byte and its mode kept; never where `claude_ssh_config_include` is off, which
-says the line to add. Both files are read with their line endings as they are.
+says the line to add. The person's file is read with its line endings as they are; the managed file, which the product
+writes, with every line ending read as LF, so a CRLF copy's blocks are still found.
 
 **A removal** (`remove`) takes each named block out, under the same lock, and nothing else; the `Include` stays.
 **The prune** (`refresh` with no names) reads the host's listing and its pool, and removes only what `ssh_config_prune`
@@ -249,11 +250,12 @@ def body(alias: Alias, rules: Rules, files: Files) -> str:
     return "".join(f"{each}\n" for each in lines)
 
 
-def read(path: Path) -> str | None:
-    """path's text as it is, its line endings kept (a CRLF file stays one), None where there is no file: Refused where
-    it cannot be read."""
+def read(path: Path, *, exact: bool = False) -> str | None:
+    """path's text, None where there is no file: Refused where it cannot be read. exact (the person's own config), its
+    line endings as they are, so a CRLF file is put back byte for byte; else (the managed file, which the product
+    writes) every line ending read as LF, so a CRLF copy's blocks are found and the file is written back as LF."""
     try:
-        with path.open(encoding="utf-8", newline="") as stream:
+        with path.open(encoding="utf-8", newline="" if exact else None) as stream:
             return stream.read()
     except FileNotFoundError:
         return None
@@ -372,13 +374,13 @@ def _held(aliases: Sequence[Alias], rules: Rules, user_text: str) -> None:
         )
 
 
-def swap(path: Path, before: str | None, after: str) -> bool:
+def swap(path: Path, before: str | None, after: str, *, exact: bool = False) -> bool:
     """path replaced whole by after, under the short file lock, only while it is still before (None: no file): whether
-    it was. Its folder is made at the folders' mode where it is missing; a file made has the files' mode, and one there
-    keeps its own."""
+    it was, read as read reads it (exact). Its folder is made at the folders' mode where it is missing; a file made has
+    the files' mode, and one there keeps its own."""
     path.parent.mkdir(mode=paths.DIR_MODE, parents=True, exist_ok=True)
     with store.locked(path):
-        if read(path) != before:
+        if read(path, exact=exact) != before:
             return False
         store.replace(path, after, mode_if_new=paths.FILE_MODE)
     return True
@@ -428,7 +430,7 @@ async def write(job: Job, files: Files, aliases: Sequence[Alias], rules: Rules) 
         chosen, left_out, theirs = _decided(aliases, rules, ssh_config_blocks(before or ""))
         if not chosen:
             return Written((), tuple(left_out), tuple(theirs))
-        _held(chosen, rules, await asyncio.to_thread(read, files.user) or "")
+        _held(chosen, rules, await asyncio.to_thread(read, files.user, exact=True) or "")
         after = before or ""
         for each in chosen:
             after = put(after, each.name, body(each, rules, files))
@@ -450,7 +452,7 @@ async def _include(job: Job, files: Files, rules: Rules, first: Alias) -> str:
         return "off"
     wanted = f"Include {files.config}"
     for _ in range(TRIES):
-        text = await asyncio.to_thread(read, files.user)
+        text = await asyncio.to_thread(read, files.user, exact=True)
         if text is not None:
             if ahead(text, wanted):
                 return "there"
@@ -459,7 +461,7 @@ async def _include(job: Job, files: Files, rules: Rules, first: Alias) -> str:
                 return "there"
         # The line ends as the file's first line does, so a CRLF file stays one.
         end = "\r\n" if (text or "").partition("\n")[0].endswith("\r") else "\n"
-        if await asyncio.to_thread(swap, files.user, text, f"{wanted}{end}" + (text or "")):
+        if await asyncio.to_thread(swap, files.user, text, f"{wanted}{end}" + (text or ""), exact=True):
             return "added"
     raise Refused(f"{files.user} changed under every one of {TRIES} writes, so its Include line was not added")
 
