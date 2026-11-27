@@ -102,11 +102,13 @@ Notable choices:
 - **Timezone via `/etc/localtime` + `/etc/timezone`**, not `community.general.timezone`, so it also
   works in containers with no `timedatectl`/dbus.
 - **The person's keys are added with `ansible.builtin` alone, as the user** (`tasks/keys.yml`): `file` makes
-  `~/.ssh` 0700 and `lineinfile` puts each listed key in `authorized_keys` (0600), finding a line of the same key by
-  its type and base64, whatever options or comment it has, and replacing it with the listed form; a key not there is
-  added at the end, no other line changes and nothing takes a key away. As the user, not root, since `~/.ssh` may be
-  a link, which both follow: as root they would make the keys file in the link's target and set that folder to 0700,
-  wherever it was. A listed key that is no public key is refused first.
+  `~/.ssh` 0700; `replace` turns every line of a listed key in `authorized_keys`, found by its type and base64
+  whatever options or comment it has, into the listed form, since sshd applies the first line of a key it finds; and
+  `lineinfile` adds a key with no line at the end and makes the file 0600. A line commented out is left, no line but
+  a listed key's changes and none is taken away. As the user, not root, since `~/.ssh` may be a link, which they
+  follow: as root they would make the keys file in the link's target and set that folder to 0700, wherever it was.
+  An item that is not one public key alone on its line (no key, a line break, a line commented out) is refused
+  first, and so is a key listed twice: either would change the file at every run.
 - **Every toggle is a pair of tasks** (`Grant`/`Revoke` sudo, `Harden`/`Remove` sshd). `template` has
   no `state: absent`, so this is the idiom for a reversible setting.
 - **Passwordless sudo off takes away cloud-init's rule too** (`tasks/sudo.yml`). The user cloud-init creates

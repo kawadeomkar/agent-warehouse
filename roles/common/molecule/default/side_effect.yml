@@ -189,11 +189,13 @@
         tasks_from: tmux
 
 # The person's keys over a keys file that holds more, through a ~/.ssh that is a
-# link to a folder of dev's: the line of the listed key with options in front
-# and another comment becomes the listed form, the line of a key not on the
-# list is kept, and the folder the link names is made 0700, as the user. A key
-# that is none is refused. Then ~/.ssh is put back as converge left it, for
-# verify.yml to find the listed key there.
+# link to a folder of dev's: both lines of the listed key, the first with
+# options in front and another comment, become the listed form (sshd applies
+# the first), the line of a key not on the list is kept, and so is a line of
+# the key commented out; the folder the link names is made 0700, as the user,
+# and a second run changes nothing. A key that is none is refused, and so are
+# an item of two lines, one commented out and a key listed twice. Then ~/.ssh
+# is put back as converge left it, for verify.yml to find the listed key there.
 - name: Authorise the keys over a keys file that holds more, through a linked ~/.ssh
   hosts: all
   become: true
@@ -228,11 +230,13 @@
         group: dev
         follow: false
 
-    - name: Write the listed key with options and another comment, and a key not on the list
+    - name: Write the listed key twice, first with options and another comment, a key not on the list, and one commented out
       ansible.builtin.copy:
         content: |
           no-agent-forwarding,no-pty {{ common_side_effect_listed.rsplit(' ', 1)[0] }} another@comment
           {{ common_side_effect_other }}
+          # {{ common_side_effect_listed.rsplit(' ', 1)[0] }} commented@out
+          {{ common_side_effect_listed.rsplit(' ', 1)[0] }} second@old
         dest: "{{ common_side_effect_home }}/keys-elsewhere/authorized_keys"
         owner: dev
         group: dev
@@ -260,25 +264,59 @@
         - "{{ common_side_effect_home }}/keys-elsewhere/authorized_keys"
       register: common_side_effect_keys_stat
 
-    - name: Assert the listed form replaced its line, the other was kept, and the link was followed
+    - name: Run the role's keys tasks again
+      ansible.builtin.include_role:
+        name: common
+        tasks_from: keys
+      vars:
+        common_user_ssh_public_keys: ["{{ common_side_effect_listed }}"]
+
+    - name: Read what the second run left of the keys file
+      ansible.builtin.slurp:
+        src: "{{ common_side_effect_home }}/keys-elsewhere/authorized_keys"
+      register: common_side_effect_keys_again
+
+    - name: Assert the listed form replaced both its lines, the others were kept, the link was followed, and the second run changed nothing
+      vars:
+        common_side_effect_key: "{{ common_side_effect_listed.rsplit(' ', 1)[0] }}"
       ansible.builtin.assert:
         that:
-          - (common_side_effect_keys.content | b64decode) == common_side_effect_listed ~ "\n" ~ common_side_effect_other ~ "\n"
+          - >-
+            (common_side_effect_keys.content | b64decode)
+            == [common_side_effect_listed, common_side_effect_other, '# ' ~ common_side_effect_key ~ ' commented@out',
+                common_side_effect_listed, ''] | join("\n")
+          - common_side_effect_keys_again.content == common_side_effect_keys.content
           - common_side_effect_keys_stat.results[0].stat.islnk
           - common_side_effect_keys_stat.results[1].stat.mode == '0700'
           - common_side_effect_keys_stat.results[2].stat.mode == '0600'
           - common_side_effect_keys_stat.results | map(attribute='stat.pw_name') | list == ['dev'] * 3
         quiet: true
 
-    - name: Run the role's keys tasks over a key that is none
+    - name: Run the role's keys tasks over a key that is none, two lines, one commented out and a key listed twice
       ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
       vars:
         refused_role: common
         refused_tasks_from: keys
         refused_at: Refuse a listed key that is no public key
-        refused_because: ['no public key', 'not-a-key']
-        refused_unless: the role took a key that is no public key
-        common_user_ssh_public_keys: [not-a-key]
+        refused_because: "{{ common_side_effect_case.because }}"
+        refused_unless: "the role took {{ common_side_effect_case.what }}"
+        common_user_ssh_public_keys: "{{ common_side_effect_case.listed }}"
+      loop:
+        - what: a key that is no public key
+          listed: [not-a-key]
+          because: ['no public key alone', 'not-a-key']
+        - what: an item of two lines
+          listed: ["{{ common_side_effect_listed }}\n{{ common_side_effect_other }}"]
+          because: ['no public key alone', 'kept@test']
+        - what: a key commented out
+          listed: ["# {{ common_side_effect_other }}"]
+          because: ['no public key alone', '# ssh-ed25519 ']
+        - what: a key listed twice
+          listed: ["{{ common_side_effect_listed }}", "{{ common_side_effect_listed.rsplit(' ', 1)[0] }} twice@test"]
+          because: ['lists the same key twice']
+      loop_control:
+        loop_var: common_side_effect_case
+        label: "{{ common_side_effect_case.what }}"
 
     - name: Take the link away
       ansible.builtin.file:
