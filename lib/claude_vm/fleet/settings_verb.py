@@ -139,6 +139,14 @@ EDIT_ALONE = "error: {edit} opens every setting in your editor: it takes --host 
 NO_EDITOR = "error: the editor cannot be run ({why}): set VISUAL or EDITOR to one; nothing was written"
 EDITOR_FAILED = "error: the editor ended with exit {code}: nothing was written"
 NOT_TEXT = "error: what the editor left is not UTF-8 text: nothing was written"
+NO_DOCUMENT = "error: the editor left no document to read ({why}): nothing was written"
+NOT_A_COMMAND = "error: {variable} cannot be read as a command ({why}): nothing was opened"
+NO_HOST_YET = "{name} is each host's own, and the fleet has no host yet to keep it"
+MEANWHILE = (
+    "{file} was changed by another write while the editor was open: nothing was written, and what you leave as it was"
+    " stays as that write left it"
+)
+PARTLY = "{written} {verb} written as said above, and nothing of {file}: open the editor again for the rest"
 NOT_A_LINE = "not one setting's name, then a colon and its value"
 TWICE = "{name} is given on line {first} too: give it once"
 AGAIN = "Open it again to put them right? [Y/n] "
@@ -882,6 +890,12 @@ def _changes(
         if set_to is not None and set_to.strip() == given:
             continue
         try:
+            overrides.placed(read.home, row.name, read.host)
+        except overrides.Refused as refused:
+            said_why = NO_HOST_YET.format(name=name) if read.host is None else str(refused)
+            refusals.append(f"line {number}: {said_why}")
+            continue
+        try:
             changes.append((row, _typed(read, row, given, held)))
         except (overrides.Refused, _Refused) as refused:
             refusals.append(f"line {number}: {refused}")
@@ -903,20 +917,78 @@ def _edited(path: Path, command: list[str]) -> str:
         return path.read_text(encoding="utf-8")
     except UnicodeDecodeError:
         raise _Refused(NOT_TEXT) from None
+    except OSError as error:
+        raise _Refused(NO_DOCUMENT.format(why=error.strerror or error)) from None
+
+
+def _command() -> list[str]:
+    """The editor's command: VISUAL's, else EDITOR's, split as a shell splits it, else vi."""
+    import shlex
+
+    variable = "VISUAL" if os.environ.get("VISUAL") else "EDITOR"
+    try:
+        return shlex.split(os.environ.get(variable) or "") or ["vi"]
+    except ValueError as error:
+        raise _Refused(NOT_A_COMMAND.format(variable=variable, why=error)) from None
+
+
+def _moved(read: Read, layers: overrides.Layers, now: overrides.Layers, changes: Sequence[tuple]) -> list[str]:
+    """Each file the changes are written in that another write changed since layers was read, as a sentence names it."""
+    moved = []
+    for row, _value in changes:
+        file, digest = _file(read, layers, row)
+        if digest != _file(read, now, row)[1] and file not in moved:
+            moved.append(file)
+    return moved
+
+
+def _apply(read: Read, layers: overrides.Layers, changes: Sequence[tuple[registry.Row, object]]) -> int:
+    """The changes written, each file once with all its changes (set_many), the files in the order the document
+    gives them; where one is refused, what was written before it said, and which files those are."""
+    groups: dict[str, tuple[str, dict[str, object], list[str], list[list]]] = {}
+    for row, value in changes:
+        file, digest = _file(read, layers, row)
+        _digest, values, removed, lines = groups.setdefault(file, (digest, {}, [], []))
+        if value is None:
+            removed.append(row.name)
+            lines.append([screen.seg(f"reset {row.name} in {file}", "y")])
+        else:
+            values[row.name] = value
+            written = text.one_line(f"wrote {row.name}: {json_text.dumps(value, ensure_ascii=False)}", 1000)
+            lines.append([screen.seg(f"{written} in {file}", "y")])
+    said_lines: list[list] = []
+    done: list[str] = []
+    for file, (digest, values, removed, lines) in groups.items():
+        try:
+            overrides.set_many(read.home, read.host, digest, values=values, removed=removed, environ=read.environ)
+        except REFUSALS as refused:
+            _print(said_lines)
+            status = _refusal(refused)
+            if done:
+                verb = "was" if len(done) == 1 else "were"
+                print(f"error: {PARTLY.format(written=', '.join(done), verb=verb, file=file)}", file=sys.stderr)
+            return status
+        done.append(file)
+        said_lines += lines
+    flag = read.host if read.host and read.many else ""
+    notes = list(dict.fromkeys(note for row, _value in changes for note in applies(row.name, flag)))
+    said_lines.append([screen.seg(f"  {WHOLE}")])
+    said_lines += [[screen.seg(f"  {piece}")] for note in notes for piece in screen.fill(note, WIDTH - 2)]
+    _print(said_lines)
+    return EXITS["done"]
 
 
 def edit(run: Any, *, host: str | None = None) -> int:
     """edit: every setting the writes take in the editor (VISUAL, EDITOR or vi), and on its return each changed line
     written as --value or --reset writes it, all of them once none is refused; a line refused is said by its number
-    and the document offered again. Refused with no terminal. Returns the exit status."""
-    import shlex
+    and the document offered again, and so is the document where another write changed a file it writes meanwhile.
+    Each file is written once, with all its changes. Refused with no terminal. Returns the exit status."""
     import tempfile
 
     if not sys.stdin.isatty():
         return _refused(said(NO_TERMINAL, {"edit": _EDIT}))
-    command = shlex.split(os.environ.get("VISUAL") or os.environ.get("EDITOR") or "") or ["vi"]
-    lines: list[list] = []
     try:
+        command = _command()
         read, layers = _start(host)
         entries = _entries(read)
         held = _hunted(read)
@@ -925,6 +997,12 @@ def edit(run: Any, *, host: str | None = None) -> int:
             path.write_text(_document(read, entries), encoding="utf-8")
             while True:
                 changes, refusals = _changes(_edited(path, command), entries, read, held)
+                if not refusals:
+                    # Read again: where another write changed a file meanwhile, nothing is written. The document is
+                    # offered again, its changes still those the person made to what was first read.
+                    now = overrides.read(read.home, read.host, environ=read.environ)
+                    refusals = [MEANWHILE.format(file=file) for file in _moved(read, layers, now, changes)]
+                    layers = now
                 if not refusals:
                     break
                 for each in refusals:
@@ -936,26 +1014,9 @@ def edit(run: Any, *, host: str | None = None) -> int:
         if not changes:
             _print([[screen.seg(UNCHANGED, "d")]])
             return EXITS["done"]
-        digests: dict[str, str] = {}
-        for row, value in changes:
-            file, digest = _file(read, layers, row)
-            digest = digests.get(file, digest)
-            if value is None:
-                digests[file] = overrides.unset(read.home, row.name, read.host, digest, environ=read.environ)
-                lines.append([screen.seg(f"reset {row.name} in {file}", "y")])
-            else:
-                digests[file] = overrides.set(read.home, row.name, value, read.host, digest, environ=read.environ)
-                written = text.one_line(f"wrote {row.name}: {json_text.dumps(value, ensure_ascii=False)}", 1000)
-                lines.append([screen.seg(f"{written} in {file}", "y")])
     except REFUSALS as refused:
-        # What was written before a write was refused stands: said first.
-        _print(lines)
         return _refusal(refused)
-    notes = list(dict.fromkeys(note for row, _value in changes for note in applies(row.name, "")))
-    lines.append([screen.seg(f"  {WHOLE}")])
-    lines += [[screen.seg(f"  {piece}")] for note in notes for piece in screen.fill(note, WIDTH - 2)]
-    _print(lines)
-    return EXITS["done"]
+    return _apply(read, layers, changes)
 
 
 def settings(run: Any, **given: Any) -> int:
