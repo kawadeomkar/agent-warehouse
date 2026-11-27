@@ -3730,8 +3730,8 @@ is settled from.
 `lib/claude_vm/guest/` is where what the engine does inside a machine goes: the helper, which is sent to the machine
 and never installed there, and the inputs of the system layer, which Ansible converges as a child with built-in modules
 only, and layer 2, the rest of the work, in plain code. It imports `ssh/`, `schema/`, `fleet/` and `runs/` (the one
-starter of a child, and the run's directory), and of `vendors/` the verified downloads and the proxy's choice, which
-layer 2's install of Claude Code reads its release by; nothing of `engine/`, `cli/` or `control/`, and no pydantic. A plugin
+starter of a child, and the run's directory), and of `vendors/` the verified downloads, the vendored keys, the proxy's
+choice and the trust's refusal, which layer 2's install of Claude Code reads its release by; nothing of `engine/`, `cli/` or `control/`, and no pydantic. A plugin
 of that Ansible child is the one code of the new engine that imports `ansible`. It lives under `guest/ansible/`, where
 the child's own configuration names it.
 
@@ -4144,24 +4144,30 @@ Code is installed, today's `install_native.yml` and `install_npm.yml` in plain c
 it reads `claude_code_install_method` and `claude_code_download_url`, the role's options passed through by their own
 names (the role's own defaults where none is set, held equal to them), `claude_code_version`, held to stable, latest or
 a release's version before anything runs, and `tls_ca_file` and `network_proxy` for this computer's reads. Natively, the
-default, the probe runs the launcher's `--version` as the machine's account, a channel installs only where nothing is
-installed and an exact version where another is; the release is settled here by `vendors/downloads.py`'s
+default, the probe reads as the machine's account what `~/.local/bin/claude` resolves to and that file's SHA-256, and
+runs nothing of it: an install counts only where the launcher resolves to a release's file under
+`~/.local/share/claude/versions/` (the layout the binary's own `install` keeps, which the helper's probe reads the
+version from) and that file is the binary the signed manifest of its version gives, and anything else is installed
+over; a channel installs only where no such install is and an exact version where another is; the release is settled here by `vendors/downloads.py`'s
 `claude_release` (§16.7), which returns the version and the digests only once Anthropic's signature of its manifest
 verified by the vendored key, so this module verifies nothing itself. The machine's platform is read (`uname -m`,
 today's map) and a release with no binary for it refused; then, as the account, three calls: the binary downloaded by
 the machine's `curl` (https alone, bounded) into `~/.claude/downloads` and its SHA-256 said back and held here to the
 manifest's; its digest checked again on the machine and only then its own `install` of that exact release run, never a
-channel's name, bounded there by `timeout`, and what `~/.local/bin/claude` resolves to said back and held to the same
-digest; and the download removed, whatever happened. The installer script is never used. Under `npm`, as root:
+channel's name, bounded there by `timeout`, and what `~/.local/bin/claude` resolves to held to that release's file
+under `~/.local/share/claude/versions/` and to the same digest, the launcher removed where it is not; and the download
+removed, whatever happened. The installer script is never used. Under `npm`, as root:
 `npm --version` must answer, `npm ls -g --depth=0 --json` is read, and `@anthropic-ai/claude-code` is installed with
 `npm install -g` where it is absent, with its version only where an exact one is wanted, so a channel installs once and
-an exact version moves it, and what npm lists after is held to it. The difference names the release installed and the
+an exact version moves it, and what npm lists after is held to it (`guest/npm.py` reads the list; `guest/states.py`
+reads it too, as the account, for a machine whose method is npm, since the probe reads the native launcher alone). The difference names the release installed and the
 one wanted. `tests/unit/test_aw_claude_install.py` carries `test_signed_downloads.py`'s cases against the step, on F30's
 stand-in machines and the fake download server over TLS with keys of the test's own: each method installing once, a
 second run applying nothing, an exact version moving it, a manifest that does not verify, of another release or past
-its cap, a binary not the manifest's never run, a launcher that resolves elsewhere refused, the download gone whatever
-happened, `stable` never npm's version, npm not answering and a sudo that wants a password each a named failure, the
-version `guest.states` reads after it, the steps' runner, and a scan of the step's source: no channel's name in an
+its cap, a binary not the manifest's never run (on this computer, and on the machine where the download changes between
+the two calls), a launcher that resolves elsewhere refused and removed on every run, a launcher the step did not verify
+installed over, the download gone whatever happened, `stable` never npm's version, npm not answering and a sudo that wants a password each a named failure, the
+version `guest.states` reads after it by each method, the steps' runner, and a scan of the step's source: no channel's name in an
 `install` argument and no URL of the installer script.
 
 **How the engine's tests reach a machine.** A test of the new engine reaches no real machine: it reaches a stand-in,
