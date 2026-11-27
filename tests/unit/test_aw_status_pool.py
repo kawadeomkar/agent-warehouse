@@ -44,6 +44,8 @@ FLEET_VMS = {9010: "alpha", 9011: "beta", 9012: "gamma"}
 # one "unread" line of its own and one of the node's other VMs, never a row: the comparison holds it apart so.
 DOWN = (8001,)
 LISTED = list(FLEET_VMS.values())
+# The folder _aw's checkout is made under: long, as macOS's temporary folders are (lines.py names the program by it).
+LONG = "a-checkout-at-a-long-path-" * 4
 # The sections read through the API alone: no VM is dialled, so the two reports are the API's reads alone.
 API_ONLY = "vms,storage,capacity"
 # What differs between tools/status's report and aw status's, by key, each with why: dropped from both before they are
@@ -94,8 +96,10 @@ def made(home, tmp_path, pki, engine_guard):
 
 
 def _aw(made, home, tmp_path, *words, env=None, first=None):
-    # A checkout of the test's own, made once a test, whose lib/ is this checkout's, which names status's handler.
-    where = tmp_path / "made"
+    # A checkout of the test's own, made once a test, whose lib/ is this checkout's, which names status's handler. At a
+    # long path, as macOS's temporary folders are: a line names the program by its path, so every command is longer
+    # than a field's limit (status/model.py's FIELD_LIMIT), and must still be whole.
+    where = tmp_path / LONG / "made"
     checkout = where / "checkout" if where.exists() else _checkout(where, {})
     on_path = (first,) if first is not None else (refusing_ssh(home),)
     return run_launcher(
@@ -392,6 +396,8 @@ def test_a_vm_with_no_host_key_filed_here_is_never_dialled(made, home, tmp_path)
     report = _report(ran)
     running = [vm["name"] for vm in report["vms"] if vm["status"] == "running"]
     assert running == ["alpha", "beta"]
+    # Its way on names the program by the checkout's long path, past a field's limit, and is kept whole.
+    assert len(f"{tmp_path / LONG}/made/checkout/aw deploy alpha") > model.FIELD_LIMIT
     for name in running:
         said = [item for item in report["attention"] if item["vm"] == name and "no host key" in item["text"]]
         assert said and said[0]["level"] == "unread", report["attention"]

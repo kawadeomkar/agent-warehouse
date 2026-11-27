@@ -45,6 +45,9 @@ SSH_SECTIONS = frozenset({"access", "sign-ins", "system", "work"})
 FIELD_LIMIT = 120
 LINE_LIMIT = 400
 LINE_KEYS = frozenset({"line", "grant", "lines"})
+# The keys that carry a command beside those ending _command: an attention item's, and the way on of a VM not read
+# for the hop's sake or with no host key filed (the engine's unread_through), which the report makes an item's.
+COMMAND_KEYS = frozenset({"command", "hop_hint"})
 GIB = 1024**3
 LEVELS = ("unread", "problem", "todo")
 # The configuration keys the report reads from a VM's config: nothing else, cipassword among what is left out. The
@@ -94,16 +97,20 @@ def _host_flag(settings):
     return f" {flag}" if flag else ""
 
 
+def _commands_key(key):
+    return key in COMMAND_KEYS or str(key).endswith("_command")
+
+
 def status_clean(value, limit=FIELD_LIMIT, commands=FIELD_LIMIT):
     """``value`` with every string in it made one line of plain text: a role's line (key "line"), a node's grant
-    lines (key "grant") and aw's printed lines (key "lines") cut to LINE_LIMIT, a VM's commands (keys ending _command)
-    to ``commands``, every other string to ``limit``. aw's road gives LINE_LIMIT for ``commands``: its commands are the
-    printer's whole lines, whose --host comes last, after a checkout's path of any length. Keys are cleaned too.
-    Numbers, booleans and None are kept."""
+    lines (key "grant") and aw's printed lines (key "lines") cut to LINE_LIMIT, a command (keys ending _command and
+    COMMAND_KEYS) to ``commands``, every other string to ``limit``. aw's road gives LINE_LIMIT for ``commands``: its
+    commands are the printer's whole lines, whose --host comes last, after a checkout's path of any length. Keys are
+    cleaned too. Numbers, booleans and None are kept."""
     if isinstance(value, dict):
         return {
             one_line(k, limit): status_clean(
-                v, LINE_LIMIT if k in LINE_KEYS else commands if str(k).endswith("_command") else limit, commands
+                v, LINE_LIMIT if k in LINE_KEYS else commands if _commands_key(k) else limit, commands
             )
             for k, v in value.items()
         }
@@ -1132,13 +1139,14 @@ def _storage_items(storages):
     return items
 
 
-def status_report(found, read_at="", now=None, live=False):
+def status_report(found, read_at="", now=None, live=False, commands=FIELD_LIMIT):
     """The report's model, from what every host found: localhost's ``fleet``, and each VM's parts by its name.
 
     ``found`` is {host: status_found}. With ``live``, a VM's part not read yet is pending rather than "not read",
-    and nothing is ranked: the model of a frame drawn while the run goes on."""
+    and nothing is ranked: the model of a frame drawn while the run goes on. ``commands`` is how long a command is
+    kept (status_clean's, the engine's Run.commands): whole on aw's road."""
     now = time.time() if now is None else now
-    found = status_clean(found or {})
+    found = status_clean(found or {}, commands=commands)
     read_at = one_line(str(read_at or ""), FIELD_LIMIT)
     fleet = (found.get("localhost") or {}).get("fleet") or {}
     settings = dict(fleet.get("settings") or {})

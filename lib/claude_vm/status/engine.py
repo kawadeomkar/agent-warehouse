@@ -112,6 +112,8 @@ class Screen:
         self.found: dict = {}
         # The commands the report names printed whole, by key (model.py's _line), once the settings are loaded.
         self.lines = None
+        # How long a command the report keeps (Run.commands), once the run is made.
+        self.commands = model.FIELD_LIMIT
         self.sections = sections
         self.quiet = quiet
         self.started = time.monotonic()
@@ -137,7 +139,7 @@ class Screen:
             title = f"agent-warehouse  {self.now_said()} · reading Proxmox"
             text = status_view.skeleton_text(title, self.sections, self.color, glyph=glyph, cols=cols - 1)
             return text.split("\n") + [model.one_line(f"{glyph} listing the VMs · {elapsed}", cols - 1)]
-        report = model.status_report(dict(self.found), self.now_said(), time.time(), live=True)
+        report = model.status_report(dict(self.found), self.now_said(), time.time(), live=True, commands=self.commands)
         text = status_view.status_text(report, self.color, glyph=glyph, cols=cols - 1, lines=self.lines)
         api = [vm["name"] for vm in report["vms"] if vm.get("pending_api")]
         ssh = [vm["name"] for vm in report["vms"] if vm.get("pending_ssh")]
@@ -476,7 +478,8 @@ def _aliases(fleet):
 class Run:
     """One run: the fleet read, each VM read beside it, each piece drawn as it lands."""
 
-    # A VM's commands cut to a field's length on today's road, kept whole on aw's (model.status_clean).
+    # A command (model.status_clean's: a VM's, an attention item's, a way on) cut to a field's length on today's
+    # road, kept whole on aw's.
     commands = model.FIELD_LIMIT
 
     def __init__(self, opts, screen, config, reader=None, program="just"):
@@ -674,7 +677,7 @@ class Run:
         return ThreadPoolExecutor(max_workers=max(1, min(count, int(self.fleet["forks"]))))
 
     def clean(self, value):
-        """``value`` made plain text for the screen, a VM's commands cut to this road's length."""
+        """``value`` made plain text for the screen, its commands cut to this road's length."""
         return model.status_clean(value, commands=self.commands)
 
     # --- the fleet ------------------------------------------------------------------------------------------------
@@ -1024,8 +1027,11 @@ def run(opts, loader=settings.load, reader=None, program="just") -> int:
         if config["run"].get("only") and not opts.only:
             screen.sections = sections = settings.sections(config["run"]["only"])
         reading = Run(opts, screen, config, reader, program)
+        if isinstance(screen, Screen):
+            screen.commands = reading.commands
         reading.go()
-        report = reading.reader.report(reading, model.status_report(dict(screen.found), screen.now_said(), time.time()))
+        found = model.status_report(dict(screen.found), screen.now_said(), time.time(), commands=reading.commands)
+        report = reading.reader.report(reading, found)
         screen.finish(report)
         if opts.json and not opts.emit:
             sys.stdout.write(json.dumps(report, indent=4, sort_keys=True) + "\n")
