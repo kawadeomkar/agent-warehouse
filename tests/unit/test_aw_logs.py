@@ -23,6 +23,7 @@ import os
 import subprocess
 import sys
 import time
+import types
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -31,6 +32,7 @@ import pytest
 from aw_kit import aw_at_a_terminal, run_aw
 from harness import REPO
 
+from claude_vm import runs
 from claude_vm.fleet import paths
 from claude_vm.runs import attached, prune, textlog
 from claude_vm.runs import job as jobs
@@ -373,6 +375,67 @@ def test_a_retention_that_is_no_number_prunes_nothing_and_says_so(jobs_dir, log_
         pruned = prune.prune(log_dir, jobs_dir, retention)
         assert pruned.said == ["warning: LOG_RETENTION_DAYS must be a number of days; nothing pruned"]
     assert old_log.exists()
+
+
+def test_a_linked_log_dir_is_refused_before_anything_in_it_is_pruned_and_its_target_s_logs_are_kept(
+    tmp_path, jobs_dir, capsys
+) -> None:
+    target = tmp_path / "elsewhere"
+    target.mkdir()
+    old_log = target / "20251007-203015-deploy.log"
+    old_log.write_text("a run of last year\n")
+    _back(old_log)
+    link = tmp_path / "logs"
+    link.symlink_to(target)
+    # The prune alone passes over a LOG_DIR that is a link, and says so.
+    pruned = prune.prune(link, jobs_dir, "0")
+    assert (pruned.logs, pruned.said) == ([], [f"warning: LOG_DIR {link} is a link: no log is pruned through it"])
+    assert old_log.read_text() == "a run of last year\n"
+    # A run holds LOG_DIR to be a folder before it prunes: the link is refused first, so the prune never meets it.
+    made = jobs.create(jobs_dir, "deploy", "aw deploy alpha", "pve", [], {"kind": "terminal"}, True)
+    try:
+        draft = types.SimpleNamespace(logs=textlog.Logs(link, "0"), attached=True, jobs_dir=jobs_dir, verb="deploy")
+        runs._logged(made, draft)
+        said = capsys.readouterr().err.splitlines()
+        assert len(said) == 1 and said[0].startswith("warning: no text log for this run: error: "), said
+        assert "is a link" in said[0] and made.read().get("log") is None
+    finally:
+        textlog.finish(made)
+        jobs.drop(made)
+    assert sorted(path.name for path in target.iterdir()) == [old_log.name]
+    assert old_log.read_text() == "a run of last year\n"
+
+
+def test_a_prune_reads_a_job_s_age_before_its_lock_and_never_tries_a_young_one_s(jobs_dir, monkeypatch) -> None:
+    # A folder another run's create is making: its lock file there, no record yet, made this instant.
+    young = jobs_dir / "3f9a0c1e7b2d4a58"
+    young.mkdir(parents=True)
+    (young / "lock").write_text("")
+    old = jobs_dir / "3f9a0c1e7b2d4a59"
+    old.mkdir()
+    _back(old)
+    tried: list[str] = []
+    held = jobs.lock_held
+
+    def lock_held(job: jobs.Job) -> bool:
+        tried.append(job.id)
+        return held(job)
+
+    monkeypatch.setattr(jobs, "lock_held", lock_held)
+    pruned = prune.prune(None, jobs_dir, "0")
+    assert (tried, pruned.jobs) == ([old.name], [old.name])
+    assert young.is_dir()
+
+
+def test_inside_holds_an_entry_by_its_real_path_and_refuses_a_link_that_leads_out(tmp_path) -> None:
+    folder = tmp_path / "logs"
+    folder.mkdir()
+    outside = tmp_path / "20261007-203015-deploy.log"
+    outside.write_text("kept\n")
+    (folder / "20261007-203015-deploy.log").write_text("a run\n")
+    (folder / "20261007-203016-deploy.log").symlink_to(outside)
+    assert prune._inside(folder / "20261007-203015-deploy.log", folder)
+    assert not prune._inside(folder / "20261007-203016-deploy.log", folder)
 
 
 def test_a_prune_never_reaches_the_key_file_client_yml_or_the_fleet_whatever_a_record_names(

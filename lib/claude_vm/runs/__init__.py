@@ -124,7 +124,9 @@ def run(draft: Draft, body: Body) -> int:
 
 def _logged(made: Job, draft: Draft) -> None:
     """The prune, then the run's text log, for a run that writes one: LOG_DIR's, or a detached run's own in its job's
-    folder where LOG_DIR is empty. What either could not do is said on standard error, and the run goes on."""
+    folder where LOG_DIR is empty. LOG_DIR is held to be a folder of its own (textlog's _kept: never a link) before
+    anything in it is pruned: one that is refused has nothing in it pruned and gets no log, and the jobs are pruned
+    still. What could not be done is said on standard error, and the run goes on."""
     import sys
 
     from claude_vm.runs import prune, textlog
@@ -132,8 +134,17 @@ def _logged(made: Job, draft: Draft) -> None:
     logs = draft.logs
     if logs is None or (logs.folder is None and draft.attached):
         return
+    folder = logs.folder
+    if folder is not None:
+        try:
+            textlog._kept(folder)
+        except Exception as error:  # a LOG_DIR refused is pruned through never, and the run goes on with no log
+            print(f"warning: no text log for this run: {error}", file=sys.stderr)
+            for said in prune.prune(None, draft.jobs_dir, logs.retention).said:
+                print(said, file=sys.stderr)
+            return
     try:
-        for said in prune.prune(logs.folder, draft.jobs_dir, logs.retention).said:
+        for said in prune.prune(folder, draft.jobs_dir, logs.retention).said:
             print(said, file=sys.stderr)
         textlog.start(made, logs, draft.verb, draft.attached)
     except Exception as error:  # neither stops the run: its record is written whatever its log

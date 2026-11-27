@@ -2603,13 +2603,17 @@ began, and so left no job, leaves no log either.
 **The prune: `prune.py`.** When a run that writes a log starts, `prune(log_dir, jobs_dir, retention)` deletes what is
 older than `LOG_RETENTION_DAYS` (14 where it is not set; a value that is no whole number prunes nothing and says so),
 as `find -mtime +<days>` counts it, and three kinds of thing alone: a file at `LOG_DIR`'s top named as a log is
-(`LOG_NAME`, today's `[0-9]*-*.log`), never a link; a job's folder, named by a job's ID, a directory and never a
-link, whose lock is free (`lock_held`), aged by its end, else its record's last change (a run killed outright), else
-the folder's own (a folder a drop could not empty, which has no record); and the short-lived directory that job's run
+(`LOG_NAME`, today's `[0-9]*-*.log`), never a link, and only where `LOG_DIR` is itself a folder: `runs.run` holds it
+to be one (textlog's `_kept`, never a link) before the prune, and a `LOG_DIR` that is a link has nothing in it pruned
+and the run no log; a job's folder, named by a job's ID, a directory and never a link, whose lock is free
+(`lock_held`), aged by its end, else its record's last change (a run killed outright), else the folder's own (a folder
+a drop could not empty, which has no record), the age read first and the lock only of a job old enough, so another
+run's `create`, whose lock is taken without waiting, never meets the prune's; and the short-lived directory that job's run
 left (`rundir.py`'s, which nothing else removes once its run was killed), only where the record names one of its form,
 `aw-run-<that job's ID>-…`, a directory, this account's. A job whose lock is held is a run that lives and is never
-pruned, whatever its age; one whose lock cannot be read is said by its ID and kept, never read as free. Each path is
-held, before it goes, to be what it is said to be by its real path, so the vault's key file, `client.yml` and the
+pruned, whatever its age; one whose lock cannot be read is said by its ID and kept, never read as free. A log and a
+job's folder are held, before they go, to be entries of `LOG_DIR` and the jobs folder by their real paths, and a run's
+directory to be of its job's name and this account's, so the vault's key file, `client.yml` and the
 fleet's folder, which lie outside every one of them, are never reached, whatever a record says. Today's MCP server
 prunes its own jobs at a fixed 14 days (`lib/claude_vm/mcp/server.py`); this prune is the new engine's.
 
