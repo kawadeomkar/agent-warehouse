@@ -138,8 +138,8 @@ def test_a_write_puts_one_block_a_vm_and_the_include_at_the_top_and_a_second_cha
     assert _mode(files.user) == _mode(files.config) == "0o600" and _mode(files.config.parent) == "0o700"
     resolved = _resolve(ssh, home, files.config)
     assert (resolved["hostname"], resolved["user"], resolved["serveraliveinterval"]) == ("192.0.2.51", "dev", "30")
-    # The run's scratch file is gone with the write: nothing of it is left in the run's directory.
-    assert not rundir.path_for(job, engine_aliases.SCRATCH).exists()
+    # The run's scratch files are gone with the write: nothing of them is left in the run's directory.
+    assert not list(rundir.made(job).glob(f"{engine_aliases.SCRATCH}*"))
     # And a second write changes nothing: neither file is written again.
     before = (files.config.stat().st_mtime_ns, files.user.stat().st_mtime_ns)
     again = _write(job, files, [ALPHA, BETA], _rules(ssh, home))
@@ -431,6 +431,41 @@ def test_an_include_below_a_host_block_does_not_count(job, files, ssh, home) -> 
     # And a second write leaves it at that.
     _write(job, files, [ALPHA], _rules(ssh, home))
     assert files.user.read_text() == f"Include {files.config}\n{before}"
+
+
+@pytest.mark.parametrize("above", ["Host github.com\n    User git\n", "Match host github.com\n    User git\n"])
+def test_our_exact_include_below_a_host_or_match_line_is_not_taken_for_there(job, files, ssh, home, above) -> None:
+    # The line as this product writes it, unindented, below the person's own block (moved there so that their entries
+    # win): ssh reads it for that block's hosts alone, so it does not count and ssh is asked; the line goes on top.
+    files.user.parent.mkdir(mode=0o700)
+    before = f"{above}Include {files.config}\n"
+    files.user.write_text(before)
+    assert _resolve(ssh, home, files.user)["hostname"] == "alpha"
+    assert _write(job, files, [ALPHA], _rules(ssh, home)).include == "added"
+    assert files.user.read_text() == f"Include {files.config}\n{before}"
+    assert _resolve(ssh, home, files.user)["hostname"] == "192.0.2.51"
+
+
+def test_our_include_below_a_host_star_that_ssh_reads_is_not_added_again(job, files, ssh, home) -> None:
+    # Below a block that matches every host, ssh -G says the managed file is reached: nothing is added.
+    files.user.parent.mkdir(mode=0o700)
+    before = f"Host *\n    ServerAliveInterval 30\nInclude {files.config}\n"
+    files.user.write_text(before)
+    assert _write(job, files, [ALPHA], _rules(ssh, home)).include == "there"
+    assert files.user.read_text() == before
+
+
+def test_a_crlf_user_config_keeps_every_byte_when_the_include_is_added(job, files, ssh, home) -> None:
+    files.user.parent.mkdir(mode=0o700)
+    before = b"# mine\r\nHost github.com\r\n    User git\r\n"
+    files.user.write_bytes(before)
+    assert _write(job, files, [ALPHA], _rules(ssh, home)).include == "added"
+    # The rest as it was, byte for byte, and the one line added ending as the file's lines do.
+    assert files.user.read_bytes() == f"Include {files.config}\r\n".encode() + before
+    assert _resolve(ssh, home, files.user)["hostname"] == "192.0.2.51"
+    # And a second write finds it there and writes nothing.
+    assert _write(job, files, [ALPHA], _rules(ssh, home)).include == "there"
+    assert files.user.read_bytes() == f"Include {files.config}\r\n".encode() + before
 
 
 def test_an_include_ssh_does_not_expand_is_not_taken_for_ours(job, files, ssh, home) -> None:
@@ -770,3 +805,37 @@ def test_a_write_that_met_the_file_changed_works_its_text_out_again_from_the_new
     monkeypatch.setattr(engine_aliases, "swap", racing)
     _write(job, files, [BETA], _rules(ssh, home))
     assert raced and _blocks(files.config.read_text()) == ["alpha", "theirs", "beta"]
+
+
+def test_writes_of_one_run_side_by_side_each_validate_their_own_text_and_all_are_written(
+    job, files, ssh, home, monkeypatch
+) -> None:
+    # As configure writes each machine's alias at once in one run: four writes of one job gathered, every check held
+    # until all four are under way, so that a scratch file they shared would hold one write's text for all four.
+    given = [Alias(f"vm{n}", f"192.0.2.{60 + n}", "dev", f"{IDENTITY[:-1]}{n}") for n in range(1, 5)]
+    real = engine_aliases.shown
+    arrived: list[str] = []
+    seen: list[tuple[str, bool]] = []
+
+    async def held(job_, rules, config, *destination):
+        # The first check of each write waits for the other three, then reads the text it is about to validate.
+        if len(arrived) < len(given):
+            arrived.append(destination[0])
+            while len(arrived) < len(given):
+                await asyncio.sleep(0.01)
+            seen.append((destination[0], f"Host {destination[0]}\n" in Path(config).read_text()))
+        return await real(job_, rules, config, *destination)
+
+    monkeypatch.setattr(engine_aliases, "shown", held)
+
+    async def together() -> list:
+        rules = _rules(ssh, home, include=False)
+        each = [engine_aliases.write(job, files, [alias], rules) for alias in given]
+        return await asyncio.wait_for(asyncio.gather(*each, return_exceptions=True), 120)
+
+    done = asyncio.run(together())
+    assert [getattr(each, "written", each) for each in done] == [(alias.name,) for alias in given]
+    # Each check read the text of its own write, and nothing of the checks is left in the run's directory.
+    assert sorted(seen) == [(alias.name, True) for alias in given]
+    assert sorted(_blocks(files.config.read_text())) == [alias.name for alias in given]
+    assert not list(rundir.made(job).glob(f"{engine_aliases.SCRATCH}*"))

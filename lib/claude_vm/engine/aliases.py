@@ -18,11 +18,13 @@ direct), `User`, a `ProxyJump` where the route gives one, `HostKeyAlias` the VM'
 product's file, `CheckHostIP no`, `UpdateHostKeys no`, `StrictHostKeyChecking` accept-new (or stricter, through the
 options), `IdentityFile` where set, `ForwardAgent` (`no` unless `claude_ssh_forward_agent`), then the options as given.
 The file is read, its new text worked out and handed to the real ssh, `ssh -G -F <it> <alias>` for each alias written,
-from a scratch file in the run's directory, and only then written: under `store.locked`, the file read again and
-replaced whole (`store.replace`) only while it is what was read, else worked out again. Then the `Include`: only where
-`ssh -G -F ~/.ssh/config <first alias>` does not come back with the `HostName` just written, or no line of the file
-names the managed file in a spelling ssh reads, and the line is not there already: one line at its top, the rest of the
-file as it was and its mode kept; never where `claude_ssh_config_include` is off, which says the line to add.
+from a scratch file of that check's own in the run's directory, and only then written: under `store.locked`, the file
+read again and replaced whole (`store.replace`) only while it is what was read, else worked out again. Then the
+`Include`: none where the line is there before the file's first `Host` or `Match` line (where ssh reads it for every
+host); otherwise only where `ssh -G -F ~/.ssh/config <first alias>` does not come back with the `HostName` just written,
+or no line of the file names the managed file in a spelling ssh reads: one line at its top, ending as the file's first
+line does, the rest of the file byte for byte and its mode kept; never where `claude_ssh_config_include` is off, which
+says the line to add. Both files are read with their line endings as they are.
 
 **A removal** (`remove`) takes each named block out, under the same lock, and nothing else; the `Include` stays.
 **The prune** (`refresh` with no names) reads the host's listing and its pool, and removes only what `ssh_config_prune`
@@ -37,10 +39,10 @@ limit; asyncio is imported where it is used.
 
 from __future__ import annotations
 
-import contextlib
 import dataclasses
 import os
 import re
+import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -82,8 +84,11 @@ PINNED = ("hostname", "user", "hostkeyalias", "userknownhostsfile", "checkhostip
 STRICTER = ("yes", "ask", "accept-new")
 STRICT = "stricthostkeychecking"
 JUMPS = ("proxyjump", "proxycommand")
-# The scratch file in the run's directory that ssh validates the managed file's next text from.
-SCRATCH = "ssh-config-check"
+# The start of the name of each scratch file in the run's directory that ssh validates the managed file's next text
+# from: one of its own for each check, so that writes of one run side by side never read or remove each other's.
+SCRATCH = "ssh-config-check-"
+# The first line of an ssh config's first block: an Include after it is read for the hosts that block matches alone.
+BLOCK_START = re.compile(r"\s*(?:host|match)(?:\s|=)", re.I)
 # How many times a write is worked out again where the file changed between its read and its write.
 TRIES = 5
 # The tag the prune's listing gives a VM the fleet owns, or one the pool lists with no name (a node that is down), and
@@ -245,9 +250,11 @@ def body(alias: Alias, rules: Rules, files: Files) -> str:
 
 
 def read(path: Path) -> str | None:
-    """path's text, None where there is no file: Refused where it cannot be read."""
+    """path's text as it is, its line endings kept (a CRLF file stays one), None where there is no file: Refused where
+    it cannot be read."""
     try:
-        return path.read_text(encoding="utf-8")
+        with path.open(encoding="utf-8", newline="") as stream:
+            return stream.read()
     except FileNotFoundError:
         return None
     except (OSError, UnicodeDecodeError) as error:
@@ -270,6 +277,16 @@ def _spellings(files: Files, environ: Mapping[str, str]) -> list[str]:
     if files.config.parent == files.user.parent:
         spelled.append(files.config.name)
     return spelled
+
+
+def ahead(text: str, wanted: str) -> bool:
+    """Whether wanted is a line of text before its first Host or Match line, where ssh reads it for every host."""
+    for each in text.splitlines():
+        if each == wanted:
+            return True
+        if BLOCK_START.match(each):
+            return False
+    return False
 
 
 def included(text: str, files: Files, environ: Mapping[str, str], shown: str, name: str) -> bool:
@@ -367,26 +384,27 @@ def swap(path: Path, before: str | None, after: str) -> bool:
     return True
 
 
-def _scratch(path: Path, text: str | None) -> None:
-    """The scratch file ssh validates, written at the files' mode, or removed (text None)."""
-    if text is None:
-        with contextlib.suppress(FileNotFoundError):
-            path.unlink()
-        return
-    handle = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, paths.FILE_MODE)
-    with os.fdopen(handle, "w", encoding="utf-8") as stream:
-        stream.write(text)
+def _scratch(folder: Path, text: str) -> Path:
+    """A scratch file of its own in folder, made 0600 by mkstemp, holding text, for ssh to validate: its path."""
+    handle, name = tempfile.mkstemp(dir=folder, prefix=SCRATCH)
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8", newline="") as stream:
+            stream.write(text)
+    except BaseException:
+        Path(name).unlink(missing_ok=True)
+        raise
+    return Path(name)
 
 
 async def _validated(job: Job, rules: Rules, text: str, names: Sequence[str]) -> None:
-    """text handed to the real ssh as a config of its own, from a scratch file in the run's directory, for each alias in
-    names: Refused where ssh refuses it."""
+    """text handed to the real ssh as a config of its own, from a scratch file of this check's own in the run's
+    directory, removed after, for each alias in names: Refused where ssh refuses it."""
     import asyncio
 
     from ..runs import rundir
 
-    check = rundir.path_for(job, SCRATCH)
-    await asyncio.to_thread(_scratch, check, text)
+    # path_for holds the job to this process's own and to a run with its directory; the file is mkstemp's.
+    check = await asyncio.to_thread(_scratch, rundir.path_for(job, SCRATCH).parent, text)
     try:
         for name in names:
             ok, _, err = await shown(job, rules, check, name)
@@ -397,7 +415,7 @@ async def _validated(job: Job, rules: Rules, text: str, names: Sequence[str]) ->
                     " left as it was. Look at claude_ssh_options."
                 )
     finally:
-        await asyncio.to_thread(_scratch, check, None)
+        await asyncio.to_thread(check.unlink, missing_ok=True)
 
 
 async def write(job: Job, files: Files, aliases: Sequence[Alias], rules: Rules) -> Written:
@@ -434,12 +452,14 @@ async def _include(job: Job, files: Files, rules: Rules, first: Alias) -> str:
     for _ in range(TRIES):
         text = await asyncio.to_thread(read, files.user)
         if text is not None:
-            if wanted in text.splitlines():
+            if ahead(text, wanted):
                 return "there"
             _, out, _ = await shown(job, rules, files.user, first.name)
             if included(text, files, rules.environ, out, hostname(first, rules)):
                 return "there"
-        if await asyncio.to_thread(swap, files.user, text, f"{wanted}\n" + (text or "")):
+        # The line ends as the file's first line does, so a CRLF file stays one.
+        end = "\r\n" if (text or "").partition("\n")[0].endswith("\r") else "\n"
+        if await asyncio.to_thread(swap, files.user, text, f"{wanted}{end}" + (text or "")):
             return "added"
     raise Refused(f"{files.user} changed under every one of {TRIES} writes, so its Include line was not added")
 
