@@ -8,7 +8,8 @@ that no program a task starts holds it. A child started without one has no event
 
 The events: a play's start (`play`), a task's (`task`), a result (`ok`, `changed`, `failed`, `skipped`, `unreachable`,
 an item of a loop with `item`), a retry (`retry`), a diff (`diff`) and the recap (`stats`), with the task's name and its
-part, the role it is in. A result says its message, and where it failed, was unreachable or the run was given -v, its
+part, the role it is in; a task's start says its module too (`action`), by which F21's check tells a task check mode
+does not evaluate. A result says its message, and where it failed, was unreachable or the run was given -v, its
 output, return code and exception; never more of a result than those, and never of a result Ansible censored for
 no_log: of one, only its kind and its task, and none of its message, exception, warnings, item or diff, which
 ansible-core 2.21 keeps in a censored result's `exception` and `warnings` and hands a callback whole. A diff is written
@@ -146,6 +147,11 @@ def _about(task):
     return {"task": name, "part": part}
 
 
+def _action(task):
+    """The module or action a task calls, by the name Ansible resolved it to where it did."""
+    return getattr(task, "resolved_action", None) or getattr(task, "action", None)
+
+
 def _censored(result):
     """Whether Ansible censored result for no_log: its task's own, or its item's."""
     found = result.result
@@ -243,11 +249,11 @@ class CallbackModule(CallbackBase):
 
     @_hook
     def v2_playbook_on_task_start(self, task, is_conditional):
-        self._write({"event": "task", **_about(task), "handler": False})
+        self._write({"event": "task", **_about(task), "handler": False, "action": _action(task)})
 
     @_hook
     def v2_playbook_on_handler_task_start(self, task):
-        self._write({"event": "task", **_about(task), "handler": True})
+        self._write({"event": "task", **_about(task), "handler": True, "action": _action(task)})
 
     @_hook
     def v2_runner_on_ok(self, result):
