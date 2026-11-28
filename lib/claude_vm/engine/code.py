@@ -13,7 +13,8 @@ files it; a home on the VM (the password database's, read as its account) or a p
 (`vm_projects_dir`) that is not one plain absolute path; `code`'s own directory (`editor_files_dir`, else
 `<projects>/.agent-warehouse`) that is not one, is `/`, is the projects directory, or is the folder opened with the
 Claude terminal on; a folder that is not there, said with what the projects directory holds; and `code`'s own
-directory inside a checkout (a `.git` in any folder from the first below the projects directory down to it), wherever
+directory that is a link or has one on the way below the projects directory, resolves outside it (`RESOLVED`), or is
+inside a checkout (a `.git` in any folder from the first below the projects directory down to it), wherever
 anything goes into it. The schema refuses more than one name and a `--project` that is not one folder name before the
 handler runs (schema/rules.py's `code.2` and `check.project.2`), and `--session` is refused naming card G18, which
 builds it.
@@ -140,7 +141,19 @@ CHECKOUTS = """for d; do
 done
 """
 # The first line of the file $1, after "there", or "absent" where it is no file.
-FIRST_LINE = """if [ -f "$1" ]; then echo there; head -n 1 -- "$1"; else echo absent; fi
+FIRST_LINE = """if [ ! -e "$1" ] && [ ! -L "$1" ]; then echo absent; exit 0; fi
+if line=$(head -n 1 -- "$1" 2>/dev/null); then echo there; printf '%s\\n' "$line"; else echo unreadable; fi
+"""
+# code's own directory $2 as it resolves on the VM, under the projects directory $1: "link" and each of $2 and the
+# folders after it (those from the first below the projects directory down to $2) that is a link, "root" and $1
+# resolved, and, where $2 is there, "real" and $2 resolved; tab-separated.
+RESOLVED = """set -u
+root=$1; ours=$2; shift 2
+for d in "$ours" "$@"; do
+  if [ -L "$d" ]; then printf 'link\\t%s\\n' "$d"; fi
+done
+printf 'root\\t%s\\n' "$(realpath -e -- "$root" 2>/dev/null)"
+if [ -e "$ours" ]; then printf 'real\\t%s\\n' "$(realpath -e -- "$ours" 2>/dev/null)"; fi
 """
 # The directory $1, made with mode $2 where it is not there (its parents as mkdir -p makes them), one there keeping its
 # own: "there" or "made".
@@ -167,7 +180,13 @@ echo written
 """
 # Every command code runs on the VM, by name: the reads, and the writes, each in code's own directory alone. The home is
 # getent's; every other is one of these scripts, given its values as its arguments.
-READS = {"home": ("getent", "passwd"), "folder": FOLDER, "checkouts": CHECKOUTS, "first-line": FIRST_LINE}
+READS = {
+    "home": ("getent", "passwd"),
+    "folder": FOLDER,
+    "resolved": RESOLVED,
+    "checkouts": CHECKOUTS,
+    "first-line": FIRST_LINE,
+}
 WRITES = {"directory": DIRECTORY, "file": FILE}
 # Every command code runs here, by name, beside the window's (the registry's own): the editor's command asked its
 # version, or its extensions, and the extension installed, which is the list's fifth write.
@@ -558,8 +577,10 @@ class Opening:
             raise self.ssh_failed(found, where)
         if lines[0] != "dir":
             raise Failed(self._missing(lines, root, target))
+        folders = [posixpath.join(root, *under[:depth]) for depth in range(1, len(under) + 1)]
+        if writes:
+            await self.resolved(root, files_dir, folders, where)
         if writes and under:
-            folders = [posixpath.join(root, *under[:depth]) for depth in range(1, len(under) + 1)]
             checkouts = await self.read("checkouts", folders, where)
             if checkouts.status != 0:
                 raise self.ssh_failed(checkouts, where)
@@ -579,6 +600,33 @@ class Opening:
             "writes": writes,
             "task_written": task_written,
         }
+
+    async def resolved(self, root: str, files_dir: str, folders: Sequence[str], where: str) -> None:
+        """code's own directory read as it resolves on the VM: Failed where it, or a folder on the way to it below the
+        projects directory, is a link, or where one written inside the projects directory resolves outside it."""
+        name = self.asked.name
+        found = await self.read("resolved", [root, files_dir, *folders], where)
+        fields = [line.split("\t", 1) for line in found.lines]
+        if found.status != 0 or any(len(each) != 2 for each in fields):
+            raise self.ssh_failed(found, where)
+        links = [value for key, value in fields if key == "link"]
+        if links:
+            raise Failed(
+                f"{plain_text(links[0])} on {name} is a link, on the way to code's own directory (editor_files_dir,"
+                f" {files_dir}): code writes only in a directory of its own, never where a link leads. Remove the"
+                " link, or set editor_files_dir to a directory that is none."
+            )
+        real = dict(fields)
+        if (
+            folders
+            and real.get("real")
+            and real.get("root")
+            and not posixpath.normpath(real["real"]).startswith(posixpath.normpath(real["root"]).rstrip("/") + "/")
+        ):
+            raise Failed(
+                f"{files_dir}, code's own directory on {name}, resolves to {plain_text(real['real'])}, outside the"
+                f" projects directory {root}: code writes only in a directory of its own there."
+            )
 
     def _missing(self, lines: Sequence[str], root: str, target: str) -> str:
         """Why the folder is not there, with what the projects directory holds (code.yml's "Fail when the folder is not
@@ -623,19 +671,32 @@ class Opening:
         found = which(candidates, self.host.environ, every)
         probe: dict[str, object] = {"which": found}
         if every:
+            # Each asked in which's order until one says what the row asks: pick_cli takes that first one, and no
+            # command after it is started at all.
             versions = []
             for path in found:
                 status, out, _ = await self.here("version", path, VERSION_SECONDS)
                 if status == 0:
                     versions.append([path, out.rstrip("\n")])
+                    if re.match(str(self.editor["version_re"]), versions[-1][1]):
+                        break
             probe["versions"] = versions
         if self.editor.get("family") == SETTINGS_FAMILY:
             probe.update(editor_settings(self.settings, self.host.environ))
         if settled["task_written"]:
-            head = await self.read("first-line", [posixpath.join(settled["files_dir"], TASKS)], where)
-            lines = list(head.lines) if head.status == 0 else []
-            probe["tasks_head"] = (lines[1] if len(lines) > 1 else "") if lines[:1] == ["there"] else None
+            probe["tasks_head"] = await self.tasks_head(settled, where)
         return probe
+
+    async def tasks_head(self, settled: Mapping[str, Any], where: str) -> str | None:
+        """The first line of the editor's task file in code's directory, None where nothing is there; one that is there
+        but cannot be read is someone else's ("", no marker), left and said by the plan, never taken for absent."""
+        head = await self.read("first-line", [posixpath.join(settled["files_dir"], TASKS)], where)
+        lines = list(head.lines)
+        if head.status != 0 or lines[:1] not in (["absent"], ["there"], ["unreadable"]):
+            raise self.ssh_failed(head, where)
+        if lines[0] == "absent":
+            return None
+        return lines[1] if lines[0] == "there" and len(lines) > 1 else ""
 
     def plan(self, target: fleet.Target, settled: Mapping[str, Any], where: str, probe: Mapping[str, object]) -> dict:
         """The editor's plan of the window, from code.yml's inputs, as the registry returns it: unchanged."""

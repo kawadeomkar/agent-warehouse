@@ -1519,14 +1519,16 @@ not the fleet's, a stopped one with the line that starts it, one with no address
 password database's, read as the VM's account) or `vm_projects_dir` that is not one plain absolute path; `code`'s own
 directory (`editor_files_dir`, else `<projects>/.agent-warehouse`) that is not one, is `/`, is the projects directory or
 the folder opened with the Claude terminal; a folder that is not there, said with what the projects directory holds;
-and `code`'s directory inside a checkout (a `.git` in a folder from the first below the projects directory down to it),
-wherever anything goes into it. Then, in this order - every read and refusal before the alias, so that a plan's
+and `code`'s directory that is a link, or has one on the way below the projects directory, that resolves outside it
+(read as it resolves on the VM), or that is inside a checkout (a `.git` in a folder from the first below the projects
+directory down to it), wherever anything goes into it. Then, in this order - every read and refusal before the alias, so that a plan's
 refusal that says the alias is in place holds - the alias (`aliases.one`, written as `refresh` writes, refused where it
 is not), the editor found here (VS Code: `code` on `PATH`, its Remote - SSH extension installed through its own command
 line where `--list-extensions` lacks it, and its settings read, never written, for what `task.allowAutomaticTasks`
 does, where VS Code itself keeps them (the person's configuration folder, `fleet/paths.py`'s `config_home`, the one
-name of `XDG_CONFIG_HOME`); Zed: each `zeditor`, then `zed`, on `PATH` asked `--version`, the first that says Zed taken, and its tasks file's
-first line read for the marker), the plan, refused where it refuses, and its writes on the VM as its account, all in
+name of `XDG_CONFIG_HOME`); Zed: each `zeditor`, then `zed`, on `PATH` asked `--version` until one says Zed, which is taken and no command after
+it started, and its tasks file's first line read for the marker, one there that cannot be read taken as someone
+else's, left and said), the plan, refused where it refuses, and its writes on the VM as its account, all in
 `code`'s own directory: that directory where anything goes into it (0755 where new), the plan's directories (the same,
 one there keeping its mode), the helpers it names (`playbooks/files/`, unchanged, 0644) and its files, each into a file
 beside it and renamed into place where its bytes or its mode differ. Last the registry's command, started to outlive the
