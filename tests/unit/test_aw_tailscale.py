@@ -11,7 +11,11 @@ test_tailscale.py's canned ones, never a real one. test_tailscale.py is unchange
   gone, the key not sent again; an OAuth client's secret with no tags is never sent; an expired login made by hand is
   left alone; a Tailscale the role did not install, by dpkg or outside it, is reported and left; off is left as it is,
   nothing logged out and nothing removed; the settings of the role's own login are held by one tailscale set; an up
-  that ends Unreachable sends the key never again in its run, and what follows is decided from a settled state.
+  that ends Unreachable sends the key never again in its run, and what follows is decided from a settled state; a join
+  that ran out of time is marked pending, an earlier refusal still in Health not taken for its own, and a refusal
+  named only in Health after the timeout is one; a join waiting for an admin is recorded, and a name already taken,
+  a node still starting and a daemon that does not answer are said; a join still under way is recorded only from a
+  sign-in, never from a node key alone; and a run that hands no record fails by name before the machine is read.
 - The package: the system entry reads what is installed and installs only where Tailscale is the VPN and the role's,
   with the log switch's drop-in written before the package; the play reaches it by the part tailscale alone, and no
   image does.
@@ -369,6 +373,122 @@ def test_a_sign_in_that_ended_after_its_run_is_recorded_as_the_role_s(job, reach
     assert ON_STDIN not in _ts_calls(made)
 
 
+@pytest.mark.parametrize(
+    ("ts", "adopted"),
+    [
+        ({"nodekey": NODE, "state": "NeedsMachineAuth", "prefs-hostname": "alpha"}, True),
+        # HaveNodeKey alone, its login expired: one made by hand under the marker would be taken for the role's.
+        ({"expired": NODE}, False),
+    ],
+    ids=["needs-machine-auth", "node-key-alone"],
+)
+def test_a_join_still_under_way_is_recorded_only_from_a_sign_in_never_from_a_node_key_alone(job, reach, ts, adopted):
+    made = reach(ts=ts, marker=tailscale.PENDING)
+    joined = VpnJoin()
+    assert _run(job, made, KEYS["good"], joined=joined) == step.Ran("succeeded", ((STEP, adopted),))
+    assert _joined(made) == (f"nodekey:{NODE}" if adopted else tailscale.PENDING)
+    assert joined.seen == {made.identity: True}
+    assert ON_STDIN not in _ts_calls(made) and RESENT not in _ts_calls(made)
+
+
+@pytest.fixture
+def quick(monkeypatch):
+    """A join's timeout of one second, which the fake's slow and late keys, and a join waiting for an admin, sleep; a
+    settle of two reads with no pause between them."""
+    monkeypatch.setattr(tailscale, "JOIN_SECONDS", 1)
+    monkeypatch.setattr(tailscale, "SETTLE_SECONDS", 2)
+    monkeypatch.setattr(tailscale, "PAUSE", 0.0)
+
+
+LATE = (
+    "alpha: Tailscale did not join with vault_tailscale_auth_key (timeout waiting for Tailscale service to enter a"
+    ' Running state; check health with "tailscale status"). aw deploy alpha --tags tailscale tries again, or sign in by'
+    " the browser: aw login alpha --only tailscale"
+)
+
+
+@pytest.mark.parametrize(
+    "ts",
+    [{}, {"loginerror": "invalid key: API key does not exist"}],
+    ids=["late", "stale-error"],
+)
+def test_a_join_that_ran_out_of_time_is_still_under_way_and_marked_pending(job, reach, quick, ts):
+    # tailscaled goes on with a join whose --timeout ran out, and the login it ends in is the role's. An earlier
+    # key's refusal still in Health is not this join's: read as one, the late join would be forgotten, and the login
+    # it ends in taken for one made by hand.
+    made = reach(ts=ts)
+    heard = _heard(job)
+    joined = VpnJoin()
+    assert _run(job, made, KEYS["late"], joined=joined).outcome == "succeeded"
+    assert _ts_calls(made).count(ON_STDIN) == 1
+    assert _joined(made) == tailscale.PENDING and joined.seen == {made.identity: True}
+    reports, nexts = _said(heard)
+    assert reports == [LATE] and nexts == {"tailscale": LATE}
+
+
+def test_a_refusal_named_only_in_health_after_a_timeout_is_a_refusal_and_its_marker_gone(job, reach, quick):
+    # Under way by a pending marker of an earlier run, the node with no login is sent the key; the slow key's
+    # refusal comes back as the timeout, its words in Health alone.
+    made = reach(marker=tailscale.PENDING)
+    heard = _heard(job)
+    joined = VpnJoin()
+    assert _run(job, made, KEYS["slow"], joined=joined).outcome == "succeeded"
+    assert _ts_calls(made).count(ON_STDIN) == 1
+    assert _joined(made) is None and joined.seen == {made.identity: False}
+    [report] = _said(heard)[0]
+    assert report.startswith(
+        "alpha: Tailscale refused vault_tailscale_auth_key (invalid key: API key does not exist) - it has expired,"
+    ), report
+
+
+def test_waiting_for_an_admin_is_recorded_and_said(job, reach, quick):
+    made = reach(ts={"needs-approval": ""})
+    heard = _heard(job)
+    joined = VpnJoin()
+    assert _run(job, made, KEYS["good"], joined=joined) == step.Ran("succeeded", ((STEP, True),))
+    assert _joined(made) == f"nodekey:{_state(made, 'nodekey')}" and joined.seen == {made.identity: True}
+    assert _said(heard)[0] == [
+        "alpha: signed in to Tailscale and waiting for an admin to approve it at"
+        " https://login.tailscale.com/admin/machines; it connects by itself once approved."
+    ]
+
+
+def test_a_name_already_taken_is_said_with_the_admin_page(job, reach):
+    made = reach(ts={"name-taken": ""})
+    heard = _heard(job)
+    assert _run(job, made, KEYS["good"]) == step.Ran("succeeded", ((STEP, True),))
+    [report] = _said(heard)[0]
+    assert " as alpha-1.tail1234.ts.net (100.101.102.103)." in report, report
+    assert report.endswith(
+        "A device named alpha is already in your tailnet, likely the VM this one replaced: delete it at"
+        " https://login.tailscale.com/admin/machines, then rename this one to alpha there."
+    ), report
+
+
+def test_a_node_still_starting_is_reported_not_changed(job, reach, quick):
+    # The role's own login, its hostname drifted: nothing is set, and no key sent, until it is settled.
+    running = {"nodekey": NODE, "state": "Running", "prefs-touched": "", "prefs-loggedout": "false"}
+    made = reach(ts={**running, "prefs-wantrunning": "true", "prefs-hostname": "drifted", "starting": ""}, marker=NODE)
+    heard = _heard(job)
+    assert _run(job, made, KEYS["good"]) == step.Ran("succeeded", ((STEP, False),))
+    assert [call for call in _ts_calls(made) if call.startswith(("set", "up"))] == []
+    assert _said(heard)[0] == [
+        "alpha: Tailscale is still connecting (Starting) after 2 seconds, so nothing was changed. aw deploy alpha"
+        " --tags tailscale reads it again."
+    ]
+
+
+def test_a_daemon_the_role_started_that_does_not_answer_fails_by_name(job, reach, quick):
+    made = reach(ts={"daemon-down": ""})
+    ran = _run(job, made, KEYS["good"])
+    assert ran.outcome == "failed"
+    assert ran.why.endswith(
+        "tailscaled is not running on alpha (failed to connect to local tailscaled; it doesn't appear to be running);"
+        " journalctl -u tailscaled on it says why."
+    ), ran.why
+    assert ON_STDIN not in _ts_calls(made)
+
+
 def test_a_state_still_settling_is_read_again_until_it_is_settled(job, reach, monkeypatch):
     monkeypatch.setattr(tailscale, "PAUSE", 0.01)
     made = reach(ts={"nostate-reads": "3"})
@@ -422,6 +542,17 @@ def test_an_up_that_ends_unreachable_is_never_sent_again_in_its_run(job, reach, 
 
 
 # ------------------------------------------------------------------ refused before the machine is read ----
+
+
+@pytest.mark.parametrize("vpn", ["tailscale", "none"])
+def test_a_run_that_hands_no_record_fails_by_name_before_the_machine_is_read(job, reach, vpn):
+    # Read as "never joined", a missing record would send the fleet's key to any node that says it has no login.
+    made = reach()
+    settings = _settings(made, KEYS["good"], vpn=vpn)
+    del settings["tailscale_joined_before"]
+    ran = asyncio.run(step.run_steps(_ctx(job, made, settings), [VpnJoin()]))
+    assert ran.outcome == "failed" and "the run's settings hold no tailscale_joined_before" in ran.why, ran
+    assert made.calls() == [] and _ts_calls(made) == []
 
 
 @pytest.mark.parametrize(

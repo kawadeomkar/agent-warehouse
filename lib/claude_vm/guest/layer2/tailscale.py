@@ -9,8 +9,8 @@ Its settings: the rows `vpn` (Tailscale is managed only where it is `tailscale`)
 (fleet/passthrough.py), where the role's markers are; the store's `tailscale_auth_key`, a `Secret` or none; and what
 the run sets for itself (`RUN_SET`): the machine's name, the host its lines name, whether its Tailscale had a login
 before, which the VM's record keeps in Proxmox (G1's `joined`) and never the machine, and whether a sign-in follows in
-this run. Where Tailscale is chosen, a machine name that is no DNS label, and the method key with no key, are refused
-by name before the machine is read.
+this run. The name and the record are required: a run that hands either not fails by name before the machine is
+read, as do, where Tailscale is chosen, a machine name that is no DNS label and the method key with no key.
 
 **The probe** reads, as root and changing nothing: what dpkg says of the package, the role's marker
 `tailscale-installed` and the node key of the login its join made, `tailscale-joined` (in `tailscale_marker_dir`,
@@ -65,7 +65,8 @@ from claude_vm.ssh import runner
 from claude_vm.status.lines import tailscale_report
 
 # The settings this step reads, by name: the rows, the role's option, the store's secret, and what the run sets for
-# itself, each with its value where it sets none (the machine's name is required).
+# itself, each with its value where it sets none. The machine's name is required, and so is its record: read as
+# "never joined" where the run handed none, it would send the key to any node that says it has no login.
 ROWS = (
     "vpn",
     "tailscale_auth_method",
@@ -80,7 +81,7 @@ ROWS = (
 )
 OPTIONS = {"tailscale_marker_dir": "/var/lib/agent-warehouse"}
 SECRET = "tailscale_auth_key"
-RUN_SET = {"vm_name": None, "host_flag": "", "tailscale_joined_before": False, "tailscale_sign_in_follows": False}
+RUN_SET = {"vm_name": None, "host_flag": "", "tailscale_joined_before": None, "tailscale_sign_in_follows": False}
 CHOSEN = "tailscale"
 METHODS = ("auto", "key", "web")
 # The role's markers in tailscale_marker_dir: the one install.yml writes first, and the node key of the role's login.
@@ -431,7 +432,12 @@ async def settle(ctx: Context, want: Wanted, found: Found) -> Found:
         result = await _run(ctx, STATUS)
         if isinstance(result, runner.Unreachable):
             raise Failed(f"{want.name} was not reached while Tailscale's state was read: {_failure(result)}")
-        up, said, state = False, _failure(result), {}
+        # What tailscale said, as today's role words it (state.yml's tailscale_status_said), or how it ended.
+        up, state = False, {}
+        if isinstance(result, runner.Done):
+            said = _said(result.said) or f"it exited {result.status}"
+        else:
+            said = _failure(result)
         if isinstance(result, runner.Done) and result.status == 0:
             try:
                 state = _map(json.loads("\n".join(result.lines)))

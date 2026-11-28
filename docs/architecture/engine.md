@@ -4600,7 +4600,8 @@ markers `tailscale-installed` and `tailscale-joined` (the node key of the login 
 then `tailscale status --json` a second apart until it is neither `NoState` nor `Starting`, for 30 seconds at most, and
 `tailscale debug prefs` where it runs. `decide(found, wanted)` holds the rules: the key is sent only from a settled
 `NeedsLogin` with no `HaveNodeKey`, on a VM whose record says it never had a login (G1's `joined`, which G9 hands the
-step as `tailscale_joined_before`), under a method that takes it and never an OAuth client's secret with no tags; under
+step as `tailscale_joined_before`, a setting it requires: a run that hands none fails by name before the machine is
+read), under a method that takes it and never an OAuth client's secret with no tags; under
 the method key, a VM that had a login and has none fails, naming why; a Tailscale or a login the role did not make is
 reported and left; only the role's own running login is held to the rows, by one `tailscale set`. The join is `tailscale
 up --auth-key=file:/dev/stdin` with the key on its standard input alone, sent once; the state is read again, settled,
