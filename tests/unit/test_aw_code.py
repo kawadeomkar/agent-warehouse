@@ -28,6 +28,7 @@ import asyncio
 import os
 import shlex
 import stat
+import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
@@ -488,7 +489,9 @@ def test_zed_s_window_opens_with_the_alias_and_the_folder_and_writes_only_in_cod
     assert tasks.read_text().startswith(common.MARKER + "\n") and str(helper) in tasks.read_text()
     assert sorted(path.name for path in root.iterdir()) == [".agent-warehouse"]
     sent = _sent(machine, since)
-    reads, writes = ["home", "folder", "resolved", "checkouts", "first-line"], ["directory"] * 3 + ["file"] * 2
+    reads = ["home", "folder", "resolved", "checkouts", "first-line"]
+    # code's directory, then every path the plan writes looked at for a link before the first is written.
+    writes = ["directory", "resolved"] + ["directory"] * 2 + ["file"] * 2
     assert [name for name, _ in sent] == reads + writes
     for name, words in sent:
         if name in code.WRITES:
@@ -564,6 +567,52 @@ def test_a_link_at_code_s_directory_is_refused_before_any_write(made, tmp_path, 
     said = _refused_before_any_write(made, machine, Editors(tmp_path / "e", extension=True), "delta", "--editor", "zed")
     assert f"{root}/.agent-warehouse on delta is a link" in said
     assert list(led.iterdir()) == []
+
+
+def _script(script: str, *words: str, stdin: str = "") -> str:
+    """One of the module's scripts run here by sh, as the VM runs it: what it printed."""
+    ran = subprocess.run(["sh", "-c", script, "sh", *words], input=stdin, capture_output=True, text=True, check=True)
+    return ran.stdout
+
+
+def test_the_directory_s_and_the_file_s_writes_refuse_a_link_and_write_nothing_through_it(tmp_path) -> None:
+    tmp_path = tmp_path / "scripts"
+    tmp_path.mkdir()
+    led = tmp_path / "led"
+    led.mkdir()
+    (tmp_path / "dir").symlink_to(led)
+    assert _script(code.WRITES["directory"], str(tmp_path / "dir"), "0755") == "link\n"
+    assert list(led.iterdir()) == []
+    theirs = tmp_path / "theirs.json"
+    theirs.write_text("theirs\n")
+    (tmp_path / "tasks.json").symlink_to(theirs)
+    assert _script(code.WRITES["file"], str(tmp_path / "tasks.json"), "0644", stdin="ours\n") == "link\n"
+    assert theirs.read_text() == "theirs\n" and (tmp_path / "tasks.json").is_symlink()
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["dir", "led", "tasks.json", "theirs.json"]
+    assert _script(code.WRITES["file"], str(tmp_path / "ours.json"), "0644", stdin="ours\n") == "written\n"
+
+
+@pytest.mark.parametrize("inner", ["helpers", ".zed"])
+def test_a_link_inside_code_s_directory_stops_every_write_of_the_window(made, tmp_path, inner) -> None:
+    machine = _ready(made)
+    root = machine.home / "projects"
+    ours = root / ".agent-warehouse"
+    ours.mkdir()
+    if inner == "helpers":
+        (root / "repo" / ".git").mkdir(parents=True)
+        led = root / "repo" / "sub"
+    else:
+        led = tmp_path / "elsewhere"
+    led.mkdir()
+    (ours / inner).symlink_to(led)
+    editors = Editors(tmp_path / "e", extension=True)
+    since = len(machine.calls())
+    ran = _code(made, editors, "delta", "--editor", "zed")
+    _ok(ran, 2)
+    assert f"{ours}/{inner} on delta is a link inside code's own directory" in _said(ran)
+    assert list(led.iterdir()) == [] and sorted(path.name for path in ours.iterdir()) == [inner]
+    assert [name for name, _ in _sent(machine, since) if name == "file"] == []
+    assert [each for each in editors.started() if each[1] != "--version"] == []
 
 
 def test_a_stopped_vm_is_refused_with_the_line_that_starts_it_and_never_reached(made, tmp_path) -> None:
