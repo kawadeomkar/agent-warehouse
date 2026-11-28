@@ -16,9 +16,14 @@ and a kill (docs/architecture/engine.md §16.8).
 - SIGHUP or SIGTERM, a closed window or a kill: the tree is ended with that signal, the record says `cancelled` with
   the signal as its reason, and the process puts the signal back to its default and dies of it. After a Ctrl-C, the
   signal is what the record says, and what ignores it is killed SETTLE seconds after it, not at the Ctrl-C's grace.
+  SIGQUIT, a Ctrl-\\, is taken as SIGTERM is, so that a question's change back runs: the tree ended with SIGTERM, never
+  SIGQUIT, whose default writes a core, what was typed and not read thrown away as at a Ctrl-C, and the process dies
+  of SIGQUIT with no core of its own (RLIMIT_CORE).
 - An error the body did not handle: the tree is ended, the record says `failed`, and the error is raised again.
 - A body that returns: what it still holds of its children is ended, and the record says `succeeded` for 0, `failed`
-  for any other status, and `cancelled` for 130.
+  for any other status, and `cancelled` for 130; but `declined` for one that said, by `Context.decline`, that the
+  person's answer ended it, and then returned a status other than 0 and 130 (destroy's no, exit 1): a body says it
+  declined, and an exit status alone never makes it.
 - SIGKILL: nothing is written, and the job reads `lost` once its lock is free (runs/job.py).
 
 While the run lives, a child the terminal stopped for asking a question there (runs/children.py's asking: SIGTTIN or
@@ -33,16 +38,22 @@ GNU `timeout` without --foreground): its step then waits in silence until its ow
 fails as a silence, not as a question. A child meant to outlive the run (children.outlive: the editor, a page's opener)
 is never ended: it is left out of every tree the ladder remembers and ends.
 
-On every path but SIGKILL the terminal is put back as it was found, its echo with it; every child of the registry has
-ended or been ended before the loop closes, since asyncio kills an `ansible-playbook` it still holds when its loop
-closes and leaves the playbook's detached task workers running; the body's asynchronous generators still suspended are
-closed, for SETTLE seconds at most; the run's directory is removed; and the exit record is written last. Then nothing
-holds the process: the engine's blocking calls (asyncio.to_thread) run on daemon threads of the ladder's own, the
-loop's default executor, which are never joined, and where one is still in a call the process ends at once (os._exit)
-once its streams are flushed, an error first said as Python says one, but a line the printer would not write (its
-Unwritten), said in one line as cli/main.py says it, never a traceback. A signal ignored on the way in, as `nohup` or a
-shell's `&` leaves one, stays ignored. No child subreaper and no systemd scope: a shared connection's master daemonises
-out of the tree, so no end here reaches it, where under a subreaper one run's end would cut another run's connection.
+On every path but SIGKILL every child of the registry has ended or been ended before the loop closes, since asyncio
+kills an `ansible-playbook` it still holds when its loop closes and leaves the playbook's detached task workers running;
+the body's asynchronous generators still suspended are closed, for SETTLE seconds at most; the run's directory is
+removed; for a run cancelled, each machine its events gave a stage and no end is ended `cancelled` at that stage
+(UNENDED), since a second Ctrl-C, a SIGTERM or a SIGHUP can end the body before a machine's own end, and one that has an
+end is never given a second; the exit record is written, which has the live view say the run's last words; and then the
+terminal is put back as it was found, its echo with it, and for a run a Ctrl-C or the ladder stopped what was typed and
+not read is thrown away (TCSAFLUSH), never left for the shell. Each Ctrl-C the ladder handles throws away what was typed
+and not read yet, as the terminal's own Ctrl-C does where NOFLSH is off (tui/live_region.py's discard_typed). Then
+nothing holds the process: the engine's blocking calls (asyncio.to_thread) run on daemon threads of the ladder's own,
+the loop's default executor, which are never joined, and where one is still in a call the process ends at once
+(os._exit) once its streams are flushed, an error first said as Python says one, but a line the printer would not write
+(its Unwritten), said in one line as cli/main.py says it, never a traceback. A signal ignored on the way in, as `nohup`
+or a shell's `&` leaves one, stays ignored. No child subreaper and no systemd scope: a shared connection's master
+daemonises out of the tree, so no end here reaches it, where under a subreaper one run's end would cut another run's
+connection.
 
 The tree is the process table's (claude_vm.proc), read with the interrupts held off, and only to end it: nothing here
 decides a job's state from it. No thread blocks a signal: a process forked from a thread starts with that thread's
@@ -81,6 +92,7 @@ from claude_vm.runs import job as jobs
 from claude_vm.schema import printer
 from claude_vm.schema.words import EXITS
 from claude_vm.text import plain_text
+from claude_vm.tui import live_region
 
 if TYPE_CHECKING:
     import asyncio
@@ -88,8 +100,9 @@ if TYPE_CHECKING:
 # How long a run stopped by Ctrl-C gives what it started to end by itself before what is left is ended: today's MCP
 # jobs' STOP_GRACE (lib/claude_vm/mcp/jobs.py), which tests/unit/test_aw_attached.py holds equal.
 STOP_GRACE = 30
-# What ends a run from outside: a kill, and the terminal closing. With SIGINT, the signals the ladder takes.
-OUTSIDE = (signal.SIGTERM, signal.SIGHUP)
+# What ends a run from outside: a kill, the terminal closing, and a Ctrl-\ (SIGQUIT, taken as SIGTERM is). With SIGINT,
+# the signals the ladder takes.
+OUTSIDE = (signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT)
 TAKEN = (signal.SIGINT, *OUTSIDE)
 # How long a step's own end is waited for: a body cancelled, a child signalled from outside or held at the run's end.
 SETTLE = 5
@@ -126,6 +139,8 @@ OWN_ERROR = "aw: the run's own {what} failed: {error}"
 BY_CTRL_C = "Ctrl-C"
 BY_CTRL_C_TWICE = "Ctrl-C twice"
 DONE = "done"
+# Why a machine the run began and never ended is, at a cancelled run's end (_end): its own end never came.
+UNENDED = "stopped: the run ended before this machine's own end"
 # Who stopped a run, in its record's stop.
 BY_TERMINAL = "terminal"
 
@@ -212,7 +227,7 @@ class _Up:
 
 class Context:
     """What a verb's body is given: its job (for the SSH runner and children.start), `cancelled` and `stopping`,
-    `shield`, `typed`, `emit`, the children the run still holds, and the run's directory."""
+    `shield`, `typed`, `emit`, `decline`, the children the run still holds, and the run's directory."""
 
     def __init__(self, job: jobs.Job, directory: Path | None, ladder: _Ladder) -> None:
         import asyncio
@@ -229,6 +244,15 @@ class Context:
     def emit(self, kind: str, machine: str | None, text: str, **data: object) -> jobs.Event:
         """One event of the run (runs/job.py)."""
         return self.job.emit(kind, machine, text, **data)
+
+    def decline(self, why: str) -> None:
+        """The person's answer ends the run, why said as its end: once the body returns a status other than 0 and 130
+        (exit 1, as today's), the record says `declined`, never `failed`, and the view says it as the answer it is. A
+        Ctrl-C, a signal or an error the body raises ends the run as it would have, and a body that goes on and returns
+        0 succeeded."""
+        if not isinstance(why, str):
+            raise TypeError(f"a run declined says why in a str, not a {type(why).__name__}")
+        self._ladder.declined = why
 
     def live(self, kind: str | None = None) -> list[children.Child]:
         """The children the run started that still run, of that kind or of every kind (runs/children.py)."""
@@ -335,37 +359,34 @@ def asked_line(program: str) -> str:
 
 
 def _terminal() -> tuple[int, list] | None:
-    """Standard input's terminal settings as the run found them, to put back at its end; None for no terminal."""
+    """Standard input's terminal settings as the run found them, to put back at its end; None for no terminal, and for
+    a run started in the background, where the settings are the shell's own of the moment, never the run's to put
+    back."""
     import termios
 
     try:
         fd = sys.stdin.fileno()
-        if os.isatty(fd):
+        if os.isatty(fd) and live_region.foreground(fd):
             return fd, termios.tcgetattr(fd)
     except (AttributeError, ValueError, OSError, termios.error):
         pass
     return None
 
 
-def _put_back(found: tuple[int, list] | None) -> None:
-    """The terminal's settings as the run found them, the echo among them, where anything changed them: SIGTTOU held
-    off, so that a run a shell put in the background is not stopped by its own end. A terminal that has gone, after a
-    hangup, is left."""
+def _put_back(found: tuple[int, list] | None, discard: bool) -> None:
+    """The terminal's settings as the run found them, the echo among them, after the run's last words: where anything
+    changed them, drained (TCSADRAIN), so that the terminal has read those words first; and for a run a Ctrl-C or the
+    ladder stopped (discard), flushed (TCSAFLUSH) whatever they are, so that the keys typed meanwhile and not read are
+    thrown away, never left for the shell. Only while the run is the terminal's foreground, SIGTTOU held off, so that a
+    run a shell put in the background leaves the shell's settings and is not stopped by its own end; and with the run's
+    signals held off till it is made (live_region.put_back). A terminal that has gone, after a hangup, is left."""
     if found is None:
         return
     import termios
 
     fd, settings = found
-    try:
-        if termios.tcgetattr(fd) == settings:
-            return
-        held = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTTOU})
-        try:
-            termios.tcsetattr(fd, termios.TCSANOW, settings)
-        finally:
-            signal.pthread_sigmask(signal.SIG_SETMASK, held)
-    except (OSError, termios.error):
-        pass
+    with contextlib.suppress(OSError, ValueError, termios.error):
+        live_region.put_back(fd, termios.TCSAFLUSH if discard else termios.TCSADRAIN, settings, last=True)
 
 
 def _flush() -> None:
@@ -375,8 +396,15 @@ def _flush() -> None:
 
 
 def _die_of(signum: int) -> None:
-    """The process ended by signum, at its default, as a shell expects to see a kill or a hangup end it."""
+    """The process ended by signum, at its default, as a shell expects to see a kill, a hangup or a quit end it: for
+    SIGQUIT with no core, since the run has ended its tree and written its record, and a core of the run's own Python is
+    nobody's to read."""
     _flush()
+    if signum == signal.SIGQUIT:
+        import resource
+
+        with contextlib.suppress(ValueError, OSError):
+            resource.setrlimit(resource.RLIMIT_CORE, (0, resource.getrlimit(resource.RLIMIT_CORE)[1]))
     signal.signal(signum, signal.SIG_DFL)
     signal.pthread_sigmask(signal.SIG_UNBLOCK, {signum})
     os.kill(os.getpid(), signum)
@@ -443,9 +471,11 @@ class _Ladder:
             raise
         self.task: asyncio.Task | None = None
         self.interrupts = 0
-        # The signal that ended the run at once while its body ran: SIGINT for a second Ctrl-C, SIGTERM or SIGHUP.
+        # Why the person's answer ended the run, where the body said so (Context.decline).
+        self.declined: str | None = None
+        # The signal that ended the run at once while its body ran: SIGINT for a second Ctrl-C, or one of OUTSIDE.
         self.cut: int | None = None
-        # SIGTERM or SIGHUP, whenever it came, and when: what the process dies of once its record is written.
+        # One of OUTSIDE, whenever it came, and when: what the process dies of once its record is written.
         self.dies_of: int | None = None
         self.dies_at: float | None = None
         # Every process found under the run, with its start: a child that ends leaves its own under PID 1.
@@ -474,13 +504,19 @@ class _Ladder:
     # ---------------------------------------------------------------- the handler, and what it starts ----
 
     def signalled(self, signum: int, _frame: object) -> None:
-        """The handler of TAKEN, in the run's thread. A first Ctrl-C is the loop's to handle; a second, SIGHUP and
-        SIGTERM end the tree here and, while the body runs, raise Abandoned, so that nothing stuck holds the end. While
-        the interrupts are held (_held) it only takes note, whatever thread the kernel handed the signal to."""
+        """The handler of TAKEN, in the run's thread. A first Ctrl-C is the loop's to handle; a second, and OUTSIDE's
+        (SIGHUP, SIGTERM, SIGQUIT), end the tree here and, while the body runs, raise Abandoned, so that nothing stuck
+        holds the end. While the interrupts are held (_held) it only takes note, whatever thread the kernel handed the
+        signal to."""
         if self.holding:
             self.noted.append(signum)
             return
         ending = self.closing or (self.task is not None and self.task.done())
+        if signum in (signal.SIGINT, signal.SIGQUIT):
+            # What was typed and not read yet thrown away, as the terminal's own Ctrl-C or Ctrl-\ throws it away: a
+            # live region or a question keeps what the terminal has not written at the key (NOFLSH), and the kernel
+            # then keeps what was typed too.
+            live_region.discard_typed()
         if signum == signal.SIGINT:
             self.interrupts += 1
             if self.interrupts == 1:
@@ -495,7 +531,11 @@ class _Ladder:
                 return
             self.dies_of = signum
             self.dies_at = self.loop.time()
-            self.end_tree(signum)
+            # A quit ends the tree as a kill does: SIGQUIT's default would have each child write a core.
+            self.end_tree(signal.SIGTERM if signum == signal.SIGQUIT else signum)
+        # An end at once, which the terminal's hold waits for no more: a question in the background stops for the
+        # terminal no more (SIGTTOU), where an end that raises nothing here (closing) would leave it stopped for good.
+        live_region.ending()
         if ending:
             return
         if self.cut is None:
@@ -504,6 +544,9 @@ class _Ladder:
         # Only out of the loop: anywhere else the run's own code is about to take note of the end.
         if self.loop.is_running():
             raise Abandoned(signum)
+
+    # The hold of the terminal (tui/live_region.py) leaves this handler in place: it throws the keys typed away itself.
+    setattr(signalled, live_region.DISCARDS, True)
 
     def _soon(self, callback: Callable[[], None], what: str) -> None:
         with contextlib.suppress(RuntimeError):  # a loop already closed
@@ -782,6 +825,8 @@ class _Ladder:
             return "succeeded", 0, DONE, None
         if status == cancelled:
             return "cancelled", cancelled, BY_CTRL_C, None
+        if self.declined is not None:
+            return "declined", status, self.declined, None
         return "failed", status, f"exit {status}", None
 
     def outcome(self) -> tuple[str, int, str, BaseException | None]:
@@ -804,12 +849,22 @@ class _Ladder:
         self.loop.close()
 
     def _end(self, outcome: str, status: int, why: str) -> None:
-        """The run's directory removed, then its exit record written: the last thing a run does."""
+        """The run's directory removed, then its exit record written: the last thing a run does, but for putting the
+        terminal's settings back (_put_back) once what the record's end said is on the screen."""
         try:
             if not rundir.remove(self.job):
                 _say(f"aw: the run's directory could not be removed whole (job {self.job.id})")
         except (OSError, ValueError, RuntimeError) as error:
             _say(f"aw: the run's directory was left (job {self.job.id}): {plain_text(str(error))}")
+        if outcome == "cancelled":
+            # A second Ctrl-C, a SIGTERM or a SIGHUP raises Abandoned wherever the loop's thread is, so a machine's own
+            # handler may never have run: each machine begun and not ended is ended stopped at the stage it reached,
+            # and none that has an end is given a second (a runner's, runs/fleet_run.py, is the one the record keeps).
+            for machine in self.job.unended():
+                try:
+                    self.job.emit("end", machine, UNENDED, outcome="cancelled")
+                except Exception as error:
+                    _say(f"aw: the end of {machine} could not be written into job {self.job.id}'s record: {error}")
         try:
             self.job.emit("end", None, why, outcome=outcome, exit=status)
         except Exception as error:
@@ -855,8 +910,11 @@ class _Ladder:
                 # handled once the record is written, which takes note of what to die of.
                 with self._held():
                     outcome, status, why, error = self.outcome()
-                    _put_back(found)
-                    self._end(outcome, status, why)
+                    try:
+                        self._end(outcome, status, why)
+                    finally:
+                        # After the run's last words, which its end said (the summary, NEXT STEPS).
+                        _put_back(found, outcome == "cancelled" or self.interrupts > 0)
             finally:
                 # Then the handlers the run found are put back.
                 for signum, handler in previous.items():

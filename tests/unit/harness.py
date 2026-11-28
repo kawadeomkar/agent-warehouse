@@ -638,6 +638,53 @@ def _at_a_pseudo_terminal(
     return process.returncode, output
 
 
+# The prompt of the shell _in_a_shell starts, which no run writes.
+SHELL_PROMPT = b"PROMPT$ "
+
+
+def _in_a_shell(cwd: Path, env: dict, steps: list[tuple], *, timeout: float = 150) -> tuple[bytes, bytes]:
+    """An interactive bash at a pseudo-terminal of its own (_at_a_pseudo_terminal), as a person's: job control, no
+    startup file, its prompt SHELL_PROMPT and its history written to cwd/history at its exit. Each step (wanted, keys):
+    once wanted appears after where the step before found its own, keys are typed - bytes, or a list of them a moment
+    apart - or, where keys is a function, called as keys(master, output). The last step types the shell's `exit`.
+    Every byte the terminal showed, and the history the shell wrote: for a test of what a run leaves on the shell's
+    line, and in its history, after a Ctrl-Z, a Ctrl-\\ or a Ctrl-C."""
+    shell = {
+        **env,
+        "PS1": SHELL_PROMPT.decode(),
+        "HISTFILE": str(cwd / "history"),
+        "HISTSIZE": "500",
+        "HISTFILESIZE": "500",
+        # macOS's bash says otherwise that zsh is the default shell, at every start.
+        "BASH_SILENCE_DEPRECATION_WARNING": "1",
+    }
+    left = list(steps)
+    state = {"at": 0}
+
+    def act(chunk: bytes, output: bytes, master: int, process: subprocess.Popen) -> None:
+        while left:
+            wanted, keys = left[0]
+            found = output.find(wanted, state["at"])
+            if found < 0:
+                return
+            left.pop(0)
+            state["at"] = found + len(wanted)
+            if callable(keys):
+                keys(master, output)
+                continue
+            for key in [keys] if isinstance(keys, bytes) else keys:
+                os.write(master, key)
+                time.sleep(0.2)
+
+    argv = ["/bin/bash", "--norc", "--noprofile", "-i"]
+    rc, output = _at_a_pseudo_terminal(argv, cwd, shell, size=(100, 30), act=act, timeout=timeout, poll=0.05)
+    said = output.decode(errors="replace")
+    assert not left, f"no {left[0][0]!r} appeared:\n{said}"
+    assert rc == 0, said
+    history = cwd / "history"
+    return output, history.read_bytes() if history.is_file() else b""
+
+
 # How often a run at a terminal is looked at while keys wait for their prompt, and how long the prompt's raw mode
 # must have held before they go in. pause sets raw mode, flushes the terminal's input within microseconds, and then
 # reads in silence, so no output wakes the reader: looked at every 0.2 seconds, as the rest of a run is, each

@@ -196,21 +196,24 @@ def test_the_table_has_no_word_for_a_migration_and_init_s_host_is_a_host_s_name(
     assert init["host"].pattern == "host_name" and VERBS["init"].rules == ("init.1",)
 
 
-# The words the trims took out of the base, by the verb ("" for a word before any verb, which no verb takes either) and
-# the option as a person would type it, each with the ruling that took it out: none is a word of the table.
+# The words the trims took out of the base, by the verb ("" for every verb and before any, which is where an add-on's
+# word is absent: vault, which D11 and D13 build, is the likeliest home of an --export or a --rekey) and the option as a
+# person would type it, each with the ruling that took it out: none is a word of the table. Only init's --take-over and
+# --confirm are keyed to their verb, since destroy, release and deploy take a --confirm or a --take-over rightly.
 TAKEN_OUT = {
-    ("init", "--export"): "the owner's word 3: export, import and rekey are the add-on's",
-    ("init", "--import"): "the owner's word 3: export, import and rekey are the add-on's",
-    ("init", "--rekey"): "the owner's word 3: export, import and rekey are the add-on's",
+    ("", "--export"): "the owner's word 3: export, import and rekey are the add-on's",
+    ("", "--import"): "the owner's word 3: export, import and rekey are the add-on's",
+    ("", "--rekey"): "the owner's word 3: export, import and rekey are the add-on's",
+    ("", "--recipient"): "the owner's word 3: an export's recipient is the add-on's",
     ("init", "--take-over"): "the owner's word 3: the take-over of an import is the add-on's",
-    ("init", "--recipient"): "the owner's word 3: an export's recipient is the add-on's",
     ("init", "--confirm"): "the owner's word 3: an import's confirmation is the add-on's",
-    ("init", "--vault-key"): "the owner's word 2: the vault's key comes from a file or a command, chosen by a setting",
-    ("vault", "--vault-key"): "the owner's word 2: the vault's key comes from a file or a command, chosen by a setting",
-    ("init", "--audit-token-id"): "T2: one token, kept to the pool, and no audit token",
-    ("init", "--audit-token-secret-file"): "T2: one token, kept to the pool, and no audit token",
+    ("", "--vault-key"): "the owner's word 2: the vault's key comes from a file or a command, chosen by a setting",
+    ("", "--audit-token-id"): "T2: one token, kept to the pool, and no audit token",
+    ("", "--audit-token-secret-file"): "T2: one token, kept to the pool, and no audit token",
     ("", "--run-lock"): "T8, and the clean slate's decision 8: no word names a run's lock or skips one",
 }
+# The verbs the owner's word 3 made the add-on's: no verb of the base's table has their names.
+ADD_ON_VERBS = ("export", "import", "rekey")
 
 
 @pytest.mark.parametrize(("verb", "word"), list(TAKEN_OUT), ids=[" ".join(key).strip() for key in TAKEN_OUT])
@@ -222,6 +225,10 @@ def test_a_word_the_trims_took_out_of_the_base_is_absent(verb: str, word: str) -
     if not verb:
         spelled |= {_spelled(option) for option in BEFORE}
     assert word not in spelled
+
+
+def test_no_verb_of_the_table_is_one_the_add_on_took() -> None:
+    assert [name for name in VERBS if name in ADD_ON_VERBS] == []
 
 
 # Which pattern of schema/patterns.py each option's value and each verb's words are held to, by the verb ("" for the

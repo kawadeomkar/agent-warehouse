@@ -15,11 +15,13 @@ runs/view.py draws it, in one of three ways, decided once at its start:
 
 At the run's own end (the `end` event with no machine, which runs/attached.py emits last), the region goes, the echo
 comes back, and the summary is printed with NEXT STEPS after it, whole, in the block every run ends with (text.banner);
-with -v, NEXT STEPS alone. A wait for you that begins rings the terminal's bell, and so does the end. Once the run's
-`Context.cancelled` is set (C4's first Ctrl-C, which emits no event), the model is told at the next event or the next
-frame (`Run.cancel`), so the footer says the run is stopping. An event the model refuses (an undeclared step, a
-malformed end) is said in one line on standard error and left out, and the run goes on: the record has already kept
-what it keeps of it, and the listeners after this one still hear it (review C8.md 6).
+with -v, NEXT STEPS alone. The terminal keeps what it has not read at a Ctrl-C (NOFLSH) until they are said, and then
+has its settings exactly as found (tui/live_region.py's finish(kept=True) and release). A wait for you that begins rings
+the terminal's bell, and so does the end. Once the run's `Context.cancelled` is set (C4's first Ctrl-C, which emits no
+event), the model is told at the next event or the next frame (`Run.cancel`), so the footer says the run is stopping. An
+event the model refuses (an undeclared step, a malformed end) is said in one line on standard error and left out, and
+the run goes on: the record has already kept what it keeps of it, and the listeners after this one still hear it (review
+C8.md 6).
 
 Nothing here writes an escape sequence or reads the terminal itself: the region, the palette and the title are tui/'s,
 the terminal's echo the region's (tests/unit/test_aw_live.py holds every module of runs/ to that by a scan). The model's
@@ -35,12 +37,13 @@ thread, which alone may take SIGWINCH for the region, and once a job: a second v
 first keeping it, and the job hands the one view every event from then on.
 
 What the view says in the run's thread - each event's lines, standard error's lines above the region - is said whole,
-with a Ctrl-C, a SIGTERM and a SIGHUP held off meanwhile and delivered once it is said (tui/live_region.py's
-uninterrupted, which holds each of the region's writes and its count too): the ladder (runs/attached.py) raises from
-its handler wherever the run's thread is, and a frame drawn but not counted, or a line counted as said but not written,
-would leave a frame's remains above the summary, wipe lines said above it, or lose one. A stream whose reader has gone
-(`aw … | head -1`) is written no more; one whose pipe is broken is pointed at /dev/null, so that Python's flush at
-the process's exit writes what it still holds there and the run ends with its own status, never Python's 120.
+with a Ctrl-C, a SIGTERM, a SIGHUP, a Ctrl-Z and a Ctrl-\\ held off meanwhile and delivered once it is said
+(tui/live_region.py's uninterrupted, which holds each of the region's writes and its count too): the ladder
+(runs/attached.py) raises from its handler wherever the run's thread is, and a frame drawn but not counted, or a line
+counted as said but not written, would leave a frame's remains above the summary, wipe lines said above it, or lose one.
+A stream whose reader has gone (`aw … | head -1`) is written no more; one whose pipe is broken is pointed at /dev/null,
+so that Python's flush at the process's exit writes what it still holds there and the run ends with its own status,
+never Python's 120.
 
 A question at the run's terminal (runs/ask.py) finds the run's view by the job its Context carries,
 `Live.of(context.job)` (None for a run with no view), and asks inside `with view.aside():`, which steps the region aside
@@ -428,11 +431,11 @@ class Live:
                 self._said_held()
 
     # --- the end ------------------------------------------------------------------------------------------------
-    def close(self) -> None:
+    def close(self, kept: bool = False) -> None:
         """The region gone, the echo back and standard error the run's own again; what was written to it after its
-        last whole line written there now. Nothing more is drawn: the run's end does it, and a second call does
-        nothing."""
-        self.region.finish()
+        last whole line written there now. With kept, the terminal's NOFLSH kept on, which the region's release() puts
+        back. Nothing more is drawn: the run's end does it, and a second call does nothing."""
+        self.region.finish(kept=kept)
         above, self._above = self._above, None
         if above is None:
             return
@@ -444,7 +447,8 @@ class Live:
 
     def _end(self, now: float) -> None:
         """The run's end: the title, the region gone, the summary and NEXT STEPS after it, and the bell; with -v, NEXT
-        STEPS alone."""
+        STEPS alone. The terminal keeps what it has not read at a Ctrl-C (NOFLSH) until they are said, then has its
+        settings exactly as found (the region's release)."""
         self.ended = True
         # A question the run's end cut short (a second Ctrl-C ends the run where the question still waits): what it
         # kept is said now, before the summary, which is never kept.
@@ -452,14 +456,17 @@ class Live:
         self._said_held()
         if self.mode == LIVE:
             self.region.title(self.view.title_text(now))
-        self.close()
-        if self.mode != STREAM:
-            width = self._width()
-            summary = self.view.summary(now, width, self.color)
-            plain = self.view.summary(now, width, False)
-            self._print([("", ""), *zip(summary, plain, strict=True)])
-        steps = self.run.next_steps()
-        if steps:
-            block = banner(steps, NEXT_STEPS).split("\n")
-            self._print([(screen.render([(line, NEXT_STEPS_STYLE)], self.color), line) for line in block])
-        self.region.bell()
+        self.close(kept=True)
+        try:
+            if self.mode != STREAM:
+                width = self._width()
+                summary = self.view.summary(now, width, self.color)
+                plain = self.view.summary(now, width, False)
+                self._print([("", ""), *zip(summary, plain, strict=True)])
+            steps = self.run.next_steps()
+            if steps:
+                block = banner(steps, NEXT_STEPS).split("\n")
+                self._print([(screen.render([(line, NEXT_STEPS_STYLE)], self.color), line) for line in block])
+            self.region.bell()
+        finally:
+            self.region.release()

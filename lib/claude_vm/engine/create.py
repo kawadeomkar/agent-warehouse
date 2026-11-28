@@ -70,14 +70,14 @@ from ..pve.answers import Task, VmConfig
 from ..pve.client import Exists, ProxmoxError
 from ..runs import lock_sets
 from ..runs.stages import Declared, Stage, Step
-from ..schema import patterns
+from ..schema import patterns, printer
 from ..schema.printer import said
 from ..schema.words import Line
 from ..secret import Secret
 from ..ssh import hostkeys, runner
 from ..text import one_line
 from ..vendors.transport import TransportError, Unknown
-from . import fleet, record, routes, template
+from . import fleet, record, report, routes, template
 
 if TYPE_CHECKING:
     from ..runs.attached import Context
@@ -345,10 +345,23 @@ class Making:
 
     async def run(self) -> bool:
         """The VM made or resumed, and said: True where it is provisioned (or left stopped, as asked), False where a
-        step failed, said. A cancellation, and a route that cannot be used, end the run."""
+        step failed, said. A cancellation, and a route that cannot be used, end the run; a stop that ends a wait of the
+        run's own (the guest agent's, a shield not begun), which raises asyncio.CancelledError, ends the VM stopped, its
+        stage kept, as a step the stop ended does."""
+        import asyncio
+
         self.emit("stage", STAGE, name=self.name)
         try:
             await self._run()
+        except asyncio.CancelledError:
+            if not self.ctx.cancelled.is_set():
+                raise
+            self.emit("end", "stopped", outcome="cancelled")
+            task = asyncio.current_task()
+            if task is not None and task.cancelling():
+                # The run itself is cancelled (the grace's end, a second Ctrl-C): its end goes on, the VM's said.
+                raise
+            return False
         except Failed as failed:
             why = one_line(failed.sentence, None)
             if self.ctx.cancelled.is_set():
@@ -485,7 +498,7 @@ class Making:
         if warnings:
             lines = " | ".join(getattr(status, "lines", ()) or ())
             ended = f"{self.name}: Proxmox's task ended with {warnings} warning(s)"
-            self.emit("report", ended + (f": {lines}" if lines else ""))
+            report.say(self.ctx, self.key, "vm", ended + (f": {lines}" if lines else ""), "")
 
     async def _own(self, task: Task) -> None:
         """Step 4: the new member owned by this run's job and its own clone's task, its record and its label written,
@@ -558,8 +571,10 @@ class Making:
         running = (await self.call(client.current, target.node, target.vmid)).status == "running"
         if not running and not needs:
             if not self.plan.start:
-                filled = {"name": self.name, "vmid": target.vmid, "line": self.line(start=True)}
-                self.emit("report", said(LEFT_STOPPED, filled))
+                start = self.line(start=True)
+                filled = {"name": self.name, "vmid": target.vmid, "line": start}
+                left = printer.line(start.verb, start.values, refused=False, host_flag=start.host_flag)
+                report.say(self.ctx, self.key, "vm", said(LEFT_STOPPED, filled), left)
                 self.ended_as = "left stopped"
                 return
             await self._start(owned)
@@ -579,7 +594,11 @@ class Making:
         changes = settings_call(self.values, size, self.host.password, kept)
         repos = self.plan.repos
         self.step("settings")
-        await self.call(client.edit_config, owned, lambda _: changes)
+        await self.call(client.edit_config, owned, lambda _: changes, self.ctx.stopping)
+        if self.ctx.cancelled.is_set():
+            # A stop that came while the settings call's answer was outstanding: nothing more is written, the
+            # repositories and the resize left to the next run, which resumes a VM not yet provisioned from here.
+            raise Failed(f"{self.name}: stopped once its settings were sent")
         if repos:
             await self.call(record.write, client, owned, lambda now: _with_repos(now, repos))
         self.step("settings", "done")
@@ -587,7 +606,7 @@ class Making:
         has = proxmox.proxmox_disk_bytes(str(config.values.get(DISK) or ""))
         if (found is None or not found.provisioned) and "disk" not in kept and has < proxmox.proxmox_disk_bytes(disk):
             self.step("resize")
-            task = await self.call(client.resize, owned, DISK, disk)
+            task = await self.call(client.resize, owned, DISK, disk, self.ctx.stopping)
             self._warned(await self.call(client.follow, task, None, self.ctx.stopping))
             self.step("resize", "done")
 
@@ -595,7 +614,7 @@ class Making:
         """Step 7's start: sent and followed to its end."""
         client = self.host.client
         self.step("start")
-        task = await self.call(client.start, owned)
+        task = await self.call(client.start, owned, self.ctx.stopping)
         self._warned(await self.call(client.follow, task, None, self.ctx.stopping))
         self.step("start", "done")
 
@@ -635,7 +654,7 @@ class Making:
             raise Failed(" ".join(requested.said) or f"{self.name} reported no address")
         self.target = read
         self.step("address", "done")
-        self.emit("report", f"{self.name} is up at {read.address}")
+        report.say(self.ctx, self.key, "vm", f"{self.name} is up at {read.address}", "")
         return read.address
 
     async def _key(self, address: str) -> None:
@@ -704,7 +723,7 @@ async def provision(ctx: Context, host: fleet.Host, names: Sequence[str], plan: 
 
     requested = await asyncio.to_thread(fleet.requested, host, tuple(names), create=True, change=True)
     for line in requested.said:
-        ctx.emit("report", None, line)
+        report.say(ctx, None, "fleet", line, "")
     route = await routes.settle(ctx, host)
     source = None
     if requested.new:

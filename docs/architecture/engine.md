@@ -290,21 +290,21 @@ that a value, an option or a closing mark follows. Its one exception is `cli/dis
 constant (`program`, `_program`, `PROGRAM`), by any name a module binds to the printer or imports from it; only the
 printer and the check name a sentence's field `program`; the check's `command`, the program and a verb, is used only by
 the modules that refuse (the check, the printer, `cli/parse.py` and `cli/dispatch.py`) and by help, for its usage
-lines and the program its closing paragraph names, each named with why, by any name a module binds to the check, its
-package or the function; every use of `line` or `argv`, through any name or a `functools.partial`, says `refused`;
-and a printer's line is never extended: a call of `line` or `argv`, of `said` whose sentence is one field (`"{line}"`)
-or ends, but for spaces, in a field a `Line` fills (`"run {line}"`: one of `LINES`', or one given at the call in a
-mapping written there), of a function of the module's own that returns one, a name bound to one in the same function,
-an f-string that ends in one, what hands one on (`str` of it, a subscript or a slice of it, its `strip`, `lstrip`,
-`rstrip`, `ljust`, `rjust` or `center`, any function of `textwrap` given it first, by any name), and lines joined by a
-newline, which end in their last, is never an operand of `+` or `%`, an element of what a `%` template takes, added
-to, anywhere in what `join`, `format` or `format_map` takes, or an argument of `print` but the last (`print` joins its
-arguments with a space), is never edited by its `replace`, and in an f-string is followed by the string's end,
-punctuation or a word of prose (letters alone, no verb of the table's, no word that starts with `-` before the next
-punctuation), never by a field; an f-string that holds one anywhere is never an operand of `+` or `%` or an argument of
-`print` but the last, and a sentence that ends in one is a line, words before it or not. Lines each on a line of its
-own are whole: a `join` whose separator is a newline alone, of a list or tuple written there whose every item is a
-line, or of a comprehension of lines, and a line with a newline added, the one argument of a `write`
+lines and the program its closing paragraph names, each named with why (`COMMAND_USERS`), by any name a module binds to
+the check, its package or the function; every use of `line` or `argv`, through any name or a `functools.partial`, says
+`refused`; and a printer's line is never extended: a call of `line` or `argv`, of `said` whose sentence is one field
+(`"{line}"`) or ends, but for spaces, in a field a `Line` fills (`"run {line}"`: one of `LINES`', or one given at the
+call in a mapping written there), of a function of the module's own that returns one, a name bound to one in the same
+function, an f-string that ends in one, what hands one on (`str` of it, a subscript or a slice of it, its `strip`,
+`lstrip`, `rstrip`, `ljust`, `rjust` or `center`, any function of `textwrap` given it first, by any name), and lines
+joined by a newline, which end in their last, is never an operand of `+` or `%`, an element of what a `%` template
+takes, added to, anywhere in what `join`, `format` or `format_map` takes, or an argument of `print` but the last
+(`print` joins its arguments with a space), is never edited by its `replace`, and in an f-string is followed by the
+string's end, punctuation or a word of prose (letters alone, no verb of the table's, no word that starts with `-` before
+the next punctuation), never by a field; an f-string that holds one anywhere is never an operand of `+` or `%` or an
+argument of `print` but the last, and a sentence that ends in one is a line, words before it or not. Lines each on a
+line of its own are whole: a `join` whose separator is a newline alone, of a list or tuple written there whose every
+item is a line, or of a comprehension of lines, and a line with a newline added, the one argument of a `write`
 (`out.write(line + "\n")`). And a sentence `said` says is never built at its call (by `+`, `%`, an f-string, `join` or
 `format`), and in a literal one, or a constant of its module's, each field a `Line` fills (given at the call, from
 `LINES`, or each field, where the call gives its values otherwise than as a mapping written there) is followed as a
@@ -365,15 +365,20 @@ once it is built; that server runs `aw` as a child for every run.
 (`--attended`, the hidden `--detached-run`), then the verb, then its words and options, split by
 `argparse` into the table's slots for the one verb typed only. No verb is `help`, as `just` alone lists the recipes.
 `argparse` is set as the design requires: abbreviations off, so a prefix of an option is an option the verb has not
-got; its own help off; its errors raised rather than printed and exited on; and its colours off from Python 3.14. An
+got; its own help off; its errors raised rather than printed and exited on; its colours off from Python 3.14; and which
+word that starts with `-` and a digit it takes for a negative number, and so for a value, is Python 3.13's rule on every
+Python (`-1`, `-.5`, `-1.5`; any other is given with `=`), read where a word is parsed, each argument group testing an
+option string by its own matcher, as no option of the table looks like a number. An
 option is taken as `--long value` and as `--long=value`, which is how a value that starts with `-` is given, and is
 given once, but for `--set`, given once for each setting, and `-v`, counted. `--`, which elsewhere ends the options, is
 refused wherever it stands, before `argparse` sees it, in a sentence that says how a value that starts with `-` is
 given: no verb takes a word that starts with `-`, and `argparse`'s intermixed parse would drop it and read the words
-after it as options all the same. Every verb whose run is a job gets
-`--detach`, from the table's column, and no other verb has it. The values, only those given, then go through the one
-check (16.2). Anything refused raises `Refused` with one sentence of the project's own, which names the option where
-one was wrong and never a value or a verb typed: no text of `argparse`'s, no usage block, no exit status of its own.
+after it as options all the same. That has `argparse`'s own two exceptions, on every Python: a word with a space in it
+(`--value '-1 x'`) and a lone `-` are taken as a word or a value, and each then meets its pattern. Every verb whose
+run is a job gets `--detach`, from the table's column, and no other verb has it. The values, only those given, then go
+through the one check (16.2). Anything refused raises `Refused` with one sentence of the project's own, which names the
+option where one was wrong and never a value or a verb typed: no text of `argparse`'s, no usage block, no exit status
+of its own.
 
 **Today's habits: `habits.py`.** After the check, as ordinary code, a VM's name with `_` is taken with `-` and said in
 today's words, `alpha,beta` is two names as two words are, an empty one dropped, and a verb that takes one name refuses
@@ -428,18 +433,29 @@ any. A second word is refused by the one check (`help.1`), and a word that is no
 which never says it. The usage lines are help's own, after the check's `command`, the program as it was started and the
 verb as the printer writes them; the closing paragraph names the program the same way, never cut where it is wrapped;
 a whole command line it prints, for a person to paste (the closing paragraph's example, `aw host`, the table's
-sentences' commands), comes from the printer. Help names no part of the program itself. A usage line shows a verb's
-word without brackets only where the table says the verb needs it (`Words.needed`: `code` and `release`), and none for
-the words of a verb that refuses any (`Words.refused`). `reference.py`'s `commands()` writes the tables of the command
-reference from the same functions, in the form `tools/docs.py` writes them from the `justfile` today: a table for each
-group of verbs, `help` aside, with a row for each verb, each of its options and its words, and one of the options given
-before any verb, each cell escaped as `tools/docs.py` escapes one. The cell of a value the table holds to a pattern ends
-as help's row does, with what the value may be in words, and then gives the pattern itself, as its definition, in code:
-a code span, or an HTML code element with `&#124;` for each `|` where the pattern has one, as `tools/docs.py` writes a
-setting's value with one, since a `|` splits a GitHub table's cell and an escaped one inside a code span shows its
-backslash on the site. Nothing calls it before the cutover, which points `tools/docs.py` at it. `help.py` imports the
-standard library and `schema/`, the printer among it; `reference.py` those and `help.py`; and `aw help` loads nothing of
-the engine.
+sentences' commands), comes from the printer. Help names no part of the program itself. Every row is wrapped at one
+width for the whole of help, the terminal's columns (`COLUMNS` first, as `shutil.get_terminal_size` reads them), at
+most `WIDTH` (110, longer lines being hard to read) and at least `NARROWEST` (72, below which the left column leaves
+too little), and `WIDTH` where there is no terminal to ask (a pipe, a file, a test): in `aw help` each verb's row and
+each row of the options before any verb, in `aw help <verb>` its doc, each option's row and the words' row, and the
+closing paragraph's sentences, each by the one function that wraps, the lines after a row's first indented to where
+its text starts. A line breaks only at a space, and never inside a hyphenated word, a command a sentence names (the
+printer's line, the program at its start), an option and the word after it where it takes a value
+(`--only configure`, `--set <name>=<value>`), a word and an option that follows it (`ansible-playbook --check --diff`),
+or a form's example (`e.g. 8`): a line is longer than the width only where one such piece stands alone on it. What a row
+says does not change, only where its lines break. The usage line is not wrapped, a form of the command whole; nor is a
+refusal, one line on standard error that a script and an agent read whole, nor the reference. A usage line shows a
+verb's word without brackets only where the table says the verb needs it (`Words.needed`: `code` and `release`), and
+none for the words of a verb that refuses any (`Words.refused`). `reference.py`'s `commands()` writes the tables of the
+command reference from the same functions, in the form `tools/docs.py` writes them from the `justfile` today: a table
+for each group of verbs, `help` aside, with a row for each verb, each of its options and its words, and one of the
+options given before any verb, each cell escaped as `tools/docs.py` escapes one. The cell of a value the table holds to
+a pattern ends as help's row does, with what the value may be in words, and then gives the pattern itself, as its
+definition, in code: a code span, or an HTML code element with `&#124;` for each `|` where the pattern has one, as
+`tools/docs.py` writes a setting's value with one, since a `|` splits a GitHub table's cell and an escaped one inside a
+code span shows its backslash on the site. Nothing calls it before the cutover, which points `tools/docs.py` at it.
+`help.py` imports the standard library and `schema/`, the printer among it; `reference.py` those and `help.py`; and
+`aw help` loads nothing of the engine.
 
 **The launcher: `aw`.** At the checkout's top, in POSIX `sh`, the launcher finds its checkout from its own path, every
 link to it followed and the folder made by its physical path (`cd -P`), so that a relative link in a folder that is
@@ -476,7 +492,8 @@ being one `PATH` must name (`mkdir -p ~/.local/bin && ln -s <checkout>/aw ~/.loc
 as a shell reads it back), and writes nothing outside the checkout for it.
 
 `tests/unit/test_aw_cli_parse.py` holds all of it: every option of every verb in both spellings, the refusals and that
-none says a value or has a usage block, `--detach`, `default_vm`, `RunWords`, in `run_words` and in the program, the
+none says a value or has a usage block, a negative number by 3.13's rule and `argparse`'s two exceptions each held to
+its pattern, `--detach`, `default_vm`, `RunWords`, in `run_words` and in the program, the
 dispatch's refusals, what a refusal imports, and the launcher run in checkouts the test makes, with a stand-in `uv`,
 through links, from folders whose version manager picks another Python or that hold a planted module, and with a
 `PYTHON` that is no virtualenv's or cannot be run; every line it says that names a path or the program said as it is,
@@ -485,10 +502,13 @@ sentences with the program as the printer quotes it, a path typed that starts wi
 it. `tests/unit/test_aw_cli_rules.py` holds the rules and `deploy`'s
 question: every rule is named by the verbs whose rows run it; each refusal of a rule or a habit, and each of the
 parser's own, is run through the launcher, the words, status and sentence of each written there; each case of a rule is
-refused by the rule its code names, and each of the parser's own is the parser's sentence in the test's process too;
+refused by the rule its code names, each case of a habit says its habit's sentence, and each of the parser's own is the
+parser's sentence in the test's process too;
 `--repos`' 2000 characters taken and 2001 refused; each name the names habit splits a verb's words into held to the
 pattern, through the launcher and with the pattern narrowed, as `host --for`'s are; no rule says back a value that may
-be a secret, and one it says back has met its pattern first; the check answers alike as words and as JSON; the question
+be a secret, over every case of a rule with each value of free text its verb takes (held to `text`, `assignment`,
+`path` or `secret_file`) typed as one, and one it says back
+has met its pattern first; the check answers alike as words and as JSON; the question
 is asked at a pseudo-terminal, typed and with none; and no file of the tree names the recorded command line of v2.7.0,
 which no test holds `aw` or the `justfile` to.
 The printer's own test is 16.2's.
@@ -501,10 +521,14 @@ and of the maps `tests/unit/test_aw_cli_words.py` writes by hand, with the examp
 row and in the refusal of a value outside it alike, `--attended` before any verb among them, and none for the words of a
 verb that refuses any, never the pattern itself, and no empty default; `--set`'s row naming its placeholder, never
 `name=value`; `release`'s rows saying one adopted machine; an option of a later card's left out; `[options]` in the
-listing; through `tools/aw` and the launcher, `control` refused as no verb; what each imports; and that the reference
-gives a row for every verb but `help`, every option but a later card's and the words, each value held to a pattern with
-its words and then its pattern as code, and no row split by a `|` or a code span holding one; and escapes a cell as
-`tools/docs.py` does.
+listing; help as wide as its terminal, `COLUMNS` first, between 72 and `WIDTH`, and `WIDTH` with none; with no terminal
+and at 80 columns, every row of the listing and of every verb joined again equal to the row unwrapped, its lines after
+the first at its text's column, and at every width from 72 to `WIDTH` no line broken inside a piece and none longer
+than the width but one piece, the program as `aw` and from a path with a space; a refusal and the reference unwrapped;
+the tests that read a row's end reading it joined again; through `tools/aw` and the launcher, `control` refused as no
+verb; what each imports; and that the reference gives a row for every verb but `help`, every option but a later card's
+and the words, each value held to a pattern with its words and then its pattern as code, and no row split by a `|` or a
+code span holding one; and escapes a cell as `tools/docs.py` does.
 `tests/unit/test_aw_cli_imports.py` holds the quick commands to what this section says they import: `aw` alone, help,
 `--version`, a refusal of each kind, and the reads `logs`, `cancel`, `host`, `settings` and `status`, each read once its
 verb has a handler and skipped by name until then, run through the launcher of a checkout the test makes with a fleet of
@@ -524,7 +548,8 @@ of the wrong type are each refused first, never said back, and once the vault is
 secrets is refused too. The host is the one `fleet/hosts.py`'s `reach` picks; its token's secret is read from the vault
 at each run and goes into the API's one header, and its certificate is always checked: against the anchor the host
 keeps, else this computer's certificates. That header is the one the new engine writes outside the Proxmox client,
-for today's engine's reader, until G16 moves status's reads to the client. Status's own ssh options open no shared
+for today's engine's reader, whose GETs alone, with no redirect followed, are every read aw status makes. Status's own
+ssh options open no shared
 connection, where today's did: only the SSH runner's `ensure` opens a master, so a probe rides one that is open. Nothing
 of 1.x's is named, and nothing is kept but apt's answers for a VM, in the host's folder of the fleet's state
 (`fleet/paths.py`'s `status_cache`). `cli/status.py`'s `main` is the handler:
@@ -532,9 +557,38 @@ a refusal is said before the engine starts, and the run then ends as a read that
 the loader as a parameter, today's `settings.load` unless given, so `tools/status` passes nothing new; and every wait
 of its main thread on the API's answers and on the probes takes slices, as `_off_main`'s does, so a Ctrl-C lands within
 one even where a signal wakes no wait of a lock (macOS). `status_inputs` imports nothing of today's status, and
-`cli/status.py` takes one name of it, `run`. Until card G16, the table names no handler for `status`, the lines a
-report says name `just`, and one host is read: reading every host at once, a child each as `tools/status` does, needs
-the word that starts the child. `tests/unit/test_aw_status_inputs.py` holds `load` equal to today's `settings.load`,
+`cli/status.py` takes one name of it, `run`. One host is read: reading every host at once, a child each as
+`tools/status` does, needs the table's word that starts the child, and is not built.
+
+The engine takes the reader of the fleet as a parameter beside the loader, today's `Tagged` unless given, and the
+program its own messages name, `just` unless given, so `tools/status` passes nothing new and prints what it prints. aw
+status gives it `cli/status_pool.py`'s `Pool` and `aw`, and its settings give every command the model and the drawing
+name printed whole by the printer, with the host's flag (`status_inputs.lines`, read by `status/model.py`'s
+`printed_line`, each VM's name put in its place), so that no line of aw's is written by hand. The fleet is the pool's
+members, never a tag: each one's configuration is read before a VM is drawn and judged by `pve/ownership.py`'s one rule
+(`Member.read`, `refusal`), with the members that carry its UUID as its twins, templates among them, found by
+`ownership.twins`, the one function the engine's reader calls too, so that status and every verb that changes a VM never
+part; a member on a node that is down cannot be read, so it is never judged and never a VM of the report, only one
+"unread" line; a member the rule refuses is a line of its own (one with no record says it is not this fleet's, never
+changed, and gives the `destroy` line that deletes it under `destroy_allow_unrecorded`), and one whose configuration the
+token may not read is not read. A record's job that is no job's ID is a problem line, never a `logs` line. Its record
+gives what today's tags gave: its stage, its own repositories, whether it joined the tailnet, whether it was made with a
+size of its own; an unapplied change is shown "not known" while the record keeps no digest to compare, and the template
+is judged by `pve/template.py`'s `judge`. A VM this computer has filed no host key for is never dialled (status takes
+none): its SSH sections are one line, naming the run that files its key. A job a VM's record names that this computer
+has no record of is said as another computer's run, and one of this computer's that was lost as lost, each with its `aw
+logs` line. Under `proxmox_audit_scope: node` a storage lists another VM's disk only where the token holds
+`VM.Config.Disk` on it, which the grant on `/vms` does not give: so each VM outside the pool's configuration is read,
+after every read of the fleet's and only where the storage or capacity section is asked for, and only each disk's
+storage and size are kept of it, so the storage's figure is a floor, and says so. Under `pool` they are not read at all,
+the node's other VMs are shown empty and one line says so. Every line a report says names `aw`, each the printer's; the
+JSON document gains `known_at`, the run's own time.
+`tests/unit/test_aw_status_pool.py` holds it against the fake: the same report as `tools/status` on the same VMs, one
+fleet by its tags and the other by its pool and records, but for the commands, `known_at` and `unapplied`; GETs alone;
+each new line; two hosts; both scopes; and nothing of a VM outside the pool but its disks' sizes in the report, the
+JSON or the log.
+
+`tests/unit/test_aw_status_inputs.py` holds `load` equal to today's `settings.load`,
 difference by difference with why, for E4's fleet folder beside the example files and with a setting of each file's
 and each secret set, and the refusals; `tests/unit/test_aw_status_hosts.py` holds a fleet of two hosts, each read with
 its own API, token and settings; `tests/unit/test_aw_status_live.py` runs `aw status --json` against the fake beside
@@ -689,7 +743,8 @@ Where it answers, `build` runs, at a terminal or with nobody there. Where it doe
 (`runs/ask.py`'s `terminal`, decided before the run draws) the sentence says what would give one (the account's key on
 the host, the agent, `ssh_identity_file`); with no terminal, `Compared.unbuilt`'s: what the template has and what is
 wanted, that this run cannot build it and why, and the `deploy --only template` line to run at a terminal. Every refusal
-of its own is also the run's NEXT STEPS line (matter `template`). It returns only a usable template, or raises, so no
+of its own is said as the stage's failure, and a report after it records the printer's `aw deploy --only template`
+line, with the host's flag, as the run's NEXT STEPS line (matter `template`, through `report.py`'s `say`). It returns only a usable template, or raises, so no
 run clones from a template that is to be built and was not. A refusal exits 1; a build begun that did not end well
 (`Failed`) exits 2. `tests/unit/test_aw_engine_template.py` holds it through `aw deploy --only template` against the fake
 with standard input `/dev/null` and a refusing `ssh`: missing, or differing, with root SSH refused, the sentence, exit 1,
@@ -883,7 +938,7 @@ its grants where the role is, the user or token is the engine's own and the path
 person gave or `host.yml` sets, which may be an object of the person's own that a
 cleanup by `made` would then remove; the run's report names the fleet the pool's mark gives wherever the secret was
 given, though `made` may then record nothing. A run stopped after any write goes on from what it wrote, and the same
-run again writes nothing. The modes other cards build (`--check`, `--machines`) are refused by name until each lands.
+run again writes nothing. The mode another card builds (`--machines`) is refused by name until it lands.
 
 **`init` at a terminal: `attended`.** With standard input a terminal whose foreground the run is, as `runs/ask.py`'s
 `terminal()` decides for each question (16.8), and no `--no-prompt`, the same steps run drawn live (`INIT`, one stage
@@ -955,6 +1010,52 @@ refusal, nothing asked. `aw init --print-commands` prints the same script on sta
 run it as root, reading `host.yml`, the settings and `fleet.json` alone: no vault, run, lock or request. Its one write
 (card E8): with no `fleet.json`, the fleet's ID it renders is written there and said, so that a second print and the
 offer render the same ID, and a by-hand run again after a partial one is never refused as another fleet's.
+
+**The checks: `init_checks.py`.** Once `init` has written, at a terminal or with nobody there, it checks what a first
+`deploy` needs of the host and says each check as one of today's lines, `ok`, `!!`, `--` or `note` and its text, with
+the fix after a colon; it exits 1 exactly where it said a `!!` line, and `aw init --check` runs the same checks under
+the same lock, takes no value but `--host` (it refuses `--set` too), and writes nothing. The host is opened as every
+workflow opens it (`fleet/opened.py`'s `connect`, lenient as `settings` and `vault` are, from the fleet's files alone,
+but a further host's (below): never a `--set` value of the run), through the anchor `init` kept, so no check runs before
+the certificate is settled. In today's order: the API answers, is Proxmox VE 9 or later and takes the token; the pool is
+there and its mark names this fleet with `controller=none` (`fleet/mark.py`'s sentence for any other); the node, settled
+where the host's own `settings.yml` sets none (the one node online, else the node root SSH's `hostname -s` names); the
+base template, by `template.py`'s `compare`; the permission check, `/access/permissions` read with no `userid` on the
+pool, the storage, each bridge a clone's source has a network card on and the node, each held to what
+`pve/privileges.py`'s `needed` says there and each missing privilege named with its path; `VM.Audit` on `/vms` under
+`proxmox_audit_scope: node` (a `--` line where it is not held) and anything more there, which changes every VM of the
+node (a `!!` line); a template of the person's own held to its clone grant; root SSH, where the template is missing or
+is to be rebuilt; the route, by `routes.py`'s `settle`, and the hop's login where it goes through the host; the storage
+and, before the template is built, the bridge, each as the node lists it; and that the machines get an SSH key. Each
+name the host reports (the nodes, `hostname -s`, the storages and bridges listed, the template's cards' bridges) is held
+to Proxmox's own format (`checks.proxmox_name`) before it is settled, written or put in a path; a name outside it is
+said as JSON alone, and a name the client refuses is a `!!` line. Every call is a read: the client's GETs, which follow
+no redirect, and `true` and `hostname -s` over root SSH. The node, the storage and the bridge settled are written, under
+`init`'s own rule, only where the host's `settings.yml` sets none and only with nobody there, but a further host's
+(below): at a terminal the person's answers are the rule, so what they left for later stays unset, and `--check` writes
+nothing. At a terminal the lines are one report of matter `init_check`, said through `report.py`'s `say` after
+`init_settings`' own, its NEXT STEPS line init's printer's line with what running it again does; with nobody there they
+are printed, a sentence after them saying what is left. `tests/unit/test_aw_engine_init_checks.py` holds them against
+the fake Proxmox and a refusing `ssh`.
+
+**A further host: `aw init --host <name>`** (card E10). Where the fleet holds another host's folder than the one the run
+sets up (`init.py`'s `_further`; `fleet/hosts.py`'s `first` once the host's own folder is there), the run is a further
+host's, with nobody there or at a terminal, by the same road: `--host` held to the host name's pattern and
+`hosts.model.name_refusal`, so that a value with a dot or a colon is refused as any other name outside it, never taken
+for `--address`; its address given or asked; the administrator's authority taken in the same two ways, the offer over
+root SSH and `--print-commands`, each rendered with `fleet.json`'s ID, so that the host's pool carries the fleet's own
+mark, and a mark a secret given reads that names another fleet is refused. Its token's secret is that host's named
+secret in the one vault (`token@<name>`); `AGENT_WAREHOUSE_TOKEN_SECRET` is refused, since it may hold the first host's
+secret, exported for it, and the secret then comes from a file or is typed. Nothing of the fleet's own is taken or
+asked: `--github-user` and `--tailscale` are refused, and at a terminal neither the SSH key, GitHub, the VPN nor
+Tailscale's auth key is asked, nor the node, the storage and the bridge, which its checks settle. What the host sets
+for itself in its own `settings.yml` (the storage, the bridge and the pool given, `aw-fleet` where none is, and the
+node) is not written by the run but staged (`init.py`'s `Further`), and the checks, given it (`init_checks.py`'s
+`staged`, which they read as set, the host opened with it as a run's values), write it with what they settle only once
+every check has passed, no `!!` and no `--` line, each where the file sets none (`_keep`); else none of it, said, and
+runs against the host refuse it until a run of init has passed them all (the node, the storage and the bridge are each
+host's `always`). The first host's files, the fleet's own and `client.yml`'s current host are left as they are.
+`tests/unit/test_aw_engine_init.py` holds it against two fake Proxmox hosts with different secrets.
 
 `tests/unit/test_aw_engine_init.py` holds `init` against the fake Proxmox, through `tools/aw` with a refusing `ssh`
 first on `PATH` and in this process with root SSH a reader of the test's own; its runs through `tools/aw` from a home
@@ -1126,7 +1227,9 @@ the comparison does not hold it). Then for each VM, each step an event of the ru
   where the vault holds `vm_password`. A repair of a VM created with a size of its own sends no part of it the run
   does not give. The root disk is grown at the VM's create alone, a create resumed included, and only where it is
   smaller than asked; a repair of a provisioned VM given a `--disk` larger than its disk is refused, as another size
-  for a VM that exists is.
+  for a VM that exists is. A stop that came while the settings call's answer was outstanding is looked at once it has
+  answered: nothing more is written, neither the repositories nor the resize, and the next run resumes the VM, not yet
+  `provisioned`, from its settings.
 - **The start and the address.** The VM is started where it does not run, its task followed; its address is waited
   for from its guest agent on its own network card, then held against every running member's; then one record write
   sets `provisioned` and the size the run gave it, its unit in capital (`fleet/overrides.py`'s `capital`, the one
@@ -1137,7 +1240,14 @@ the comparison does not hold it). Then for each VM, each step an event of the ru
   up; the key is read back (`hostkeys.taken`) and filed under the identity (`hostkeys.file`, which refuses a second
   one), and only then is the machine's master made sure of (`Route.ensure`).
 
-A step that fails fails its VM alone, said; the run then exits 2 (`EXITS`' `failed`). One after the record's write
+A step that fails fails its VM alone, said; the run then exits 2 (`EXITS`' `failed`). A step a stop ended ends its VM
+stopped (`cancelled` in the job's record, the stage it reached kept), never failed, and so does a wait of the run's own
+that a stop ends by raising `asyncio.CancelledError` - the guest agent's for the address, a shield not begun - which
+`Making.run` takes as the VM's end; where the run itself is being cancelled (the grace's end, a second Ctrl-C that
+comes while the run waits) the VM's end is written and the cancellation goes on. Where a second Ctrl-C, a SIGTERM or a
+SIGHUP ends the run before the VM's handler runs, the ladder's end writes it, `cancelled` at the stage it reached
+(16.8). Each of the VM's writes, its settings, its resize and its start, is given the run's stop and sends nothing
+once a stop came during its own read (`Unsent`, 16.5). One after the record's write
 leaves the VM a member without `provisioned` that the next run resumes. One before it - a clone whose answer was lost,
 whose follow failed or whose record could not be written - leaves the clone, where it landed, in its first form, which
 no later run may own: each later run is refused, and the refusal (`pve/ownership.py`) says to delete that VMID in
@@ -1146,6 +1256,10 @@ Proxmox, then run it again. A refusal before anything was created exits 1, and a
 against the fake, the VMs stand-in machines (16.10): two VMs made in one run, then a second run that sends nothing but
 reads; a VMID taken before the clone landed; a clone whose answer was lost sent once, under either audit scope; a failed
 start resumed, and a running VM resumed never started again; a Ctrl-C during the clone held until its record is written;
+a Ctrl-C during the agent's wait ending the VM `cancelled` at `provision` in the job's record; a Ctrl-C while the
+settings call's answer is held by the fake (`fake/hold`) sending nothing after it, the next run resizing the VM; a
+Ctrl-C during the resize's own read, and during the read before the start, sending neither; a second Ctrl-C right after
+the first, and a SIGTERM, at the agent's wait still ending the VM `cancelled` at `provision`;
 a stopped VM left stopped, and started with `--start`; a size for a VM the run creates, kept on a repair and refused for
 one that exists, a larger disk on a repair too; `--repos` given, added to and refused; and, without the fake, the keys
 of today's settings call, `need_configuration`'s cases and that it reads no ownership, the one size reader, and each
@@ -1175,8 +1289,8 @@ line that answers it, exit 1. In the run, the live view made first:
   line, their disks and, where the fleet has more than one host, the host; then `Type yes to continue:`, whose safe
   answer is "" (no). `yes`, or today's `true`, in any case, takes it; under `destroy_confirm: names` the VMs' names are
   typed in its place, held by `confirm.names`. Anything else is the person's answer, said in today's words (a report
-  of the run), its check stage done and nothing deleted, and the run ends refused, exit 1: runs/model.py has no end of
-  its own for a declined run, so its record reads failed, `exit 1`.
+  of the run), its check stage done and nothing deleted, and the run ends declined (`Context.decline`), exit 1: its
+  record reads `declined`, and the view's head says `declined`, with no ✗ and no failed count (section 16.8).
 - **Each VM, side by side.** Whether it runs is read from its own endpoint; one that runs is stopped (`stop`, its task
   followed with the run's stopping event, so that a Ctrl-C leaves it stopped and undeleted; sent once more where
   Proxmox's file lock refused it, as a stop seconds after a start may meet), then owned again through
@@ -1189,7 +1303,9 @@ line that answers it, exit 1. In the run, the live view made first:
 
 Every VM is said in one line, which the view draws under its name: `deleted, with its disks.`, or `not deleted - <why>,
 so it is still there: run aw destroy <name> again once that is fixed.` The run exits 0 where every VM was deleted, 2
-(`EXITS`' `failed`) where one was not, the others gone on, and 130 where a person stopped it. The VM's line in the
+(`EXITS`' `failed`) where one was not, the others gone on, and 130 where a person stopped it. Each report goes
+through `report.py`'s `say`, matter `destroy`: a VM a stopped run left records `aw destroy <name>`, with the host's
+flag, as its NEXT STEPS line; every other report, none. The VM's line in the
 product's known-hosts file stays, the tombstone of its identity; nothing here writes a record, an alias (card G8) or a
 session. `tests/unit/test_aw_destroy.py` holds it on a whole fleet folder against the fake: a VM and its disks deleted
 after its stop, a stopped one with none; the refusal while either setting is on, and the declined deletion with no
@@ -1228,7 +1344,13 @@ layer, home), and layer 1's own events lines of that machine's work:
   `--set configure_wait_for_cloud_init=false`, never today's `just` and `ANSIBLE_ARGS`; a VM layer 1 could not reach,
   and a child that ended otherwise before any task failed (a play that did not load among them), fail with its words;
   and a run that ended well with no recap heard from the product's callback fails too, since a callback of the same
-  name beside the play or in a role was loaded in its place.
+  name beside the play or in a role was loaded in its place. A child the run's own stop ended (ansible-core's "User
+  interrupted execution", or killed at the grace's end) fails nothing by its exit status alone: where the run is
+  stopping and layer 1 said no task of the VM failed and none could not reach it, the step is not ended failed but left
+  to the VM's `cancelled` end, which the model draws stopped (`runs/model.py`'s `BY_OUTCOME`), so the summary says
+  where it stopped and no failure is drawn. A task that failed, or could not reach the VM, is still that VM's failure:
+  its step ended failed and the VM's end `failed`, the run stopping or not (`Failed`'s `own`). A wait of the run's own a
+  stop ends (the address of a VM it starts) ends the VM stopped, as `create.py`'s does.
 - **The home.** The VM user's real home is read from the password database through the runner (`getent passwd`) and
   the workspace made from it as every reader makes it (`sessions.projects_dir`): each VM's outcome (`Configured`)
   carries both only where it succeeded, for G8's alias.
@@ -1243,8 +1365,29 @@ process, the system play swapped for a play of one task a part over F3's test-on
 alone hands layer 1: the three parts run and the VM left `unfinished` with layer 2's named and nothing written, every
 connection by its identity, strict, with the person's `vm_ssh_options`; `--tags common` alone, and `--tags` with no
 names reaching every VM; a failed task, cloud-init's, a planted callback, the run's secrets struck; a stopped VM
-started where the plan says; and, over the stand-in's real connection, a configure through the stand-in hop, and a hop
+started where the plan says, a stop during its agent's wait ending it `cancelled` at `configure`, and a task that
+failed as the stop came drawn and ended `failed`, its step with it; through the kit
+at a terminal with the play swapped the same way (`aw_kit.Layer1`), a Ctrl-C in the middle of a task of the child
+ending the run 130 with the system layer drawn stopped and nothing drawn failed; and, over the stand-in's real
+connection, a configure through the stand-in hop, and a hop
 refused that stops before the VM.
+
+**What a run says, and NEXT STEPS: `report.py`.** `say(run, machine, matter, text, line)` is the one way a workflow or a
+layer-2 step tells a person something: it emits the `report`, printed above the region and kept for the summary, and
+straight after it the `next` record of that machine and matter, the line while something is left and `""` once nothing
+is, which takes back a line an earlier report of the same machine and matter left. So NEXT STEPS is recorded by each
+report and never read off what was said, as today's report tasks record theirs
+([§7.5](custom-code.md#75-callback_pluginsagent_warehousepy--the-waits-and-next-steps)). The machine is its identity, or a VM's stand-in key until its join, or none for the
+run's own; the matter is one of `run/next_steps.py`'s `MATTERS`, today's and the engine's own, which no report of today's
+records, each at a named place (`fleet`, `route` and `template` after `init`'s two, `configure` after `vm`), so today's
+NEXT STEPS keeps its lines and their order. The line is the printer's whole line, or a sentence `said` writes, made by
+the caller with the host's flag, so that with more than one host it ends `--host <name>`, and handed on whole: one line,
+never a form. The run's model folds the records in today's order and the run's end prints them after the summary, which
+leaves them out, under NEXT STEPS (§16.8). Where `status/lines.py`'s words name the program, its name is the parameter
+`program`, `just` for today's callers by default and `aw` from this engine. `tests/unit/test_aw_report.py` holds it: a
+syntax-tree scan of `engine/` and `guest/` for a `report` or `next` event emitted any other way; a configure of two of
+the stand-in machines printing a summary line each and the NEXT STEPS block in today's order, each line ending with its
+host where the fleet has two; and the order of the engine's matters beside today's.
 
 ## 16.5 `pve/` — the typed Proxmox client and the one table of privileges
 
@@ -1366,7 +1509,10 @@ so that a host, or a proxy the computer's certificates trust, that echoes what i
   its SMBIOS UUID to the `Owned`'s; and `delete`, since Proxmox's `DELETE` takes no digest and cannot be undone, holds
   its SMBIOS UUID and its digest: another VM at the VMID now, or before a deletion a configuration changed since the
   read the VM was owned on, a stop that applied pending changes among them, is `Changed`, with nothing sent, and the
-  workflow owns it again from a read made after. A conversion to a template is made on a `Building` alone, a build VM
+  workflow owns it again from a read made after. `edit_config`, `resize` and `start` take the run's `stop` too
+  (`Context.stopping`, as `follow` does), asked once that read is made and before the write is sent: where it is set,
+  a Ctrl-C during the read among them, the call is `Unsent`, with nothing sent but the read (card G31). A conversion to
+  a template is made on a `Building` alone, a build VM
   of the asking run's own (`ownership.py`'s `building`, below), and holds its SMBIOS UUID and digest as a deletion does,
   for the same reasons; nothing else is ever made a template. Each write answers a `Task`
   (its node, UPID, kind and VM; a clone's, the new VM's, with its `source`). A clone whose answer was lost is `Unknown`
@@ -1552,9 +1698,10 @@ carry its UUID. `Member.read(config, unread=, twins=)` makes one from a VM's con
 and `dataclasses.replace` and `copy.replace` leave unset: what `owned` and `building` judge is a member a reader made,
 never one made by hand or changed after its read, which is a `TypeError` to both (a record written into a member's
 fields would be its verdict). The mark says a configuration was read, not the pool beside it, so `twins`, the other
-members its reader read that carry its UUID, is a keyword with no default, and in `lib/` only the reader of the pool
-calls `Member.read`, `engine/fleet.py`'s (and `status`'s, card G16): a workflow owns a VM again through that reader,
-never through `Member.read` of one configuration, which would own one of two twins, or a VM outside the pool.
+members its reader read that carry its UUID, is a keyword with no default, made by `twins(configs)` over every member
+read, templates too (the one rule both readers call), and in `lib/` only the reader of the pool calls
+`Member.read`, `engine/fleet.py`'s (and `status`'s, card G16): a workflow owns a VM again through that reader, never
+through `Member.read` of one configuration, which would own one of two twins, or a VM outside the pool.
 `refusal(member, job="", clone=None)` says why it is not the fleet's to change, "" where it is: a guest that is no
 VM; a template; one that could not be read; one with no record of this engine's, whatever tags it carries; a record
 of a template, a golden or a build on a VM that is no template, or one that names another VM's UUID (`copied`), each a
@@ -1772,8 +1919,8 @@ runner's carries `ControlMaster=no`, the host's among them.
 - **A person's own options.** `vm_ssh_options` is a mapping of `ssh`'s option names to values, given as `-o Name=value`
   after the product's options: `ssh` keeps the first value it is given, so a person's option changes whatever the
   product leaves, a `ProxyJump` or a `ProxyCommand` among them, and never a value it pins. What the product writes
-  itself is refused by name - `HostKeyAlias`, `UserKnownHostsFile`, `CheckHostIP`, `UpdateHostKeys`, `BatchMode`,
-  `ControlPath`, `ControlMaster`, `ForwardAgent` (`claude_ssh_forward_agent`'s), `IdentityFile`
+  itself is refused by name (`REFUSED_OPTIONS`) - `HostKeyAlias`, `UserKnownHostsFile`, `CheckHostIP`, `UpdateHostKeys`,
+  `BatchMode`, `ControlPath`, `ControlMaster`, `ForwardAgent` (`claude_ssh_forward_agent`'s), `IdentityFile`
   (`claude_ssh_identity_file`'s), and `HostName`, `User` and `Port`, where and as whom it connects - and
   `StrictHostKeyChecking` may be given only as `yes`; with them `IdentityFile2`, `ssh`'s old name for
   `IdentityFile`, and what would hand the strict check a key the product's file does not hold, `GlobalKnownHostsFile`
@@ -2355,7 +2502,7 @@ fleet's folders (`fleet/files.py`).
 | `waiting` | What it waits for, such as a page in the browser, or nothing |
 | `next` | NEXT STEPS, records `{machine, matter, line}`, a line removed once nothing is left |
 | `machine_outcomes` | Each machine's outcome, the stage it reached, and why |
-| `outcome`, `exit`, `ended`, `why` | At the end: `succeeded`, `failed` or `cancelled`, the exit status, when, and why |
+| `outcome`, `exit`, `ended`, `why` | At the end: `succeeded`, `failed`, `cancelled` or `declined` (the person's answer ended it, never a failure), the exit status, when, and why |
 
 `update(**fields)` reads the record, merges the fields and replaces it whole with `store.replace` under
 `store.locked`, so the run and another process recording a stop lose neither change. A name `FIELDS` lacks is refused,
@@ -2574,8 +2721,10 @@ let go at once where it is taken; a run whose kind is `none` holds none and is n
 section's lock and, where another run holds it, waits, with a `waiting` event that names the section (and the machine
 it is about, or the whole run), and once the lock is taken clears that wait alone: the clear names the section, and
 the record clears only a wait of that section and that machine, never another machine's or a later one's. The wait ends
-once the run is stopping (`asyncio.CancelledError`), so a section is entered outside any shield: a Ctrl-C sets the
-run's stop inside a shield too, and would end the wait the shield was there to outlast. The lock is let go when the
+once the run is stopping (`asyncio.CancelledError`), and is cleared the same way however it ends, so that no wait of a
+run stopped, or of one machine of several, stays in the record through the stop's grace. Since it ends at the stop, a
+section is entered outside any shield: a Ctrl-C sets the run's stop inside a shield too, and would end the wait the
+shield was there to outlast. The lock is let go when the
 block ends, however it ends, a block that raises among them. **The sections nest one way: `nextid` outside
 `template`** (the next free VMID taken, then the template's section shared around the clone inside it), never the
 other way round: they have no time limit, and two runs that nested them in opposite orders would each wait for the
@@ -2639,36 +2788,47 @@ workflow checks between its steps or waits on; `stopping`, a `threading.Event` s
 end, which a blocking call in a thread is handed to stop on (the Proxmox client's `follow`, §16.5), and a phase in a
 shield is not; `shield(reason)`, for a phase that cannot be cancelled, such as a deletion already sent; `typed(fd)`, a
 question's read; `emit`; `live(kind)`, the children it still holds; and the run's directory. Its handlers take SIGINT,
-SIGTERM and SIGHUP, but one ignored on the way in, as `nohup` or a shell's `&` leaves one, which stays ignored. The
-ladder:
+SIGTERM, SIGHUP and SIGQUIT (a `Ctrl-\`), but one ignored on the way in, as `nohup` or a shell's `&` leaves one, which
+stays ignored. The ladder:
 
 | The end | What happens | The record | The process |
 |---|---|---|---|
 | Ctrl-C, once | `cancelled` and `stopping` set; the tree under the run remembered with `proc.snapshot`, the interrupts held off while the table is read; the stop recorded, `{"by": "terminal", "at": …}`, so the job reads `cancelling` through its grace (one a `cancel` recorded is kept); SIGINT to each Ansible child's group, but one started inside a shield still up, which gets it once that shield is done, since the line says the phase finishes first; a line on standard error that the run is stopping, or that it stops once the shielded phase is finished; a question up ended there. Once the body and every child it started have ended, what is left is ended at once; 30 seconds after the Ctrl-C (`STOP_GRACE`, today's MCP jobs' grace) whatever still runs is ended and the body cancelled, but a shielded phase is waited for | `cancelled`, `Ctrl-C` | exits 130 |
 | Ctrl-C, twice | the tree ended at once from the signal's handler itself, then `Abandoned`, a `KeyboardInterrupt`, raised there while the loop runs, so that a step stuck in it cannot hold the end | `cancelled`, `Ctrl-C twice` | exits 130 |
 | SIGHUP or SIGTERM | the tree ended with that signal from the handler, as above; what ignores it is killed after five seconds (`SETTLE`), after a Ctrl-C too, never at the Ctrl-C's grace | `cancelled`, the signal's name, exit 128 and its number, over a Ctrl-C that came first | its handler put back to the default, and dies of it |
+| SIGQUIT (a `Ctrl-\`) | as SIGTERM, what was typed and not read thrown away first, as at a Ctrl-C; the tree ended with SIGTERM, never SIGQUIT, whose default writes a core | `cancelled`, `SIGQUIT`, exit 131 | dies of it, its core limit set to none first (`RLIMIT_CORE`) |
 | An error the body did not handle | the tree ended | `failed`, the error | the error raised again |
-| The body returns | what it still holds of its children ended | `succeeded` for 0, `cancelled` for 130, else `failed` with the status | exits with the status |
+| The body returns | what it still holds of its children ended | `succeeded` for 0, `cancelled` for 130, else `failed` with the status, or `declined` with the status and why where the body said so by `decline(why)` (destroy's no): an exit status alone never makes it | exits with the status |
 | SIGKILL | nothing | none: the job reads `lost` once its lock is free | killed |
 
-On every path but SIGKILL, the terminal's settings are put back as the run found them, its echo among them (where
-anything changed them, SIGTTOU held off); every child of the registry has ended or been ended before the loop closes,
-since asyncio kills an `ansible-playbook` it still holds when its loop closes and leaves the playbook's detached task
-workers running; the body's asynchronous generators still suspended are closed, for `SETTLE` seconds at most, so that
-one whose `finally` does not return holds the run no longer; the run's directory is removed; and the exit record is
-written last, with the signals held off and then taken as notes only, so that a late one changes nothing but what the
-process dies of. "The tree" is everything under the run's process, ended by `proc.end_under(pid, remembered, signum)`,
-which signals every process under a process and what was remembered of it, by each one's start, with their groups, and
-never the process, its group or the caller's: today's
-`end` signals the root too, which here is the run. A shared SSH master daemonises out of the tree, so no end reaches it,
-and its open, while it runs - a machine's, `ensure`'s, or the hop's, `route.py`'s - is left out of what is remembered
-(`children.opening`), since the master it leaves keeps
-its `ProxyCommand` in the open's group; a second Ctrl-C during an open ends that open, and the master it was making. A
-child meant to outlive the run (`children.outliving`, the editor, a page's opener) is left out of both, of what is
-remembered and of what is ended, with what is under it: no end of the run reaches it. No child subreaper and no systemd
-scope are adopted, since under a subreaper one run's end would cut another run's connection through the host. The ladder
-is built against stand-ins; experiment 37 tries it with real children, and if a foreground run cannot end its tree by
-itself, `runs.run` is where a small watcher would go.
+On every path but SIGKILL, every child of the registry has ended or been ended before the loop closes, since asyncio
+kills an `ansible-playbook` it still holds when its loop closes and leaves the playbook's detached task workers running;
+the body's asynchronous generators still suspended are closed, for `SETTLE` seconds at most, so that one whose `finally`
+does not return holds the run no longer; the run's directory is removed; for a run cancelled, each machine its events
+gave a stage and no end has one, `cancelled` at that stage (`attached.UNENDED`, from `job.unended()`), since Ctrl-C
+twice, a SIGTERM or a SIGHUP raises `Abandoned` wherever the loop's thread is and a machine's own handler may never
+run, and one that has an end, a runner's (`fleet_run.py`) or its body's, is never given a second; the exit record is
+written, which has the live view say the run's last words, with the signals held off and then taken as notes only, so
+that a late one changes nothing but what the process dies of; and last the terminal's settings are put back as the run
+found them, its echo among them: where anything changed them, drained (`TCSADRAIN`), so that the terminal has read those
+words first, and for a run a Ctrl-C or the ladder stopped flushed (`TCSAFLUSH`) whatever they are, so that what was
+typed meanwhile and not read is thrown away, never left for the shell. Each change only while the run is the terminal's
+foreground, SIGTTOU held off, so that a run a shell put in the background leaves the shell's settings and is not stopped
+by its own end; a run started in the background reads none to put back. Each Ctrl-C and `Ctrl-\` the ladder handles
+throws away what was typed and not read yet (`live_region.discard_typed`, SIGTTOU held off, only while the run is the
+terminal's foreground), as the terminal's own key does where `NOFLSH` is off, since the live region and a line keep what
+the terminal has not written at one. A Ctrl-Z is no end of the ladder's: the terminal's hold takes it, below. "The tree"
+is everything under the run's process, ended by `proc.end_under(pid, remembered, signum)`, which signals every process
+under a process and what was remembered of it, by each one's start, with their groups, and never the process, its group
+or the caller's: today's `end` signals the root too, which here is the run. A shared SSH master daemonises out of the
+tree, so no end reaches it, and its open, while it runs - a machine's, `ensure`'s, or the hop's, `route.py`'s - is left
+out of what is remembered (`children.opening`), since the master it leaves keeps its `ProxyCommand` in the open's group;
+a second Ctrl-C during an open ends that open, and the master it was making. A child meant to outlive the run
+(`children.outliving`, the editor, a page's opener) is left out of both, of what is remembered and of what is ended,
+with what is under it: no end of the run reaches it. No child subreaper and no systemd scope are adopted, since under a
+subreaper one run's end would cut another run's connection through the host. The ladder is built against stand-ins;
+experiment 37 tries it with real children, and if a foreground run cannot end its tree by itself, `runs.run` is where a
+small watcher would go.
 
 **A child the terminal stopped.** While the run lives it looks, every 0.2 seconds, for a child the terminal has stopped
 (`children.asking`): one in a group of its own, `route.py`'s `ssh` among them, that asked a question at the terminal,
@@ -2766,6 +2926,39 @@ first as `readpassphrase` does (SIGTTOU), and `route.py`'s `ssh`; and a run at a
 controlling one, whose child of kind `ssh`, in a group of its own in the run's session, asks nothing for three seconds
 starts no `ps`, counted by a stand-in first on its `PATH`.
 
+**A run over several machines: `fleet_run.py`.** `each(context, machines, body, most, names=...)` starts `body(machine)`
+for each machine, by the key its events name it by (its identity, or a VM's stand-in until its join), never more than
+`most` at once: the setting `run_forks`, 20 by default as today's `forks` (`ansible.cfg`), which `--set run_forks=30`
+changes for one run, and which the verb passes. The machines begin in the order given, each as soon as another ends. A
+machine's failure, an `Exception` its body raised, is caught and recorded, and ends no other machine; a body that raises
+`asyncio.CancelledError` by itself, as a section's wait the run's stop ended does, is that machine cancelled. Once the
+run is cancelled (`context.cancelled`), no machine begins: each left is recorded cancelled, "not begun", and those under
+way end by their own steps. Where the runner itself is cancelled, at the stop's grace's end or by an enclosing group's
+or a timeout's cancel with no stop set, or its own record fails, no machine begins after it, every machine still under
+way is cancelled and waited for before it returns or raises, as an `asyncio.TaskGroup` does, so that nothing of the run,
+a question among it, runs on past the loop's end. Each machine's end is one `end` event the runner alone emits, with its
+outcome and its why (what the body returned where it went well, the error's sentence where it failed); its stage is the
+record's rule's, the stage the machine's own last `stage` event named since the job was made, moved to its identity by a
+join (`job.py`): what the record keeps in `machine_outcomes`, and what `each` returns, by the machine's key at its end.
+A body that emits an end of its own is refused as its error, the machine failed and saying so: the listeners hear the
+body's end and then the runner's, and the record keeps the runner's. The body emits its own stages, the first of a
+stand-in with its name and before any section for it, and its join; a stand-in's end carries its name (`names`, refused
+before anything begins where one is missing), so that one cancelled before its body began is still said and kept by
+name. A machine named twice, or a bound under one, is refused before anything begins. `one_at_a_time` is the same with a
+bound of one, for the sign-ins, and `status` gives the run's exit status from the outcomes: 0 only where every machine
+succeeded, 130 where those that did not were all cancelled, else 1, a machine failed or `declined` (C38's outcome, a
+person's answer, which exits 1 as a run declined does) or one it does not know. Whether layer 1 over a fleet is one
+Ansible child a machine or one child over every machine, and the bound's default, are experiment 62's (C18).
+`tests/unit/test_aw_fleet_run.py` holds it: thirty machines never more than twenty at once and every free turn taken,
+and a bound given as five holds five; one that fails leaves twenty-nine done, none of them cut short, and the run
+failed; a cancel lets no machine begin, those under way finishing, at a real Ctrl-C too, the run's record then
+`cancelled` with every machine's outcome; the runner's task cancelled at each turn of the loop with no stop set lets no
+machine begin after it; the runner cancelled, or its own record refused, cancels and waits for every machine before it
+raises, the error as itself; the exit record holds thirty outcomes, each with the stage it reached, one reached before
+the runner ran among them; a body's own end refused, the machine failed; a stand-in's end kept under its identity once
+joined, and by its name where it never began; one at a time never two at once; the exit status from each mix of
+outcomes, `declined` among them; and what is refused before anything begins.
+
 **A run as a person reads it: `stages.py` and `model.py`.** A verb declares what its run is made of, and its workstream
 writes the declaration: `Declared(title, stages)`, each `Stage` with a key, which the run's events name, the label a
 person reads, its `Step`s (each a key and a label), whether its work is each machine's (its rows mark each machine; the
@@ -2803,7 +2996,7 @@ makes it (a tab, a line break and Unicode's format characters stay, and a drawer
 | `waiting` | Opens the wait of its machine and its `section`, in place of one open; an empty text ends that wait alone |
 | `next` | A line of NEXT STEPS for its machine and `matter`; an empty line removes it |
 | `join`, its machine the identity, its text the stand-in | Everything kept under the stand-in is kept under the identity from then on, each in its place (`JOINED`); the stand-in names nothing more |
-| `end` | With a machine: its outcome, the stage it reached (`stage`, else its own last `stage` event, as the job's record keeps it), why, and what of it is open ends (done, failed, stopped). With none: the run's end; everything open ends, done where the run succeeded and stopped where it failed or was cancelled, and no event is taken after it |
+| `end` | With a machine: its outcome, the stage it reached (`stage`, else its own last `stage` event, as the job's record keeps it), why, and what of it is open ends (done, failed, stopped). With none: the run's end; everything open ends, done where the run succeeded and stopped where it failed, was cancelled or declined, and no event is taken after it; a declined end says no failure |
 
 A `stage` or a `step` is for one machine, or with no machine for every machine of the run: a machine with no part of its
 own in a stage or a step reads every machine's part where that began before the machine's own end, by the order the
@@ -2848,10 +3041,12 @@ a sign-in, one cancelled), each event's effect, every refusal leaving the model 
 `emit`, and each rule above with a test of its own.
 
 **The run drawn: `view.py`.** `View(run, started_at=..., title, log, host, check)` draws the model as today's runs are
-drawn, with `tui/screen.py`'s lines, palette and cut and `tui/run.py`'s module-level functions (its marks, a report's and
-a failure's lines, a report's first sentence) and its two helpers for a summary's lines, as they stand: `tui/run.py`
-draws today's model of Ansible's tasks, whose counts, bars and windows of tasks the new model has not, so no base class
-is shared and today's file is unchanged. It gives `frame(now, cols, rows, glyph, color)`: the header (the run's title,
+drawn, with `tui/screen.py` alone: its lines, palette and cut, and the marks, a report's and a failure's lines, a
+report's first sentence and a summary's head and parts (`MARKS`, `report_lines`, `failure_lines`, `first_sentence`,
+`cut_head`, `flow`), which `tui/run.py` draws today's runs with from there too. `tui/run.py` draws today's model of
+Ansible's tasks, whose counts, bars and windows of tasks the new model has not, so no base class is shared, and an
+import of `view.py` loads neither it nor today's model (`run/model.py`, `run/recipes.py`):
+`tests/unit/test_aw_run_view.py` holds it in a fresh interpreter. It gives `frame(now, cols, rows, glyph, color)`: the header (the run's title,
 its host beside a second, the clock it started, a dry run), every stage drawn but a quiet one where nothing failed, each
 row its mark, its label and its time at the right edge and, where the run has two machines or more and the work is each
 machine's, each machine's mark (`alpha ✓ · beta ⠴ · gamma ○`, or their count where they do not fit; a machine that has
@@ -2861,7 +3056,7 @@ window of tasks stood) and each wait for another run's section, with the time si
 with what the run waits for, whose and since when; folded to the height as today's (the steps to come, then the stages to
 come, on a line each); a run of one stage drawn as its steps; and a footer (the run's clock, the stage or step it is at,
 waiting for you, stopping once a person stopped it, the log). `title_text(now)` says where the run is, waiting for you, or
-how it ended (done, failed, stopped), with no percentage, since nothing counts tasks. `ended_lines(now)` gives a line as
+how it ended (done, failed, stopped, declined), with no percentage, since nothing counts tasks. `ended_lines(now)` gives a line as
 each step and stage ends, and as each wait begins, for output that is no terminal, in today's columns and the order they
 happened: a stage of each machine's work is said once every machine of the run is through it or ended (or the run is
 over), so a fleet whose machines reach a stage one after another says it once; a wait is said once, with its stage and
@@ -2870,7 +3065,8 @@ sign-in in your browser`), a short section's in its own words. `above(cols, colo
 since its last call, in the order said: each report whole, under its machine, wrapped and never cut, and each failure
 with where, whose, why and the log, the run's own among them. `summary(now, cols, color, next_steps)` gives how the run
 ended (done; done with the machines that failed; failed, and where, with the run's own why in place of the clock where
-it failed of its own error; stopped, and where), each stage's mark and time with each machine's mark and its steps' times and your time in
+it failed of its own error; stopped, and where; or `declined · <time>`, a run the person declined, its head alone, as
+today's, with no ✗ and no failed count), each stage's mark and time with each machine's mark and its steps' times and your time in
 them, what it never reached, each machine's reports a line each (the run's own under THIS MACHINE) but what NEXT STEPS
 says whole, and the totals; NEXT STEPS itself is the caller's to print after it, as today's run prints it. No line of a
 frame or a summary is wider than `cols - 1`. A machine is said by the name a person chose (the model's `name`), never by
@@ -2895,8 +3091,20 @@ stream through the one live region every live output shares (`tui/live_region.py
 since a run's questions are asked by a module of their own that steps the region aside): redrawn after each event and
 ten times a second for the spinner, the terminal's title saying where the run is, the echo off while it draws and at a
 Ctrl-C what the terminal has not read yet kept (`NOFLSH`), where it would throw away a line said above or part of a
-frame (keys typed unseen before it are then left for the next reader, as keys typed with no Ctrl-C are), and for a
-question and at the end the terminal's settings put back exactly as found; what is
+frame (keys typed unseen before it are thrown away all the same, by the ladder's Ctrl-C), and for a question the
+terminal's settings put back exactly as found; at the run's end `NOFLSH` alone kept on until its summary and NEXT STEPS
+are said, and then the settings exactly as found (`LiveRegion.finish(kept=True)`, then `release()`), so that a Ctrl-C
+the terminal has not read them by throws none of them away. Each change of the settings is made only while the run is
+the terminal's foreground, SIGTTOU held off (`live_region.change` and `put_back`), so that a run a shell put in the
+background leaves the shell's settings and is not stopped again by one; and each change back with the run's signals
+held off till it is made (`live_region.uninterrupted`), so that a second Ctrl-C, a SIGTERM, a SIGHUP, a Ctrl-Z or a
+`Ctrl-\` never leaves it half made. A Ctrl-Z while the region draws (SIGTSTP, at its default) is taken by the
+terminal's hold (`live_region`'s `_Hold`): the region erased and none drawn, the settings put back as found and what was
+typed unseen thrown away with them (`TCSAFLUSH`), and then the stop; once the run goes on (SIGCONT, a shell's `fg`) the
+mode made again and the region drawn below the shell's lines. A `Ctrl-\` while it draws is the ladder's, as SIGTERM;
+where its default is in place instead, the hold does the same as at a Ctrl-Z before the quit. A Ctrl-Z or a `Ctrl-\`
+held off while the settings go back is raised at its default once they are back, what was typed unseen thrown away
+first (`uninterrupted`), as the region's `NOFLSH` kept it from the terminal's own key. What is
 said above (`View.above`: each report whole, each failure) printed above the region after each event; and while it
 draws, standard error said above the region too, a whole line at a time, so that the ladder's `stopping` line at a
 Ctrl-C, or a warning, never lands inside the region. Where the stream is no terminal, what is said above and a line as
@@ -2920,8 +3128,9 @@ join: drawn by its name from its first event (from `job.json`'s `making` where t
 from its `names` where it is made after the join), and
 the join changes nothing drawn, one row before and after, the identity's events going on in it. A job has one view: a
 second is refused (`RuntimeError`), the first keeping it. What the view says in the run's thread, each event's lines and
-standard error's lines above the region, is said whole, a Ctrl-C, a SIGTERM and a SIGHUP held off meanwhile and each
-delivered once it is said (`live_region.uninterrupted`, which also holds each of the region's writes and its count of
+standard error's lines above the region, is said whole, a Ctrl-C, a SIGTERM, a SIGHUP, a Ctrl-Z and a `Ctrl-\` held
+off meanwhile and each delivered once it is said (`live_region.uninterrupted`, which also holds each of the region's
+writes and its count of
 the lines drawn): the ladder raises from its handler wherever the run's thread is, and a frame drawn but not counted
 would be left above the summary, an erase not counted would wipe lines said above it, and
 a line counted as said but not written would be lost. Once a write to the stream fails nothing more is written there,
@@ -2959,9 +3168,10 @@ keys typed before the question was there are flushed, the question is written to
 every read through `Context.typed`, on the loop and never in a thread, so one Ctrl-C there ends the run; never from the
 process's controlling terminal opened by its name, and never through `getpass`. Then an empty `waiting` event ends that
 wait alone, and a `step` event, a line of the machine's work, says what was answered: the line, the choice's words, or
-of a hidden answer only that one was given. A line is read in the terminal's cooked mode with its echo on; a hidden
-answer the same with the echo off; at either, a Ctrl-C keeps what the terminal has not read yet (`NOFLSH`), where the
-terminal would throw away the echo of what was typed and leave the question's line saying `^C` where `192^C` was typed;
+of a hidden answer only that one was given. A line is read in the terminal's cooked mode with its echo on, and at a
+Ctrl-C keeps what the terminal has not read yet (`NOFLSH`), where the terminal would throw away the echo of what was
+typed and leave the question's line saying `^C` where `192^C` was typed; a hidden answer the same with the echo off and
+without `NOFLSH`: with nothing typed on the screen to keep, each signal key throws away what was typed, as it would;
 either question's line is ended wherever the person's Enter did not end it on the
 screen, however its read ends (a hidden answer, the end of the input, a Ctrl-C, a SIGTERM), so that what the view kept
 while it was up is said from a line of its own; a choice is `tui/choose.py`'s menu where the terminal can draw it
@@ -2977,8 +3187,35 @@ as found once each question ends, however it ends, and each change of them, the 
 `TCSAFLUSH`'s, as `getpass` makes it: the keys typed before are flushed by the change that sets the mode, never one
 typed between a flush and the change, and what was typed at the question and not read (the rest of a paste, the line
 after a token, the part of a line a Ctrl-C kept) is discarded by the change back, never left in the terminal's input for
-the shell to run once the run
-has ended. A change that a signal interrupts is made again (`live_region.set_terminal`, which the region's own switch
+the shell to run once the run has ended. The question's line is ended before the change back, in the question's mode,
+whose `NOFLSH` keeps it at a Ctrl-C, and the menu's words above it are written once its raw mode is set, where a Ctrl-C
+is a key (`choose.asked`'s `above`); the change back is made with the run's signals held off till it is made
+(`live_region.put_back`, inside `uninterrupted`), so that a second Ctrl-C, a SIGTERM, a SIGHUP, a Ctrl-Z or a `Ctrl-\`
+ends or stops the run once it is made, never half way, and only while the run is the terminal's foreground, SIGTTOU held
+off, while the question's mode
+is made at once, where a run in the background waits for the terminal (SIGTTOU), as a question needs it. A run the
+ladder stopped puts the settings back once more at its end, what is unread discarded. A Ctrl-Z at a question (SIGTSTP,
+at its default) is taken by the terminal's hold as the region's is: the settings put back as found and what was typed
+and not read thrown away with them (`TCSAFLUSH`), and then the stop, so that nothing typed reaches the shell's line or
+its history; once the run goes on in the foreground (`fg`) the question's mode is made again and its words written again
+below the shell's lines, where the answer is typed afresh (`change`'s `back`); a run the shell goes on with in the
+background (`bg`) stops at the question till it is the foreground: once it goes on, the hold's own Ctrl-Z raises
+SIGTTOU at its default from Python, in a loop (`_once_foreground`), and never leaves the stop to the terminal inside the
+change, whose stop the kernel would make again at each SIGCONT without coming back to Python where another thread took
+the signals; before each stop it waits a moment (`ENDING_GRACE`), for a kill another of the run's threads took to reach
+the ladder, and looks again whether the run is the foreground. A run whose parent is not in its session, its group maybe
+orphaned with its shell gone, is never stopped there, since Linux throws that stop away and the question would loop for
+good: the change fails with `EIO`, as the kernel's own change fails there. The SIGCONT's own handler never stops the
+run: Python runs a handler still due at the first line of another's, so a kill's SIGCONT can come there before its
+SIGTERM's handler has done anything. A run the shell ends while it is stopped, at a Ctrl-Z or after `bg` (`kill %1`:
+SIGTERM, then SIGCONT), ends at once: the kill's handler raises the end through the stop, and the ladder's end tells the
+hold it waits for the terminal no more (`live_region.ending`), so that an end that raises nothing, the run already
+closing, stops the question no more either. A `Ctrl-\` is the ladder's, as SIGTERM, what was typed thrown away first.
+The edges: at the menu, whose raw mode makes them keys, a
+Ctrl-Z and a
+`Ctrl-\` are keys it has no use for, and the menu goes on; a key between two questions, or while the region is aside
+and no question is up yet, is the terminal's own. A change that a signal interrupts is made again
+(`live_region.set_terminal`, which the region's own switch
 of the echo uses too): `TCSAFLUSH` and `TCSADRAIN` wait for the output to drain, and a signal whose handler raises
 nothing, the run's first Ctrl-C or a resize, ends that wait with `EINTR`.
 
@@ -2999,20 +3236,47 @@ screen read back with `tests/unit/vt.py`), two questions asked at once from two 
 first is answered, a report, a line on standard error and an event the view refuses, each said while a question is up,
 shown after it and never on its line, and so when a Ctrl-C or a SIGTERM cuts the question short, the question's line
 ended where it was cut and what was typed on it kept there (`192^C`, the keys and the Ctrl-C in one write too) and never
-left in the terminal's input, however a run ends the terminal's settings those it had before the run, a line, a hidden
-answer whose characters reach neither the screen, the record nor
+left in the terminal's input, however a run ends the terminal's settings those it had before the run; from an
+interactive shell (`harness._in_a_shell`), a line and a hidden answer half typed and then a Ctrl-Z (`fg` bringing the
+question back in its mode, its words written again), a `Ctrl-\` or a Ctrl-C, what was typed never on the shell's line
+or in its history, and a Ctrl-Z there and then `kill %1` or `kill -HUP %1`, or `bg` and then `kill %1`, the run
+ended at once, of the signal, and its lock free for the next; a line, a hidden answer whose characters reach
+neither the screen, the record nor
 the run's events, two lines pasted at a line and at a hidden answer, the second never left in the terminal's input once
 the run has ended, the region gone while a question is up and back after it, Enter taking the default, Ctrl-C at a
-line, a hidden answer and the menu ending the run, and keys typed before the question not taken as its answer; with
+line, a hidden answer and the menu ending the run, keys typed before the question not taken as its answer, the run's
+summary and 150 lines of NEXT STEPS said with nobody reading and then keys typed unseen and a Ctrl-C, every line on the
+screen and the keys never left for the shell, and from an interactive shell keys typed unseen there and a Ctrl-Z in
+place of the Ctrl-C, never on the shell's line or in its history, and keys typed while a stopped run winds down never
+left either; with
 standard input on `/dev/null`, the default at once and the line that says so; and in its own process, every refusal of
 `Question`, a question with no default among them, a choice's words and note made plain, two questions asked at once
 taking turns, how the menu's keys are cut, what is typed at the menu after its answer never left, a question and the
-menu putting the terminal back through an `EINTR`, each change `TCSAFLUSH`'s, a question's mode with `NOFLSH` and the
-settings put back exactly as found, what the view says kept while a question
+menu putting the terminal back through an `EINTR`, each change `TCSAFLUSH`'s, a line's mode with `NOFLSH` and a hidden
+answer's without, and the settings put back exactly as found, a question's own words written while its mode is up, a
+signal landing as a
+question ends delivered once its line is ended and the settings are back, a question a shell puts in the background
+making no change of the settings there, what the view says kept while a question
 is up, a refused event's line among it, or said before the summary where the run's end cuts the question short, and the
 bell rung only after a quiet while. `tests/unit/test_live_region.py` holds the region's own switch of the echo to the
-same through an `EINTR`, `NOFLSH` beside the echo while it draws and the settings back exactly as found, and 300 lines
-said above the region with nobody reading and then a Ctrl-C, none of them lost.
+same through an `EINTR`, `NOFLSH` beside the echo while it draws and the settings back exactly as found, `NOFLSH` kept
+at a run's end till `release()`, a Ctrl-C throwing away what was typed unseen and handing the signal on, no change and
+no settings read in the background, a question going on in the background letting an end another thread took land
+before its change and stopped there by the hold's Ctrl-Z alone, never by the SIGCONT's handler, stopping no more once
+the end came at its first stop, never stopped where its parent is not in its session (`EIO`) nor once it is the
+foreground after the wait, a signal landing as the settings go back delivered once they are, a Ctrl-Z coming back to
+them, a Ctrl-Z and a `Ctrl-\` at their default taken while it draws - the region erased, the settings put back
+as found and what was typed unseen thrown away before the stop or the quit, the mode again after a stop - a handler of
+the program's own left in place, the handlers the hold took put back where it ends with the signals held off (a
+question's end), and from an interactive shell, nothing typed unseen left on its line or in its history at either, and
+300 lines said above the region with nobody reading and then a Ctrl-C, none of them lost;
+`tests/unit/test_aw_attached.py` a run started in the background reading no settings to put back, a `Ctrl-\` ending
+the run as a SIGTERM does, the tree ended with SIGTERM and the run dying of SIGQUIT, and an end that raises nothing, the
+run already closing, still telling the terminal's hold it waits no more. In every in-process test on
+Linux, a draining change of a pseudo-terminal's settings made with output unread at its master and nothing reading it
+fails the test (`tests/unit/conftest.py`'s `drainwatch`), as macOS would wait there for good, an end of input typed in
+a canonical mode echoed as the `^D` macOS echoes for it and Linux does not; off Linux it notes nothing, since
+`FIONREAD` on a master there counts what its slave has not read, never the slave's output.
 
 ## 16.9 `fleet/` — the fleet's files, the settings, the secrets and the fleet's mark
 
@@ -3082,12 +3346,13 @@ fleet's folders but `paths.py`.
 
 **Tests never reach the developer's.** An autouse fixture in `tests/unit/conftest.py`, `aw_home`, sets
 `AGENT_WAREHOUSE_HOME` to a folder in each test's own directory, a directory of the session's own stands in before it
-for a module's run, and `harness.PASSED_ON` passes it to every run. The session reads the names `paths` owns in the
+for a module's run, and `harness.PASSED_ON` passes it to every run. It is never session-scoped: a session-scoped
+autouse fixture would join every test into one xdist group. The session reads the names `paths` owns in the
 developer's fleet folders before the first test and after the last, from their metadata alone, and fails if one was
 made, changed or removed. Those folders (`developers_folders`) are the installed program's three, the checkout's own
 `.aw/` and, where the suite runs from a worktree, the main worktree's (git's common directory), and the
 `AGENT_WAREHOUSE_HOME` the developer exported, read before the session replaces it. In a checkout's `.aw/` only
-`client.yml`, `fleet/` and the key are watched, never `state/`: the developer's own `aw` run from that checkout writes
+`client.yml`, `fleet/` and the key are watched (`CHECKOUT`), never `state/`: the developer's own `aw` run from that checkout writes
 its jobs there while a suite runs, and state can be made again. No file there is opened, so no `fleet_home` is
 followed. `tests/unit/test_aw_fleet_paths.py` holds the homes, the pointer, the key's place, the names,
 the scans for who names the folders and the key, and the guard, a child `pytest` among its tests.

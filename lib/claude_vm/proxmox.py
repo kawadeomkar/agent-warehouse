@@ -695,14 +695,15 @@ def proxmox_template_drift(config, wanted):
 ACCESS_ROLE = "AnsibleVM"
 
 
-def proxmox_read_grant(node, user, on="", cluster=False):
+def proxmox_read_grant(node, user, on="", cluster=False, init=""):
     """How the API token comes to read a node's CPU threads and memory: Sys.Audit, read only, in the role just init's
     offer makes, granted on the node, where Proxmox looks for it - the role alone is not enough where it is granted
     elsewhere. The lines just status prints under the node, and an agent reads in its JSON. On a host of one node,
     just init at a terminal offers both, by tools/proxmox-access.sh over root SSH, which adds to the role what it lacks
     and grants it on the node it runs on: the lines name that run, ``on`` (" --host <name>", or "") ending it as every
     just line ends, so it reaches this host whichever is current. In a cluster that node may be another, so the lines
-    are the two commands, which hold for any node (docs/getting-started/proxmox-access.md)."""
+    are the two commands, which hold for any node (docs/getting-started/proxmox-access.md). init is that run's line
+    where the caller printed it whole (aw status's), else just init's."""
     user = user or "ansible@pve"
     if cluster:
         return [
@@ -712,8 +713,8 @@ def proxmox_read_grant(node, user, on="", cluster=False):
         ]
     return [
         f"to read them, {user} needs Sys.Audit on /nodes/{node}, read-only:",
-        f"just init{on}, at a terminal and with root SSH to the host, offers to add it to the role {ACCESS_ROLE}"
-        " and grant it there",
+        f"{init or 'just init' + on}, at a terminal and with root SSH to the host, offers to add it to the role"
+        f" {ACCESS_ROLE} and grant it there",
     ]
 
 

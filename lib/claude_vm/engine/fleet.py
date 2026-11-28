@@ -352,18 +352,9 @@ def _members(host: Host, pool: Pool) -> tuple[Target, ...]:
                 f" ({one_line(sentence(error), SAID_MOST)}): it is never changed or deleted"
             )
         read.append((entry, config, unread))
-    configs = [config for _, config, _ in read if config is not None and config.identity]
-    uuids = Counter(config.identity for config in configs)
+    found = ownership.twins(config for _, config, _ in read if config is not None)
     return tuple(
-        _member(
-            host,
-            entry,
-            config,
-            unread,
-            tuple(other.vmid for other in configs if other.identity == config.identity and other.vmid != config.vmid)
-            if config is not None and uuids[config.identity] > 1
-            else (),
-        )
+        _member(host, entry, config, unread, found.get(config.vmid, ()) if config is not None else ())
         for entry, config, unread in read
     )
 

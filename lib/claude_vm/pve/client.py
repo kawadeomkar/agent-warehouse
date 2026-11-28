@@ -124,6 +124,7 @@ __all__ = [
     "Token",
     "TooOld",
     "Unknown",
+    "Unsent",
     "Unverified",
 ]
 
@@ -329,6 +330,24 @@ class Stopped(ProxmoxError):
             f"Proxmox's {task.kind} task for VM {task.vmid} was left before its end: the run stopped following it, and"
             " the task may still run on Proxmox, so read the VM to know where it was left"
         )
+
+
+class Unsent(ProxmoxError):
+    """The run stopped once a write's own read was made and before the write was sent (the run's Context.stopping,
+    handed to edit_config, resize and start): nothing was sent, so the VM is as that read found it, which a Stopped
+    task cannot say."""
+
+    def __init__(self, call: str, vmid: int) -> None:
+        self.call, self.vmid = call, vmid
+        super().__init__(f"the run stopped before VM {vmid}'s {call} was sent: nothing was sent")
+
+
+def _unstopped(stop: threading.Event | None, call: str, vmid: int) -> None:
+    """Unsent where stop, the run's Context.stopping, is set: asked between a write's read and its send."""
+    if stop is not None and not isinstance(stop, threading.Event):
+        raise TypeError("stop is the run's threading.Event, Context.stopping, or None")
+    if stop is not None and stop.is_set():
+        raise Unsent(call, vmid)
 
 
 class NotRunning(ProxmoxError):
@@ -957,18 +976,22 @@ class Proxmox:
         node, vmid = _owned(vm)
         self._write(node, vmid, changes, vm.digest)
 
-    def edit_config(self, vm: Owned, edit: Callable[[VmConfig], Mapping[str, Any] | None]) -> Mapping[str, Any]:
+    def edit_config(
+        self, vm: Owned, edit: Callable[[VmConfig], Mapping[str, Any] | None], stop: threading.Event | None = None
+    ) -> Mapping[str, Any]:
         """Read the configuration of vm, an Owned, apply edit to it - a function of the VmConfig read that returns
         write_config's changes, or nothing for none - and write them with the digest that read gave. Where another
         writer changed it in between, read it again and apply edit again, EDITS times in all, then raise the last
         DigestMismatch. Each read is held to vm's SMBIOS UUID first: Changed, with nothing sent and edit not applied,
-        where another VM holds its VMID now. Returns the changes written, {} where edit asked for none."""
+        where another VM holds its VMID now. stop, the run's Context.stopping where it is given, is asked after each
+        read: Unsent, nothing sent, once it is set. Returns the changes written, {} where edit asked for none."""
         node, vmid = _owned(vm)
         if not callable(edit):
             raise TypeError("edit is a function of the configuration read")
         stale: DigestMismatch | None = None
         for _ in range(EDITS):
             config = self._held(vm, node, vmid)
+            _unstopped(stop, "configuration's write", vmid)
             changes = edit(config)
             if not changes:
                 return {}
@@ -981,26 +1004,30 @@ class Proxmox:
         assert stale is not None
         raise stale
 
-    def resize(self, vm: Owned, disk: str, size: str) -> Task:
+    def resize(self, vm: Owned, disk: str, size: str, stop: threading.Event | None = None) -> Task:
         """PUT a disk of vm, an Owned, grown to size (40G), or by it (+8G): the Task. Its configuration is read first
         and held to vm's SMBIOS UUID (Changed, with nothing sent, where another VM holds its VMID now), and the resize
-        sends that read's digest, which Proxmox holds the configuration to (DigestMismatch). Proxmox never shrinks a
-        disk, and leaves one already that size as it is."""
+        sends that read's digest, which Proxmox holds the configuration to (DigestMismatch); stop, the run's
+        Context.stopping where it is given, is asked after that read: Unsent, nothing sent, once it is set. Proxmox
+        never shrinks a disk, and leaves one already that size as it is."""
         node, vmid = _owned(vm)
         if not isinstance(disk, str) or not DISK.fullmatch(disk):
             raise ValueError("a disk is scsi0, virtio0, sata0 or ide0, ...")
         if not isinstance(size, str) or not SIZE.fullmatch(size):
             raise ValueError("a size is a number of bytes or of K, M, G or T, + before one added")
         now = self._held(vm, node, vmid)
+        _unstopped(stop, "resize", vmid)
         form = {"disk": disk, "size": size, "digest": now.digest}
         upid = self._send("PUT", f"nodes/{node}/qemu/{vmid}/resize", vmid, form=form)
         return answers.task(upid, node, "resize", vmid)
 
-    def start(self, vm: Owned) -> Task:
+    def start(self, vm: Owned, stop: threading.Event | None = None) -> Task:
         """POST vm, an Owned, started: the Task. Proxmox's start takes no digest, so its configuration is read first and
-        held to vm's SMBIOS UUID: Changed, with nothing sent, where another VM holds its VMID now."""
+        held to vm's SMBIOS UUID: Changed, with nothing sent, where another VM holds its VMID now; and stop, the run's
+        Context.stopping where it is given, is asked after that read: Unsent, nothing sent, once it is set."""
         node, vmid = _owned(vm)
         self._held(vm, node, vmid)
+        _unstopped(stop, "start", vmid)
         return answers.task(self._send("POST", f"nodes/{node}/qemu/{vmid}/status/start", vmid), node, "start", vmid)
 
     def shutdown(self, vm: Owned, timeout: int | None = None, force_stop: bool = False) -> Task:

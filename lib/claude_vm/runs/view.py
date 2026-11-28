@@ -6,10 +6,10 @@ live frame (`frame`: the stages, the running stage's steps, each machine's lates
 footer; a run of one stage drawn as its steps), a line as each step and stage ends and as each wait begins, for output
 that is no terminal (`ended_lines`), what is said above the region (`above`: each report whole, wrapped and never cut,
 each failure with where and why, the run's own among them), the summary at the end (`summary`), and the terminal's
-title (`title_text`). Lines are built with tui/screen.py and tui/run.py's module-level functions (MARKS,
-first_sentence, report_lines, failure_lines) and its two helpers for a summary's lines (Run._flow, Run._cut_head), as
-they stand, so they cut, pad, colour and wrap as every live output does; no line of a frame or a summary is wider than
-the screen.
+title (`title_text`). Lines are built with tui/screen.py alone, with the marks, a report's and a failure's lines, a
+report's first sentence and a summary's head and parts (MARKS, report_lines, failure_lines, first_sentence, cut_head,
+flow) that today's runs are drawn with there too, so they cut, pad, colour and wrap as every live output does, and no
+module of today's run model (run/) is loaded; no line of a frame or a summary is wider than the screen.
 
 A machine is said by the name a person chose (the model's `name`), never by its identity, the key its events carry.
 What the events said is made visible before it is drawn, as today's engine makes every report: a wait's words, a line
@@ -33,13 +33,12 @@ from collections.abc import Iterable
 from claude_vm.runs import model
 from claude_vm.runs.stages import Stage
 from claude_vm.text import one_line, visible_text
-from claude_vm.tui import run as drawn
 from claude_vm.tui import screen
 
 # How many lines of work a running stage or step shows, the newest at the bottom; one once a frame is folded tight.
 WINDOW = 5
 # The run's outcome, as the title and the summary say it.
-ENDED = {"succeeded": "done", "failed": "failed", "cancelled": "stopped"}
+ENDED = {"succeeded": "done", "failed": "failed", "cancelled": "stopped", "declined": "declined"}
 # The states in which a stage or a step has ended.
 OVER = ("done", "skipped", "failed", "stopped")
 # The said column of a line off a terminal, as today's: each machine's mark there, or their count when they do not fit.
@@ -49,7 +48,7 @@ Segments = list[tuple[str, str]]
 
 
 def _mark(state: str, glyph: str) -> tuple[str, str]:
-    mark, style = drawn.MARKS[state]
+    mark, style = screen.MARKS[state]
     return mark or glyph, style
 
 
@@ -409,7 +408,7 @@ class View:
             lines[0] = lines[0][len(name) + 2 :]
         named = name is not None and not lines[0].startswith(name + " ")
         said = {"host": name or "", "lines": lines, "styles": [""] * len(lines), "named": named}
-        return drawn.report_lines(said, cols, color)
+        return screen.report_lines(said, cols, color)
 
     def _who(self, machine: str | None) -> str:
         """Whom a failure is about: its machine's name; with none, the run's one machine, else this machine."""
@@ -430,7 +429,7 @@ class View:
             "said": why[1:],
             "log": self.log,
         }
-        return drawn.failure_lines(record, cols, color)
+        return screen.failure_lines(record, cols, color)
 
     # --- the summary ------------------------------------------------------------------------------------------
     def _stopped_at(self) -> str:
@@ -444,17 +443,20 @@ class View:
         return f" at {steps[-1] if steps else stage.label}"
 
     def _head(self, now: float) -> Segments:
-        """The summary's first line: done; done, with the machines that failed; failed, and where; or stopped."""
+        """The summary's first line: done; done, with the machines that failed; failed, and where; stopped; or declined,
+        the person's answer, as today's: no failure."""
         run = self.run
         total = run.seconds(now)
         minutes, seconds = divmod(round(total), 60)
         took = f"{minutes} min {seconds} s" if minutes else f"{seconds} s"
-        # The clock it ended at, last: what a head too long for the width loses first (Run._cut_head).
+        # The clock it ended at, last: what a head too long for the width loses first (screen.cut_head).
         tail = (f" · {time.strftime('%H:%M', time.localtime(self.started_at + total))}", "")
         failed = [self._name(machine) for machine, end in run.outcomes.items() if end.outcome == "failed"]
         succeeded = any(end.outcome == "succeeded" for end in run.outcomes.values())
         own = any(failure.machine is None for failure in run.failures)
-        if run.outcome == "cancelled":
+        if run.outcome == "declined":
+            said, style = f"declined · {took}", "y"
+        elif run.outcome == "cancelled":
             said, style = f"stopped after {took}{self._stopped_at()}", "y"
         elif not run.failures and run.outcome != "failed":
             said, style = f"done in {took}", ""
@@ -487,9 +489,12 @@ class View:
         """The summary at the run's end: how it ended; each stage's mark and time, with each machine's mark where there
         are several, and its steps' times with your time in them; what it never reached, where it failed or stopped;
         the last word of each report on each machine, but what NEXT STEPS will say whole (next_steps, by default the
-        run's); and the totals. Each line cut to cols - 1, the head losing its clock first."""
+        run's); and the totals. A run the person declined is its head alone, as today's: its answer was said above.
+        Each line cut to cols - 1, the head losing its clock first."""
         run = self.run
         limit = cols - 1
+        if run.outcome == "declined":
+            return [screen.render(screen.cut_head(self._head(now), limit), color)]
         left_to_do = {one_line(line, None) for line in (run.next_steps() if next_steps is None else next_steps)}
         lines: list[Segments] = [self._head(now), []]
         flat = self._flat()
@@ -525,7 +530,7 @@ class View:
                 waited = run.waited(now, stage.key, step)
                 if waited:
                     parts.append(f"({screen.duration(waited)} yours)")
-            lines += drawn.Run._flow(head, parts, limit)
+            lines += screen.flow(head, parts, limit)
         # A run that failed or stopped part way says what it never reached: the steps, or the stages, still to come.
         if run.outcome in ("failed", "cancelled") or run.failures:
             if flat:
@@ -534,7 +539,7 @@ class View:
             else:
                 never = [stage.label for stage in self._shown() if run.state(stage.key) == "to come"]
             if never:
-                lines += drawn.Run._flow([(" not run  ", "d")], never, limit, style="d")
+                lines += screen.flow([(" not run  ", "d")], never, limit, style="d")
         lines += self._reports_said(limit, left_to_do)
         lines.append([])
         totals = [screen.plural(len(run.machines), "machine")] if run.machines else []
@@ -544,9 +549,9 @@ class View:
             totals.append(f"{screen.duration(yours)} of it yours")
         if self.log:
             totals.append(f"log {self.log}")
-        lines += drawn.Run._flow([], totals, limit, style="d")
+        lines += screen.flow([], totals, limit, style="d")
         return [
-            screen.render(drawn.Run._cut_head(line, limit) if index == 0 else screen.cut(line, limit), color)
+            screen.render(screen.cut_head(line, limit) if index == 0 else screen.cut(line, limit), color)
             for index, line in enumerate(lines)
         ]
 
@@ -563,7 +568,7 @@ class View:
             if not unnamed or {text, unnamed, f"{name}: {unnamed}"} & left_to_do:
                 continue
             if "\n" in report.text.strip() or len(unnamed) > limit - 2:
-                unnamed = drawn.first_sentence(unnamed)
+                unnamed = screen.first_sentence(unnamed)
             kept = said.setdefault(machine, [])
             if unnamed not in kept:
                 kept.append(unnamed)

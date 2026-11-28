@@ -1,7 +1,8 @@
 """The settings' wiring, read from the checkout's own files: each role's argument_specs, which role variable each
 setting reaches through defaults.yml and the roles' defaults, and the sections of the example files. tools/docs.py
 renders the wiki's reference pages from it and tools/settings answers just settings with it, so the two cannot
-differ. Read-only; yaml is imported inside the functions that parse a file."""
+differ. Read-only; yaml is imported inside the functions that parse a file, and each file of the roles' specs
+and defaults is parsed once a read, with libyaml's loader where PyYAML has it."""
 
 from __future__ import annotations
 
@@ -20,15 +21,29 @@ def roles() -> list[str]:
     return sorted(p.parent.parent.name for p in (ROOT / "roles").glob("*/meta/argument_specs.yml"))
 
 
-def specs() -> dict[str, dict[str, dict]]:
-    """Every role variable's argument_specs entry, by role: the main entry point's wins."""
+def _load(text: str):
+    """text as YAML's safe loader reads it: libyaml's where PyYAML was built with it, the same values several times
+    faster, else PyYAML's own, as vault.py reads the vault."""
     import yaml
 
+    return yaml.load(text, Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))
+
+
+def argument_specs() -> dict[str, dict[str, dict]]:
+    """Each role's meta/argument_specs.yml, parsed once: its entry points, by role, as the file has them."""
+    return {
+        role: _load((ROOT / "roles" / role / "meta" / "argument_specs.yml").read_text())["argument_specs"]
+        for role in roles()
+    }
+
+
+def specs(read: dict[str, dict[str, dict]] | None = None) -> dict[str, dict[str, dict]]:
+    """Every role variable's argument_specs entry, by role: the main entry point's wins. read is argument_specs()'s,
+    given by a caller that reads the entry points too, so that each file is parsed once."""
     out: dict[str, dict[str, dict]] = {}
-    for role in roles():
-        entry_points = yaml.safe_load((ROOT / "roles" / role / "meta" / "argument_specs.yml").read_text())
+    for role, entry_points in (argument_specs() if read is None else read).items():
         merged: dict[str, dict] = {}
-        for _name, spec in sorted(entry_points["argument_specs"].items(), key=lambda kv: kv[0] != "main"):
+        for _name, spec in sorted(entry_points.items(), key=lambda kv: kv[0] != "main"):
             for var, details in (spec.get("options") or {}).items():
                 merged.setdefault(var, details or {})
         out[role] = merged
@@ -45,22 +60,21 @@ def wiring() -> tuple[dict, dict[str, list[str]]]:
     vault_b) | trim }}"`, the first host's secret or a host's own), which both set.
     Role defaults load first and defaults.yml after, as Ansible ranks them.
     """
-    import yaml
-
     either = re.compile(r"^\{\{\s*\((\w+)\s+if\b.*\belse\s+(\w+)\)\s*\|\s*trim\s*\}\}\Z", re.S)
     wire = re.compile(r"""^(\w+): "\{\{ (\w+)(?: \| trim)?(?: \| default\((.*)\))? \}\}"\Z""")
     defaults: dict = {}
     feeds: dict[str, list[str]] = {}
     files = sorted((ROOT / "roles").glob("*/defaults/main.yml")) + [GROUP_VARS / "defaults.yml"]
     for path in files:
-        loaded = yaml.safe_load(path.read_text()) or {}
+        text = path.read_text()
+        loaded = _load(text) or {}
         defaults.update(loaded)
         for name, value in loaded.items():
             m = either.match(value.strip()) if isinstance(value, str) else None
             if m:
                 for source in m.groups():
                     feeds.setdefault(source, []).append(name)
-        for line in path.read_text().splitlines():
+        for line in text.splitlines():
             m = wire.match(line)
             if m:
                 feeds.setdefault(m.group(2), []).append(m.group(1))
@@ -72,7 +86,7 @@ def wiring() -> tuple[dict, dict[str, list[str]]]:
                     if re.fullmatch(r"[a-z_]\w*", first) and first not in ("true", "false", "none", "omit"):
                         defaults.setdefault(m.group(2), "{{ " + first + " }}")
                     else:
-                        args = yaml.safe_load("[" + m.group(3).replace("'", '"') + "]")
+                        args = _load("[" + m.group(3).replace("'", '"') + "]")
                         defaults.setdefault(m.group(2), args[0])
     return defaults, feeds
 

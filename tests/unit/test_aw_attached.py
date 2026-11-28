@@ -5,26 +5,28 @@ Each run here is a child process of the test's, made by runs.run as a verb makes
 Ansible children through runs/children.py, each in a session of its own: one that ends on SIGINT, one that ignores it,
 one that puts a grandchild in a session of its own, as ansible-core's task worker is (tests/unit/test_processes.py's
 HOLDS), and one that records each SIGINT, SIGTERM and SIGHUP it gets, with when, and ends on none. Each way it ends is
-held to its exit record, its process's status, the signals the recorder got, and the process table after it, read
-once the run has ended and before anything of the test's own ends what is left. The rule with a test of its own: every
-way out of a run but SIGKILL writes an exit record, and the ways walk every signal whose handler is the ladder's while a
+held to its exit record, its process's status, the signals the recorder got, and the process table after it, read once
+the run has ended and before anything of the test's own ends what is left. The rule with a test of its own: every way
+out of a run but SIGKILL writes an exit record, and the ways walk every signal whose handler is the ladder's while a
 body runs, and every outcome. SIGKILL writes none, and the job reads lost. Ctrl-C twice ends the tree from the handler
-while the loop is held; SIGHUP and SIGTERM reach each child as themselves; a call still in a thread holds the process
-no longer than the ladder takes, on a daemon thread of the ladder's own that blocks no signal, whatever its maker held,
-a program it starts none either (as the program says its own mask), and the interrupts stay held off while the table
-is read all the same, each signal noted handled in the order it came and only once the outermost hold is done; a call
-in a thread handed the run's stop has it at a first Ctrl-C, a SIGTERM and the close; the close runs the body's
-generators unheld and for SETTLE at most; an Ansible child started inside a shield has the Ctrl-C's SIGINT once the
-shield is done; a stop a cancel recorded is kept; a SIGTERM after a Ctrl-C is what the record says, within SETTLE; one
-Ctrl-C at a question ends the run there, a question where nothing can be typed is refused before it waits, and one
-descriptor is read for one question at a time; a ladder that cannot be built leaves no job; Python's and asyncio's own
-reports stay off the terminal, an error of the ladder's own callbacks said in aw's own words, and Python's unraisable
-hook is back once the run has returned. A shielded phase finishes before the stop; at a pseudo-terminal the echo is back
-after each end; a signal ignored on the way in stays ignored; a child meant to outlive the run, as a page's opener is,
-lives on unmarked after every end; a child the terminal stopped for asking a question there - reading it or changing it
-first, or route.py's ssh - is said within a second, named, given ssh's remedies only where it is ssh, and ended, and its
-run ends, and a run at a terminal whose child in a group of its own asks nothing starts no ps; and end_under ends what
-is under a process, never the process, nor what it is told to leave.
+while the loop is held; SIGHUP and SIGTERM reach each child as themselves, SIGQUIT (a Ctrl-\\) as SIGTERM, the run dying
+of it; a call still in a thread holds the process no longer than the ladder takes, on a daemon thread of the ladder's
+own that blocks no signal, whatever its maker held, a program it starts none either (as the program says its own mask),
+and the interrupts stay held off while the table is read all the same, each signal noted handled in the order it came
+and only once the outermost hold is done; a call in a thread handed the run's stop has it at a first Ctrl-C, a SIGTERM
+and the close; the close runs the body's generators unheld and for SETTLE at most; an Ansible child started inside a
+shield has the Ctrl-C's SIGINT once the shield is done; a stop a cancel recorded is kept; a SIGTERM after a Ctrl-C is
+what the record says, within SETTLE; a machine begun and not ended when Ctrl-C twice or a SIGTERM ends the run is ended
+`cancelled` at its stage by the ladder, and one ended keeps its one end; one Ctrl-C at a question ends the run there, a
+question where nothing can be typed is refused before it waits, and one descriptor is read for one question at a time; a
+ladder that cannot be built leaves no job; Python's and asyncio's own reports stay off the terminal, an error of the
+ladder's own callbacks said in aw's own words, and Python's unraisable hook is back once the run has returned. A
+shielded phase finishes before the stop; at a pseudo-terminal the echo is back after each end; a signal ignored on the
+way in stays ignored; a child meant to outlive the run, as a page's opener is, lives on unmarked after every end; a
+child the terminal stopped for asking a question there - reading it or changing it first, or route.py's ssh - is said
+within a second, named, given ssh's remedies only where it is ssh, and ended, and its run ends, and a run at a terminal
+whose child in a group of its own asks nothing starts no ps; a run started in the background reads no settings to put
+back; and end_under ends what is under a process, never the process, nor what it is told to leave.
 """
 
 from __future__ import annotations
@@ -447,6 +449,20 @@ async def closes(ctx, said):
     return 0
 
 
+def staged(ctx):
+    # alpha begun and never ended by the body, beta ended by its own end: each machine's end the run emits, the
+    # ladder's among them, written to the file ends as it is heard.
+    def heard(event):
+        if event.kind == "end" and event.machine is not None:
+            with open(folder / "ends", "a") as ends:
+                ends.write(json.dumps([event.machine, event.data.get("outcome"), event.text]) + "\n")
+
+    ctx.job.listen(heard)
+    ctx.emit("stage", "alpha", "provision")
+    ctx.emit("stage", "beta", "provision")
+    ctx.emit("end", "beta", "made", outcome="succeeded")
+
+
 async def body(ctx):
     said = {"job": ctx.job.id, "pid": os.getpid(), "directory": str(ctx.directory)}
     if way.startswith("prompt"):
@@ -525,6 +541,8 @@ async def body(ctx):
                 await asyncio.sleep(0.02)
             (folder / "shielded").write_text(repr(time.time()))
         return 0
+    if way in ("stuck", "staged"):
+        staged(ctx)
     say(said)
     if way == "error":
         raise RuntimeError("the body's own error")
@@ -534,6 +552,10 @@ async def body(ctx):
         raise SystemExit(4)
     if way == "cancel":
         raise asyncio.CancelledError
+    if way.startswith("declined"):
+        # The person's answer, said by the body: exit 1 as destroy's no, or 0 where the body went on.
+        ctx.decline("the person said no")
+        return int(way[len("declined"):])
     if way == "unwritable":
         os.chmod(ctx.job.folder, 0o500)
         return 0
@@ -634,9 +656,17 @@ WAYS = {
     "Ctrl-C twice": Way("waits", (signal.SIGINT, signal.SIGINT), 60, "cancelled", 130, "Ctrl-C twice", 130, INT),
     "SIGHUP": Way("waits", (signal.SIGHUP,), 60, "cancelled", 129, "SIGHUP", -signal.SIGHUP, HUP),
     "SIGTERM": Way("waits", (signal.SIGTERM,), 60, "cancelled", 143, "SIGTERM", -signal.SIGTERM, TERM),
+    # A Ctrl-\ is taken as a SIGTERM is: the tree ended with SIGTERM, never SIGQUIT, whose default writes a core.
+    "SIGQUIT": Way("waits", (signal.SIGQUIT,), 60, "cancelled", 131, "SIGQUIT", -signal.SIGQUIT, TERM),
     "an error": Way("error", (), 60, "failed", 1, UNHANDLED, 1),
     "returns 0": Way("0", (), 60, "succeeded", 0, "done", 0),
     "returns 3": Way("3", (), 60, "failed", 3, "exit 3", 3),
+    # A body that fails with exit 1 is failed: an exit status alone never makes a run declined (C38).
+    "returns 1": Way("1", (), 60, "failed", 1, "exit 1", 1),
+    # One that said the person's answer ended it, and returned 1, is declined, its why the body's (C38); one that said
+    # it and went on to return 0 succeeded.
+    "declined": Way("declined1", (), 60, "declined", 1, "the person said no", 1),
+    "declined, then 0": Way("declined0", (), 60, "succeeded", 0, "done", 0),
     "returns 130": Way("130", (), 60, "cancelled", 130, "Ctrl-C", 130),
     "a KeyboardInterrupt of the body's own": Way("keyboard", (), 60, "cancelled", 130, "Ctrl-C", 130),
     "a SystemExit of the body's own": Way("exit4", (), 60, "failed", 4, "exit 4", 4),
@@ -816,8 +846,8 @@ def test_every_way_out_of_a_run_but_sigkill_writes_its_exit_record_and_leaves_no
     assert not Path(said["directory"]).exists()
     said_on_err = (tmp_path / "err").read_bytes()
     assert (STOPPING in said_on_err) is (signal.SIGINT in given.sent)
-    # A hangup and a kill reach each child as themselves, from the handler; a Ctrl-C as SIGINT; any other end only as
-    # the SIGKILL nothing records.
+    # A hangup and a kill reach each child as themselves, from the handler, a quit as a kill; a Ctrl-C as SIGINT; any
+    # other end only as the SIGKILL nothing records.
     assert {name for name, _ in _signals(tmp_path)} == given.recorded
 
 
@@ -940,6 +970,28 @@ def test_ctrl_c_twice_ends_the_tree_from_the_handler_itself_while_the_loop_is_he
         process.wait(timeout=60)
     assert process.returncode == 130
     assert _ended_as(jobs_dir, said) == ("cancelled", 130, "Ctrl-C twice")
+    _hold_unended(jobs_dir, tmp_path, said)
+
+
+def _hold_unended(jobs_dir: Path, folder: Path, said: dict) -> None:
+    """The body's machines at an end at once that no handler of theirs saw (card G31, review 83's finding 2): alpha,
+    begun and never ended, is ended `cancelled` at the stage it reached by the ladder; beta keeps its own end, never
+    given a second, as every end heard says."""
+    heard = [json.loads(line) for line in (folder / "ends").read_text().splitlines()]
+    assert heard == [["beta", "succeeded", "made"], ["alpha", "cancelled", attached.UNENDED]], heard
+    assert _record(jobs_dir, said)["machine_outcomes"] == {
+        "alpha": {"outcome": "cancelled", "stage": "provision", "why": attached.UNENDED},
+        "beta": {"outcome": "succeeded", "stage": "provision", "why": "made"},
+    }
+
+
+def test_a_sigterm_ends_each_machine_begun_and_unended_stopped_at_its_stage(home, jobs_dir, tmp_path) -> None:
+    with _run(home, tmp_path, jobs_dir, "staged", 60) as (process, said):
+        os.kill(process.pid, signal.SIGTERM)
+        process.wait(timeout=60)
+    assert process.returncode == -signal.SIGTERM
+    assert _ended_as(jobs_dir, said) == ("cancelled", 143, "SIGTERM")
+    _hold_unended(jobs_dir, tmp_path, said)
 
 
 def test_a_sigterm_after_a_ctrl_c_whose_body_has_returned_ends_the_run_as_that_signal_within_settle(
@@ -1357,7 +1409,7 @@ def test_python_s_report_of_an_end_it_dropped_is_dropped_and_no_other() -> None:
 
 # ---------------------------------------------------------------- at a terminal ----
 
-AT_A_TERMINAL = ("Ctrl-C once", "Ctrl-C twice", "SIGHUP", "SIGTERM", "an error")
+AT_A_TERMINAL = ("Ctrl-C once", "Ctrl-C twice", "SIGHUP", "SIGTERM", "SIGQUIT", "an error")
 
 
 @pytest.mark.parametrize("way", AT_A_TERMINAL)
@@ -1543,6 +1595,27 @@ TWO = (
     "open(sys.argv[1], 'w').write(f'{away.pid} {kept.pid}')\n"
     "time.sleep(120)\n"
 )
+
+
+def test_a_run_started_in_the_background_reads_no_settings_to_put_back_at_its_end(monkeypatch) -> None:
+    # Started with a shell's & (or put there before it began), the run finds the shell's own settings of the moment, a
+    # line editor's maybe: none are the run's to put back at its end, once it may be the foreground again.
+    import pty
+    import termios
+
+    master, slave = pty.openpty()
+    given = os.fdopen(slave, "r")
+    monkeypatch.setattr(sys, "stdin", given)
+    try:
+        monkeypatch.setattr(os, "tcgetpgrp", lambda fd: os.getpgrp() + 1)
+        assert attached._terminal() is None
+        monkeypatch.setattr(os, "tcgetpgrp", lambda fd: os.getpgrp())
+        assert attached._terminal() == (slave, termios.tcgetattr(slave))
+    finally:
+        given.close()
+        os.close(master)
+
+
 # A child that starts HOLDS's shape under it, which writes its own pid and its grandchild's to the file named.
 NESTS = "import subprocess, sys, time\nsubprocess.Popen([sys.executable, '-I', '-c', sys.argv[1], sys.argv[2]])\n"
 NESTS += "time.sleep(120)\n"
@@ -1640,3 +1713,22 @@ def test_end_under_with_a_table_it_cannot_read_says_so_and_signals_nothing(tmp_p
         assert child.poll() is None
     finally:
         harness._end(child)
+
+
+@pytest.mark.parametrize("signum", [signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT])
+def test_an_end_that_raises_nothing_still_tells_the_terminals_hold_it_waits_no_more(signum, monkeypatch) -> None:
+    # The handler raises no end at once where the run is already closing; a question's hold still hears of the end
+    # (live_region.ending), so that one stopped in the background stops no more after the shell's SIGCONT (review 68's
+    # F1). Where the handler raises, the end unwinds the stop by itself; here nothing would.
+    told: list[bool] = []
+    monkeypatch.setattr(attached.live_region, "ending", lambda: told.append(True))
+    monkeypatch.setattr(attached.live_region, "discard_typed", lambda: None)
+    ended: list[int] = []
+    ladder = object.__new__(attached._Ladder)
+    ladder.holding, ladder.noted, ladder.interrupts = 0, [], 0
+    ladder.closing, ladder.task, ladder.dies_of, ladder.dies_at = True, None, None, None
+    ladder.loop = type("Loop", (), {"time": staticmethod(lambda: 1.0)})()
+    ladder.end_tree = ended.append
+    ladder.signalled(signum, None)
+    assert told == [True], told
+    assert ended == [signal.SIGTERM if signum == signal.SIGQUIT else signum] and ladder.dies_of == signum

@@ -70,7 +70,7 @@ CONTEXTS: dict[str, str] = {
     " makes no context itself",
     "lib/claude_vm/cli/status.py": "aw status's entry: one name of today's status, its engine's run, whose reads of the"
     " Proxmox API verify against the host's anchor kept in the fleet's folder, or the computer's store; it makes no"
-    " context itself (G16 moves the reads to the Proxmox client's)",
+    " context itself; its reader of the pool (cli/status_pool.py) reads through that engine's client too",
 }
 # What makes a TLS context or gives one roots, by any written spelling but as a type: the class, the standard library's
 # ready-made contexts and its unverified ones (_create_stdlib_context is another name of one), get_server_certificate,

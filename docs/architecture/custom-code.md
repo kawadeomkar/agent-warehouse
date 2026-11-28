@@ -825,9 +825,21 @@ good, and runs at exit, Ctrl-C included.
   typed during a run would move the cursor under the region, and the next redraw would leave a copy of it
   behind. Meanwhile it keeps at a Ctrl-C what it has not read yet (`NOFLSH`), where it would throw away a line
   said above or part of a frame - macOS all it holds unread, Linux what it holds past its line discipline's
-  buffer - and the keys typed unseen before it are left for the next reader, as keys typed with no Ctrl-C are.
-  For a prompt and at the end the settings are put back exactly as found. A change of the terminal's settings
-  that a signal interrupts is made again (`set_terminal`):
+  buffer - and the keys typed unseen before it are thrown away all the same (`discard_typed`), as the terminal's
+  own Ctrl-C threw them away: the hold of the terminal (`change`) takes the Ctrl-C from the Python handler in
+  place, throws them away, and hands the signal on, or leaves a handler that throws them away itself (the new
+  engine's ladder). For a prompt and at the end the settings are put back exactly as found - at the new engine's
+  run's end with `NOFLSH` kept on until its summary and NEXT STEPS are said (`finish(kept=True)`, then
+  `release()`). Each change is made only while the process is the terminal's foreground, SIGTTOU held off, so
+  that a run a shell put in the background leaves the shell's settings and is not stopped again by one; and each
+  change back (`put_back`) with a Ctrl-C, a SIGTERM, a SIGHUP, a Ctrl-Z and a `Ctrl-\` held off till it is made
+  (`uninterrupted`). A Ctrl-Z while the region or a question holds the terminal, at its default, is the hold's too: the
+  region erased, the settings put back as found and what was typed and not read thrown away with them (`TCSAFLUSH`),
+  so that none of it reaches the shell's line or its history, then the stop; once the process goes on in the
+  foreground (`fg`) its mode is made again, the region drawn below the shell's lines and a question's words written
+  again. A `Ctrl-\` at its default the same before the quit; a handler of the program's own (the new engine's ladder,
+  which ends the run on it as on a SIGTERM) is left in place. A
+  change of the terminal's settings that a signal interrupts is made again (`set_terminal`):
   `TCSADRAIN` waits for the output to drain, a signal whose handler raises nothing (a first Ctrl-C, a hold's note,
   a resize) ends the wait with `EINTR`, and `termios` does not try again itself; taken for no terminal, it dropped
   the settings to put back and left the echo off for the prompt. A resize (`SIGWINCH`) pushes the screen into the scrollback and draws afresh, since no count of
@@ -862,8 +874,10 @@ line (`collapsed`), to the screen and the log.
 - **The same menu, for the new engine** (`asked`): its keys read by a coroutine of the caller's, as a read on the
   run's event loop gives them, several at once or a sequence in parts, and cut as `ask` reads them one at a time
   (`split`); the drawing (`Shown`), the terminal's settings (`raw`) and the keys' meaning are `ask`'s own, and its
-  changes of the settings are `set_terminal`'s, each `TCSAFLUSH`'s, as `getpass` makes them, so that a key typed
-  before the menu is never taken and one typed after its answer is never left for the shell. The new engine's
+  changes of the settings are `live_region`'s `change` and `put_back`, each `TCSAFLUSH`'s, as `getpass` makes them,
+  so that a key typed before the menu is never taken and one typed after its answer is never left for the shell;
+  the question's words (`above`) are written once the terminal is raw, and the change back is made with the run's
+  signals held off and only while the run is the terminal's foreground. The new engine's
   questions ask it, reading on the loop, never in a thread
   ([§16.8](engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run)); `ask` is unchanged for today's.
 
@@ -878,7 +892,9 @@ copy of that logic.
 bold, dim, and the colours of done, to do, failed, running and waiting. `cut` (to a width, ending in a dim
 "…"), `pad`, `right` (a tail aligned to the edge, dropped before it would crowd the line), `render` (in the
 palette or plain, `PENDING` drawn as the spinner's glyph), `bar`, `spark`, `fill` (wrapped, never cut),
-`duration` and `clock`, and `plural`. A line is measured in characters, one each: a terminal set to draw
+`duration` and `clock`, and `plural`; and what a run draws, today's (`tui/run.py`) and the new engine's
+(`runs/view.py`) alike: `MARKS`, a state's mark and style, `cut_head` and `flow`, a summary's head and its parts, and
+`report_lines` and `failure_lines`, a report and a failure said whole above the region. A line is measured in characters, one each: a terminal set to draw
 East Asian ambiguous-width characters double-wide (`█`, `●`, `·`) wraps a frame drawn with them.
 
 **Loading.** A filter plugin is no module another can import, and a callback cannot ask for one by name, so

@@ -52,6 +52,7 @@ from .. import sessions
 from ..guest import layer1, system, wiring
 from ..pve.client import ProxmoxError
 from ..runs.stages import Declared, Stage, Step
+from ..schema import printer
 from ..schema.printer import said
 from ..schema.rules import CONFIGURE_ROLES
 from ..schema.words import Line
@@ -59,7 +60,7 @@ from ..secret import Secret
 from ..ssh import runner
 from ..text import one_line
 from ..vendors.transport import TransportError
-from . import fleet, record, routes
+from . import fleet, record, report, routes
 
 if TYPE_CHECKING:
     from ..runs import job as jobs
@@ -117,11 +118,14 @@ NO_HOME = "{name}: the home of its user {user} could not be read: {why}"
 
 
 class Failed(Exception):
-    """One VM's step failed: the sentence that says why. The VM is left as the step found it, for the next run."""
+    """One VM's step failed: the sentence that says why. The VM is left as the step found it, for the next run. own: a
+    failure of the VM's own (a layer-1 task that failed, or could not reach it), which stays the VM's failure though the
+    run is stopping; any other ends the VM stopped once the run is."""
 
-    def __init__(self, sentence: str) -> None:
+    def __init__(self, sentence: str, *, own: bool = False) -> None:
         super().__init__(sentence)
         self.sentence = sentence
+        self.own = own
 
 
 # ---------------------------------------------------------------- what a run asks ----
@@ -290,13 +294,26 @@ class Configuring:
     # ------------------------------------------------------------ the whole ----
 
     async def run(self) -> Configured:
-        """The VM configured, and said. A cancellation, and a route that cannot be used, end the run."""
+        """The VM configured, and said. A cancellation, and a route that cannot be used, end the run; a stop that ends a
+        wait of the run's own (the guest agent's), which raises asyncio.CancelledError, ends the VM stopped, its stage
+        kept, as a step the stop ended does."""
+        import asyncio
+
         self.emit("stage", STAGE, name=self.name)
         try:
             await self._run()
+        except asyncio.CancelledError:
+            if not self.ctx.cancelled.is_set():
+                raise
+            self.emit("end", "stopped", outcome="cancelled")
+            task = asyncio.current_task()
+            if task is not None and task.cancelling():
+                # The run itself is cancelled (the grace's end, a second Ctrl-C): its end goes on, the VM's said.
+                raise
+            return self.outcome("cancelled")
         except Failed as failed:
             why = one_line(failed.sentence, None)
-            if self.ctx.cancelled.is_set():
+            if self.ctx.cancelled.is_set() and not failed.own:
                 self.emit("end", "stopped", outcome="cancelled")
                 return self.outcome("cancelled")
             self.emit("stage", STAGE, outcome="failed", why=why)
@@ -334,13 +351,10 @@ class Configuring:
             raise Failed(said(NOT_PROVISIONED, filled))
         if not target.running:
             if not self.plan.start:
-                filled = {
-                    "name": self.name,
-                    "vmid": target.vmid,
-                    "start": self.provision_line(start=True),
-                    "line": self.line(),
-                }
-                self.emit("report", said(LEFT_STOPPED, filled))
+                start = self.provision_line(start=True)
+                filled = {"name": self.name, "vmid": target.vmid, "start": start, "line": self.line()}
+                left = printer.line(start.verb, start.values, refused=False, host_flag=start.host_flag)
+                report.say(self.ctx, self.key, "vm", said(LEFT_STOPPED, filled), left)
                 self.ended_as = "left stopped"
                 return
             await self._start()
@@ -352,7 +366,8 @@ class Configuring:
         await self._home(reached)
         stage = stage_after(ran)
         if self.plan.unrun:
-            self.emit("report", NOT_RUN.format(name=self.name, parts=_listed(self.plan.unrun), card=LAYER_2_CARD))
+            unrun = NOT_RUN.format(name=self.name, parts=_listed(self.plan.unrun), card=LAYER_2_CARD)
+            report.say(self.ctx, self.key, "configure", unrun, "")
         if stage is not None and stage != self.stage:
             await self._record(stage)
         self.ended_as = f"configured, {self.stage}" if self.stage else "configured"
@@ -367,7 +382,7 @@ class Configuring:
         assert owned is not None
         client = self.host.client
         self.step("start")
-        task = await self.call(client.start, owned)
+        task = await self.call(client.start, owned, self.ctx.stopping)
         await self.call(client.follow, task, None, self.ctx.stopping)
         if target.mac:
             cancelled = self.ctx.cancelled
@@ -429,11 +444,23 @@ class Configuring:
             redacted=self.secrets,
         )
         sentence = self._failed(ended)
+        if sentence and self.ctx.cancelled.is_set() and not self._task_failed(ended):
+            # The run's own Ctrl-C ended the child (ansible-core's "User interrupted execution", exit 99) or the grace's
+            # end killed it: its exit status alone fails nothing. The step is left to the VM's cancelled end, which the
+            # model draws stopped.
+            raise Failed(sentence)
         if sentence:
             self.step("system", "failed", sentence)
-            raise Failed(sentence)
+            # A task that failed is the VM's failure, the run stopping or not.
+            raise Failed(sentence, own=True)
         self.step("system", "done")
         return parts
+
+    def _task_failed(self, ended: layer1.Ended) -> bool:
+        """Whether layer 1 said a task of this VM failed or could not reach it: a failure of its own, never its exit
+        status alone."""
+        counts = ended.counts
+        return bool(counts.unreachable or counts.failed or self.key in self.failures.found)
 
     def _failed(self, ended: layer1.Ended) -> str:
         """Why layer 1's run failed the VM, in this engine's words, or "" where it went well."""
@@ -517,7 +544,7 @@ async def configure(ctx: Context, host: fleet.Host, names: Sequence[str], plan: 
 
     requested = await asyncio.to_thread(fleet.requested, host, tuple(names), change=True)
     for line in requested.said:
-        ctx.emit("report", None, line)
+        report.say(ctx, None, "fleet", line, "")
     route = await routes.settle(ctx, host)
     failures = Failures()
     ctx.job.listen(failures)

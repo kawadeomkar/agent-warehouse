@@ -38,7 +38,28 @@ the folder itself is put in its place. Under the fleet's lock (the verb's row: `
 
 The names written where none is given are the engine's own, engine/access.py's (card E1; ruling B1, rule 1): the user
 `agent-warehouse@pve`, the token `aw` and the pool `aw-fleet`; and the first host is `pve`, as today's. The modes built
-by other cards are refused by name until they land: `--check` (E6) and `--machines` (J14).
+by other cards are refused by name until they land: `--machines` (J14).
+
+**A further host** (card E10): `aw init --host <name> --address ...`, where the fleet holds another host's folder
+(`_further`), sets up that host's folder by the same road, at a terminal or with nobody there, its pool marked with the
+fleet's own ID (fleet.json's: the offer and `--print-commands` render the script with it, and a mark read with a secret
+given that names another fleet is refused). It takes only what is that host's own: its address and the administrator's
+authority (the token's ID, the certificate, the offer, the secret), never the fleet's own settings (`--github-user` and
+`--tailscale` are refused, and at a terminal the SSH key, GitHub, the VPN and Tailscale's auth key are not asked), nor
+`AGENT_WAREHOUSE_TOKEN_SECRET`, which may hold the first host's secret (refused: its secret comes from a file); and the
+node, the storage and the bridge are not asked either, but settled by its checks. Its token's secret is that host's
+named secret in the one vault. What it sets for itself in its own settings.yml (`HOST_OWN`: the storage, the bridge and
+the pool given or `aw-fleet`, the node) is not written by the run but staged (`Further`), and its checks write it, with
+what they settle, once every check has passed (engine/init_checks.py's `staged`): a host whose checks did not pass has
+none of them, and runs against it refuse it until it has. client.yml's current host is left as it is.
+
+**The checks** (card E6, engine/init_checks.py): once the run has written, at a terminal or with nobody there, init
+checks the host as the fleet's files now open it and says one of today's `ok`, `!!`, `--` and `note` lines a check,
+settling the node, the storage and the bridge where the host's own settings.yml sets none, with nobody there alone (at a
+terminal the person's answers are the rule), but a further host's (above); it exits 1 exactly where a `!!` line was
+said. `aw init --check` runs the same checks under the same lock, takes no value but `--host` (`--set` among those
+refused), and writes nothing. The checks read the fleet's files alone, but a further host's (above), never a `--set`
+value of the run.
 
 **The offer** (card E7), at a terminal alone, between the token's ID and its secret, once the certificate is settled:
 the access script, engine/access.py's `as_script` rendered for the host's values and the fleet's ID (fleet.json's where
@@ -129,7 +150,7 @@ from ..schema.words import EXITS, PLACEHOLDER, Line
 from ..secret import Secret
 from ..ssh import runner
 from ..text import banner, one_line, plain_text
-from . import access, certificate, routes
+from . import access, certificate, init_checks, report, routes
 
 if TYPE_CHECKING:
     from ..pve.client import Proxmox
@@ -146,6 +167,7 @@ FIRST_HOST = "pve"
 # Where the token's secret is given when no file is: the environment, never the command line; the most of a file of
 # it read, more than a secret is.
 SECRET_VARIABLE = "AGENT_WAREHOUSE_TOKEN_SECRET"
+FROM_VARIABLE = f"the token's secret in {SECRET_VARIABLE}"
 SECRET_MOST = 4096
 # Who made what init records: the administrator, by hand, from the printed script, where the secret was given; this
 # engine, through the offer, of what the script made after a y (card E7). Only the engine's own default names are
@@ -156,7 +178,12 @@ BY_HAND = "administrator"
 BY_ENGINE = "engine"
 OWN_NAMES = {"pool": access.POOL, "user": access.USER, "token": f"{access.USER}!{access.TOKEN}"}
 # The modes of init built by other cards, refused by name until each lands.
-NOT_YET = {"check": "E6", "machines": "J14"}
+NOT_YET = {"machines": "J14"}
+# What init --check refuses beside it: every value init writes, and the other modes.
+CHECK_REFUSES = (
+    "address", "token_user", "token_id", "token_secret_file", "github_user", "storage", "bridge", "tailscale",
+    "certificate", "pool", "print_commands", "machines",
+)  # fmt: skip
 # The settings each host sets for itself that init writes where given or answered, in the order a sentence names them.
 HOST_OWN = ("proxmox_storage", "proxmox_bridge", "proxmox_pool", "proxmox_node")
 # The vault's entry of Tailscale's auth key, one for the fleet.
@@ -482,7 +509,7 @@ def given(
     elif variable.given:
         if variable.secret is None:
             raise Refused(f"{SECRET_VARIABLE} is not {_rule('uuid')}")
-        secret, secret_from = variable.secret, f"the token's secret in {SECRET_VARIABLE}"
+        secret, secret_from = variable.secret, FROM_VARIABLE
     return Given(
         address=answers.init_answer(address, "host") if address else "",
         host=host,
@@ -509,20 +536,12 @@ def _init(**values: object) -> Line:
 
 
 def _host_name(layout: hosts.Layout, named: str) -> str:
-    """The host this run sets up: the one named, else the fleet's one host or its current host, else the first host's
-    name for a fleet with none. Another host than the fleet's own is card E10's to set up, refused until it lands."""
+    """The host this run sets up: the one named (a further host where the fleet holds another, _further), else the
+    fleet's one host or its current host, else the first host's name for a fleet with none."""
+    if named:
+        return named
     try:
         there = [name for name in layout.folders() if not model.name_refusal(name)]
-        if named:
-            if there and named not in there:
-                raise Refused(
-                    said(
-                        "{named} is no host of the fleet's ({known}): a further host is set up by {init}, not built yet"
-                        " (card E10 builds it)",
-                        {"named": named, "known": ", ".join(there), "init": _init(host=named, address=PLACEHOLDER)},
-                    )
-                )
-            return named
         if not there:
             return FIRST_HOST
         if len(there) == 1:
@@ -536,11 +555,30 @@ def _host_name(layout: hosts.Layout, named: str) -> str:
     raise Refused(f"the fleet has more than one host ({', '.join(there)}), and none is this computer's current host")
 
 
+def _further(layout: hosts.Layout, name: str) -> bool:
+    """Whether the host called name is a further host of the fleet's (card E10): the fleet holds another host's folder,
+    so that name is not the fleet's one host (fleet/hosts.py's `first`, once its own folder is there)."""
+    try:
+        return any(each != name for each in layout.folders())
+    except hosts.Refused as error:
+        raise Refused(str(error)) from None
+
+
+@dataclasses.dataclass
+class Further:
+    """What a run leaves to its checks where its host is a further one (card E10): whether it is (_further), and the
+    settings the host sets for itself (HOST_OWN) that the run gives and its own settings.yml sets none of, which the
+    checks write with those they settle once every check has passed (engine/init_checks.py's staged)."""
+
+    host: bool = False
+    staged: dict[str, str] = dataclasses.field(default_factory=dict)
+
+
 @dataclasses.dataclass(frozen=True)
 class _Set:
     """What one read found set, under the fleet's lock: the host's name, its state (host.yml and its anchor), the three
     files of overrides, fleet.json's record, every setting's value for this run, the vault's key (None where there is
-    no key file yet) and its map (None with no vault yet)."""
+    no key file yet) and its map (None with no vault yet), and whether the host is a further one (_further)."""
 
     name: str
     state: hosts.State
@@ -550,6 +588,7 @@ class _Set:
     run: Mapping[str, object]
     key: Secret | None
     vault: Mapping[str, Secret] | None
+    further: bool = False
 
 
 def _run_values(words: Sequence[str], known: Sequence[Secret], environ: Mapping[str, str]) -> dict[str, object]:
@@ -562,6 +601,7 @@ def _run_values(words: Sequence[str], known: Sequence[Secret], environ: Mapping[
 def _read(home: paths.Home, layout: hosts.Layout, typed: Given, environ: Mapping[str, str]) -> _Set:
     """Everything that is set, read once under the fleet's lock: Refused, saying why, where any of it cannot be read."""
     name = _host_name(layout, typed.host)
+    further = _further(layout, name)
     known = [typed.secret] if typed.secret is not None else []
     try:
         state = layout.state(name)
@@ -588,7 +628,7 @@ def _read(home: paths.Home, layout: hosts.Layout, typed: Given, environ: Mapping
     if vault:
         # A value given for this run is never one of the vault's secrets, which the run's record would keep.
         run = _run_values(typed.settings, [*known, *vault.values()], environ)
-    return _Set(name, state, layers, fleet, values, run, key, vault)
+    return _Set(name, state, layers, fleet, values, run, key, vault, further)
 
 
 def _held(home: paths.Home) -> None:
@@ -860,8 +900,9 @@ class _Asking:
         self.step(key, outcome)
 
     def say(self, text: str) -> None:
-        """A line said above the region, whole."""
-        self.running.emit("report", None, text)
+        """A line said above the region, whole: init's settings, which leaves NEXT STEPS nothing until the run's
+        last lines say what was left."""
+        report.say(self.running, None, "init_settings", text, "")
 
     async def ask(
         self, text: str, default: str | Secret, choices: Sequence[Choice | str] = (), hidden: bool = False
@@ -1889,13 +1930,14 @@ async def unattended(
     environ: Mapping[str, str],
     job: Job | None = None,
     root_ssh: certificate.RootSsh | None = None,
+    further: Further | None = None,
 ) -> list[str]:
     """The fleet's folder written from typed with nobody there, its caller holding the fleet's lock: the lines that say
     what was written. root_ssh reads the host's certificate files where given; else, with job, over root SSH as a child
-    of its run; else root SSH is not tried. Refused, in one sentence, with nothing written, where a value given differs
-    from the one set, the certificate is not settled, or the pool's mark does not make the fleet this one. See the
-    module's docstring."""
-    return await _run(home, typed, environ=environ, job=job, root_ssh=root_ssh, asking=None)
+    of its run; else root SSH is not tried. further, where given, is told what a further host's run leaves to its
+    checks. Refused, in one sentence, with nothing written, where a value given differs from the one set, the
+    certificate is not settled, or the pool's mark does not make the fleet this one. See the module's docstring."""
+    return await _run(home, typed, environ=environ, job=job, root_ssh=root_ssh, asking=None, further=further)
 
 
 async def attended(
@@ -1905,22 +1947,21 @@ async def attended(
     running: Context,
     environ: Mapping[str, str],
     root_ssh: certificate.RootSsh | None = None,
+    further: Further | None = None,
 ) -> list[str]:
     """The fleet's folder written at the run's terminal, its caller holding the fleet's lock: each question whose value
     is unset asked through runs/ask.py, as the module's docstring says, every answer then a value given, as unattended
     takes one; each question a step of init's one stage (INIT). The lines that say what was written and what was left,
-    which is also in NEXT STEPS. Refused as unattended is, with nothing written."""
+    which is also in NEXT STEPS: said as one report once the stage is done, with the line that asks again for what was
+    left. further as unattended takes it. Refused as unattended is, with nothing written."""
     asking = _Asking(running)
     running.emit("stage", None, SETTINGS)
-    lines = await _run(home, typed, environ=environ, job=running.job, root_ssh=root_ssh, asking=asking)
-    if asking.left:
-        running.emit(
-            "next",
-            None,
-            said("{init}   asks again for {left}", {"init": _init(), "left": _listed_words(asking.left)}),
-            matter="init",
-        )
+    lines = await _run(home, typed, environ=environ, job=running.job, root_ssh=root_ssh, asking=asking, further=further)
     running.emit("stage", None, SETTINGS, outcome="done")
+    again = ""
+    if asking.left:
+        again = said("{init}   asks again for {left}", {"init": _init(), "left": _listed_words(asking.left)})
+    report.say(running, None, "init_settings", "\n".join(lines), again)
     return lines
 
 
@@ -1953,17 +1994,24 @@ async def _run(
     root_ssh: certificate.RootSsh | None,
     asking: _Asking | None,
     offer_target: runner.Target | None = None,
+    further: Further | None = None,
 ) -> list[str]:
     """unattended's steps, and attended's with asking: what is set read and every value given held to it, the host's
     part (its address, its token, its certificate, at a terminal the offer, the pool's mark, and at a terminal its
     lists), at a terminal the fleet's own questions, then the writes, each through its one writer, and what the run
     says of them. What the offer wrote at once, the vault and host.yml, is read again before the writes, which then find
-    it set. offer_target: where the offer reaches root SSH, the host's own Target where None."""
+    it set. offer_target: where the offer reaches root SSH, the host's own Target where None. For a further host (card
+    E10) the fleet's own values and the variable's secret are refused first, neither its lists nor the fleet's own
+    questions are asked, and what it sets for itself is staged in further, never written here."""
     layout = hosts.Layout(home, environ)
     found = _read(home, layout, typed, environ)
     # Again under the fleet's lock, and for a caller that is not init's handler: before anything is sent or written.
     _held(home)
     name, fields = found.name, found.state.fields
+    if found.further:
+        _further_refused(name, typed)
+    further = Further() if further is None else further
+    further.host = found.further
     held = None if found.vault is None else found.vault.get(secrets.entry("token", host=name))
     differs = _differs(typed, found)
     if differs:
@@ -2017,13 +2065,44 @@ async def _run(
         for key in ("token", "certificate", "access", "secret", "node", "storage", "bridge"):
             asking.passed(key, "skipped")
     if asking is not None:
-        typed = await _the_fleet(asking, typed, found, environ)
+        if found.further:
+            # The fleet's own, every host's, which a further host's init never asks (card E10).
+            for key in ("key", "github", "vpn", "tailscale"):
+                asking.passed(key, "skipped")
+        else:
+            typed = await _the_fleet(asking, typed, found, environ)
         asking.step("write")
     early = settled.offered.wrote if settled is not None and settled.offered is not None else ()
-    wrote = [*early, *_write(home, layout, found, typed, settled, environ)]
+    wrote = [*early, *_write(home, layout, found, typed, settled, environ, further)]
     if asking is not None:
         asking.step("write", "done")
-    return _report(home, found, typed, settled, wrote, asking)
+    return _report(home, found, typed, settled, wrote, asking, further)
+
+
+def _further_refused(name: str, typed: Given) -> None:
+    """What a further host's init refuses before anything is sent or written (card E10): a value of the fleet's own,
+    every host's, which its init never writes; and a secret from AGENT_WAREHOUSE_TOKEN_SECRET, which may be the first
+    host's, exported for it, and would be sealed and sent as this host's."""
+    shared = [flag for flag, value in (("--github-user", typed.github_user), ("--tailscale", typed.tailscale)) if value]
+    if shared:
+        raise Refused(
+            f"{' and '.join(shared)} {'sets' if len(shared) == 1 else 'set'} the fleet's own settings, every host's"
+            f" (github_username and vpn, in {paths.FLEET}/{overrides.SETTINGS}), and this init is {name}'s, a further"
+            " host's, which never writes them: nothing was written"
+        )
+    if typed.secret_from == FROM_VARIABLE:
+        raise Refused(
+            said(
+                "{variable} is set, and this init is {name}'s, a further host's, whose token is its own: that secret"
+                " may be the first host's, so unset it and give {name}'s secret in a file only you can read, as"
+                " {init}; nothing was written",
+                {
+                    "variable": SECRET_VARIABLE,
+                    "name": name,
+                    "init": _init(host=name, token_secret_file=PLACEHOLDER),
+                },
+            )
+        )
 
 
 async def _the_host(
@@ -2118,7 +2197,8 @@ async def _the_host(
     printed = offered is not None and offered.secret is not None
     client = None
     unlisted = [setting for setting, *_ in LISTED.values() if own.get(setting) in (None, "")]
-    if secret is not None and (typed.secret is not None or (asking is not None and unlisted)):
+    listing = asking is not None and unlisted and not found.further
+    if secret is not None and (typed.secret is not None or listing):
         client = _connect(url, kept, full_id, secret, found.values["network_proxy"].value, environ)
     try:
         if typed.secret is not None and client is not None and not printed:
@@ -2135,7 +2215,11 @@ async def _the_host(
                 for what, name in names.items()
                 if _own_name(what, name) and (what, name) not in by_engine
             )
-        if asking is not None:
+        if asking is not None and found.further:
+            # A further host's node, storage and bridge are its checks' to settle (card E10), never asked.
+            for key in LISTED:
+                asking.passed(key, "skipped")
+        elif asking is not None:
             typed = await _the_lists(asking, client, typed, own, address)
     finally:
         if client is not None:
@@ -2254,11 +2338,13 @@ def _write(
     typed: Given,
     settled: _Settled | None,
     environ: Mapping[str, str],
+    further: Further | None = None,
 ) -> list[str]:
     """Every write of the run, each through its one writer, each only where nothing is set: the vault's key, fleet.json
     and the vault, where the host is settled or a secret goes into it; the secrets; host.yml and its anchor, the host's
-    own settings and client.yml's current host, where the host is settled; and the fleet's own settings. What was
-    written, as a line names each."""
+    own settings and client.yml's current host, where the host is settled; and the fleet's own settings. For a further
+    host (card E10) its own settings are staged in further, for its checks to write once every check has passed, and
+    the current host is left as it is. What was written, as a line names each."""
     name, state, fields = found.name, found.state, found.state.fields
     held = None if found.vault is None else found.vault.get(secrets.entry("token", host=name))
     own = {} if found.layers.host is None else found.layers.host.settings
@@ -2291,7 +2377,10 @@ def _write(
             pool = typed.pool or own.get("proxmox_pool") or access.POOL
             for setting, value in zip(HOST_OWN, (typed.storage, typed.bridge, pool, typed.node), strict=True):
                 if value and own.get(setting) in (None, ""):
-                    digest = overrides.set(home, setting, value, name, digest, environ=environ)
+                    if found.further and further is not None:
+                        further.staged[setting] = value
+                    elif not found.further:
+                        digest = overrides.set(home, setting, value, name, digest, environ=environ)
             if digest != before:
                 wrote.append(f"{hosts.HOSTS_REL}/{name}/{overrides.SETTINGS}")
         digest = before = found.layers.fleet.digest
@@ -2304,7 +2393,7 @@ def _write(
             digest = overrides.set(home, "vm_ssh_public_keys", list(typed.keys), None, digest, environ=environ)
         if digest != before:
             wrote.append(f"{paths.FLEET}/{overrides.SETTINGS}")
-        if settled is not None and not found.layers.client.own.get("current_host"):
+        if settled is not None and not found.further and not found.layers.client.own.get("current_host"):
             overrides.set_current(home, name, found.layers.client.digest, environ=environ)
             wrote.append(f"{paths.CLIENT} (its current host, {name})")
     except WRITERS_REFUSE as error:
@@ -2323,22 +2412,29 @@ def _report(
     settled: _Settled | None,
     wrote: Sequence[str],
     asking: _Asking | None,
+    further: Further | None = None,
 ) -> list[str]:
-    """What a run says once it has written: the certificate, the fleet, what was written, what the offer made on the
-    Proxmox host, and what is left. The fleet's line is said wherever the host was settled with a secret given or typed,
-    whose token read the pool's mark (made may record nothing then), or printed by the offer's script, which made or
-    found the mark."""
+    """What a run says once it has written: the certificate, the fleet, what was written, a further host's own settings
+    left to its checks, what the offer made on the Proxmox host, and what is left. The fleet's line is said wherever
+    the host was settled with a secret given or typed, whose token read the pool's mark (made may record nothing then),
+    or printed by the offer's script, which made or found the mark."""
     name = found.name
-    own = {} if found.layers.host is None else found.layers.host.settings
     lines = [] if settled is None else [settled.kept.said]
     offered = None if settled is None else settled.offered
     if offered is not None and offered.secret is not None:
         lines.append(f"the fleet {settled.fleet_id}, as the pool's mark names it, which the access script put there")
     elif settled is not None and settled.typed.secret is not None:
         lines.append(f"the fleet {settled.fleet_id}, as the pool's mark names it, which the token given reads")
-    lines.append(
-        f"wrote {', '.join(wrote)}" if wrote else "nothing to write: the fleet's folder holds every value given already"
-    )
+    staged = {} if further is None else further.staged
+    if wrote:
+        lines.append(f"wrote {', '.join(wrote)}")
+    elif not staged:
+        lines.append("nothing to write: the fleet's folder holds every value given already")
+    if staged:
+        lines.append(
+            f"{', '.join(f'{setting} {value}' for setting, value in staged.items())}: {name}'s own, which its checks"
+            f" write into {hosts.HOSTS_REL}/{name}/{overrides.SETTINGS} once every check has passed"
+        )
     if asking is None:
         lines.append("nothing was made on the Proxmox host: with nobody there init makes nothing on it")
     elif offered is not None and offered.ran:
@@ -2349,21 +2445,6 @@ def _report(
         )
     else:
         lines.append("nothing was made on the Proxmox host")
-    unset = [
-        setting
-        for setting, value in (
-            ("proxmox_node", typed.node),
-            ("proxmox_storage", typed.storage),
-            ("proxmox_bridge", typed.bridge),
-        )
-        if not value and own.get(setting) in (None, "")
-    ]
-    if settled is not None and unset and asking is None:
-        lines.append(
-            f"{', '.join(unset)} {'is' if len(unset) == 1 else 'are'} set for the host by init's checks on it (card E6,"
-            f" not built yet): until then write {'it' if len(unset) == 1 else 'them'} in"
-            f" {hosts.HOSTS_REL}/{name}/{overrides.SETTINGS}"
-        )
     if asking is not None and asking.left:
         lines.append(
             said(
@@ -2486,19 +2567,31 @@ async def _asked(
     running: Context, home: paths.Home, typed: Given, environ: Mapping[str, str], verbosity: object
 ) -> int:
     """init at a terminal, its run's body: drawn live from its events (INIT), what attended says of its writes said
-    above the region as one report, and a refusal said as the stage's failure, with nothing written. The exit
-    status."""
+    above the region as one report (attended's own), and a refusal said as the stage's failure, with nothing written;
+    then the checks (card E6), their lines one report of matter init_check, its NEXT STEPS line what is left of them.
+    The exit status: the checks' where attended finished."""
     from claude_vm.runs import live
 
     counted = verbosity if isinstance(verbosity, int) and not isinstance(verbosity, bool) else 0
     live.Live(running.job, INIT, sys.stdout, verbosity=counted, cancelled=running.cancelled)
+    further = Further()
     try:
-        lines = await attended(home, typed, running=running, environ=environ)
+        await attended(home, typed, running=running, environ=environ, further=further)
     except Refused as refused:
         running.emit("stage", None, SETTINGS, outcome="failed", why=refused.sentence.removeprefix("error: "))
         return EXITS["refused"]
-    running.emit("report", None, "\n".join(lines))
-    return EXITS["done"]
+    # At a terminal the person's answers are init's writing rule: the checks settle nothing they left for later. A
+    # further host is asked none of them: its checks settle them, staged, as with nobody there (card E10).
+    checked, flag = await init_checks.check(
+        home,
+        typed.host,
+        environ=environ,
+        job=running.job,
+        write=further.host,
+        staged=further.staged if further.host else None,
+    )
+    report.say(running, None, "init_check", "\n".join(each.line for each in checked.checks), checked.next_line(flag))
+    return checked.exit
 
 
 def init(run: Any, **values: object) -> int:
@@ -2512,8 +2605,16 @@ def init(run: Any, **values: object) -> int:
         if values.get(field) is True:
             mode = {"line": _init(**{field: True}), "card": card}
             return _refused(said("error: {line} is not built yet (card {card} builds it)", mode))
-    if values.get("print_commands") is True:
+    if values.get("print_commands") is True and values.get("check") is not True:
         return print_commands(run, values)
+    checking = values.get("check") is True
+    given_too = [field for field in CHECK_REFUSES if checking and values.get(field) not in (None, False, "", ())]
+    # --set too, a value for this run alone, which the checks never read: they read the fleet's files (review 81, 2).
+    given_too += ["set"] if checking and getattr(run, "set", ()) else []
+    if given_too:
+        flags = ", ".join(f"--{field.replace('_', '-')}" for field in given_too)
+        sentence = "error: {line} runs the checks alone and writes nothing: it takes no {flags}"
+        return _refused(said(sentence, {"line": _init(check=True), "flags": flags}))
     asks = values.get("no_prompt") is not True and _at_a_terminal()
     environ = dict(os.environ)
     try:
@@ -2529,15 +2630,25 @@ def init(run: Any, **values: object) -> int:
     from claude_vm.runs import locks
 
     async def body(running: Context) -> int:
-        if asks:
+        if asks and not checking:
             return await _asked(running, home, typed, environ, getattr(run, "verbosity", 0))
-        try:
-            lines = await unattended(home, typed, environ=environ, job=running.job)
-        except Refused as refused:
-            return _refused(refused.sentence)
-        for each in lines:
+        lines, further = [], Further()
+        if not checking:
+            try:
+                lines = await unattended(home, typed, environ=environ, job=running.job, further=further)
+            except Refused as refused:
+                return _refused(refused.sentence)
+        checked, flag = await init_checks.check(
+            home,
+            typed.host,
+            environ=environ,
+            job=running.job,
+            write=not checking,
+            staged=further.staged if further.host else None,
+        )
+        for each in [*lines, *checked.lines(flag)]:
             print(each)
-        return EXITS["done"]
+        return checked.exit
 
     detached = getattr(run, "detached_run", False) is True
     draft = runs.Draft(

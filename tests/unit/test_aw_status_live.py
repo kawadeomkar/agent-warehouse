@@ -1,11 +1,12 @@
 """aw status run whole against the fake Proxmox, on E4's fleet folder (lib/claude_vm/cli/status.py; docs/architecture/
 engine.md §16.3): the new path's cases of tests/unit/test_status_live.py, which stays as it is and holds tools/status.
 
-`aw status --json`, through the launcher of a checkout the test makes whose table gives status its handler (as card G16
-gives it in the repository's own), prints a report with today's keys and today's VMs: tools/status --json, run against
-the same fake as test_status.py runs it (status_root) and told what the fleet's host is, is the reference. A Ctrl-C at
-the main thread while read_fleet waits - on a VM's probe, or on the API's answers its probe waits for - ends the run
-within a slice of the wait (status/engine.py's _waited), never once the awaited call returns: sent as
+`aw status --json`, through the launcher of a checkout the test makes whose table gives status its handler, as the
+repository's own gives it, prints a report with today's keys (and known_at) and today's VMs, read as its pool's members
+by their records where today's reads their tags (tests/unit/test_aw_status_pool.py holds the rest): tools/status --json,
+run against the same fake as test_status.py runs it (status_root) and told what the fleet's host is, is the reference. A
+Ctrl-C at the main thread while read_fleet waits - on a VM's probe, or on the API's answers its probe waits for - ends
+the run within a slice of the wait (status/engine.py's _waited), never once the awaited call returns: sent as
 `_thread.interrupt_main` sends it, which wakes no wait of a lock on any system, as a signal wakes none on macOS, and
 only once the main thread is seen waiting there, so that it never lands in code that runs before the wait. Every run
 here has a refusing ssh first on PATH, and keeps nothing outside the test's own directory.
@@ -20,7 +21,7 @@ import sys
 
 import pytest
 from aw_kit import run_launcher
-from fleet_fixture import HOST, refusing_ssh, whole_fleet
+from fleet_fixture import HOST, recorded, refusing_ssh, whole_fleet
 from harness import ENGINE_POOL, ENGINE_TOKEN, ENGINE_USER, REPO, _env, fake_fleet
 from pki import proxmox_pki
 from test_aw_cli_imports import _checkout
@@ -132,6 +133,9 @@ def made(home, tmp_path, pki, engine_guard):
     directory.mkdir()
     for base in fake_fleet(directory, engine=True, certificate=(pki["cert"], pki["key"])):
         fleet = whole_fleet(home, base, directory, pki)
+        # The fleet's VMs are its pool's members, each with its record: what aw status reads, where tools/status reads
+        # their tags.
+        recorded(base, (9010, 9011, 9012), down=(8001,))
         engine_guard.first_on_path(refusing_ssh(home))
         yield fleet
 
@@ -167,10 +171,16 @@ def test_aw_status_json_against_the_fake_prints_today_s_report(made, home, tmp_p
     ran = run_launcher("status", "--json", home=home, launcher=checkout / "aw", first_on_path=refusing, timeout=180)
     assert ran.returncode == today.returncode, ran.stderr[-2000:]
     old, new = json.loads(today.stdout), json.loads(ran.stdout)
-    assert sorted(new) == sorted(old)
-    assert [vm["name"] for vm in new["vms"]] == [vm["name"] for vm in old["vms"]]
+    # The one key aw's document adds: the run's own time, a control VM's age of what it shows (status_pool.KNOWN_AT).
+    assert sorted(new) == sorted([*old, "known_at"])
+    # 8001, on a node that is down: today's a row by its tag, aw's never judged and so never a row (one line of its
+    # own; test_aw_status_pool.py holds the rest of the case).
+    listed = [(vm.get("vmid"), vm.get("name"), vm.get("skipped")) for vm in old["vms"]]
+    kept = [vm for vm in old["vms"] if vm.get("vmid") != 8001]
+    assert len(kept) == len(old["vms"]) - 1, listed
+    assert [vm["name"] for vm in new["vms"]] == [vm["name"] for vm in kept], listed
     assert {"alpha", "beta", "gamma"} <= {vm["name"] for vm in new["vms"]}
-    assert [vm["state"] for vm in new["vms"]] == [vm["state"] for vm in old["vms"]]
+    assert [vm["state"] for vm in new["vms"]] == [vm["state"] for vm in kept]
 
 
 @pytest.mark.parametrize("names", [("alpha",), ("alpha", "beta")], ids=["one", "two"])

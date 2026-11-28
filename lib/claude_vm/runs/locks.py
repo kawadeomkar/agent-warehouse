@@ -415,9 +415,10 @@ async def section(ctx: Context, name: str, *, shared: bool = False, machine: str
     """One short section of the run ctx gives, by its lock file's name (lock_sets.section_name, `<word>-<host>`): its
     lock taken, shared or exclusively, waiting for it where another run holds it, with a `waiting` event that names it
     (about machine, by the key its events name: its identity, or a VM's stand-in until its join, runs/job.py; or the
-    whole run), and that wait alone cleared once it is taken, before the block begins. A wait ends once the run is
-    stopping: asyncio.CancelledError. Entered outside any shield, since a Ctrl-C ends the wait inside one too; and
-    `nextid` outside `template`, never inside it. Let go when the block ends, however it ends."""
+    whole run), and that wait alone cleared once it is taken, before the block begins, or once the wait ends otherwise.
+    A wait ends once the run is stopping: asyncio.CancelledError. Entered outside any shield, since a Ctrl-C ends the
+    wait inside one too; and `nextid` outside `template`, never inside it. Let go when the block ends, however it
+    ends."""
     if not isinstance(name, str) or not SECTION.fullmatch(name):
         words = ", ".join(lock_sets.SECTIONS)
         raise ValueError(f"{name!r} is no short section's name: one of {words}, a dash and a host's name")
@@ -430,11 +431,15 @@ async def section(ctx: Context, name: str, *, shared: bool = False, machine: str
             import asyncio
 
             ctx.emit("waiting", machine, f"waiting for another run to leave {described(name)}", section=name)
-            while not _try(held, how):
-                if ctx.cancelled.is_set():
-                    raise asyncio.CancelledError(f"the run is stopping: it no longer waits for {described(name)}")
-                await asyncio.sleep(POLL)
-            ctx.emit("waiting", machine, "", section=name)
+            try:
+                while not _try(held, how):
+                    if ctx.cancelled.is_set():
+                        raise asyncio.CancelledError(f"the run is stopping: it no longer waits for {described(name)}")
+                    await asyncio.sleep(POLL)
+            finally:
+                # Its own wait cleared however the wait ends, the run's stop among them: never left in the record
+                # through the stop's grace, on a run of several machines whose others go on.
+                ctx.emit("waiting", machine, "", section=name)
         yield
     finally:
         del _IN_BLOCKS[held]

@@ -5,13 +5,15 @@
 Every rule of rules.py is named by a verb of the table, and every code a verb names is a rule. Each refusal of a rule or
 a habit, and each of the parser's own, is run end to end, through the launcher, at a pseudo-terminal of its own where
 deploy's question is answered, and gives the status and the sentence written beside its words here; each case of a
-rule is refused by the rule its code names, and each of the parser's own is the sentence the parser gives in this
-process. --repos' 2000 characters are held at the bound, and host --for's names and each name the names habit splits a
-verb's words into are held to the one pattern of a VM's name, before any handler. The check gives the same answer to the
+rule is refused by the rule its code names, each case of a habit says that habit's sentence of habits.py, and each of
+the parser's own is the sentence the parser gives in this process. --repos' 2000 characters are held at the bound, and
+host --for's names and each name the names habit splits a verb's words into are held to the one pattern of a VM's
+name, before any handler. The check gives the same answer to the
 same values as words and as JSON, and refuses a JSON string where a number is wanted. deploy's question is asked as a
 menu at a pseudo-terminal opened through harness._at_a_pseudo_terminal, typed where the terminal cannot draw one, and
 refused with no terminal. No rule says back
-a value that may be a secret, and one it says back has met its pattern first. No file of the tree names the recorded
+a value that may be a secret, held over every case of a rule with each value of free text its verb takes typed as one,
+and one it says back has met its pattern first. No file of the tree names the recorded
 contract of v2.7.0's command line, which was taken out of the tree (H26).
 """
 
@@ -22,6 +24,7 @@ import json
 import os
 import re
 import sys
+from string import Formatter
 
 import pytest
 from aw_kit import aw_at_a_terminal, on_path, run_aw, run_launcher
@@ -254,11 +257,36 @@ def test_every_rule_is_named_by_the_verbs_whose_rows_run_it_and_every_code_a_ver
         assert len(set(verb.rules)) == len(verb.rules), verb.name
 
 
+def _habit_says(code: str) -> re.Pattern[str]:
+    """What the sentence of each habit's refusal is, by its code, from habits.py's own sentences: deploy.1's with its
+    fields filled by anything, the other two's whole."""
+    sentence = HABITS[code]
+    parts = Formatter().parse(sentence)
+    held = "".join(re.escape(text) + ("(.+)" if field is not None else "") for text, field, _, _ in parts)
+    return re.compile(held + r"\Z")
+
+
+# Each habit's refusal, by its code, and its sentence in habits.py: no terminal to ask at, the stage answered where two
+# were given, and any other answer.
+HABITS = {"deploy.1": habits.NO_TERMINAL, "deploy.2": habits.ONE_STAGE, "deploy.3": habits.NOTHING_RUN}
+
+
 def test_each_rule_and_habit_refuses_in_a_case_of_its_own() -> None:
     # Every rule of rules.py and every habit's refusal has a case run end to end below.
     cases = {_rule_of(code) for code in (*REFUSALS, *AT_A_TERMINAL)}
     assert sorted(set(rules.RULES) - cases) == [], "a rule with no case: add one to REFUSALS"
-    assert sorted(cases - set(rules.RULES)) == ["deploy.1", "deploy.2", "deploy.3"]
+    assert sorted(cases - set(rules.RULES)) == sorted(HABITS)
+
+
+def test_each_habit_s_case_says_its_habit_s_sentence() -> None:
+    # A habit has no entry of rules.py to run its case through: its case is its own by what the case says, the habit's
+    # sentence, so one relabelled with another habit's words and sentence fails here (review/code/H28.md 2).
+    said = {code: case[-1] for code, case in (*REFUSALS.items(), *AT_A_TERMINAL.items()) if _rule_of(code) in HABITS}
+    assert sorted({_rule_of(code) for code in said}) == sorted(HABITS)
+    for code, sentence in said.items():
+        assert _habit_says(_rule_of(code)).match(sentence), (code, sentence)
+        others = [habit for habit in HABITS if habit != _rule_of(code) and _habit_says(habit).match(sentence)]
+        assert others == [], (code, others)
 
 
 @pytest.mark.parametrize("code", [code for code in REFUSALS if _rule_of(code) in rules.RULES])
@@ -271,16 +299,46 @@ def test_each_case_is_refused_by_the_rule_its_code_names(monkeypatch, code) -> N
     assert rules.RULES[_rule_of(code)].check(values) == sentence
 
 
-def test_no_rule_says_back_a_value_that_may_be_a_secret() -> None:
-    # settings --value's value, and a word after init's or mcp's options, which may be a secret.
-    said = [
-        rules.RULES["settings.3"].check({"value": TYPED}),
-        rules.RULES["settings.4"].check({"name": "vm_cores", "value": TYPED, "reset": True}),
-        rules.RULES["init.1"].check({"extra": TYPED}),
-        rules.RULES["init.1"].check({"extra": [TYPED, TYPED]}),
-        rules.RULES["mcp.1"].check({"extra": TYPED}),
-    ]
-    assert all(sentence and TYPED not in sentence for sentence in said), said
+# A secret shaped as a Proxmox token's is, a UUID, which a file's path held to secret_file takes whole.
+UUID_SHAPED = f"{TYPED}-0000-4000-8000-000000000000"
+# The patterns of free text, which a person may paste a secret into, each with a secret it takes: one line of text, a
+# setting's name with its value (--set), a path, free after its first character (mcp --project-dir, --vault-key-file),
+# and a file's path, which takes a token's secret whole (init --token-secret-file, review/code/H32.md 1).
+FREE_TEXT = {"text": TYPED, "assignment": f"vm_cores={TYPED}", "path": f"/{TYPED}", "secret_file": UUID_SHAPED}
+
+
+def _secrets(verb: str) -> dict[str, object]:
+    """Every free-text value verb takes, each given as a secret typed: an option held to a pattern of free text (--set,
+    settings --value, --browser, a path, a secret's file), and the words of a verb that refuses any (init's and mcp's),
+    which may be one."""
+    row = VERBS[verb]
+    typed: dict[str, object] = {}
+    for option in row.options:
+        if option.pattern in FREE_TEXT:
+            secret = FREE_TEXT[option.pattern]
+            typed[option.field] = [secret] if option.kind == "repeatable" else secret
+    if row.words is not None and (row.words.refused or row.words.pattern in FREE_TEXT):
+        typed[row.words.field] = [TYPED]
+    return typed
+
+
+@pytest.mark.parametrize("code", [code for code in REFUSALS if _rule_of(code) in rules.RULES])
+def test_no_rule_says_back_a_value_that_may_be_a_secret(monkeypatch, code) -> None:
+    # Over every case of a rule, not the rules a test names (review/code/H28.md 3): the case's values, with every value
+    # of free text its verb takes given as a secret, are still refused by the rule its code names, which says no secret.
+    verb, values = _parsed(monkeypatch, REFUSALS[code][0])
+    sentence = rules.RULES[_rule_of(code)].check({**values, **_secrets(verb)})
+    assert sentence and TYPED not in sentence, (code, sentence)
+
+
+def test_the_cases_type_a_secret_into_each_verb_of_free_text_whose_row_runs_a_rule() -> None:
+    # So that the test above is not empty where it matters: deploy's --set, settings --value and the words after init's
+    # and mcp's options each get a case typed with a secret.
+    verbs = {REFUSALS[code][0][0] for code in REFUSALS if _rule_of(code) in rules.RULES}
+    assert {"deploy", "init", "mcp", "settings"} <= {verb for verb in verbs if _secrets(verb)}, verbs
+
+
+def test_a_word_of_free_text_is_never_said_back_by_the_parser() -> None:
     for words in (["settings", f"--value={TYPED}"], ["init", TYPED], ["mcp", TYPED]):
         with pytest.raises(parse.Refused) as refused:
             parse.read(words)

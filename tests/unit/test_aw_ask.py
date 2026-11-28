@@ -2,22 +2,25 @@
 docs/architecture/engine.md §16.8).
 
 At a pseudo-terminal of the test's own (harness._at_a_pseudo_terminal), each run here is a child process made by
-runs.run as a verb makes one, whose body draws deploy's live view at a sign-in and asks its questions through
-runs.ask, every event it emits written down as the run's text log will hear it: a yes or no picked with the arrow
-keys, the line it leaves saying the answer; a line typed, its echo on; a hidden answer whose characters reach neither
-the screen, the run's record nor its events (aw_kit.searched_for), given back as a Secret; Enter taking the default;
-keys typed before a question was there never its answer; two lines pasted at a line or a hidden answer, the second
-never left in the terminal's input once the run has ended; two questions asked at once, from two tasks, the second
-drawn only once the first is answered; a report, a line on standard error and an event the view refuses, said while a
-question is up, shown after it, never on its line, and so where a Ctrl-C or a SIGTERM cuts the question short, its line
-ended where it was cut, what was typed on it kept there (`192^C`, the keys and the Ctrl-C in one write too) and never
-left in the terminal's input; a choice whose words and note hold escapes and newlines drawn as
-plain text, nothing of the menu left behind; a choice typed, and asked once more, where the terminal cannot draw the
-menu; one Ctrl-C at a line, a hidden answer and the menu ending the run, cancelled, with the echo back; however a run
-ends, the terminal's settings those it had before the run; the region gone
-from the screen while a question is up, the title saying the run waits for you, and a frame drawn again only half a
-second after the answer, none between two questions; each question a `waiting` event, an empty one once it is
-answered, and a `step` event that says what was answered. With standard input on /dev/null, the default at once and a
+runs.run as a verb makes one, whose body draws deploy's live view at a sign-in and asks its questions through runs.ask,
+every event it emits written down as the run's text log will hear it: a yes or no picked with the arrow keys, the line
+it leaves saying the answer; a line typed, its echo on; a hidden answer whose characters reach neither the screen, the
+run's record nor its events (aw_kit.searched_for), given back as a Secret; Enter taking the default; keys typed before a
+question was there never its answer; two lines pasted at a line or a hidden answer, the second never left in the
+terminal's input once the run has ended; two questions asked at once, from two tasks, the second drawn only once the
+first is answered; a report, a line on standard error and an event the view refuses, said while a question is up, shown
+after it, never on its line, and so where a Ctrl-C or a SIGTERM cuts the question short, its line ended where it was
+cut, what was typed on it kept there (`192^C`, the keys and the Ctrl-C in one write too) and never left in the
+terminal's input; a choice whose words and note hold escapes and newlines drawn as plain text, nothing of the menu left
+behind; a choice typed, and asked once more, where the terminal cannot draw the menu; one Ctrl-C at a line, a hidden
+answer and the menu ending the run, cancelled, with the echo back; the run's summary and long NEXT STEPS said with
+nobody reading, then keys typed unseen and a Ctrl-C, every line on the screen and the keys never left for the shell;
+keys typed while a stopped run winds down never left either; from an interactive shell, a hidden answer and a line half
+typed and then a Ctrl-Z (fg bringing the question back in its mode, its words written again), a Ctrl-\\ or a Ctrl-C,
+never on the shell's line or in its history; however a run ends, the terminal's settings those it had before the run;
+the region gone from the screen while a question is up, the title saying the run waits for you, and a frame drawn again
+only half a second after the answer, none between two questions; each question a `waiting` event, an empty one once it
+is answered, and a `step` event that says what was answered. With standard input on /dev/null, the default at once and a
 line that says the question was not asked.
 
 In this process: a question without a default cannot be built (the rule with a test of its own), with every other
@@ -25,13 +28,15 @@ refusal of a Question; a choice's words and note made one line of plain text, it
 ask - a pipe, /dev/null, a terminal whose foreground the run is not - gives the default and never reads; two questions
 asked at once taking turns at the terminal; the menu's keys cut from a read as choose.ask reads them one at a time, and
 the menu asked through a read of the test's own, a sequence in parts, Esc, Ctrl-C and the terminal's size looked at
-again, what is typed after its answer never left in the terminal's input; a question and the menu putting the
-terminal's settings back through a signal that interrupts the change (EINTR, made again by tui/live_region.py's
-set_terminal), each change TCSAFLUSH's; a question's mode keeping at a Ctrl-C what the terminal has not read (NOFLSH)
-and the settings put back exactly as found; what the view says while a question is up, the line of an event it refuses
-among it, kept until it is answered, or said before the summary where the run's end cuts the question short, and the
-bell of a question's wait rung only after a quiet while; and by a scan, that ask.py reads the terminal only through the
-run's Context.typed.
+again, what is typed after its answer never left in the terminal's input; a question and the menu putting the terminal's
+settings back through a signal that interrupts the change (EINTR, made again by tui/live_region.py's set_terminal), each
+change TCSAFLUSH's; a line's mode keeping at a Ctrl-C what the terminal has not read (NOFLSH), a hidden answer's not,
+and the settings put back exactly as found; a question's own words written while its mode is up (a line cut short ended
+before the change back, the menu's words once the terminal is raw); a signal landing as a question ends delivered once
+its line is ended and the settings are back; a question a shell puts in the background making no change of the settings
+there; what the view says while a question is up, the line of an event it refuses among it, kept until it is answered,
+or said before the summary where the run's end cuts the question short, and the bell of a question's wait rung only
+after a quiet while; and by a scan, that ask.py reads the terminal only through the run's Context.typed.
 """
 
 from __future__ import annotations
@@ -182,6 +187,33 @@ async def body(ctx):
     ctx.emit("stage", "alpha", "sign-in")
     ctx.emit("step", "alpha", "claude", stage="sign-in")
     await asyncio.sleep(0.4)
+    if way == "last":
+        # NEXT STEPS longer than a terminal's line discipline holds, said at the run's end with the test reading
+        # nothing from just before they are said (ending, then quiet) till its Ctrl-C has landed (interrupted): the
+        # region's release, the settings' last change, waits for that, once said tells the test they are all written.
+        from claude_vm.tui import live_region
+
+        released = live_region.LiveRegion.release
+
+        def release(self):
+            (folder / "said").write_text("")
+            while not (folder / "interrupted").exists():
+                time.sleep(0.02)
+            released(self)
+
+        live_region.LiveRegion.release = release
+        left = "\n".join(f"left to do {number:03}: a line of NEXT STEPS at the run's end" for number in range(1, 151))
+        ctx.emit("next", "alpha", left, matter="init_settings")
+        ctx.emit("step", "alpha", "claude", stage="sign-in", outcome="done")
+        (folder / "ending").write_text("")
+        while not (folder / "quiet").exists():
+            await asyncio.sleep(0.02)
+        return 0
+    if way == "stop-typed":
+        # Stopped by a Ctrl-C at work, the run winds down a while, and keys are typed meanwhile.
+        await ctx.cancelled.wait()
+        await asyncio.sleep(0.8)
+        return 130
     if way == "ahead":
         (folder / "ahead").write_text("")
         while not (folder / "typed").exists():
@@ -303,7 +335,17 @@ class Ran:
 Plan = list[tuple[bytes, list[bytes], bool]]
 
 
-def _at_a_terminal(home: Path, folder: Path, way: str, plan: Plan, *, term: str = "xterm-256color") -> Ran:
+def _at_a_terminal(
+    home: Path,
+    folder: Path,
+    way: str,
+    plan: Plan,
+    *,
+    term: str = "xterm-256color",
+    then: Callable[[bytes, int], None] | None = None,
+) -> Ran:
+    """The run of way at a pseudo-terminal, typed at by its plan; then(output, master), where given, called beside it
+    after each read and idle tick."""
     jobs_dir = paths.jobs_dir(paths.home(REPO))
     argv = [sys.executable, "-I", "-c", WATCHES, *CHILD, str(LIB), str(jobs_dir), str(folder), way]
     temporary = folder / "tmp"
@@ -313,6 +355,8 @@ def _at_a_terminal(home: Path, folder: Path, way: str, plan: Plan, *, term: str 
     state = {"at": 0, "ahead": False}
 
     def act(chunk: bytes, output: bytes, master: int, process: subprocess.Popen) -> None:
+        if then is not None:
+            then(output, master)
         if way == "ahead" and not state["ahead"] and (folder / "ahead").is_file():
             # Typed while the run is at work, before its question: never the question's answer.
             state["ahead"] = True
@@ -568,6 +612,253 @@ def test_a_question_cut_short_ends_its_line_before_what_was_kept_is_said(
         assert _first(said, "aw: stopping") > kept[-1], said
     # What was typed, kept unread at the interrupt or not, is discarded with the question: never left for the shell.
     assert ran.left == 0, ran.left
+
+
+# Each line of NEXT STEPS the "last" way's run says at its end.
+LEFT_TO_DO = re.compile(rb"left to do (\d{3}): a line of NEXT STEPS at the run's end")
+
+
+def test_a_ctrl_c_while_the_runs_last_words_are_unread_loses_none_and_leaves_nothing_typed(home, tmp_path) -> None:
+    # The run's summary and 150 lines of NEXT STEPS said with nobody reading the terminal, then keys typed unseen and a
+    # Ctrl-C, before the terminal has read any of it: at an interrupt a terminal throws away what it holds unread unless
+    # NOFLSH, which the run keeps on till its last words are said - on Linux what it holds past its line discipline's
+    # buffer, on macOS all it holds. Every line is on the screen; the keys typed are thrown away at the Ctrl-C, as the
+    # terminal's own Ctrl-C would, never left for the shell; the settings are those found.
+    typed: list[int] = []
+
+    def last(output: bytes, master: int) -> None:
+        if typed or not (tmp_path / "ending").is_file():
+            return
+        (tmp_path / "quiet").write_text("")
+        waited = time.monotonic() + 10
+        while not (tmp_path / "said").is_file() and time.monotonic() < waited:
+            time.sleep(0.02)
+        typed.append(os.write(master, b"typed-blind\n"))
+        time.sleep(0.1)
+        typed.append(os.write(master, b"\x03"))
+        time.sleep(0.3)
+        (tmp_path / "interrupted").write_text("")
+
+    ran = _at_a_terminal(home, tmp_path, "last", [], then=last)
+    assert typed and (tmp_path / "said").is_file(), ran.text
+    _done(ran)
+    said = [int(number) for number in LEFT_TO_DO.findall(ran.raw)]
+    lost = sorted(set(range(1, 151)) - set(said))
+    assert said == list(range(1, 151)), f"{len(lost)} lost, the first {lost[:5]}"
+    assert ran.left == 0, ran.left
+
+
+def test_keys_typed_while_a_stopped_run_winds_down_are_never_left_for_the_shell(home, tmp_path) -> None:
+    # A Ctrl-C at work, then a line typed while the run winds down, the echo off: the settings put back at its end
+    # throw away what was typed and not read.
+    plan = [(b"sign in", [b"\x03"], False), (b"aw: stopping", [b"typed-later\n"], False)]
+    ran = _at_a_terminal(home, tmp_path, "stop-typed", plan)
+    _stopped(ran)
+
+
+# What a person types at a question before a Ctrl-Z, a Ctrl-\ and a Ctrl-C, by the run's folder: a word of its own each.
+HALF = {"stop": b"hush42x", "quit": b"quit42x", "interrupt": b"int42x"}
+# The answer typed once fg has brought the question back.
+AFRESH = b"fresh42x"
+# What the shell says of each run: `echo "stopped=$?"` once one stops, `echo "ended=$?"` once one ends.
+STATUSES = re.compile(rb"\b(stopped|ended)=(\d+)")
+
+
+@pytest.mark.parametrize("hidden", [True, False], ids=["a hidden answer", "a line"])
+def test_a_half_typed_answer_reaches_neither_the_shells_line_nor_its_history_at_ctrl_z_ctrl_backslash_or_ctrl_c(
+    hidden, home, tmp_path
+) -> None:
+    # From an interactive shell, three runs each ask the question and the person types part of an answer: then a
+    # Ctrl-Z, the shell's line run (an `echo` that what was left there would begin), and fg, which brings the question
+    # back in its mode with its words written again, where the answer is typed afresh; a Ctrl-\, which ends the run as
+    # a SIGTERM does, dying of SIGQUIT; a Ctrl-C, as C34 has it. What was typed before each key reaches neither the
+    # shell's line, where the shell would run it, nor its history (review 59's H2: a secret in $HISTFILE after Ctrl-Z).
+    asked = b"Tailscale auth key: " if hidden else b"Proxmox host address: "
+    way = "hidden" if hidden else "line"
+    jobs_dir = paths.jobs_dir(paths.home(REPO))
+    (tmp_path / "run.py").write_text(RUN)
+    for folder in HALF:
+        (tmp_path / folder).mkdir()
+    temporary = tmp_path / "tmp"
+    temporary.mkdir()
+    given = {"TERM": "xterm-256color", "PYTHONUTF8": "1", "TMPDIR": str(temporary)}
+    env = environment(home, {**given, "PY": sys.executable, "LIB": str(LIB), "JOBS": str(jobs_dir)})
+    mode: list[int] = []
+
+    def run(folder: str) -> bytes:
+        return f'"$PY" -I -X utf8 run.py "$LIB" "$JOBS" {folder} {way}\n'.encode()
+
+    def back_in_its_mode(master: int, output: bytes) -> None:
+        mode.append(termios.tcgetattr(master)[3])
+        os.write(master, AFRESH + b"\n")
+
+    prompt = harness.SHELL_PROMPT
+    ended = b'echo "ended=$?"\n'
+    steps = [
+        (prompt, b"ulimit -c 0\n"),
+        (prompt, run("stop")),
+        (asked, [HALF["stop"], b"\x1a"]),
+        (b"Stopped", []),
+        (prompt, b'echo "stopped=$?"\n'),
+        (prompt, b"fg\n"),
+        (asked, back_in_its_mode),
+        (prompt, ended),
+        (prompt, run("quit")),
+        (asked, [HALF["quit"], b"\x1c"]),
+        (prompt, ended),
+        (prompt, run("interrupt")),
+        (asked, [HALF["interrupt"], b"\x03"]),
+        (prompt, ended),
+        (prompt, b"exit\n"),
+    ]
+    output, history = harness._in_a_shell(tmp_path, env, steps)
+    harness._fail_if_the_desktop_was_reached(stand_ins(home))
+    said = output.decode(errors="replace")
+    assert b"command not found" not in output, said
+    for word in [*HALF.values(), AFRESH]:
+        assert word not in history, history
+    statuses = [(name.decode(), int(number)) for name, number in STATUSES.findall(output)]
+    stop, quit = 128 + signal.SIGTSTP, 128 + signal.SIGQUIT
+    assert statuses == [("stopped", stop), ("ended", 0), ("ended", quit), ("ended", 130)], said
+    # Back in the question's mode once fg brought it back: its line and its signal keys, the echo and NOFLSH for a
+    # line, neither for a hidden answer.
+    (lflag,) = mode
+    assert lflag & termios.ICANON and lflag & termios.ISIG, lflag
+    assert bool(lflag & termios.ECHO) is not hidden and bool(lflag & termios.NOFLSH) is not hidden, lflag
+    (answer,) = json.loads((tmp_path / "stop" / "answers.json").read_text())
+    if hidden:
+        assert answer["secret"] == hashlib.sha256(AFRESH).hexdigest(), answer
+    else:
+        assert answer["value"] == AFRESH.decode(), answer
+    records = [job.read() for job in jobs.listed(jobs_dir)]
+    ends = sorted((record["outcome"], record["exit"], record["why"]) for record in records)
+    assert ends == [("cancelled", 130, "Ctrl-C"), ("cancelled", quit, "SIGQUIT"), ("succeeded", 0, "done")], ends
+
+
+# How each run a shell stops at a question is then ended from the shell, by the run's folder: SIGTERM, then SIGHUP,
+# then SIGTERM once the shell has gone on with it in the background (bg), where it stops at the question again.
+KILLS = {"term": b"kill", "hup": b"kill -HUP", "bg": b"kill"}
+
+
+@pytest.mark.parametrize("hidden", [True, False], ids=["a hidden answer", "a line"])
+def test_a_question_stopped_and_then_killed_from_the_shell_ends_at_once_and_frees_its_lock(
+    hidden, home, tmp_path
+) -> None:
+    # From an interactive shell, a run asks the question, a Ctrl-Z stops it, and the shell kills it (`kill %1`, then
+    # `kill -HUP %1` for a second run): bash sends the signal and then SIGCONT, which in the question's hold would set
+    # its mode again from the background and stop the run there (SIGTTOU) for good, its machine's lock held (review
+    # 68's F1). A third run is stopped, gone on with in the background (`bg`), where it stops at the question again,
+    # and then killed: stopped inside the change of the settings, the kernel would make the change again at the
+    # SIGCONT and stop it again, never back in Python where the kill ends it (review 68's F8). Each run is gone
+    # within five seconds, dead of the signal (the shell's Terminated and Hangup, the records' 143 and 129), and a
+    # last run of the same machine asks and ends as it should: the lock is free.
+    asked = b"Tailscale auth key: " if hidden else b"Proxmox host address: "
+    way = "hidden" if hidden else "line"
+    jobs_dir = paths.jobs_dir(paths.home(REPO))
+    (tmp_path / "run.py").write_text(RUN)
+    for folder in [*KILLS, "after"]:
+        (tmp_path / folder).mkdir()
+    temporary = tmp_path / "tmp"
+    temporary.mkdir()
+    given = {"TERM": "xterm-256color", "PYTHONUTF8": "1", "TMPDIR": str(temporary)}
+    env = environment(home, {**given, "PY": sys.executable, "LIB": str(LIB), "JOBS": str(jobs_dir)})
+
+    def run(folder: str) -> bytes:
+        return f'"$PY" -I -X utf8 run.py "$LIB" "$JOBS" {folder} {way}\n'.encode()
+
+    def killed(folder: str) -> bytes:
+        # The signal, then up to five seconds for the run to be gone, said in words its line, which the shell echoes,
+        # does not hold; one still there is killed. How it ended is its record's: the shell has reaped the job by then.
+        alive = f'kill -0 "$(cat {folder}/pid)" 2>/dev/null'
+        return (
+            f"{KILLS[folder].decode()} %1; for i in $(seq 100); do {alive} || break; sleep 0.05; done; "
+            f'if {alive}; then echo "stuck=$((1))"; kill -9 %1; else echo "gone=$((1))"; fi\n'
+        ).encode()
+
+    prompt = harness.SHELL_PROMPT
+    steps = [(prompt, b"ulimit -c 0\n")]
+    # Up to five seconds for the run gone on with in the background to be stopped again, then whether it is.
+    held = (
+        b'for i in $(seq 100); do ps -o stat= -p "$(cat bg/pid)" | grep -q T && break; sleep 0.05; done; '
+        b'if ps -o stat= -p "$(cat bg/pid)" | grep -q T; then echo "held=$((1))"; else echo "held=$((0))"; fi\n'
+    )
+    for folder in KILLS:
+        steps += [(prompt, run(folder)), (asked, [HALF["stop"], b"\x1a"]), (b"Stopped", [])]
+        if folder == "bg":
+            steps += [(prompt, b"bg\n"), (prompt, held)]
+        steps += [(prompt, killed(folder))]
+    steps += [
+        (prompt, run("after")),
+        (asked, AFRESH + b"\n"),
+        (prompt, b'echo "ended=$?"\n'),
+        (prompt, b"exit\n"),
+    ]
+    output, history = harness._in_a_shell(tmp_path, env, steps)
+    harness._fail_if_the_desktop_was_reached(stand_ins(home))
+    said = output.decode(errors="replace")
+    assert b"stuck=1" not in output and output.count(b"gone=1") == 3 and b"held=1" in output, said
+    assert output.count(b"Terminated") == 2 and b"Hangup" in output, said
+    assert b"command not found" not in output and HALF["stop"] not in history, said
+    statuses = [(name.decode(), int(number)) for name, number in STATUSES.findall(output)]
+    term, hup = 128 + signal.SIGTERM, 128 + signal.SIGHUP
+    assert statuses == [("ended", 0)], said
+    records = [job.read() for job in jobs.listed(jobs_dir)]
+    ends = sorted((record["outcome"], record["exit"], record["why"]) for record in records)
+    ended_by = [("cancelled", hup, "SIGHUP"), ("cancelled", term, "SIGTERM"), ("cancelled", term, "SIGTERM")]
+    assert ends == [*ended_by, ("succeeded", 0, "done")], ends
+
+
+# What a person types unseen under the region while the run's last words are said, before a Ctrl-Z.
+BLIND = b"blind42x"
+
+
+def test_keys_typed_unseen_and_a_ctrl_z_at_the_runs_last_words_reach_neither_the_shells_line_nor_its_history(
+    home, tmp_path
+) -> None:
+    # From an interactive shell, the "last" way: keys typed unseen under the region while the summary and NEXT STEPS
+    # are said, NOFLSH on, and then a Ctrl-Z, which the hold of the run's last words holds off till the settings are
+    # back as found and the terminal's hold is given back, and then raises at its default. What was typed is thrown
+    # away before that stop (review 68's F2), as the hold's own Ctrl-Z throws it away; fg ends the run as it should.
+    folder = tmp_path / "last"
+    folder.mkdir()
+    jobs_dir = paths.jobs_dir(paths.home(REPO))
+    (tmp_path / "run.py").write_text(RUN)
+    temporary = tmp_path / "tmp"
+    temporary.mkdir()
+    given = {"TERM": "xterm-256color", "PYTHONUTF8": "1", "TMPDIR": str(temporary)}
+    env = environment(home, {**given, "PY": sys.executable, "LIB": str(LIB), "JOBS": str(jobs_dir)})
+
+    def stopped_at_the_last_words(master: int, output: bytes) -> None:
+        waited = time.monotonic() + 20
+        while not (folder / "ending").is_file() and time.monotonic() < waited:
+            time.sleep(0.02)
+        (folder / "quiet").write_text("")
+        while not (folder / "said").is_file() and time.monotonic() < waited:
+            time.sleep(0.02)
+        os.write(master, BLIND + b"\n")
+        time.sleep(0.1)
+        os.write(master, b"\x1a")
+        time.sleep(0.3)
+        (folder / "interrupted").write_text("")
+
+    prompt = harness.SHELL_PROMPT
+    steps = [
+        (prompt, b'"$PY" -I -X utf8 run.py "$LIB" "$JOBS" last last\n'),
+        (b"sign in", stopped_at_the_last_words),
+        (b"Stopped", []),
+        (prompt, b'echo "stopped=$?"\n'),
+        (prompt, b"fg\n"),
+        (prompt, b'echo "ended=$?"\n'),
+        (prompt, b"exit\n"),
+    ]
+    output, history = harness._in_a_shell(tmp_path, env, steps)
+    said = output.decode(errors="replace")
+    assert (folder / "said").is_file(), said
+    assert b"command not found" not in output and BLIND not in history, said
+    statuses = [(name.decode(), int(number)) for name, number in STATUSES.findall(output)]
+    assert statuses == [("stopped", 128 + signal.SIGTSTP), ("ended", 0)], said
+    (record,) = [job.read() for job in jobs.listed(jobs_dir)]
+    assert (record["outcome"], record["exit"]) == ("succeeded", 0), record
 
 
 def test_where_the_menu_cannot_be_drawn_a_choice_is_typed_and_asked_once_more(home, tmp_path) -> None:
@@ -896,12 +1187,13 @@ def test_a_question_puts_the_terminal_back_through_a_signal_that_interrupts_the_
 
 
 @pytest.mark.parametrize("hidden", [False, True], ids=["a line", "a hidden answer"])
-def test_a_questions_mode_keeps_what_the_terminal_has_not_read_at_a_ctrl_c_and_goes_back_as_found(
+def test_a_questions_mode_keeps_what_the_terminal_has_not_read_at_a_ctrl_c_but_a_hidden_answers_and_goes_back(
     hidden, home, monkeypatch
 ) -> None:
-    # The question's mode: its line, its signal keys and NOFLSH, the echo on for a line and off for a hidden answer,
-    # nothing else of the terminal's changed; then the settings exactly as found, NOFLSH as it was, each change
-    # TCSAFLUSH's.
+    # The question's mode: its line and its signal keys, for a line the echo on and NOFLSH, for a hidden answer neither
+    # (its echo off, there is nothing on the screen to keep, and its keys throw away what was typed themselves: review
+    # 59's H2), nothing else of the terminal's changed; then the settings exactly as found, NOFLSH as it was, each
+    # change TCSAFLUSH's.
     master, slave = pty.openpty()
     given = os.fdopen(slave, "r")
     out = io.StringIO()
@@ -924,31 +1216,189 @@ def test_a_questions_mode_keeps_what_the_terminal_has_not_read_at_a_ctrl_c_and_g
             default = Secret("") if hidden else ""
             # The change back is a draining one with the echo still unread here: macOS waits for that read
             # (ttywait), so the master is read on a thread of its own while the question runs.
-            reading = threading.Event()
-
-            def echoes() -> None:
-                while not reading.is_set():
-                    if select.select([master], [], [], 0.05)[0]:
-                        try:
-                            os.read(master, 4096)
-                        except OSError:
-                            return
-
-            reader = threading.Thread(target=echoes, daemon=True)
-            reader.start()
-            try:
+            with _read_meanwhile(master):
                 answer = asyncio.run(asking.ask(context, "Proxmox host address:", default, hidden=hidden))
-            finally:
-                reading.set()
-                reader.join()
         assert (answer.reveal() if isinstance(answer, Secret) else answer) == "192.0.2.1"
         assert [when for when, _ in changes] == [termios.TCSAFLUSH] * 2, changes
         (_, mode), (_, back) = changes
-        wanted = termios.ICANON | termios.ISIG | termios.NOFLSH
-        assert mode[3] & wanted == wanted and bool(mode[3] & termios.ECHO) is not hidden, mode
+        wanted = termios.ICANON | termios.ISIG
+        assert mode[3] & wanted == wanted, mode
+        assert bool(mode[3] & termios.ECHO) is not hidden and bool(mode[3] & termios.NOFLSH) is not hidden, mode
         assert mode[:3] + mode[4:] == found[:3] + found[4:]
         assert back == found and termios.tcgetattr(slave) == found
     finally:
+        given.close()
+        os.close(master)
+
+
+class _Told(io.StringIO):
+    """A question's standard output, each write noted in turn beside the terminal's changes."""
+
+    def __init__(self, noted: list[tuple[str, object]]) -> None:
+        super().__init__()
+        self.noted = noted
+
+    def write(self, text: str) -> int:
+        self.noted.append(("write", text))
+        return super().write(text)
+
+
+@contextlib.contextmanager
+def _read_meanwhile(master: int) -> Iterator[None]:
+    """The master read on a thread of its own while the block runs, as a terminal's emulator reads what is written to
+    it: a draining change of the terminal's settings waits on macOS till all its output is read (ttywait), the echo of
+    what was typed among it - and there an end of input (Ctrl-D) typed in a canonical mode is echoed too, as ^D."""
+    reading = threading.Event()
+
+    def echoes() -> None:
+        while not reading.is_set():
+            if select.select([master], [], [], 0.05)[0]:
+                try:
+                    os.read(master, 4096)
+                except OSError:
+                    return
+
+    reader = threading.Thread(target=echoes, daemon=True)
+    reader.start()
+    try:
+        yield
+    finally:
+        reading.set()
+        reader.join()
+
+
+def _noting(monkeypatch: pytest.MonkeyPatch, noted: list[tuple[str, object]]) -> None:
+    """termios.tcsetattr noting each change, its settings' local modes, in the same list as _Told's writes."""
+    made = termios.tcsetattr
+
+    def noting(fd: int, when: int, settings: list) -> None:
+        noted.append(("change", settings[3]))
+        made(fd, when, settings)
+
+    monkeypatch.setattr(termios, "tcsetattr", noting)
+
+
+@pytest.mark.parametrize("asked", ["a line the input's end cuts short", "the menu"])
+def test_a_questions_own_words_are_written_while_its_mode_keeps_them_at_a_ctrl_c(asked, home, monkeypatch) -> None:
+    # What a question writes is written while its own mode is up: the line a line's read cut short leaves ended before
+    # the settings go back, where NOFLSH keeps it at a Ctrl-C; the menu's words once the terminal is raw, where a
+    # Ctrl-C is a key. Written before or after, a Ctrl-C the terminal has not read them by would throw them away.
+    master, slave = pty.openpty()
+    given = os.fdopen(slave, "r")
+    noted: list[tuple[str, object]] = []
+    out = _Told(noted)
+    monkeypatch.setattr(sys, "stdin", given)
+    monkeypatch.setattr(sys, "stdout", out)
+    monkeypatch.setattr(os, "tcgetpgrp", lambda fd: os.getpgrp())
+    try:
+        found = termios.tcgetattr(slave)
+        _noting(monkeypatch, noted)
+        with _job() as made:
+            if asked == "the menu":
+                built = Question("Use Tailscale on the VMs?", "n", YES_NO)
+                answer = asyncio.run(asking._menu(_Typing(made, master, [b"\r"]), built, slave, out))
+                assert answer == "n"
+                changes = [at for at, (kind, _) in enumerate(noted) if kind == "change"]
+                words = next(at for at, (kind, text) in enumerate(noted) if "Use Tailscale on the VMs?" in str(text))
+                assert changes[0] < words < changes[1], noted
+                assert not noted[changes[0]][1] & termios.ICANON, noted
+            else:
+                # The end of the input (Ctrl-D) before any Enter: the read ends with the line unended on the screen.
+                # macOS echoes the Ctrl-D (^D) at the master, where the change back drains: read there meanwhile.
+                context = _Typing(made, master, [b"\x04"])
+                with _read_meanwhile(master):
+                    assert asyncio.run(asking.ask(context, "Proxmox host address:", "")) == ""
+                assert noted[-2:] == [("write", "\n"), ("change", found[3])], noted
+                made_mode, _ = (text for kind, text in noted if kind == "change")
+                assert made_mode & termios.NOFLSH, noted
+        assert termios.tcgetattr(slave) == found
+    finally:
+        given.close()
+        os.close(master)
+
+
+def test_a_signal_that_lands_as_a_question_ends_is_delivered_once_its_line_is_ended_and_the_settings_are_back(
+    home, monkeypatch
+) -> None:
+    # A hidden answer given, its line ended and the settings put back with the run's signals held off: a SIGTERM
+    # whose handler raises (the ladder's), landing as the line is ended, is delivered once both are done.
+    master, slave = pty.openpty()
+    given = os.fdopen(slave, "r")
+
+    class Landing(io.StringIO):
+        def write(self, text: str) -> int:
+            if text == "\n":
+                signal.raise_signal(signal.SIGTERM)
+            return super().write(text)
+
+    def ends(signum: int, frame: object) -> None:
+        raise SystemExit(128 + signum)
+
+    out = Landing()
+    monkeypatch.setattr(sys, "stdin", given)
+    monkeypatch.setattr(sys, "stdout", out)
+    monkeypatch.setattr(os, "tcgetpgrp", lambda fd: os.getpgrp())
+    previous = signal.signal(signal.SIGTERM, ends)
+    interrupt = signal.getsignal(signal.SIGINT)
+    try:
+        found = termios.tcgetattr(slave)
+        with _job() as made, pytest.raises(SystemExit):
+            context = _Typing(made, master, [HIDDEN.encode() + b"\n"])
+            asyncio.run(asking.ask(context, "Tailscale auth key:", Secret(""), hidden=True))
+        assert out.getvalue() == "Tailscale auth key: \n"
+        assert termios.tcgetattr(slave) == found
+        # The Ctrl-C's handler the question found, in place again: the hold of the terminal took it while it was up.
+        assert signal.getsignal(signal.SIGINT) is interrupt
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+        given.close()
+        os.close(master)
+
+
+class _Sent(_Typing):
+    """A run a shell puts in the background (Ctrl-Z, then bg) once its answer is typed: tcgetpgrp says another group
+    has the terminal from then on."""
+
+    def __init__(self, job: jobs.Job, master: int, keys: list[bytes], group: dict[str, int]) -> None:
+        super().__init__(job, master, keys)
+        self.group = group
+
+    async def typed(self, fd: int, most: int = 4096) -> bytes:
+        got = await super().typed(fd, most)
+        self.group["of"] = os.getpgrp() + 1
+        return got
+
+
+@pytest.mark.parametrize("asked", ["a line", "the menu"])
+def test_a_question_a_shell_puts_in_the_background_leaves_the_terminals_settings_to_the_shell(
+    asked, home, monkeypatch
+) -> None:
+    # The question's mode made at once, the run the terminal's foreground; then a shell puts the run in the background,
+    # where the settings are the shell's and a change of them would stop the run (SIGTTOU): none is made.
+    master, slave = pty.openpty()
+    given = os.fdopen(slave, "r")
+    noted: list[tuple[str, object]] = []
+    group = {"of": os.getpgrp()}
+    monkeypatch.setattr(sys, "stdin", given)
+    monkeypatch.setattr(sys, "stdout", io.StringIO())
+    monkeypatch.setattr(os, "tcgetpgrp", lambda fd: group["of"])
+    made_here = termios.tcsetattr
+    try:
+        found = termios.tcgetattr(slave)
+        _noting(monkeypatch, noted)
+        with _job() as made:
+            if asked == "the menu":
+                built = Question("Use Tailscale on the VMs?", "n", YES_NO)
+                context = _Sent(made, master, [b"\r"], group)
+                assert asyncio.run(asking._menu(context, built, slave, io.StringIO())) == "n"
+            else:
+                context = _Sent(made, master, [b"192.0.2.1\n"], group)
+                assert asyncio.run(asking.ask(context, "Proxmox host address:", "")) == "192.0.2.1"
+        changes = [settings for kind, settings in noted if kind == "change"]
+        assert len(changes) == 1 and changes[0] != found[3], noted
+        assert termios.tcgetattr(slave) != found
+    finally:
+        made_here(slave, termios.TCSANOW, found)
         given.close()
         os.close(master)
 

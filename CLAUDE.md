@@ -193,13 +193,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       by its own packet's fingerprint, never revoked or expired by its own self-signature, a signature no later than a
       day ahead. `tests/unit/test_pins.py` holds every armored block of each vendored key file to its vendor's
       fingerprints; `test_signed_downloads.py` runs both task files against `fake_downloads.py` with keys of its own.
-    - The new engine verifies both in `lib/claude_vm/vendors/downloads.py` alone, which only returns a release's
-      version and digests, or an image's digest (`signed_digest`: a list and its signature from URLs of their own, over
-      https, the key a `keys.Key` or its armored text with its fingerprint; `listed_digest` for an unsigned list, by the
-      same line reader), once the signature verifies - decided by whether `openpgp.verify` returned, never by a
-      refusal's words - with the caps and checks of the two task files. It alone reaches `openpgp`, by an import, by
-      its own `openpgp` or `verify` taken from it, or read off a name, and only `lib/claude_vm/vendors/keys.py` names
-      a key file, which `test_pins.py` holds to the same fingerprints (`tests/unit/test_aw_downloads.py`).
+    - The new engine verifies both in `lib/claude_vm/vendors/downloads.py`, the one module that reaches `openpgp`,
+      once `openpgp.verify` returns; only `vendors/keys.py` names a key file (`tests/unit/test_aw_downloads.py`,
+      [§16.7](docs/architecture/engine.md#167-vendors--one-https-transport-tailscales-calls-verified-downloads)).
 - **Idempotence.** Molecule's idempotence stage re-runs converge and fails on any `changed` task.
 - **An API key and Remote Control are mutually exclusive.** `ANTHROPIC_API_KEY` outranks the
   claude.ai login in Claude Code's credential precedence, and only that login can establish a
@@ -408,16 +404,10 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - `tests/unit/test_hosts.py` runs the resolver on made-up layouts, the token rule through ansible-playbook, and
       the project's playbooks through an overlay against two fake Proxmox hosts with different secrets; the
       `provision` scenario's `second_host.yml` provisions, aliases and destroys a VM through one.
-    - The new engine's hosts are a folder each, the first included, `fleet/hosts/<name>/` with its `host.yml`,
-      `settings.yml` and anchor, read by `lib/claude_vm/fleet/hosts.py` as a second layout that today's core
-      (`hosts/choose.py`, `hosts/model.py`) reads as it stands; the current host is `client.yml`'s `current_host`,
-      written by `overrides.set_current` alone. `host.yml` and the anchor are written by `hosts.write` alone, a
-      compare-and-swap under the folder's lock, the anchor with its `trust_kind` and `fingerprint` in an order a run
-      stopped after any step leaves readable (`tests/unit/test_aw_fleet_host_writer.py`); what the anchor is, `init`'s
-      `lib/claude_vm/engine/certificate.py` works out with no credential sent, by today's `trust.py`'s probes, and makes
-      no TLS context but through `pin.kept` (`tests/unit/test_aw_engine_certificate.py`). `host.yml` holds no field of one computer's (a key's path is
-      `client.yml`'s, for that host), held by a literal list of its fields, and no module of the new engine reads a
-      `Host`'s `local_file`, `vault_file`, `hosts_file` or `sources`: `tests/unit/test_aw_fleet_hosts.py` holds both.
+    - The new engine's hosts are `fleet/hosts/<name>/`, read by `lib/claude_vm/fleet/hosts.py`; `host.yml` and its
+      anchor hold no field of one computer's (`tests/unit/test_aw_fleet_hosts.py`) and are written by `hosts.write`
+      alone (`tests/unit/test_aw_fleet_host_writer.py`,
+      [§16.9](docs/architecture/engine.md#169-fleet--the-fleets-files-the-settings-the-secrets-and-the-fleets-mark)).
 - **The project writes exactly four things outside the repo on the controller, and has VS Code's own CLI
   write a fifth, and Claude Code's own CLI a sixth.** Read [On the controller](docs/architecture/security-model.md#on-the-controller) and
   [§4.8](docs/architecture/lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml) first.
@@ -462,9 +452,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `vm_control_name`; `just status`'s too), so a VM that reports a sibling's address is refused there, never
       riding the sibling's open connection; two VMs that report one address are both left out (`guest_addresses`).
       Deleting a VM keeps its key: under an identity no VM made later has, it can only match that VM again, and
-      refuses any other given it. `~/.ssh/known_hosts` is never edited. The new engine keeps every machine's key in
-      that file under its identity, and files a key there through `lib/claude_vm/ssh/hostkeys.py` alone
-      (`tests/unit/test_aw_hostkeys.py`).
+      refuses any other given it. `~/.ssh/known_hosts` is never edited. The new engine files a machine's key
+      in the product's file, under its identity, through `lib/claude_vm/ssh/hostkeys.py` alone
+      (`tests/unit/test_aw_hostkeys.py`, [§16.6](docs/architecture/engine.md#166-ssh--the-runner-over-openssh)).
     - A key kept there by address before 2.6 is copied in under the VM's identity once, before anything connects -
       in check mode too, whose connections take keys on first use - by `playbooks/tasks/host_keys.yml`, which every
       publisher and `just deploy --only ssh-config` import: then a comment, `# agent-warehouse carried <identity>`,
@@ -536,62 +526,12 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       scenarios' vars and the Vagrantfile: `auto` would ask this machine's ssh, through the developer's own config,
       where it dials a test's host. `test_vm_route.py` reads back what each writes and fails if one stops; a test of
       the route sets its own, its sockets in a directory of the test's.
-    - The new engine calls `route.py` as it stands (`lib/claude_vm/ssh/connections.py`), its `ssh` children in a
-      process group of their own (`process_group=0`, which today's callers do not pass) and `route`, `ensure_hop` and
-      `held` off the event loop, so that a terminal's first Ctrl-C kills none and has its silence read as an answer,
-      and the run's other tasks go on while one of them waits on its `ssh` (a test holds each with an `ssh` held until
-      a task on the same loop lets it go);
-      each end of one there (`end_all`, a limit, a caller ended) ends its group with it, a `Match exec`'s program
-      among it - one put in the background too, which outlives an `ssh -G` that has exited, since `route._kill` decides
-      by `returncode` and never by `poll()`, which would reap the leader and leave its group - where today's callers'
-      `ssh` is ended by its pid alone, since it shares their own group; an `ssh -G`'s standard error is read from a
-      file, so a program its `Match exec` left holding it costs no answer; `route` settles nothing where its `ssh -G`
-      gave no answer, ended by a signal, out of its time, not started since the run is ending, or not run at all, the
-      `ssh` program or the temporary file its errors are read from not made, or exited with an error, said in `ssh`'s
-      own words (`signalled_settles=False`), and refuses the route through the host where the hop's socket would pass
-      `route.SOCKET_MOST`, naming `vm_ssh_route: direct` or a shorter home; every line of the hop's own `ssh` pins
-      `ForwardX11=no`, `PermitLocalCommand=no` and `ClearAllForwardings=yes` first (`route.hop_settings`' `pinned`),
-      so none takes a person's forwards or tunnel, which `-W` clears only by default. It keeps every
-      shared master, a machine's and the hop's, in the one control directory every run shares (`fleet/paths.py`'s
-      `control_dir()`, `~/.ansible/cp`: short, the account's alone, and the one layer 1's Ansible and the status probe
-      use), which `Connections` refuses where it is a link, another account's, or writable by its group or others
-      (`Unsafe`, with the `chmod 700` to run); a machine whose socket's path there would pass `route.SOCKET_MOST`
-      connects alone (`runner.Target.shared`), and so does root SSH to the Proxmox host, whose socket is the hop's,
-      said once a run (`notes`), the route through the host refused there (`LONG_HOP`). A machine's master is opened
-      only by `ensure`, as `children.MASTER` in a session of its own, which carries no job's marker, never for a first
-      use (`first_use`: no key filed under the identity), which is a connection of its own (`ControlPath=none`) until
-      its key is filed, and while its open runs a run remembers nothing of its tree (`children.opening`). The hop's
-      master is `route.py`'s: `ensure_hop` opens it with the engine's own environment, only where the settled route
-      goes through the host, and so may any connection through the hop whose `ProxyCommand` finds none live (its
-      `ControlMaster=auto`), which then carries that child's job's marker; while `ensure_hop`'s open runs a run
-      remembers nothing of its tree either, and `ensure` refuses the host. A `Master` is made sure of only where one
-      is used: `ensure` and `ensure_hop` answer `None` for a machine that connects alone and the hop under `direct`,
-      so `Master.ok` always says whether a master answers. No run ends a master; never `-O exit`; `-O stop` only
-      through `route.hop_stop`, for the hop; and nothing in `ssh/` tries a connection again.
-      `tests/unit/test_aw_ssh_connections.py` holds it, the rules by scans.
-    - A run of the new engine settles its route once, through `lib/claude_vm/engine/routes.py` alone (`settle`):
-      `vm_ssh_route` as client.yml keeps it for the run's host (its map `hosts`, never another host's), `auto` worked
-      out at each run from where `ssh -G` dials the host, the hop the host's own `Target` (`host_target`, root SSH's
-      too: host.yml's address, `ssh_user` and `ssh_port`, this computer's `ssh_identity_file` and `ssh_executable`; the
-      hop logs in as host.yml's `jump` in place of `ssh_user` where it names one, `Connections.route`'s doing), its
-      login made at the run's start where `vm_ssh_options` for every machine names no jump, else by the first machine
-      that takes the hop. `Route.targets` is the one function that makes a machine's `Target`: the person's
-      `vm_ssh_options` for it, the hop where it brings no jump of its own and is a Proxmox VM, marked with the route it
-      was given (`routed_as`: `direct`, `hop` or `own`, by `connections.target_for` alone), every one held (`held`)
-      before anything connects, then the hop's login, then one forward of its own to the first by name through the
-      hop (`Connections.forward`, `route.hop_forward`): a host that refuses to forward or that `ssh` cannot use stops
-      the run (`routes.Unusable`), raised again by every later `targets` and by one that waited on it, and nothing
-      dials a machine. The runner makes no command line of a machine's `Target` unmarked, nor of one marked `hop`
-      without its hop, nor of one whose address, account, port, `ssh` program, options or hop changed since it was
-      marked (`routed_from`: a `dataclasses.replace` is refused as it is made, any other change at every line); a step
-      that needs another takes it again from `targets`. `Route.ready()` makes sure of the shared
-      connection again before a step that reaches many machines and after a wait on a person, failing none. No module
-      of the new engine but `routes.py` and `ssh/`'s own makes a `Target` or changes one's route after it was made (a
-      scan sees the runner under any name, a `replace` of a `Target`'s route and the mark, and the runner refuses what
-      it cannot see); every fleet a test makes
-      pins `vm_ssh_route: direct` before anything reads it (`tests/unit/fleet_fixture.py`'s `pinned`).
-      `tests/unit/test_aw_routes.py` holds it, on stand-in machines and a stand-in hop, each maker of a test's fleet
-      read back.
+    - The new engine settles a run's route once, in `lib/claude_vm/engine/routes.py` alone, over `route.py` as it
+      stands, and nothing dials a machine past a hop that cannot be used (`tests/unit/test_aw_routes.py`,
+      [§16.4](docs/architecture/engine.md#164-engine--the-workflows-one-module-a-verb)). The shared masters' directory
+      is refused as `Unsafe` where it is a link, another account's, or writable by its group or others, and the hop's
+      own `ssh` pins `ForwardX11=no`, `PermitLocalCommand=no` and `ClearAllForwardings=yes` first
+      (`tests/unit/test_aw_ssh_connections.py`, [§16.6](docs/architecture/engine.md#166-ssh--the-runner-over-openssh)).
 - **`just code` writes in one directory of its own on the VM, the session copies, the rest of Claude Code it
   carries and one fast-forward aside, and never answers VS Code's, Zed's or Claude Code's security questions.** Read
   [§4.9](docs/architecture/lifecycle.md#49-playbookscodeyml),
@@ -723,60 +663,20 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   `tests/unit/test_ssh_config.py` fails if any of them stops.
 - **Tests never read or write the developer's fleet folder.** Read
   [§16.9](docs/architecture/engine.md#169-fleet--the-fleets-files-the-settings-the-secrets-and-the-fleets-mark)
-  first. The new engine keeps a fleet where `lib/claude_vm/fleet/paths.py` alone says: `AGENT_WAREHOUSE_HOME`
-  where it is set, a checkout's own `.aw/` (git-ignored, refused by `tests/check_no_local_files.sh`), or for an
-  installed program `~/.config/agent-warehouse/`, its state in `~/.local/state/agent-warehouse/` and its key file in
-  `~/.local/share/agent-warehouse/`.
-    - An autouse fixture in `tests/unit/conftest.py` (`aw_home`) points `AGENT_WAREHOUSE_HOME` into each test's own
-      directory, and before it a directory of the session's own, for a module's run; `harness.PASSED_ON` passes it
-      to every run. Never a session-scoped autouse fixture: it would join every test into one xdist group.
-    - The session fails if a name `paths` owns (`OWN`, `BENEATH_STATE`) was made, changed or removed in a fleet
-      folder of the developer's (`developers_folders`): the installed program's three, the checkout's own `.aw/` -
-      their real fleet, its key included, whenever they work from a checkout - and the main worktree's where the suite
-      runs from another, and the `AGENT_WAREHOUSE_HOME` they exported, read before the session replaces it. In a
-      checkout's `.aw/` it watches `client.yml`, `fleet/` and the key alone (`CHECKOUT`), never its `state/`, where
-      the developer's own `aw` run from that checkout writes its jobs while a suite runs. It watches nothing else
-      there: a sign-in on a machine the product configured writes `RESERVED_ON_A_MACHINE`'s names into that same
-      folder, and no file there is opened, so no `fleet_home` is followed.
-    - A home is the installed program's by the file system's identity of both (`paths.inside`: real paths, then
-      `os.path.samefile`), never their text, so its key never lands in the config folder through a link or a spelling
-      in another case on a disk that ignores case; a home inside the installed program's state folder is refused.
-    - Only `paths.py` names those folders and `AGENT_WAREHOUSE_HOME`; code on a machine names the folder there as
-      `paths.ON_A_MACHINE`, in `guest/` alone, joined to a reserved name. Only `paths.py` and `fleet/vaultkey.py` name
-      the key file; outside `fleet/` nothing names `paths.KEY` or `paths.OWN` or removes what reaches the key, and a
-      module reads `key_file` only where `READ_THE_KEY` lists it with why. Each change that removes files holds the key
-      byte for byte in its own test. `tests/unit/test_aw_fleet_paths.py` holds all of it.
+  first. Only `lib/claude_vm/fleet/paths.py` names a fleet's folders and `AGENT_WAREHOUSE_HOME`, and only it and
+  `fleet/vaultkey.py` the key file, which a module reads only where `READ_THE_KEY` says why; a home is the installed
+  program's by the file system's identity (`paths.inside`), never its text; outside `fleet/` nothing removes what
+  reaches the key, and each change that removes files holds it byte for byte. The autouse `aw_home` (never
+  session-scoped) points every test's home into its own directory, and the session fails on a change to a fleet
+  folder of the developer's. `tests/unit/test_aw_fleet_paths.py` holds it.
 - **Tests never touch the login keychain, an engine test's own process is guarded as a run is, and a test reaches
   `tools/aw` only through its kit.** Read [§11.1](docs/architecture/testing.md#111-unit--just-test-unit) first.
-    - `tests/unit/aw_kit.py`'s `engine_guard`, which no test asks for, holds every test the `engine` marker selects,
-      and no other, in its own process: `HOME` and the XDG folders in `aw_home`'s directory, failing stand-ins first
-      on `PATH` for the desktop's openers and clipboards, this machine's `tailscale`, `gh` and `claude`, and its
-      `ssh`, `ansible-playbook` and login keychain - macOS's `security`, Linux's `secret-tool` (`harness._refused`) -
-      with `BROWSER` one of them, no variable but `harness.PASSED_ON`'s, the locale's, the kit's own and pytest's
-      `PYTEST_CURRENT_TEST`, and `socket.getaddrinfo` and `connect` refused past loopback. A stand-in reached or a
-      connection refused fails the test once it ends. It holds by `PATH`: a program started by its absolute path is
-      not caught; and the network refusal is the test process's, so for a child it starts only the fakes hold it.
-    - The guard is a `MonkeyPatch` of its own, undone at its own teardown, and `aw_home` sets `AGENT_WAREHOUSE_HOME`
-      the same way, so a test's `monkeypatch.undo()` never lifts either. A test never sets `PATH`: as its call ends and
-      at its teardown, a `PATH` that finds this machine's own programs ahead of the stand-ins fails it. A stand-in of a
-      test's own goes first by `engine_guard.first_on_path(dir)` in its own process, or `first_on_path=` for a run, a
-      folder of the test's own directory either way. A fixture of a `test_aw_*.py` file wider than one test runs
-      outside the guard, so `WIDER_THAN_A_TEST` names each, with why.
-    - Every run of `tools/aw` a test makes goes through the kit (`run_aw`, `aw_at_a_terminal`, `imports_of`, and
-      `run_launcher` for the launcher at the checkout's top, `aw`): `python -I`, an environment built from
-      `harness.PASSED_ON`'s names and the test's own home (the `home` fixture makes it), and the same stand-ins first
-      on `PATH`. One that was reached fails the test (`harness._fail_if_the_desktop_was_reached`). A test's `env=` never sets `PATH`, `HOME`, `BROWSER`,
-      `AGENT_WAREHOUSE_HOME` or an `XDG_` variable: a program of its own goes ahead of the stand-ins, which stay, by
-      `first_on_path`.
-    - Every test of a file `tests/unit/test_aw_*.py` is marked `engine` by `tests/unit/conftest.py`'s `tryfirst` hook,
-      and `just test engine` runs them alone; `just test unit` still runs every test.
-    - A secret the new engine holds is a `Secret` (`lib/claude_vm/secret.py`): a mark wherever it is shown, never
-      pickled or turned into JSON. Only the modules `REVEALS` names call `reveal()`, each with why.
-    - `tests/unit/test_aw_guards.py` holds all of it: the marker and the home over every `test_aw_*.py` file, the
-      guard of a test's own process (in a pytest of its own, so that the failure is the one asserted), a syntax-tree
-      scan of every test file for a run of `tools/aw` outside the kit, the suite's own launchers among the starters,
-      the stand-ins, `env=` and `first_on_path`, the `PATH` a test sets and its own `monkeypatch` undone, the fixtures
-      wider than a test, and `REVEALS`.
+    - `tests/unit/aw_kit.py`'s `engine_guard` holds every `engine` test: failing stand-ins first on `PATH` (the
+      desktop's openers and clipboards, `ssh`, `ansible-playbook`, macOS's `security`, Linux's `secret-tool`) and the
+      network refused past loopback. A test never sets `PATH`, `HOME`, `BROWSER`, `AGENT_WAREHOUSE_HOME` or an `XDG_`
+      variable (its own program goes first by `first_on_path`), runs `tools/aw` only through the kit (`run_aw` and the
+      rest), and names a fixture wider than one test in `WIDER_THAN_A_TEST`, with why. Only the modules `REVEALS` names
+      call a `Secret`'s `reveal()` (`lib/claude_vm/secret.py`). `tests/unit/test_aw_guards.py` holds all of it.
 - **Every live output draws through one region and one way of drawing.** Read
   [§7.8](docs/architecture/custom-code.md#78-libclaude_vmtuilive_regionpy-and-screenpy--every-live-output)
   first.
@@ -791,8 +691,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       and a nested recipe joins its parent's run through the `live_run` setting, never the environment.
     - The region draws one write per redraw in synchronized output, up exactly the lines drawn, so no line may
       wrap (`tests/unit/vt.py` counts them); steps aside for every prompt (`prompt_until`, and a `vars_prompt`'s
-      `do_var_prompt`), back only half a second after it; keeps the echo off while it is up, and at a Ctrl-C what
-      the terminal has not read (`NOFLSH`), the settings put back exactly as found; and never hides the cursor.
+      `do_var_prompt`), back only half a second after it; keeps the echo off while it is up; and never hides the
+      cursor.
     - A question with a few answers - `just init`'s yes or no, a storage, a bridge - is a menu picked with the
       arrow keys (`lib/claude_vm/tui/choose.py`), drawn with `screen.py` while the region steps aside, never a second
       way of drawing. Its answers ride in `prompt_until`'s `complete_input` as built-in bytes (Enter's two and
@@ -800,15 +700,11 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       cannot import it kills Ansible's results thread on the prompt and hangs the run. The engine's hook
       (`engine.choosing`) asks it under `Display`'s lock, reads stdin, never `/dev/tty`, and hands anything else to
       Ansible's own prompt; a hidden question never carries its answers.
-    - The new engine asks every question through `lib/claude_vm/runs/ask.py`: each has a default, its safe answer,
-      taken with a line said wherever standard input is no terminal whose foreground the run is (`--attended` changes
-      nothing); at one, one question at a time (a second waits till the first has ended, never nests), the run's view,
-      `Live.of(context.job)`, steps aside (`aside()`, back half a second after the answer) and keeps its own lines and
-      standard error's till the question ends, each change of the terminal's settings is `TCSAFLUSH`'s (the keys typed
-      before flushed, the rest of a paste never left for the shell) and a Ctrl-C keeps what was typed on its line
-      (`NOFLSH`), every read is the run's `Context.typed` - never
-      `/dev/tty`, `getpass` or a thread - the menu is `choose.asked`, a choice's words and note are made one line of
-      plain text, and a hidden answer is a `Secret`, in no event. `tests/unit/test_aw_ask.py` holds it.
+    - The new engine asks each question through `lib/claude_vm/runs/ask.py`, one at a time, its default taken where
+      no terminal is the run's, never from `/dev/tty`, `getpass` or a thread, a hidden answer a `Secret`; what was
+      typed and not read is thrown away, never left for the shell, and a Ctrl-C or a Ctrl-Z puts the terminal's
+      settings back as found, the region's too (`tests/unit/test_aw_ask.py`,
+      [§16.8](docs/architecture/engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run)).
     - What the callbacks, engines and tools share is one package, `claude_vm` in `lib/`, imported, never loaded
       by path ([§7.10](docs/architecture/custom-code.md#710-libclaude_vm--the-controllers-python-as-one-package)),
       and every test that runs something at a terminal opens it through `harness._at_a_pseudo_terminal`.
@@ -1036,366 +932,72 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - Tests never run the real `claude`, read `~/.claude.json` or reach a real Ansible: `test_mcp_server.py` runs a
       copy of the checkout with stand-ins, `test_mcp_register.py` a stand-in `claude`.
 - **Nothing of today's product reaches the new engine until the cutover, and the new engine reuses only what it
-  names.** Read [§16.1](docs/architecture/engine.md#161-the-rule-between-the-two-engines) first. The engine that
-  replaces the playbooks at 3.0 is built beside them, in the subpackages `schema`, `cli`, `engine`, `pve`, `ssh`,
-  `vendors`, `runs`, `fleet`, `guest` and `control` of `lib/claude_vm/`, and run by `tools/aw`. Nothing of today's
-  product (the `justfile`, `deploy.yml`, `ansible.cfg`, the `Vagrantfile`, `playbooks/`, `roles/`, `filter_plugins/`,
-  `callback_plugins/`, `inventory/`, `tools/` and today's modules of `lib/claude_vm/`) imports them or runs
-  `tools/aw`, and `ansible.cfg` never names the engine's Ansible folder. The new engine imports of today's
-  `lib/claude_vm/` only the modules `REUSED` names, each with its reason, and what those import in turn, all the way
-  down, is in `REUSED` or `REACHED`, with the reason it is brought in; never Ansible. `tests/unit/test_aw_layout.py`
-  holds both.
+  names.** Read [§16.1](docs/architecture/engine.md#161-the-rule-between-the-two-engines) first. Nothing of today's
+  product (the `justfile`, `playbooks/`, `roles/`, `filter_plugins/`, `callback_plugins/`, `inventory/`, `tools/`,
+  today's modules of `lib/claude_vm/`) imports the new subpackages or runs `tools/aw`, and `ansible.cfg` never names
+  the engine's Ansible folder. The new engine imports of today's `lib/claude_vm/` only the modules `REUSED` names, and
+  what those import in turn is in `REUSED` or `REACHED`, never Ansible. `tests/unit/test_aw_layout.py` holds both.
 - **Layer 1 is held to state modules, and reaches nothing of this computer.** Read
-  [§16.10](docs/architecture/engine.md#1610-guest--the-helper-the-system-layers-inputs-layer-2) first. What the new
-  engine's system play (`playbooks/system.yml`) reaches, the three roles it runs with it, is held by
-  `tests/unit/test_aw_layer1_ratchet.py`, through a walk of its own that reads what Ansible reads.
-    - The walk follows every road to a task: the play's task lists and handlers; an include or import in any spelling
-      (short, `ansible.builtin.`, `ansible.legacy.`); a role the play names, one included or imported from anywhere, and
-      one a role's `meta/main.yml` names among its dependencies; each role's files in every spelling Ansible takes
-      (`main.yaml`, `main.json`, a `main/` folder of defaults or vars, a file an include's `_from` names); the play's
-      `vars_files`; the roles' templates and argument specs; and each file of a role's `files/` that a `copy`,
-      `unarchive`, `assemble` or `uri` sends from this computer. A road it does not follow - a playbook imported, an
-      include in a handler, a name only a run can say, a name Ansible reads otherwise than the walk (one that starts
-      with `~`, which Ansible takes from the person's home, holds a `$`, which it expands, or is quoted), a collection's
-      role or a `collections` keyword (an include's `apply` too, which Ansible loads as a block), a role in the play's
-      own roles folder, a template outside a role - raises `Unfollowed` and fails every test: follow it in the walk,
-      never pass it over.
-    - So does what Ansible renders that the walk would read as text: a template, or any string of any file the walk
-      read, that names another template (`include`, `import`, `from` or `extends`, with `{%-` and `{%+` too: in a
-      task's string Ansible looks for it beside the play) or sets its own delimiters (a `#jinja2:` line, or one of the
-      template task's six delimiter arguments), under which such a statement reads as text. And so do arguments the
-      walk does not read, which ansible-core merges into a task's once its parser has read them: `module_defaults` on a
-      play, a role entry, a block, a task or an include's `apply`; an `args:` given as one template; and a module given
-      one template as its whole value, but for a command, whose words `REASONS` holds.
-    - So does a task file Ansible looks for elsewhere before the walk's: an `import_tasks` in a role's file that an
-      include or import brought in (looked for first under that file's own folder's `tasks/`, then the working
-      folder's), and any include or import two files below the play (looked for beside the play first). A file sent
-      from this computer outside a role, or that is no regular file of its own role's `files/` as the checkout holds
-      it (a name under `files/`, a folder, a link out), is refused alike; so is a role, or one of its own folders
-      (`tasks/`, `files/`, `templates/` and the rest), that is a link, and any file the play reaches that is a link out
-      of the checkout: through a link Ansible reads a folder the test never saw, on the computer the play runs on.
-    - So does what Ansible takes from the play's folder and a role's that the walk does not read: `group_vars/` or
-      `host_vars/` beside the play, read whenever the host joins a group; `collections/` beside it, searched whatever
-      the configuration names; a folder of any kind of plugin but the three `BESIDE_THE_PLAY` lists with its reason
-      (`library`, `action_plugins`, `module_utils`), whose names are held off Ansible's own - Ansible looks for its
-      own module, action or module_utils there first, and a local `normal.py` runs here for every module with no
-      action of its own; and any folder of plugins in a role. The kinds and Ansible's names are read from Ansible.
-    - Every task it reaches is a module of `ansible.builtin` that converges a state, or a `command`, `shell`, `raw`,
-      `script` or `expect` that `REASONS` lists with its reason and with its module and arguments as Ansible's own
-      parser reads them: a changed command changes its entry in the same commit, and two such tasks of one file and
-      name fail as one key. A module of `ansible.builtin` is one written so that ansible-core's own routing table
-      (`ansible_builtin_runtime.yml`, read from the installed package) keeps within `ansible.builtin`, for its action
-      and its module, and that names one of ansible-core's own there: the table sends `ansible.builtin.synchronize`
-      (whose rsync starts here), `ansible.builtin.patch` and hundreds more to a collection. A module outside
-      `ansible.builtin` fails but the three F6a replaces.
-    - Nothing it reaches sets a variable whose name begins `ansible_`, which would outrank the connection the engine
-      wrote: no vars of a play, block, task, role entry or dependency, no `vars_files`, `vars_prompt`, role default or
-      var, fact (a templated name refused), register, loop variable, include's `apply` or `add_host`, and no
-      `include_vars` at all.
-    - Nothing it reaches runs or writes on this computer: no `delegate_to`, `local_action` or `connection` keyword, no
-      `fetch`, no `group_by` or `add_host` (a group joined after the play's check), no play over any host but `all`,
-      no `with_` loop and no private field of ansible-core's task, read from it (`loop_with` runs a `with_` loop's
-      lookup over `loop`), and no lookup but the five `LOOKUPS` lists by its file and whole string (`lookup`, `query` or
-      `q` as a word, which Jinja calls wherever it is named), read in every file the walk read (the roles' argument
-      specs, which Ansible templates here, among them) and in the templates. Nor does it ask this computer of its paths
-      (whether one is there, its kind, its real name, its home or its environment) or open a file there: no test of
-      ansible-core's `files` tests but `abs` (`exists`, `file`, `link` and the rest, read from it) and no
-      `vaulted_file`; no `fileglob`, `realpath`, `relpath`, `expanduser` or `expandvars` filter, written or named to
-      `select`, `reject`, `selectattr`, `rejectattr` or `map`, or to one of those five named to another
-      (`map('select', 'exists')`); and none of the five given a name only a run can say, or its arguments by `*` or
-      `**`. Each is read as Jinja's own parser reads a string Ansible renders: a template and a string that opens one;
-      and, as an expression, the way Ansible evaluates it, a `when`, `changed_when`, `failed_when`, `until`, a loop's
-      `break_when`, a debug's `var` and an assert's `that` (`var=` and `that=` too), with a template a string in it
-      holds. One made of one template, whose result Ansible evaluates, and a string the parser cannot read are refused.
-    - Each road review 61 ran, and review 67's `loop_with` and linked `files/`, is run as Ansible runs it too: planted
-      under the test's own folder, found by the four tests, then run by `layer1.run` over the test-only local
-      connection on a stand-in machine, where its decoy writes a mark in the test's own folder: each is shown to be a
-      road Ansible takes.
-    - The child runs in the run's own directory (`children.start`'s `cwd`), never the caller's folder, where Ansible
-      looks for a task file too; and its configuration names the engine's own filter folder,
-      `lib/claude_vm/guest/ansible/filter_plugins/`, whose one adapter gives `plain_text` and `sshd_match_spec`, the
-      two the roles call, never today's `filter_plugins/`, whose `proxmox_trust_holds` opens a connection from here.
-      A role that calls another filter adds it there, with the core's function of its name.
-    - The play's opening tasks are `playbooks/configure.yml`'s, copied as they stand, and
-      `tests/unit/test_aw_layer1_play.py` holds them equal: a change to one is made to both. Its first check reads the
-      inventory back by `ansible_inventory_sources`, never by `inventory_file`, a host's variable that a file beside the
-      play could point at a forged copy.
-    - Until F6a takes them out, those three load only from a folder of collections, so layer 1's configuration names the
-      checkout's own, asked of `tools/env-run --collections` for the run's environment and never worked out a second
-      way, and held to `requirements.yml`'s pins before the child starts, each collection's own `MANIFEST.json` at its
-      pin, with today's `tools/check collections`'s verdict (`tests/unit/test_aw_layer1.py` holds the two equal): a
-      folder not there, a collection at another version or not there, and a `tools/env-run` not there to run are each
-      refused in one sentence that names `just install`. The play's test file holds that the product's child loads the
-      play from it, and from no folder that only passes the check.
+  [§16.10](docs/architecture/engine.md#1610-guest--the-helper-the-system-layers-inputs-layer-2) first.
+    - Every task `playbooks/system.yml` reaches is a converging module of `ansible.builtin`, by ansible-core's own
+      routing table, or a command `REASONS` lists with why, changed with it; none sets an `ansible_` variable,
+      delegates, runs or writes here, asks this computer of a path, or looks up past `LOOKUPS`. A road the walk does not
+      follow raises `Unfollowed`: follow it, never pass it over (`tests/unit/test_aw_layer1_ratchet.py`).
+    - A role's filter goes in `lib/claude_vm/guest/ansible/filter_plugins/`, never today's `filter_plugins/`; the child
+      runs in the run's own directory (`test_aw_layer1.py`); the play opens with `playbooks/configure.yml`'s tasks,
+      changed in both, and reads the inventory by `ansible_inventory_sources` (`test_aw_layer1_play.py`).
 - **Every command line the new engine prints, and every command a sentence of it names, is the printer's.** Read
   [§16.2](docs/architecture/engine.md#162-schema--the-command-lines-patterns-and-its-table-of-verbs-and-options) and
   [§16.3](docs/architecture/engine.md#163-cli--the-aw-program) first.
-    - `lib/claude_vm/schema/printer.py`'s `line` and `argv` write it from the one table: the program as it was started
-      (`aw` where `aw` on `PATH` is the checkout's launcher, else what was typed, from `AGENT_WAREHOUSE_STARTED_AS`,
-      which the launcher sets and `main.py` takes out of the environment at once), the verb, its words, its options
-      (`--long value`, and `--long=value` only for a value that starts with `-` or is empty), the host's flag, and a
-      form's placeholders last; each word quoted by `quoted` for a POSIX shell and zsh (`shlex.quote`, and a word that
-      starts with `=`), the program too; a value, a word or a program word with a character of the categories Cc, Cf,
-      Cs, Zl or Zp refused, the program then `aw`.
-    - A sentence names a command as a `Line`, said through the printer's `said`, never as text; the field `program`,
-      which `said` fills with the program quoted, is named only by the printer and `schema/check.py`'s `command`. The
-      printer is `schema/`'s, imported at the top of a file by every module that uses it, `pve/` and `vendors/` among
-      them; it, the check and the rules import one another as modules, never a name from one, so any may come first.
-    - The check's `command`, the program and a verb, is used only by the modules that refuse and by help's usage lines
-      and closing paragraph, each named with why (`COMMAND_USERS`): never with words of a module's own joined after it
-      into a line. A line the printer made is never extended: never an operand of `+` or `%`, added to, in what a
-      `join` or `format` takes, or an argument of `print` but the last, never edited by its `replace`, and in an
-      f-string followed by its end, punctuation or prose, never a field; nor is an f-string that holds one, a `said`
-      whose sentence ends in a `Line`'s field, or what hands one on (`str`, a slice, `strip`, `textwrap`) extended.
-      Lines each on a line of its own are whole: a `"\n".join` whose every item is a line, `out.write(line + "\n")`. A
-      sentence `said` says is never built at its call, and a `Line`'s field in it is followed the same way. What no scan
-      sees is a line carried where that scan does not follow it (a parameter of a helper it is handed to, an attribute,
-      a container, another module's function), a form followed by a word of prose, which a person who copies the word
-      too hands the command as a value, a name reached through `getattr`, and pieces joined that name no command: a
-      line to run is the printer's whole line.
-    - A placeholder is `<name>`, from `lib/claude_vm/schema/words.py`'s `placeholder`, in a line's form, a masked
-      value and help's rows alike (`--cores <cores>`, `--set <name>=<value>`); a line with one is a form, never offered
-      as the command to run, and the one check refuses a placeholder given back as a word or as JSON. A form writes
-      its placeholders last, after every part with a real value (`aw host --remove <name>`), so pasted at a shell it is
-      no line a shell reads, or, where its one placeholder is a verb's names (`<name>...`), leaves its real values,
-      which the printer writes only where the one check refuses them (its `takes`): `aw deploy <name>...` alone, the
-      default VM's, is its `Unwritten`, as are `deploy --detach`'s, `login`'s, `status`'s and `destroy`'s names alone
-      (the printer's docstring lists them); a sentence names a real VM there, or another placeholder beside it. Only
-      the code asks for a line, so `cli/main.py` says an `Unwritten` as the program's own fault, in one sentence, exit
-      1, never a traceback, and so does a run that ends the process at once with a call still in a thread
-      (`runs/attached.py`'s `_end_now`), where it never reaches `main`: both through the printer's `own_fault`. No
-      form leaves a whole command, with no exception.
-    - `host_flag` is given by every caller of a verb whose row has the shared `--host` and whose values give none
-      (`None` is `Unwritten` there), and taken only by a verb whose `--host` runs it against a host; `refused` is
-      keyword-only with no default, so every caller says whether a value of free text may be said back.
-    - `tests/unit/test_aw_cli_printer.py` holds it: a syntax-tree scan of every string of the new subpackages for a
-      command named anywhere in it (today's `just` only where it reads as a command), `dispatch.py`'s `not_built`
-      (today's `just <verb>`, until the flip) its one exception; the program, as started or as `PROGRAM`, named only by
-      the printer, by any name a module gives it; the field `program` only by the printer and the check; the check's
-      `command`, by any name, only by `COMMAND_USERS`; every use of `line` or `argv`, through any name or a
-      `functools.partial`, saying `refused`; no printer's line extended, by a scan of its own; every form of the
-      printer's whole domain (each verb, each placeholder beside the rest, masked and not) and help's usage lines,
-      pasted into `/bin/sh` and `bash`, a refused one said in one line by `aw`, before a run and in one, with a call in
-      a thread or none; each module of `schema/` imported alone, first.
+    - A line is `lib/claude_vm/schema/printer.py`'s `line` or `argv`, from the one table; a sentence names a command as
+      a `Line`, through `said`, never as text. A printer's line is never extended (by `+`, `%`, `join`, `format`, or an
+      f-string's field with more after it); a line with a placeholder (`<name>`) is a form, never offered as the command
+      to run; every caller says `refused`. `tests/unit/test_aw_cli_printer.py` holds it by scans; what no scan sees (a
+      line handed to a helper, an attribute, a container, `getattr`) a reviewer looks for.
 - **One transport sends every HTTPS request of the engine, follows no redirect, reads no certificate variable, and
   takes a proxy only as an argument.** Read
   [§16.7](docs/architecture/engine.md#167-vendors--one-https-transport-tailscales-calls-verified-downloads) first.
-    - `lib/claude_vm/vendors/transport.py` is the only module of the new engine that imports `http.client` or wraps a
-      socket. It builds no context and reads no variable or setting: the caller gives it the `ssl.SSLContext`, the
-      proxy (an `http://` URL or none, through a CONNECT tunnel the transport asks for and reads itself) and
-      `peer_check`, called with the peer's certificate before anything is written. A 3xx is an answer. A certificate
-      that does not verify is `Untrusted`, an `Unreachable`, never tried again, whose sentence names `tls_ca_file` only
-      where OpenSSL's verify code says the issuer is unknown (`UNKNOWN_ISSUER`), never for a wrong name or an expiry.
-    - A GET or HEAD is tried at most three times; any other method is sent once, and is `Unknown` once it has left. A
-      body that ends before its `Content-Length` is cut short, never an answer, as a chunk cut short is.
-      Closed, a transport sends nothing more: a request after `close()` is `Closed`, and one under way on another
-      thread ends at its first error, never tried again or on a new connection. `close()` closes only a connection
-      no request is under way on, and shuts down (`socket.socket.shutdown`, never `SSLSocket`'s) one that a request
-      is being written on or its answer read from, which wakes that thread at once: never a close under another
-      thread's wait, which on Linux would leave that wait, at its limit, reading and writing whatever took the
-      socket's number. A socket is closed by `_forget` alone, once its connection is out of what the transport holds,
-      and `_Wire` closes nothing. A request shut down so is cut: said in `CUT`'s words, whatever the shutdown made it
-      raise, and its answer never handed back. Every failure `close()` made - `Closed`, a cut, a `GET` whose next try
-      it forestalled - is marked `closed`, which a caller reads, never the words.
-      Every body is held to `most`, every wait to its limit and the whole call to its deadline, making the connection
-      included - each address in turn, a proxy's CONNECT and its answer, the handshake - but the name's lookup, which
-      the system's resolver alone bounds. `http.client` never makes a connection.
-    - A header's value, or a part of one, and a form's value may be a `Secret`, and a proxy's credentials are one,
-      revealed in `_plain` alone; a `Secret` anywhere else in a form or a query, at any depth, is refused. No error
-      says a header's value or a peer's words: one `http.client` would refuse is `NotMade`, "the request could not be
-      made"; what `http.client` raised of an answer is said by what it means, never in its words, which quote the
-      answer; of a proxy's answer only its status.
-    - The proxy is `lib/claude_vm/vendors/proxy.py`'s `choose`: from the environment under `requests`' rule, at
-      `network_proxy: environment`, with `none` the opt-in. It reads only the environment it is given, and of
-      `urllib.request` only `proxy_bypass_environment` and macOS's two readers of the system's settings. A URL the
-      setting names has no user or password: `setting_refusal` is the one check, which `choose` makes and
-      `fleet/overrides.py`'s `typed` makes of every value a file or `--set` gives it; a proxy that needs them is given
-      as `HTTPS_PROXY`, under `environment`.
-    - The vendors' TLS context, and the Proxmox client's where a host keeps no anchor, is
-      `lib/claude_vm/vendors/trust.py`'s alone: `certifi`'s file by its path, and then the file the setting
-      `tls_ca_file` names, which adds to `certifi`'s list and never replaces it; never the system's store or a
-      certificate variable.
-    - Of the new engine only the modules `CONTEXTS` names, each with why, name what makes a TLS context or gives one
-      roots (`MAKERS`, by any written spelling but as a type, or a call's `ssl=True`), set one of its checks (`CHECKS`:
-      `check_hostname`, `verify_mode`, `verify_flags`, `hostname_checks_common_name`), or import one of today's modules
-      that does (`TODAYS_CONTEXTS`); no module takes `trust` or `status` from one `CONTEXTS` names, and those take
-      names of today's modules, never a module whole (`lib/claude_vm/pve/pin.py` binds `anchored_context` alone); and no
-      module of the new engine names the interpreter's own store or its paths (`DEFAULT_STORE`). The transport takes
-      any context, so one made elsewhere could check nothing. Past the rules: a name built at run time (`getattr` of a
-      string made there, `sys.modules`, `import_module` of a relative name), a keyword `check_hostname=False` handed to
-      a function, and the standard library's own TLS clients (`urllib.request.urlopen`, `xmlrpc.client`, `ftplib`,
-      `smtplib`, `imaplib`, `poplib`): a reviewer looks for those.
-    - `tests/unit/test_aw_transport.py` holds the transport and the proxy, and `tests/unit/test_aw_vendor_trust.py`
-      the computer's certificates, `CONTEXTS` and `DEFAULT_STORE`.
+    - `lib/claude_vm/vendors/transport.py` alone imports `http.client` or wraps a socket; it builds no context, and a
+      3xx is an answer. A `Secret` goes only in a header's or a form's value, revealed in `_plain` alone, no error says
+      a header's value or a peer's words, and a proxy the setting names carries no user or password.
+    - Only the modules `CONTEXTS` names make a TLS context or set its checks, from `certifi` and `tls_ca_file`, never
+      the system's store (`DEFAULT_STORE`). `tests/unit/test_aw_transport.py` and `test_aw_vendor_trust.py` hold it.
 - **One class sends the Proxmox token, on a connection whose certificate verified.** Read
   [§16.5](docs/architecture/engine.md#165-pve--the-typed-proxmox-client-and-the-one-table-of-privileges) first.
-    - `lib/claude_vm/pve/client.py`'s `Proxmox` is the only place of the new engine that writes the `PVEAPIToken`
-      header: the engine's one `Token`, its secret a `Secret`, handed to the transport as parts and revealed there. No
-      method returns it, and no error says it: Proxmox's words an error quotes have it struck first (`Secret.struck`),
-      before they are cut, so a peer that echoes it has none of it said.
-    - It goes only on `lib/claude_vm/pve/pin.py`'s connection: the host's anchor alone where it keeps one, made by
-      today's `trust.anchored_context` (strict, a partial chain, the name checked, on every Python), else the
-      computer's certificates: `certifi`'s list, with `tls_ca_file`'s added (`lib/claude_vm/vendors/trust.py`); and
-      where the anchor is the node's own certificate, its recorded fingerprint checked through `peer_check` before a
-      byte is written. The certificate is always checked, with no unchecked mode; its name is not checked only where
-      a fingerprint is recorded, whatever the anchor, which names the one certificate, so a host reached at an address
-      its certificate does not name is reached through its node's own certificate; a `Pin`'s context then checks no
-      name of itself, and nothing but `pin.py` reads it, kept as `_context` and as no field of the dataclass
-      (`tests/unit/test_aw_vendor_trust.py`). No context logs its session's keys, or opens the file `SSLKEYLOGFILE`
-      names: both kinds are made by hand, with `keylog_filename` none.
-    - A certificate that is not what the host keeps is `Unverified`, anchor or none, and nothing was sent. Its remedy
-      is told by OpenSSL's verify code, never its words: a name or address mismatch (62, 64) is the address to change,
-      or the node's own certificate to keep; one out of its dates (9, 10) is said so, to renew on the host or a clock to
-      set right; any other names `aw init`, with `tls_ca_file` second, never alone, where no
-      anchor is kept and the issuer is unknown - the root of a Proxmox host's certificate is almost always its own CA.
-    - The first request is `GET /version`, with no lock held across it: a host below Proxmox VE 9 is refused before
-      any other. A 401 or a 403 is
-      `Denied` by its status alone, never by its words; a 3xx is an answer, never followed. A listing's status is never
-      read for what the same run changed: `current` reads the VM.
-    - `tests/unit/test_aw_pve_reads.py` holds it against the fake, a certificate that names another address than the
-      fake's among them, with the rules that `PVEAPIToken` is named in one module of the new engine, that no method
-      returns the token and that no error says it.
+    - `lib/claude_vm/pve/client.py`'s `Proxmox` alone writes the `PVEAPIToken` header, its secret a `Secret` revealed
+      in the transport; no method returns it, and no error says it (Proxmox's words are `Secret.struck` first).
+    - It goes only on `lib/claude_vm/pve/pin.py`'s connection: the host's anchor where it keeps one, else the
+      computer's certificates; always checked, with no unchecked mode, and no context logs its keys (`SSLKEYLOGFILE`).
+      A certificate that is not the host's is `Unverified`, nothing sent. `tests/unit/test_aw_pve_reads.py` holds it.
 - **Every write of a VM's configuration sends `digest`; no write is sent twice.** Read
   [§16.5](docs/architecture/engine.md#165-pve--the-typed-proxmox-client-and-the-one-table-of-privileges) first.
-    - `write_config` is one synchronous `PUT` with the digest of the read its changes were made from, never a `POST`,
-      whose check at the call and write in a task leave a window; a stale digest is `DigestMismatch`, nothing written,
-      and `edit_config` reads and applies again, three times at most. It sends only the keys the table's rows for it
-      cover (`privileges.keys`), each row the privilege Proxmox checks its keys with, which the fake holds key by key:
-      a key of another group needs its row first. A `PUT` or a `POST` to a configuration's
-      path with no `digest` of `DIGEST`'s form (an empty one is none to Proxmox) is refused in `_request`, where every
-      request passes, before anything is sent - the path read as Proxmox reads it, its `%`-escapes decoded, and sent
-      as it was given - and
-      `harness.fake_fleet(engine=True)` fails a test at its end where the fake was sent one of the client's.
-    - The transport sends no request but a `GET` twice: a write that left with no answer is `Unknown`, settled by
-      reading the VM again. A clone onto a VMID that is taken is `Exists`, at the call or in its task in any of
-      Proxmox's three sentences, and nothing is ever deleted at the VMID asked for, which on a host would be another
-      run's VM. A task is followed within a deadline of its kind and never longer, its log's read after its end
-      included, and one that ended `WARNINGS: <n>` is a success, as Proxmox counts it, its log's last lines kept for
-      the workflow to say; a log that cannot be read within that deadline, or once the run stops, never turns a
-      success into an error: a success is said with no lines, a failure with none, whatever stopped the read, and
-      `Stopped` is only for a task left before its end, and for a poll's failure after the run's stop only where the
-      run's close made it (the transport's mark, `closed`): a `Denied`, `Unverified` or `Malformed` is raised as itself.
-      A deletion sends `destroy-unreferenced-disks` alone: never `purge` unless a caller asks for it, which would
-      change the host's backup jobs, replication and HA, outside the VM.
-    - Proxmox answers every refusal of a write with a 500: `Locked`, `DigestMismatch` and `Exists` are told apart by its
-      words, each held equal to the fake's constant. Every route the client sends has its rows in `privileges.CALLS`,
-      and every row is one the fake decides a request it sends by (`decided.log`), never only a route it sends, which
-      the fake enforces as Proxmox checks it (a resize on its disk's storage, either of a row's alternatives, a
-      configuration key by key, an empty value too); `init` grants each row's first privilege on its first kind of path
-      alone. The client asks `/cluster/resources` only for the types Proxmox's schema takes, never `pool`. No route
-      writes a pool, and the role on the pool holds no `Pool.*` privilege but `Pool.Audit`: a new VM joins it through
-      its clone's `pool` (`tests/unit/test_aw_pve_privileges.py`).
-    - `tests/unit/test_aw_pve_writes.py` holds it against the fake under enforcement, with a syntax-tree test that every
-      method sending a `PUT` or a `POST` to a configuration's path sends `digest`.
+    - `write_config` is one synchronous `PUT` with the digest of the read its changes came from, and `_request` refuses
+      a `PUT` or `POST` to a configuration's path without one before anything is sent. A write that left with no answer
+      is `Unknown`, settled by reading the VM again; nothing is deleted at a VMID asked for, and a deletion never sends
+      `purge` unasked. Every route the client sends has its rows in `privileges.CALLS`, which the fake enforces, and no
+      route writes a pool. `tests/unit/test_aw_pve_writes.py` and `test_aw_pve_privileges.py` hold it, on the fake.
 - **A job's state is derived from its record and its own kernel lock, never stored.** Read
   [§16.8](docs/architecture/engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run) first.
-    - Every run of the new engine is a job, `jobs/<id>/` in the state folder (`lib/claude_vm/runs/job.py`). `create`
-      takes `flock(LOCK_EX)` on the job's `lock` before `job.json` is written and keeps the descriptor, which no child
-      inherits, for the life of the process that made the job: the kernel lets the lock go when that process ends,
-      however it ends, and nothing is ever left to clear.
-    - `state` reads `running` while that lock is held (`cancelling` with a stop recorded), the outcome the record holds,
-      and `lost` where it holds none and the lock is free; `lost` is never written. Only a lock file that is gone is
-      free: any other error of the lock's probe (a descriptor limit, a mode, a disk's error) is raised as itself by
-      `lock_held`, the lock's own answer, and by `state`, never read as a run that ended. Where the record is gone it is
-      `None`, no such job, as `find` says, whatever the lock: a handle taken before a drop never reads `running` or
-      `lost` after a drop that removed the record. It asks the lock before it reads the record, since a run writes its outcome before it ends:
-      asked the other way round, a run that ends just after its record was read would read `lost`. A job the reading
-      process made itself is read from what it holds, a shortcut, not a need: closing a second descriptor of a lock
-      file does not let the first's lock go, since a `flock` belongs to its open file description, as experiment 40
-      measured on Linux, on NFSv3 and NFSv4.2 as on a local disk (macOS's half is not measured yet). No module of
-      `runs/` decides a state from a pid, a process's start or the process table; the record's `pid` and `started` are
-      information, written by `create` alone, so that a pid `cancel` signals is the one `create` recorded.
-    - Every string the record and an event hold is made plain (`text.plain_text`), and a `Secret` is refused before
-      anything is written or heard. Only `create` writes a record from nothing. A change reads it strictly: one whose
-      record is gone, or is no record (nested past what is read, or a directory, among them), raises `Gone`, and any
-      other error of the read is raised as itself, so that `Gone` is never said of a run whose record is whole; a
-      reader is never refused. A job dropped goes `job.json` first, unlinked
-      under `store.locked` as every change is, so a writer lands before it or is refused; then its lock; then its
-      folder, what cannot be removed left as it is, so that a refused run's refusal is never lost to a traceback, and
-      `drop` returns the line that says where the record is left, if it is. Removed with the lock still open, NFS keeps
-      the folder.
-    - `tests/unit/test_aw_job.py` holds it, each state made by a run in a child process, with a scan of `runs/`.
+    - `lib/claude_vm/runs/job.py`'s `create` takes `flock` on the job's lock before `job.json` is written and keeps it
+      for the life of the process that made the job; `state` asks the lock before it reads the record. `lost` is never
+      written, no module of `runs/` decides a state from a pid, a process's start or the process table, and a `Secret`
+      is refused before a record or an event is written. `tests/unit/test_aw_job.py` holds it.
 - **Every process a run starts carries the job's marker, but a shared SSH master and a child meant to outlive its run;
   no child is handed a lock.** Read
   [§16.8](docs/architecture/engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run) first.
-    - A child of the new engine is started by `lib/claude_vm/runs/children.py`'s `start`, the SSH runner's `ssh`
-      children too: never another `Popen`, `create_subprocess_exec` or any other of Python's ways, and no module but
-      `children.py` is a starter. `start` gives the child `AGENT_WAREHOUSE_JOB`, the job's
-      ID, whatever environment it is handed, and takes it from a shared master, which other runs may ride after this
-      one ends; a process group or a session of its own; every signal a handler can be given at its default and none
-      blocked, since a run started under `nohup` ignores SIGINT and Python ignores SIGPIPE (by a `preexec_fn` of
-      `signal.signal` and `signal.pthread_sigmask` alone: it runs in a child forked beside the run's threads, where a
-      lock another thread held stays held); and standard input named,
-      never the run's own descriptor 0, `/dev/null` in a session. The children `start` does not start are `route.py`'s
-      `ssh` (the hop, `ssh -G`) and `proc.py`'s `ps`: a run carries no marker it inherited, which the launcher at the
-      checkout's top unsets and `cli/main.py` takes out of the environment at once, so they carry none.
-    - A run's end ends its `ssh`, `ansible` and `program` children. A child meant to outlive its run, the editor or a
-      page's opener, is `outlive`'s, never `start`'s: unmarked, in a session of its own, its standard streams
-      `/dev/null`, in no registry, started by `subprocess` and never asyncio (whose transport kills a child it still
-      holds), and left out of every tree the ladder remembers and ends (`outliving`).
-    - Every descriptor is closed in a child but its standard streams and those `pass_fds` names, which is how a pipe
-      goes over on purpose; one of a lock the run holds, or a duplicate of it, is refused by the lock's name before
-      anything starts, a standard stream the child inherits among them, since a child that held it would keep it past
-      the run. A module of `runs/` that takes a lock gives `children.HOLDERS` a function that lists them. `close_fds` is
-      never anything but `True`, and never a fork with no exec (`os.fork`, `os.forkpty`, `pty.fork`, `posix`'s, a
-      `fork` start method of `multiprocessing`): a forked child keeps every lock until it execs. `pass_fds` and
-      `set_inheritable(..., True)` appear only in `start`, and nothing else makes a descriptor inheritable.
-    - A child the terminal stopped for asking a question there (SIGTTIN, or SIGTTOU as OpenSSH's `readpassphrase`
-      turns the echo off before it reads: the `ssh` of a person's own `ProxyJump`, a question of `git`'s or `sudo`'s),
-      which `children.asking` reads with `waitid`'s `WNOWAIT` - the registry's children and `route.py`'s `ssh` in a
-      process group of its own (`children.watched`, `route.leading`) - is said by the run within a second, naming its
-      program, the leader of the group the terminal stopped, and, only where that is `ssh`, what to do, and ended: never
-      left stopped and silent. What the watch does not see is a program that made a process group of its own under one
-      of them, which stops alone and is no child of the run's for `waitid` to read: the run never reads the process
-      table for it, since nothing the engine starts makes one and the table cannot tell a terminal's stop from a
-      person's SIGSTOP. A program of the person's own `~/.ssh/config` may make one (a `ProxyCommand` under GNU `timeout`
-      without `--foreground`): its step then waits in silence until its own bound ends it (the runner's 20 s,
-      `route.py`'s 5 to 20 s) or a Ctrl-C does, and fails as a silence, not as a question.
-    - `tests/unit/test_aw_children.py` holds it, with real children that report what they were given, and scans of the
-      new engine's code for each rule; `tests/unit/test_aw_attached.py` the opener, the question at a terminal, and a
-      run at one that starts no `ps`.
+    - A child is started by `lib/claude_vm/runs/children.py`'s `start` alone, never `Popen`, `create_subprocess_exec`
+      or another of Python's ways: marked with `AGENT_WAREHOUSE_JOB`, in a group or session of its own, every signal at
+      its default, its standard input named; one meant to outlive its run is `outlive`'s, unmarked. `close_fds` is
+      always `True`, a lock's descriptor is refused before a child starts, and nothing forks without an exec.
+      `tests/unit/test_aw_children.py` holds it, with scans of the new engine's code.
 - **Every `ssh` the new engine starts carries `BatchMode=yes` and names the machine by its identity.** Read
-  [§16.6](docs/architecture/engine.md#166-ssh--the-runner-over-openssh) first.
-    - `lib/claude_vm/ssh/runner.py` builds every command line from a `Target`, each value held before any child starts:
-      the identity to `checks.HOST_KEY_ALIAS_RE`, the address to one IPv4 address (the one value a machine supplies,
-      and the only one of a machine's that reaches the line), the account, the port and every path to plain words. The
-      product's options come first, since `ssh` keeps the first value: `checks.vm_ssh_args` as it stands, the shared
-      socket (`ControlPath=none` where its path would pass `route.SOCKET_MOST`), `ControlMaster=no` (a child is never a
-      master), `BatchMode=yes`, `ForwardX11=no`, `PermitLocalCommand=no`, `StrictHostKeyChecking=yes` against the
-      product's own known-hosts file under `HostKeyAlias`, the limits on a connection, public keys alone (the Proxmox
-      host's too, until someone asks for more), `LogLevel=ERROR`; then the hop's; then the person's `vm_ssh_options`,
-      which may not name a key the product writes or one that would hand the host key's strict check a key of its own
-      (`REFUSED_OPTIONS`: `IdentityFile2`, `ssh`'s other name for `IdentityFile`, `GlobalKnownHostsFile` and
-      `KnownHostsCommand` among them) or one that undoes what every connection holds (`UNDOING_OPTIONS`: `StdinNull`,
-      `ForkAfterAuthentication`, `SessionType`, `RemoteCommand`, `ForwardX11*`, `PermitLocalCommand`, `LocalCommand`,
-      and the libraries loaded here, `PKCS11Provider` with its other name `SmartcardDevice`, and
-      `SecurityKeyProvider`), each refused by the name it was given, and give `StrictHostKeyChecking` only as `yes`;
-      then `--`, the address and the command. No `-F`: the person's own `~/.ssh/config` is read, as today.
-    - `accept-new` is written in `ssh/` only for a first use, into a fresh scratch file under the identity and never the
-      product's file or the person's, and for the Proxmox host, into the person's own `known_hosts` as today.
-    - A machine's key is filed only by `lib/claude_vm/ssh/hostkeys.py`, whose functions take no address: `taken` reads
-      the one line a first use's `ssh` wrote into its scratch file (`fresh`) under the identity, by name or hashed, and
-      `file` adds it to the product's file by name under `store.locked`, only where no key of its type is filed for the
-      identity, and raises `Changed` where another is. Nothing replaces or removes a line, and the person's own
-      known-hosts files are never read or written. `tests/unit/test_aw_hostkeys.py` holds it, with this machine's own
-      `ssh-keygen` for a name as `ssh` reads and hashes one.
-    - A secret reaches a child only on its standard input, revealed in `_bytes` alone (`REVEALS`). Every child is
-      started through `children.start` in a group of its own, its output read under bounds for a line, the whole, a
-      deadline and a silence, and its lines where the caller bounds them, its group killed on a breach, and every
-      string it gave made plain. Ending the local `ssh` never ends the command on the machine. A 255 is `ssh`'s or the
-      command's own, and nothing tells which: `Unreachable` keeps the command's lines and never says a command did not
-      run, so a caller whose command changes something - one that must run once above all, as Tailscale's key - reads
-      the machine's state again before it tries it again, never deciding a retry from `Unreachable` alone. A held child
-      (a sign-in's, or a helper call's while `sudo` takes a password) and a forward (`ControlPath=none`) are ended by
-      their deadline, their caller or the run; a forward's deadline is required, and its far end is `sleep <deadline>`,
-      so after a run killed outright it ends by itself once its deadline has passed and the connections through it have
-      closed, nothing recorded on the machine.
-      `ansible_vars` gives layer 1's Ansible child the same options in the same order.
-    - `tests/unit/test_aw_ssh_runner.py` holds it against a stand-in `ssh` that records its words, environment and
-      standard input, with this machine's `ssh -G -F /dev/null` for the values the options hold, and scans: a child
-      named `ssh` is started in the new subpackages only from `ssh/`; no option is made of a machine's value but its
-      address; `accept-new` only in its two forms; no `ControlMaster` but `no` in the runner, whose first use rides no
-      master (`ControlPath=none`).
+  [§16.6](docs/architecture/engine.md#166-ssh--the-runner-over-openssh) first. `lib/claude_vm/ssh/runner.py` builds
+  every line from a `Target`, each value held first, its options ahead of the person's `vm_ssh_options`, which give
+  `StrictHostKeyChecking` only as `yes` and none of `REFUSED_OPTIONS` (what the product writes, `GlobalKnownHostsFile`,
+  `KnownHostsCommand`) or `UNDOING_OPTIONS`. `accept-new` only for a first use, into a scratch file, and for the
+  Proxmox host, into the person's own `known_hosts`; a key is filed only by `lib/claude_vm/ssh/hostkeys.py`, by no
+  address, replacing nothing. A secret reaches a child on standard input alone, and after a 255 (`Unreachable`) a
+  command that changes something reads the machine again first (`test_aw_ssh_runner.py`, `test_aw_hostkeys.py`).
 
 ## Architecture, and why it looks like this
 
@@ -1422,9 +1024,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   the host (`add_host`), and the delete play forces `ansible_connection: local`. GitHub's release only signs gh
   out and revokes no token: revoking the one this project's device flow made ended every GitHub CLI sign-in of
   the account. Tailscale's device is deleted from the controller by the node's `Self.ID`, held to
-  `tailscale_node_id_pattern` before it goes into the API's path (the new engine holds it in
-  `lib/claude_vm/vendors/tailscale.py` alone, `NODE_ID` by `fullmatch`, which `tests/unit/test_aw_tailscale_api.py`
-  holds equal to the role's), and only when its name is the VM's or Tailscale's
+  `tailscale_node_id_pattern` before it goes into the API's path (the new engine's `NODE_ID`, by `fullmatch`:
+  [§16.7](docs/architecture/engine.md#167-vendors--one-https-transport-tailscales-calls-verified-downloads),
+  `tests/unit/test_aw_tailscale_api.py`), and only when its name is the VM's or Tailscale's
   `-<n>` of it that is not the name another VM joins as - one of the listing's, or the other hosts' aliases'
   (`tailscale_release_other_vms`), made from its name as `tailscale_hostname` is made from this VM's - and no other VM
   may join under the VM's own (`tailscale_sibling_labels`). The pre-check honours
@@ -1502,6 +1104,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   from. The harness's runs never load the callback - their `ansible.cfg` holds only
   `inject_facts_as_vars = false`, and the JSON callback shows custom stats, which `_left_to_do` reads
   ([§7.5](docs/architecture/custom-code.md#75-callback_pluginsagent_warehousepy--the-waits-and-next-steps)).
+    - In the new engine, `lib/claude_vm/engine/report.py`'s `say` is the one way a workflow or a layer-2 step says
+      something, its `next` record straight after its `report` (`tests/unit/test_aw_report.py`,
+      [§16.4](docs/architecture/engine.md#164-engine--the-workflows-one-module-a-verb)).
 - **Discovery is a playbook, not the `community.proxmox` inventory plugin.** Decided, not open
   ([§15.1](docs/architecture/decisions.md#151-discovery-stays-a-playbook-not-the-inventory-plugin)).
 - **Fleet listings read `/cluster/resources`, never an unfiltered `proxmox_vm_info`**, which fails for every VM
@@ -1612,25 +1217,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   (`lib/claude_vm/ansible/parts.py`) do; every pytest process takes SIGTERM and SIGHUP as a Ctrl-C, once
   (`tests/unit/interrupts.py`). `test_processes.py` holds all three, under xdist too
   ([§11.1](docs/architecture/testing.md#111-unit--just-test-unit)). The new engine's run ends its own tree with
-  `proc.end_under`, which signals everything under a process and what was remembered of it, and never the process, its
-  group or the caller's: `lib/claude_vm/runs/attached.py`'s ladder, on Ctrl-C, a hangup, a kill and an error, before
-  its loop closes, since asyncio kills an `ansible-playbook` it still holds and leaves its task workers
-  ([§16.8](docs/architecture/engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run)). Then nothing
-  holds the process: the engine's blocking calls run on daemon threads of the ladder's own, the loop's default
-  executor, never joined, and where one is still in a call once the record is written the process ends by `os._exit`,
-  since Python joins a `ThreadPoolExecutor`'s threads at exit. No thread blocks a signal - each call runs with none
-  blocked, whatever its maker held - since a program a call in a thread starts (`route.py`'s `ssh`) keeps its thread's
-  mask through `exec`; while the run reads the process table and signals what it leads to, and while it takes its
-  outcome and writes its record, the handler, which runs in the run's thread whatever thread the kernel handed the
-  signal to, only takes note, and each signal noted is handled in the order it came once the outermost hold is done
-  (`_held`). No hold runs the loop: the close's loop, where a body's generators are closed (for `SETTLE` at most), runs
-  unheld, so nothing of the body's runs with the interrupts blocked. An error of the ladder's own callbacks is said in
-  a line of `aw`'s own, never dropped with the loop's reports. A call in a thread that waits is handed the run's
-  `Context.stopping` (the Proxmox client's `follow`), set at a first Ctrl-C, at an end at once (a second, a SIGTERM, a
-  SIGHUP), at the grace's end and at the close, never a phase inside a shield; a question reads on the loop
-  (`Context.typed`), never in a thread, from a terminal or a pipe alone (`/dev/null` or a file refused before it waits,
-  in `aw`'s own words), one at a time, and one Ctrl-C there ends the run. `tests/unit/test_aw_attached.py` holds it,
-  each rule by a test that fails without it.
+  `proc.end_under`, never the process, its group or the caller's, at every end and before its loop closes
+  (`lib/claude_vm/runs/attached.py`, `tests/unit/test_aw_attached.py`,
+  [§16.8](docs/architecture/engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run)).
 - **A scenario's container is still booting when Molecule's create returns.** The boot empties `/tmp`
   (`systemd-tmpfiles-setup.service`, from `D /tmp` in the image's `tmp.conf`), where a module's payload is unpacked
   and read from while it runs: on a busy CI round five scenarios failed at their first fact gathering,

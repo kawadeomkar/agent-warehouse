@@ -10,13 +10,13 @@ not a terminal, and the summary at the end. Nothing here prints; the engine does
 
 from __future__ import annotations
 
-import re
 import time
 from collections import OrderedDict
 
 from ..run import model, recipes
 from ..run.model import one_line
 from . import screen
+from .screen import MARKS, failure_lines, first_sentence, report_lines  # noqa: F401 - two, ansible/engine.py's
 
 # A bar's cells, in a stage's or a step's row.
 BAR = 20
@@ -26,26 +26,6 @@ SLOW = 1.0
 
 # How many failures a summary that lists them names before it counts the rest.
 FAILURES_LISTED = 10
-
-# How a state is marked - a VM's in a step's row and in the summary, a stage's or a step's, a check's, a run's end -
-# and in what style; running's mark is the spinner's glyph.
-MARKS = {
-    "running": ("", "c"),
-    "waiting": ("⏸", "y"),
-    "done": ("✓", "g"),
-    "skipped": ("–", "d"),
-    "failed": ("✗", "r"),
-    "unreachable": ("✗", "r"),
-    "left": ("–", "d"),
-    "to come": ("○", "d"),
-    "stopped": ("■", "y"),
-}
-
-
-def first_sentence(text):
-    """text up to the end of its first sentence, or whole when it has one."""
-    found = re.match(r"(.+?[.!?])(\s+\S)", text)
-    return found.group(1) if found else text
 
 
 def _end_mark(part):
@@ -523,7 +503,7 @@ class Run(model.Run):
         total = now - self.begun
         minutes, seconds = divmod(round(total), 60)
         took = f"{minutes} min {seconds} s" if minutes else f"{seconds} s"
-        # The clock it ended at, last: what a head too long for the width loses first (_cut_head).
+        # The clock it ended at, last: what a head too long for the width loses first (screen.cut_head).
         tail = (f" · {time.strftime('%H:%M', time.localtime(self.started_at + total))}", "")
         failed = self.failed_vms(failed_hosts)
         everyone = self._vms()
@@ -548,7 +528,7 @@ class Run(model.Run):
         limit = cols - 1
         if self.declined:
             # An answer that ended the run before it did anything: its line, said above, and the head.
-            return [screen.render(self._cut_head(self._head(now, failed_hosts), limit), color)]
+            return [screen.render(screen.cut_head(self._head(now, failed_hosts), limit), color)]
         lines = [self._head(now, failed_hosts), []]
         flat = self._flat()
         vms = self._vms()
@@ -604,7 +584,7 @@ class Run(model.Run):
                 parts.insert(0, self._vm_info())
             if not flat and key in self.said_info:
                 parts.insert(0, self.said_info[key])
-            lines += self._flow(head, parts, limit)
+            lines += screen.flow(head, parts, limit)
         # A run that failed or stopped part way says what it never reached: the steps, or the stages, still to come.
         if self.failed or failed_hosts:
             if flat:
@@ -612,7 +592,7 @@ class Run(model.Run):
             else:
                 never = [stage_.key for stage_ in self._shown() if not stage_.tasks]
             if never:
-                lines += self._flow([(" not run  ", "d")], never, limit, style="d")
+                lines += screen.flow([(" not run  ", "d")], never, limit, style="d")
         # What failed, by name, where the declaration lists them: just test's tests, which scroll away above.
         failures = [task for task in self.order if task.outcome in ("failed", "unreachable")]
         if self.recipe.failures and failures:
@@ -683,7 +663,7 @@ class Run(model.Run):
         if slowest:
             lines.append([])
             parts = [f"{task.name} {screen.duration(task.seconds(now))}" for task in slowest[:5]]
-            lines += self._flow([("SLOWEST", "h"), ("  ", "")], parts, limit)
+            lines += screen.flow([("SLOWEST", "h"), ("  ", "")], parts, limit)
         lines.append([])
         changed = sum(task.outcome == "changed" for task in self.order)
         failed = sum(task.outcome in ("failed", "unreachable", "raised") for task in self.order)
@@ -705,88 +685,12 @@ class Run(model.Run):
             totals.append(f"{screen.duration(yours)} of it yours")
         if self.log:
             totals.append(f"log {self.log}")
-        lines += self._flow([], totals, limit, style="d")
+        lines += screen.flow([], totals, limit, style="d")
         return [
-            screen.render(self._cut_head(line, limit) if index == 0 else screen.cut(line, limit), color)
+            screen.render(screen.cut_head(line, limit) if index == 0 else screen.cut(line, limit), color)
             for index, line in enumerate(lines)
         ]
 
     @staticmethod
-    def _cut_head(line, limit):
-        """The head cut from its right, the clock first, never into its outcome."""
-        if screen.width(line) > limit and re.fullmatch(r" · \d\d:\d\d", line[-1][0]):
-            line = line[:-1]
-        return screen.cut(line, limit)
-
-    @staticmethod
     def _unnamed(host, text):
         return text[len(host) + 2 :] if text.startswith(host + ": ") else text
-
-    @staticmethod
-    def _flow(head, parts, limit, style=""):
-        """head, then parts joined by " · ", wrapped under the column head ends at."""
-        lines, line = [], list(head)
-        column = screen.width(head)
-        for index, part in enumerate(parts):
-            piece = part if index == 0 or screen.width(line) == column else " · " + part
-            if screen.width(line) + len(piece) > limit and screen.width(line) > column:
-                lines.append(line)
-                line = [(" " * column, ""), (part, style)]
-            else:
-                line.append((piece, style))
-        if line and not parts:
-            line[-1] = (line[-1][0].rstrip(), line[-1][1])
-        lines.append(line)
-        return lines
-
-
-# --- what the run says above the region, drawn from the model's records ----------------------------------------
-def wrapped(head, lines, width, color, style="", styles=None):
-    """head, then lines wrapped under where head ends, whole - never cut: (coloured, plain) pairs to print. A line
-    keeps its own indent, its wrapped pieces under where its words start; styles, one for each line, colour each its
-    own way."""
-    column = screen.width(head)
-    room = max(20, width - 1 - column)
-    out = []
-    first = True
-    for number, line in enumerate(lines):
-        style_ = (styles[number] if styles else "") or style
-        indent = len(line) - len(line.lstrip(" "))
-        pieces = screen.fill(line.strip(), max(10, room - indent)) if line.strip() else [""]
-        for piece in pieces:
-            lead = head if first else [(" " * column, "")]
-            first = False
-            runs = [*lead, (" " * indent + piece, style_)]
-            out.append((screen.render(runs, color), screen.render(runs, False)))
-    return out
-
-
-def report_lines(report, width, color):
-    """A report, whole: under its VM, which leads unless the report names it itself."""
-    who = [(report["host"], "b"), ("  ", "")] if report["named"] else []
-    return wrapped([("  ", ""), *who], report["lines"], width, color, styles=report["styles"])
-
-
-def _block(where, who, task, took, how, said, width, color):
-    out = [("", "")]
-    out += wrapped([("✗ ", "r")], [f"{where} · {who}: {task}{took}{how}"], width, color, "r")
-    out += wrapped([("    ", "")], [line for line in said if line.strip()][: model.FAILURE_LINES * 2], width, color)
-    return out
-
-
-def failure_lines(failure, width, color):
-    """A failure, for good above the region: the step, the VM, the task, what it said, and where the log has it; a
-    raise of earlier failures, each cause so, then its own words."""
-    if "causes" in failure:
-        out = []
-        for cause in failure["causes"]:
-            out += _block(cause["where"], cause["who"], cause["name"], "", "", cause["said"], width, color)
-        if failure["own"]:
-            out += wrapped([("    ", "")], failure["own"], width, color)
-    else:
-        took = f" ({screen.duration(failure['seconds'])})" if failure["seconds"] is not None else ""
-        how = "" if failure["how"] == "failed" else f" · {failure['how']}"
-        out = _block(failure["where"], failure["who"], failure["task"], took, how, failure["said"], width, color)
-    if failure["log"]:
-        out += wrapped([("    ", "")], [f"the whole output: {failure['log']}"], width, color, "d")
-    return [*out, ("", "")]

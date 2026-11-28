@@ -113,7 +113,16 @@ again at its teardown, a `PATH` that finds this machine's own programs ahead of 
 test's own programs, a stand-in `ssh` say, goes first in its own process by `engine_guard.first_on_path(dir)`, held to
 the test's own directory as a run's `first_on_path=` is. pytest makes a fixture wider than one test before the guard
 holds and ends it after the guard lets go, so every such fixture of an engine file is named, with why, in
-`test_aw_guards.py`'s `WIDER_THAN_A_TEST`.
+`test_aw_guards.py`'s `WIDER_THAN_A_TEST`. Another autouse fixture of `conftest.py`'s, `drainwatch`, fails any test,
+of either suite, that makes a draining change of a pseudo-terminal's settings (`TCSADRAIN`, `TCSAFLUSH`) in its own
+process while the master it opened holds output nothing reads: macOS waits there until the master has read it all,
+where Linux returns at once, so such a test would hang on macOS alone. It looks on Linux only: on macOS `FIONREAD` on
+a master counts what its slave has not read, never the slave's output. Each master the test opens is watched by its
+terminal's name, and a change that still finds output unread after two seconds, which another thread reading it
+would have taken, is the failure. What macOS writes there and Linux does not is made too: an end of input (Ctrl-D) typed
+at the master while the terminal is canonical and echoes is echoed as `^D` on macOS alone, so on Linux the watch writes
+that echo at the slave, as macOS makes it: decided by the mode the moment it is typed, and written before it. It then gives back the hold of the terminal `tui/live_region.py` keeps for the
+process, which a region a test started and never finished would leave to the next test.
 
 A test reaches `tools/aw` through the kit alone. `run_aw` runs the program under `python -I` in an environment built
 from `harness.PASSED_ON`'s names and the home's, never the test's whole one, with the same stand-ins first on `PATH`,
@@ -123,7 +132,9 @@ sets `PATH`, `HOME`, `BROWSER`, `AGENT_WAREHOUSE_HOME` or an `XDG_` variable, wh
 of the test's own, a stand-in `ssh` say, goes first on `PATH` by `first_on_path=(dir, ...)`, a folder of the test's own
 directory, ahead of the stand-ins, which stay. An `aw` command a test file names, in a NEXT STEPS line say, is held to
 the one table of verbs and options by `test_commands.py`, so a made-up option fails the suite. `aw_at_a_terminal` runs
-it at a pseudo-terminal of its own; `run_launcher` runs the launcher at the checkout's top, `aw`, by its path in the
+it at a pseudo-terminal of its own, and with `layer1=Layer1(play, connections)` with its system play swapped for a play
+of the test's own and each machine reached over F3's test-only local connection, patched in by the kit's own start
+(`SWAPPED`) before the program runs as itself, so that a Ctrl-C reaches layer 1's child through the run's own ladder; `run_launcher` runs the launcher at the checkout's top, `aw`, by its path in the
 same environment: this checkout's with the suite's own Python as `PYTHON` and never asked to install, or a copy of it in
 a checkout the test made; `imports_of` lists the modules a run loaded (`-X importtime`), or with `module=` what
 importing that one module of the checkout's `lib/` loaded, and `searched_for` is the canary search for a canned secret
@@ -253,7 +264,9 @@ pytest over `tests/unit/`, file by file:
 - **What every live output draws with** (`test_live_region.py`, `test_screen.py`, `test_vt.py`): the
   region against a stand-in `Display` - what is printed above it, a frame cut to the screen, a pause and a
   vars prompt each with the screen to themselves, the route, a screen too small, the echo off on a
-  pseudo-terminal of the test's own - whose `display`, `prompt_until`, `do_var_prompt` and lock it holds to
+  pseudo-terminal of the test's own, and from an interactive shell (`harness._in_a_shell`, a bash at a
+  pseudo-terminal with job control, its history in the test's folder) a Ctrl-Z and a `Ctrl-\` leaving nothing
+  typed on the shell's line or in its history - whose `display`, `prompt_until`, `do_var_prompt` and lock it holds to
   ansible-core's; `Output`, the colour and the words printed to the screen and the log; the lines' cut,
   alignment, palette, bars and durations, none under an hour wider than five characters; and `vt.py`, the small
   terminal the live tests read back through, reading status's and deploy's streams the same cut anywhere. Every
@@ -1102,6 +1115,13 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
   success, as Proxmox counts it, its change made: its exit status `WARNINGS: <n>`, its log each as `WARN:` and then
   `TASK WARNINGS: <n>` (`TASK_WARNINGS_STATUS`, `TASK_WARN`, `TASK_WARNINGS`, from Proxmox's source, for experiment 6 to
   confirm). Today's own tests of the fake and the scenarios that run it hold it for today's product.
+- A call whose answer is outstanding, as a slow host's is: `PUT /api2/json/fake/hold?suffix=&methods=&param=` has the
+  next request of those methods (`PUT` by default) to a path ending with `suffix`, carrying `param` where one is given,
+  done as any other and its answer held back: the fake writes `held` in its state directory once the request is done,
+  its method and path in it, and answers when the test makes `release` there (60 s at most), removing both. Holds armed
+  one after another are taken in order, each looked for once the one before has held its request, so that a test lets
+  one call through and holds the read after it. Since the fake answers one request at a time, nothing else is answered
+  meanwhile; a run stopped while the answer is held is what `tests/unit/test_aw_create.py` shows with it.
 - What `just status` reads is shaped by that version, as Proxmox VE's own: from 9 the listing carries
   `memhost` and `rrddata` the `pressure*` fields, and a day is 1440 points; on 8 it is 70. A clone's config
   carries the template's meta `ctime`, as a real one does; its disk's `ctime` in the storage's content is when it
