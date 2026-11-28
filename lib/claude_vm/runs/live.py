@@ -24,10 +24,13 @@ what it keeps of it, and the listeners after this one still hear it (review C8.m
 Nothing here writes an escape sequence or reads the terminal itself: the region, the palette and the title are tui/'s,
 the terminal's echo the region's (tests/unit/test_aw_live.py holds every module of runs/ to that by a scan). The model's
 machines are the job's own (`job.json`'s `machines`), by identity, the key every event of a machine names, each with the
-name a person chose where the caller gives it (`names`): `job.json` keeps identities alone, and the view says a machine
-by its name, which an event's `name` also tells the model. A machine the run is making, which has no identity yet, is
-keyed by its stand-in, drawn by its name from its first event (or from `job.json`'s `making`, where the view is made
-after it), and its join to its identity changes nothing drawn: one row, before and after. A Live is made in the run's
+name a person chose where the caller gives it (`names`, and for a VM the run made and joined, `job.json`'s `names`):
+the view says a machine by its name, which an event's `name` also tells the model, in the frame, in the line of an
+event it refused and in each line under -v alike, never by its key, a stand-in or an identity, where a name is known
+(the model's for the key, a join's by the stand-in it joins, else the event's own), nor says a join's text, the
+stand-in it joins. A machine the run is making, which has no identity yet, is keyed by its stand-in, drawn by its name
+from its first event (or from `job.json`'s `making`, where the view is made after it), and its join to its identity
+changes nothing drawn: one row, before and after. A Live is made in the run's
 thread, which alone may take SIGWINCH for the region, and once a job: a second view of it is refused (RuntimeError), the
 first keeping it, and the job hands the one view every event from then on.
 
@@ -199,14 +202,21 @@ def _color_on() -> bool:
     return not os.environ.get("NO_COLOR")
 
 
-def streamed(event: jobs.Event) -> str:
-    """An event as one line, for a run with any -v: its kind and machine, its text, and what it carries, each value on
-    the same line (text.one_line, never cut)."""
-    head = event.kind if event.machine is None else f"{event.kind} {event.machine}"
-    said = [f"{head}: {one_line(event.text, None)}" if event.text else head]
-    for name, value in event.data.items():
+def _text(event: jobs.Event) -> str:
+    """What is said of an event's text: none of a join's, which is a key (the stand-in it joins), never a person's."""
+    return "" if event.kind == "join" else event.text
+
+
+def streamed(event: jobs.Event, name: str | None = None) -> str:
+    """An event as one line, for a run with any -v: its kind and its machine, said by name (the view gives the name it
+    keeps for the event's key; else the key), its text, and what it carries, each value on the same line
+    (text.one_line, never cut)."""
+    head = event.kind if event.machine is None else f"{event.kind} {name or event.machine}"
+    text = _text(event)
+    said = [f"{head}: {one_line(text, None)}" if text else head]
+    for field, value in event.data.items():
         shown = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
-        said.append(f"{name}={one_line(shown, None)}")
+        said.append(f"{field}={one_line(shown, None)}")
     return " · ".join(said)
 
 
@@ -256,6 +266,8 @@ class Live:
         self._clock = clock
         self._cancelled = cancelled
         named = dict(names or {})
+        # A machine made by an earlier part of the run, joined, by its identity with its name (job.json's `names`).
+        named = {**{str(key): str(name) for key, name in dict(record.get("names") or {}).items()}, **named}
         given = {str(machine): named.get(str(machine)) for machine in machines}
         # A machine the run is making with no identity yet, by its stand-in, with its name (job.json's `making`).
         given.update({str(stand): str(name) for stand, name in dict(making).items()})
@@ -336,6 +348,19 @@ class Live:
             self._print([(coloured, plain)], stderr=stderr)
 
     # --- each event ---------------------------------------------------------------------------------------------
+    def _name(self, event: jobs.Event) -> str | None:
+        """The name the view says event's machine by, as the frame says it, read before the model is fed it: the
+        model's for its key (a join's, by the stand-in it joins, whose name the identity takes), else the `name` the
+        event carries (a machine's first event), else the key where no name is known; None for the whole run."""
+        machine = event.machine
+        if machine is None:
+            return None
+        for key in (machine, event.text) if event.kind == "join" else (machine,):
+            if key in self.run.names:
+                return self.run.names[key]
+        name = event.data.get("name")
+        return name if isinstance(name, str) and name else machine
+
     def _heard(self, event: jobs.Event) -> None:
         """One event of the run, as the job hands it: fed to the model, and said as this view says a run, whole: a
         signal that comes meanwhile is delivered once it is said (live_region.uninterrupted), so that no line the view
@@ -345,13 +370,15 @@ class Live:
         with live_region.uninterrupted(), self.display._lock:
             now = self._clock()
             self._look(now)
+            name = self._name(event)
             if self.mode == STREAM:
-                self._print([(streamed(event), streamed(event))])
+                line = streamed(event, name)
+                self._print([(line, line)])
             waited = self.run.waiting_for_you()
             try:
                 self.run.feed(event, now)
             except (ValueError, TypeError) as error:
-                said = f"{event.kind} {event.machine or 'the run'}: {event.text}"
+                said = f"{event.kind} {name or 'the run'}: {_text(event)}"
                 refused = REFUSED.format(event=one_line(said, None), error=one_line(str(error), None))
                 self._print([(refused, refused)], stderr=True)
             if self.mode != STREAM:

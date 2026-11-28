@@ -18,15 +18,16 @@
   filed is refused under yes and filed under accept-new, another filed is refused, each in ssh's words; appends its
   words and the names of its environment's variables to that machine's `calls.log`; runs the command after the address
   with /bin/sh -c in the machine's home, with no terminal, that HOME, its bin/ first on PATH, the test's own failing
-  stand-ins next and the system's folders last, and nothing else of the test's environment; and passes its standard
-  input through untouched. -O check and -O stop answer as a live master would; a forward (-L) is recorded and never
-  opened. A ProxyCommand other than none, the first given, is run as ssh runs one before the key is checked, its
-  %-tokens expanded, and the connection goes on only where it answers as an SSH server first does. ssh -G is answered by
-  this computer's own ssh, by its path, given the test's own configuration (-F with HOME's .ssh/config, or /dev/null,
-  where the line gives no -F), which dials nothing and reads nothing of the developer's - after the seconds a file
-  slow-G beside it holds, or ended by a signal where a file killed-G is there, as a person's Match exec may make it; it
-  never runs this computer's ssh otherwise, never reads or writes this computer's own ~/.ssh, and refuses a command that
-  names a sudo by its path, which on a lane would be this computer's own and run as root on the runner.
+  stand-ins next and the system's folders last, and nothing else of the test's environment, the home's `.bashrc` read
+  first where it has one, as bash run by sshd reads it; and passes its standard input through untouched. -O check and
+  -O stop answer as a live master would; a forward (-L) is recorded and never opened. A ProxyCommand other than none,
+  the first given, is run as ssh runs one before the key is checked, its %-tokens expanded, and the connection goes on
+  only where it answers as an SSH server first does. ssh -G is answered by this computer's own ssh, by its path, given
+  the test's own configuration (-F with HOME's .ssh/config, or /dev/null, where the line gives no -F), which dials
+  nothing and reads nothing of the developer's - after the seconds a file slow-G beside it holds, or ended by a signal
+  where a file killed-G is there, as a person's Match exec may make it; it never runs this computer's ssh otherwise,
+  never reads or writes this computer's own ~/.ssh, and refuses a command that names a sudo by its path, which on a lane
+  would be this computer's own and run as root on the runner.
 - `hop(root)` makes a stand-in Proxmox host the hop to the machines (engine/routes.py), in the modes `hop_modes()` sets:
   its -O check and -O stop are answered from a file at the socket's path (live, or stale for a socket nothing listens
   at), its master's open writes that file or is refused as a login, and a forward through it (-W) meets the host
@@ -668,6 +669,10 @@ if by_path or default_path:
 log(calls, "forward, never opened" if valued.get("L") else "ran")
 env = {"HOME": machine["home"], "PATH": machine["path"], "STAND_IN": machine["home"]}
 stdin = subprocess.DEVNULL if "n" in flags else None
+# The home's .bashrc read first, where it has one, as Debian's and Ubuntu's bash reads it for a command sshd runs: what
+# it prints comes before anything of the command's.
+if os.path.isfile(os.path.join(machine["home"], ".bashrc")):
+    line = '. "$HOME/.bashrc"\n' + line
 process = subprocess.Popen(["/bin/sh", "-c", line], cwd=machine["home"], env=env, stdin=stdin, preexec_fn=no_terminal)
 status = process.wait()
 # A command ended by a signal has no status ssh can pass on: 255, as ssh exits.

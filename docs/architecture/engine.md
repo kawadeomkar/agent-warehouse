@@ -514,6 +514,32 @@ vault, `settings --all` and `status`. What a run loaded is `sys.modules` at its 
 own in the virtualenv it gives the launcher as `PYTHON`, since `-X importtime` lists no module the dispatch loads by
 `importlib`.
 
+`aw status` runs today's status engine, `lib/claude_vm/status/engine.py`, in the command's own process, with settings
+worked out from the fleet's files in place of the ones `status/settings.py` asks Ansible for or keeps.
+`cli/status_inputs.py`'s `load` gives the engine the dict `settings.load` gives it, key for key: the registry's
+defaults under the fleet's `settings.yml`, the host's own file and `client.yml`, with the run's `--set` values on top
+of them all, and the host's `host.yml`, its anchor and the vault's secrets. What `--set` gives is typed by
+`fleet/overrides.py`'s `run_values` before any file is read, so a name that is no setting's, a secret's row and a value
+of the wrong type are each refused first, never said back, and once the vault is open a value that is one of its
+secrets is refused too. The host is the one `fleet/hosts.py`'s `reach` picks; its token's secret is read from the vault
+at each run and goes into the API's one header, and its certificate is always checked: against the anchor the host
+keeps, else this computer's certificates. That header is the one the new engine writes outside the Proxmox client,
+for today's engine's reader, until G16 moves status's reads to the client. Status's own ssh options open no shared
+connection, where today's did: only the SSH runner's `ensure` opens a master, so a probe rides one that is open. Nothing
+of 1.x's is named, and nothing is kept but apt's answers for a VM, in the host's folder of the fleet's state
+(`fleet/paths.py`'s `status_cache`). `cli/status.py`'s `main` is the handler:
+a refusal is said before the engine starts, and the run then ends as a read that failed (3). The engine's `run` takes
+the loader as a parameter, today's `settings.load` unless given, so `tools/status` passes nothing new; and every wait
+of its main thread on the API's answers and on the probes takes slices, as `_off_main`'s does, so a Ctrl-C lands within
+one even where a signal wakes no wait of a lock (macOS). `status_inputs` imports nothing of today's status, and
+`cli/status.py` takes one name of it, `run`. Until card G16, the table names no handler for `status`, the lines a
+report says name `just`, and one host is read: reading every host at once, a child each as `tools/status` does, needs
+the word that starts the child. `tests/unit/test_aw_status_inputs.py` holds `load` equal to today's `settings.load`,
+difference by difference with why, for E4's fleet folder beside the example files and with a setting of each file's
+and each secret set, and the refusals; `tests/unit/test_aw_status_hosts.py` holds a fleet of two hosts, each read with
+its own API, token and settings; `tests/unit/test_aw_status_live.py` runs `aw status --json` against the fake beside
+`tools/status --json`, and a Ctrl-C while `read_fleet` waits on a probe and on the API's answers.
+
 ## 16.4 `engine/` — the workflows, one module a verb
 
 `lib/claude_vm/engine/` is where the workflows go, one module a verb. Each says what a run of `deploy`, `destroy`,
@@ -651,6 +677,26 @@ renamed or given another UUID; an image outside the Debian family, a custom imag
 template of the person's own build nothing; and the image tool's packages are recorded only where this run installed
 them: a package held is left as it is, one dpkg says is not installed is installed, and one half configured or whose
 read failed stops the build before apt runs.
+
+`ensure(ctx, host, settings, terminal=)` is `deploy`'s first link and the whole of `deploy --only template`, as the run's
+`template` stage. It compares first. A template a VM may be cloned from as it is (`usable`: the same, a difference
+`proxmox_template_rebuild: false` keeps, a person's own lacking nothing) is said and left; this engine's, where its
+configuration has no cloud-init drive, which the judgement does not read (`pve/template.py`'s `cloud_init`, the check
+`create.py` makes before a clone), is refused with the way on rather than called the same. A refused template, a cut
+build's VM at the ID among them, is refused with the judgement's sentence, never built over or retried. Otherwise it
+asks for a standing way to build: root SSH that answers in batch mode, one connection that runs nothing but `true`.
+Where it answers, `build` runs, at a terminal or with nobody there. Where it does not, nothing is created: at a terminal
+(`runs/ask.py`'s `terminal`, decided before the run draws) the sentence says what would give one (the account's key on
+the host, the agent, `ssh_identity_file`); with no terminal, `Compared.unbuilt`'s: what the template has and what is
+wanted, that this run cannot build it and why, and the `deploy --only template` line to run at a terminal. Every refusal
+of its own is also the run's NEXT STEPS line (matter `template`). It returns only a usable template, or raises, so no
+run clones from a template that is to be built and was not. A refusal exits 1; a build begun that did not end well
+(`Failed`) exits 2. `tests/unit/test_aw_engine_template.py` holds it through `aw deploy --only template` against the fake
+with standard input `/dev/null` and a refusing `ssh`: missing, or differing, with root SSH refused, the sentence, exit 1,
+no write, one connection in batch mode, NEXT STEPS and the fleet's lock exclusive; the same template and a kept
+difference said and left, root SSH never asked; a template with no drive refused; a cut build's VM handed on; another
+stage still refused; and in process, on the stand-in host, the build run where root SSH answers, and at a terminal with
+it refused, what would give one, nothing run on the host.
 
 **What `init` makes on a host: `access.py`.** One list names every object a first `init` makes on a Proxmox host with
 its administrator's authority, and one check tells what is there of each; the script that makes them is their one
@@ -989,9 +1035,10 @@ any name (an alias, an attribute chain, a bound name, `partial`, `type(target)(.
 see is the runner's to refuse.
 
 **A VM made: `create.py`, and `deploy`'s handler: `deploy.py`.** `aw deploy --only provision` makes or resumes each VM
-named, the default VM where none is (`vm_default_name`), side by side, under each VM's lock (C7's `machines`); every
-other stage of `deploy`, and `--check`, `--adopt`, `--take-over` and `--remove-key`, is refused naming the card that
-builds it. Before anything is created, the run reads the fleet (`fleet.requested`, a changing read, so a VM it may not
+named, the default VM where none is (`vm_default_name`), side by side, under each VM's lock (C7's `machines`); `aw
+deploy --only template` is `template.ensure` and nothing after it (above), under the fleet's lock held exclusively, since
+it names no machine; every other stage of `deploy`, and `--check`, `--adopt`, `--take-over` and `--remove-key`, is
+refused naming the card that builds it. Before anything is created, the run reads the fleet (`fleet.requested`, a changing read, so a VM it may not
 change refuses the run), settles the route (`routes.settle`, whose hop that cannot be used stops the run), refuses a VM
 with no key in `vm_ssh_public_keys` and no console password in the vault (`vm_password`), and compares the base template
 (`template.compare`): only one it may clone from is cloned from, any other said with why, and none with no cloud-init
@@ -1642,10 +1689,11 @@ through `children.start` as an `ssh` child of the job's run, in a process group 
 marker, entered in the run's registry; `started` is handed asyncio's process object, never a bare pid. Its standard
 input is written, drained and closed: bytes, text, a `Secret` or a list of them, a `Secret` revealed in `_bytes` alone,
 so a password or a code is never in a word, a variable or a file. Its standard output is read a line at a time under
-`Limits`: a bound for one line, one for the whole, a deadline, and a time to say anything at all; its standard error is
-kept to a fixed size, and read to its end so the child never blocks on it. On a breach the child's group is killed, its
-`ProxyCommand` with it. The result is `Done(status, lines, said)`, or `Cut` (a line past its bound, more than the whole,
-a line with no end), `Silent`, `TimedOut` or `Unreachable(said, lines)` (status 255), each line and `said` made
+`Limits`: a bound for one line, one for the whole, a deadline, and a time to say anything at all, and, where the caller
+sets one (`lines`, none by default), a bound on its lines; its standard error is kept to a fixed size, and read to its
+end so the child never blocks on it. On a breach the child's group is killed, its `ProxyCommand` with it. The result is
+`Done(status, lines, said)`, or `Cut` (a line past its bound, more than the whole, more lines than its bound, a line
+with no end), `Silent`, `TimedOut` or `Unreachable(said, lines)` (status 255), each line and `said` made
 plain (`text.plain_text`). The default limits are today's, `status/reach.py`'s, held equal by the test: a line of 16
 MiB, 45 s, 20 s to say anything, 64 KiB of standard error, and four of the longest lines in all. A call cancelled by its
 run ends its child's group too.
@@ -1666,9 +1714,11 @@ run ends its child's group too.
   nor writes goes on after `TimedOut`, `Cut`, `Silent` and `end()`, as under today's Ansible. A caller whose command
   changes something bounds it on the machine (`timeout`) or reads its state again.
 
-**A held child.** The sign-ins hold their own `ssh` children. `hold(job, target, command, env, started, deadline)`
-starts the same command line the same way and returns a `Held`: `send(line)` writes one line to the child's open
-standard input, a `Secret` revealed only there; `lines()` yields what the child prints while it runs, a line at a time
+**A held child.** The sign-ins hold their own `ssh` children, and so does a helper call where `sudo` is handed a
+password (§16.10). `hold(job, target, command, env, started, deadline, limits)` starts the same command line the same
+way and returns a `Held`: `send(line)` writes one line to the child's open standard input, a `Secret` revealed only
+there; `write(data)` writes bytes as they are, never a `Secret` or text, what follows a line once the child has
+answered it; `lines()` yields what the child prints while it runs, a line at a time
 under the same bounds; `close()` closes its standard input; `end()` ends its group, `SIGTERM` and then `SIGKILL`;
 `result()` reads what is left and says how it ended. Its deadline is the caller's; the run's end ends every held child
 through the registry of `children.py`. `forward(job, target, specs, env, started, deadline=)` is a held `ssh` with
@@ -2142,6 +2192,7 @@ fleet's folders (`fleet/files.py`).
 | `starter` | What started it: `{"kind": "terminal"}`, `{"kind": "detach"}`, or `{"kind": "mcp", "server": <id>}`, that server's own ID |
 | `host`, `machines` | The host the run is on, and the machines it names, by identity |
 | `making` | The machines it is making that have no identity yet, each by its stand-in key with the name a person chose, until its join |
+| `names` | The name of each machine joined from `making`, by its identity, `{identity: name}`: the join keeps it there |
 | `locks` | The names of the locks it holds |
 | `attached` | Whether it runs at a terminal |
 | `pid`, `started` | Its process and when it started: information for a person and for a machine's `job` line, never read to decide a state |
@@ -2200,9 +2251,10 @@ taken for either. Its first event carries the name a person chose (`name=`), as 
 record keeps it in `making`, the stand-in with that name, so that a run killed before the clone, read by `logs` or an
 agent, says what it was making, and `machines` keeps identities alone (`create` refuses a stand-in there). One `join`
 event, its machine the identity and its text the stand-in, joins the two: the identity joins `machines`, the stand-in
-leaves `making`, and what the record keeps under the stand-in moves to the identity, in its place: its outcome in
-`machine_outcomes`, its lines of `next`, and the run's `waiting` where it is the machine's. From then on the stand-in
-names nothing. Refused before anything is written or heard: a stand-in's first event with no name; an event that names a
+leaves `making` and its name is kept under the identity in `names`, so that a view made after the join, `logs` or an
+agent still says the VM by its name, and what the record keeps under the stand-in moves to the identity, in its place:
+its outcome in `machine_outcomes`, its lines of `next` where they stood among the other machines', and the run's
+`waiting` where it is the machine's, a section's wait among them. From then on the stand-in names nothing. Refused before anything is written or heard: a stand-in's first event with no name; an event that names a
 stand-in joined already; a join with no identity, or a stand-in for one; a join of a key that is no stand-in, of a
 stand-in joined already, or of one the run is not making; and a join to an identity the run has named before, given or
 in an event, which would make two machines one.
@@ -2618,8 +2670,11 @@ already or of one the run does not know, a join to an identity the run keeps any
 row), and anything after the run's end are refused before anything is kept, the order of the events counted included.
 `tests/unit/test_aw_run_join.py` holds the stand-in and its join: a run that makes a VM, its events under the stand-in
 from the first, the join, then the identity's, read as one row with its parts, its times and one outcome, equal at each
-event to the same run keyed by the identity from its first event; each thing the join moves, each refusal leaving the
-model as it was, the record across the join, and the live view through it, nothing drawn twice.
+event to the same run keyed by the identity from its first event; each thing the join moves, in its place among another
+machine's, a join to an identity kept in any one of them refused, each refusal leaving the model as it was; the record
+across the join, at each event the record of the run keyed by the identity, the VM's name kept in `names`, a section's
+wait moved and a stand-in's nameless first wait refused; and the live view through it, nothing drawn twice, its refusal
+line and its `-v` lines saying the VM by its name.
 
 What a drawer reads: `state(stage, step)` (to come, running, waiting, done, skipped, failed, stopped), `mark(machine,
 stage, step)` and `marks(stage, step)` (each machine's, none for a stage that is not each machine's), `running()` and
@@ -2699,12 +2754,16 @@ the `#` block every run ends with (`text.banner`, in the palette's yellow); with
 that begins rings the bell, and so does the end. A person's stop (the run's `Context.cancelled`, which the first Ctrl-C
 sets and no event carries) reaches the model at the next event or frame (`Run.cancel`), so the footer says the run is
 stopping. An event the model refuses (an undeclared step, a malformed end) is said in one line on standard error and
-left out: the run goes on, and every listener after the view still hears it. Nothing in `runs/` writes an escape
+left out: the run goes on, and every listener after the view still hears it. That line and each line under `-v` say a
+machine by its name, as the frame does (the model's name for its key, a join's by the stand-in it joins, else the
+`name` the event carries), never by its key, a stand-in or an identity, but where no name is known; a join's text, the
+stand-in, is never said. Nothing in `runs/` writes an escape
 sequence or reads the terminal itself: the region, the palette, the title and the echo are `tui/`'s. The model's
 machines are the job's own, `job.json`'s `machines`, by identity, the key every event of a machine names, each with the
 name a person chose where the caller gives it (`names`): the record keeps identities alone, and the view says a machine
 by its name. A row is keyed by the machine's identity, or, for a VM the run is making, by its stand-in key until its
-join: drawn by its name from its first event (from `job.json`'s `making` where the view is made after that event), and
+join: drawn by its name from its first event (from `job.json`'s `making` where the view is made after that event, and
+from its `names` where it is made after the join), and
 the join changes nothing drawn, one row before and after, the identity's events going on in it. A job has one view: a
 second is refused (`RuntimeError`), the first keeping it. What the view says in the run's thread, each event's lines and
 standard error's lines above the region, is said whole, a Ctrl-C, a SIGTERM and a SIGHUP held off meanwhile and each
@@ -3204,69 +3263,100 @@ the child's own configuration names it.
 **The helper, sent on standard input.** The helper is one Python program for a machine's own `python3`, held to Python
 3.10 and to the standard library, and never installed: each use sends it whole on the machine's standard input.
 `lib/claude_vm/guest/bundle.py`'s `script(entry, asked)` packs its sources into one text, each defined in memory under
-the module name it is imported by, and ends with a call of the dispatcher, `lib/claude_vm/guest/helper/main.py`
-(`helper <verb> [words]`), handed the verb, its words and what it is asked, as JSON inside the text and never on a
-command line. The text has a marked end (`frame`): a newline, then a line of its own, `MARK` and the script's length in
-bytes, then that many bytes. The command line holds the bootstrap alone (`command()`: `/usr/bin/python3 -I -B -c` and
-`BOOTSTRAP`), which first prints `STARTED`, a line of its own, so that its caller knows the machine's Python ran (and
-that `sudo` let it); then reads standard input a line at a time up to the mark's line, reads exactly the length it says,
-and executes that. What comes before the mark's line, a password's line that `sudo -S` was handed and left there, is
-read and dropped, never executed or said back: the mark's line is the whole of a line, and such a line holds a newline
-only at its end. What comes after the script is the verb's own standard input, which it reads on from where the
-bootstrap stopped (`sys.stdin.buffer`), never compiled with the script; no whole script is one line on standard error
-and exit status 2, nothing executed. Its one verb is `probe`, today's status probe unchanged, with its fixed list of
-reads; a verb it does not know, a word too many or an ask that is not a JSON object is one line on standard error and
-exit status 2, nothing run. The sources are read by `sources()` alone, the one function of `lib/claude_vm/` outside
-`status/` that names `playbooks/module_utils/`: the probe's three files stay there until the cutover, since today's
-Ansible modules import them as `module_utils`, and `sources()` finds them from the package's own place, two folders
-below the checkout's top, never the working directory. A release is a checkout of a signed tag, so it holds the same
-files; the cutover moves them into `guest/helper/` (card K28), and `sources()` then reads the package's own files alone.
-The script defines `ansible` and `ansible.module_utils` as empty modules, each source put in `sys.modules` before the
-one that imports it, so that the probe's own imports resolve on a machine with no Ansible. Today's `just status` bundles
-the same three files with `lib/claude_vm/status/reach.py`'s `probe_script`, which this module neither changes nor
-imports, since today's product never imports the new engine: the two print the same document for the same ask. The floor
-is held by a run, not a parser's flag: `tests/unit/test_aw_guest_helper.py` runs the script on a Python 3.10
-(`python:3.10-slim` under docker where it is pulled, as on a lane, or a `python3.10` of the computer's, the test skipped
-where neither is), which compiles every carried file with its own parser, finds each import in its own standard library,
-runs the probe and hands a verb what follows the script; and ruff's rules that would write past 3.10 (UP017, B905) are
-kept off the helper's folder, which `lib/**`'s `py313` would otherwise reach. The rule `just status` rests on is held
-over the whole bundle at run time: the script started by a test-only bootstrap that first sets an audit hook (PEP 578),
-every program its Python starts one of `ALLOWED`'s reads or `git_checkouts.py`'s, every file opened without a flag that
-writes, no file-system write; beside it, statically, each carried file starts a program only in the functions named with
-what each starts, those the probe never reaches among them (`process_argv`, `running_claude`, `overwrites`). The same
-file holds the script against today's stand-in VMs and through the SSH runner to a stand-in machine, with the sources'
-syntax and imports and the scan of what names the folder.
+the module name it is imported by, and ends with a call of the dispatcher, `lib/claude_vm/guest/helper/main.py` (`helper
+<verb> [words]`), handed the verb, its words and what it is asked, as JSON inside the text and never on a command line.
+The text has a marked end (`frame`): a newline, then a line of its own, `MARK` and the script's length in bytes, then
+that many bytes. The command line holds the bootstrap alone (`command()`: `/usr/bin/python3 -I -B -c` and `BOOTSTRAP`),
+which first prints `STARTED`, a line of its own, so that its caller knows the machine's Python ran (and that `sudo` let
+it); then reads standard input a line at a time up to the mark's line, reads exactly the length it says, and executes
+that. What comes before the mark's line, a password's line that `sudo -S` was handed and left there, is read and
+dropped, never executed or said back: the mark's line is the whole of a line, and such a line holds a newline only at
+its end. What comes after the script is the verb's own standard input, which it reads on from where the bootstrap
+stopped (`sys.stdin.buffer`), never compiled with the script; no whole script is one line on standard error and exit
+status 2, nothing executed. Its one verb is `probe`, today's status probe unchanged, with its fixed list of reads; a
+verb it does not know, a word too many or an ask that is not a JSON object is one line on standard error and exit status
+2, nothing run. The sources are read by `sources()` alone, the one function of `lib/claude_vm/` outside `status/` that
+names `playbooks/module_utils/`: the probe's three files stay there until the cutover, since today's Ansible modules
+import them as `module_utils`, and `sources()` finds them from the package's own place, two folders below the checkout's
+top, never the working directory. A release is a checkout of a signed tag, so it holds the same files; the cutover moves
+them into `guest/helper/` (card K28), and `sources()` then reads the package's own files alone. The script defines
+`ansible` and `ansible.module_utils` as empty modules, each source put in `sys.modules` before the one that imports it,
+so that the probe's own imports resolve on a machine with no Ansible. Today's `just status` bundles the same three files
+with `lib/claude_vm/status/reach.py`'s `probe_script`, which this module neither changes nor imports, since today's
+product never imports the new engine: the two print the same document for the same ask. The floor is held by a run, not
+a parser's flag: `tests/unit/test_aw_guest_helper.py` runs the script on a Python 3.10 (`python:3.10-slim` under docker
+where it is pulled, as on a lane, or a `python3.10` of the computer's, the test skipped where neither is), which
+compiles every carried file with its own parser, finds each import in its own standard library, runs the probe and hands
+a verb what follows the script; and ruff's rules that would write past 3.10 (UP017, B905) are kept off the helper's
+folder, which `lib/**`'s `py313` would otherwise reach. The rule `just status` rests on is held over the whole bundle at
+run time: the script started by a test-only bootstrap that first sets an audit hook (PEP 578), every program its Python
+starts one of `ALLOWED`'s reads or `git_checkouts.py`'s, every file opened without a flag that writes, no file-system
+write, no socket made, connected or looked up through, no signal sent and no library loaded (`ctypes`); beside it,
+statically, each carried file starts a program only in the functions named with what each starts, those the probe never
+reaches among them (`process_argv`, `running_claude`, `overwrites`), and reaches past the machine's files and programs
+(a socket, a signal, `ctypes`, by module or `os.kill`) only in the functions named likewise: `alive`'s `os.kill(pid, 0)`
+alone, called by `running_claude` alone. Each call is read as it is spelt and as what a name an import bound stands for,
+so `from os import kill as k` then `k(pid, 0)` is `os.kill`'s, and no import names a module of them or a name from one.
+The audit runs as the test's user, so the probe's root branch - a fork of itself, as root, that becomes the machine's
+user for the user's reads (`setgroups`, `setgid`, `setuid`) - never runs under it: that branch is held by the static
+rule alone, which names `probe` as starting no program but that fork. The same file holds the script against today's
+stand-in VMs and through the SSH runner to a stand-in machine, with the sources' syntax and imports and the scan of what
+names the folder.
 
 **A helper verb run on a machine.** `lib/claude_vm/guest/remote.py`'s `helper(job, target, verb, words, ...)` is the one
 way the engine sends a program to a machine: it sends the script, always, then `stdin`, the verb's own input, after its
-marked end, over the SSH runner (§16.6), under the runner's limits, today's (`limits.seconds` the call's whole time); so
-no word of the verb's, nothing it is asked and nothing of its input is ever on the argument list of the `ssh` child. As
-root (the default) it goes through `/usr/bin/sudo` by its path, under `/usr/bin/env LC_ALL=C` so that sudo's words are
-its own: `sudo -n` first, and only where that is refused for want of a password (sudo's `a password is required`) and
-the caller's `password()` gives one, a `Secret`, the same input once more with `sudo -S -p ''` and the password's line
-in front. One `-S`, never a second: a wrong password costs sudo's three attempts, the lines after it read as the next
-two, and may lock an account where PAM counts them; and where sudo asks nothing, no password is sent. The password is
-read from its `Secret` by the runner alone; nothing else secret follows the helper, so `stdin` is bytes and never a
-`Secret`. What comes back is an `Answer` - the verb ran and ended by itself: its exit status, each line after the
-bootstrap's parsed as JSON, NaN, Infinity, a number past a float and a nesting past 64 levels refused, every string in
-it, keys too, made one plain line (`text.one_line`), and what it said on its standard error as one plain line - a
-`NotRun` - it never started: sudo refused it, or the machine's interpreter could not be run - or a `NotAnswered`: not
-reached (ssh's 255, or nothing said within its time), or out of its time, ended with what the run started for it, the
-lines it sent before kept where every one parses; or more than it may send, a line that is no JSON, or no first line of
-the bootstrap's, refused whole. `lib/claude_vm/guest/states.py`'s `read(job, target, parts, settings=...)` runs `probe`
-for the parts asked (`system`, `claude`, `github`, `work`, `tailscale`) and returns today's
-`lib/claude_vm/status/found.py`'s records of its answer (`ssh_found`), the parts not asked left out, so that a layer-2
-step and status say each state by one definition, today's, which `tests/unit/test_status_vms.py` holds to the roles' own
-tasks; `settings` is one machine's in the shape status keeps, the probe's ask under `asked`. It runs as root only where
-a part root reads is asked (Tailscale's), and where sudo refuses, as the machine's user once more, root's part said not
-read, as today's `just status` does; every other read is the user's, with no `sudo` at all. found.py is reused as it
-stands, one name taken from it, so `states.py` is one of the modules `tests/unit/test_aw_vendor_trust.py`'s `CONTEXTS`
-names (today's `status` makes a TLS context elsewhere), and no module of Ansible is loaded.
+marked end, over the SSH runner (§16.6), under the runner's limits, today's (`limits.seconds` the call's whole time, a
+second session's and the parse of the answer included), and at most `LINES` (4096) lines where the limits set no bound
+on them; so no word of the verb's, nothing it is asked and nothing of its input is ever on the argument list of the
+`ssh` child. As root (the default) it goes through `/usr/bin/sudo` by its path, under `/usr/bin/env LC_ALL=C` so that
+sudo's words are its own: `sudo -n` first, and only where that is refused for want of a password - a line of its
+standard error that is sudo's `sudo: a password is required` or sudo-rs's `interactive authentication is required`,
+Ubuntu's sudo from 25.10, under either name it says itself by - and the run's `Password` gives one, a `Secret`, a second
+session with `sudo -S -p ''`, held (§16.6's `hold`): the password's line alone, then nothing until the bootstrap's line
+says the program runs, within the time to say anything and two seconds (`REFUSAL_GRACE`) before the call's end, where
+standard input is closed so that sudo says its own refusal in time, and only then the script and the verb's input. So a
+wrong password costs one of sudo's attempts, never three, and no line of the script is ever read by sudo as a password;
+and where it was sent and the bootstrap's line never came, however the session ended (by itself, by the call's time, cut
+or not reached), the run's `Password` is marked refused, and the run sends it to no machine again: that call's outcome
+says so, once, and every later one takes `sudo -n`'s refusal as it is, since a password sent on every read could lock
+the account where PAM counts the failures. A right password that sudo is slow to take is so withheld too: it costs a
+read, never the account. The run's first send settles it: calls side by side wait for that send, within their own time,
+and then send it only where sudo took it. `Password(source)` is made once by a run and handed to each call: its source
+is asked at the first call that needs it, and never again. Where sudo asks nothing, no password is sent. The password is
+read from its `Secret` by the runner alone, to send it, and by `remote.py`'s `_forms` alone, once a run at its first ask
+(`REVEALS`), to make the forms a machine may say it back in, each a `Secret`: as sent; as the runner reads it, plain
+(`text.plain_text`) and stripped; one plain line; JSON's escapes, in ASCII and not; and a C string's and a shell's
+backslashes (`printf %q` of printable text). Each is put as its mark (`secret.struck_all`) wherever a machine says it
+back: in what it said on its standard error, and where that came within 1 KiB of its bound (`CUT_NEAR`), an end of it
+that begins a form (`secret.struck_end`), where the runner's cut may fall partway through the password; in every line
+before it is parsed (a number said back is then no JSON, and the answer refused whole), in every string and key after,
+and in why the call was cut. Not struck: a number a machine spells another way, a password split across lines or written
+in another escape (`printf %q`'s `$'...'` of a control character, a URL's); nothing else secret follows the helper, so
+`stdin` is bytes and never a `Secret`. What comes back is an `Answer` - the verb ran (its line of the bootstrap's came:
+what a shell printed at login before it is dropped, as the bootstrap drops what comes before its mark) and ended by
+itself: its exit status, each line after the bootstrap's parsed as JSON, NaN, Infinity, a number past a float and a
+nesting past 64 levels refused, every string in it, keys too, made one plain line (`text.one_line`), and what it said on
+its standard error as one plain line - a `NotRun` - it never started, no line of the bootstrap's: sudo refused it, or
+the machine's interpreter could not be run - or a `NotAnswered`: not reached (ssh's 255, or nothing said within its
+time), or out of its time, its answer's parse too, ended with what the run started for it, the lines it sent before kept
+where every one parses within a second; or more than it may send, in bytes or in lines, or a line that is no JSON,
+refused whole. `lib/claude_vm/guest/states.py`'s `read(job, target, parts, settings=...)` runs `probe` for the parts
+asked (`system`, `claude`, `github`, `work`, `tailscale`) and returns today's `lib/claude_vm/status/found.py`'s records
+of its answer (`ssh_found`), the parts not asked left out, so that a layer-2 step and status say each state by one
+definition, today's, which `tests/unit/test_status_vms.py` holds to the roles' own tasks; `settings` is one machine's in
+the shape status keeps, the probe's ask under `asked`. It runs as root only where a part root reads is asked
+(Tailscale's), and where sudo refuses, as the machine's user once more, within what is left of `limits.seconds`, root's
+part said not read, as today's `just status` does; every other read is the user's, with no `sudo` at all. found.py is
+reused as it stands, one name taken from it, so `states.py` is one of the modules `tests/unit/test_aw_vendor_trust.py`'s
+`CONTEXTS` names (today's `status` makes a TLS context elsewhere), and no module of Ansible is loaded.
 `tests/unit/test_aw_guest_remote.py` holds it on F30's stand-in machines: each bound, each refusal and each answer
 above, the tree of a verb out of its time ended (`claude_vm.proc`'s), the command line held to the bootstrap with every
 canary of a verb's words, its ask, its input and the password in no word of `ssh`'s and no file of the machine's,
-`sudo`'s rule call by call, the states equal to `found.py`'s records of today's probe on the same machine, and a layer-2
-step that asks whether Claude is signed in, in a Python of its own, with no Ansible loaded.
+`sudo`'s rule call by call, a wrong password sent once however its session ended and however many calls were under way
+side by side, a password a stand-in `sudo` says back in each form above, a quote, a control character and a space at its
+end among them, and cut by the bound five bytes in, in no field of an outcome, of the states' record or of the job's
+folder, a `.bashrc` that prints, the states equal to `found.py`'s records of today's probe on the same machine, and a
+layer-2 step that asks whether Claude is signed in, in a Python of its own, with no Ansible loaded.
 
 **Layer 1's child.** `lib/claude_vm/guest/layer1.py`'s `run` converges one machine with one `ansible-playbook`, started
 through `children.start` as an `ansible` child of the run, in a session of its own and in the run's directory (`start`'s
@@ -3375,14 +3465,29 @@ its check's arguments; the play's `vars_files`; each template a role's template 
 `files/` that a `copy`, `unarchive`, `assemble` or `uri` sends from this computer (`src`, and `uri`'s multipart
 `filename`s, unless `remote_src` is true as written, as it is for `assemble` unless said). What it does not follow it
 never passes over: a playbook imported, an include in a handler
-(Ansible resolves those otherwise), a file or role named by a template, a collection's role, a `collections` keyword
-(under which a short name can stand for a collection's module), a role in the play's own roles folder (searched before
-`roles_path`), a template outside a role or one that includes another (`{%+` too) each raise `Unfollowed`, which fails
-every test. So do a task file Ansible looks for elsewhere before the walk's (review 50): an `import_tasks` in a role's
+(Ansible resolves those otherwise), a file or role named by a template, a name Ansible reads otherwise than the walk
+(one that starts with `~`, which `DataLoader` takes from the person's home, holds a `$`, which it expands, or is quoted,
+which it takes off: the walk follows a relative name each part of which starts with a letter, a digit or `_`), a
+collection's role, a `collections` keyword (under which a short name can stand for a collection's module or role),
+an include's `apply` among them, which Ansible loads as a block (review 67), a role in the play's own roles folder
+(searched before `roles_path`), and a template outside a role each raise `Unfollowed`, which fails every test (review
+61). So do what Ansible renders that the walk would read as text - a template, or any string
+of any file the walk read, that names another template (`include`, `import`, `from` or `extends`, `{%-` and `{%+` too:
+Ansible renders a task's string with the play's folder to load from), or that sets its own delimiters, under which such
+a statement reads as text (a `#jinja2:` line, ansible-core's `JINJA2_OVERRIDE`, or one of the template action's six
+delimiter arguments) - and arguments the walk does not read, which ansible-core merges into a task's once its parser
+has read them: `module_defaults` on a play, a role entry, a block, a task or an include's `apply`; an `args:` given as
+one template (the parser's `_variable_params`); and a module given one template as its whole value, but a command's,
+whose words `REASONS` holds. So do a task file Ansible looks for elsewhere before the walk's (review 50): an
+`import_tasks` in a role's
 file that an include or import brought in, which Ansible looks for first under that file's own folder's `tasks/` and
 then the working folder's, and any include or import two files below the play, looked for beside the play first (one
 file below, the walk's file is Ansible's first); a file sent from this computer outside a role, or one that is no
-regular file of its role's `files/` (a name under `files/`, a folder, a link out); and what Ansible takes from the
+regular file of its role's `files/` as the checkout holds it (a name under `files/`, a folder, a link out); a role, or
+one of its own folders (`tasks/`, `files/` and the rest), that is a link, and any file the play reaches that is a link
+out of the checkout,
+through which Ansible would read a folder the test never saw, on the computer the play runs on (review 67); and what
+Ansible takes from the
 play's folder that the walk does not read - `group_vars/` or `host_vars/`, whose variables reach the host whenever it
 joins a group, `collections/`, a folder of any kind of plugin but the three `BESIDE_THE_PLAY` lists with its reason
 (`library`, `action_plugins`, `module_utils`), and in those three a name of Ansible's own module, action or
@@ -3391,17 +3496,45 @@ that has no action of its own) - and any folder of plugins in a role, each kind 
 Four tests read what it found. A `command`, `shell`, `raw`, `script` or `expect` is listed in `REASONS` with its reason
 and with its module and arguments as Ansible's `ModuleArgsParser` reads them, so that a reason is held to what runs: a
 new one, one no longer reached and one whose words changed under its name each fail, and two such tasks of one file and
-name fail as one key. A module outside `ansible.builtin` fails but the three F6a replaces with built-in ones
+name fail as one key. A module of `ansible.builtin` is one written so that ansible-core's own routing table
+(`ansible_builtin_runtime.yml`, read from the installed package) keeps within `ansible.builtin` for its action and its
+module, neither removed, and that names one of ansible-core's own actions or modules there: the table sends
+`ansible.builtin.synchronize` (whose rsync starts here), `ansible.builtin.patch` and hundreds more to a collection, and
+a test holds that no name it keeps within `ansible.builtin` comes to one of those the scans read by name. A module
+outside `ansible.builtin` fails but the three F6a replaces with built-in ones
 (`ansible.posix.authorized_key`, `ansible.posix.sysctl`, `community.general.npm`). Nothing it reaches sets a variable
 whose name begins `ansible_` - the vars of a play, block, task, role entry or dependency, `vars_files`, `vars_prompt`, a
 role's defaults and vars, a fact (a templated name refused), a register, a loop's variable, an include's `apply`,
 `add_host` - nor includes variables at all, which the play's first check cannot see. And nothing runs or writes on this
 computer: no `delegate_to`, `local_action` or `connection` on a play, role entry, block, task or `apply`, no `fetch`,
 no `group_by` or `add_host` (a group joined after the play's check, whose variables the check never saw), no play over
-any host but `all`, no `with_` loop, and no lookup but the five `LOOKUPS` lists by its file and whole
-string (the check's read of the inventory, `remote_tmp.yml`'s setting, and the three vendors' keys), found in every
-string of every file the walk read (the roles' argument specs among them) and in the templates. Until F6a those three
-modules need their collections, from
+any host but `all`, no `with_` loop and no private field of ansible-core's task, handler or block, read from its
+`fattributes` (`loop_with` runs a `with_` loop's lookup over `loop`, review 67), and no lookup but the five `LOOKUPS`
+lists by its file and whole
+string (the check's read of the inventory, `remote_tmp.yml`'s setting, and the three vendors' keys), found as `lookup`,
+`query` or `q` as a word (Jinja calls one wherever it is named: `(q)(...)`, or a name set to it) in every string of
+every file the walk read (the roles' argument specs among them) and in the templates. Nor does it ask this computer of
+its paths, which tells a name's existence, kind, real name, home or environment where the play is rendered, or open a
+file there (review 67): no test of ansible-core's `files` test plugin but `abs` (`exists`, `file`, `link` and the
+rest, read from the plugin) and no `vaulted_file` (core's, which opens the file to see whether it is a vault); no
+`fileglob`, `realpath`, `relpath`, `expanduser` or `expandvars` filter, whether written or named to `select`,
+`reject`, `selectattr`, `rejectattr` or `map`, or to one of those five that another is given by name
+(`map('select', 'exists')`); and none of the five given a name only a run can say, or its arguments by `*` or `**`.
+They are read as Jinja's own parser reads each string Ansible renders, not as words, which would take the same names
+in the roles' prose and paths: a template and a string that opens one; and, as an expression, the way Ansible's
+`_normalize_and_evaluate_conditional` and its debug and assert actions evaluate one, the value of a `when`,
+`changed_when`, `failed_when`, `until` and a loop's `break_when`, a debug's `var` and an assert's `that` (read from the
+arguments as the parser reads them, `var=` and `that=` among them), with the template a string in it holds, which
+Ansible renders as it evaluates it. An expression made of one template, whose result Ansible evaluates as an
+expression the walk never sees (the roles have none), and a string the parser cannot read are refused (review 67's
+second reading). Each road review 61 ran is run as Ansible runs it too: planted under the test's own folder, found by
+the four tests, then run by `layer1.run` over the test-only local connection on a stand-in machine, where its decoy
+writes a mark in the test's own folder - a copy given its `src` by `module_defaults` or by `args:`, a fact of the
+interpreter so given, `ansible.builtin.synchronize`'s rsync, a copy, template or include of a name that starts with `~`,
+`q` named apart from its call, a template's own delimiters and its `#jinja2:` line, an include in a task's string, and
+an import two files below the play; and review 67's `loop_with: pipe` and a role's `files/` linked to a folder
+elsewhere. Until F6a those
+three modules need their collections, from
 the checkout's own folder that layer 1's configuration names for now (above), or a test's in its place, the
 scenario's. The `system` scenario
 (`molecule/system/`, [§11.3](testing.md#113-playbook-scenarios--just-test-integration-and-provision)) converges a

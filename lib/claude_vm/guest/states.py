@@ -9,10 +9,12 @@ to the roles' own tasks. `settings` is one machine's, in the shape status keeps 
 probe's ask under `asked`).
 
 The probe runs as root only where a part root reads is asked (Tailscale's): then through `sudo`, by remote.py's rule,
-and where `sudo` refuses, as the machine's user once more, the root part said not read, as today's `just status`
-does. Every other read is the user's, with no `sudo` at all. `document` gives the probe's document in today's shape
-(status/reach.py's `read`): its reads, `{"unreachable": True, "msg": ...}` or `{"failed": True, "msg": ...}`, and a
-verb out of its time keeps the reads it sent before apt's simulation, the upgrades said not read.
+and where `sudo` refuses, as the machine's user once more, the root part said not read, as today's `just status` does,
+within what is left of `limits.seconds`, the whole read's time. Every other read is the user's, with no `sudo` at all.
+`password` is the run's (remote.Password), handed to each read of the run. `document` gives the probe's document in
+today's shape (status/reach.py's `read`): its reads, `{"unreachable": True, "msg": ...}` or
+`{"failed": True, "msg": ...}`, and a verb out of its time keeps the reads it sent before apt's simulation, the
+upgrades said not read.
 
 found.py is reused as it stands, a name taken from it and never the module: today's `status` makes a TLS context
 elsewhere, so this module is one tests/unit/test_aw_vendor_trust.py's CONTEXTS names, with why. Standard library and
@@ -21,11 +23,13 @@ found.py only; nothing of Ansible is loaded, now or when a machine is read.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+import dataclasses
+import time
+from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING
 
+from claude_vm.fleet import paths
 from claude_vm.guest import bundle, remote
-from claude_vm.secret import Secret
 from claude_vm.ssh import runner
 from claude_vm.status.found import ssh_found
 
@@ -39,6 +43,9 @@ AS_ROOT = frozenset({"tailscale"})
 ALWAYS = ("user", "limit")
 # The view of status's (found.parts_wanted) that asks for each part: ssh_found reads the parts its sections want.
 SECTIONS = {"system": "system", "work": "work", "claude": "sign-ins", "github": "sign-ins", "tailscale": "access"}
+# The marker the github_projects role writes on a machine where gh's login is its own, holding the token's digest: the
+# probe's github part reads it (status's ask, github's marker) to tell that login from one made by hand.
+GITHUB_MARKER = paths.ON_A_MACHINE + "/gh-login"
 
 
 def _parts(parts: Iterable[str]) -> frozenset[str]:
@@ -91,22 +98,40 @@ async def document(
     ask: Mapping[str, object],
     *,
     env: Mapping[str, str],
-    password: Callable[[], Secret | None] | None = None,
+    password: remote.Password | None = None,
     limits: runner.Limits = runner.LIMITS,
     python: str = bundle.PYTHON,
     become_exe: str = remote.SUDO,
 ) -> dict:
     """What the probe read on target for ask, the probe's ask (asked's): as root where a part of AS_ROOT is asked,
-    and where sudo refuses that, as the user once more, root's part said not read; in today's shape."""
-    common = {"env": env, "limits": limits, "python": python, "become_exe": become_exe}
+    and where sudo refuses that, as the user once more within what is left of limits.seconds, root's part said not
+    read; in today's shape."""
+    if not isinstance(limits, runner.Limits):
+        raise runner.Refused("limits is a Limits")
+    until = time.monotonic() + limits.seconds
+    common = {"env": env, "python": python, "become_exe": become_exe}
     try:
         outcome = await remote.helper(
-            job, target, "probe", asked=dict(ask), as_root=bool(AS_ROOT & set(ask)), password=password, **common
+            job,
+            target,
+            "probe",
+            asked=dict(ask),
+            as_root=bool(AS_ROOT & set(ask)),
+            password=password,
+            limits=limits,
+            **common,
         )
         if not (isinstance(outcome, remote.NotRun) and outcome.sudo):
             return _document(outcome)
         alone = {key: value for key, value in ask.items() if key not in AS_ROOT}
-        found = _document(await remote.helper(job, target, "probe", asked=alone, as_root=False, **common))
+        left = until - time.monotonic()
+        if left <= 0:
+            found = _document(remote.NotAnswered(f"it took longer than {limits.seconds:g} s", reached=True))
+        else:
+            given = dataclasses.replace(limits, seconds=left)
+            found = _document(
+                await remote.helper(job, target, "probe", asked=alone, as_root=False, limits=given, **common)
+            )
     except OSError as error:
         return {"failed": True, "msg": str(error) or type(error).__name__}
     if "user" in found:
@@ -133,7 +158,7 @@ async def read(
     host: str = "",
     joined_before: bool = False,
     env: Mapping[str, str],
-    password: Callable[[], Secret | None] | None = None,
+    password: remote.Password | None = None,
     limits: runner.Limits = runner.LIMITS,
     python: str = bundle.PYTHON,
     become_exe: str = remote.SUDO,

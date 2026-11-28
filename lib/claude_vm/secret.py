@@ -6,7 +6,8 @@ into JSON, so it cannot travel by accident to a file, a child or a message. Its 
 `reveal()`, at the one place that sends it on: a request's header, a child's standard input. The modules that call
 `reveal()` are named in tests/unit/test_aw_guards.py's `REVEALS`, each with why, and no other may. `struck(text)` puts
 it as its mark wherever a text holds it, so that a peer's words that echo it can be said; `struck_all(text, secrets)`
-does so for several, the longest first, so that of two where one holds the other the longer is struck whole.
+does so for several, the longest first, so that of two where one holds the other the longer is struck whole; and
+`struck_end(text, secrets)` strikes an end of a text cut at a bound that is the beginning of one.
 
 Standard library only, and nothing at import.
 """
@@ -46,6 +47,20 @@ class Secret:
         hands back the Secrets alone, never a value or its length."""
         return sorted(secrets, key=lambda secret: len(secret.__value), reverse=True)
 
+    @staticmethod
+    def _begun(text: str, secrets: tuple[Secret, ...]) -> int:
+        """How much of text's end is the beginning of one of secrets' values, the most of any: 0 where none is. It
+        hands back a length of text's alone, never a value."""
+        return max(
+            (
+                size
+                for secret in secrets
+                for size in range(min(len(secret.__value), len(text)), 0, -1)
+                if text.endswith(secret.__value[:size])
+            ),
+            default=0,
+        )
+
     def __repr__(self) -> str:
         return f"Secret({MARK!r})"
 
@@ -81,3 +96,22 @@ def struck_all(text: str, secrets: Iterable[Secret]) -> str:
     for secret in Secret._longest_first(held):
         text = secret.struck(text)
     return text
+
+
+# What a decoder puts for bytes it cannot read: a cut inside a character leaves one at the end.
+REPLACED = "�"
+
+
+def struck_end(text: str, secrets: Iterable[Secret]) -> str:
+    """text with its end put as MARK where that end is the beginning of one of secrets' values, the most of any, and
+    the replacement characters after it, which a cut inside a character leaves: for words cut at a bound, which may stop
+    partway through a secret. Called only where the text was cut, since an end that happens to begin a secret would say
+    so; text as it is where no end does. It says nothing of a value but where it was."""
+    held = tuple(secrets)
+    if not all(isinstance(secret, Secret) for secret in held):
+        raise TypeError("a text is struck of Secrets alone")
+    if not isinstance(text, str):
+        raise TypeError(f"a Secret strikes itself from a str, not a {type(text).__name__}")
+    kept = text.rstrip(REPLACED)
+    size = Secret._begun(kept, held)
+    return kept[: len(kept) - size] + MARK if size else text

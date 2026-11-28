@@ -66,11 +66,18 @@ it is a member of the pool: anything else at the ID is refused and left, so that
 template it may not rebuild, and a person's own template at the ID is never destroyed. A person's own template is
 cloned only where `proxmox_template_custom` names it. The image's digest the record keeps is said nowhere and never
 compared, as today.
+
+The judgement does not read the cloud-init drive (card E12's L4): `cloud_init(config)` says whether a configuration has
+one, which `deploy` reads before it clones (card G3) and before it calls its template the same (card E13), and
+`Compared.without_drive` says the template that lacks it. `Compared.unbuilt` is the one sentence a run with no terminal
+says where the template is to be built and the run has no standing way to build it (card E13), which NEXT STEPS and
+`status` say as it is.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import re
 from collections.abc import Mapping
 
 from .. import proxmox
@@ -87,6 +94,7 @@ __all__ = [
     "Base",
     "Compared",
     "at",
+    "cloud_init",
     "custom",
     "custom_id",
     "judge",
@@ -151,6 +159,10 @@ GUESTS = "/vms"
 # The most characters of a name Proxmox gave that a sentence says, and of a line of a difference.
 NAME_MOST = 100
 LINE_MOST = 300
+# A drive of a VM's configuration, by its key: what a cloud-init drive is among (today's custom template check).
+DRIVE = re.compile(r"(ide|scsi|sata|virtio)\d+")
+# The outcomes a build is for: nothing at the ID, an ID the token may not read, and this engine's template that differs.
+BUILT_FOR = (MISSING, UNSEEN, DIFFERENT)
 
 
 def _plain(text: str, most: int = NAME_MOST) -> str:
@@ -277,6 +289,32 @@ class Compared:
                 "Nothing is made from it (docs/guides/base-image.md)."
             )
         return " ".join(self.why)
+
+    def unbuilt(self, host: str, why: str) -> str:
+        """What a run with no terminal says where this base template is to be built (missing, unseen, or differing
+        under proxmox_template_rebuild: true) and root SSH to host gives the run no standing way to build it (why, in
+        plain words): what it has and what is wanted, as said; that this run cannot build it, and why; and the deploy
+        --only template line to run at a terminal. NEXT STEPS and status say it as it is (card E13)."""
+        if self.custom or self.outcome not in BUILT_FOR or (self.outcome == DIFFERENT and not self.rebuild):
+            raise ValueError("only a base template that is missing, unseen or to be rebuilt is built")
+        line = said("{line}", {"line": self.line})
+        return (
+            f"{self.said()} This run cannot build it on {_plain(host)}: root SSH to the host does not answer with "
+            f"nobody asked ({_plain(why, LINE_MOST)}), and there is no terminal here to ask at. Run {line} at a "
+            "terminal."
+        )
+
+    def without_drive(self, storage: str) -> str:
+        """What is said of this engine's base template, judged as its settings would build it or its difference kept,
+        whose configuration has no cloud-init drive (cloud_init): it is not called the same, and nothing is cloned from
+        it, since a VM's user and keys reach it by that drive; the way on (card E13)."""
+        line = said("{line}", {"line": self.line})
+        return (
+            f'The base template "{self.name}" ({self.template_id}) has no cloud-init drive, which a VM\'s user and '
+            "keys reach it by, so it is not as its settings would build it and no VM is cloned from it: give it one "
+            f"(qm set {self.template_id} --ide2 {_plain(storage)}:cloudinit), or remove it in Proxmox (qm destroy "
+            f"{self.template_id}) and run {line}, which builds it again."
+        )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -435,6 +473,11 @@ def judge(
         )
     differences = _differences(config, found, want)
     return base.compared(DIFFERENT if differences else SAME, differences=differences, identity=config.identity)
+
+
+def cloud_init(config: VmConfig) -> bool:
+    """Whether a guest's configuration has a cloud-init drive, which a clone's user and keys reach it by."""
+    return any("cloudinit" in str(value) for key, value in config.values.items() if DRIVE.fullmatch(key))
 
 
 def named(listing: tuple[Resource, ...], name: str) -> tuple[Resource, ...]:

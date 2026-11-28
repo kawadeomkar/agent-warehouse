@@ -1055,14 +1055,25 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       (`main.yaml`, `main.json`, a `main/` folder of defaults or vars, a file an include's `_from` names); the play's
       `vars_files`; the roles' templates and argument specs; and each file of a role's `files/` that a `copy`,
       `unarchive`, `assemble` or `uri` sends from this computer. A road it does not follow - a playbook imported, an
-      include in a handler, a name only a run can say, a collection's role or a `collections` keyword, a role in the
-      play's own roles folder, a template outside a role or one that includes another (`{%+` too) - raises
-      `Unfollowed` and fails every test: follow it in the walk, never pass it over.
+      include in a handler, a name only a run can say, a name Ansible reads otherwise than the walk (one that starts
+      with `~`, which Ansible takes from the person's home, holds a `$`, which it expands, or is quoted), a collection's
+      role or a `collections` keyword (an include's `apply` too, which Ansible loads as a block), a role in the play's
+      own roles folder, a template outside a role - raises `Unfollowed` and fails every test: follow it in the walk,
+      never pass it over.
+    - So does what Ansible renders that the walk would read as text: a template, or any string of any file the walk
+      read, that names another template (`include`, `import`, `from` or `extends`, with `{%-` and `{%+` too: in a
+      task's string Ansible looks for it beside the play) or sets its own delimiters (a `#jinja2:` line, or one of the
+      template task's six delimiter arguments), under which such a statement reads as text. And so do arguments the
+      walk does not read, which ansible-core merges into a task's once its parser has read them: `module_defaults` on a
+      play, a role entry, a block, a task or an include's `apply`; an `args:` given as one template; and a module given
+      one template as its whole value, but for a command, whose words `REASONS` holds.
     - So does a task file Ansible looks for elsewhere before the walk's: an `import_tasks` in a role's file that an
       include or import brought in (looked for first under that file's own folder's `tasks/`, then the working
       folder's), and any include or import two files below the play (looked for beside the play first). A file sent
-      from this computer outside a role, or that is no regular file of its own role's `files/` (a name under `files/`
-      and a folder too), is refused alike.
+      from this computer outside a role, or that is no regular file of its own role's `files/` as the checkout holds
+      it (a name under `files/`, a folder, a link out), is refused alike; so is a role, or one of its own folders
+      (`tasks/`, `files/`, `templates/` and the rest), that is a link, and any file the play reaches that is a link out
+      of the checkout: through a link Ansible reads a folder the test never saw, on the computer the play runs on.
     - So does what Ansible takes from the play's folder and a role's that the walk does not read: `group_vars/` or
       `host_vars/` beside the play, read whenever the host joins a group; `collections/` beside it, searched whatever
       the configuration names; a folder of any kind of plugin but the three `BESIDE_THE_PLAY` lists with its reason
@@ -1072,15 +1083,34 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - Every task it reaches is a module of `ansible.builtin` that converges a state, or a `command`, `shell`, `raw`,
       `script` or `expect` that `REASONS` lists with its reason and with its module and arguments as Ansible's own
       parser reads them: a changed command changes its entry in the same commit, and two such tasks of one file and
-      name fail as one key. A module outside `ansible.builtin` fails but the three F6a replaces.
+      name fail as one key. A module of `ansible.builtin` is one written so that ansible-core's own routing table
+      (`ansible_builtin_runtime.yml`, read from the installed package) keeps within `ansible.builtin`, for its action
+      and its module, and that names one of ansible-core's own there: the table sends `ansible.builtin.synchronize`
+      (whose rsync starts here), `ansible.builtin.patch` and hundreds more to a collection. A module outside
+      `ansible.builtin` fails but the three F6a replaces.
     - Nothing it reaches sets a variable whose name begins `ansible_`, which would outrank the connection the engine
       wrote: no vars of a play, block, task, role entry or dependency, no `vars_files`, `vars_prompt`, role default or
       var, fact (a templated name refused), register, loop variable, include's `apply` or `add_host`, and no
       `include_vars` at all.
     - Nothing it reaches runs or writes on this computer: no `delegate_to`, `local_action` or `connection` keyword, no
       `fetch`, no `group_by` or `add_host` (a group joined after the play's check), no play over any host but `all`,
-      no `with_` loop, and no lookup but the five `LOOKUPS` lists by its file and whole string, read in every file the
-      walk read (the roles' argument specs, which Ansible templates here, among them) and in the templates.
+      no `with_` loop and no private field of ansible-core's task, read from it (`loop_with` runs a `with_` loop's
+      lookup over `loop`), and no lookup but the five `LOOKUPS` lists by its file and whole string (`lookup`, `query` or
+      `q` as a word, which Jinja calls wherever it is named), read in every file the walk read (the roles' argument
+      specs, which Ansible templates here, among them) and in the templates. Nor does it ask this computer of its paths
+      (whether one is there, its kind, its real name, its home or its environment) or open a file there: no test of
+      ansible-core's `files` tests but `abs` (`exists`, `file`, `link` and the rest, read from it) and no
+      `vaulted_file`; no `fileglob`, `realpath`, `relpath`, `expanduser` or `expandvars` filter, written or named to
+      `select`, `reject`, `selectattr`, `rejectattr` or `map`, or to one of those five named to another
+      (`map('select', 'exists')`); and none of the five given a name only a run can say, or its arguments by `*` or
+      `**`. Each is read as Jinja's own parser reads a string Ansible renders: a template and a string that opens one;
+      and, as an expression, the way Ansible evaluates it, a `when`, `changed_when`, `failed_when`, `until`, a loop's
+      `break_when`, a debug's `var` and an assert's `that` (`var=` and `that=` too), with a template a string in it
+      holds. One made of one template, whose result Ansible evaluates, and a string the parser cannot read are refused.
+    - Each road review 61 ran, and review 67's `loop_with` and linked `files/`, is run as Ansible runs it too: planted
+      under the test's own folder, found by the four tests, then run by `layer1.run` over the test-only local
+      connection on a stand-in machine, where its decoy writes a mark in the test's own folder: each is shown to be a
+      road Ansible takes.
     - The child runs in the run's own directory (`children.start`'s `cwd`), never the caller's folder, where Ansible
       looks for a task file too; and its configuration names the engine's own filter folder,
       `lib/claude_vm/guest/ansible/filter_plugins/`, whose one adapter gives `plain_text` and `sshd_match_spec`, the
@@ -1351,14 +1381,15 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `ssh-keygen` for a name as `ssh` reads and hashes one.
     - A secret reaches a child only on its standard input, revealed in `_bytes` alone (`REVEALS`). Every child is
       started through `children.start` in a group of its own, its output read under bounds for a line, the whole, a
-      deadline and a silence, its group killed on a breach, and every string it gave made plain. Ending the local
-      `ssh` never ends the command on the machine. A 255 is `ssh`'s or the command's own, and nothing tells which:
-      `Unreachable` keeps the command's lines and never says a command did not run, so a caller whose command changes
-      something - one that must run once above all, as Tailscale's key - reads the machine's state again before it
-      tries it again, never deciding a retry from `Unreachable` alone. A held child (a sign-in's) and a forward
-      (`ControlPath=none`) are ended by their deadline, their caller or the run; a forward's deadline is required, and
-      its far end is `sleep <deadline>`, so after a run killed outright it ends by itself once its deadline has passed
-      and the connections through it have closed, nothing recorded on the machine.
+      deadline and a silence, and its lines where the caller bounds them, its group killed on a breach, and every
+      string it gave made plain. Ending the local `ssh` never ends the command on the machine. A 255 is `ssh`'s or the
+      command's own, and nothing tells which: `Unreachable` keeps the command's lines and never says a command did not
+      run, so a caller whose command changes something - one that must run once above all, as Tailscale's key - reads
+      the machine's state again before it tries it again, never deciding a retry from `Unreachable` alone. A held child
+      (a sign-in's, or a helper call's while `sudo` takes a password) and a forward (`ControlPath=none`) are ended by
+      their deadline, their caller or the run; a forward's deadline is required, and its far end is `sleep <deadline>`,
+      so after a run killed outright it ends by itself once its deadline has passed and the connections through it have
+      closed, nothing recorded on the machine.
       `ansible_vars` gives layer 1's Ansible child the same options in the same order.
     - `tests/unit/test_aw_ssh_runner.py` holds it against a stand-in `ssh` that records its words, environment and
       standard input, with this machine's `ssh -G -F /dev/null` for the values the options hold, and scans: a child

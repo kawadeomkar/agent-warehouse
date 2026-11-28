@@ -22,8 +22,9 @@ run is making does not have until its clone gives it one. Until then the run nam
 of a form no identity and no VM's name takes), its first event carrying the name a person chose (`name=`), and the
 record keeps it in `making`, the stand-in with that name: so a run killed before the clone says what it was making,
 while `machines` keeps identities alone. One `join` event, its machine the identity and its text the stand-in, joins the
-two: the identity joins `machines`, the stand-in leaves `making`, and what the record keeps under the stand-in (its
-outcome, its NEXT STEPS lines, the run's wait) moves to the identity. From then on the stand-in names nothing: an event
+two: the identity joins `machines`, the stand-in leaves `making` and its name is kept under the identity in `names`, and
+what the record keeps under the stand-in (its outcome, its NEXT STEPS lines, the run's wait, a section's among them)
+moves to the identity, each in its place. From then on the stand-in names nothing: an event
 that names it is refused, and so is a join of a stand-in joined already, of a key that is no stand-in or none this run
 is making, and to an identity the run has named before; each before anything is written or heard.
 
@@ -85,6 +86,7 @@ FIELDS = (
     "host",  # the host the run is on, or None
     "machines",  # the machines it names, by identity
     "making",  # the machines it is making that have no identity yet: {stand-in key: the name a person chose}
+    "names",  # the name of each machine joined from `making`, by its identity: {identity: the name a person chose}
     "locks",  # the names of the locks it holds
     "attached",  # whether it runs at a terminal
     "pid",  # the run's process: information, never read to decide a state
@@ -348,10 +350,11 @@ class Job:
 
     def _join(self, event: Event) -> Callable[[dict], dict]:
         """How a join changes the record, checked before anything is written: the identity (its machine) joins
-        `machines`, the stand-in (its text) leaves `making`, and what the record keeps under the stand-in, its outcome,
-        its NEXT STEPS lines and the run's wait, is kept under the identity, in its place. Refused: a join with no
-        identity or a stand-in for one, of a key that is no stand-in, of a stand-in joined already or not one this run
-        is making, and to an identity the run has named before."""
+        `machines`, the stand-in (its text) leaves `making`, its name is kept under the identity in `names`, and what
+        the record keeps under the stand-in, its outcome, its NEXT STEPS lines and the run's wait (a section's too), is
+        kept under the identity, each in its place. Refused: a join with no identity or a stand-in for one, of a key
+        that is no stand-in, of a stand-in joined already or not one this run is making, and to an identity the run
+        has named before."""
         identity, stand = event.machine, event.text
         if identity is None or is_stand_in(identity):
             raise ValueError("a join names the machine's identity, the key every later event of it names")
@@ -363,6 +366,7 @@ class Job:
             raise ValueError(f"{stand!r} is no machine this run is making: its first event names it with its name")
         if identity in self._named:
             raise ValueError(f"{identity!r} is a machine the run has named already, never the identity of {stand!r}")
+        name = self._making[stand]
 
         def moved(key: object) -> object:
             return identity if key == stand else key
@@ -381,6 +385,7 @@ class Job:
                 **record,
                 "machines": [*(record.get("machines") or []), identity],
                 "making": making,
+                "names": {**(record.get("names") or {}), identity: name},
                 "machine_outcomes": {moved(key): ended for key, ended in outcomes.items()},
                 "next": steps,
                 "waiting": waiting,
@@ -503,6 +508,7 @@ def create(
         "host": host,
         "machines": list(machines),
         "making": {},
+        "names": {},
         "locks": [],
         "attached": attached,
         "pid": os.getpid(),
