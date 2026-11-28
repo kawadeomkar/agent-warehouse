@@ -108,6 +108,8 @@ def kind(root: Path, comment: str, line: int, known: set[str]) -> str | None:
     if len(pointers) == 1 and all(DIRECTIVE.match(part) for part in parts if not POINTER.match(part)):
         part = pointers[0]
         section, test = SECTION.match(part), TEST.match(part)
+        if not (section or test or UPSTREAM.match(part)) and WORKAROUND.search(part):
+            return "CMT001"
         if part.startswith("§"):
             return None if section and section.group(1) in known else "CMT002§"
         if part.startswith("test:"):

@@ -335,6 +335,22 @@ def test_today_s_product_is_held_to_cmt001_alone(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
+    "comment",
+    [
+        "# §16.6 a hack for now",
+        "# test: a race, retried",
+        "# upstream: a workaround until fixed",
+        "# test: tests/unit/test_aw_x.py::test_none for now  # noqa: E501",
+        "# noqa: E501  # §16.99 for now",
+    ],
+)
+def test_a_workaround_s_word_behind_a_pointer_s_mark_is_found(tmp_path: Path, comment: str) -> None:
+    root = _checkout(tmp_path, {TODAYS: f"x = 1  {comment}\n", ENGINE: f"x = 1  {comment}\n"})
+    for path in (TODAYS, ENGINE):
+        assert _found(root, path) == [f"{path}:1:8: {WORKAROUND}"], path
+
+
+@pytest.mark.parametrize(
     "path", ["tests/unit/test_aw_y.py", "tests/molecule/fake.py", "molecule/system/x.py", "docs/x.py", "x.py"]
 )
 def test_a_file_outside_the_code_is_not_read(tmp_path: Path, path: str) -> None:

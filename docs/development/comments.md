@@ -40,8 +40,8 @@ The sentence is the kind's own, never the comment's text. Any finding makes the 
 
 | Code | What it is | Fix |
 |---|---|---|
-| `CMT001` | A workaround's comment: one of none of the kinds above that names, as a whole word in any case, workaround, hack, for now, temporary, until, flaky, race, retry or sleep | Fix the cause, or file a card and hold the case with a test |
-| `CMT002` | A pointer to nothing: a comment that starts with `§`, `test:` or `upstream:`, and is not of its form or points at a section, a file or a test that does not exist | Point it at what exists, or delete it |
+| `CMT001` | A workaround's comment: one of none of the kinds above, or a pointer not of its form, that names, as a whole word in any case, workaround, hack, for now, temporary, until, flaky, race, retry or sleep | Fix the cause, or file a card and hold the case with a test |
+| `CMT002` | A pointer to nothing: a comment that starts with `§`, `test:` or `upstream:`, and is not of its form (but for a workaround's word, `CMT001`) or points at a section, a file or a test that does not exist | Point it at what exists, or delete it |
 | `CMT003` | Prose in a comment of the new engine's | A rule goes into the test that holds it, its why in the test's docstring; a design reason into its § section, a `# §` pointer left here; a step the code shows, deleted |
 | `CMT004` | A docstring of the new engine's past 5 lines | The contract kept within 5 lines; the rest goes as `CMT003`'s does |
 
