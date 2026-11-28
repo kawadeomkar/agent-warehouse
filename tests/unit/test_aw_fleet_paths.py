@@ -56,7 +56,11 @@ FLEET = "lib/claude_vm/fleet/"
 REMOVES = frozenset({"unlink", "remove", "rmtree", "rmdir"})
 # Each module outside fleet/ that reads key_file, with why. A card that writes one adds it here in the same commit
 # (E4's engine/init.py, G8's engine/controller_writes.py, and D5 where its reader is outside fleet/).
-READ_THE_KEY: dict[str, str] = {}
+READ_THE_KEY: dict[str, str] = {
+    "lib/claude_vm/engine/controller_writes.py": "the list of what the engine writes on the computer names the key"
+    " file's place by the function that gives it, which tests/unit/test_aw_controller_writes.py calls; it opens,"
+    " writes and removes nothing",
+}
 
 
 def _checkout(where: Path, *, worktree: bool = False) -> Path:

@@ -39,7 +39,8 @@ descriptor (`EVENTS_VARIABLE`), `ANSIBLE_VERBOSITY` only for a run
 given `-v`, and the job's marker, which children.start adds. Nothing else of the caller's reaches it: no other
 `ANSIBLE_*`, no `PYTHON*`, no stdout callback exported. Its command line is the program, `-i` and the inventory, the
 variables only as `-e @<file>` (never `key=value`, which splits on whitespace), `--tags` with the parts asked for,
-`--check` and `--diff` where asked, and the play. It is started through children.start as an `ansible` child of the run,
+`--check` and `--diff` where asked (`check` asks for both: F21's deep diff, which returns each task's verdict as
+guest/events.py makes it), and the play. It is started through children.start as an `ansible` child of the run,
 in the run's directory, so that no file of the folder the run was started from is one Ansible finds (a relative path
 of a task file is looked for in the working folder too), in a session of its own, so that it has no terminal and a
 terminal's Ctrl-C reaches the run alone, which hands it on as SIGINT to the child's group (runs/attached.py); its
@@ -512,6 +513,90 @@ async def run(
     test_connection: Mapping[str, object] | None = None,
     test_collections: Path | None = None,
 ) -> Ended:
+    """play run on target by one ansible-playbook: see _child, whose Ended this is."""
+    ended, _ = await _child(
+        job,
+        target,
+        play,
+        variables_file,
+        name=name,
+        host_flag=host_flag,
+        env=env,
+        tags=tags,
+        check=check,
+        diff=diff,
+        verbosity=verbosity,
+        started=started,
+        test_connection=test_connection,
+        test_collections=test_collections,
+    )
+    return ended
+
+
+@dataclasses.dataclass(frozen=True)
+class Checked:
+    """A run in check mode with its diff: how the child ended, and each task as check mode makes it (events.Checked:
+    would change, would not change or not evaluated, with its diff), in the order they started."""
+
+    ended: Ended
+    tasks: tuple[events.Checked, ...]
+
+
+async def check(
+    job: Job,
+    target: runner.Target,
+    play: Path,
+    variables_file: Path | None = None,
+    *,
+    name: str,
+    host_flag: str,
+    env: Mapping[str, str],
+    tags: Sequence[str] = (),
+    verbosity: int = 0,
+    started: Callable[[Process], None] | None = None,
+    test_connection: Mapping[str, object] | None = None,
+    test_collections: Path | None = None,
+) -> Checked:
+    """play run on target as run runs it, with --check and --diff (F21's deep diff, deploy --check's system layer):
+    nothing changed on the machine, each task's verdict and diff kept. A diff is written by the callback only in this
+    mode and never for a task Ansible censored for no_log, and each is struck of the run's redaction list as every
+    event is."""
+    ended, heard = await _child(
+        job,
+        target,
+        play,
+        variables_file,
+        name=name,
+        host_flag=host_flag,
+        env=env,
+        tags=tags,
+        check=True,
+        diff=True,
+        verbosity=verbosity,
+        started=started,
+        test_connection=test_connection,
+        test_collections=test_collections,
+    )
+    return Checked(ended, heard.checked)
+
+
+async def _child(
+    job: Job,
+    target: runner.Target,
+    play: Path,
+    variables_file: Path | None = None,
+    *,
+    name: str,
+    host_flag: str,
+    env: Mapping[str, str],
+    tags: Sequence[str] = (),
+    check: bool = False,
+    diff: bool = False,
+    verbosity: int = 0,
+    started: Callable[[Process], None] | None = None,
+    test_connection: Mapping[str, object] | None = None,
+    test_collections: Path | None = None,
+) -> tuple[Ended, events.Heard]:
     """play run on target by one ansible-playbook, a child of job's run in a session of its own, with the configuration
     and the inventory written into the run's directory, where it works, and the environment built from env's allow
     list; started(process) called once it runs; each event of the play handed to job's emit as a step event of the
@@ -596,7 +681,7 @@ async def run(
                 await asyncio.wait_for(asyncio.shield(heeding), EVENTS_GRACE)
             status = process.returncode
             assert status is not None
-            return Ended(status, _said(printed, heard), heard.counts)
+            return Ended(status, _said(printed, heard), heard.counts), heard
     finally:
         # The pipe's reading and the wait for the child, where the call ends before them.
         unfinished = [task for task in tasks if not task.done()]

@@ -79,6 +79,9 @@ VSCODE_ELSEWHERE = {
     "lib/claude_vm/schema/patterns.py": 1,
     # The new engine's table of verbs carries today's help sentences, which name the editors: code's and --editor's.
     "lib/claude_vm/schema/words.py": 2,
+    # The list of what the new engine writes on the computer carries today's row of VS Code's extension, data a person
+    # reads, as playbooks/vars/controller_writes.yml does (card G8).
+    "lib/claude_vm/engine/controller_writes.py": 6,
     "playbooks/code.yml": 14,
     "playbooks/configure.yml": 1,
     "playbooks/destroy.yml": 1,
@@ -137,6 +140,9 @@ PROXMOX_ELSEWHERE = {
     "lib/claude_vm/engine/destroy.py": 9,
     # A VM configured: a stopped VM's sentence names it by its VMID, and its start waits for its address by it.
     "lib/claude_vm/engine/configure.py": 3,
+    # The aliases' prune: the host's VMs listed by VMID as proxmox.ssh_config_prune reads a cluster's listing, and the
+    # sentence that names a member of the pool listed with no name by its VMID.
+    "lib/claude_vm/engine/aliases.py": 5,
     "lib/claude_vm/mcp/confirm.py": 4,
     "lib/claude_vm/refs.py": 3,
     "lib/claude_vm/run/model.py": 4,

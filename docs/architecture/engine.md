@@ -1228,9 +1228,10 @@ see is the runner's to refuse.
 **A VM made: `create.py`, and `deploy`'s handler: `deploy.py`.** `aw deploy --only provision` makes or resumes each VM
 named, the default VM where none is (`vm_default_name`), side by side, under each VM's lock (C7's `machines`); `aw
 deploy --only template` is `template.ensure` and nothing after it (above), under the fleet's lock held exclusively, since
-it names no machine; every other stage of `deploy` but `--only configure` (`configure.py`, below), and `--check`,
-`--adopt` and `--take-over`, is refused naming the card that builds it; `--remove-key` is a configure's alone
-(below). Before anything is created, the run reads the fleet (`fleet.requested`, a changing read, so a VM it may not
+it names no machine; every other stage of `deploy` but `--only configure` (`configure.py`, below) and `--only
+ssh-config` (`aliases.py`, below: under the fleet's lock where it names no VM, each VM's where it does), and
+`--check`, `--adopt` and `--take-over`, is refused naming the card that builds it; `--remove-key` is a configure's
+alone (below). Before anything is created, the run reads the fleet (`fleet.requested`, a changing read, so a VM it may not
 change refuses the run), settles the route (`routes.settle`, whose hop that cannot be used stops the run), refuses a VM
 with no key in `vm_ssh_public_keys` and no console password in the vault (`vm_password`), and compares the base template
 (`template.compare`): only one it may clone from is cloned from, any other said with why, and none with no cloud-init
@@ -1334,14 +1335,18 @@ line that answers it, exit 1. In the run, the live view made first:
   stop, and the VM confirmed gone from `resources("vm")` - no VM at its VMID, or another's - never from a refusal's
   words; a deletion whose answer was lost, or whose task's end could not be read, is decided there too. A task that
   ended `WARNINGS: <n>` is a success whose lines are said.
+- **Its alias.** Still in the shield, only for a VM said gone, its stage `aliases` (declared beside the deletion's):
+  `aliases.forget` takes its block out of the managed SSH config, unless the block records another host of the fleet,
+  whose VM of the name it is (kept, and said); with `claude_ssh_config` off the stage is skipped. A removal that fails
+  is said with the fleet-wide `aw deploy --only ssh-config` that prunes it, and fails nothing: the VM is gone.
 
 Every VM is said in one line, which the view draws under its name: `deleted, with its disks.`, or `not deleted - <why>,
 so it is still there: run aw destroy <name> again once that is fixed.` The run exits 0 where every VM was deleted, 2
 (`EXITS`' `failed`) where one was not, the others gone on, and 130 where a person stopped it. Each report goes
 through `report.py`'s `say`, matter `destroy`: a VM a stopped run left records `aw destroy <name>`, with the host's
 flag, as its NEXT STEPS line; every other report, none. The VM's line in the
-product's known-hosts file stays, the tombstone of its identity; nothing here writes a record, an alias (card G8) or a
-session. `tests/unit/test_aw_destroy.py` holds it on a whole fleet folder against the fake: a VM and its disks deleted
+product's known-hosts file stays, the tombstone of its identity; nothing here writes a record or a session.
+`tests/unit/test_aw_destroy.py` holds it on a whole fleet folder against the fake: a VM and its disks deleted
 after its stop, a stopped one with none; the refusal while either setting is on, and the declined deletion with no
 terminal, each before anything is sent; `--confirm` naming another VM refused, in the handler too; an unrecorded member
 refused and deleted under the override, and a template, a VM outside the pool and another's record refused whatever is
@@ -1410,6 +1415,71 @@ ending the run 130 with the system layer drawn stopped and nothing drawn failed;
 connection, a configure through the stand-in hop, and a hop
 refused that stops before the VM.
 
+**The aliases: `aliases.py`.** `aw deploy --only ssh-config` gives each VM named, or every VM of the pool the fleet
+owns where none is, its alias in the managed SSH config (`~/.ssh/agent-warehouse.conf` under the run's home,
+`hosts.ALIASES`), from a live read of the fleet that changes nothing (`fleet.requested`, `change=False`); `deploy` runs
+it under the fleet's lock where it names no VM, each VM's where it does, and it is read-only against Proxmox. A VM
+`fleet.refusal` says the fleet does not own refuses the run where it is named and is left out, said, where none is; a
+VM with no address (stopped, booting, without its agent) keeps the alias it had, said. A block is today's
+(`playbooks/tasks/ssh_config.yml`), between `# BEGIN agent-warehouse: <name>` and its `# END`: `# origin: <host>`,
+`Host`, `HostName` (the address, or `<name>.<claude_ssh_host_domain>`, a domain never used through the hop), `User`,
+`ProxyJump` where it goes through the host, `HostKeyAlias` (the VM's identity), `UserKnownHostsFile` (the product's
+known-hosts file), `CheckHostIP no`, `UpdateHostKeys no`, `StrictHostKeyChecking` (accept-new, or a stricter one the
+options give), `IdentityFile`, `ForwardAgent`, then `claude_ssh_options`. So a VM's key is looked up under its
+identity, never an address, in the product's file alone, which the alias never writes but through the person's own ssh
+taking a key at first use under that identity; a deleted VM's key stays there. Refused before anything is written: a
+name, an account, an address, an identity (`checks.HOST_KEY_ALIAS_RE`) or a jump that is not one plain word; an option
+the block writes itself, or a `StrictHostKeyChecking` looser than accept-new; a name a `Host` line of the person's own
+config names; and, named, a name `ssh` would take for another host (`checks.ssh_alias_refusals`: an address, a name
+this computer reaches a host of the fleet by, a dotted name given by no run that names it) or whose block records
+another host of the fleet (`proxmox.ssh_config_elsewhere`), which fleet-wide are left out and said, the dotted one with
+the line that names it and an alias it has left as it was. A block of a host the fleet no longer has is taken over.
+
+Each write is a compare-and-swap: the file read, the text worked out, validated by `ssh -G -F` of a scratch copy of that
+check's own in the run's directory (`tempfile.mkstemp`, `ssh-config-check-`, removed after, so that writes of one run
+side by side never read or remove each other's) for each alias written, and replaced (`store.replace`, 0600 when new,
+its folder 0700) under the file's lock only where it is still what was read, otherwise worked out again, at most `TRIES`
+times; a text that changes nothing is not written. Then the `Include` of the managed file at the top of the person's
+`~/.ssh/config`, once: none with `claude_ssh_config_include` off (the line said to add by hand), none where the line is
+there before the file's first `Host` or `Match` line (an `Include` below one is read for that block's hosts alone, so
+there `ssh` is asked), or where a line names the file in a spelling `ssh` reads (its path, `~/`, `${HOME}/`, its bare
+name) and `ssh -G` through that config gives the alias just written; otherwise the one line put above the rest, ending
+as the file's first line does, the rest byte for byte (the person's file is read with its line endings as they are, so
+a CRLF file stays one; the managed file with universal newlines, so a CRLF copy's blocks are found and it is written
+back as LF) and the file's mode kept, never another line rewritten or removed. Every `ssh -G` is
+`ssh/resolved.py`'s, a child of the run's of the ssh kind, its group ended past `LIMIT` seconds. Through the Proxmox
+host an alias gains `ProxyJump` (`Route.proxy_jump`) only once `Route.targets` returned for its VM, and only where that
+`Target` takes the hop: a VM with a jump of its own keeps its own, a `ProxyJump` or `ProxyCommand` in
+`claude_ssh_options` takes the hop's place for every alias, a VM the route refuses is left out and said, and a host that
+cannot be the hop (at the route's settling or a target's) gives no alias through it, said with `vm_ssh_route: direct`,
+while the prune still runs; where `ssh -G` of the hop through the person's config would not offer the key the host's
+settings name, the lines that give it are said. Each alias written is said with its connect line (`ssh <name>`,
+`aw code <name>`, the workspace it opens).
+
+With no VM named, the run prunes: the host's listing (`resources("vm")` and `fleet.members`, a member tagged owned
+where `fleet.refusal` says the fleet owns it, or where the pool lists it with no name) handed to
+`proxmox.ssh_config_prune` with this host as the origin and the fleet's other hosts. It removes this host's blocks of
+VMs gone (a VM outside the pool is one gone where the token cannot see it, without `VM.Audit` on `/vms`: under
+`proxmox_audit_scope: pool`) and those whose name no alias may have, and says what it left: a block of a VM the fleet
+does not own, one recorded for a host the fleet does not have, one with no record while the fleet has other hosts; a
+pool member listed with no name prunes nothing. A block recorded for another host of the fleet is never touched. With
+`claude_ssh_config` off nothing is written, and the run says so. `aw destroy` removes a deleted VM's (`aliases.forget`,
+above). Its reports are matter `aliases`. `tests/unit/test_aw_aliases.py` holds it, every file in the test's own home
+and `ssh -G` this computer's own through F30's stand-in: today's cases of `tests/unit/test_ssh_config.py` and the key's
+of `tests/unit/test_host_keys.py` (but the 1.x file's move, not built), the compare-and-swap against a write between the
+read and the swap, the jump's rules against a route of the test's own, and against the fake: the same file
+`playbooks/ssh_config.yml` gives for the same fleet, the prune, a VM the fleet does not own, and a destroy that leaves
+no block of its VM and its key in place.
+
+**What the engine writes on this computer: `controller_writes.py`.** One row a place the new engine writes outside the
+checkout, in the form of today's `playbooks/vars/controller_writes.yml`: where (as a person reads it, or the function of
+`fleet/paths.py` that gives it), what, who, when, what takes it out, the setting that moves or turns it off, and its
+sources, the engine's files that make the write; a write no card has built yet names its card and no source. Data alone.
+`tests/unit/test_aw_controller_writes.py` finds each row's write where the engine makes it by its own spelling, and
+scans every file of the new engine for a write (a file written, replaced, created, appended to, a folder, a scratch
+file, a link): one that is the source of no row fails, so a card that writes somewhere new adds its row in the same
+commit. Today's list and `tests/unit/test_controller_writes.py` hold today's product until the cutover.
+
 **What a run says, and NEXT STEPS: `report.py`.** `say(run, machine, matter, text, line)` is the one way a workflow or a
 layer-2 step tells a person something: it emits the `report`, printed above the region and kept for the summary, and
 straight after it the `next` record of that machine and matter, the line while something is left and `""` once nothing
@@ -1417,7 +1487,9 @@ is, which takes back a line an earlier report of the same machine and matter lef
 report and never read off what was said, as today's report tasks record theirs
 ([§7.5](custom-code.md#75-callback_pluginsagent_warehousepy--the-waits-and-next-steps)). The machine is its identity, or a VM's stand-in key until its join, or none for the
 run's own; the matter is one of `run/next_steps.py`'s `MATTERS`, today's and the engine's own, which no report of today's
-records, each at a named place (`fleet`, `route` and `template` after `init`'s two, `configure` after `vm`), so today's
+records, each at a named place (`fleet`, `route` and `template` after `init`'s two, `configure` after `vm`, `aliases`
+after
+`configure`), so today's
 NEXT STEPS keeps its lines and their order. The line is the printer's whole line, or a sentence `said` writes, made by
 the caller with the host's flag, so that with more than one host it ends `--host <name>`, and handed on whole: one line,
 never a form. The run's model folds the records in today's order and the run's end prints them after the summary, which
@@ -4219,9 +4291,11 @@ result was censored or its failure ignored). Every string is struck of every sec
 that of two where one holds the other the longer is struck whole; made plain (`text.plain_text`); and struck again, so
 that a secret an escape sequence split is struck once whole; then cut to its field's bound, after the strike. A
 message, an item or an output written as a structure stays one until each of its strings is so made, and is then made
-one text, JSON's form of it, struck once more, then cut. What the strike does not promise: a secret Ansible itself
-writes in another form (through `repr`, as an exception's text quotes a value, base64 or a URL's escapes), one split
-across two strings, or one split by a character `plain_text` keeps (a zero-width space). A line that is no event, or
+one text, JSON's form of it, struck once more, then cut. The strike meets a secret in the forms Ansible itself quotes
+one in too (`secret.struck_all`): JSON's escape of it, with and without ASCII's, as a mapping's diff is written, and
+`repr`'s, as an exception's text quotes a value or a key that is a tuple is made text. What it does not promise: a
+secret in base64 or a URL's escapes, one split across two strings, or one split by a character `plain_text` keeps (a
+zero-width space). A line that is no event, or
 too long, is said as one that could not be read; a line the child did not finish at the pipe's end is none.
 `layer1.run` returns, with the exit status, the counts a caller needs (`events.Counts`: the failed, the unreachable, the
 changed), from Ansible's own recap or, where the child ended before it, counted from the results heard; and the end of
@@ -4238,6 +4312,22 @@ form, raw and escaped; of two secrets one inside the other, the longer struck wh
 and its end keyed by the one identity the record names; a control sequence reaching the log as plain text; the diff's
 two rules; the pipe closed by its reader before and in the play; a listener's failure; and the reader's own rules on
 lines of its own.
+
+**The deep diff (`deploy --check`, card F21).** `layer1.check` runs the same child as `layer1.run` with `--check
+--diff`, so nothing on the machine changes, and returns `layer1.Checked`: how the child ended, and each task as check
+mode makes it (`events.Checked`, from `Heard.checked`), in the order the tasks started. A task is "would change" where
+a result said changed, with every diff heard of it; "would not change" where every result said ok or was skipped by a
+false condition; and "not evaluated" where check mode skipped it unrun, and where it failed, was unreachable or had no
+result. Which skip is which the callback says, a yes or no alone (`condition`): Ansible marks a skip of a false `when`
+(`false_condition`, `skip_reason`), of the task or of every item of its loop, and any other skip is check mode's own,
+of a module that does not support it (`tempfile`, `expect`) or a `command`, `shell`, `script` or `raw` it would have
+run, so no module is named here. A diff is written only in this mode and never for a task censored for `no_log`, and
+is struck as every event's text. Layer 2 has no check mode: `step.check_steps(ctx, steps)` answers each step from its
+`probe` and its `difference`, applies nothing and emits nothing: "would change" with the difference, "would not
+change" where there is none, "would apply" for a step with no read of its own (its `reads` False), never probed, and
+"not evaluated" where its probe could not go on, with why, struck of the run's secrets. Each step reads the machine as
+it is, so a later step never sees what an earlier one would write. `tests/unit/test_aw_layer1_check.py` holds both on
+the pinned ansible-core against the stand-in machine.
 
 **Layer 2's steps.** `lib/claude_vm/guest/layer2/step.py` is the one shape of a step: a `name` (its events' key, as a
 stage's step is keyed), a `part` (one of a configure's six), `probe(ctx)`, which reads the machine and changes nothing,
@@ -4283,6 +4373,58 @@ the two calls), a launcher that resolves elsewhere refused and removed on every 
 installed over, the download gone whatever happened, `stable` never npm's version, npm not answering and a sudo that wants a password each a named failure, the
 version `guest.states` reads after it by each method, the steps' runner, and a scan of the step's source: no channel's name in an
 `install` argument and no URL of the installer script.
+
+**Claude Code's settings and Remote Control.** Two steps follow it, today's `settings.yml`, `main.yml` and
+`remote_control.yml` in plain code. `claude_settings.py`'s `claude-settings` merges the managed settings
+(`claude_code_settings`, the vault's `anthropic_api_key` in its `env` block, natively the update channel where
+`claude_code_version` is one) into `~/.claude/settings.json` as Ansible's recursive `combine` does, read and written as
+the machine's account, its content on the call's standard input and renamed into place, mode 0600; an empty file is
+`{}`, one that is no JSON object fails naming it, and a key an earlier run wrote that no setting manages now is
+removed, with an `env` block it leaves empty. `claude_code_global_instructions` is `~/.claude/CLAUDE.md` as it is. The
+key is on the run's redaction list before the file is read, and no value is an argument, an event or a difference: the
+difference names the settings that change by name. `remote_control.py`'s `remote-control` decides once whether Remote
+Control is wanted (`remote_control_wanted`, today's rule: `claude_code_remote_control` and no key, since a key outranks
+the claude.ai login), the one definition `aw status` reads too. Not wanted, each unit installed is stopped, disabled
+and removed, the path unit first, and a key that turned it off is said. Wanted, it reads the binary, `claude auth
+status`, settings.json's blockers, `~/.claude.json`'s answers and both units, and is eligible only where the login is
+claude.ai's with no `apiKeySource` of any kind and nothing in settings.json in the way. It answers the three prompts
+where one is unanswered, installs the service rendered here from today's template with jinja2 alone (held byte for
+byte to Ansible's template module, since a unit whose text changed is restarted), removes the path unit unless the
+login is the one thing missing, and then starts the service and holds it to have stayed up, or installs and starts the
+path unit (`PathChanged=` on the credentials file, never `PathExists=`), or leaves the service stopped; each outcome
+emits its report and its NEXT STEPS records, and none starts a sign-in. systemctl runs as root through the machine's
+sudo, and a value of the settings that is no single line is refused before a unit is made. The units' folder is a
+test's own on a stand-in, whose systemctl keeps each unit's state where `guest.states` reads it and does what systemd's
+path watch does on a tick of its own. `tests/unit/test_aw_claude_settings.py` carries the cases of
+`test_remote_control_playbooks.py` and `test_remote_control_unit.py` against the steps: both directions converging, a
+login landing starting the service through the path unit, a stopped service left stopped, and the path unit's
+`PathChanged=` with a test of its own.
+
+**gh's sign-in.** `lib/claude_vm/guest/layer2/github.py`'s step `github-auth` is today's `auth.yml` and
+`auth_status.yml` in plain code, over the rows `github_auth`, `github_auth_method` and `github_login_scopes` and the
+store's `github_token`; a method other than auto, web and token is refused before the machine is read, a GitHub App's
+hourly token named, since nothing standalone renews one. Its probe reads, as the machine's account: whether gh is
+there, `gh auth status --json` (a gh too old for it, before 2.81.0, a named failure where the run manages gh, never
+"signed out"), the active account, and, wherever gh holds one, its check passed or not (state `error`), the token
+gh holds piped on the machine into its own `python3`,
+which prints its digest and the kind its prefix tells and never the token, so that the token never leaves the machine;
+the marker `~/.config/agent-warehouse/gh-login`, the digest of a login the product made, `github_token`'s alone (a
+device-flow login's marker is `gh-device-login`, which the step never reads or signs out by); and git's helpers for
+github.com. `decide(found, wanted)` is auth.yml's decisions in one function, by digests alone, never by a token's
+prefix: the token signs gh in where gh is signed out, signed in by the product, or the method is token, and a login
+made by hand stays, the token only listing there; with the method taking no token, only the marked login is signed out,
+by account, and the marker goes once gh holds no login; a login whose check failed is a login all the same, decided
+by its digest and said as unchecked or refused, never "not signed in"; the marker is written wherever the login is the token's; gh is
+made git's helper where git has no entry of gh's. The acts are fixed commands of the runner: `gh auth login
+--with-token --insecure-storage` with the token on its standard input alone (a refusal fails quoting gh, but one for a
+missing scope under auto, which keeps listing and leaves gh signed out, the scopes named), the logout, the marker
+written on its command's standard input or removed, `gh auth setup-git`; the state is read again after a sign-in or a
+sign-out, and nothing is ever revoked. The report is `status/lines.py`'s line with its NEXT STEPS record, but for a
+token short of a scope, a token beside a login of the person's own and a sign-in that follows, auth.yml's own
+sentences. The token joins the run's redaction list before anything is read, and no message, event, argument or
+difference carries it. `tests/unit/test_aw_github_credential.py` carries `test_github_auth.py`'s cases of the sign-in
+against `tests/molecule/fake_gh.sh` on stand-in machines, greps every event, file of the run and call of the stand-in
+`ssh` for every canned token, and holds that no sign-out is decided from a token's prefix.
 
 **A person's keys.** The keys a machine accepts are the person's own, `vm_ssh_public_keys`, and layer 1 alone adds them:
 `common`'s keys tasks (`roles/common/tasks/keys.yml`) put each listed key on the account, every line of it made the

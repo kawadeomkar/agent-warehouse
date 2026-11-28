@@ -41,6 +41,7 @@ from typing import Any, Final
 from claude_vm.editors.registry import editor_servers
 from claude_vm.fleet import hosts, overrides, paths, registry, sealed, secrets, vaultkey
 from claude_vm.guest import states
+from claude_vm.guest.layer2 import claude_settings, remote_control
 from claude_vm.hosts import model
 from claude_vm.pve import template
 from claude_vm.schema import printer
@@ -89,8 +90,10 @@ ASKED_LIMIT: Final = 25
 PROGRAM: Final = "aw"
 SYSTEM_ROOT: Final = "/"
 SYSTEM_TIMEOUT: Final = 5
-REMOTE_CONTROL_UNIT: Final = "claude-remote-control"
-INSTALL_METHOD: Final = "native"
+# Claude Code's method and Remote Control's unit, the role's options passed through, each its own default where none is
+# set: layer 2's steps read the same (guest/layer2/remote_control.py).
+INSTALL_METHOD: Final = "claude_code_install_method"
+REMOTE_CONTROL_UNIT: Final = "claude_code_remote_control_service"
 # The gh login's marker as today's settings give the probe it, from the VM user's home.
 GH_MARKER: Final = "./" + states.GITHUB_MARKER.removeprefix("~/")
 TAILSCALE_DIR: Final = "/var/lib/agent-warehouse"
@@ -239,6 +242,15 @@ def _vm(
     method = str(value["github_auth_method"])
     projects = value["vm_projects_dir"] or ""
     user = value["vm_user"]
+    claude_method = value.get(INSTALL_METHOD) or remote_control.OPTIONS[INSTALL_METHOD]
+    unit = value.get(REMOTE_CONTROL_UNIT) or remote_control.OPTIONS[REMOTE_CONTROL_UNIT]
+    # Whether Remote Control is wanted, decided where layer 2 decides it.
+    wanted = remote_control.remote_control_wanted(
+        {
+            "claude_code_remote_control": value["claude_code_remote_control"],
+            claude_settings.SECRET: found.get((claude_settings.SECRET, None)),
+        }
+    )
     return {
         "drift": {
             "cores": int(value["vm_cores"]),
@@ -254,10 +266,10 @@ def _vm(
         },
         "sized_tag": f"{value['vm_label']}-sized",
         "claude": {
-            "method": INSTALL_METHOD,
+            "method": str(claude_method),
             "api_key": api_key,
-            "remote_control_wanted": value["claude_code_remote_control"] is True and not api_key,
-            "unit": REMOTE_CONTROL_UNIT,
+            "remote_control_wanted": wanted,
+            "unit": str(unit),
             "login_command": lines["claude_login"],
         },
         "github": {
@@ -300,7 +312,7 @@ def _vm(
                 "timeout": SYSTEM_TIMEOUT,
                 "editors": editor_servers(EDITORS),
             },
-            "claude": {"unit": REMOTE_CONTROL_UNIT},
+            "claude": {"unit": str(unit)},
             "github": {"marker": GH_MARKER, "marker_1x": ""},
             "work": {"dir": projects},
             "tailscale": {

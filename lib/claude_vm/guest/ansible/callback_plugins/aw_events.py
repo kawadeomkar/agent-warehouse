@@ -8,9 +8,11 @@ that no program a task starts holds it. A child started without one has no event
 
 The events: a play's start (`play`), a task's (`task`), a result (`ok`, `changed`, `failed`, `skipped`, `unreachable`,
 an item of a loop with `item`), a retry (`retry`), a diff (`diff`) and the recap (`stats`), with the task's name and its
-part, the role it is in. A result says its message, and where it failed, was unreachable or the run was given -v, its
-output, return code and exception; never more of a result than those, and never of a result Ansible censored for
-no_log: of one, only its kind and its task, and none of its message, exception, warnings, item or diff, which
+part, the role it is in. A skip says whether a condition made it (`condition`: a false `when`, of the task or of each
+item of its loop), by which F21's check tells a task it evaluated from one check mode skipped unrun. A result says
+its message, and where it failed, was unreachable or the run was given -v, its output, return code and exception;
+never more of a result than those, and never of a result Ansible censored for no_log: of one, only its kind, its task
+and whether a condition skipped it, and none of its message, exception, warnings, item or diff, which
 ansible-core 2.21 keeps in a censored result's `exception` and `warnings` and hands a callback whole. A diff is written
 only in a run given --diff (F21's --check --diff), never for a task's own `diff: true` alone. A fault of a hook here is
 written as an event of its own (`fault`, the hook and the error's type, no words of it), so that a result never
@@ -146,6 +148,18 @@ def _about(task):
     return {"task": name, "part": part}
 
 
+def _by_condition(found):
+    """Whether a skipped result was a false condition's: Ansible's false_condition or its skip_reason for one, set
+    only where a `when` was false; a loop's whole result where every item's was. A skip of check mode (a module that
+    does not support it, a command it would have run) is none."""
+    if not isinstance(found, dict):
+        return False
+    if found.get("false_condition") is not None or found.get("skip_reason") == "Conditional result was False":
+        return True
+    items = found.get("results")
+    return isinstance(items, list) and bool(items) and all(_by_condition(each) for each in items)
+
+
 def _censored(result):
     """Whether Ansible censored result for no_log: its task's own, or its item's."""
     found = result.result
@@ -212,6 +226,9 @@ class CallbackModule(CallbackBase):
             event["item"] = None if censored else self._get_item_label(found)
         if ignored is not None:
             event["ignored"] = bool(ignored)
+        if kind == "skipped":
+            # A yes or no alone, never the condition's words; said of a censored result too.
+            event["condition"] = _by_condition(found)
         if censored:
             event["censored"] = True
             return event

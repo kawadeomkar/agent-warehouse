@@ -60,7 +60,7 @@ TODAYS = (
     "editor",
     "destroy",
 )
-ENGINES = {"fleet": "init_check", "route": "fleet", "template": "route", "configure": "vm"}
+ENGINES = {"fleet": "init_check", "route": "fleet", "template": "route", "configure": "vm", "aliases": "configure"}
 ALPHA = "agent-warehouse-4f1c0000-0000-4000-8000-000000000001"
 BETA = "agent-warehouse-4f1c0000-0000-4000-8000-000000000002"
 
@@ -112,6 +112,20 @@ def test_say_refuses_before_anything_is_emitted(matter, text, line, error) -> No
     with pytest.raises(error):
         report.say(run, ALPHA, matter, text, line)
     assert run.events == []
+
+
+def test_one_report_records_each_of_its_matters_after_it_as_remote_control_s_records_two() -> None:
+    run = Heard()
+    report.say(run, ALPHA, "remote_control", "not started", "", also={"claude": "aw login alpha --only claude"})
+    assert run.events == [
+        ("report", ALPHA, "not started", {}),
+        ("next", ALPHA, "", {"matter": "remote_control"}),
+        ("next", ALPHA, "aw login alpha --only claude", {"matter": "claude"}),
+    ]
+    for also in ({"remote_control": ""}, {"something_new": ""}, {"claude": "aw login <name>"}, {"claude": None}):
+        with pytest.raises((ValueError, TypeError)):
+            report.say(run, ALPHA, "remote_control", "said", "", also=also)
+    assert len(run.events) == 3
 
 
 def test_the_engine_s_matters_are_at_their_named_places_and_today_s_keep_their_order() -> None:

@@ -263,9 +263,12 @@ lib/claude_vm/engine/             the workflows, one module a verb, in place of 
                                   started, its host key filed; configure.py, a VM configured, the frame: reached, its
                                   system layer run by layer 1, its home read, its stage written; deploy.py, deploy's
                                   handler, each stage refused but those built; destroy.py, destroy's handler: the names
-                                  confirmed, each VM read again and deleted with its disks; confirm.py, the one validator
-                                  of the names that confirm a deletion; report.py, what a run says of a machine and,
-                                  straight after, its NEXT STEPS record
+                                  confirmed, each VM read again and deleted with its disks, its alias removed;
+                                  confirm.py, the one validator of the names that confirm a deletion; report.py, what a
+                                  run says of a machine and, straight after, its NEXT STEPS record; aliases.py, the
+                                  managed SSH config: each VM's alias written, validated and swapped, the Include added
+                                  once, the prune by origin; controller_writes.py, the one list of what the engine
+                                  writes on this computer outside the checkout
 lib/claude_vm/pve/                the typed Proxmox VE client, and the one table of each call's privilege; client.py,
                                   Proxmox, the one class that sends the token, and its reads and writes; answers.py,
                                   each answer's frozen record and its parsing function; pin.py, the connection the token
@@ -280,7 +283,8 @@ lib/claude_vm/pve/                the typed Proxmox VE client, and the one table
                                   engine/access.py renders; commands.py, the base template's build as argument lists
                                   run over root SSH, each value held to its form, which runs nothing
 lib/claude_vm/ssh/                the runner over OpenSSH: ssh as a child, host keys taken at first use, the control
-                                  directory, the children a run holds
+                                  directory, the children a run holds; resolved.py, ssh -G of a configuration file, for
+                                  the aliases
 lib/claude_vm/vendors/            one HTTPS transport, Tailscale's calls, downloads held to a signature or a digest;
                                   transport.py, the one transport, over http.client: no redirect followed, no
                                   certificate variable read, a proxy only as an argument; proxy.py, today's proxy
