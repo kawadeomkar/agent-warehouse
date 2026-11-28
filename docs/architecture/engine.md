@@ -775,12 +775,18 @@ last, the one line on standard output, everything said to a person going to stan
 every sentence the script says of the list is this module's or `fleet/mark.py`'s, rendered: a value of another form than
 Proxmox makes an object by is refused before any `pveum` and never said back; a pool another fleet marked, one naming a
 control VM and one whose mark cannot be read are refused; a pool with no mark is refused naming `--take-unmarked`, and
-taken only given `--pool <name> --take-unmarked`, the mark added at its comment's end and the rest kept, while
+taken only given `--pool <name> --take-unmarked`, the mark added at its comment's end and the rest kept (a comment
+it would take past `COMMENT_MOST` characters refused by name, Proxmox declaring no length for one: card E8), while
 `--take-unmarked` without `--pool`, or for a marked pool, is refused; a token made without privilege separation is
-refused with its delete line; a role holding more than its own is said and granted, or withheld, as `plan` says; and a
+refused with its delete line, and one whose comment carries a mark that is not this fleet's (another fleet's, a control
+VM's, one that does not read) with `check`'s sentence naming `--token-id`, since two fleets share the user and never a
+token, whose comment carries the fleet's mark as the pool's does, a token whose comment carries none taken as it is; a role holding more than its own is said and granted, or withheld, as `plan` says; and a
 grant of the engine's roles these settings do not make is said with its `pveum acl delete` line and left. The script
 runs only as root, on Proxmox VE 9 or later, and refuses `root@pam` and any option it does not have, today's `--move`
-and `--template` among them. `--no-token` makes no token and changes nothing where the token is not there; a step that
+and `--template` among them. `--regenerate` (card E8's take-over) makes the token's secret again, `pveum user token
+modify <user> <id> --regenerate --output-format json`, whose `value` is printed as a new token's is, only of a token
+whose comment carries this fleet's mark, and makes the token where it is not there; with `--no-token` it is refused.
+`--no-token` makes no token and changes nothing where the token is not there; a step that
 fails after the token was made says that it is there with its secret unsaid, and the line that deletes it, after which a
 run again makes it anew. The dry run prints the commands, one an object, every token ID quoted, the token's own line
 asking for JSON, whose `value` is the secret; `--list` prints the node's storages and bridges.
@@ -800,8 +806,12 @@ removes what it names; and each refusal leaves the stand-in's state byte for byt
 value of the wrong form before any call of the stand-in's, `root@pam`, an option it does not have, a token without
 privilege separation (its init line naming a further host's `--host`), a pool of another fleet's, a pool with no mark
 without `--take-unmarked`, `--take-unmarked` without `--pool` or for a marked pool, and a template that is not the one
-guest of its name on the node or has a network card on a bridge not there. A corpus of comments holds the script's
-reading of the mark to `fleet/mark.py`'s, separators and spaces of every kind among them. The header's lines are the
+guest of its name on the node or has a network card on a bridge not there. Card E8's: a token another mark names is
+refused under every option and one with no mark taken, over the same corpus; `--regenerate` prints the one line and the
+new secret, makes a missing token, and refuses with `--no-token` and for a token no mark names; and two fleets on one
+host share the user, granted on both pools, each token's own entries on its own pool alone, the second fleet's default
+token ID refused naming `--token-id`, and a token without privilege separation refused. A corpus of comments holds the
+script's reading of the mark to `fleet/mark.py`'s, separators and spaces of every kind among them. The header's lines are the
 printer's, a further host's flag in them. The rule of V2-9 has a test of its own: no file of the checkout, tracked or
 untracked and not ignored, holds a rendering, found by its header. The stand-in reads no guest's configuration, so a
 `pvesh` of the test's own, first on `PATH`, answers that one read and hands every other to the stand-in.
@@ -864,15 +874,16 @@ and a pool or a token Proxmox refuses, are refusals with nothing written; with n
 or a new one gets one. Then each file through its one writer, none of whose locks is held around another's, each only
 where nothing is set: the key (`vaultkey.make_key` at `vault_key_file`'s place), `fleet.json`, the vault
 (`sealed.create`, then the secret as the host's `token`), `host.yml` and its anchor (`hosts.write`), with `made`
-recording by ID what the administrator made by hand where the secret was given, the host's storage, bridge and pool
-(`aw-fleet` where none is given or set), the fleet's `github_username` and `vpn`, and `client.yml`'s current host. The
-names written where none is given are the engine's own: the user `agent-warehouse@pve`, the token `aw`, the pool
-`aw-fleet`, and the first host `pve`. `made` records the pool, the user and the token only where each is that default
-(`OWN_NAMES`), never a name the person gave or `host.yml` sets, which may be an object of the person's own that a
+recording by ID what the administrator made by hand where the secret was given, or what the offer made (below), the
+host's storage, bridge and pool (`aw-fleet` where none is given or set), the fleet's `github_username` and `vpn`, and
+`client.yml`'s current host. The names written where none is given are the engine's own: the user
+`agent-warehouse@pve`, the token `aw`, the pool `aw-fleet`, and the first host `pve`. `made` records the pool, the user
+and the token only where each is that default (`OWN_NAMES`), the offer's roles where each is one of `access.ROLES` and
+its grants where the role is, the user or token is the engine's own and the path is of Proxmox's form, never a name the
+person gave or `host.yml` sets, which may be an object of the person's own that a
 cleanup by `made` would then remove; the run's report names the fleet the pool's mark gives wherever the secret was
 given, though `made` may then record nothing. A run stopped after any write goes on from what it wrote, and the same
-run again writes nothing. The modes other cards build (`--check`, `--print-commands`, `--machines`) are refused by name
-until each lands.
+run again writes nothing. The modes other cards build (`--check`, `--machines`) are refused by name until each lands.
 
 **`init` at a terminal: `attended`.** With standard input a terminal whose foreground the run is, as `runs/ask.py`'s
 `terminal()` decides for each question (16.8), and no `--no-prompt`, the same steps run drawn live (`INIT`, one stage
@@ -898,6 +909,52 @@ written. What was left is said, and NEXT STEPS keeps the line that asks again; o
 with nothing written. A run in the background of its terminal (`aw init &`) is one with nobody there, never drawn: the
 live region's change of the terminal's settings from there would have the terminal stop it (`SIGTTOU`) before its first
 question. `tests/unit/test_aw_engine_init.py` holds it at a pseudo-terminal of its own, against the fake.
+
+**The offer, and `--print-commands`.** At a terminal alone, between the token's ID and its secret and once the
+certificate is settled, `attended` offers to make what is missing on the host: `as_script` rendered for the host's
+values and the fleet's ID (`fleet.json`'s where there is one) is run there as root over root SSH in batch mode, `/bin/sh
+-s` reading it from standard input, no copy left on the host. The node is read first where `settings.yml` names none
+(`hostname -s`); the script's `--list` gives the storages and bridges where none is given or set (the one in effect
+where the node lists it, else a question); then its `--dry-run`, with `--no-token` where the vault holds the token's
+secret or one is given. Where something is missing, the plan (each object of the list with its privileges, and whether
+it is there), the dry run's commands and what the script said are shown with today's question, "Set it up now? y or n",
+no first, and the script runs on a `y` alone. On the `y`, `fleet.json` is written first where there is none, with the
+ID the script marks the pool with, so that a run cut after it finds the same ID; the script, the vault's write, `made`'s
+record and any deletion then run as one shielded phase (a Ctrl-C lets it finish), and where the run is ended inside it
+anyway the token's delete line is said (a token whose secret the dry run said it makes again excepted, card E8: then
+that the next `init` asks again; the rescue itself reads the run's own token line, since the script decides again).
+Its standard output, the token's secret, is held to a UUID and sealed in the
+vault before anything else runs, then read back; where it is not there as printed, where the script printed none, or
+where it failed after it made the token, the token the run made is deleted again and `init` stops, and where the
+connection is lost after the token, the delete line is said. The token is the run's own only where the script said a
+command after its line, finished, or said it made it (in an `error:` line of its own, never a `+` line, which may quote
+a pool's comment): its line is said before the add, so a run that ended by itself on
+that line had its add refused, and nothing is deleted. What it made of the engine's own names, the pool, the user,
+the token, the three roles and their grants for the engine's user or token, is recorded in `host.yml`'s `made` with
+this engine its maker, read from the commands the script said it ran (its `+` lines). No, Esc, Enter, root SSH that
+does not answer, a script that refuses, nothing missing, and a token there whose secret is held nowhere here, in a
+pool nothing shows is this fleet's, leave the host as it was, said, and the secret is then asked. With nobody there
+no offer is made.
+
+**The pool's mark on the offer** (card E8). Before the dry run the pool is read as root reads it (`pvesh get /pools
+--poolid`, `pve/script.py`'s `pool_read`); it decides only what is asked, and the script decides again. A pool whose
+comment carries no mark is taken only where it is named (`--pool`, or the host's `proxmox_pool`), its comment and its
+members shown in the question and the script run on the `y` with `--pool <name> --take-unmarked`; else it is refused
+naming both ways, the by-hand road in that same form, as it is where a secret given reads it with nobody there. Where no
+token's secret is held or given and the comment carries a mark with no control VM, another fleet's, or this fleet's with
+its token there, `init` asks which of two things is meant and does neither unasked: taking the fleet over (where
+`fleet.json` names no fleet or the mark's) runs the script with the mark's ID and `--regenerate`, every other copy of the
+token's secret then failing, and `fleet.json` keeps the mark's ID; using another pool (where `settings.yml` names none)
+asks its name and, where no token was named, the token's full ID, and makes a fleet of this computer's own there. Where
+the mark's ID is `fleet.json`'s, a run of this computer's cut before the secret was kept or another computer of the
+fleet's, the first is asked as making the fleet's own token's secret again, never as a take-over. A token whose secret
+the run said it makes again (`token modify`) is never deleted where the vault cannot be written: the run did not
+make it, and deleting it would leave the fleet with none; the next `init` asks again. One a take-over adds, the token
+gone, is the run's own, and deleted as any token the run made (review 76). Enter or Esc does neither; a mark naming a control VM is the script's
+refusal, nothing asked. `aw init --print-commands` prints the same script on standard output, and on standard error how to
+run it as root, reading `host.yml`, the settings and `fleet.json` alone: no vault, run, lock or request. Its one write
+(card E8): with no `fleet.json`, the fleet's ID it renders is written there and said, so that a second print and the
+offer render the same ID, and a by-hand run again after a partial one is never refused as another fleet's.
 
 `tests/unit/test_aw_engine_init.py` holds `init` against the fake Proxmox, through `tools/aw` with a refusing `ssh`
 first on `PATH` and in this process with root SSH a reader of the test's own; its runs through `tools/aw` from a home
@@ -1037,8 +1094,8 @@ see is the runner's to refuse.
 **A VM made: `create.py`, and `deploy`'s handler: `deploy.py`.** `aw deploy --only provision` makes or resumes each VM
 named, the default VM where none is (`vm_default_name`), side by side, under each VM's lock (C7's `machines`); `aw
 deploy --only template` is `template.ensure` and nothing after it (above), under the fleet's lock held exclusively, since
-it names no machine; every other stage of `deploy`, and `--check`, `--adopt`, `--take-over` and `--remove-key`, is
-refused naming the card that builds it. Before anything is created, the run reads the fleet (`fleet.requested`, a changing read, so a VM it may not
+it names no machine; every other stage of `deploy` but `--only configure` (`configure.py`, below), and `--check`,
+`--adopt`, `--take-over` and `--remove-key`, is refused naming the card that builds it. Before anything is created, the run reads the fleet (`fleet.requested`, a changing read, so a VM it may not
 change refuses the run), settles the route (`routes.settle`, whose hop that cannot be used stops the run), refuses a VM
 with no key in `vm_ssh_public_keys` and no console password in the vault (`vm_password`), and compares the base template
 (`template.compare`): only one it may clone from is cloned from, any other said with why, and none with no cloud-init
@@ -1093,6 +1150,101 @@ a stopped VM left stopped, and started with `--start`; a size for a VM the run c
 one that exists, a larger disk on a repair too; `--repos` given, added to and refused; and, without the fake, the keys
 of today's settings call, `need_configuration`'s cases and that it reads no ownership, the one size reader, and each
 stage refused by its card.
+
+**A VM deleted: `destroy.py`, and the names confirmed: `confirm.py`.** `aw destroy` deletes each VM named, the default
+VM where none is (`vm_default_name`), with its disks, under each VM's lock (C7's `machines`). Before any job is made:
+`--confirm=<names>` is held to the VMs given again in the command's own process, by `confirm.names`, the one validator
+of a confirmation by names, which takes both as sets, each name with - for _, and says which name differs (the parse's
+rule destroy.2 refused it first); the run is refused while `destroy_save_sessions` or `destroy_release` is on (both are
+by default), naming cards G13 and G14, which save a VM's sessions and release it, and the two settings, so that no run
+loses what only a VM holds; and with no terminal to ask at (`runs/ask.py`'s `terminal()`) and no `--confirm`, the answer
+is no, said as the person's: the question not asked, then `Nothing was deleted: the deletion was not confirmed.` and the
+line that answers it, exit 1. In the run, the live view made first:
+
+- **The read.** The host is opened by `fleet.open_for_run` (the vault opened once, each `--set` value held to its
+  secrets: deploy's way too), and the VMs read by `fleet.requested`'s deletion read: changing, so a name two members
+  carry, a name no member carries (naming the pool: a VM outside it is out of the token's reach) and a VM the fleet does
+  not own are refused; `whole`, refused while any member of the pool cannot be read, since one unread may carry a
+  target's UUID (a member that the pool, listed once more, no longer names is gone, not unread: a sibling's deletion
+  that ended between the listing and its configuration's read); and `addresses=False`, no guest agent asked.
+  `destroy_allow_unrecorded` is `unrecorded`, which lifts pve/ownership.py's one refusal of a member with no record,
+  said for each such VM before the question, and no other: never a template, a VM whose record names another UUID or is
+  of another kind, one with no SMBIOS UUID, which its deletion is held to, or twins. Only `engine/destroy.py` asks for
+  it in `lib/`.
+- **The question**, today's: a `CONFIRM DELETION` block naming the VMs by the names Proxmox gives them, each made one
+  line, their disks and, where the fleet has more than one host, the host; then `Type yes to continue:`, whose safe
+  answer is "" (no). `yes`, or today's `true`, in any case, takes it; under `destroy_confirm: names` the VMs' names are
+  typed in its place, held by `confirm.names`. Anything else is the person's answer, said in today's words (a report
+  of the run), its check stage done and nothing deleted, and the run ends refused, exit 1: runs/model.py has no end of
+  its own for a declined run, so its record reads failed, `exit 1`.
+- **Each VM, side by side.** Whether it runs is read from its own endpoint; one that runs is stopped (`stop`, its task
+  followed with the run's stopping event, so that a Ctrl-C leaves it stopped and undeleted; sent once more where
+  Proxmox's file lock refused it, as a stop seconds after a start may meet), then owned again through
+  `fleet.requested`, since a stop may apply pending changes, and held to the VM confirmed, its identity and VMID. Then,
+  in the run's shield (a Ctrl-C lets it finish and says so): the client's `delete` (the configuration read again and
+  held to the Owned's identity and digest, `destroy-unreferenced-disks` alone, no `purge`), its task followed with no
+  stop, and the VM confirmed gone from `resources("vm")` - no VM at its VMID, or another's - never from a refusal's
+  words; a deletion whose answer was lost, or whose task's end could not be read, is decided there too. A task that
+  ended `WARNINGS: <n>` is a success whose lines are said.
+
+Every VM is said in one line, which the view draws under its name: `deleted, with its disks.`, or `not deleted - <why>,
+so it is still there: run aw destroy <name> again once that is fixed.` The run exits 0 where every VM was deleted, 2
+(`EXITS`' `failed`) where one was not, the others gone on, and 130 where a person stopped it. The VM's line in the
+product's known-hosts file stays, the tombstone of its identity; nothing here writes a record, an alias (card G8) or a
+session. `tests/unit/test_aw_destroy.py` holds it on a whole fleet folder against the fake: a VM and its disks deleted
+after its stop, a stopped one with none; the refusal while either setting is on, and the declined deletion with no
+terminal, each before anything is sent; `--confirm` naming another VM refused, in the handler too; an unrecorded member
+refused and deleted under the override, and a template, a VM outside the pool and another's record refused whatever is
+given; a name two VMs carry; a member the token may not read; one VM of two failing, both lines and exit 2; a stop the
+file lock refused sent once more, and one that failed otherwise never; the question at a terminal, yes and no, and the
+names typed; a Ctrl-C during the deletion; a VM owned again after a stop that changed it, held to the VM confirmed; and,
+without the fake, the names' validator, the question's words and what takes it, and the override's rule.
+
+**A VM configured, the frame: `configure.py`.** `aw deploy --only configure` configures each VM named, or every VM of
+the pool this fleet may change where none is (the fleet's lock then held whole); `--tags` beside VM names, with no
+`--only`, is the same run. A configure asks for parts, today's six (`rules.CONFIGURE_ROLES`), every one where `--tags`
+names none. The system play runs the three of layer 1 (`system.PARTS`); `claude_code`, `github_projects` and
+`tailscale` are layer 2's (card G9): until then a `--tags` that names one is refused before anything is read, naming
+G9, and a configure with no `--tags` runs the three and says by name that the other three were not run. The record's
+stage becomes `finished` only where one configure ran all six (`stage_after`), so a VM stays `unfinished` until G9; the
+converged digest stays empty, and so unwritten, until F28. Before anything reaches a VM the run reads the fleet by a
+changing read (`fleet.requested`: a VM it may not change refuses the run where it is named, and is left out and said
+where none is) and settles the route; `Route.ready()` is asked before the machines are reached side by side, under a
+task group. Then for each VM, each step an event of the run, declared as configure's (`DECLARED`: start, reach, system
+layer, home), and layer 1's own events lines of that machine's work:
+
+- **Provisioned and running.** A VM whose record is not provisioned fails, naming the provision line. A stopped one is
+  said and left, never waited on, unless the plan starts it (`start`, which only the whole chain, G10, gives: `deploy`
+  refuses `--start` beside `--only configure`), through its Owned, its address then waited for.
+- **Reached.** Its identity's key filed in the product's known-hosts file is held first (`layer1.key_filed`): with none,
+  the VM fails before any connection, with the line that files it. Its `Target` is the route's (`Route.targets`, one VM
+  a call, so that one refused fails it alone), its master made sure of (`Route.ensure`) and `true` run through the
+  runner until its `sshd` answers, for `SSHD` seconds at most.
+- **The system layer.** The play's variables are made for the parts run (`wiring.role_variables`, the same parts as the
+  child's `--tags`) and written in the run's directory through `system.variables`, held to every secret the run holds
+  (each host's token, the console password), which layer 1 also strikes from what it says. A failed task fails the VM
+  with the task named, the machine's name in place of its identity; cloud-init's own failure (`CLOUD_INIT_TASK`) is
+  said in this engine's lines, `aw destroy` and the provision and configure lines with
+  `--set configure_wait_for_cloud_init=false`, never today's `just` and `ANSIBLE_ARGS`; a VM layer 1 could not reach,
+  and a child that ended otherwise before any task failed (a play that did not load among them), fail with its words;
+  and a run that ended well with no recap heard from the product's callback fails too, since a callback of the same
+  name beside the play or in a role was loaded in its place.
+- **The home.** The VM user's real home is read from the password database through the runner (`getent passwd`) and
+  the workspace made from it as every reader makes it (`sessions.projects_dir`): each VM's outcome (`Configured`)
+  carries both only where it succeeded, for G8's alias.
+- **The record**, written through its Owned only where the stage changed; otherwise nothing is sent.
+
+A step that fails fails its VM alone, and the run exits 2; a route that cannot be used stops it. The interpreter and
+`sudo` are named by their paths in what layer 1 generates, and nothing here passes an option that could change them,
+nor a test's connection. `tests/unit/test_aw_configure.py` holds it against the fake and the stand-in machines, each VM
+made first by `--only provision`: a stopped VM left and never reached, a VM with no key filed refused before any
+connection, a part of layer 2 refused naming G9, a VM the fleet may not change refused or left out; then in the test's
+process, the system play swapped for a play of one task a part over F3's test-only local connection, which the test
+alone hands layer 1: the three parts run and the VM left `unfinished` with layer 2's named and nothing written, every
+connection by its identity, strict, with the person's `vm_ssh_options`; `--tags common` alone, and `--tags` with no
+names reaching every VM; a failed task, cloud-init's, a planted callback, the run's secrets struck; a stopped VM
+started where the plan says; and, over the stand-in's real connection, a configure through the stand-in hop, and a hop
+refused that stops before the VM.
 
 ## 16.5 `pve/` — the typed Proxmox client and the one table of privileges
 
@@ -1570,11 +1722,13 @@ itself on standard input, so each command it starts reads `/dev/null` or a pipe,
 VE host, never by grep or sed: a role's privileges it lacks and those it holds beyond its own; a pool's state by the
 fleet's mark, read as `fleet/mark.py` reads it, white space being what Python reads as such (Perl's, and the separators
 `\x1c` to `\x1f`); the comment taking an unmarked pool gives it; whether an ACL entry is there, propagating; a token's
-privilege separation; a person's template, the one guest of its name and a template on the node, and the bridges its
+privilege separation and the mark in its comment, read as a pool's is (card E8); a person's template, the one guest of its name and a template on the node, and the bridges its
 network cards are on; a new token's secret, held to the form of one; and a command's words, quoted as Python's
 `shlex.quote` quotes them, for each line the script prints. Its one cut of what the host holds, of the privileges a role
 holds beyond its own, makes each run of characters outside printable ASCII one space where `text.py`'s `one_line` keeps
-what it can print: Proxmox names a privilege in ASCII alone. It imports nothing of the project's.
+what it can print: Proxmox names a privilege in ASCII alone. `pool_read(pool)` is the one read `init`'s offer makes of the pool over root SSH before the
+script's dry run (card E8), `pvesh get /pools --poolid <pool>` as JSON, its comment and members read by
+`pve/answers.py`'s `pool`. It imports nothing of the project's.
 
 ## 16.6 `ssh/` — the runner over OpenSSH
 

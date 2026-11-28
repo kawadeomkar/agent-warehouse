@@ -7,7 +7,8 @@ read of it alone (a `Member`), whichever reader read it - engine/fleet.py's, whi
 through, and status's own (card G16), which may not import the engine (card G15's boundary) and judges by this same
 function, so that the two never part. It refuses a guest that is no Proxmox VM; a template, which is never a target; a
 member whose configuration or record could not be read, one the token holds NoAccess on among them, as its reader says
-why; one whose notes hold no record of this engine's, whatever tags it carries; a record of kind template, golden or
+why; one whose notes hold no record of this engine's, whatever tags it carries (but for a deletion under destroy's
+override, `unrecorded`, which lifts that one refusal and no other: card G5); a record of kind template, golden or
 build on a VM that is no template, and one that names another VM's UUID, each a copy (a clone sent without a description
 carries its source's notes); a VM's record that names no stage; a record that names no UUID, but the first form of the
 clone a run made, which that run alone may own, by its own job, which the record names, and its own clone's task, whose
@@ -263,11 +264,14 @@ def _twins(member: Member) -> str:
     )
 
 
-def refusal(member: Member, job: str = "", clone: Task | None = None) -> str:
+def refusal(member: Member, job: str = "", clone: Task | None = None, *, unrecorded: bool = False) -> str:
     """Why member is not the fleet's to change, "" where it is: the one check, decided from what was read of it alone,
     never from a label (see the module's docstring). job and clone are the asking run's own: its job's ID, and the task
     its own clone call answered (or its own job record keeps), given only by the run that cloned the member, whose
-    first form names that job and is at that clone's VMID; never read from the member or its record."""
+    first form names that job and is at that clone's VMID; never read from the member or its record. unrecorded is
+    destroy's override alone (destroy_allow_unrecorded, card G5): it lifts the one refusal of a member whose notes hold
+    no record of this engine's, and nothing else - a template, a member unread, one with no SMBIOS UUID, which its
+    deletion is held to, and twins are refused all the same, and a record of any form is judged as ever."""
     said = member.said
     if member.kind != KIND:
         return f"{said} is no Proxmox VM, which is all this host's runs change"
@@ -276,10 +280,17 @@ def refusal(member: Member, job: str = "", clone: Task | None = None) -> str:
     if member.unread:
         return member.unread
     if not member.recorded:
-        return (
-            f"{said} is a member of the pool with no record of this engine's in its notes, so this fleet did not make"
-            " it, whatever tags it carries: it is never changed or deleted"
-        )
+        if unrecorded is not True:
+            return (
+                f"{said} is a member of the pool with no record of this engine's in its notes, so this fleet did not"
+                " make it, whatever tags it carries: it is never changed or deleted"
+            )
+        if not member.uuid:
+            return (
+                f"{said} has no record of this engine's and no SMBIOS UUID in its configuration, which its deletion is"
+                " held to: it is never deleted"
+            )
+        return _twins(member)
     if member.recorded != KIND:
         return (
             f"{said} holds a {member.recorded}'s record and is no template, so it is a copy of another's notes (a clone"
@@ -314,14 +325,16 @@ def refusal(member: Member, job: str = "", clone: Task | None = None) -> str:
     return _twins(member)
 
 
-def owned(member: Member, *, job: str = "", clone: Task | None = None) -> Owned:
+def owned(member: Member, *, job: str = "", clone: Task | None = None, unrecorded: bool = False) -> Owned:
     """The Owned a change on member is made through, where the fleet may change it: NotOwned, saying why, where
     refusal() says it may not; TypeError for a member no reader made (Member.read), which it passes. job and clone: the
-    asking run's own job and its own clone's task, which own the first form of the clone it made (refusal()). The one
-    gate every change passes, and the one maker of an Owned."""
+    asking run's own job and its own clone's task, which own the first form of the clone it made (refusal());
+    unrecorded, destroy's override alone (refusal()), whose Owned is a deletion's: engine/destroy.py asks for it, and
+    engine/fleet.py carries it here, the one road in lib/ (tests/unit/test_aw_destroy.py's scan). The one gate every
+    change passes, and the one maker of an Owned."""
     if not isinstance(member, Member):
         raise TypeError("owned() judges a Member, what a reader read of a member of the pool")
-    why = refusal(member, job, clone)
+    why = refusal(member, job, clone, unrecorded=unrecorded)
     if why:
         raise NotOwned(why)
     if not member._read:

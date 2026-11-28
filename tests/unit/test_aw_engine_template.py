@@ -1738,8 +1738,8 @@ def test_a_cut_build_s_vm_at_the_id_is_handed_on_as_the_run_s_line_never_built_o
 
 def test_another_stage_this_card_does_not_build_is_still_refused_by_g3_s_sentence(deploying) -> None:
     assert deploy.not_yet({"only": "template"}) is None
-    output = _ran(deploying.deploy("deploy", "--only", "configure"), EXITS["refused"])
-    assert "error: aw deploy --only configure is not built yet (card G4 builds it)" in output
+    output = _ran(deploying.deploy("deploy", "--only", "ssh-config"), EXITS["refused"])
+    assert "error: aw deploy --only ssh-config is not built yet (card G8 builds it)" in output
     assert deploying.sent() == [] and deploying.asked() == []
 
 

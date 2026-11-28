@@ -271,22 +271,27 @@ def _name(name: object) -> str:
 
 
 def _key_filed(target: runner.Target, name: str, host_flag: str) -> None:
-    """NoKey where the known-hosts file target names files no key under its identity: its first connection files it,
-    before its first configure, and the line that makes it is said. The line is made first, whatever the file holds, so
-    that a host's flag the printer would refuse is refused here too."""
-    identity = str(target.identity)
+    """NoKey where the known-hosts file target names files no key under its identity (key_filed)."""
+    key_filed(target.known_hosts, str(target.identity), name, host_flag)
+
+
+def key_filed(known_hosts: Path | str | None, identity: str, name: str, host_flag: str) -> None:
+    """NoKey where the product's known-hosts file at known_hosts files no key under identity: its first connection
+    files it, before its first configure, and the line that makes it is said. The line is made first, whatever the file
+    holds, so that a host's flag the printer would refuse is refused here too. engine/configure.py asks it before any
+    connection to the machine, with the file the route's Target names (runner.KNOWN_HOSTS); run asks it again."""
     files = Line("deploy", {"names": [name], "only": "provision"}, host_flag=host_flag)
     try:
         printer.line(files.verb, files.values, refused=True, host_flag=files.host_flag)
     except ValueError as error:
         raise Refused(f"the line that files a machine's key cannot be made: {error}") from None
-    if hostkeys.kept(target.known_hosts, identity):
+    if known_hosts is not None and hostkeys.kept(known_hosts, identity):
         return
     raise NoKey(
         printer.said(
             "no host key of {identity} is filed in {known_hosts}, and layer 1 never takes one: a machine's key is"
             " filed at its first connection, before its first configure, which {files} makes",
-            {"identity": identity, "known_hosts": target.known_hosts, "files": files},
+            {"identity": identity, "known_hosts": known_hosts, "files": files},
         )
     )
 

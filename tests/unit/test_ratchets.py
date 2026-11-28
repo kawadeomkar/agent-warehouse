@@ -126,11 +126,17 @@ PROXMOX_ELSEWHERE = {
     # The new engine's one writer of a VM's record, which reaches a VM by its node and its VMID, as every workflow will.
     "lib/claude_vm/engine/record.py": 3,
     # The fleet as the new engine reads it: each member of the pool a target by its node and its VMID, and each read of
-    # it, its configuration, its state and its guest agent, made by its VMID. The one check is pve/ownership.py's.
-    "lib/claude_vm/engine/fleet.py": 26,
+    # it, its configuration, its state and its guest agent, made by its VMID. The one check is pve/ownership.py's. A
+    # deletion's whole read lists the pool once more where a member was unread, and keeps only those it still names.
+    "lib/claude_vm/engine/fleet.py": 28,
     # A VM made: the next VMID asked and cloned onto, the new member found at its task's VMID, and the sentences that
     # name a VM or the template by it, as today's role's do, the clone whose answer was lost among them.
     "lib/claude_vm/engine/create.py": 24,
+    # A VM deleted: its state read at its node and VMID, held to the VMID confirmed when owned again after its stop,
+    # and looked for at its VMID in the cluster's listing once its deletion's task has ended.
+    "lib/claude_vm/engine/destroy.py": 9,
+    # A VM configured: a stopped VM's sentence names it by its VMID, and its start waits for its address by it.
+    "lib/claude_vm/engine/configure.py": 3,
     "lib/claude_vm/mcp/confirm.py": 4,
     "lib/claude_vm/refs.py": 3,
     "lib/claude_vm/run/model.py": 4,

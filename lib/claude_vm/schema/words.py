@@ -785,7 +785,7 @@ _VERBS: tuple[Verb, ...] = (
             VERBOSE,
         ),
         rules=("destroy.1", "destroy.2"),
-        handler=None,
+        handler="engine.destroy:destroy",
         card="G5",
         locks="machines",
         changes=True,
