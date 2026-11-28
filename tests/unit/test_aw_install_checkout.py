@@ -330,7 +330,7 @@ def test_a_ctrl_c_stops_uv_at_once_and_the_run_is_cancelled(home, tmp_path) -> N
             stderr=err,
             env=env,
             process_group=0,
-            preexec_fn=harness._default_signals,  # noqa: PLW1509 - only signal, safe beside xdist's thread
+            preexec_fn=harness._default_signals,  # only signal, safe beside xdist's thread
         )
     try:
         end = time.monotonic() + 60
