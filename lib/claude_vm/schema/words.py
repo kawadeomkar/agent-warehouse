@@ -440,7 +440,7 @@ _VERBS: tuple[Verb, ...] = (
     Verb(
         name="install",
         group="use",
-        doc="Install the locked Python packages and the Galaxy collections: into your virtualenv, or this checkout's "
+        doc="Install the locked Python packages and git's pre-commit hook: into your virtualenv, or this checkout's "
         "own",
         words=None,
         options=(
@@ -480,7 +480,7 @@ _VERBS: tuple[Verb, ...] = (
             ),
         ),
         rules=(),
-        handler=None,
+        handler="cli.install:install",
         card="H18",
         locks="fleet",
         changes=True,

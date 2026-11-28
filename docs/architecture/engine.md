@@ -468,30 +468,48 @@ as every other caller of `tools/env-run` does: nothing of the folder it is run f
 choice of `python3` there nor a module there that the question's Python would import. A Python of the person's own is
 asked in the checkout's folder which interpreter it is, so that the one run is the one found there, a bare name, a
 relative `PYTHON` (the checkout's, as for `just`) or a version manager's shim alike, and `tools/aw` runs with it by its
-absolute path under `-I`. A Python that cannot be run is the launcher's own sentence, never the shell's words for a
-failed `exec`. `install`'s one home is its function `install_env`: what `just install` does to the environment, a sync
-of a virtualenv of the person's own with `--inexact` and no download after `tools/stale_scripts.py`'s reinstall, or of
-the checkout's own exactly the lock's on the Python version `managed_python` names, which the `justfile`'s holds equal;
-then git's pre-commit hook, as `just init` puts it, but nowhere where `core.hooksPath` is set. It installs no Galaxy
-collection and moves nothing of 1.x. It runs in three cases and no other: by itself, once, where the checkout's own
-environment does not exist yet, saying so on standard error before it runs the program; for `aw install --lock`, which
-writes `uv.lock` and needs no environment; and for its one word of its own, `--install-env`, which `aw install`'s run
-passes it as a child carrying the job's marker, `AGENT_WAREHOUSE_JOB`, and which is refused, naming `aw install`,
-without it. It never installs into a virtualenv of the person's own unasked: the program names `aw install` where one
-lacks the packages. It tells the program how a person runs it again, in `AGENT_WAREHOUSE_STARTED_AS`: `aw` where
-`command -v aw` is this launcher by its physical path, else what was typed to start it; and its own sentences that say
-what to run (`--install-env`'s refusal, the environment it makes first, a uv that made none) say the program the same
-way, each word as the printer's `quoted` writes it (`word`: bare where every POSIX shell and zsh read it back as it is,
-else quoted as `shlex.quote` quotes it, and a word that starts with `=`). It does not hold the word to the printer's
-categories of characters, which POSIX `sh` cannot read. It says every line through `printf '%s\n'`, never `echo`,
-whose backslashes `dash` and macOS's `sh` read as escapes: a checkout in a folder whose name holds `\n`, `\t` or `\c`
-is said as it is, never as another path or cut short. It hands the program no job's
-marker it inherited: past `--install-env`, which reads it, `AGENT_WAREHOUSE_JOB` is unset, so the program's own
-environment, as the system shows it, carries none; and `main.py` takes one out of its environment at its start too,
-for `tools/aw` run directly, so that a child a run starts outside `children.start` (16.8) carries no other job's ID.
-`install_env` ends, where `aw` on `PATH` is not this launcher, with one sentence of how to put it there, that folder
-being one `PATH` must name (`mkdir -p ~/.local/bin && ln -s <checkout>/aw ~/.local/bin/aw`, the checkout's path quoted
-as a shell reads it back), and writes nothing outside the checkout for it.
+absolute path under `-I`. The checkout's own environment named by a relative path (a relative `XDG_DATA_HOME`) is the
+checkout's too, never the working folder's. A Python that cannot be run is the launcher's own sentence, never the
+shell's words for a failed `exec`, and so is a copy of the launcher outside its checkout, which finds none of its tools:
+link to it, never copy it. `install`'s one home is its function `install_env`: what `just install` does to the
+environment, a sync of a virtualenv of the person's own with `--inexact` and no download after
+`tools/stale_scripts.py`'s reinstall, or of the checkout's own exactly the lock's on the Python version `managed_python`
+names, which the `justfile`'s holds equal; then git's pre-commit hook, as `just init` puts it, but nowhere where
+`core.hooksPath` is set. It installs no Galaxy collection and moves nothing of 1.x. A virtualenv of the person's own
+below Python 3.13, `pyproject.toml`'s floor, is refused before `uv` starts, as the Python named says its version, in
+`just install`'s sentence, and `tools/aw` refuses an interpreter below it before it imports anything of the checkout's,
+in the same sentence. It runs in three cases and no other: by itself, once, where the checkout's own environment does
+not exist yet, saying so on standard error before it runs the program; for `aw install --lock`, which writes `uv.lock`
+and needs no environment; and for its one word of its own, `--install-env`, which `aw install`'s run passes it as a
+child carrying the job's marker, `AGENT_WAREHOUSE_JOB`, and which is refused, naming `aw install`, without it. It never
+installs into a virtualenv of the person's own unasked: the program names `aw install` where one lacks the packages. It
+tells the program how a person runs it again, in `AGENT_WAREHOUSE_STARTED_AS`: `aw` where `command -v aw` is this
+launcher by its physical path, else what was typed to start it; and its own sentences that say what to run
+(`--install-env`'s refusal, the environment it makes first, a uv that made none) say the program the same way, each word
+as the printer's `quoted` writes it (`word`: bare where every POSIX shell and zsh read it back as it is, else quoted as
+`shlex.quote` quotes it, and a word that starts with `=`). It does not hold the word to the printer's categories of
+characters, which POSIX `sh` cannot read. It says every line through `printf '%s\n'`, never `echo`, whose backslashes
+`dash` and macOS's `sh` read as escapes: a checkout in a folder whose name holds `\n`, `\t` or `\c` is said as it is,
+never as another path or cut short. It hands the program no job's marker it inherited: past `--install-env`, which reads
+it, `AGENT_WAREHOUSE_JOB` is unset, so the program's own environment, as the system shows it, carries none; and
+`main.py` takes one out of its environment at its start too, for `tools/aw` run directly, so that a child a run starts
+outside `children.start` (16.8) carries no other job's ID. `install_env` ends, where `aw` on `PATH` is not this
+launcher, with one sentence of how to put it there, that folder being one `PATH` must name
+(`mkdir -p ~/.local/bin && ln -s <checkout>/aw ~/.local/bin/aw`, the checkout's path quoted as a shell reads it back),
+and writes nothing outside the checkout for it.
+
+**`install` in a checkout: `install.py`.** `aw install`'s handler runs the launcher's `install_env` as a run like any
+other: in a checkout (`fleet/paths.py`'s `kind`: a `justfile` and a `.git` at the program's root) it goes through
+`runs.run` under the fleet's lock, exclusively, so it is refused, naming the run that holds it, while any run that
+changes something lives, and its job has a record and a text log (16.8). The run's one step is a child of
+`runs/children.py`, which marks it with the job's ID: the launcher by its path, under `/bin/sh`, with `--install-env`,
+and `--lock` where it was given; each line the child says is an event of the run and is said on the stream the child
+said it on (but in a detached run, whose output is its log), and the run ends as the child does, `succeeded` or `failed`
+with exit status 2. Before any job, `--version`, `--newer`, `--rollback` and `--without` are refused in one sentence:
+they are the installed program's, after 3.0 (H14, H15), and a checkout takes a newer version by `git pull` and then
+`aw install`; an installed program is refused as not built yet (H14). It installs no Galaxy collection.
+`tests/unit/test_aw_install_checkout.py` holds it, with the launcher's two fixes and the floor, in checkouts the test
+makes with a stand-in `uv`.
 
 `tests/unit/test_aw_cli_parse.py` holds all of it: every option of every verb in both spellings, the refusals and that
 none says a value or has a usage block, a negative number by 3.13's rule and `argparse`'s two exceptions each held to

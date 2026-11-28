@@ -349,9 +349,15 @@ def _run(
     code: str | None = None,
     first_on_path: Iterable[str | Path] = (),
     argv: list[str] | None = None,
+    data_home: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     assert stdin is not None, "a run of tools/aw never reads this terminal: give it /dev/null, a file or its text"
     where = Path(cwd) if cwd is not None else home
+    env_of_run = environment(home, env, first_on_path)
+    if data_home is not None:
+        # run_launcher's one leave, a relative XDG_DATA_HOME: a folder under each program's own working folder.
+        assert data_home and not os.path.isabs(data_home), "data_home is a relative XDG_DATA_HOME, never another"
+        env_of_run["XDG_DATA_HOME"] = data_home
     # argv given is run_launcher's: the launcher, which runs tools/aw.
     if argv is None and code is not None:
         # python runs code (-c) in tools/aw's place: imports_of's one module.
@@ -362,7 +368,7 @@ def _run(
     process = subprocess.Popen(
         argv,
         cwd=where,
-        env=environment(home, env, first_on_path),
+        env=env_of_run,
         stdin=subprocess.PIPE if text is not None else stdin,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -421,10 +427,13 @@ def run_launcher(
     cwd: Path | None = None,
     timeout: float = 120,
     first_on_path: Iterable[str | Path] = (),
+    data_home: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run the launcher with words from cwd (home unless given), by its path as a person runs it, and return its
     status, stdout and stderr, as text: run_aw's environment (env and first_on_path as run_aw takes them), PYTHON the
-    suite's own Python unless env names another.
+    suite's own Python unless env names another. data_home is the one XDG_ variable a test may give, and only
+    relative, which names a folder under each program's working folder, never the developer's: for the launcher's
+    case of a relative XDG_DATA_HOME, whose environment is the checkout's, never the working folder's (H18).
 
     launcher is this checkout's, a link to it, or a copy of it byte for byte in a checkout a test made: never another
     program. This checkout's is never asked to install (--install-env, install --lock), and always runs with the
@@ -446,6 +455,7 @@ def run_launcher(
         timeout=timeout,
         first_on_path=first_on_path,
         argv=[str(launcher), *words],
+        data_home=data_home,
     )
 
 

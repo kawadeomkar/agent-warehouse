@@ -6,13 +6,32 @@ alone until then (docs/architecture/engine.md §16.1). Nothing of today's produc
 
 The launcher at the checkout's top, aw, runs it so, with the Python of the environment the checkout runs. Run with -I,
 so that no PYTHONPATH or user site-packages reaches it: it puts this checkout's lib/ on sys.path itself, checks that the
-claude_vm imported is this checkout's, and runs lib/claude_vm/cli/main.py with its own path first.
+claude_vm imported is this checkout's, and runs lib/claude_vm/cli/main.py with its own path first. A Python below
+pyproject.toml's floor, 3.13, is refused before anything of the checkout's is imported, in the sentence the launcher's
+install_env and just install say, never a traceback or uv's words about the lock: so this file holds to the syntax of
+the oldest Python 3 that reads it.
 """
 
 from __future__ import annotations
 
+import os
+import shlex
 import sys
 from pathlib import Path
+
+# pyproject.toml's requires-python, which tests/unit/test_aw_install_checkout.py holds equal.
+FLOOR = (3, 13)
+if sys.version_info < FLOOR:
+    # The program as a person runs it again, as the launcher says it, quoted as the printer quotes a word: as
+    # shlex.quote, and a word that starts with =, which zsh expands, quoted too.
+    started = os.environ.get("AGENT_WAREHOUSE_STARTED_AS") or "aw"
+    program = shlex.quote(started) if not started.startswith("=") else "'" + started.replace("'", "'\"'\"'") + "'"
+    sys.exit(
+        "error: [" + sys.executable + "] is Python " + ".".join(str(part) for part in sys.version_info[:3]) + ", and"
+        " this project needs Python 3.13 or later, as its program aw and ansible-core 2.22 do: make a virtualenv of"
+        " Python 3.13 or later and activate it or name it with PYTHON, or bring none - PYTHON unset and python3 no"
+        " virtualenv's - and " + program + " install makes this checkout's own with uv."
+    )
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "lib"))  # the controller's package (docs/architecture/custom-code.md §7.10)

@@ -15,7 +15,8 @@
 # for aw install --lock, which writes uv.lock and needs no environment; and for --install-env, the one word of the
 # launcher's own, which aw install's run passes it as a child that carries its job's marker (AGENT_WAREHOUSE_JOB). It
 # never installs into a virtualenv of your own unasked: where one lacks the packages, the program names aw install.
-# No Galaxy collection is installed (the engine needs none). Where aw on PATH is not this launcher, it says in one line
+# No Galaxy collection is installed (the engine needs none), and a virtualenv of yours below Python 3.13,
+# pyproject.toml's floor, is refused before uv starts, in just install's sentence. Where aw on PATH is not this launcher, it says in one line
 # how to put it there, making the folder ~/.local/bin where it is missing, and writes nothing outside the checkout.
 #
 # The program is told how a person runs it again, AGENT_WAREHOUSE_STARTED_AS, for every command line it prints: aw where
@@ -43,6 +44,12 @@ done
 checkout=$(CDPATH='' cd -P -- "$(dirname -- "$self")" && pwd -P)
 launcher=$checkout/${self##*/}
 uv=${UV:-uv}
+# A copy of this file outside its checkout finds none of the tools it runs: said in one sentence, never in the shell's
+# words for a command not found.
+if ! [ -f "$checkout/tools/env-run" ] || ! [ -f "$checkout/tools/aw" ]; then
+  printf '%s\n' "error: $launcher is a copy of aw outside its checkout, so it finds none of the checkout's tools: link to the aw at the top of your checkout with ln -s, never copy it" >&2
+  exit 1
+fi
 
 # A file's physical path, every link to it followed and its folder by its physical path, as the launcher's own is
 # found above; empty where its folder cannot be entered.
@@ -100,6 +107,12 @@ pick() {
   kind=${which%% *}
   named=${which#* }
   python=$named
+  # The checkout's own environment named by a relative path (a relative XDG_DATA_HOME) is the checkout's, as a relative
+  # PYTHON is, never the working folder's.
+  case $kind:$named in
+  managed:/*) ;;
+  managed:*) python=$checkout/$named ;;
+  esac
   if [ "$kind" = own ]; then
     python=$(cd "$checkout" && "$named" -I -c 'import sys; print(sys.executable)' 2>/dev/null) || python=
   fi
@@ -124,6 +137,15 @@ install_env() {
   own)
     # Refused, with how to make one, for a Python that is no virtualenv's.
     tools/env-run --bin >/dev/null
+    # The floor, pyproject.toml's requires-python, before uv starts, as the Python named says its version (the first
+    # line: "Python 3.12.7"), in just install's sentence: below 3.13 is 0.x to 3.9.x, 3.10.x, 3.11.x and 3.12.x.
+    version=$("$named" --version 2>&1 | sed -n 1p)
+    case $version in
+    "Python "[0-2].* | "Python 3."[0-9].* | "Python 3.1"[0-2].*)
+      printf '%s\n' "error: [$named] is $version, and this project needs Python 3.13 or later, as its program aw and ansible-core 2.22 do: make a virtualenv of Python 3.13 or later and activate it or name it with PYTHON, or bring none - PYTHON unset and python3 no virtualenv's - and $(program) install makes this checkout's own with uv." >&2
+      exit 1
+      ;;
+    esac
     prefix=$("$python" -I -c 'import sys; print(sys.prefix)')
     reinstall=$("$python" -I tools/stale_scripts.py)
     # $reinstall is words: --reinstall-package <name>, for each.

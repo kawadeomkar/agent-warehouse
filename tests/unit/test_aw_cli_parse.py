@@ -535,12 +535,14 @@ def test_an_environment_without_the_packages_names_aw_install_but_for_install_an
     with pytest.raises(parse.Refused) as refused:
         dispatch.dispatch(REPO, VERBS["status"], before.RunWords(), {})
     assert refused.value.sentence.endswith("lacks ansible, which uv.lock pins: run aw install"), refused.value.sentence
-    with pytest.raises(parse.Refused) as refused:
-        dispatch.dispatch(REPO, VERBS["install"], before.RunWords(), {})
-    assert refused.value.sentence == dispatch.not_built(VERBS["install"])
     # help, built (H6), prints the table without them.
     assert dispatch.dispatch(REPO, VERBS["help"], before.RunWords(), {"command": "deploy"}) == EXITS["done"]
     assert capsys.readouterr().out.startswith("Usage: aw deploy [<name>...]\n")
+    # install, which puts them there, reaches its handler (a recorder here: H18's runs the launcher).
+    ran = []
+    monkeypatch.setattr(dispatch, "_load", lambda handler: lambda run, **values: ran.append(handler))
+    assert dispatch.dispatch(REPO, VERBS["install"], before.RunWords(), {}) == EXITS["done"]
+    assert ran == ["cli.install:install"]
 
 
 def test_a_python_that_is_no_virtualenv_s_is_refused_for_every_verb_before_anything_else(monkeypatch) -> None:

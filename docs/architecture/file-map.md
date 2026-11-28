@@ -250,7 +250,8 @@ lib/claude_vm/schema/             the new engine (§16), built beside today's an
 lib/claude_vm/cli/                aw, the program: the command line read against the table, help, the dispatch;
                                   main.py, the entry tools/aw runs; parse.py, the words read with argparse; habits.py,
                                   today's habits, deploy's question among them; before.py, RunWords, the run's own
-                                  words; dispatch.py, a verb handed to its handler or refused; help.py, aw help's two
+                                  words; dispatch.py, a verb handed to its handler or refused; install.py, aw install
+                                  in a checkout, the launcher's install_env as a run; help.py, aw help's two
                                   levels from the table; reference.py, the command reference's tables from it;
                                   mcp_backend.py, the agents' tools' schemas and command lines, from the table;
                                   mcp_serve.py, the agents' server over the program, which tools/aw-mcp starts
