@@ -261,7 +261,7 @@
 
   tasks:
     # Tailscale, where it is the VPN: its package alone, by the role's entry system, imported so that the part's tag
-    # reaches every task it includes. Its join is layer 2's (lib/claude_vm/guest/layer2/tailscale.py).
+    # reaches every task it includes. Its join is layer 2's step vpn-join (docs/architecture/engine.md §16.10).
     - name: Install Tailscale where it is the VPN
       ansible.builtin.import_role:
         name: tailscale

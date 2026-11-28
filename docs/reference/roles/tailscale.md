@@ -64,7 +64,7 @@ Also takes, as described under `main`: `tailscale_enabled`, `tailscale_wanted`, 
 
 **Install Tailscale where it is the VPN, and nothing more**
 
-Reads what is installed and who installed it, and installs Tailscale from its apt repository where it is the VPN and no Tailscale is there or the one there is this role's. The join, the settings and the report are the new engine's own (lib/claude_vm/guest/layer2/tailscale.py). With tailscale_wanted false it changes nothing.
+Reads what is installed and who installed it, and installs Tailscale from its apt repository where it is the VPN and no Tailscale is there or the one there is this role's. The join, the settings and the report are the new engine's own, its layer 2 (docs/architecture/engine.md §16.10). With tailscale_wanted false it changes nothing.
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
