@@ -4540,11 +4540,14 @@ GitHub's noreply address, where the key is unset, so one set by hand stays; an o
 STEPS' `github_identity` says. The checkouts are the helper's verb `clones`, run as the account: asked first to change
 nothing, the probe's and the check's read, then to make each missing clone in a partial folder renamed into place once
 whole, and under `github_projects_update_existing` to pull a checkout that was there by a fast-forward alone: only a
-folder that is no link, is its own work tree's top, has the repository's `clone_url` or `ssh_url` as its origin in its
-config, and is on the default branch with no local change, any other named and left. Nothing removes a checkout.
+folder that is no link, is its own work tree's top, has the repository as its origin in its config (host and
+owner/name compared in lower case, `.git` and the scheme's spelling aside, never as an `insteadOf` rewrites it), and is
+on the default branch with no local change, fetched with no depth; any other is left as it is and said in the report.
+Nothing removes a checkout.
 Over ssh, GitHub's published SSH host keys (the API's `/meta`, which takes no token) are read on this computer by the
 one transport, and the verb puts them in the account's `known_hosts`, replacing a stale line of github.com's. A
-repository not cloned or a checkout not pulled fails the step, each named with git's last line, the rest cloned. The
+repository not cloned or a checkout git failed to pull fails the step, each named with git's last line, the rest
+cloned. The
 token joins the run's redaction list before anything is read (`github.wanted`). `tests/unit/test_aw_clones.py`
 carries the cases of `test_github_repos.py`, `test_git_clone_many.py` and `test_vm_repos.py` against
 `tests/molecule/fake_github_api.py`, local bare repositories and stand-in machines, holds that the copy chooses what

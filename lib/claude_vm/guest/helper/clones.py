@@ -19,16 +19,18 @@ true to change nothing and say what would change.
 - A name that is no folder name (a separator, a leading dot) is refused and nothing written for it.
 - A pull, only where asked and only of a checkout that was there before this run, and only of the repository the folder
   is: no link, its own work tree's top (never one around it), its origin the repository's clone_url or ssh_url as its
-  config holds it, its HEAD the default branch, and no local change to what git tracks; anything else is named and
-  left. The default branch is fetched and moved on by a fast-forward alone, so that a commit of the person's own is
-  never lost, and a branch that cannot fast-forward is named and left.
+  config holds it (its host and owner/name, in any case, `.git` and the scheme's spelling aside; never as an insteadOf
+  rewrites it), its HEAD the default branch, and no local change to what git tracks; anything else is named and left.
+  The default branch is fetched, with no depth, and moved on by a fast-forward alone, so that a commit of the
+  person's own is never lost, and a branch that cannot fast-forward is named and left.
 - known_hosts gains each key line for github.com it lacks, and loses a line of github.com's alone of a type the keys
   name with another key, which is replaced; the file is written whole and renamed into place, 0600, its folder 0700.
 
 git runs with prompts off (GIT_TERMINAL_PROMPT=0), each command in a process group of its own, so that one past its
 time is ended with every helper it started. It prints one JSON document: `folder` (whether the projects folder is
 there), `known_hosts` (whether it changed, or would), `cloned`, `skipped_existing`, `leftovers`, `not_cloned` (each
-with git's status and its last line), `pulled` and `not_pulled`; or `error`, why nothing was done.
+with git's status and its last line), `pulled`, `not_pulled` (git's own failures) and `left` (the checkouts a pull
+leaves as they are, each with why); or `error`, why nothing was done.
 """
 
 from __future__ import annotations
@@ -37,6 +39,7 @@ import json
 import os
 import re
 import shutil
+import urllib.parse
 
 PARTIAL = ".aw-partial"
 # A folder name git and the projects folder can both take: no separator, no leading dot.
@@ -118,14 +121,41 @@ def _submodules(git, repo, timeout):
     return None
 
 
+# A URL in the scp form git takes, [user@]host:path, which no scheme names.
+SCP = re.compile(r"(?:[^@/:]+@)?([^/:]+):(?!//)(.+)")
+
+
+def repository(url):
+    """A repository's URL as one key, whatever its spelling: the host and the path in lower case, as GitHub names
+    them, a trailing .git and slashes aside, and https://, ssh:// or the scp form alike; None for no such URL."""
+    url = url.strip()
+    if "://" in url:
+        try:
+            parts = urllib.parse.urlsplit(url)
+            host, path = parts.hostname or "", parts.path
+        except ValueError:
+            return None
+    else:
+        match = SCP.fullmatch(url)
+        if match is None:
+            return None
+        host, path = match.groups()
+    path = path.strip("/")
+    path = path[: -len(".git")] if path.lower().endswith(".git") else path
+    return (host.lower(), path.strip("/").lower()) if path.strip("/") else None
+
+
 def _left(name, said):
-    return {"name": name, "rc": None, "said": said}, False
+    """A checkout the pull leaves as it is, why: said in the run's report, never a failure."""
+    return {"name": name, "rc": None, "said": said, "left": True}, False
 
 
-def pull(git, repo, depth, timeout):
+def pull(git, repo, timeout):
     """A checkout that was there before brought to its default branch's tip by a fast-forward alone: (None or what
     stopped it, whether it moved). Only the repository the folder is itself, never one git finds around it or through a
-    link, whose origin is the repository's own URL as its config holds it, and which is on the default branch."""
+    link, whose origin is the repository's own as its config holds it, in any spelling of its URL, and which is on the
+    default branch. Fetched without a depth: a shallow checkout's fetch stops at its own boundary, where one with a
+    depth would be grafted, and never fast-forwards."""
     dest, name = repo["dest"], repo["name"]
     if os.path.islink(dest):
         return _left(name, "its folder is a link")
@@ -134,7 +164,7 @@ def pull(git, repo, depth, timeout):
         return _left(name, "its folder is no checkout of its own")
     # As the config holds it: `remote get-url` would give it as an insteadOf rewrites it.
     failure, origin = git_run([git, "-C", dest, "config", "--get", "remote.origin.url"], timeout)
-    if failure or origin.strip() not in repo["origins"]:
+    if failure or repository(origin) is None or repository(origin) not in map(repository, repo["origins"]):
         return _left(name, "its origin is not this repository")
     failure, head = git_run([git, "-C", dest, "symbolic-ref", "-q", "HEAD"], timeout)
     if failure or head.strip() != f"refs/heads/{repo['branch']}":
@@ -145,15 +175,12 @@ def pull(git, repo, depth, timeout):
     if changes.strip():
         return _left(name, "it has local changes, which a pull would put at risk")
     _, before = git_run([git, "-C", dest, "rev-parse", "HEAD"], timeout)
-    fetch = [git, "-C", dest, "fetch", "--quiet", "origin", repo["branch"]]
-    if depth > 0:
-        fetch += ["--depth", str(depth)]
-    failure, _ = git_run(fetch, timeout)
+    failure, _ = git_run([git, "-C", dest, "fetch", "--quiet", "origin", repo["branch"]], timeout)
     if failure:
         return {"name": name, **failure}, False
     failure, _ = git_run([git, "-C", dest, "merge", "--ff-only", "--quiet", "FETCH_HEAD"], timeout)
     if failure:
-        return {"name": name, "rc": failure["rc"], "said": f"not a fast-forward: {failure['said']}"}, False
+        return _left(name, f"not a fast-forward: {failure['said']}")
     _, after = git_run([git, "-C", dest, "rev-parse", "HEAD"], timeout)
     moved = before.strip() != after.strip()
     if moved:
@@ -250,7 +277,7 @@ def run(asked, git):
             remove(path)
     existing = [request for request in requests if os.path.lexists(request["dest"])]
     missing = [request for request in requests if not os.path.lexists(request["dest"])]
-    cloned, pulled, not_pulled = [], [], []
+    cloned, pulled, not_pulled, left = [], [], [], []
     if missing and not check:
         from concurrent.futures import ThreadPoolExecutor
 
@@ -266,8 +293,10 @@ def run(asked, git):
         cloned = [request["name"] for request in missing]
     if asked["pull"] and not check:
         for request in existing:
-            failure, moved = pull(git, request, asked["depth"], asked["timeout"])
-            if failure:
+            failure, moved = pull(git, request, asked["timeout"])
+            if failure and failure.pop("left", False):
+                left.append(failure)
+            elif failure:
                 not_pulled.append(failure)
             if moved:
                 pulled.append(request["name"])
@@ -280,6 +309,7 @@ def run(asked, git):
         "not_cloned": not_cloned,
         "pulled": pulled,
         "not_pulled": not_pulled,
+        "left": left,
     }
 
 

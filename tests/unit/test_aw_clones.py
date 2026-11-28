@@ -417,8 +417,9 @@ def test_the_projects_folder_follows_vm_projects_dir_and_is_made_for_the_account
     assert sorted(path.name for path in folder.iterdir()) == ["pub-one", "pub-two"]
 
 
-def test_update_existing_pulls_by_a_fast_forward_and_names_a_checkout_with_local_changes(job, reach, api, tmp_path):
-    made = reach()
+@pytest.mark.parametrize("own", ["changes", "branch"])
+def test_update_existing_pulls_by_a_fast_forward_and_says_a_checkout_it_leaves(job, reach, api, tmp_path, own):
+    made, heard = reach(), _heard(job)
     url = api(*REPOS)
     settings = _settings(url, github_projects_update_existing=True)
     assert _run(job, made, settings).outcome == "succeeded"
@@ -431,13 +432,21 @@ def test_update_existing_pulls_by_a_fast_forward_and_names_a_checkout_with_local
         (work / "NEW.md").write_text("new\n")
         for argv in (["add", "NEW.md"], ["commit", "-q", "-m", "more"], ["push", "-q", "origin", "main"]):
             subprocess.run(["git", "-C", str(work), *argv], check=True, env=env, capture_output=True)
-    (made.home / "projects" / "pub-two" / "README.md").write_text("my work\n")
+    mine = made.home / "projects" / "pub-two"
+    if own == "branch":
+        # A branch of the person's own: left on it, and the step goes on.
+        subprocess.run(["git", "-C", str(mine), "checkout", "-q", "-b", "feat"], check=True, env=env)
+        why = "it is not on main"
+    else:
+        (mine / "README.md").write_text("my work\n")
+        why = "it has local changes, which a pull would put at risk"
     ran = _run(job, made, settings)
-    assert ran.outcome == "failed", ran
-    assert "pub-two (it has local changes, which a pull would put at risk)" in ran.why, ran.why
+    assert (ran.outcome, _clones(ran)) == ("succeeded", True), ran
+    assert _report(heard).endswith(f"alpha: not pulled, and left as they are: {USERNAME}/pub-two ({why})."), heard
     assert (made.home / "projects" / "pub-one" / "NEW.md").read_text() == "new\n"
-    assert not (made.home / "projects" / "pub-two" / "NEW.md").exists()
-    assert (made.home / "projects" / "pub-two" / "README.md").read_text() == "my work\n"
+    assert not (mine / "NEW.md").exists()
+    if own == "changes":
+        assert (mine / "README.md").read_text() == "my work\n"
 
 
 def test_one_that_cannot_be_cloned_fails_the_step_by_name_and_the_rest_are_cloned(job, reach, api, tmp_path):
@@ -915,15 +924,15 @@ def test_a_pull_moves_a_checkout_by_a_fast_forward_alone(tmp_path, git_env):
     (source / "file.txt").write_text("2\n")
     _cmd("commit", "-q", "-am", "even more", cwd=source)
     done = _verb(asked)
-    (failure,) = done["not_pulled"]
+    (failure,) = done["left"]
+    assert done["not_pulled"] == [] and done["pulled"] == []
     assert failure["name"] == "octo/one" and failure["said"].startswith("not a fast-forward"), failure
     assert (checkout / "mine.txt").read_text() == "mine\n"
     # Local changes to what git tracks: named, and left as they are.
     (checkout / "file.txt").write_text("edited\n")
     done = _verb(asked)
-    assert done["not_pulled"] == [
-        {"name": "octo/one", "rc": None, "said": "it has local changes, which a pull would put at risk"}
-    ]
+    said = "it has local changes, which a pull would put at risk"
+    assert (done["left"], done["not_pulled"]) == ([{"name": "octo/one", "rc": None, "said": said}], [])
     assert (checkout / "file.txt").read_text() == "edited\n"
 
 
@@ -981,12 +990,70 @@ def test_a_pull_takes_only_the_repository_the_folder_is_on_its_default_branch(tm
         (tmp_path / "sources" / "one" / "file.txt").write_text("moved\n")
         _cmd("commit", "-q", "-am", "moved", cwd=tmp_path / "sources" / "one")
     done = _verb(_asked(tmp_path, [repo], pull=True))
-    assert (done["pulled"], done["not_pulled"]) == ([], [{"name": "octo/one", "rc": None, "said": said}])
+    assert (done["pulled"], done["not_pulled"]) == ([], [])
+    assert done["left"] == [{"name": "octo/one", "rc": None, "said": said}]
     assert _head(watched) == before
     if case == "detached":
         assert (checkout / "mine.txt").read_text() == "mine\n"
     if case == "branch":
         assert _cmd("symbolic-ref", "HEAD", cwd=checkout).strip() == "refs/heads/feat"
+
+
+@pytest.mark.parametrize("commits", [1, 3])
+def test_a_shallow_checkout_is_pulled_once_github_moves(tmp_path, git_env, commits):
+    repo = _source(tmp_path, "one", commits=3)
+    asked = _asked(tmp_path, [repo], depth=1, pull=True)
+    _verb(asked)
+    source, checkout = tmp_path / "sources" / "one", tmp_path / "projects" / "one"
+    for n in range(commits):
+        (source / "file.txt").write_text(f"moved {n}\n")
+        _cmd("commit", "-q", "-am", f"moved {n}", cwd=source)
+    done = _verb(asked)
+    assert (done["pulled"], done["not_pulled"], done["left"]) == (["octo/one"], [], [])
+    assert (checkout / "file.txt").read_text() == f"moved {commits - 1}\n"
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "https://github.com/octo/one",
+        "https://github.com/Octo/One.git",
+        "https://github.com/octo/one.git/",
+        "ssh://git@github.com/octo/one.git",
+        "git@github.com:Octo/one",
+    ],
+)
+def test_the_repository_s_own_origin_is_pulled_in_any_spelling_of_its_url(tmp_path, git_env, monkeypatch, origin):
+    # Nothing leaves this computer: the spelling, as the checkout's config holds it, fetches from the source here.
+    monkeypatch.setenv("GIT_ALLOW_PROTOCOL", "file")
+    monkeypatch.setenv("GIT_SSH_COMMAND", "/bin/false")
+    repo = _source(tmp_path, "one")
+    _verb(_asked(tmp_path, [repo]))
+    source, checkout = tmp_path / "sources" / "one", tmp_path / "projects" / "one"
+    _cmd("remote", "set-url", "origin", origin, cwd=checkout)
+    _cmd("config", f"url.{repo['clone_url']}.insteadOf", origin, cwd=checkout)
+    (source / "file.txt").write_text("moved\n")
+    _cmd("commit", "-q", "-am", "moved", cwd=source)
+    github = {**repo, "clone_url": "https://github.com/octo/one.git", "ssh_url": "git@github.com:octo/one.git"}
+    done = _verb(_asked(tmp_path, [github], pull=True))
+    assert (done["pulled"], done["not_pulled"], done["left"]) == (["octo/one"], [], [])
+    assert (checkout / "file.txt").read_text() == "moved\n"
+
+
+def test_a_repository_s_url_is_one_key_whatever_its_spelling():
+    key = ("github.com", "octo/one")
+    for url in (
+        "https://github.com/octo/one.git",
+        "https://github.com/Octo/One",
+        "http://GitHub.com/octo/one/",
+        "ssh://git@github.com:22/octo/one.git",
+        "git@github.com:octo/one.git",
+        "github.com:octo/one",
+    ):
+        assert verb.repository(url) == key, url
+    for other in ("https://github.com/octo/two.git", "git@example.com:octo/one.git", "https://github.com/one/octo"):
+        assert verb.repository(other) != key, other
+    assert [verb.repository(none) for none in ("", "/srv/one", "https://github.com/", "nonsense")] == [None] * 4
 
 
 def test_a_pull_runs_no_checkout(tmp_path, git_env):
