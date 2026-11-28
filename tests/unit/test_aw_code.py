@@ -66,7 +66,7 @@ exit 0
 def test_every_command_code_runs_is_one_of_its_named_reads_or_writes_and_a_new_one_fails_by_name() -> None:
     # On the VM: the home's read, the folder's, the checkouts' and a file's first line; the writes, a directory and a
     # file, each given its path as an argument. Here: the editor's version, VS Code's extensions and the install.
-    assert set(code.READS) == {"home", "folder", "checkouts", "first-line"}
+    assert set(code.READS) == {"home", "folder", "resolved", "checkouts", "first-line"}
     assert set(code.WRITES) == {"directory", "file"}
     assert code.READS["home"] == ("getent", "passwd")
     assert code.HERE == {
@@ -258,6 +258,7 @@ def test_the_folder_settled_and_code_s_directory_looked_for_in_a_checkout() -> N
     assert settled["task_written"] and settled["writes"]
     assert opening.asked_reads == [  # type: ignore[attr-defined]
         ("folder", ["/home/dev/projects/app", "/home/dev/projects"]),
+        ("resolved", ["/home/dev/projects", *["/home/dev/projects/.agent-warehouse"] * 2]),
         ("checkouts", ["/home/dev/projects/.agent-warehouse"]),
     ]
     found = _opening(code.Asked("delta"), {"folder": ["dir"], "checkouts": ["/home/dev/projects/.agent-warehouse"]})
@@ -268,6 +269,31 @@ def test_the_folder_settled_and_code_s_directory_looked_for_in_a_checkout() -> N
     off = _opening(code.Asked("delta"), {"folder": ["dir"]}, editor_claude_terminal=False)
     assert not _folder(off)["writes"]
     assert [name for name, _ in off.asked_reads] == ["folder"]  # type: ignore[attr-defined]
+
+
+def test_code_s_directory_that_is_a_link_or_resolves_outside_the_projects_is_refused() -> None:
+    link = _opening(code.Asked("delta"), {"folder": ["dir"], "resolved": ["link\t/home/dev/projects/.agent-warehouse"]})
+    with pytest.raises(code.Failed) as failed:
+        _folder(link)
+    assert "/home/dev/projects/.agent-warehouse on delta is a link" in failed.value.sentence
+    assert [name for name, _ in link.asked_reads] == ["folder", "resolved"]  # type: ignore[attr-defined]
+    answers = ["root\t/home/dev/projects", "real\t/srv/elsewhere"]
+    outside = _opening(code.Asked("delta"), {"folder": ["dir"], "resolved": answers})
+    with pytest.raises(code.Failed) as failed:
+        _folder(outside)
+    assert "resolves to /srv/elsewhere, outside the projects directory" in failed.value.sentence
+    inside = ["root\t/data/projects", "real\t/data/projects/.agent-warehouse"]
+    assert _folder(_opening(code.Asked("delta"), {"folder": ["dir"], "resolved": inside}))["writes"]
+
+
+@pytest.mark.parametrize(
+    ("answer", "head"),
+    [(["absent"], None), (["there", "// mine"], "// mine"), (["there"], ""), (["unreadable"], "")],
+)
+def test_a_task_file_that_is_there_is_never_taken_for_absent_even_unreadable(answer, head) -> None:
+    opening = _opening(code.Asked("delta"), {"first-line": answer})
+    settled = {"files_dir": "/home/dev/projects/.agent-warehouse"}
+    assert asyncio.run(opening.tasks_head(settled, "203.0.113.10")) == head
 
 
 @pytest.mark.parametrize(
@@ -360,14 +386,38 @@ def made(home, tmp_path, pki) -> Iterator[Made]:
     yield from _making(home, tmp_path, pki, True)
 
 
+# An editor's command no test may start: each name the editors list gives one, first on the PATH a run inherits, after
+# the test's own and the kit's stand-ins, so that one the computer has is never reached; each records that it was
+# started, and refuses.
+TRAPPED = ("zeditor", "zed", "code")
+TRAP = """#!/bin/sh
+{{ printf '%s' "${{0##*/}}"; for word; do printf '\\t%s' "$word"; done; printf '\\n'; }} >> "{log}"
+exit 1
+"""
+
+
+@pytest.fixture(autouse=True)
+def no_editor_but_the_test_s(tmp_path_factory, monkeypatch) -> Iterator[None]:
+    """Guard: no run of this file reaches an editor's command that is not the test's own stand-in (Editors)."""
+    trap = tmp_path_factory.mktemp("trap")
+    log = trap / "reached.log"
+    for name in TRAPPED:
+        (trap / name).write_text(TRAP.format(log=log))
+        (trap / name).chmod(0o755)
+    monkeypatch.setenv("PATH", f"{trap}{os.pathsep}{os.environ.get('PATH', os.defpath)}")
+    yield
+    assert not log.exists(), f"an editor not the test's own was started: {log.read_text()}"
+
+
 class Editors:
-    """Stand-ins of the editors' commands in a folder of the test's own: code, and zed, which says it is Zed."""
+    """Stand-ins of the editors' commands in a folder of the test's own: every name the editors list gives one - code,
+    and zeditor and zed, which say they are Zed - so that the first of each name on PATH is the test's."""
 
     def __init__(self, folder: Path, *, extension: bool) -> None:
         folder.mkdir(parents=True, exist_ok=True)
         self.folder, self.log = folder, folder / "started.log"
         listed = "echo ms-vscode-remote.remote-ssh" if extension else ":"
-        for name, version in (("code", "1.99.0"), ("zed", ZED_SAYS)):
+        for name, version in (("code", "1.99.0"), ("zeditor", ZED_SAYS), ("zed", ZED_SAYS)):
             path = folder / name
             path.write_text(STAND_IN.format(log=self.log, version=version, extensions=listed))
             path.chmod(0o755)
@@ -425,8 +475,8 @@ def test_zed_s_window_opens_with_the_alias_and_the_folder_and_writes_only_in_cod
     _ok(ran)
     root = machine.home / "projects"
     ours = root / ".agent-warehouse"
-    # The window, by the alias and the folder; Zed asked its version first.
-    assert editors.started() == [["zed", "--version"], ["zed", f"ssh://delta{root}"]]
+    # The window, by the alias and the folder; the first of Zed's commands asked its version first, and no other.
+    assert editors.started() == [["zeditor", "--version"], ["zeditor", f"ssh://delta{root}"]]
     assert "\nHost delta\n" in _config(made) and f"HostName {machine.address}" in _config(made)
     # On the VM: code's directory, 0755; its helpers' and Zed's directories; the helper, as playbooks/files/ has it,
     # 0644; and the task file, with the marker.
@@ -438,7 +488,7 @@ def test_zed_s_window_opens_with_the_alias_and_the_folder_and_writes_only_in_cod
     assert tasks.read_text().startswith(common.MARKER + "\n") and str(helper) in tasks.read_text()
     assert sorted(path.name for path in root.iterdir()) == [".agent-warehouse"]
     sent = _sent(machine, since)
-    reads, writes = ["home", "folder", "checkouts", "first-line"], ["directory"] * 3 + ["file"] * 2
+    reads, writes = ["home", "folder", "resolved", "checkouts", "first-line"], ["directory"] * 3 + ["file"] * 2
     assert [name for name, _ in sent] == reads + writes
     for name, words in sent:
         if name in code.WRITES:
@@ -447,7 +497,7 @@ def test_zed_s_window_opens_with_the_alias_and_the_folder_and_writes_only_in_cod
     # Again: nothing changed, every file said unchanged, the window opened again.
     stamp = tasks.stat().st_mtime_ns
     _ok(_code(made, editors, "delta", "--editor", "zed"))
-    assert tasks.stat().st_mtime_ns == stamp and editors.started()[-1] == ["zed", f"ssh://delta{root}"]
+    assert tasks.stat().st_mtime_ns == stamp and editors.started()[-1] == ["zeditor", f"ssh://delta{root}"]
 
 
 def test_vs_code_s_window_installs_its_extension_once_and_reads_the_settings_never_writing_them(made, tmp_path) -> None:
@@ -480,6 +530,40 @@ def _refused_before_any_write(made: Made, machine: Machine, editors: Editors, *w
     assert [name for name, _ in _sent(machine, since) if name in code.WRITES] == []
     assert _config(made) == config and editors.started() == []
     return _said(ran)
+
+
+@pytest.mark.parametrize("mode", [0o644, 0o000], ids=["readable", "unreadable"])
+def test_a_task_file_of_someone_else_s_is_left_as_it_is_and_said(made, tmp_path, mode) -> None:
+    machine = _ready(made)
+    tasks = machine.home / "projects" / ".agent-warehouse" / ".zed" / "tasks.json"
+    tasks.parent.mkdir(parents=True)
+    tasks.write_text('[{"label": "mine"}]\n')
+    tasks.chmod(mode)
+    try:
+        ran = _code(made, Editors(tmp_path / "e", extension=True), "delta", "--editor", "zed")
+        _ok(ran)
+        assert stat.S_IMODE(tasks.stat().st_mode) == mode
+        tasks.chmod(0o644)
+        assert tasks.read_text() == '[{"label": "mine"}]\n'
+        assert f"{tasks.parent.parent}/.zed/tasks.json is not just code's, so it was left as it is" in _said(ran)
+    finally:
+        tasks.chmod(0o644)
+
+
+@pytest.mark.parametrize("where", ["checkout", "outside"])
+def test_a_link_at_code_s_directory_is_refused_before_any_write(made, tmp_path, where) -> None:
+    machine = _ready(made)
+    root = machine.home / "projects"
+    if where == "checkout":
+        (root / "repo" / ".git").mkdir(parents=True)
+        led = root / "repo" / "sub"
+    else:
+        led = tmp_path / "elsewhere"
+    led.mkdir()
+    (root / ".agent-warehouse").symlink_to(led)
+    said = _refused_before_any_write(made, machine, Editors(tmp_path / "e", extension=True), "delta", "--editor", "zed")
+    assert f"{root}/.agent-warehouse on delta is a link" in said
+    assert list(led.iterdir()) == []
 
 
 def test_a_stopped_vm_is_refused_with_the_line_that_starts_it_and_never_reached(made, tmp_path) -> None:
@@ -534,7 +618,7 @@ def test_at_a_terminal_the_window_is_drawn_by_its_steps_with_its_vm_and_opens(ma
     assert rc == 0 and "the live view left out an event" not in text, text
     for label in ("find the VM", "reach it", "the folder", "alias", "the editor here", "the directory", "window"):
         assert label in text, label
-    assert "delta" in text and editors.started()[-1] == ["zed", f"ssh://delta{machine.home / 'projects'}"]
+    assert "delta" in text and editors.started()[-1] == ["zeditor", f"ssh://delta{machine.home / 'projects'}"]
     # A VM that is not there: said under the step it failed in, and nothing started.
     rc, output = aw_at_a_terminal("code", "gamma", "--editor", "zed", home=made.home, first_on_path=path, size=WINDOW,
                                   timeout=180)  # fmt: skip
