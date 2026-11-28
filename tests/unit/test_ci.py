@@ -80,10 +80,12 @@ def test_ci_result_passes_only_when_each_job_succeeded_or_was_skipped(tmp_path, 
 
 # ---------------------------------------------------------------------------------- the area stack's pull requests ---
 
-# The gate every job runs under: a pull request whose head branch starts with stack/ (the area stack's, each a part of
-# the tree the pull request from base-first carries whole, whose run is a batch's whole run) runs no job, CI result
-# included. github.head_ref is a pull request's head branch and empty for every other event.
-STACK_GATE = "!startsWith(github.head_ref, 'stack/')"
+# The gate every job runs under: a pull request from a branch whose name starts with stack/ onto another (the area
+# stack's above its lowest, each a part of the tree the pull request from base-first carries whole, whose run is a
+# batch's whole run) runs no job, CI result included. Both branches are read: a pull request to main from a branch
+# named stack/... runs every job, since CI result is main's required check and a skipped one passes. github.head_ref
+# and github.base_ref are a pull request's branches and empty for every other event.
+STACK_GATE = "!(startsWith(github.head_ref, 'stack/') && startsWith(github.base_ref, 'stack/'))"
 # A job's own condition, where it has one, which the gate is joined after.
 OWN_CONDITION = {
     "dependency-review": "github.event_name == 'pull_request'",
@@ -103,8 +105,12 @@ BASE_FIRST_PULL = {
     "github.base_ref": "main",
     "github.ref": "refs/pull/310/merge",
 }
-# A branch that names the stack but is none of its: the gate is a prefix of the head branch, not a word in it.
+# A pull request from a branch of another name onto base-first.
 OTHER_PULL = BASE_FIRST_PULL | {"github.head_ref": "ci/a35-stack-gate", "github.base_ref": "base-first"}
+# A stack/ head on main: the stack's lowest (#311), or any branch named stack/... a pull request to main comes from.
+STACK_HEAD_ON_MAIN = BASE_FIRST_PULL | {"github.head_ref": "stack/aw-01-foundations", "github.base_ref": "main"}
+# Another head on a stack/ base: a pull request onto a branch of the stack from a branch that is none of its.
+OTHER_HEAD_ON_STACK = STACK_PULL | {"github.head_ref": "ci/a35-stack-gate"}
 PUSH = {"github.event_name": "push", "github.head_ref": "", "github.base_ref": "", "github.ref": "refs/heads/main"}
 SCHEDULE = PUSH | {"github.event_name": "schedule"}
 DISPATCH = PUSH | {"github.event_name": "workflow_dispatch"}
@@ -216,16 +222,28 @@ def test_every_job_runs_under_the_area_stack_s_gate_joined_after_its_own_conditi
         (STACK_PULL, set()),
         (BASE_FIRST_PULL, set(JOBS) - OUTSIDE),
         (OTHER_PULL, set(JOBS) - OUTSIDE),
+        (STACK_HEAD_ON_MAIN, set(JOBS) - OUTSIDE),
+        (OTHER_HEAD_ON_STACK, set(JOBS) - OUTSIDE),
         (PUSH, set(JOBS) - OUTSIDE - {"dependency-review"}),
         (SCHEDULE, set(JOBS) - {"dependency-review"}),
         (DISPATCH, set(JOBS) - {"dependency-review"}),
     ],
-    ids=["a pull request of the stack", "base-first's", "another branch's", "a push", "the schedule", "a manual run"],
+    ids=[
+        "stack/ onto stack/",
+        "base-first's",
+        "another branch's",
+        "stack/ onto main",
+        "another branch onto stack/",
+        "a push",
+        "the schedule",
+        "a manual run",
+    ],
 )
 def test_a_pull_request_of_the_area_stack_runs_no_job_and_every_other_run_the_jobs_it_ran(context, running):
-    # Each job's if: read as GitHub reads it, a job with none run as GitHub runs it: on a pull request of the stack no
-    # job takes a runner, CI result included; on base-first's every job of the gate, dependency review included; on a
-    # push the same but dependency review; on the schedule and a manual run those and the canary.
+    # Each job's if: read as GitHub reads it, a job with none run as GitHub runs it: on a pull request from stack/ onto
+    # stack/ no job takes a runner, CI result included; on any other pull request, a stack/ head on main or another
+    # head on a stack/ base among them, every job of the gate, dependency review included; on a push the same but
+    # dependency review; on the schedule and a manual run those and the canary.
     ran = {name for name, job in JOBS.items() if _runs(job.get("if", "success()"), context)}
     assert ran == running, (sorted(ran - running), sorted(running - ran))
 

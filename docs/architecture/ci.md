@@ -3,14 +3,19 @@
 `.github/workflows/ci.yml`, on push to `main`/`master`, on every pull request, and weekly
 (`17 6 * * 1`).
 
-A pull request whose head branch starts with `stack/`, the area stack's (each a draft on the one below it, its tree a
-part of the tree the pull request from `base-first` carries whole), runs no job, `CI result` included: that pull
-request's run is a batch's whole run, and ten of the stack's opened at once held the account's runners for over half
-an hour. Every job's `if:` is the gate `!startsWith(github.head_ref, 'stack/')`, joined after its own condition where
-it has one (`tests/unit/test_ci.py` holds each job to it, and reads each job's condition for a pull request of the
-stack, one from `base-first`, a push, the weekly run and a manual run). It cannot be a filter under `on:`:
-`pull_request`'s `branches` and `branches-ignore` name the base branch. `github.head_ref` is a pull request's head
-branch and empty for every other event, so a push, the weekly run and a manual run run every job as before. The
+A pull request from a branch whose name starts with `stack/` onto another such branch - the area stack's above its
+lowest, each a draft on the one below it, its tree a part of the tree the pull request from `base-first` carries
+whole - runs no job, `CI result` included: that pull request's run is a batch's whole run, and ten of the stack's
+opened at once held the account's runners for over half an hour. Every job's `if:` is the gate
+`!(startsWith(github.head_ref, 'stack/') && startsWith(github.base_ref, 'stack/'))`, joined after its own condition
+where it has one (`tests/unit/test_ci.py` holds each job to it, and reads each job's condition for a pull request from
+`stack/` onto `stack/`, one from `base-first`, one from a `stack/` branch onto `main`, one from another branch onto a
+`stack/` one, a push, the weekly run and a manual run). It reads both branches: a pull request to `main` from a
+branch named `stack/...`, a fork's too, runs every job, since `CI result` is `main`'s required check and GitHub
+counts a skipped one as passed; so does the stack's lowest, on `main`, were it ever pushed again. It cannot be a
+filter under `on:`: `pull_request`'s `branches` and `branches-ignore` name the base branch alone.
+`github.head_ref` and `github.base_ref` are a pull request's branches and empty for every other event, so a push,
+the weekly run and a manual run run every job as before. The
 labelling workflow runs on a pull request's opening, editing and reopening alone, never on a push to it, and the docs
 and release workflows on no pull request, so a push to the stack takes no runner for any of them.
 
