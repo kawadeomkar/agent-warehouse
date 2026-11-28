@@ -248,22 +248,32 @@ writes. That one stops at its `<` where the folder holds no file named `name`, n
 holds one, the shell reads it, makes or empties `...`, and runs
 `aw` with the line's other words, its real values. So the printer writes it only where the one check, its rules among
 them, refuses those words (`aw deploy --tags claude_code <name>...` leaves `aw deploy --tags claude_code`, which
-`deploy.7` refuses), and raises `ValueError` where it takes them (`aw deploy <name>...` alone would leave `aw deploy`,
-the default VM's), asking the check's `takes`, which says no rule's sentence, since a rule's sentence names such a
-form. No form the printer writes leaves a whole command, with no exception. Given back to `aw` as a word or as JSON,
+`deploy.7` refuses), and raises its `Unwritten`, a `ValueError`, where it takes them (`aw deploy <name>...` alone
+would leave `aw deploy`, the default VM's), asking the check's `takes`, which says no rule's sentence, since a rule's
+sentence names such a form. The forms it so refuses are those of the four verbs whose words are several names, the
+names their one placeholder: `aw deploy <name>...`, `aw deploy --detach <name>...`, `aw login <name>...`,
+`aw login --only github <name>...`, `aw status <name>...` and `aw destroy <name>...`, each with any other word the
+check takes beside it (`aw status --json <name>...`, `aw login --host lab2 <name>...`); a sentence that would show one
+names a real VM in its place, or another placeholder beside it (`aw destroy <name>... --confirm <names>`), or a value
+the rules refuse there, and help's `aw deploy [<name>...]` is help's own. No form the printer writes leaves a whole
+command, with no exception. Only the code asks the printer for a line, so a line it will not write is the code's own
+fault: `cli/main.py` says an `Unwritten` that reaches it in its sentence and exits 1, never as a traceback (16.3), and
+a run that ends the process at once with a call still in a thread, which `main` then never sees, says it the same way
+(16.8): both through the printer's `own_fault`, the sentence and `OWN_FAULT`, that the fault is the program's own.
+Given back to `aw` as a word or as JSON,
 each placeholder is refused by the one check, in `aw`'s own words. The values are the parser's or a handler's:
 `default_vm` is said by naming no VM, and a value that is off (a flag not given, a count of 0, an empty
 list) is not said. Each is held as the one check holds it but for the rules between options (`formed`), and one it
 refuses, a word that starts with `-`, or a value or word that holds a character of Unicode's categories Cc, Cf, Cs, Zl
 or Zp (a C1 control, a bidi override, a lone surrogate, a line separator), which a terminal would act on, not show as
-it is, or which no UTF-8 output can write, raises `ValueError` with the check's kind of sentence, which never says the
+it is, or which no UTF-8 output can write, raises `Unwritten` with the check's kind of sentence, which never says the
 value; a rule is the run's to say, so a line may name a run that one refuses, as `deploy`'s question names the stage
 before its answer meets the rules.
 
 `host_flag` is the host a line names. Every caller of a verb whose row has the shared `--host` (`deploy`, `code`,
 `login`, `status`, `destroy`) gives it where the values give no `--host`: a host's name, or `""` where the fleet has
-one host or the line names none, as a command's form said before any fleet is read does; `None` there is a
-`ValueError`, so no caller forgets it. Only the verbs whose `--host` runs them against a host take one: those, and
+one host or the line names none, as a command's form said before any fleet is read does; `None` there is
+`Unwritten`, so no caller forgets it. Only the verbs whose `--host` runs them against a host take one: those, and
 `settings`, `vault` and `init`. `refused`, keyword-only with no default, is said by every caller: where no run has taken
 the values, a refused run's or a question's, the two values of free text a person may paste a secret into, `--set`'s
 and `settings --value`'s, are printed as their placeholders; the table holds no option whose value is a secret.
@@ -281,22 +291,33 @@ printer and the check name a sentence's field `program`; the check's `command`, 
 the modules that refuse (the check, the printer, `cli/parse.py` and `cli/dispatch.py`) and by help, for its usage
 lines and the program its closing paragraph names, each named with why, by any name a module binds to the check, its
 package or the function; every use of `line` or `argv`, through any name or a `functools.partial`, says `refused`;
-and a printer's line is never extended: a call of `line` or `argv`, of `said` whose sentence is one field (`"{line}"`),
-of a function of the module's own that returns one, a name bound to one in the same function, or an f-string that ends
-in one, is never an operand of `+` or `%`, an element of what a `%` template takes, added to, or anywhere in what
-`join`, `format` or `format_map` takes, and in an f-string is followed by the string's end, punctuation or a word of
-prose (letters alone, no verb of the table's, no word that starts with `-` before the next punctuation), never by a
-field; and a sentence `said` says is never built at its call (by `+`, `%`, an f-string, `join` or `format`), and in a
-literal one, or a constant of its module's, each field a `Line` fills (given at the call, from `LINES`, or each field,
-where the call gives its values otherwise than as a mapping written there) is followed as a line in an f-string must
-be; the rules' and the table's sentences are held so through the Lines they are said with. The check's own `command`
-and `help_of`, which name the command a refusal is about with the option it refuses after it, are no line in its own
-module: the guard of the check's `command` holds them. What the scans cannot see is a command joined at run time from
-pieces that name none (`'aw' + ' cancel '`, a list joined), a path to the program other than `./aw` (`../aw deploy`),
-another case, a name reached through `getattr`, `vars` or `importlib`, and a printer's line carried where the scan of a
-line extended does not follow it (an attribute, a container, another module's function, a word of prose that is a
-value): a line to run is the printer's line, whole, and a sentence names its command as a `Line`, which is how such a
-line is made.
+and a printer's line is never extended: a call of `line` or `argv`, of `said` whose sentence is one field (`"{line}"`)
+or ends, but for spaces, in a field a `Line` fills (`"run {line}"`: one of `LINES`', or one given at the call in a
+mapping written there), of a function of the module's own that returns one, a name bound to one in the same function,
+an f-string that ends in one, what hands one on (`str` of it, a subscript or a slice of it, its `strip`, `lstrip`,
+`rstrip`, `ljust`, `rjust` or `center`, any function of `textwrap` given it first, by any name), and lines joined by a
+newline, which end in their last, is never an operand of `+` or `%`, an element of what a `%` template takes, added
+to, anywhere in what `join`, `format` or `format_map` takes, or an argument of `print` but the last (`print` joins its
+arguments with a space), is never edited by its `replace`, and in an f-string is followed by the string's end,
+punctuation or a word of prose (letters alone, no verb of the table's, no word that starts with `-` before the next
+punctuation), never by a field; an f-string that holds one anywhere is never an operand of `+` or `%` or an argument of
+`print` but the last, and a sentence that ends in one is a line, words before it or not. Lines each on a line of its
+own are whole: a `join` whose separator is a newline alone, of a list or tuple written there whose every item is a
+line, or of a comprehension of lines, and a line with a newline added, the one argument of a `write`
+(`out.write(line + "\n")`). And a sentence `said` says is never built at its call (by `+`, `%`, an f-string, `join` or
+`format`), and in a literal one, or a constant of its module's, each field a `Line` fills (given at the call, from
+`LINES`, or each field, where the call gives its values otherwise than as a mapping written there) is followed as a
+line in an f-string must be; the rules' and the table's sentences are held so through the Lines they are said with.
+The check's own `command` and `help_of`, which name the command a refusal is about with the option it refuses after
+it, are no line in its own module: the guard of the check's `command` holds them. What the scans cannot see is a
+command joined at run time from pieces that name none (`'aw' + ' cancel '`, a list joined), a path to the program
+other than `./aw` (`../aw deploy`), another case, a name reached through `getattr`, `vars` or `importlib`, and a
+printer's line carried where the scan of a line extended does not follow it (a parameter of a function of the
+module's own it is handed to, which then extends it; an attribute; a container, such as a list a value is appended to
+and then joined, or a mapping given to `said` otherwise than written at its call; another module's function; a word
+of prose that is a value, as after a form, which a person who copies the word too hands the command as a value): a
+line to run is the printer's line, whole, and a sentence names its command as a `Line`, which is how such a line is
+made.
 `tests/unit/test_aw_cli_printer.py` holds the printer: for every verb, its words, each option alone and beside them and
 each pair of options the rules allow come back from the line through the parser and the one check, and no verb or
 option lacks such a case; every example line the test gives, of every verb, comes back from its line, before the habits
@@ -309,14 +330,17 @@ whole domain (for every verb, each field a form may give as a placeholder and ea
 beside each other field given a value or a placeholder, and beside every other field at once, refused and not, with
 each host's flag the verb takes) and help's usage lines, each pasted into `/bin/sh` and `bash`, running nothing in a
 folder with no file of a placeholder's name, and in one with a file of each nothing or words `aw` refuses, with no
-exception, and the printer refusing only a form whose one placeholder is its names beside words the check takes; the
-host's flag; a value of free text is never said back from values no run took, and every call says
-`refused`; a value the check refuses is never printed; the program as it was started, quoted, in this process, from a
-path a shell would split and through the launcher, the check's sentences and help's among them; by scans of their
-syntax, the five guards above, which a module planted with the roads the reviews found fails, but for the roads the
-scans cannot see; that no sentence of the rules or the table holds a command as text; and that each module of
-`schema/` imports alone and first and nothing outside `schema/`, and `pve/` and `vendors/` import the printer when
-they are imported, none of them inside a function.
+exception, and the printer refusing only a form whose one placeholder is its names beside words the check takes, as
+its `Unwritten`, which `aw` says in one sentence as its own fault and exits 1 with, no traceback, raised before a run,
+in a run's body with no thread, with a call still in a thread, and in a step of a `gather` while the other waits in
+one; the host's flag; a
+value of free text is never said back from values no run took, and every call says `refused`; a value the check
+refuses is never printed; the program as it was started, quoted, in this process, from a path a shell would split and
+through the launcher, the check's sentences and help's among them; by scans of their syntax, the five guards above,
+which a module planted with the roads the reviews found fails, but for the roads the scans cannot see, while lines
+joined by a newline and a line written with its end pass; that no sentence of the rules or the table holds a command
+as text; and that each module of `schema/` imports alone and first and nothing outside `schema/`, and `pve/` and
+`vendors/` import the printer when they are imported, none of them inside a function.
 
 ## 16.3 `cli/` — the `aw` program
 
@@ -326,7 +350,11 @@ it takes the program as it was started out of its environment at once, as the la
 `AGENT_WAREHOUSE_STARTED_AS`, so that nothing a run starts inherits it, and hands it to the printer of a command, which is
 `schema/`'s (16.2). Every command the program prints, and every command a sentence names, is the printer's, the program
 quoted as one word a shell reads back. A line with a placeholder (`aw code <name>`) is a form, which help, a refusal and
-a question show; a line offered as the command to run holds none.
+a question show; a line offered as the command to run holds none. A line the printer will not write, its `Unwritten`,
+which only the code asks it for, is said by `main.py` as a refusal is, in the printer's sentence and with the words
+that it is the program's own fault, and exits 1, wherever it is raised, a handler's run included: where the run ends
+the process at once with a call still in a thread, so that the error never reaches `main`, the run says it in the same
+line (16.8). Never a traceback.
 It imports `schema/` and what it needs to answer at once. It imports `engine/` only inside the function that dispatches
 a verb that changes something, so a refusal, help or a read never loads it. It never imports Ansible, which the engine
 only ever runs as a child, nor `control/` or pydantic. `tools/aw` imports it, and so does the agents' server's own entry
@@ -569,42 +597,112 @@ plain `parse`, says what `compare` says, a template's record that names no UUID 
 them, and imports nothing of the engine and not the client; and `compare` sends nothing but GETs.
 
 **What `init` makes on a host: `access.py`.** One list names every object a first `init` makes on a Proxmox host with
-its administrator's authority, and one check tells what is there of each; the script that makes them (card E2) is
-their one rendering, run over root SSH on a `y` or printed for a person to run, and this module runs and renders
-nothing. `objects(host)` is the list, in the order it is made: the pool, its comment the fleet's mark
-(`fleet/mark.py`'s `render`, `controller=none`); the engine's role, `AgentWarehouse`, whose privileges are what the one
-table of privileges needs on every kind of path (16.5), so that one table says both what the client calls and what
-`init` grants, and a call added to it is granted with no list of this module's to change; under
-`proxmox_audit_scope: node`, its default, the audit role, `AgentWarehouseAudit`, `VM.Audit` alone; where
-`proxmox_template_custom` names a template of the person's own outside the pool, the clone role,
-`AgentWarehouseClone`, `VM.Audit` and `VM.Clone`; the user, `agent-warehouse@pve`; the user's grants; the token, `aw`,
-with privilege separation; and the token's grants, the user's again, since such a token holds what both hold. The
-engine's role is granted on the pool (`aw-fleet` where none is named), the storage for VM disks, each bridge a clone's
-source has a network card on, which a clone asks `SDN.Use` on, and the node; the audit role on `/vms`, read only, so
-that `status` shows the node's other VMs and a capacity made from all of them; the clone role on the person's template
-alone. A role is one set of privileges granted on a path, so the engine's role, which writes, is granted on no guest
-outside the pool; under `pool`, the stricter opt-in, the token holds nothing on a guest outside it but that template.
-The user's grants come before the token and the token's after it, since an ACL entry can name only a token that
-exists. `Host` holds each value of a host to the form Proxmox gives it before any object is made of it, a pool's name
-from a letter and with no `/`, which on Proxmox VE 9.2 makes a nested pool, and `Host.of` reads them from a host's
-settings. `check(object, found)`, given what one read of the host holds (`Found`), answers missing or the engine's own
+its administrator's authority, and one check tells what is there of each; the script that makes them is their one
+rendering, `as_script`'s, run over root SSH on a `y` or printed for a person to run, and this module runs nothing.
+`objects(host)` is the list, in the order it is made: the pool, its comment the fleet's mark (`fleet/mark.py`'s
+`render`, `controller=none`); the engine's role, `AgentWarehouse`, whose privileges are what the one table of privileges
+needs on every kind of path (16.5), so that one table says both what the client calls and what `init` grants, and a call
+added to it is granted with no list of this module's to change; under `proxmox_audit_scope: node`, its default, the
+audit role, `AgentWarehouseAudit`, `VM.Audit` alone; where `proxmox_template_custom` names a template of the person's
+own outside the pool, the clone role, `AgentWarehouseClone`, `VM.Audit` and `VM.Clone`; the user, `agent-warehouse@pve`;
+the user's grants; the token, `aw`, with privilege separation; and the token's grants, the user's again, since such a
+token holds what both hold. The engine's role is granted on the pool (`aw-fleet` where none is named), the storage for
+VM disks, each bridge a clone's source has a network card on, which a clone asks `SDN.Use` on, and the node; the audit
+role on `/vms`, read only, so that `status` shows the node's other VMs and a capacity made from all of them; the clone
+role on the person's template alone. A role is one set of privileges granted on a path, so the engine's role, which
+writes, is granted on no guest outside the pool; under `pool`, the stricter opt-in, the token's writes and its reads of
+single VMs stay within the pool and that template. Under both, `Sys.Audit` on the node, which `status` needs for the
+node's capacity, also reads the node's report, and that report holds every guest's configuration. The user's grants come
+before the token and the token's after it, since an ACL entry can name only a token that exists. `Host` holds each value
+of a host to the form Proxmox gives it before any object is made of it, a pool's name from a letter and with no `/`,
+which on Proxmox VE 9.2 makes a nested pool (`POOL_NAME`, and `POOL_RULE` its words: the settings table's one rule of a
+pool's name, `registry.POOL_NAME`, which `proxmox_pool`'s form holds), and `Host.of` reads them from a host's settings.
+`check(object, found, host_flag=)`, given what one read of the host holds (`Found`), answers missing or the engine's own
 and nothing else: a pool whose comment does not carry this fleet's mark is refused with `fleet/mark.py`'s sentence,
-never taken; a role is told with what it lacks; and the audit and clone roles, granted on guests outside the pool, are
-held to their privileges exactly. `plan(objects, found)` makes each object that is missing and appends to a role of the
-engine's own what it lacks, never taking one away; a role held exactly that holds more is neither changed nor granted,
-and said with the line that fixes it (`pveum role modify AgentWarehouseAudit --privs VM.Audit`, as root on the host),
-since on `/vms` it would hand each privilege it holds over every VM of the node.
+never taken, and so is a token of the list's ID made without privilege separation, which holds every privilege of its
+user, with the line that deletes it and init's line that makes one beside it, for the host `host_flag` names as the
+printer takes it, which every caller gives, a further host's name or `""` with one (`Found` holds each token's
+separation by its full ID); a role is told with what it lacks and what it holds beyond its privileges; and the audit and
+clone roles, granted on guests outside the pool, are held to their privileges exactly. `plan(objects, found,
+host_flag=)` makes each object that is missing and appends to a role what it lacks, never taking one away. The engine's
+role holding more is granted all the same and said, with `pveum role modify AgentWarehouse --privs` and its fifteen as
+the line that keeps it to them, so that a privilege a later table drops is said, never kept in silence. A role held
+exactly that holds more is neither changed nor granted, and said with the line that fixes it (`pveum role modify
+AgentWarehouseAudit --privs VM.Audit`, as root on the host), since on `/vms` it would hand each privilege it holds over
+every VM of the node; where its grants are there already, it is said to give each of them now. A grant of one of the
+engine's three roles to the list's user or token on a path the list does not make with these settings - `/vms` once
+`proxmox_audit_scope` went from `node` to `pool`, a template no longer named, a storage or a bridge given before - is
+left, since init never takes a grant away, and said with the line that removes it (`pveum acl delete /vms --roles
+AgentWarehouseAudit --users agent-warehouse@pve`, as root on the host), once, in order of its path, its role and whom it
+is for; an entry whose path is not of the form Proxmox writes one (`ACL_PATH`) is not said.
 
 `tests/unit/test_aw_access_objects.py` holds it: the list, its order and its count, fifteen objects with the defaults
-and twelve under `pool`; no object but the pool with the mark, the roles, the user, the token and their grants,
-each of a kind and an ID `host.yml`'s `made` records; the engine's role as the table's needs, each need granted where
-Proxmox checks it, and a call added to the table granted, or found where no grant could reach it; the token's
-`VM.Audit` on `/vms` through the audit role alone under `node`, nothing on a guest outside the pool under `pool`, and a
-person's template through the clone role on its own path under both; every value Proxmox makes no object by refused,
-never said back; and the invariant, over a host holding nothing, everything, everything but one object, a role lacking
-or holding more and a grant that does not propagate: `check` answers missing or the engine's own and nothing else, a
-pool of another fleet's, of no mark or of a control VM refused with nothing planned, a role of the engine's own given
-what it lacks and losing none, and a role held exactly that holds more said and left ungranted.
+and twelve under `pool`; no object but the pool with the mark, the roles, the user, the token and their grants, each of
+a kind and an ID `host.yml`'s `made` records; the engine's role as the table's needs, each need granted where Proxmox
+checks it, and a call added to the table granted, or found where no grant could reach it; the token's `VM.Audit` on
+`/vms` through the audit role alone under `node`, nothing on a guest outside the pool under `pool`, and a person's
+template through the clone role on its own path under both; every value Proxmox makes no object by refused, never said
+back; and the invariant, over a host holding nothing, everything, everything but one object, a role lacking or holding
+more and a grant that does not propagate: `check` answers missing or the engine's own and nothing else, a pool of
+another fleet's, of no mark or of a control VM refused with nothing planned, a role of the engine's own given what it
+lacks and losing none and one holding more granted and said, a role held exactly that holds more, or lacks one and holds
+more, said and left ungranted, or said to give it now where its grants are there, and a token known by its full ID and
+its separation, another user's of the same ID missing and one made without separation refused, its init line naming the
+host its caller gives, which no caller of `check` or `plan` may leave out; and a grant of the engine's roles that a
+host's settings no longer make said with its delete line and never taken away, once, and only for the list's user or
+token, one of the three roles and a path of Proxmox's form.
+
+**The script that makes them: `as_script`.** `as_script(host, custom, host_flag=)` renders the list as the script `init`
+runs on the host as root, `/bin/sh` run as `sh -s` with itself on standard input: over root SSH on a `y`, or printed by
+`aw init --print-commands` for a person to run there (`aw init --print-commands | ssh root@<host> sh -s -- --dry-run` to
+see each command, then the same without `--dry-run`). It is rendered each time and never written into the checkout; its
+header says it was rendered by `aw init` for the host's node and fleet, and its lines that print and run it are init's
+as the printer writes them (16.2), the header said through `said` with each a `Line`, with `--host` and the host's name
+for a further host (`host_flag`, which every caller gives, as the token's sentence names it too). Its options change the
+values the list is made of: `--storage`, `--bridge`, `--user`, `--token`, `--pool` and `--audit-scope node|pool`, each
+the host's value where not given; and a person's own template, which `proxmox_template_custom` names (`custom`), is
+looked up on the host by its name, the one guest of that name and a template on the node, with the bridges its network
+cards are on, so the host it is rendered for has the base template's bridge alone and no template's ID. Each object is
+one call of the script's fixed interpreter (16.5, `pve/script.py`), its values the script's shell variables: the list is
+made for a host of placeholders, each rendered as its variable, the objects of one scope under that scope's test, the
+clone role and its grants under the template's lookup, and a bridge's grants in a loop over the bridges; and at every
+rendering the shape is held to the list itself, under each scope, with and without the template, over one bridge and
+two. The calls run twice: first each reads what is there and decides as `check` and `plan` decide, a refusal ending the
+run before anything is made; then each makes what was decided, in the list's order, and the token's secret is printed
+last, the one line on standard output, everything said to a person going to standard error. Every check of a value and
+every sentence the script says of the list is this module's or `fleet/mark.py`'s, rendered: a value of another form than
+Proxmox makes an object by is refused before any `pveum` and never said back; a pool another fleet marked, one naming a
+control VM and one whose mark cannot be read are refused; a pool with no mark is refused naming `--take-unmarked`, and
+taken only given `--pool <name> --take-unmarked`, the mark added at its comment's end and the rest kept, while
+`--take-unmarked` without `--pool`, or for a marked pool, is refused; a token made without privilege separation is
+refused with its delete line; a role holding more than its own is said and granted, or withheld, as `plan` says; and a
+grant of the engine's roles these settings do not make is said with its `pveum acl delete` line and left. The script
+runs only as root, on Proxmox VE 9 or later, and refuses `root@pam` and any option it does not have, today's `--move`
+and `--template` among them. `--no-token` makes no token and changes nothing where the token is not there; a step that
+fails after the token was made says that it is there with its secret unsaid, and the line that deletes it, after which a
+run again makes it anew. The dry run prints the commands, one an object, every token ID quoted, the token's own line
+asking for JSON, whose `value` is the secret; `--list` prints the node's storages and bridges.
+
+`tests/unit/test_aw_access_script.py` holds it, each case the rendered script run as `sh -s` under `/bin/sh` against the
+stand-in `pveum` and `pvesh`: a fresh host gets every object in the list's order and the secret alone on standard
+output; a second run changes nothing and prints no secret; a role an older version made gets what it lacks and loses
+nothing; the dry run prints one line, quoted as `shlex` quotes it, for each step of `plan(objects(host), found)` and
+says each of `plan`'s sentences, the run makes those steps, and once made nothing is left to make, over a fresh host,
+`pool`, values of another host, a host an older version half made, a grant that does not propagate, roles holding more,
+`--no-token`, a person's template inside and outside the pool, a host set up under `node` and run under `pool`, and
+grants of the engine's roles these settings do not make beside some that are not said; `--no-token` with no token there,
+`--dry-run` and `--list` change nothing; under `pool` nothing is granted on a guest; every printed token ID is quoted
+and the token's line asks for JSON; a grant that fails after the token says its delete line and prints no secret; a host
+set up under `node` and run under `pool` says each `/vms` grant with its delete line, removes none, and a line run
+removes what it names; and each refusal leaves the stand-in's state byte for byte as it was: not root, Proxmox VE 8, a
+value of the wrong form before any call of the stand-in's, `root@pam`, an option it does not have, a token without
+privilege separation (its init line naming a further host's `--host`), a pool of another fleet's, a pool with no mark
+without `--take-unmarked`, `--take-unmarked` without `--pool` or for a marked pool, and a template that is not the one
+guest of its name on the node or has a network card on a bridge not there. A corpus of comments holds the script's
+reading of the mark to `fleet/mark.py`'s, separators and spaces of every kind among them. The header's lines are the
+printer's, a further host's flag in them. The rule of V2-9 has a test of its own: no file of the checkout, tracked or
+untracked and not ignored, holds a rendering, found by its header. The stand-in reads no guest's configuration, so a
+`pvesh` of the test's own, first on `PATH`, answers that one read and hands every other to the stand-in.
 
 **The API's certificate: `certificate.py`.** Before `init` sends a Proxmox host anything that carries a credential,
 `work_out(host, given, root_ssh, ask)` settles what its API's certificate is held to, by today's `trust.py`'s probes,
@@ -653,28 +751,55 @@ sent or written, so that nothing is written through it, and the same command fin
 place. As its run, under the fleet's lock, `unattended` reads what is set (the host's folder, the three files of
 overrides, `fleet.json` and the vault, opened as `vaultkey.py` finds its key: a fleet
 with no key file yet has its key made once every check has passed, and a key named elsewhere for a fleet with no vault
-yet is `NoVaultYet`'s refusal); refuses a value given that differs from the one set, naming both, the secret unsaid,
-with nothing written; works out the API's certificate with `certificate.py`'s `work_out` and nobody to ask, the host's
-own certificates read over root SSH where nothing else vouches for them; and, where the secret was given, reads the
-pool with it through the `Pin` the `Kept` carries. Holding a token Proxmox takes for a pool whose comment carries a mark
-with `controller=none` is the authority: `fleet.json` takes the mark's fleet ID. A mark that names a control VM, another
-fleet than `fleet.json`'s, none or none that reads, and a pool or a token Proxmox refuses, are refusals with nothing
-written; with no secret given the fleet keeps its ID, or a new one gets one. Then each file through its one writer,
-none of whose locks is held around another's, each only where nothing is set: the key (`vaultkey.make_key` at
-`vault_key_file`'s place), `fleet.json`, the vault (`sealed.create`, then the secret as the host's `token`), `host.yml`
-and its anchor (`hosts.write`), with `made` recording by ID the pool, the user and the token the administrator made by
-hand where the secret was given, the host's storage, bridge and pool (`aw-fleet` where none is given or set), the
-fleet's `github_username` and `vpn`, and `client.yml`'s current host. The names written where none is given are the
-engine's own: the user `agent-warehouse@pve`, the token `aw`, the pool `aw-fleet`, and the first host `pve`. A run
-stopped after any write goes on from what it wrote, and the same run again writes nothing. The modes other cards build
-(`--check`, `--print-commands`, `--machines`) and the questions at a terminal are refused by name until each lands.
-`tests/unit/test_aw_engine_init.py` holds it against the fake Proxmox, through `tools/aw` with a refusing `ssh` first on
-`PATH` and in this process with root SSH a reader of the test's own; its runs through `tools/aw` from a home short
-enough for the host's shared socket, so that root SSH starts its child with that socket, as from a person's home, and
-a recording `ssh` holds that the child's
-environment has neither the variable nor the secret; with the invariant that no file under the fleet's home holds the
-secret in clear and the vault on disk is sealed. `tests/unit/fleet_fixture.py` gives any other test a
-whole fleet folder in one call, made by this run.
+yet is `NoVaultYet`'s refusal, as is a pool the host's `settings.yml` sets that is no name of a pool, which the read
+holds to `proxmox_pool`'s form, the rule `--pool` is held to, naming the file); refuses a value given that differs from
+the one set, naming both, the secret unsaid, with nothing written; works out the API's certificate with
+`certificate.py`'s `work_out` and nobody to ask, the host's own certificates read over root SSH where nothing else
+vouches for them; and, where the secret was given, reads the pool with it through the `Pin` the `Kept` carries. Holding
+a token Proxmox takes for a pool whose comment carries a mark with `controller=none` is the authority: `fleet.json`
+takes the mark's fleet ID. A mark that names a control VM, another fleet than `fleet.json`'s, none or none that reads,
+and a pool or a token Proxmox refuses, are refusals with nothing written; with no secret given the fleet keeps its ID,
+or a new one gets one. Then each file through its one writer, none of whose locks is held around another's, each only
+where nothing is set: the key (`vaultkey.make_key` at `vault_key_file`'s place), `fleet.json`, the vault
+(`sealed.create`, then the secret as the host's `token`), `host.yml` and its anchor (`hosts.write`), with `made`
+recording by ID the pool, the user and the token the administrator made by hand where the secret was given, the host's
+storage, bridge and pool (`aw-fleet` where none is given or set), the fleet's `github_username` and `vpn`, and
+`client.yml`'s current host. The names written where none is given are the engine's own: the user `agent-warehouse@pve`,
+the token `aw`, the pool `aw-fleet`, and the first host `pve`. A run stopped after any write goes on from what it wrote,
+and the same run again writes nothing. The modes other cards build (`--check`, `--print-commands`, `--machines`) are
+refused by name until each lands.
+
+**`init` at a terminal: `attended`.** With standard input a terminal whose foreground the run is, as `runs/ask.py`'s
+`terminal()` decides for each question (16.8), and no `--no-prompt`, the same steps run drawn live (`INIT`, one stage
+whose steps are the questions), and each question whose value is still unset is asked, in plain Python, through
+`runs/ask.py`'s `ask` alone (16.8): nothing in `engine/` or `fleet/` reads `/dev/tty` or uses `getpass`. The questions
+are today's in their words, in the report's first-run order, the host first: its address; the token's ID, where no
+`host.yml` names one (Enter keeps the engine's own, and so does a second answer that is not a token ID, said, as its
+second asking says); E3's question whether to trust a certificate nothing on the host vouches for, a yes or no whose
+safe answer is no; the token's secret, hidden, where the vault holds none and none is given; the node, the storage and
+the bridge, each a menu of what the host lists to the token, read with it, today's rows above it saying what the token
+lacks on each (`init.init_candidates`, against the privileges `pve/privileges.py`'s `needed` gives each kind), a yes or
+no where only one can be used, yes marked first, so that Enter at the menu writes the name the host reported and no or
+Esc leaves it (typed, where no menu can be drawn, Enter there leaves it, as its prompt says, since `ask` gives a typed
+Enter and Esc the one default); the SSH key, asked only where `vm_ssh_public_keys` is unset and `~/.ssh/id_ed25519.pub`,
+which its default reads at every run, gives none, as a menu of the other public keys in `~/.ssh` (each a regular file of
+its own, never read through a link or waited on as a pipe); whose repositories are cloned; the VPN, a menu, `none`
+first, then `tailscale`, written as `vpn`; and Tailscale's auth key, hidden, only once `tailscale` is chosen, given or
+set, where the vault holds none and `tailscale_auth_method` is not `web`, sealed in the vault and never taken from the
+command line. A typed answer is held to its kind, asked once more saying the rule where it does not fit, and left where
+Enter (Esc at a menu) is pressed, or where a second does not fit, said. Each answer is then a value given, and the run
+goes on as with nobody there, writing only what is unset; with the host's address left, only the fleet's own answers are
+written. What was left is said, and NEXT STEPS keeps the line that asks again; one Ctrl-C at a question ends the run
+with nothing written. A run in the background of its terminal (`aw init &`) is one with nobody there, never drawn: the
+live region's change of the terminal's settings from there would have the terminal stop it (`SIGTTOU`) before its first
+question. `tests/unit/test_aw_engine_init.py` holds it at a pseudo-terminal of its own, against the fake.
+
+`tests/unit/test_aw_engine_init.py` holds `init` against the fake Proxmox, through `tools/aw` with a refusing `ssh`
+first on `PATH` and in this process with root SSH a reader of the test's own; its runs through `tools/aw` from a home
+short enough for the host's shared socket, so that root SSH starts its child with that socket, as from a person's home,
+and a recording `ssh` holds that the child's environment has neither the variable nor the secret; with the invariant
+that no file under the fleet's home holds the secret in clear and the vault on disk is sealed. `tests/unit/fleet_fixture.py`
+gives any other test a whole fleet folder in one call, made by this run.
 
 **The fleet as the engine reads it: `fleet.py`.** A host is opened by `fleet/opened.py`'s `connect(home, reached)`
 (16.9), which `status` opens one by too; `fleet.py` gives it, its `Host` and its `Refused` as its own. A `Target` is a
@@ -1254,6 +1379,24 @@ address on another card, each no address; shapes of an answer that raise nothing
 and during one. Its rules: the agent's calls go on connections whose reads wait less; the words that tell a stopped VM
 are the fake's; and no error of the wait says the token's secret. `tests/unit/test_aw_pve_privileges.py` holds that no
 call writes a pool and that the role on the pool holds no `Pool.*` privilege but `Pool.Audit`.
+
+**The access script's fixed text: `script.py`.** The script `init` runs on a host as root (16.4, `engine/access.py`'s
+`as_script`) is the list's calls, rendered there, inside the fixed text here, after its first lines, which `access.py`
+says through the printer: the Perl program; the body, which reads the options, holds each value and the host (root,
+`pveum` and `pvesh` there, Proxmox VE 9 or later), lists the node's storages and bridges, looks a person's template up,
+and defines the five calls, `Pool`, `Role`, `User`, `Grant` and `Token`; and the run, which calls the list twice, to
+read and decide, then to make, the secret last. It is here, in Proxmox's own folder, since it names the paths of
+Proxmox's command line, which no file of the engine's outside `pve/` names. The script is `/bin/sh` run as `sh -s`,
+itself on standard input, so each command it starts reads `/dev/null` or a pipe, never the rest of it. Every answer of
+`pveum` and `pvesh` is asked for as JSON and read by the one Perl program, with JSON::PP, core Perl and on every Proxmox
+VE host, never by grep or sed: a role's privileges it lacks and those it holds beyond its own; a pool's state by the
+fleet's mark, read as `fleet/mark.py` reads it, white space being what Python reads as such (Perl's, and the separators
+`\x1c` to `\x1f`); the comment taking an unmarked pool gives it; whether an ACL entry is there, propagating; a token's
+privilege separation; a person's template, the one guest of its name and a template on the node, and the bridges its
+network cards are on; a new token's secret, held to the form of one; and a command's words, quoted as Python's
+`shlex.quote` quotes them, for each line the script prints. Its one cut of what the host holds, of the privileges a role
+holds beyond its own, makes each run of characters outside printable ASCII one space where `text.py`'s `one_line` keeps
+what it can print: Proxmox names a privilege in ASCII alone. It imports nothing of the project's.
 
 ## 16.6 `ssh/` — the runner over OpenSSH
 
@@ -2217,7 +2360,9 @@ its own, and never joined, nor known to the interpreter's exit, which joins a `T
 hold a cancelled run's process for the rest of a call, up to `follow`'s ten minutes. Where one of them is still in a
 call once the record is written and the terminal put back, or any thread Python would wait for at its exit, the process
 ends at once: its streams flushed, an error the body did not handle said as Python says one it ends on, then `os._exit`
-with the status.
+with the status. A line the printer would not write, its `Unwritten`, which `cli/main.py` then never sees, is said as
+`main.py` says it, in one line, the code's own fault (`printer.own_fault`), never a traceback, and the status is 1
+(16.2, 16.3).
 
 **No thread blocks a signal.** A process forked from a thread starts with that thread's signal mask, which stays through
 `exec`, so a program a call in a thread starts with `subprocess` - `route.py`'s `ssh`, the hop's shared master among
@@ -2457,9 +2602,10 @@ not answered, and one without cannot be built (`Question` refuses it, with whate
 hidden question with choices, a default that is none of the choices, a hidden answer's default that is no `Secret`). It
 gives back the default itself where nothing was answered (Enter, the end of the input, Esc at the menu, no terminal),
 and otherwise the line typed, the value of the choice picked, or for a hidden answer a `Secret`. It asks only where the
-standard input the command was given is a terminal whose foreground the run is: anything else (`/dev/null`, a pipe, a
-file, a run sent to the background, a detached run, an agent's job) is nobody to ask, and the default is taken, with
-one line on standard error that says the question was not asked and what it took; `--attended` changes nothing here.
+standard input the command was given is a terminal whose foreground the run is (`terminal()`, which a verb that asks,
+`init`, decides by too before its run draws anything): anything else (`/dev/null`, a pipe, a file, a run sent to the
+background, a detached run, an agent's job) is nobody to ask, and the default is taken, with one line on standard error
+that says the question was not asked and what it took; `--attended` changes nothing here.
 At the terminal, one question at a time (one asked while another is up, by two machines' work at once, waits till that
 one has ended), the live view steps aside (`Live.aside`, below), a `waiting` event says what the run waits for, the
 keys typed before the question was there are flushed, the question is written to standard output and the answer read,
@@ -2629,22 +2775,24 @@ agents' server allows today; `values`, a `ValueRule` for what an agent may give 
 (`claude_code_version`: a channel or a release, never another spec for npm); and, where its readers need more than its
 type, `form`, a `ValueRule` every value of a string must match (`vm_label` one Proxmox tag, which a `,` or a `;` would
 make two, held equal to `pve/client.py`'s `TAG`; `github_username` a GitHub account's name, as `init --github-user`
-takes one), or `least`, the least an integer may be (`run_forks` 1). `run_lock`'s choices are `runs/locks.py`'s
-`POLICIES`, and `network_proxy` is held by `vendors/proxy.py`'s one check of it (§16.7). A row that names a secret and
-that an agent may change, that has a rule for an agent's values and that no agent may change, or that has a form or a
-least value its type has not, raises as it is made. A setting each host sets for itself today, or that the shared files
-may never supply, is each host's own, and so is `vm_searchdomain`, one network's as the nameservers are; of them
-`claude_ssh_host_domain` and `vm_ssh_route`, how this computer finds and reaches a host's VMs, are this computer's, in
-`client.yml`'s map `hosts`, so that another computer that copies the fleet's folder reaches them its own way. A setting
-whose default is made from the machine's name is each machine's own. A list's default is a tuple and a mapping's
-read-only, so no reader changes the table. `rows()`, `row(name)` and `group(name)` read it. Nothing generates it, and
-nothing is generated from it into a tracked file. `tests/unit/test_aw_fleet_registry.py` holds the table, with the place
-of each of today's settings in two literal sets (this computer's, by scope, and each host's, by home), every other one
-the fleet's; `tests/unit/test_aw_fleet_registry_today.py`, the cutover's check, which goes with today's files, holds it
-to them: every documented setting has exactly one row but the nine, each named, and the four that left with where each
-went, each type, choice, literal default and group as today's, a secret where the role variable is `no_log`, the rows an
-agent may change today's `ALLOWED` with `VALUES`' rule, every name of `ALLOWED` and `REFUSED` a row but the nine,
-`run_forks` as many as `ansible.cfg`'s `forks`, and a setting added to the example without a row fails by its name.
+takes one; `proxmox_pool` a pool's name as Proxmox makes one, or none, by `POOL_NAME`, the one rule of a pool's name,
+which `engine/access.py` reads), or `least`, the least an integer may be (`run_forks` 1). `run_lock`'s choices are
+`runs/locks.py`'s `POLICIES`, and `network_proxy` is held by `vendors/proxy.py`'s one check of it (§16.7). A row that
+names a secret and that an agent may change, that has a rule for an agent's values and that no agent may change, or that
+has a form or a least value its type has not, raises as it is made. A setting each host sets for itself today, or that
+the shared files may never supply, is each host's own, and so is `vm_searchdomain`, one network's as the nameservers
+are; of them `claude_ssh_host_domain` and `vm_ssh_route`, how this computer finds and reaches a host's VMs, are this
+computer's, in `client.yml`'s map `hosts`, so that another computer that copies the fleet's folder reaches them its own
+way. A setting whose default is made from the machine's name is each machine's own. A list's default is a tuple and a
+mapping's read-only, so no reader changes the table. `rows()`, `row(name)` and `group(name)` read it. Nothing generates
+it, and nothing is generated from it into a tracked file. `tests/unit/test_aw_fleet_registry.py` holds the table, with
+the place of each of today's settings in two literal sets (this computer's, by scope, and each host's, by home), every
+other one the fleet's; `tests/unit/test_aw_fleet_registry_today.py`, the cutover's check, which goes with today's files,
+holds it to them: every documented setting has exactly one row but the nine, each named, and the four that left with
+where each went, each type, choice, literal default and group as today's, a secret where the role variable is `no_log`,
+the rows an agent may change today's `ALLOWED` with `VALUES`' rule, every name of `ALLOWED` and `REFUSED` a row but the
+nine, `run_forks` as many as `ansible.cfg`'s `forks`, and a setting added to the example without a row fails by its
+name.
 
 **The overrides: `overrides.py`.** What a person sets is kept in plain files of literals, written by hand or by the
 engine, never sealed, each a YAML mapping of setting names to values and nothing else: no expression, no anchor, alias,

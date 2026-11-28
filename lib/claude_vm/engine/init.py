@@ -16,7 +16,8 @@ the folder itself is put in its place. Under the fleet's lock (the verb's row: `
    check has passed; a key named elsewhere for a fleet with no vault yet is `NoVaultYet`'s refusal, as is any other of
    the vault's or the key's.
 2. Refuses a given value that differs from the one set, naming both (the secret unsaid), with nothing written: init
-   never writes over a value.
+   never writes over a value. A pool the host's settings.yml sets that is no name of a pool is refused before it, by
+   the read of the file, which holds proxmox_pool to the settings table's rule of a pool's name, as --pool is held.
 3. Works out the API's certificate with no credential sent (engine/certificate.py), with nobody to ask: what checking
    uses now, else the host's own certificates read over root SSH (the owner's answer of 2026-11-23 to review 20), else
    only `--certificate`. No request carries the token before it is settled, and every one after goes through the
@@ -35,15 +36,40 @@ the folder itself is put in its place. Under the fleet's lock (the verb's row: `
 
 The names written where none is given are the engine's own (card E1; ruling B1, rule 1): the user `agent-warehouse@pve`,
 the token `aw` and the pool `aw-fleet`; and the first host is `pve`, as today's. The modes built by other cards are
-refused by name until they land: `--check` (E6), `--print-commands` (E7) and `--machines` (J14); and so are the
-questions at a terminal (E5), where `--no-prompt` is not given. Every sentence that names a command names it through
-the printer. Standard library, fleet/, pve/, ssh/, vendors/, schema/, runs/ and today's init.py and checks.py at import;
-asyncio inside the functions that wait.
+refused by name until they land: `--check` (E6), `--print-commands` (E7) and `--machines` (J14).
+
+**At a terminal** (standard input a terminal whose foreground the run is, as runs/ask.py's `terminal()` decides for each
+question, and no `--no-prompt`; card E5), `attended` runs the same steps and asks, in plain Python, each question whose
+value is still unset, every one through runs/ask.py's `ask` and nothing else of its own: nothing here reads the
+terminal, by its path or any other way. The run is drawn live (INIT, one stage whose steps are the questions), and each
+question is today's in its words, in the report's first-run order, the host first: the host's address; the API token's
+ID, where no host.yml names one yet (Enter keeps the engine's own, and so does a second answer that is not a token ID,
+said); whether to trust a certificate nothing on the host vouches for (E3's question, a yes or no whose safe answer is
+no); the token's secret, hidden, where the vault holds none and none is given; the node, the storage and the bridge,
+each a menu of what the host lists, read with the token, every row of it with what the token lacks there (today's
+`init_candidates`), a yes or no where only one can be used, yes marked first, so that Enter at the menu writes the
+name the host reported and no or Esc leaves it, where the host's own settings.yml sets none; the SSH key the machines
+get, asked only where `vm_ssh_public_keys` is unset and `~/.ssh/id_ed25519.pub`, which its default reads, gives none, as
+a menu of the other public keys in `~/.ssh`; whose repositories are cloned; which VPN the machines join, a choice,
+`none` first, then `tailscale`, written as `vpn: tailscale` or `vpn: none`; and Tailscale's auth key, hidden, only once
+`tailscale` is chosen (or given, or set), where the vault holds none and `tailscale_auth_method` is not `web`, put
+straight into the vault and never taken from the command line. Each typed answer is held to its kind
+(`claude_vm.init.init_answer`), asked once more saying the rule where it does not fit, and left where the person presses
+Enter (Esc at a menu); a second that does not fit is left too, said. An answer is then a value given: the run goes on as
+with nobody there, and writes only what is still unset. A question whose value is set is never asked. What was left is
+said, with the line that asks again, in NEXT STEPS. With the host's address left, the host's questions are left with it,
+and only the fleet's own answers are written.
+
+Every sentence that names a command names it through the printer. Standard library, fleet/, pve/, ssh/, vendors/,
+schema/, runs/stages.py and today's init.py, checks.py and text.py at import; asyncio, the rest of runs/ and the
+Proxmox client inside the functions that use them.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import errno
+import json
 import os
 import stat
 import sys
@@ -52,18 +78,22 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .. import init as answers
-from ..checks import proxmox_name
+from ..checks import KNOWN_KEY_RE, KNOWN_KEY_TYPES, proxmox_name
 from ..fleet import files as fleet_files
 from ..fleet import hosts, mark, overrides, paths, record, sealed, secrets, vaultkey
 from ..hosts import model
+from ..pve import privileges
+from ..runs.stages import Declared, Stage, Step
 from ..schema.printer import line, said
 from ..schema.words import EXITS, PLACEHOLDER, Line
 from ..secret import Secret
 from ..ssh import runner
-from ..text import one_line, plain_text
-from . import certificate, routes
+from ..text import banner, one_line, plain_text
+from . import access, certificate, routes
 
 if TYPE_CHECKING:
+    from ..pve.client import Proxmox
+    from ..runs.ask import Choice
     from ..runs.attached import Context
     from ..runs.job import Job
 
@@ -84,8 +114,140 @@ SECRET_MOST = 4096
 BY_HAND = "administrator"
 # The modes of init built by other cards, refused by name until each lands.
 NOT_YET = {"check": "E6", "print_commands": "E7", "machines": "J14"}
-# The settings each host sets for itself that init writes where given, in the order a sentence names them.
-HOST_OWN = ("proxmox_storage", "proxmox_bridge", "proxmox_pool")
+# The settings each host sets for itself that init writes where given or answered, in the order a sentence names them.
+HOST_OWN = ("proxmox_storage", "proxmox_bridge", "proxmox_pool", "proxmox_node")
+# The vault's entry of Tailscale's auth key, one for the fleet.
+AUTH_KEY = "tailscale_auth_key"
+
+# ---------------------------------------------------------------- the questions at a terminal (card E5) ----
+
+# init's run as a person reads it at a terminal: one stage, whose steps are its questions in the order asked, then the
+# writes. A question whose value is set ends its step done at once, and one left ends it skipped.
+SETTINGS = "settings"
+INIT = Declared(
+    "init",
+    (
+        Stage(
+            SETTINGS,
+            "settings",
+            steps=(
+                Step("host", "Proxmox host"),
+                Step("token", "API token"),
+                Step("certificate", "certificate"),
+                Step("secret", "secret"),
+                Step("node", "node"),
+                Step("storage", "storage"),
+                Step("bridge", "bridge"),
+                Step("key", "SSH key"),
+                Step("github", "GitHub"),
+                Step("vpn", "VPN"),
+                Step("tailscale", "Tailscale auth key"),
+                Step("write", "the fleet's files"),
+            ),
+            each_machine=False,
+        ),
+    ),
+)
+# The block every question is asked under, as today's.
+ASKED = "USER INPUT REQUIRED"
+LATER = "Enter to decide later."
+# The token the engine's own names make, which Enter keeps at the token's ID's question.
+OWN_TOKEN = f"{TOKEN_USER}!{TOKEN_ID}"
+# A yes or no, as a menu: yes first, as today's.
+YES, NO = "y", "n"
+
+
+@dataclasses.dataclass(frozen=True)
+class _Words:
+    """One question's words, today's: what it asks (its label: the prompt's last words, and what is said of it left),
+    the lines above it, and the kind init_answer holds a typed answer to ("" for a menu's)."""
+
+    label: str
+    text: tuple[str, ...]
+    kind: str = ""
+
+
+ADDRESS = _Words(
+    "Proxmox host address",
+    (
+        "The address of your Proxmox host as this machine reaches it: an IP address or a",
+        f"host name, without https:// or a port. {LATER}",
+    ),
+    "host",
+)
+TOKEN = _Words(
+    "API token ID",
+    (
+        "The API token to use, as user@realm!name: the one made for this fleet on the host. Its ID",
+        f"only: the secret is asked for after it. Enter keeps {OWN_TOKEN}.",
+    ),
+    "token_id",
+)
+SECRET = _Words(
+    "API token secret",
+    (f"The token's secret, which Proxmox printed once, when the token was made. {LATER}",),
+    "uuid",
+)
+GITHUB = _Words(
+    "GitHub username",
+    (f"The GitHub account whose repositories are cloned onto each VM. {LATER}",),
+    "github_login",
+)
+VPN = _Words(
+    "VPN",
+    (
+        "A VPN you already run that routes this LAN - WireGuard on your router, a Tailscale subnet",
+        "router, any other - reaches the VMs at their LAN addresses, from anywhere it reaches you:",
+        "choose none, and that is all. tailscale joins each VM to your tailnet itself, which adds",
+        "  - a name for each VM, reached from any of your devices, with no route or port of yours;",
+        "  - each VM a device of its own: your tailnet policy can keep the VMs off your other devices;",
+        "  - with an auth key in the vault, the join with nothing to click, and with an API",
+        "    credential, the VM's device deleted when the VM is.",
+        "tailscale needs a Tailscale account. none puts Tailscale on no VM, and leaves a VM it is",
+        f"already on as it is. Left for later, it is none until answered. vpn in {paths.FLEET}/{overrides.SETTINGS}",
+        "changes it.",
+    ),
+)
+# The VPN's two answers, none first, each with a few words beside it, as today's.
+VPN_CHOICES = (
+    ("none", "your LAN, or a VPN of yours that routes it"),
+    ("tailscale", "each VM joins your tailnet"),
+)
+TAILSCALE_KEY = _Words(
+    "Tailscale auth key",
+    (
+        "Optional: an auth key joins each new VM to your tailnet as it is deployed, with nothing",
+        "to click. Make one in Tailscale's admin console (Settings, Keys): reusable, pre-approved,",
+        "tagged, never ephemeral. Enter to go without one, and sign each VM in on Tailscale's page",
+        "as it is deployed; this is asked again next time. To always use the page and never be",
+        f"asked, set tailscale_auth_method: web in {paths.FLEET}/{overrides.SETTINGS}.",
+    ),
+    "auth_key",
+)
+SSH_KEY = _Words(
+    "SSH key",
+    (
+        "The VMs would get no SSH key: ~/.ssh/id_ed25519.pub, which they get by default, is not there,",
+        "and SSH to them takes one. Which of your public keys do they get? vm_ssh_public_keys in",
+        f"{paths.FLEET}/{overrides.SETTINGS} lists keys of your own.",
+    ),
+)
+# The node, the storage and the bridge, each as the host lists them: its setting, the word a sentence says one by, the
+# menu's title, and the permission path a name of one is checked at (pve/privileges.py's KINDS).
+LISTED = {
+    "node": ("proxmox_node", "node", "Node", "/nodes/"),
+    "storage": ("proxmox_storage", "storage", "Storage", "/storage/"),
+    "bridge": ("proxmox_bridge", "bridge", "Bridge", "/sdn/zones/localnetwork/"),
+}
+# What each of them is, above today's rows of what the token can see: where, the host's address or the node.
+QUESTIONED = {
+    "node": "The node {where} that holds the template, where new VMs are cloned.",
+    "storage": "The storage for VM disks, and for the template's, {where}.",
+    "bridge": "The bridge the template's network card is on, which every clone inherits, {where}.",
+}
+SEEN_THERE = "What your token can see there:"
+# The most of a public key file read.
+PUBLIC_KEY_MOST = 16384
 
 
 class Refused(Exception):
@@ -101,7 +263,9 @@ class Given:
     """What init was given, each value held to its kind, "" where it was not given: the host's address and name, the
     token's user and ID, the GitHub account, the storage, the bridge and the pool, the VPN's answer (on, off), the
     certificate's fingerprint (upper case), the --set words for this run, and the token's secret, a Secret, with what
-    gave it (secret_from: --token-secret-file and the file, or the variable), None where none was."""
+    gave it (secret_from: --token-secret-file and the file, or the variable), None where none was. At a terminal the
+    person's answers are given too (attended): those, and the node, the SSH keys the machines get and Tailscale's auth
+    key, which no option gives."""
 
     address: str = ""
     host: str = ""
@@ -117,6 +281,9 @@ class Given:
     secret: Secret | None = None
     secret_from: str = ""
     notes: tuple[str, ...] = ()
+    node: str = ""
+    keys: tuple[str, ...] = ()
+    auth_key: Secret | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -157,6 +324,30 @@ def _rule(kind: str) -> str:
     return answers.init_answer_rule(kind)
 
 
+def _pool_name(pool: object) -> bool:
+    """Whether pool is a name Proxmox makes a pool by: card E1's access.POOL_NAME, the settings table's one rule of a
+    pool's name, which --pool is held to before anything is sent, as the pool the host's settings.yml sets is held to
+    it where the file is written and read (fleet/overrides.py, proxmox_pool's form)."""
+    return isinstance(pool, str) and access.POOL_NAME.fullmatch(pool) is not None
+
+
+def _bounded(path: Path, most: int, *, links: bool = True) -> bytes:
+    """The first most + 1 bytes of the regular file at path: the one file read init opens itself, so that a file longer
+    than most is known to be. Opened without waiting on a pipe, and with links False never through a link, then held to
+    a regular file by what was opened, before anything of it is read, as fleet/vaultkey.py's _read: a FIFO or a link put
+    where a file was is never read and never blocks the run. OSError where it cannot be read or is no regular file."""
+    handle = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC | (0 if links else os.O_NOFOLLOW))
+    try:
+        if not stat.S_ISREG(os.fstat(handle).st_mode):
+            raise OSError(errno.EINVAL, "not a regular file", str(path))
+        stream = open(handle, "rb")
+    except BaseException:
+        os.close(handle)
+        raise
+    with stream:
+        return stream.read(most + 1)
+
+
 def _secret_from_file(path: Path) -> tuple[Secret, tuple[str, ...]]:
     """The token's secret in the file at path, held to its kind and wrapped at once; and a note where others can read
     the file. Refused where it is not a file, cannot be read, or holds no secret, which is never said."""
@@ -168,8 +359,7 @@ def _secret_from_file(path: Path) -> tuple[Secret, tuple[str, ...]]:
     if not stat.S_ISREG(info.st_mode):
         raise Refused(f"--token-secret-file names {said_path}, which is not a file")
     try:
-        with open(path, "rb") as stream:
-            data = stream.read(SECRET_MOST + 1)
+        data = _bounded(path, SECRET_MOST)
     except OSError as error:
         why = error.strerror or error
         raise Refused(f"--token-secret-file names {said_path}, which cannot be read ({why})") from None
@@ -233,9 +423,8 @@ def given(
         if named and not proxmox_name(named, kind):
             raise Refused(f"--{option} ({named}) is no name Proxmox gives a {kind}")
     pool = _text(values, "pool")
-    if pool and not (proxmox_name(pool, "pool") and pool[0].isalpha()):
-        # A / makes a nested pool on VE 9.2, and Proxmox makes none whose name starts with anything but a letter.
-        raise Refused(f"--pool ({pool}) is no name of a pool: letters, digits, _, . and -, from a letter")
+    if pool and not _pool_name(pool):
+        raise Refused(f"--pool ({pool}) is no name of a pool: {access.POOL_RULE}")
     secret_file = _text(values, "token_secret_file")
     if secret_file and variable.given:
         raise Refused(
@@ -377,9 +566,17 @@ def _held(home: paths.Home) -> None:
 
 
 def _same(held: Secret, secret: Secret) -> bool:
-    """Whether the secret given is the one the vault holds: the one place init reads a Secret's value, to compare it
-    with another, never to send it on or say it (tests/unit/test_aw_guards.py's REVEALS)."""
+    """Whether the secret given is the one the vault holds: one of the two places init reads a Secret's value, to
+    compare it with another, never to send it on or say it (tests/unit/test_aw_guards.py's REVEALS)."""
     return held.reveal() == secret.reveal()
+
+
+def _kind_of(typed: Secret, kind: str) -> Secret | None:
+    """A hidden answer held to its kind (init_answer's: the token's secret, Tailscale's auth key), wrapped again at
+    once: the other place init reads a Secret's value, never to send it on or say it; None where it is not of its
+    kind."""
+    held = answers.init_answer(typed.reveal(), kind)
+    return Secret(held) if held else None
 
 
 def _differs(typed: Given, found: _Set) -> list[str]:
@@ -442,30 +639,30 @@ def _root_ssh(job: Job, address: str, fields: hosts.HostFile | None, values: Map
     return read
 
 
-async def _mark(
-    url: str,
-    kept: certificate.Kept,
-    token_id: str,
-    secret: Secret,
-    pool: str,
-    proxy_setting: str,
-    environ: Mapping[str, str],
-) -> mark.Mark:
-    """The mark in the pool's comment, read with the token given, through the connection the certificate's step made:
-    Refused where Proxmox does not take the token for the pool, the pool is not there, or its comment carries no mark,
-    or one that does not read."""
-    import asyncio
-
-    from ..pve.answers import ProxmoxError
-    from ..pve.client import Denied, Proxmox, Token
+def _connect(
+    url: str, kept: certificate.Kept, token_id: str, secret: Secret, proxy_setting: str, environ: Mapping[str, str]
+) -> Proxmox:
+    """The Proxmox client the run's token goes through: on the connection the certificate's step made (its Pin), and
+    through the proxy the setting chooses. The caller closes it."""
+    from ..pve.client import Proxmox, Token
     from ..vendors import proxy
-    from ..vendors.transport import TransportError
 
     try:
         through = proxy.choose(proxy_setting, environ, url)
     except ValueError as error:
         raise Refused(str(error)) from None
-    client = Proxmox(url, kept.pinned, Token(token_id, secret), through)
+    return Proxmox(url, kept.pinned, Token(token_id, secret), through)
+
+
+async def _mark(client: Proxmox, token_id: str, pool: str) -> mark.Mark:
+    """The mark in the pool's comment, read with the token given, through client: Refused where Proxmox does not take
+    the token for the pool, the pool is not there, or its comment carries no mark, or one that does not read."""
+    import asyncio
+
+    from ..pve.answers import ProxmoxError
+    from ..pve.client import Denied
+    from ..vendors.transport import TransportError
+
     try:
         found = await asyncio.to_thread(client.pool, pool)
     except Denied as error:
@@ -475,8 +672,6 @@ async def _mark(
         ) from None
     except (ProxmoxError, TransportError) as error:
         raise Refused(f"{one_line(str(error), 300)}: nothing was written") from None
-    finally:
-        client.close()
     try:
         found_mark = mark.parse(found.comment)
     except mark.Refused as error:
@@ -488,6 +683,262 @@ async def _mark(
             " written"
         )
     return found_mark
+
+
+# ---------------------------------------------------------------- what the host lists, for its menus ----
+
+
+def _held_at(client: Proxmox, path: str) -> tuple[int, dict]:
+    """What the token holds at an ACL path, as today's init reads it for each name listed: 200 and its privileges, or
+    0 and none where the read failed, which then lacks everything."""
+    from ..pve.answers import ProxmoxError
+    from ..vendors.transport import TransportError
+
+    try:
+        return 200, dict(client.permissions(path).privileges)
+    except (ProxmoxError, TransportError, ValueError):
+        return 0, {}
+
+
+def _listed(client: Proxmox, what: str, node: str) -> list[dict]:
+    """What the host lists of what (a node; a storage for VM disks or a bridge on node) that the token may see, each as
+    today's init_candidates gives one: its name, its type, its space free, what the token lacks of the engine's table
+    there (pve/privileges.py's needed), whether it is inactive (a node not online), and whether its name is one Proxmox
+    would not give, in the listing's order. Synchronous, so run in a thread."""
+    path = LISTED[what][3]
+    required = sorted(privileges.needed(what))
+    if what == "node":
+        found = []
+        for each in client.resources("node"):
+            refused = not proxmox_name(each.node, "node")
+            _status, held = (0, {}) if refused else _held_at(client, path + each.node)
+            found.append(
+                {
+                    "name": json.dumps(each.node) if refused else each.node,
+                    "type": "",
+                    "free": "",
+                    "lacks": [privilege for privilege in required if privilege not in held],
+                    "inactive": each.status != "online",
+                    "refused": refused,
+                }
+            )
+        return found
+    key = "storage" if what == "storage" else "iface"
+    entries = client.storages(node) if what == "storage" else client.bridges(node)
+    results = []
+    for each in entries:
+        name = str(each.entry.get(key, ""))
+        status, held = _held_at(client, path + name) if proxmox_name(name, what) else (0, {})
+        results.append({"item": dict(each.entry), "status": status, "json": {"data": {path + name: held}}})
+    return answers.init_candidates(results, key, path, required)
+
+
+def _usable(candidate: Mapping[str, Any]) -> bool:
+    return not candidate["lacks"] and not candidate.get("inactive") and not candidate.get("refused")
+
+
+def _rows(what: str, candidates: Sequence[Mapping[str, Any]]) -> list[str]:
+    """The lines a menu's question shows above it, as today's: what can be used numbered, then the rest each with why
+    not, what the token lacks there above all (init_choose_rows); a node not online is said to be offline first."""
+    path = LISTED[what][3]
+    if what != "node":
+        return answers.init_choose_rows(list(candidates), path)
+    usable = [each for each in candidates if _usable(each)]
+    width = max((len(each["name"]) for each in candidates), default=0)
+    lines = [f"  {f'{number}) ' if len(usable) > 1 else '-  '}{each['name']}" for number, each in enumerate(usable, 1)]
+    for each in candidates:
+        if each in usable:
+            continue
+        why = (
+            "not a name Proxmox gives one, so never used"
+            if each.get("refused")
+            else "offline"
+            if each.get("inactive")
+            else f"the token lacks {', '.join(each['lacks'])} on {path}{each['name']}"
+        )
+        lines.append(f"  -  {each['name']:<{width}}   {why}")
+    return lines
+
+
+def _public_keys(environ: Mapping[str, str]) -> list[tuple[str, str]]:
+    """The public keys in ~/.ssh, each as its file's name and its key's line - a type OpenSSH names, its key in base64
+    and its comment, made plain - in the files' order: the menu the SSH key's question offers. A file that is a link or
+    no regular file (a FIFO is never waited on), cannot be read, is larger than a key is, or holds no key line is left
+    out."""
+    try:
+        folder = paths.user_home(environ) / ".ssh"
+        files = sorted(folder.glob("*.pub")) if folder.is_dir() else []
+    except (paths.Refused, OSError):
+        return []
+    found: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for path in files:
+        try:
+            data = _bounded(path, PUBLIC_KEY_MOST, links=False)
+        except OSError:
+            continue
+        if len(data) > PUBLIC_KEY_MOST:
+            continue
+        first = data.decode("utf-8", errors="replace").strip().split("\n", 1)[0].strip()
+        words = first.split()
+        name = one_line(path.name, None)
+        if len(words) >= 2 and words[0] in KNOWN_KEY_TYPES and KNOWN_KEY_RE.fullmatch(words[1]) and name not in seen:
+            seen.add(name)
+            found.append((name, one_line(first, None)))
+    return found
+
+
+# ---------------------------------------------------------------- the person, asked ----
+
+
+def _question(lines: Sequence[str], label: str, colon: bool = True) -> str:
+    """A question as runs/ask.py asks it: its lines under today's block, then its label, which ends it."""
+    topic = said("{init}", {"init": _init()})
+    return banner(list(lines), ASKED, topic=topic) + label + (":" if colon else "")
+
+
+class _Asking:
+    """The person at the run's terminal, each question one through runs/ask.py's ask alone, and a step of init's stage:
+    begun as it is asked, ended done where answered or set, skipped where left. What was left is kept, by its label,
+    for the run's last lines and NEXT STEPS."""
+
+    def __init__(self, running: Context) -> None:
+        self.running = running
+        self.left: list[str] = []
+
+    def step(self, key: str, outcome: str | None = None) -> None:
+        if outcome is None:
+            self.running.emit("step", None, key, stage=SETTINGS)
+        else:
+            self.running.emit("step", None, key, stage=SETTINGS, outcome=outcome)
+
+    def passed(self, key: str, outcome: str = "done") -> None:
+        """A step with no question: its value is set, or nothing can be asked of it."""
+        self.step(key)
+        self.step(key, outcome)
+
+    def say(self, text: str) -> None:
+        """A line said above the region, whole."""
+        self.running.emit("report", None, text)
+
+    async def ask(
+        self, text: str, default: str | Secret, choices: Sequence[Choice | str] = (), hidden: bool = False
+    ) -> str | Secret:
+        from claude_vm.runs.ask import ask
+
+        return await ask(self.running, text, default, choices, hidden)
+
+    def _left(self, key: str, words: _Words, answered: bool) -> None:
+        if not answered:
+            self.left.append(words.label)
+        self.step(key, "done" if answered else "skipped")
+
+    async def line(self, key: str, words: _Words, *, keeps: str = "") -> str:
+        """A typed answer held to its kind, "" where it was left: asked, and once more saying the rule where it does not
+        fit, a second that does not fit said and left. keeps: the value Enter keeps, its words, "" for none: then
+        nothing is left, the second asking says what Enter keeps, and a second answer that does not fit keeps it too,
+        said so, as its caller then takes it ("" given back)."""
+        self.step(key)
+        answer = ""
+        enter = f"Enter keeps {keeps}." if keeps else LATER
+        for again in (False, True):
+            lines = words.text if not again else (f"That is not {_rule(words.kind)}.", enter)
+            typed = str(await self.ask(_question(lines, words.label), ""))
+            if not typed.strip():
+                break
+            answer = answers.init_answer(typed, words.kind)
+            if answer:
+                break
+            if again:
+                self._said_left(words, keeps)
+        self._left(key, words, bool(answer or keeps))
+        return answer
+
+    async def hidden(self, key: str, words: _Words) -> Secret | None:
+        """A hidden answer held to its kind, a Secret, None where it was left: never echoed, said or kept in clear."""
+        self.step(key)
+        answer = None
+        for again in (False, True):
+            lines = words.text if not again else (f"That is not {_rule(words.kind)}.", LATER)
+            nothing = Secret("")
+            typed = await self.ask(_question(lines, words.label), nothing, hidden=True)
+            if typed is nothing or not isinstance(typed, Secret):
+                break
+            answer = _kind_of(typed, words.kind)
+            if answer is not None:
+                break
+            if again:
+                self._said_left(words)
+        self._left(key, words, answer is not None)
+        return answer
+
+    def _said_left(self, words: _Words, keeps: str = "") -> None:
+        """What a second answer that does not fit leaves: the question, for the next run, or the value Enter keeps."""
+        if keeps:
+            self.say(f"That is not {_rule(words.kind)} either, so {words.label} keeps {keeps}.")
+            return
+        self.say(
+            said(
+                "That is not {rule} either, so {label} is left as it was: the next {init} asks again.",
+                {"rule": _rule(words.kind), "label": words.label, "init": _init()},
+            )
+        )
+
+    async def choice(self, key: str, words: _Words, choices: Sequence[Choice]) -> str:
+        """One of choices, "" where it was left: a menu picked with the arrow keys where the terminal can draw one, else
+        typed (runs/ask.py)."""
+        self.step(key)
+        picked = str(await self.ask(_question(words.text, words.label, colon=False), "", choices))
+        self._left(key, words, bool(picked))
+        return picked
+
+    async def pick(self, key: str, what: str, candidates: Sequence[Mapping[str, Any]], text: Sequence[str]) -> str:
+        """One of what the host lists that the token can use, "" where it was left: a yes or no for the only one, as
+        today's, yes marked first, so that Enter at the menu takes the name the host reported and no or Esc leaves it
+        (the coordinator's ruling on review 54's E5.md 7: three Enters that left all three had the fleet fall back to
+        pve, local-lvm and vmbr0, wrong on a host whose names differ); a menu of several; today's rows above either.
+        None that can be used asks nothing, and is left."""
+        from claude_vm.runs.ask import Choice
+
+        title = LISTED[what][2]
+        usable = [each for each in candidates if _usable(each)]
+        words = _Words(title, (*text, *_rows(what, candidates)))
+        if not usable:
+            self.passed(key, "skipped")
+            self.left.append(title)
+            return ""
+        self.step(key)
+        if len(usable) == 1:
+            only = usable[0]["name"]
+            # Yes is marked first, and is what Enter at the menu takes; no and Esc, which gives back the default, ""
+            # (runs/ask.py), leave it. Typed, where no menu can be drawn, Enter gives back that default too, as its
+            # prompt says, since ask gives a typed Enter and Esc at the menu the one default.
+            answer = await self.ask(_question(words.text, f"Use {only}?", colon=False), "", _yes_no())
+            picked = only if answer == YES else ""
+        else:
+            # A name is held to Proxmox's own form (init_candidates), and its type, as the host says it, is made plain.
+            notes = [one_line(", ".join(part for part in (each["type"], each["free"]) if part), 60) for each in usable]
+            listed = [Choice(each["name"], each["name"], note) for each, note in zip(usable, notes, strict=True)]
+            picked = str(await self.ask(_question(words.text, title, colon=False), "", listed))
+        self._left(key, words, bool(picked))
+        return picked
+
+    def trusting(self) -> certificate.Ask:
+        """E3's question, whether to trust a certificate nothing on the host vouches for: a yes or no whose safe answer,
+        and default, is no."""
+
+        async def trust(question: certificate.Question) -> bool:
+            prompt = question.prompt.removesuffix(" y or n")
+            return await self.ask(_question(question.lines, prompt, colon=False), NO, _yes_no()) == YES
+
+        return trust
+
+
+def _yes_no() -> tuple[Choice, ...]:
+    """A yes or no as a menu, yes first, as today's."""
+    from claude_vm.runs.ask import Choice
+
+    return (Choice(YES, "yes"), Choice(NO, "no"))
 
 
 # ---------------------------------------------------------------- the writes ----
@@ -532,13 +983,71 @@ async def unattended(
     of its run; else root SSH is not tried. Refused, in one sentence, with nothing written, where a value given differs
     from the one set, the certificate is not settled, or the pool's mark does not make the fleet this one. See the
     module's docstring."""
+    return await _run(home, typed, environ=environ, job=job, root_ssh=root_ssh, asking=None)
+
+
+async def attended(
+    home: paths.Home,
+    typed: Given,
+    *,
+    running: Context,
+    environ: Mapping[str, str],
+    root_ssh: certificate.RootSsh | None = None,
+) -> list[str]:
+    """The fleet's folder written at the run's terminal, its caller holding the fleet's lock: each question whose value
+    is unset asked through runs/ask.py, as the module's docstring says, every answer then a value given, as unattended
+    takes one; each question a step of init's one stage (INIT). The lines that say what was written and what was left,
+    which is also in NEXT STEPS. Refused as unattended is, with nothing written."""
+    asking = _Asking(running)
+    running.emit("stage", None, SETTINGS)
+    lines = await _run(home, typed, environ=environ, job=running.job, root_ssh=root_ssh, asking=asking)
+    if asking.left:
+        running.emit(
+            "next",
+            None,
+            said("{init}   asks again for {left}", {"init": _init(), "left": _listed_words(asking.left)}),
+            matter="init",
+        )
+    running.emit("stage", None, SETTINGS, outcome="done")
+    return lines
+
+
+def _listed_words(words: Sequence[str]) -> str:
+    return ", ".join(words[:-1]) + f" and {words[-1]}" if len(words) > 1 else "".join(words)
+
+
+@dataclasses.dataclass(frozen=True)
+class _Settled:
+    """What a run settled of the host, before anything is written: what its certificate is held to, the token's user
+    and ID, the fleet's ID, what the administrator made, by ID, where a secret was given or typed (the pool's mark read
+    with it), and what was given and answered."""
+
+    kept: certificate.Kept
+    token_user: str
+    token_id: str
+    fleet_id: str
+    made: tuple[hosts.Made, ...]
+    typed: Given
+
+
+async def _run(
+    home: paths.Home,
+    typed: Given,
+    *,
+    environ: Mapping[str, str],
+    job: Job | None,
+    root_ssh: certificate.RootSsh | None,
+    asking: _Asking | None,
+) -> list[str]:
+    """unattended's steps, and attended's with asking: what is set read and every value given held to it, the host's
+    part (its address, its token, its certificate, the pool's mark, and at a terminal its lists), at a terminal the
+    fleet's own questions, then the writes, each through its one writer, and what the run says of them."""
     layout = hosts.Layout(home, environ)
     found = _read(home, layout, typed, environ)
     # Again under the fleet's lock, and for a caller that is not init's handler: before anything is sent or written.
     _held(home)
-    name, state, fields = found.name, found.state, found.state.fields
-    entry = secrets.entry("token", host=name)
-    held = None if found.vault is None else found.vault.get(entry)
+    name, fields = found.name, found.state.fields
+    held = None if found.vault is None else found.vault.get(secrets.entry("token", host=name))
     differs = _differs(typed, found)
     if differs:
         never = said("{init} never writes over a value: edit the file to change it.", {"init": _init()})
@@ -557,16 +1066,71 @@ async def unattended(
             )
         )
     address = typed.address or (fields.address if fields is not None else "")
+    if asking is not None:
+        if address:
+            asking.passed("host")
+        else:
+            address = await asking.line("host", ADDRESS)
     named = {"host": name} if typed.host else {}
-    if not address:
+    settled = None
+    if address:
+        settled = await _the_host(
+            found,
+            dataclasses.replace(typed, address=address),
+            held,
+            environ=environ,
+            job=job,
+            root_ssh=root_ssh,
+            asking=asking,
+        )
+        typed = settled.typed
+    elif asking is None:
         raise Refused(
             said(
                 "the host {name} has no address yet: give it, as {init}; nothing was written",
                 {"name": name, "init": _init(address=PLACEHOLDER, no_prompt=True, **named)},
             )
         )
+    else:
+        # The host's address left: so is everything that needs the host, which the next run asks.
+        for key in ("token", "certificate", "secret", "node", "storage", "bridge"):
+            asking.passed(key, "skipped")
+    if asking is not None:
+        typed = await _the_fleet(asking, typed, found, environ)
+        asking.step("write")
+    wrote = _write(home, layout, found, typed, settled, environ)
+    if asking is not None:
+        asking.step("write", "done")
+    return _report(home, found, typed, settled, wrote, asking)
+
+
+async def _the_host(
+    found: _Set,
+    typed: Given,
+    held: Secret | None,
+    *,
+    environ: Mapping[str, str],
+    job: Job | None,
+    root_ssh: certificate.RootSsh | None,
+    asking: _Asking | None,
+) -> _Settled:
+    """The host's part of a run, at typed.address: the token's ID, asked where nothing names one yet; the certificate,
+    settled before any request that carries the token, a person asked where only one can vouch for it; the token's
+    secret, asked where none is held or given; the pool's mark, read with a secret given or typed, which is the
+    authority for the fleet's ID; and at a terminal the node, the storage and the bridge, from the host's lists."""
+    name, state, fields = found.name, found.state, found.state.fields
+    address = typed.address
     token_user = typed.token_user or (fields.token_user if fields is not None else TOKEN_USER)
     token_id = typed.token_id or (fields.token_id if fields is not None else TOKEN_ID)
+    if asking is not None:
+        if fields is None and held is None and typed.secret is None and not (typed.token_user or typed.token_id):
+            # Enter keeps the engine's own, as a second answer that is not a token ID does: said, and written.
+            answer = await asking.line("token", TOKEN, keeps=OWN_TOKEN)
+            if answer:
+                token_user, _, token_id = answer.partition("!")
+                typed = dataclasses.replace(typed, token_user=token_user, token_id=token_id)
+        else:
+            asking.passed("token")
     own = {} if found.layers.host is None else found.layers.host.settings
     pool = typed.pool or own.get("proxmox_pool") or POOL
     tls_ca_file = found.values["tls_ca_file"].value or None
@@ -579,72 +1143,228 @@ async def unattended(
     reader = root_ssh
     if reader is None and job is not None:
         reader = _root_ssh(job, address, fields, found.values, environ)
-    kept = await certificate.work_out(host, typed.certificate, reader, None)
+    if asking is not None:
+        asking.step("certificate")
+    kept = await certificate.work_out(host, typed.certificate, reader, None if asking is None else asking.trusting())
     if isinstance(kept, certificate.Refusal):
         raise Refused(kept.said)
+    if asking is not None:
+        asking.step("certificate", "done")
+        # The token's secret: given, held in the vault, or asked, hidden.
+        if typed.secret is None and held is None:
+            typed_secret = await asking.hidden("secret", SECRET)
+            if typed_secret is not None:
+                typed = dataclasses.replace(typed, secret=typed_secret, secret_from="the token's secret typed")
+        else:
+            asking.passed("secret")
 
     # The fleet's ID: the pool's mark, read with the secret given, which is the authority; else the fleet's own.
-    made: list[hosts.Made] = []
-    if typed.secret is not None:
-        full_id = f"{token_user}!{token_id}"
-        url = f"https://{host.endpoint}"
-        found_mark = await _mark(url, kept, full_id, typed.secret, pool, found.values["network_proxy"].value, environ)
-        rule = mark.may_change(found_mark, found.fleet or record.first(found_mark.fleet))
-        if rule is not None:
-            raise Refused(f"{rule.removeprefix('error: ')}; nothing was written")
-        fleet_id = found_mark.fleet
-        made = [
-            hosts.Made("pool", pool, BY_HAND),
-            hosts.Made("user", token_user, BY_HAND),
-            hosts.Made("token", full_id, BY_HAND),
-        ]
+    full_id = f"{token_user}!{token_id}"
+    url = f"https://{host.endpoint}"
+    secret = typed.secret if typed.secret is not None else held
+    made: tuple[hosts.Made, ...] = ()
+    client = None
+    unlisted = [setting for setting, *_ in LISTED.values() if own.get(setting) in (None, "")]
+    if secret is not None and (typed.secret is not None or (asking is not None and unlisted)):
+        client = _connect(url, kept, full_id, secret, found.values["network_proxy"].value, environ)
+    try:
+        if typed.secret is not None and client is not None:
+            found_mark = await _mark(client, full_id, pool)
+            rule = mark.may_change(found_mark, found.fleet or record.first(found_mark.fleet))
+            if rule is not None:
+                raise Refused(f"{rule.removeprefix('error: ')}; nothing was written")
+            fleet_id = found_mark.fleet
+            made = (
+                hosts.Made("pool", pool, BY_HAND),
+                hosts.Made("user", token_user, BY_HAND),
+                hosts.Made("token", full_id, BY_HAND),
+            )
+        else:
+            fleet_id = found.fleet.fleet if found.fleet is not None else record.new_id()
+        if asking is not None:
+            typed = await _the_lists(asking, client, typed, own, address)
+    finally:
+        if client is not None:
+            client.close()
+    return _Settled(kept, token_user, token_id, fleet_id, made, typed)
+
+
+async def _the_lists(
+    asking: _Asking, client: Proxmox | None, typed: Given, own: Mapping[str, object], address: str
+) -> Given:
+    """The node, the storage and the bridge, each asked where the host's own settings.yml sets none and none was given:
+    a menu of what the host lists to the token (none without a token's secret, and a storage or a bridge none without a
+    node). Each answer is then a value given."""
+    import asyncio
+
+    from ..pve.answers import ProxmoxError
+    from ..vendors.transport import TransportError
+
+    node = str(own.get("proxmox_node") or "")
+    given_now = {"node": "", "storage": typed.storage, "bridge": typed.bridge}
+    for what in ("node", "storage", "bridge"):
+        setting, word, title, _path = LISTED[what]
+        if given_now[what] or own.get(setting) not in (None, ""):
+            asking.passed(what)
+            continue
+        if client is None or (what != "node" and not node):
+            asking.passed(what, "skipped")
+            asking.left.append(title)
+            continue
+        try:
+            candidates = await asyncio.to_thread(_listed, client, what, node)
+        except (ProxmoxError, TransportError) as error:
+            asking.passed(what, "skipped")
+            asking.left.append(title)
+            asking.say(f"{address} did not list its {word}s to the token: {one_line(str(error), 200)}")
+            continue
+        where = f"of {address}" if what == "node" else f"on {node}"
+        text = (QUESTIONED[what].format(where=where), "What your token can see:" if what == "node" else SEEN_THERE)
+        if not any(_usable(each) for each in candidates):
+            names = ", ".join(each["name"] for each in candidates)
+            why = f"{names} lack what it needs" if names else f"Proxmox lists a {word} only to a token that may see it"
+            asking.say(f"{title} {where}: the token can use none there ({why})")
+        picked = await asking.pick(what, what, candidates, text)
+        if what == "node":
+            node = picked
+            typed = dataclasses.replace(typed, node=picked)
+        elif what == "storage":
+            typed = dataclasses.replace(typed, storage=picked)
+        else:
+            typed = dataclasses.replace(typed, bridge=picked)
+    return typed
+
+
+async def _the_fleet(asking: _Asking, typed: Given, found: _Set, environ: Mapping[str, str]) -> Given:
+    """The fleet's own questions, each where its value is unset and none was given: the SSH key the machines get, whose
+    repositories are cloned, which VPN the machines join, and Tailscale's auth key once Tailscale is chosen. Each answer
+    is then a value given."""
+    from claude_vm.runs.ask import Choice
+
+    shared = found.layers.fleet.settings
+    # The SSH key: vm_ssh_public_keys' default reads ~/.ssh/id_ed25519.pub at each run, as today's; only where that
+    # gives none, and nothing sets the setting, is the person asked which of their other public keys.
+    if "vm_ssh_public_keys" in shared or found.values["vm_ssh_public_keys"].value:
+        asking.passed("key")
+    else:
+        keys = _public_keys(environ)
+        if keys:
+            # Each beside its type and its comment.
+            notes = [one_line(" ".join(key.split()[:1] + key.split()[2:]), 60) for _file, key in keys]
+            listed = [Choice(file, file, note) for (file, _key), note in zip(keys, notes, strict=True)]
+            picked = await asking.choice("key", SSH_KEY, listed)
+            if picked:
+                typed = dataclasses.replace(typed, keys=(dict(keys)[picked],))
+        else:
+            asking.passed("key", "skipped")
+            asking.left.append(SSH_KEY.label)
+            asking.say(
+                "the VMs would get no SSH key, and ~/.ssh has no public key: make one with ssh-keygen -t ed25519,"
+                " which they then get"
+            )
+    if typed.github_user or shared.get("github_username") not in (None, ""):
+        asking.passed("github")
+    else:
+        answer = await asking.line("github", GITHUB)
+        if answer:
+            typed = dataclasses.replace(typed, github_user=answer)
+    vpn = shared.get("vpn")
+    if typed.tailscale or vpn not in (None, ""):
+        asking.passed("vpn")
+    else:
+        picked = await asking.choice("vpn", VPN, [Choice(value, value, note) for value, note in VPN_CHOICES])
+        if picked:
+            typed = dataclasses.replace(typed, tailscale="on" if picked == "tailscale" else "off")
+    # Tailscale's auth key: only once Tailscale is chosen, where the vault holds none and the web login is not the only
+    # way, hidden, and never from the command line.
+    chosen = typed.tailscale == "on" if typed.tailscale else vpn == "tailscale"
+    if not chosen:
+        asking.passed("tailscale", "skipped")
+    elif (found.vault is not None and AUTH_KEY in found.vault) or found.values["tailscale_auth_method"].value == "web":
+        asking.passed("tailscale")
+    else:
+        auth_key = await asking.hidden("tailscale", TAILSCALE_KEY)
+        if auth_key is not None:
+            typed = dataclasses.replace(typed, auth_key=auth_key)
+    return typed
+
+
+# What a secret sealed in the vault is said to be.
+SEALED = {"token": "the token's secret", AUTH_KEY: "Tailscale's auth key"}
+
+
+def _write(
+    home: paths.Home,
+    layout: hosts.Layout,
+    found: _Set,
+    typed: Given,
+    settled: _Settled | None,
+    environ: Mapping[str, str],
+) -> list[str]:
+    """Every write of the run, each through its one writer, each only where nothing is set: the vault's key, fleet.json
+    and the vault, where the host is settled or a secret goes into it; the secrets; host.yml and its anchor, the host's
+    own settings and client.yml's current host, where the host is settled; and the fleet's own settings. What was
+    written, as a line names each."""
+    name, state, fields = found.name, found.state, found.state.fields
+    held = None if found.vault is None else found.vault.get(secrets.entry("token", host=name))
+    own = {} if found.layers.host is None else found.layers.host.settings
+    shared = found.layers.fleet.settings
+    seal: list[tuple[str, Secret, str | None]] = []
+    if settled is not None and typed.secret is not None and held is None:
+        seal.append(("token", typed.secret, name))
+    if typed.auth_key is not None:
+        seal.append((AUTH_KEY, typed.auth_key, None))
+    if settled is not None:
+        fleet_id = settled.fleet_id
     else:
         fleet_id = found.fleet.fleet if found.fleet is not None else record.new_id()
-
-    # The writes, each through its one writer.
     wrote: list[str] = []
     key_file = found.values["vault_key_file"].value
     try:
-        key = found.key
-        if key is None:
-            place = vaultkey.place(home, key_file, environ=environ)
-            key = vaultkey.make_key(place)
-            wrote.append(f"the vault's key ({_written(home, place)})")
-        if found.fleet is None:
-            record.write(home, record.first(fleet_id))
-            wrote.append(_written(home, record.path(home)))
-        if found.vault is None:
-            sealed.create(home, key)
-            wrote.append(f"the vault ({_written(home, sealed.path(home))})")
-        if typed.secret is not None and held is None:
-            sealed.put(home, key, "token", typed.secret, host=name)
-            wrote.append(f"the token's secret, sealed in the vault as {entry}")
-        if kept.anchor is None:
-            anchor: Any = None if (fields is not None and fields.trust_kind is not None) else hosts.UNCHANGED
-        else:
-            anchor = kept.anchor if kept.changed else hosts.UNCHANGED
-        digest = hosts.write(
-            layout, name, state.digest, change=_change(address, token_user, token_id, made), anchor=anchor
-        )
-        if digest != state.digest:
-            wrote.append(f"{hosts.HOSTS_REL}/{name}/{hosts.HOST_FILE}")
-        digest = found.layers.host.digest if found.layers.host is not None else overrides.MISSING
-        before = digest
-        for setting, value in zip(HOST_OWN, (typed.storage, typed.bridge, pool), strict=True):
-            if value and own.get(setting) in (None, ""):
-                digest = overrides.set(home, setting, value, name, digest, environ=environ)
-        if digest != before:
-            wrote.append(f"{hosts.HOSTS_REL}/{name}/{overrides.SETTINGS}")
-        shared = found.layers.fleet.settings
+        if settled is not None or seal:
+            key = found.key
+            if key is None:
+                place = vaultkey.place(home, key_file, environ=environ)
+                key = vaultkey.make_key(place)
+                wrote.append(f"the vault's key ({_written(home, place)})")
+            if found.fleet is None:
+                record.write(home, record.first(fleet_id))
+                wrote.append(_written(home, record.path(home)))
+            if found.vault is None:
+                sealed.create(home, key)
+                wrote.append(f"the vault ({_written(home, sealed.path(home))})")
+            for secret_name, value, owner in seal:
+                sealed.put(home, key, secret_name, value, host=owner)
+                wrote.append(f"{SEALED[secret_name]}, sealed in the vault as {secrets.entry(secret_name, host=owner)}")
+        if settled is not None:
+            kept = settled.kept
+            if kept.anchor is None:
+                anchor: Any = None if (fields is not None and fields.trust_kind is not None) else hosts.UNCHANGED
+            else:
+                anchor = kept.anchor if kept.changed else hosts.UNCHANGED
+            change = _change(typed.address, settled.token_user, settled.token_id, settled.made)
+            digest = hosts.write(layout, name, state.digest, change=change, anchor=anchor)
+            if digest != state.digest:
+                wrote.append(f"{hosts.HOSTS_REL}/{name}/{hosts.HOST_FILE}")
+            digest = found.layers.host.digest if found.layers.host is not None else overrides.MISSING
+            before = digest
+            pool = typed.pool or own.get("proxmox_pool") or POOL
+            for setting, value in zip(HOST_OWN, (typed.storage, typed.bridge, pool, typed.node), strict=True):
+                if value and own.get(setting) in (None, ""):
+                    digest = overrides.set(home, setting, value, name, digest, environ=environ)
+            if digest != before:
+                wrote.append(f"{hosts.HOSTS_REL}/{name}/{overrides.SETTINGS}")
         digest = before = found.layers.fleet.digest
         if typed.github_user and shared.get("github_username") in (None, ""):
             digest = overrides.set(home, "github_username", typed.github_user, None, digest, environ=environ)
         if typed.tailscale and shared.get("vpn") in (None, ""):
             vpn = "tailscale" if typed.tailscale == "on" else "none"
             digest = overrides.set(home, "vpn", vpn, None, digest, environ=environ)
+        if typed.keys and "vm_ssh_public_keys" not in shared:
+            digest = overrides.set(home, "vm_ssh_public_keys", list(typed.keys), None, digest, environ=environ)
         if digest != before:
             wrote.append(f"{paths.FLEET}/{overrides.SETTINGS}")
-        if not found.layers.client.own.get("current_host"):
+        if settled is not None and not found.layers.client.own.get("current_host"):
             overrides.set_current(home, name, found.layers.client.digest, environ=environ)
             wrote.append(f"{paths.CLIENT} (its current host, {name})")
     except (
@@ -660,41 +1380,51 @@ async def unattended(
     except OSError as error:
         why = error.strerror or error
         raise Refused(f"the fleet's folder could not be written ({why}): init goes on from here") from None
-    return _report(home, name, kept, fleet_id, made, wrote, typed, own)
+    return wrote
 
 
 def _report(
     home: paths.Home,
-    name: str,
-    kept: certificate.Kept,
-    fleet_id: str,
-    made: Sequence[hosts.Made],
-    wrote: Sequence[str],
+    found: _Set,
     typed: Given,
-    own: Mapping[str, object],
+    settled: _Settled | None,
+    wrote: Sequence[str],
+    asking: _Asking | None,
 ) -> list[str]:
     """What a run says once it has written: the certificate, the fleet, what was written, and what is left."""
-    lines = [kept.said]
-    if made:
-        lines.append(f"the fleet {fleet_id}, as the pool's mark names it, which the token given reads")
+    name = found.name
+    own = {} if found.layers.host is None else found.layers.host.settings
+    lines = [] if settled is None else [settled.kept.said]
+    if settled is not None and settled.made:
+        lines.append(f"the fleet {settled.fleet_id}, as the pool's mark names it, which the token given reads")
     lines.append(
         f"wrote {', '.join(wrote)}" if wrote else "nothing to write: the fleet's folder holds every value given already"
     )
-    lines.append("nothing was made on the Proxmox host: with nobody there init makes nothing on it")
+    if asking is None:
+        lines.append("nothing was made on the Proxmox host: with nobody there init makes nothing on it")
+    else:
+        lines.append("nothing was made on the Proxmox host")
     unset = [
         setting
         for setting, value in (
-            ("proxmox_node", ""),
+            ("proxmox_node", typed.node),
             ("proxmox_storage", typed.storage),
             ("proxmox_bridge", typed.bridge),
         )
         if not value and own.get(setting) in (None, "")
     ]
-    if unset:
+    if settled is not None and unset and asking is None:
         lines.append(
             f"{', '.join(unset)} {'is' if len(unset) == 1 else 'are'} set for the host by init's checks on it (card E6,"
             f" not built yet): until then write {'it' if len(unset) == 1 else 'them'} in"
             f" {hosts.HOSTS_REL}/{name}/{overrides.SETTINGS}"
+        )
+    if asking is not None and asking.left:
+        lines.append(
+            said(
+                "left for later: {left}; the next {init} asks again",
+                {"left": _listed_words(asking.left), "init": _init()},
+            )
         )
     return [*lines, *typed.notes]
 
@@ -708,30 +1438,46 @@ def _refused(sentence: str) -> int:
 
 
 def _at_a_terminal() -> bool:
+    """Whether a person is there to ask: standard input a terminal whose foreground this process is, as runs/ask.py's
+    terminal() decides for each question, through that one function. Never isatty alone: a run in the background (aw
+    init &) would draw its live view, whose change of the terminal's settings has the terminal stop it (SIGTTOU) before
+    its first question; it is a run with nobody there."""
+    from claude_vm.runs.ask import terminal
+
+    return terminal() is not None
+
+
+async def _asked(
+    running: Context, home: paths.Home, typed: Given, environ: Mapping[str, str], verbosity: object
+) -> int:
+    """init at a terminal, its run's body: drawn live from its events (INIT), what attended says of its writes said
+    above the region as one report, and a refusal said as the stage's failure, with nothing written. The exit
+    status."""
+    from claude_vm.runs import live
+
+    counted = verbosity if isinstance(verbosity, int) and not isinstance(verbosity, bool) else 0
+    live.Live(running.job, INIT, sys.stdout, verbosity=counted, cancelled=running.cancelled)
     try:
-        return sys.stdin is not None and sys.stdin.isatty()
-    except (AttributeError, ValueError, OSError):
-        return False
+        lines = await attended(home, typed, running=running, environ=environ)
+    except Refused as refused:
+        running.emit("stage", None, SETTINGS, outcome="failed", why=refused.sentence.removeprefix("error: "))
+        return EXITS["refused"]
+    running.emit("report", None, "\n".join(lines))
+    return EXITS["done"]
 
 
 def init(run: Any, **values: object) -> int:
     """init's handler (words.py's row): the token's secret taken out of the environment first, the modes not built yet
-    refused by name, the values held to their kinds, a home that is a link refused, and the fleet's folder written with
-    nobody there, as its run, under the fleet's lock. The exit status."""
+    refused by name, the values held to their kinds, a home that is a link refused, and the fleet's folder written, as
+    its run, under the fleet's lock: at a terminal with no --no-prompt asking what is unset (attended), drawn live,
+    else with nobody there. The exit status."""
     # First of all: nothing started from here on holds the token's secret in its environment.
     variable = taken()
     for field, card in NOT_YET.items():
         if values.get(field) is True:
             mode = {"line": _init(**{field: True}), "card": card}
             return _refused(said("error: {line} is not built yet (card {card} builds it)", mode))
-    if values.get("no_prompt") is not True and _at_a_terminal():
-        return _refused(
-            said(
-                "error: {init} at a terminal asks its questions, which are not built yet (card E5 builds them): give"
-                " {unattended} and the values it needs",
-                {"init": _init(), "unattended": _init(no_prompt=True)},
-            )
-        )
+    asks = values.get("no_prompt") is not True and _at_a_terminal()
     environ = dict(os.environ)
     try:
         typed = given(values, getattr(run, "set", ()), cwd=os.getcwd(), environ=environ, variable=variable)
@@ -746,6 +1492,8 @@ def init(run: Any, **values: object) -> int:
     from claude_vm.runs import locks
 
     async def body(running: Context) -> int:
+        if asks:
+            return await _asked(running, home, typed, environ, getattr(run, "verbosity", 0))
         try:
             lines = await unattended(home, typed, environ=environ, job=running.job)
         except Refused as refused:

@@ -5,7 +5,12 @@ by the one check, today's habits applied, and the verb handed to its handler or 
 
 A refusal is one line on standard error, and exits 1 (words.py's EXITS), before any of the words reach a handler: it
 imports no Ansible and no module of the engine. Its sentence says no value typed but where today's does (the rules
-between options, lib/claude_vm/schema/rules.py). A Ctrl-C at deploy's question exits 130, as a cancelled run does.
+between options, lib/claude_vm/schema/rules.py). A line the printer will not write (schema/printer.py's Unwritten, a
+form whose one placeholder is a verb's names beside words the check takes among them), which only the code asks it for,
+is said in one line too, as the code's own fault (the printer's own_fault), never as a traceback, and exits 1: here
+where it reaches main, and by the run where a handler's run ends the process at once with a call still in a thread
+(runs/attached.py's _end_now), which it then never reaches. A Ctrl-C at deploy's question exits 130, as a cancelled run
+does.
 `--version` alone answers with the checkout aw runs from. Every command it prints, and every sentence that names one, is
 the program as it was started: the launcher at the checkout's top says which in STARTED_AS (aw where aw on PATH is that
 launcher, else what the person typed to start it), which main takes out of the environment at once, so nothing the run
@@ -62,4 +67,10 @@ def main(argv: list[str]) -> int:
         return dispatch.dispatch(checkout(program), verb, run, values)
     except parse.Refused as refused:
         print(refused.sentence, file=sys.stderr)
+        return EXITS["refused"]
+    except printer.Unwritten as unwritten:
+        # A line the printer will not write, which only the code asks it for: said as the code's own fault, in the
+        # printer's sentence, which never says a value, and never as a traceback. A run that ends the process at once
+        # with a call still in a thread says it the same way (runs/attached.py's _end_now).
+        print(printer.own_fault(unwritten), file=sys.stderr)
         return EXITS["refused"]

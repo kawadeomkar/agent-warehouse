@@ -170,6 +170,15 @@ PROXMOX_TAG = ValueRule(
 # github_username: a GitHub account's name as init --github-user takes one (schema/patterns.py's github_user, held
 # equal by the same test), or none.
 GITHUB_USER = ValueRule(r"[A-Za-z0-9-]*", "a GitHub account's name: letters, digits and hyphens")
+# A pool's name as Proxmox makes one: from a letter (create_pool), no / (a nested pool on VE 9.2), no space or colon.
+# The one rule of a pool's name: engine/access.py's POOL_NAME and POOL_RULE are this rule's, so that the pool init
+# makes and the one its --pool names are held to what proxmox_pool's form holds a value to where it is written.
+POOL_NAME = ValueRule(
+    r"[A-Za-z][A-Za-z0-9_.-]{0,63}",
+    "letters, digits, _, . and -, from a letter, at most 64 characters",
+)
+# proxmox_pool: a pool's name, or none (the fleet's own, which init makes).
+PROXMOX_POOL = ValueRule(f"(?:{POOL_NAME.pattern})?", f"a pool's name: {POOL_NAME.said}")
 
 
 # ---------------------------------------------------------------- how a row is written ----
@@ -195,9 +204,18 @@ def _fleet(
     return Row(name, type_, choices, default, scope, "fleet", group, description, secret, agent, values, form, least)
 
 
-def _host(name: str, type_: str, default: object, group: str, description: str, choices: tuple = ()) -> Row:
+def _host(
+    name: str,
+    type_: str,
+    default: object,
+    group: str,
+    description: str,
+    choices: tuple = (),
+    *,
+    form: ValueRule | None = None,
+) -> Row:
     """A setting kept in each host's settings.yml: each host's own value, which no other host inherits."""
-    return Row(name, type_, choices, default, "host", "host", group, description)
+    return Row(name, type_, choices, default, "host", "host", group, description, form=form)
 
 
 def _client(
@@ -259,6 +277,7 @@ ROWS: tuple[Row, ...] = (
         "The pool on the host the fleet's VMs, its template and its golden templates are members of, and where the "
         "token's role is granted, with VM.Audit on /vms beside it to read the node's other VMs (proxmox_audit_scope). "
         "Empty: the fleet's own pool, which init makes.",
+        form=PROXMOX_POOL,
     ),
     _host(
         "proxmox_template_vmid",
@@ -1121,8 +1140,11 @@ ADDED: tuple[Row, ...] = (
         "node",
         "common",
         "What the engine's token may read on the host beyond its pool: node, every VM of the node, read only, so that "
-        "status shows the node's other VMs and a capacity made from all of them; pool, its pool's alone, and status "
-        "then says the others are not read.",
+        "status shows the node's other VMs and a capacity made from all of them; pool, its writes and its reads of "
+        "single VMs stay within its pool, and status then says the others are not read. Under both, Sys.Audit on the "
+        "node, which status needs for the node's capacity, also reads the node's report, which holds every guest's "
+        "configuration. Set to pool after node, the grants on every VM stay, since init never takes one away: init "
+        "says each, with the line that removes it.",
         choices=("node", "pool"),
     ),
     _fleet(

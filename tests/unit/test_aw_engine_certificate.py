@@ -750,7 +750,7 @@ def test_nothing_in_engine_builds_a_tls_context_but_through_pin() -> None:
     for path in sorted(ENGINE.rglob("*.py")):
         tree = ast.parse(path.read_text())
         assert _makes_a_context(tree) == [], _rel(path)
-        assert not {"anchored_context", "_context", "context", "_presented", "_hello"} & _named(tree), _rel(path)
+        assert _context_functions(tree, _package(path)) == set(), _rel(path)
     tree = ast.parse(CERTIFICATE.read_text())
     from_pin = {
         node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute) and ast.unparse(node.value) == "pin"
@@ -758,6 +758,68 @@ def test_nothing_in_engine_builds_a_tls_context_but_through_pin() -> None:
     # kept makes every connection; Pin is the type of the one a Kept carries (review 20, E3.md 6), never made here.
     assert from_pin == {"kept", "Pin"}
     assert not [node for node in ast.walk(tree) if isinstance(node, ast.Call) and ast.unparse(node.func) == "pin.Pin"]
+
+
+# The functions of today's trust.py and the vendors' trust.py that make a TLS context or reach the host with one, by the
+# module that defines each: no module of engine/ reaches one, by import or as an attribute of its module. Held by what
+# a module imports and reaches, never by a bare name, which a run's Context or a parameter named context would match.
+CONTEXT_FUNCTIONS = {
+    "claude_vm.trust": frozenset({"anchored_context", "_context", "_presented", "_hello"}),
+    "claude_vm.vendors.trust": frozenset({"context"}),
+}
+
+
+def _package(path: Path) -> str:
+    """The package of the module at path under lib/, which a relative import is resolved against."""
+    return ".".join(path.relative_to(REPO / "lib").parent.parts)
+
+
+def _context_functions(tree: ast.AST, package: str) -> set[str]:
+    """What of CONTEXT_FUNCTIONS tree reaches: a name imported from the module that defines it, by an absolute or a
+    relative import (resolved by its level against package), or an attribute of that module under any name it is
+    imported as (from ..vendors import trust as vendors_trust, then vendors_trust.context)."""
+    modules: dict[str, str] = {}
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name in CONTEXT_FUNCTIONS:
+                    modules[alias.asname or alias.name] = alias.name
+        elif isinstance(node, ast.ImportFrom):
+            base = package.split(".")[: len(package.split(".")) - node.level + 1] if node.level else []
+            source = ".".join([*base, *([node.module] if node.module else [])])
+            for alias in node.names:
+                if alias.name in CONTEXT_FUNCTIONS.get(source, ()):
+                    found.add(alias.name)
+                if f"{source}.{alias.name}" in CONTEXT_FUNCTIONS:
+                    modules[alias.asname or alias.name] = f"{source}.{alias.name}"
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            module = modules.get(ast.unparse(node.value))
+            if module is not None and node.attr in CONTEXT_FUNCTIONS[module]:
+                found.add(node.attr)
+    return found
+
+
+@pytest.mark.parametrize(
+    ("source", "reached"),
+    [
+        ("from ..vendors import trust as vendors_trust\nvendors_trust.context()", {"context"}),
+        ("from ..vendors import trust\ntrust.context(None)", {"context"}),
+        ("from ..trust import _hello", {"_hello"}),
+        ("from .. import trust\ntrust.anchored_context(pem)", {"anchored_context"}),
+        ("from claude_vm.trust import _presented as shown", {"_presented"}),
+        ("import claude_vm.vendors.trust as made\nmade.context()", {"context"}),
+        ("import claude_vm.trust\nclaude_vm.trust._context(None, None)", {"_context"}),
+        ("async def body(context):\n    context.emit('step', None, 'host')", set()),
+        ("from ..trust import pem_fingerprint\nfrom ..vendors import trust as made\nmade.files()", set()),
+        ("from ..runs.attached import Context\ncontext = Context\n_context = None", set()),
+    ],
+)
+def test_the_scan_finds_a_context_function_by_its_import_never_by_a_bare_name(source, reached) -> None:
+    """The scan above, against made-up modules of engine/: a context function reached through any import of its
+    module is found, and a run's context, a name of its own or another function of the same module is not."""
+    assert _context_functions(ast.parse(source), "claude_vm.engine") == reached
 
 
 def _named(tree: ast.AST) -> set[str]:

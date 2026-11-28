@@ -6,19 +6,23 @@ clone role where a person's own template is outside the pool, the user, the user
 separation and the token's grants, each grant for the user and for the token alike, in the order a run makes them; and
 nothing else. The engine's role holds what pve/privileges.py's one table needs on every kind of path, so a call added
 to the table widens it, and one whose privilege no grant could reach fails here. Under `node` the token holds
-`VM.Audit` on `/vms` through the audit role alone, never the engine's role; under `pool`, nothing on a guest outside the
-pool but a person's own template. Every value is held to the form Proxmox gives it, a pool's name from a letter and with
-no `/`, and no refusal says the value back.
+`VM.Audit` on `/vms` through the audit role alone, never the engine's role; under `pool`, no grant on a guest outside
+the pool but a person's own template. Every value is held to the form Proxmox gives it, a pool's name from a letter
+and with no `/`, and no refusal says the value back.
 
 The invariant with a test of its own: `check` answers missing or the engine's own and nothing else, a pool that is not
-this fleet's being refused, never a third answer; and a role of the engine's own that lacks a privilege gets it
-appended and loses none. A role held exactly that holds more (the audit role, the clone role) is neither changed nor
-granted, and said with the line that fixes it. The module imports the standard library alone.
+this fleet's and a token of the list's ID made without privilege separation being refused, never a third answer; and a
+role of the engine's own that lacks a privilege gets it appended and loses none, and one that holds more is granted all
+the same and said. A role held exactly that holds more (the audit role, the clone role) is neither changed nor granted,
+and said with the line that fixes it, or as granted already where its grants are there. A grant of the engine's roles to
+the list's user or token that the list does not make is said with the line that removes it, and left. The host a
+sentence's init line reaches is given by every caller of check and plan. The module imports the standard library alone.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import shlex
 import sys
 
 import pytest
@@ -72,7 +76,7 @@ def _everything(listed: tuple[access.Object, ...]) -> access.Found:
         pools={each.name: each.comment for each in listed if isinstance(each, access.Pool)},
         roles={each.name: each.privileges for each in listed if isinstance(each, access.Role)},
         users=[each.name for each in listed if isinstance(each, access.User)],
-        tokens=[each.id for each in listed if isinstance(each, access.Token)],
+        tokens={each.id: each.privsep for each in listed if isinstance(each, access.Token)},
         grants=_grants(listed),
     )
 
@@ -83,7 +87,7 @@ def _without(found: access.Found, gone: access.Object) -> access.Found:
         pools={name: comment for name, comment in found.pools.items() if (gone.what, gone.id) != ("pool", name)},
         roles={name: held for name, held in found.roles.items() if (gone.what, gone.id) != ("role", name)},
         users=found.users - ({gone.id} if gone.what == "user" else set()),
-        tokens=found.tokens - ({gone.id} if gone.what == "token" else set()),
+        tokens={name: privsep for name, privsep in found.tokens.items() if (gone.what, gone.id) != ("token", name)},
         grants=found.grants - {gone},
     )
 
@@ -96,7 +100,7 @@ def _applied(found: access.Found, steps: tuple[access.Step, ...]) -> access.Foun
     """found once a run has made each step: an object made as the list makes it, or privileges appended to a role, as
     Proxmox's role modify --append does, which takes none away."""
     pools, roles = dict(found.pools), {name: set(held) for name, held in found.roles.items()}
-    users, tokens, grants = set(found.users), set(found.tokens), set(found.grants)
+    users, tokens, grants = set(found.users), dict(found.tokens), set(found.grants)
     for step in steps:
         obj = step.object
         if step.append:
@@ -109,7 +113,7 @@ def _applied(found: access.Found, steps: tuple[access.Step, ...]) -> access.Foun
         elif isinstance(obj, access.User):
             users.add(obj.name)
         elif isinstance(obj, access.Token):
-            tokens.add(obj.id)
+            tokens[obj.id] = obj.privsep
         else:
             grants = {each for each in grants if each.id != obj.id} | {obj}
     return access.Found(pools=pools, roles=roles, users=users, tokens=tokens, grants=grants)
@@ -236,6 +240,10 @@ def test_the_names_are_the_engine_s_own_and_one_set() -> None:
     assert harness == (access.USER, access.TOKEN, access.POOL, access.ROLE)
     host = _host()
     assert (host.user, host.token, host.pool, host.audit_scope) == (access.USER, access.TOKEN, access.POOL, "node")
+    # A pool's name and its words are the settings table's one rule (card E5's landing), which proxmox_pool's form
+    # holds a value to where it is written and read, and init's --pool to before anything is sent: never a copy here.
+    assert (access.POOL_NAME.pattern, access.POOL_RULE) == (registry.POOL_NAME.pattern, registry.POOL_NAME.said)
+    assert registry.POOL_NAME.allows(access.POOL)
 
 
 # ---------------------------------------------------------------- the roles: A6's one table ----
@@ -353,6 +361,8 @@ REFUSED = [
     ("node", "pve\n", "the node's name"),
     ("node", "-pve", "the node's name"),
     ("storage", "local lvm", "the storage's name"),
+    # The Kelvin sign and the long s, which Python's [a-z] takes under (?i), and a name longer than 64 characters.
+    *(("storage", value, "the storage's name") for value in ("\u212aal", "lo\u017fal", "s" * 65)),
     ("bridges", (), "one bridge's name at least"),
     ("bridges", ["vmbr0"], "one bridge's name at least"),
     ("bridges", ("vm br",), "a bridge's name"),
@@ -391,7 +401,7 @@ def _found_states(listed: tuple[access.Object, ...]) -> list[access.Found]:
     states.append(
         access.Found(
             users=["someone@pve"],
-            tokens=["someone@pve!aw"],
+            tokens={"someone@pve!aw": True},
             grants=[access.Grant("/pool/aw-fleet", access.ROLE, "someone@pve")],
             roles={"PVEAuditor": {"VM.Audit"}},
         )
@@ -405,7 +415,7 @@ def test_check_answers_missing_or_the_engine_s_own_and_nothing_else(host) -> Non
     answered = set()
     for found in _found_states(listed):
         for obj in listed:
-            answer = access.check(obj, found)
+            answer = access.check(obj, found, host_flag="")
             assert answer.state in (access.MISSING, access.OWN)
             if answer.state == access.MISSING:
                 assert (answer.lacking, answer.beyond) == ((), ())
@@ -420,14 +430,15 @@ def test_check_answers_missing_or_the_engine_s_own_and_nothing_else(host) -> Non
 def test_what_the_list_makes_is_the_engine_s_own_and_what_is_not_there_missing(host) -> None:
     listed = access.objects(host)
     everything = _everything(listed)
-    assert [access.check(obj, everything) for obj in listed] == [access.Answer(access.OWN)] * len(listed)
-    assert [access.check(obj, access.Found()) for obj in listed] == [access.Answer(access.MISSING)] * len(listed)
+    assert [access.check(obj, everything, host_flag="") for obj in listed] == [access.Answer(access.OWN)] * len(listed)
+    nothing = access.Found()
+    assert [access.check(obj, nothing, host_flag="") for obj in listed] == [access.Answer(access.MISSING)] * len(listed)
     for obj in listed:
-        assert access.check(obj, _without(everything, obj)).state == access.MISSING
+        assert access.check(obj, _without(everything, obj), host_flag="").state == access.MISSING
     # A grant that does not propagate is not the list's grant: made again, as the list makes it.
     for grant in _grants(listed):
-        moved = dataclasses.replace(grant, propagate=False)
-        assert access.check(grant, dataclasses.replace(everything, grants={moved})).state == access.MISSING
+        moved = dataclasses.replace(everything, grants={dataclasses.replace(grant, propagate=False)})
+        assert access.check(grant, moved, host_flag="").state == access.MISSING
 
 
 @pytest.mark.parametrize(
@@ -437,7 +448,7 @@ def test_what_the_list_makes_is_the_engine_s_own_and_what_is_not_there_missing(h
 )
 def test_a_pool_whose_comment_carries_this_fleet_s_mark_is_the_engine_s_own(comment) -> None:
     (pool, *_) = access.objects(_host())
-    assert access.check(pool, access.Found(pools={"aw-fleet": comment})) == access.Answer(access.OWN)
+    assert access.check(pool, access.Found(pools={"aw-fleet": comment}), host_flag="") == access.Answer(access.OWN)
 
 
 @pytest.mark.parametrize(
@@ -455,25 +466,82 @@ def test_a_pool_that_is_not_this_fleet_s_is_refused_with_the_mark_s_sentence_and
     listed = access.objects(_host())
     found = access.Found(pools={"aw-fleet": comment})
     with pytest.raises(access.NotOwn, match=words) as refused:
-        access.check(listed[0], found)
+        access.check(listed[0], found, host_flag="")
     assert NOTE not in str(refused.value)
     if words.startswith(("carries", "names", "this fleet")):
         theirs = mark.parse(comment)
         assert str(refused.value) == mark.may_change(theirs, record.first(FLEET))
     with pytest.raises(access.NotOwn, match=words):
-        access.plan(listed, found)
+        access.plan(listed, found, host_flag="")
 
 
 def test_check_and_plan_take_only_the_list_s_objects_and_a_found() -> None:
     (pool, *_) = access.objects(_host())
     with pytest.raises(TypeError, match="a Found"):
-        access.check(pool, {"aw-fleet": MARK})  # type: ignore[arg-type]
+        access.check(pool, {"aw-fleet": MARK}, host_flag="")  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="one of Pool, Role, User, Token, Grant"):
-        access.check("aw-fleet", access.Found())  # type: ignore[arg-type]
+        access.check("aw-fleet", access.Found(), host_flag="")  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="a Host"):
         access.objects({"pool": "aw-fleet"})  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="an ACL entry is a Grant"):
         access.Found(grants=[("/vms", access.AUDIT_ROLE, USER)])  # type: ignore[list-item]
+    # A token is told with its privilege separation, never by its ID alone.
+    for tokens in ([TOKEN], {TOKEN: 1}, {TOKEN: "1"}):
+        with pytest.raises(TypeError, match="privilege separation is a bool"):
+            access.Found(tokens=tokens)  # type: ignore[arg-type]
+
+
+def test_a_token_is_the_engine_s_own_only_by_its_full_id_and_with_privilege_separation() -> None:
+    listed = access.objects(_host())
+    (token,) = [each for each in listed if isinstance(each, access.Token)]
+    assert access.check(token, access.Found(tokens={TOKEN: True}), host_flag="") == access.Answer(access.OWN)
+    # Another user's token of the same ID is not the engine's: the engine's is missing, and made.
+    for other in ("someone@pve!aw", "agent-warehouse@pam!aw", "agent-warehouse@pve!aw2"):
+        found = access.Found(tokens={other: True})
+        assert access.check(token, found, host_flag="") == access.Answer(access.MISSING)
+        assert access.Step(token) in access.plan(listed, found, host_flag="").steps
+    # One made without privilege separation holds every privilege of its user: refused, with the line that deletes it
+    # and the way to one of the fleet's own beside it, and nothing planned.
+    unseparated = dataclasses.replace(_everything(listed), tokens={TOKEN: False})
+    with pytest.raises(access.NotOwn) as refused:
+        access.check(token, unseparated, host_flag="")
+    assert str(refused.value) == (
+        "The token aw of agent-warehouse@pve is there without privilege separation, so it holds every privilege its"
+        " user holds, not only its own grants: it is not one init makes. As root on the Proxmox host, pveum user token"
+        " delete agent-warehouse@pve aw deletes it, and init then makes it again; or aw init --token-id <id>, with an"
+        " ID of the fleet's own, makes one beside it."
+    )
+    with pytest.raises(access.NotOwn, match="without privilege separation"):
+        access.plan(listed, access.Found(tokens={TOKEN: False}), host_flag="")
+
+
+def test_the_token_s_sentence_names_the_host_its_caller_gives_and_every_caller_gives_one() -> None:
+    listed = access.objects(_host())
+    (token,) = [each for each in listed if isinstance(each, access.Token)]
+    unseparated = access.Found(tokens={TOKEN: False})
+    callers = (
+        lambda flag: access.check(token, unseparated, host_flag=flag),
+        lambda flag: access.plan(listed, unseparated, host_flag=flag),
+    )
+    for refuse in callers:
+        with pytest.raises(access.NotOwn) as further:
+            refuse("nuc")
+        # The printer writes a placeholder's option after every part with a real value, the host's flag among them.
+        assert "or aw init --host nuc --token-id <id>, with an ID of the fleet's own, makes one beside it." in str(
+            further.value
+        )
+        with pytest.raises(access.NotOwn) as one:
+            refuse("")
+        assert "--host" not in str(one.value)
+        with pytest.raises(ValueError, match="host_flag"):
+            refuse("no such/host")
+    # Keyword-only and with no default: a caller that names no host is refused before anything is read.
+    with pytest.raises(TypeError, match="host_flag"):
+        access.check(token, unseparated)  # type: ignore[call-arg]
+    with pytest.raises(TypeError, match="host_flag"):
+        access.plan(listed, unseparated)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        access.check(token, unseparated, "nuc")  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------- what a run makes of it ----
@@ -482,21 +550,22 @@ def test_check_and_plan_take_only_the_list_s_objects_and_a_found() -> None:
 @pytest.mark.parametrize("host", HOSTS.values(), ids=HOSTS)
 def test_a_fresh_host_gets_every_object_in_order_and_a_second_run_changes_nothing(host) -> None:
     listed = access.objects(host)
-    first = access.plan(listed, access.Found())
+    first = access.plan(listed, access.Found(), host_flag="")
     assert first == access.Plan(tuple(access.Step(obj) for obj in listed), ())
     after = _applied(access.Found(), first.steps)
-    assert all(access.check(obj, after).state == access.OWN for obj in listed)
-    assert access.plan(listed, after) == access.Plan((), ())
+    assert all(access.check(obj, after, host_flag="").state == access.OWN for obj in listed)
+    assert access.plan(listed, after, host_flag="") == access.Plan((), ())
 
 
 def test_only_what_is_missing_is_made() -> None:
     listed = access.objects(_host())
     everything = _everything(listed)
     for obj in listed:
-        assert access.plan(listed, _without(everything, obj)).steps == (access.Step(obj),)
+        assert access.plan(listed, _without(everything, obj), host_flag="").steps == (access.Step(obj),)
     grant = _grants(listed)[0]
     moved = {*everything.grants - {grant}, dataclasses.replace(grant, propagate=False)}
-    assert access.plan(listed, dataclasses.replace(everything, grants=moved)).steps == (access.Step(grant),)
+    unpropagated = dataclasses.replace(everything, grants=moved)
+    assert access.plan(listed, unpropagated, host_flag="").steps == (access.Step(grant),)
 
 
 @pytest.mark.parametrize("held", [{"VM.Audit"}, {"VM.Audit", "Sys.Modify"}, set()], ids=["one", "and more", "none"])
@@ -504,30 +573,63 @@ def test_a_role_of_the_engine_s_own_that_lacks_a_privilege_gets_it_appended_and_
     listed = access.objects(_host())
     wanted = set(_roles(listed)[access.ROLE].privileges)
     found = _with_role(_everything(listed), access.ROLE, held)
-    answer = access.check(_roles(listed)[access.ROLE], found)
+    answer = access.check(_roles(listed)[access.ROLE], found, host_flag="")
     lacking = tuple(sorted(wanted - held))
-    assert answer == access.Answer(access.OWN, lacking)
-    planned = access.plan(listed, found)
-    assert planned == access.Plan((access.Step(_roles(listed)[access.ROLE], lacking),), ())
+    assert answer == access.Answer(access.OWN, lacking, tuple(sorted(held - wanted)))
+    planned = access.plan(listed, found, host_flag="")
+    assert planned.steps == (access.Step(_roles(listed)[access.ROLE], lacking),)
+    assert len(planned.said) == (1 if held - wanted else 0)
     after = _applied(found, planned.steps)
     assert set(after.roles[access.ROLE]) == wanted | held
-    assert access.plan(listed, after) == access.Plan((), ())
+    assert access.plan(listed, after, host_flag="").steps == ()
 
 
-@pytest.mark.parametrize(
-    ("host", "role", "own", "path"),
-    [
-        (_host(), access.AUDIT_ROLE, "VM.Audit", GUEST_PATHS),
-        (_host(custom_template=TEMPLATE), access.CLONE_ROLE, "VM.Audit,VM.Clone", f"{GUEST_PATHS}/{TEMPLATE}"),
-    ],
-    ids=["the audit role", "the clone role"],
-)
-def test_a_role_held_exactly_that_holds_more_is_said_with_its_fix_and_not_granted(host, role, own, path) -> None:
+# What a release whose table had more left, or a person's hand: B4 to B6 had Pool.Allocate, which would let the token
+# change its pool's mark; Sys.Modify and Datastore.Allocate reach the whole node and storage.
+WIDER = ("Datastore.Allocate", "Pool.Allocate", "Sys.Modify")
+
+
+@pytest.mark.parametrize("there", ["everything", "the role alone"])
+def test_the_engine_s_role_holding_more_is_granted_all_the_same_and_said_with_the_line_that_keeps_it(there) -> None:
+    listed = access.objects(_host())
+    role = _roles(listed)[access.ROLE]
+    base = _everything(listed) if there == "everything" else access.Found()
+    found = _with_role(base, access.ROLE, {*role.privileges, *WIDER})
+    assert access.check(role, found, host_flag="") == access.Answer(access.OWN, (), WIDER)
+    planned = access.plan(listed, found, host_flag="")
+    # Never withheld (the coordinator's ruling): every grant of it the host lacks is made, none taken away.
+    made = [step.object for step in planned.steps]
+    expected = [] if there == "everything" else [obj for obj in listed if obj != role]
+    assert made == expected and all(not step.append for step in planned.steps)
+    (said,) = planned.said
+    assert said == (
+        f"The role AgentWarehouse holds {', '.join(WIDER)} beyond what the engine needs, and is granted on"
+        " /pool/aw-fleet, /storage/local-lvm, /sdn/zones/localnetwork/vmbr0, /nodes/pve all the same, since init never"
+        " takes a privilege away: there the token holds each of them. As root on the Proxmox host, pveum role modify"
+        f" AgentWarehouse --privs {','.join(role.privileges)} keeps it to what the engine needs."
+    )
+    assert len(role.privileges) == 15 and not set(WIDER) & set(role.privileges)
+
+
+EXACT = [
+    (_host(), access.AUDIT_ROLE, "VM.Audit", GUEST_PATHS, "every guest there"),
+    (
+        _host(custom_template=TEMPLATE),
+        access.CLONE_ROLE,
+        "VM.Audit,VM.Clone",
+        f"{GUEST_PATHS}/{TEMPLATE}",
+        "that template",
+    ),
+]
+
+
+@pytest.mark.parametrize(("host", "role", "own", "path", "over"), EXACT, ids=["the audit role", "the clone role"])
+def test_a_role_held_exactly_that_holds_more_is_said_with_its_fix_and_not_granted(host, role, own, path, over) -> None:
     listed = access.objects(host)
     held = {*own.split(","), "VM.Allocate"}
     fresh = _with_role(access.Found(), role, held)
-    assert access.check(_roles(listed)[role], fresh) == access.Answer(access.OWN, (), ("VM.Allocate",))
-    planned = access.plan(listed, fresh)
+    assert access.check(_roles(listed)[role], fresh, host_flag="") == access.Answer(access.OWN, (), ("VM.Allocate",))
+    planned = access.plan(listed, fresh, host_flag="")
     made = [step.object for step in planned.steps]
     # Neither the role nor any grant of it, on its path, for the user or the token; everything else as on a fresh host.
     assert made == [obj for obj in listed if obj != _roles(listed)[role] and getattr(obj, "role", None) != role]
@@ -536,22 +638,121 @@ def test_a_role_held_exactly_that_holds_more_is_said_with_its_fix_and_not_grante
     (said,) = planned.said
     assert said == (
         f"The role {role} holds VM.Allocate beyond {own.replace(',', ', ')}, so it is not granted: on {path} it would"
-        f" give the token each of them over every guest there. As root on the Proxmox host, pveum role modify {role}"
+        f" give the token each of them over {over}. As root on the Proxmox host, pveum role modify {role}"
         f" --privs {own} keeps it to {own.replace(',', ', ')}, and init then grants it."
     )
     # Once it holds exactly its privileges it is granted; and one of its name that lacks one is given it, and granted.
     exact = _with_role(_applied(fresh, planned.steps), role, set(own.split(",")))
-    regranted = access.plan(listed, exact)
+    regranted = access.plan(listed, exact, host_flag="")
     assert regranted.said == () and {step.object.path for step in regranted.steps} == {path}
-    lacking = access.plan(listed, _with_role(access.Found(), role, set()))
+    lacking = access.plan(listed, _with_role(access.Found(), role, set()), host_flag="")
     assert lacking.said == () and access.Step(_roles(listed)[role], tuple(own.split(","))) in lacking.steps
     assert {step.object.path for step in lacking.steps if isinstance(step.object, access.Grant)} >= {path}
+
+
+@pytest.mark.parametrize(("host", "role", "own", "path", "over"), EXACT, ids=["the audit role", "the clone role"])
+def test_a_role_held_exactly_that_holds_more_and_is_granted_already_is_said_to_give_it_now(
+    host, role, own, path, over
+) -> None:
+    listed = access.objects(host)
+    found = _with_role(_everything(listed), role, {*own.split(","), "VM.Console"})
+    planned = access.plan(listed, found, host_flag="")
+    assert planned.steps == ()
+    (said,) = planned.said
+    assert said == (
+        f"The role {role} holds VM.Console beyond {own.replace(',', ', ')} and is granted on {path} already: there it"
+        f" gives each of them over {over} now. As root on the Proxmox host, pveum role modify {role} --privs {own}"
+        f" keeps it to {own.replace(',', ', ')}."
+    )
+    # Granted to the user alone, it is granted there all the same, and the token's grant of it is not made.
+    token_grant = next(each for each in _grants(listed) if each.role == role and "!" in each.subject)
+    partly = access.plan(listed, _without(found, token_grant), host_flag="")
+    assert partly.steps == () and "is granted on" in partly.said[0]
+
+
+@pytest.mark.parametrize(("host", "role", "own", "path", "over"), EXACT, ids=["the audit role", "the clone role"])
+def test_a_role_held_exactly_that_lacks_one_and_holds_more_is_neither_appended_to_nor_granted(
+    host, role, own, path, over
+) -> None:
+    listed = access.objects(host)
+    wanted = own.split(",")
+    fresh = _with_role(access.Found(), role, {*wanted[:-1], "VM.Allocate"})
+    answer = access.check(_roles(listed)[role], fresh, host_flag="")
+    assert answer == access.Answer(access.OWN, (wanted[-1],), ("VM.Allocate",))
+    planned = access.plan(listed, fresh, host_flag="")
+    assert not [step for step in planned.steps if step.object == _roles(listed)[role] or step.append]
+    assert not [step for step in planned.steps if getattr(step.object, "role", None) == role]
+    (said,) = planned.said
+    assert said.startswith(f"The role {role} holds VM.Allocate beyond") and "so it is not granted" in said
+
+
+# A host set up under node, its template named, a storage and bridge of its own: then run with every setting the
+# default but proxmox_audit_scope pool and no template.
+BEFORE = _host(custom_template=TEMPLATE, storage="old", bridges=("vmbr0", "vmbr9"))
+AFTER = _host(audit_scope="pool")
+
+
+def test_a_grant_the_settings_no_longer_make_is_said_with_its_delete_line_and_never_taken_away() -> None:
+    listed = access.objects(AFTER)
+    found = _everything(access.objects(BEFORE))
+    planned = access.plan(listed, found, host_flag="")
+    # Nothing is taken away: the steps are what the new settings make that is missing, and nothing else.
+    assert {type(step.object) for step in planned.steps} == {access.Grant}
+    assert all(step.object in listed and not step.append for step in planned.steps)
+    made = {(each.path, each.role, each.subject) for each in _grants(listed)}
+    left = sorted({(each.path, each.role, each.subject) for each in found.grants} - made)
+    assert [path for path, _, _ in left] == [
+        "/sdn/zones/localnetwork/vmbr9",
+        "/sdn/zones/localnetwork/vmbr9",
+        "/storage/old",
+        "/storage/old",
+        "/vms",
+        "/vms",
+        f"/vms/{TEMPLATE}",
+        f"/vms/{TEMPLATE}",
+    ]
+    kinds = {USER: "--users", TOKEN: "--tokens"}
+    assert list(planned.said) == [
+        f"The role {role} is granted to {subject} on {path}, which init does not grant with these settings, and is"
+        f" left there, since init never takes a grant away: there it gives {subject} each of its privileges all the"
+        f" same. As root on the Proxmox host, {shlex.join(['pveum', 'acl', 'delete', path, '--roles', role])}"
+        f" {kinds[subject]} {shlex.quote(subject)} removes it."
+        for path, role, subject in left
+    ]
+    # Once the person removes them, nothing is said; the same host under node again says nothing either.
+    kept = {each for each in found.grants if (each.path, each.role, each.subject) not in set(left)}
+    assert access.plan(listed, dataclasses.replace(found, grants=kept), host_flag="").said == ()
+    assert access.plan(access.objects(BEFORE), found, host_flag="") == access.Plan((), ())
+
+
+def test_only_a_grant_of_the_engine_s_roles_to_the_list_s_user_or_token_is_said() -> None:
+    listed = access.objects(AFTER)
+    everything = _everything(listed)
+    others = [
+        access.Grant("/vms", access.AUDIT_ROLE, "someone@pve"),
+        access.Grant("/vms", access.AUDIT_ROLE, "someone@pve!aw"),
+        access.Grant("/vms", "PVEAuditor", USER),
+        access.Grant("/vms", "PVEVMAdmin", TOKEN),
+        access.Grant("/vms/1\n00", access.AUDIT_ROLE, TOKEN),
+        access.Grant("vms", access.AUDIT_ROLE, TOKEN),
+        access.Grant("/vms/\x1b[2J", access.AUDIT_ROLE, TOKEN),
+    ]
+    beside = dataclasses.replace(everything, grants={*everything.grants, *others})
+    assert access.plan(listed, beside, host_flag="") == access.Plan((), ())
+    # One there twice, propagating and not, is said once.
+    twice = {access.Grant("/vms", access.AUDIT_ROLE, TOKEN), access.Grant("/vms", access.AUDIT_ROLE, TOKEN, False)}
+    doubled = dataclasses.replace(everything, grants={*everything.grants, *twice})
+    (said,) = access.plan(listed, doubled, host_flag="").said
+    assert said.endswith(
+        "As root on the Proxmox host, pveum acl delete /vms --roles AgentWarehouseAudit --tokens"
+        " 'agent-warehouse@pve!aw' removes it."
+    )
 
 
 def test_what_a_host_holds_is_said_as_one_line_of_plain_text() -> None:
     listed = access.objects(_host())
     found = _with_role(access.Found(), access.AUDIT_ROLE, {"VM.Audit", "Sys.Modify\n\x1b[2Jrm -rf /"})
-    (said,) = access.plan(listed, found).said
+    (said,) = access.plan(listed, found, host_flag="").said
     assert "\n" not in said and "\x1b" not in said
 
 

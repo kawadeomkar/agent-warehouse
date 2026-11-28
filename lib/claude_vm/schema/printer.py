@@ -25,7 +25,7 @@ The values are a verb's as the parser gives them, or as its handler receives the
 where a verb that takes several names was given none, is said by naming none, and a value that is off (None, a flag
 not given, a count of 0, an empty list) is not said. Each is held as the one check holds it, but for the rules between
 options (check.py's `formed`): of its option's kind, held by its pattern, not the placeholder the printer writes for
-it, and the verb's words as many as it takes. A value that is not raises ValueError with the check's sentence, which
+it, and the verb's words as many as it takes. A value that is not raises Unwritten with the check's sentence, which
 never says the value, and so does a word that starts with -, which the parser would read as an option, and a value or
 a word that holds a character of Unicode's categories Cc, Cf, Cs, Zl or Zp, which a terminal would act on or not show as
 it is (a C1 control, a bidi override, a lone surrogate, a line separator). A rule between options is the run's to say,
@@ -43,13 +43,20 @@ and hand the word before the placeholder a value. A form that ends in a placehol
 nor is one where a > meets the next placeholder's <: every form but one whose one placeholder is a verb's names,
 <name>..., which ends in ..., the name of the file its > writes. That one stops at its < where no file is named name,
 nothing run, made or emptied; where one is, a shell runs the line's other words, its real values, so the printer writes
-it only where the one check, its rules among them, refuses those (check.py's `takes`), and raises ValueError where it
+it only where the one check, its rules among them, refuses those (check.py's `takes`), and raises Unwritten where it
 takes them: aw deploy <name>... alone would leave aw deploy, the default VM's. aw deploy --tags claude_code <name>...
 leaves aw deploy --tags claude_code, which a rule refuses. So no form the printer writes leaves a whole command.
 
+The forms it so refuses are those of the four verbs whose words are several names, the names their one placeholder:
+aw deploy <name>..., aw deploy --detach <name>..., aw login [--only github] <name>..., aw status <name>... and aw
+destroy <name>..., and each of them with any other option or host's flag the one check takes beside it (aw status
+--json <name>..., aw login --host lab2 <name>...). A sentence that would show one names a real VM in its place, or
+another placeholder beside it (aw destroy <name>... --confirm <names>), or a value the rules refuse there; help's usage
+line, aw deploy [<name>...], is help's own and no form of the printer's.
+
 `host_flag` is the host a line names. Every caller of a verb whose row has the shared --host (deploy, code, login,
 status, destroy) gives it where the values give no --host: a host's name, or "" where the fleet has one host or the
-line reaches the host its own command does; None is a ValueError there, so no caller forgets it. Only the verbs whose
+line reaches the host its own command does; None is Unwritten there, so no caller forgets it. Only the verbs whose
 --host means "run against this host" take one: those, and settings, vault and init.
 
 `refused`, which every caller says: a line made from the values of a run that was refused, or that nothing has taken
@@ -94,6 +101,23 @@ UNSHOWN = ("Cc", "Cf", "Cs", "Zl", "Zp")
 
 # The program as it was started, which started_as sets once, from what the launcher says.
 _program = PROGRAM
+
+
+class Unwritten(ValueError):
+    """A line the printer will not write, raised with the check's kind of sentence, which never says a value: only the
+    code asks the printer for a line, from values the one check held or the engine read, so a line refused is the
+    code's own fault, never the words a person typed. Said as own_fault says it, never as a traceback: by cli/main.py
+    where it reaches main, and by a run that ends the process at once with a call still in a thread
+    (runs/attached.py's _end_now), where it never does. A ValueError, as every caller that catches one expects."""
+
+
+# What a line the printer would not write is said with, after the printer's own sentence: the code asked for it.
+OWN_FAULT = "a fault of the program's own, not of the words typed"
+
+
+def own_fault(unwritten: Unwritten) -> str:
+    """The one line an Unwritten is said in to a person: the printer's sentence, then that the fault is the code's."""
+    return f"{unwritten} ({OWN_FAULT})"
 
 
 def _shown(text: str) -> bool:
@@ -157,9 +181,9 @@ def _option(verb: str, option: Option, value: object, masked: bool) -> list[tupl
         if item is PLACEHOLDER or masked:
             words += [(spelled, False), (placeholder(option), False)]
         elif not isinstance(item, str):
-            raise ValueError(checks.formed(verb, {option.field: value}) or _unshown(verb, option))
+            raise Unwritten(checks.formed(verb, {option.field: value}) or _unshown(verb, option))
         elif not _shown(item):
-            raise ValueError(_unshown(verb, option))
+            raise Unwritten(_unshown(verb, option))
         elif item == "" or item.startswith("-"):
             words.append((f"{spelled}={item}", True))
         else:
@@ -174,7 +198,7 @@ def _host_flag(row: Verb, given: Mapping[str, object], host_flag: str | None) ->
     shared = SHARED_HOST in row.options
     if host_flag is None:
         if shared and HOST not in given:
-            raise ValueError(
+            raise Unwritten(
                 f"error: a line of {checks.command(row.name)} names the host it reaches: host_flag is a host's name, or"
                 ' "" with one host'
             )
@@ -183,11 +207,11 @@ def _host_flag(row: Verb, given: Mapping[str, object], host_flag: str | None) ->
         return []
     option = next((option for option in row.options if option.long == HOST), None)
     if option is None or option.pattern is None or not (shared or row.name in HOSTS_OWN):
-        raise ValueError(f"error: {checks.command(row.name)} takes no --{HOST} that runs it against a host")
+        raise Unwritten(f"error: {checks.command(row.name)} takes no --{HOST} that runs it against a host")
     if HOST in given:
-        raise ValueError(f"error: {checks.command(row.name)} takes --{HOST} once: in its values or as host_flag")
+        raise Unwritten(f"error: {checks.command(row.name)} takes --{HOST} once: in its values or as host_flag")
     if not full(option.pattern, host_flag):
-        raise ValueError(f"error: host_flag is a host's name, or empty, for {checks.command(row.name)}")
+        raise Unwritten(f"error: host_flag is a host's name, or empty, for {checks.command(row.name)}")
     return [(f"--{HOST}", False), (host_flag, True)]
 
 
@@ -198,11 +222,11 @@ def _words(
     before: Mapping[str, object] | None,
     refused: bool,
 ) -> list[tuple[str, bool]]:
-    """The line's words, each with whether a shell must have it quoted; ValueError where the values are not what the one
+    """The line's words, each with whether a shell must have it quoted; Unwritten where the values are not what the one
     check takes, but for the rules between options, or a host's flag is not one the verb takes."""
     row = VERBS.get(verb)
     if row is None:
-        raise ValueError(checks.no_such_command())
+        raise Unwritten(checks.no_such_command())
     options = {option.field: option for option in checks.options_of(row)}
     given = {
         key: value
@@ -218,7 +242,7 @@ def _words(
         verb, {key: value for key, value in given.items() if key not in placeheld}
     )
     if held:
-        raise ValueError(held)
+        raise Unwritten(held)
     words: list[tuple[str, bool]] = [(_program, True)]
     for option in BEFORE:
         if option.field in before_given:
@@ -232,7 +256,7 @@ def _words(
     for option in checks.options_of(row):
         if option.field in given:
             if option.field in placeheld and option.kind not in ("value", "repeatable"):
-                raise ValueError(f"error: {checks.command(verb)} {checks.spelled(option)} has no value to name")
+                raise Unwritten(f"error: {checks.command(verb)} {checks.spelled(option)} has no value to name")
             masked = refused and option.field in FREE_TEXT
             shown = _option(verb, option, given[option.field], masked)
             (last if masked or option.field in placeheld else words).extend(shown)
@@ -250,13 +274,13 @@ def _real(given: Mapping[str, object], placeheld: set[str], host_flag: str | Non
 
 
 def _leaves_no_command(verb: str, words: Words, real: Mapping[str, object]) -> None:
-    """ValueError where a form whose one placeholder is a verb's names, <name>..., would leave a whole command at a
+    """Unwritten where a form whose one placeholder is a verb's names, <name>..., would leave a whole command at a
     shell. Every other form ends in a placeholder's >, or puts a > before the next placeholder's <, which no shell
     reads; this one ends in ..., the file its > writes, so a shell in a folder holding a file named as the placeholder
     runs the line's other words, its real values: a form is written only where the one check, its rules among them,
     refuses those. Asked without a sentence said, since a rule's sentence names forms this printer writes."""
     if checks.takes(verb, real):
-        raise ValueError(
+        raise Unwritten(
             f"error: a form of {checks.command(verb)} whose one placeholder is its {words.name}s would leave a command"
             " the one check takes, where a shell reads it: give it a value the rules refuse there, or another"
             " placeholder"
@@ -271,9 +295,9 @@ def _verb_words(verb: str, row: Verb, typed: object) -> list[tuple[str, bool]]:
         return [(f"{placeholder(words)}..." if words.plural else placeholder(words), False)]
     given = [typed] if isinstance(typed, str) else list(typed) if isinstance(typed, list) else []
     if any(word.startswith("-") for word in given):
-        raise ValueError(f"error: {checks.command(verb)} takes no {words.name} that starts with -")
+        raise Unwritten(f"error: {checks.command(verb)} takes no {words.name} that starts with -")
     if not all(_shown(word) for word in given):
-        raise ValueError(
+        raise Unwritten(
             f"error: {checks.command(verb)} takes no {words.name} with a character a terminal does not show as it is,"
             " so no line says it"
         )
@@ -291,7 +315,7 @@ def argv(
     """The command line a person types for verb with values, as its words, the program first. refused says whether no
     run has taken the values (one was refused, or none has started yet), and then a value of free text is its
     placeholder; host_flag the host the line reaches, where the verb takes the shared --host and the values give none;
-    before the words given before the verb, by their fields. ValueError where a value is not one the one check takes,
+    before the words given before the verb, by their fields. Unwritten where a value is not one the one check takes,
     its rules between options aside, or the host's flag is not one the verb takes."""
     return [word for word, _ in _words(verb, values, host_flag, before, refused)]
 
