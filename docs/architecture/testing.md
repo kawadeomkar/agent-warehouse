@@ -366,9 +366,10 @@ pytest over `tests/unit/`, file by file:
 - **The CI gate** (`test_ci.py`): `CI result` needs every job of `ci.yml` but the canary, runs `if:
   always()` joined with the area stack's gate, and no job of the gate may `continue-on-error`; its script, run as
   GitHub runs it, passes a success or a skip and fails a failure or a cancel. Every job's `if:` is the gate
-  (`!startsWith(github.head_ref, 'stack/')`), joined after its own condition where it has one, and each is read as
-  GitHub reads it for a pull request of the area stack (no job runs), one from `base-first`, a push, the weekly
-  run and a manual run ([§12](ci.md)). Every Molecule scenario names the one image pinned by
+  (`!(startsWith(github.head_ref, 'stack/') && startsWith(github.base_ref, 'stack/'))`), joined after its own
+  condition where it has one, and each is read as GitHub reads it for a pull request from `stack/` onto `stack/`
+  (no job runs), one from `base-first`, one from `stack/` onto `main` and one from another branch onto `stack/`
+  (every job runs), a push, the weekly run and a manual run ([§12](ci.md)). Every Molecule scenario names the one image pinned by
   digest, the shared configuration none, and the canary runs that image's repository at `:latest`. The
   `engine` job runs `just test engine` on the other jobs' Ubuntu and on a macOS runner named by its version,
   never `macos-latest`, each on `requires-python`'s floor and the setup action's default Python, held whole: no
