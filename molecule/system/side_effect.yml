@@ -1,0 +1,121 @@
+---
+# The person's keys, after the idempotence stage (lib/claude_vm/guest/keys.py; docs/architecture/testing.md §11.3):
+# keys vm_ssh_public_keys does not list put on the account - two keys, the first commented out too, and two lines of
+# the second whose comment or forced command names the listed key - then the system play converged again, which keeps
+# every one and changes nothing, since the list only adds and finds a key where sshd reads a line's key; the file made
+# 0640; then remove_key.py takes the first off as deploy --remove-key does, and every other line, the mode and the
+# listed key stay.
+- name: Put keys the list does not name on the account
+  hosts: all
+  become: true
+  tasks:
+    - name: Look up the user's home
+      ansible.builtin.getent:
+        database: passwd
+        key: dev
+
+    - name: Name the keys the side effect puts there
+      ansible.builtin.set_fact:
+        system_side_effect_keys:
+          - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAII+WnaSrsrnAx87V3OPq8fj/Bg0UGyIpMDc+RUxTWmFo gone@side-effect
+          - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJyjqrG4v8bN1Nvi6fD3/gUMExohKC82PURLUllgZ251 kept@side-effect
+          - "# ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAII+WnaSrsrnAx87V3OPq8fj/Bg0UGyIpMDc+RUxTWmFo gone@side-effect"
+          - >-
+            ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJyjqrG4v8bN1Nvi6fD3/gUMExohKC82PURLUllgZ251 names
+            ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMoleculeTestKeyDoNotUse0000000000000000000
+          - >-
+            command="echo ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMoleculeTestKeyDoNotUse0000000000000000000 x"
+            ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJyjqrG4v8bN1Nvi6fD3/gUMExohKC82PURLUllgZ251 forced
+
+    - name: Add the keys after the listed one
+      ansible.builtin.lineinfile:
+        path: "{{ ansible_facts.getent_passwd.dev[4] }}/.ssh/authorized_keys"
+        line: "{{ item }}"
+      become: true
+      become_user: dev
+      loop: "{{ system_side_effect_keys }}"
+
+- name: Converge the system play again
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Run the system play on the container through layer 1's child
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_playbook_python }}"
+          - -I
+          - "{{ playbook_dir }}/converge.py"
+          - "{{ groups['claude_vms'] | first }}"
+      register: system_side_effect_converged
+      changed_when: false
+
+    - name: Assert the converge changed nothing
+      ansible.builtin.assert:
+        that: (system_side_effect_converged.stdout_lines | last | from_json).changed == 0
+        quiet: true
+
+- name: Read the keys the converge left, and make the file 0640
+  hosts: all
+  become: true
+  tasks:
+    - name: Read the user's authorized keys
+      ansible.builtin.slurp:
+        src: "{{ ansible_facts.getent_passwd.dev[4] }}/.ssh/authorized_keys"
+      register: system_side_effect_before
+
+    - name: Assert the converge kept every key the list does not name
+      ansible.builtin.assert:
+        that:
+          - (system_side_effect_before.content | b64decode).splitlines()[1:] == system_side_effect_keys
+        quiet: true
+
+    - name: Make the keys file 0640
+      ansible.builtin.file:
+        path: "{{ ansible_facts.getent_passwd.dev[4] }}/.ssh/authorized_keys"
+        mode: "0640"
+
+- name: Take the first key off
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Take the key off through guest/keys.py's remove
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_playbook_python }}"
+          - -I
+          - "{{ playbook_dir }}/remove_key.py"
+          - "{{ groups['claude_vms'] | first }}"
+          - SHA256:VuCrzCgeFJdAXFzVbn7iuTlLv6paTsaO8S1mXyLsHQA
+      register: system_side_effect_removed
+      changed_when: true
+
+    - name: Assert one line was taken
+      ansible.builtin.assert:
+        that: (system_side_effect_removed.stdout_lines | last | from_json).lines == 1
+        quiet: true
+
+- name: Read what is left
+  hosts: all
+  become: true
+  tasks:
+    - name: Read the user's authorized keys again
+      ansible.builtin.slurp:
+        src: "{{ ansible_facts.getent_passwd.dev[4] }}/.ssh/authorized_keys"
+      register: system_side_effect_after
+
+    - name: Stat the keys file
+      ansible.builtin.stat:
+        path: "{{ ansible_facts.getent_passwd.dev[4] }}/.ssh/authorized_keys"
+      register: system_side_effect_file
+
+    - name: Assert the key alone was taken off, and every other line and the mode kept
+      ansible.builtin.assert:
+        that:
+          - system_side_effect_after_lines[0] is search('molecule@test')
+          - system_side_effect_after_lines == system_side_effect_before_lines[:1] + system_side_effect_keys[1:]
+          - system_side_effect_file.stat.mode == '0640'
+          - system_side_effect_file.stat.pw_name == 'dev'
+        quiet: true
+      vars:
+        system_side_effect_before_lines: "{{ (system_side_effect_before.content | b64decode).splitlines() }}"
+        system_side_effect_after_lines: "{{ (system_side_effect_after.content | b64decode).splitlines() }}"

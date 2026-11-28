@@ -50,7 +50,7 @@ Also takes, as described under `main`: `common_user`, `common_user_shell`, `comm
 
 ## Internal values
 
-Set in `roles/common/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 2 of the 13 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
+Set in `roles/common/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 2 of the 14 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
 
 | Name | Purpose | Value |
 |---|---|---|
@@ -60,6 +60,7 @@ Set in `roles/common/vars/main.yml`. These are not settings: Ansible ranks a rol
 | `common_ssh_path_dropin` |  | `/etc/ssh/sshd_config.d/15-agent-warehouse-path.conf` |
 | `common_cloud_init_user_cfg` | With common_user_passwordless_sudo off: cloud-init's settings for the user it creates, read after cloud.cfg and every drop-in sorted before it. | `/etc/cloud/cloud.cfg.d/99-agent-warehouse-user.cfg` |
 | `common_ssh_key_pattern` | A public key as an authorized_keys line holds it, options before it and a comment after: its type and its base64, by which keys.yml finds a line of the same key. | <code>(?:^&#124;\s)((?:ssh&#124;ecdsa&#124;sk)-\S+)\s+(AAAA[0-9A-Za-z+/]+=*)(?:\s&#124;\Z)</code> |
+| `common_ssh_key_options` | The options in front of a key on an authorized_keys line, as sshd skips them: one word to the first blank outside double quotes, where a backslash escapes a double quote alone, inside quotes and out. | <code>(?:\\"&#124;\\(?!")&#124;[^ \t"\n\\]&#124;"(?:\\"&#124;\\(?!")&#124;[^"\n\\])*")+</code> |
 | `common_ssh_key_line_break` | What keys.yml refuses in an item, a line break and a line commented out, and the backslash it doubles in a replacement: here, in YAML's single quotes, so that each reaches Python's re as written, never through a Jinja string. | `[\r\n]` |
 | `common_ssh_key_commented` |  | `[ \t]*#` |
 | `common_backslash` |  | `\` |

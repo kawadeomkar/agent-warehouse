@@ -1051,8 +1051,9 @@ def test_no_module_of_the_new_engine_but_routes_and_ssh_s_own_makes_or_changes_a
     assert found == {}, "a machine's Target is routes.py's alone, marked by its connections: take one from targets"
     assert taken == set(OWN_ROADS), set(OWN_ROADS) - taken
     # The one module that imports by a name at run time loads a verb's handler, which the table of verbs names in cli/,
-    # engine/ or runs/ (logs' reader of jobs, C12), never ssh/.
-    assert {verb.handler.split(".")[0] for verb in VERBS.values() if verb.handler} <= {"cli", "engine", "runs"}
+    # engine/, runs/ (logs' reader of jobs, C12) or, for a verb that imports no workflow (settings, host), fleet/;
+    # never ssh/.
+    assert {verb.handler.split(".")[0] for verb in VERBS.values() if verb.handler} <= {"cli", "engine", "runs", "fleet"}
 
 
 # A road, planted in a module of engine/, and the road the scan sees it as; then what it does not take for one.

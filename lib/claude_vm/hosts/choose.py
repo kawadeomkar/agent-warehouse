@@ -15,6 +15,11 @@ if TYPE_CHECKING:
     from .layout import Layout
 
 
+# The runs that write a VM's alias, as a warning names them: today's recipes, where a layout names none of its own (the
+# new engine's, fleet/hosts.py's, names them as its program does).
+WRITING_RUNS = "just deploy, just code"
+
+
 def pick(layout: Layout, given: str = "", lenient: bool = False) -> Host | None:
     """The host given (--host, or a nested recipe's host=), else the one hosts/current names, else the first. None for
     a checkout with no host at all - before just init - which runs as it always did."""
@@ -57,8 +62,8 @@ def choose(layout: Layout, request: Request) -> Choice:
                         level="warning",
                         text=f"{said}, as its SSH alias records, and this run is against {given}: it reaches the VM "
                         f"of the name on {given}. A VM name belongs to one host, so the alias stays where it is, and a "
-                        "run here that would write it - just deploy, just code - is refused: give one of them another "
-                        "name",
+                        f"run here that would write it - {getattr(layout, 'writing_runs', WRITING_RUNS)} - is refused: "
+                        "give one of them another name",
                     )
                 )
         else:

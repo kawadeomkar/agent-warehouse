@@ -187,7 +187,11 @@ def test_a_row_s_type_and_choices_are_its_role_variable_s_or_its_literal_default
         today = "str" if each.name in PATHS_OF_THIS_COMPUTER else TODAY_S_TYPE.get(each.type, each.type)
         assert today in stated_types, [(var, _spec_type(spec)) for var, spec in fed]
         stated = [tuple(spec["choices"]) for _var, spec in fed if spec.get("choices")]
-        assert all(set(choices) == set(each.choices) for choices in stated), stated
+        # In the spec's order, which a person reads them in (review/code/D3.md 8); vpn's puts none first on purpose.
+        if each.name == "vpn":
+            assert all(set(choices) == set(each.choices) for choices in stated), stated
+        else:
+            assert all(choices == tuple(each.choices) for choices in stated), stated
         assert stated or each.choices == ()
         return
     default = defaults[each.name]

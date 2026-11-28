@@ -116,7 +116,9 @@ order help lists them, today's thirteen and `release` and `cancel`: the base's a
 which adds its row when it is built. Each row is a `Verb`: its group and its sentence; its `Words`, what the usage calls
 one, whether it takes several, the name the handler receives them by, their pattern and help, and side by side whether
 the verb needs its one word (`needed`: `code`'s VM and `release`'s machine, which a usage line shows without brackets)
-and whether the words are no word to give (`refused`: `init`'s and `mcp`'s, which refuse any); its `Option`s; the codes
+and whether the words are no word to give (`refused`: `init`'s and `mcp`'s, which refuse any), and whether an agent's
+tool needs a word the terminal does not, where none would reach what nobody named (`agent_needed`: `destroy`'s names,
+the default VM, and `cancel`'s job, the one job that runs); its `Option`s; the codes
 of the rules between its options (`deploy.4`, `check.names.1`), which the one check runs in that order; its handler, as
 `module:function`, or none while no change has built the verb, and then the card that builds it; the locks a run of it
 takes, one of `machines`, `fleet`, `none` or `words`, where the kind depends on the words given (16.8, `lock_sets.py`);
@@ -593,6 +595,37 @@ difference by difference with why, for E4's fleet folder beside the example file
 and each secret set, and the refusals; `tests/unit/test_aw_status_hosts.py` holds a fleet of two hosts, each read with
 its own API, token and settings; `tests/unit/test_aw_status_live.py` runs `aw status --json` against the fake beside
 `tools/status --json`, and a Ctrl-C while `read_fleet` waits on a probe and on the API's answers.
+
+**The agents' tools: `cli/mcp_backend.py`.** The new backend of the agents' server, beside today's
+`lib/claude_vm/mcp/recipes.py` ([§7.12](custom-code.md#712-libclaude_vmmcp--the-mcp-server)), which stays until the
+cutover: it is no module of `mcp/`, since nothing of today's imports the new side (16.1). `tools()` lists the sixteen
+tools: one for each tool the table's column `tools` names (`settings` and `settings_set` both run `settings`, `hosts`
+runs `host`), and the server's own reads of the state folder's jobs, `log`, `jobs` and `job`, which run no verb. A
+tool's schema is a small function of its verb's row (16.2): one flat object, `additionalProperties` false, a property
+for each option and the verb's words whose fate for that tool is `property`, with exact JSON types (a string, a
+boolean, a list of strings for several words), the table's pattern as `^(?:<text>)$`, since a JSON Schema pattern is not
+anchored, and the table's help said through `said` with its form as the description; a word the verb needs (`code`'s,
+`release`'s) or its tool does (`agent_needed`: `destroy`'s names, `cancel`'s job) is required, and refused when none is
+given, so that no default is implied through an agent, and a tool whose verb's run is a job has the server's own `wait_seconds` beside them. The
+module holds no fate, reason or tool's name of its own: a fate the table does not write for a tool raises `Unfated`,
+naming the verb, the word and the tool. `command(tool, arguments, given)` is the command line a call runs, the
+printer's `argv` with `refused` false, so `settings_set`'s value reaches the run: each value one argument word, never
+through a shell; each fixed value the table writes (`--json`, `init --no-prompt`, `--detach` on every verb whose run
+is a job), and in `given` those the server works out for each call (`--confirm`'s names, `--attended`), each a value
+(an empty one is the server's fault, `TypeError`, since `--confirm=` with no names would reach the default VM), the only
+words before the verb, since `aw` reads its settings from the fleet's files. A call is refused with `Refused`, before any
+child starts and in a sentence for the agent: an argument the tool does not take, with the table's reason (`--set`,
+`-v`, `--adopt`, `logs --follow`, which would wait until the job ends, and the rest); a verb's word that starts with
+`-`, which `aw` would read as an option, while an option's value that does is written `--long=value`, one word; then
+what the one check refuses, its rules among them (`settings.5` refuses `settings edit` beside `--json`, which both settings
+tools give, so neither opens an editor on the person's screen), so that the printer's words that the program is at fault are never
+said of an agent's value; and last a line the printer will not write, its `Unwritten` said as the refusal. It imports
+`schema/` and the standard library alone. `tests/unit/test_aw_mcp_tools.py` carries `test_mcp_tools.py`'s holds against
+the table: every verb a tool or a reason, every option and word one fate for each tool that runs it, one added with
+no fate failing by name, every verb whose run is a job started detached; each word a tool does not take tried and
+refused with no child started; a value with a space one word, a word with a leading `-` refused; the schemas valid,
+exactly typed and anchored; the descriptions the table's; the check before the printer; and a scan that no fate is
+written in the module.
 
 ## 16.4 `engine/` — the workflows, one module a verb
 
@@ -1196,7 +1229,8 @@ see is the runner's to refuse.
 named, the default VM where none is (`vm_default_name`), side by side, under each VM's lock (C7's `machines`); `aw
 deploy --only template` is `template.ensure` and nothing after it (above), under the fleet's lock held exclusively, since
 it names no machine; every other stage of `deploy` but `--only configure` (`configure.py`, below), and `--check`,
-`--adopt`, `--take-over` and `--remove-key`, is refused naming the card that builds it. Before anything is created, the run reads the fleet (`fleet.requested`, a changing read, so a VM it may not
+`--adopt` and `--take-over`, is refused naming the card that builds it; `--remove-key` is a configure's alone
+(below). Before anything is created, the run reads the fleet (`fleet.requested`, a changing read, so a VM it may not
 change refuses the run), settles the route (`routes.settle`, whose hop that cannot be used stops the run), refuses a VM
 with no key in `vm_ssh_public_keys` and no console password in the vault (`vm_password`), and compares the base template
 (`template.compare`): only one it may clone from is cloned from, any other said with why, and none with no cloud-init
@@ -1326,8 +1360,8 @@ stage becomes `finished` only where one configure ran all six (`stage_after`), s
 converged digest stays empty, and so unwritten, until F28. Before anything reaches a VM the run reads the fleet by a
 changing read (`fleet.requested`: a VM it may not change refuses the run where it is named, and is left out and said
 where none is) and settles the route; `Route.ready()` is asked before the machines are reached side by side, under a
-task group. Then for each VM, each step an event of the run, declared as configure's (`DECLARED`: start, reach, system
-layer, home), and layer 1's own events lines of that machine's work:
+task group. Then for each VM, each step an event of the run, declared as configure's (`DECLARED`: start, reach, key
+taken off, system layer, home), and layer 1's own events lines of that machine's work:
 
 - **Provisioned and running.** A VM whose record is not provisioned fails, naming the provision line. A stopped one is
   said and left, never waited on, unless the plan starts it (`start`, which only the whole chain, G10, gives: `deploy`
@@ -1336,6 +1370,10 @@ layer, home), and layer 1's own events lines of that machine's work:
   the VM fails before any connection, with the line that files it. Its `Target` is the route's (`Route.targets`, one VM
   a call, so that one refused fails it alone), its master made sure of (`Route.ensure`) and `true` run through the
   runner until its `sshd` answers, for `SSHD` seconds at most.
+- **A key taken off.** Where `--remove-key` names a key (`Plan.remove_key`, its fingerprint held as `ssh-keygen -l`
+  prints one), `keys.remove` takes it off the VM's account before its system layer (§16.10, "A person's keys"): a key
+  `vm_ssh_public_keys` lists, or one this computer's ssh offers, is refused by `deploy` before the run, and again for
+  each VM; one on no line of the VM's fails that VM with why, nothing changed; the lines it took are said.
 - **The system layer.** The play's variables are made for the parts run (`wiring.role_variables`, the same parts as the
   child's `--tags`) and written in the run's directory through `system.variables`, held to every secret the run holds
   (each host's token, the console password), which layer 1 also strikes from what it says. A failed task fails the VM
@@ -1960,30 +1998,31 @@ hash `ssh` wrote. Neither ever reads or writes the person's own `known_hosts`.
 
 **The command line.** `argv(target, command)` is `ssh`, then the product's options, then the hop's, then the person's,
 then `-l <account> -p <port> -- <address>` and the command joined with `shlex.join`; every value is one word and none
-passes a shell. No `-F`: the person's own `~/.ssh/config` is read, as today, where a key, an agent or a jump of theirs
-is named. The product's options, in order: `checks.vm_ssh_args` as it stands (the known-hosts file, `CheckHostIP=no`,
-`UpdateHostKeys=no`, `HostKeyAlias` the identity, `ForwardAgent=no`; for the Proxmox host `UpdateHostKeys=no` and
-`ForwardAgent=no` alone), `ControlPath=<the shared directory>/<checks.vm_control_name>-%r-%p` (`none` for a first use),
-`ControlMaster=no`, `BatchMode=yes`, `ForwardX11=no` and `PermitLocalCommand=no` (pinned, where a person's
-`ForwardX11 yes`, or Ubuntu's own `ForwardX11Trusted yes`, would hand the machine this computer's display),
-`StrictHostKeyChecking=yes` (or `accept-new` for the two forms above), `ConnectTimeout=10`, `ServerAliveInterval=15`,
-`ServerAliveCountMax=3`, `PreferredAuthentications=publickey`, `ClearAllForwardings=yes`, `RequestTTY=no`,
-`LogLevel=ERROR`, and the identity file where there is one. `BatchMode=yes` on every `ssh` the engine starts means a key
-that wants a passphrase fails in one sentence and never waits at a terminal it cannot reach. Every connection
-authenticates by public key alone, the Proxmox host's too: today's Ansible connection also offers GSSAPI and host-based
-authentication, and those are added only if someone asks. `ControlMaster=no` means a child rides a master the engine
-opened in the shared directory (`connections.py`'s `ensure`), or connects alone where none lives, and is never a master
-itself. The hop's own `ssh`
-keeps `LogLevel=INFO`, which route.py pins because it reads `ssh`'s words, and the new engine's pins `ForwardX11=no`,
-`PermitLocalCommand=no` and `ClearAllForwardings=yes` first on every line it is run with, the `ProxyCommand` a machine
-is given among them (`route.hop_settings`' `pinned`, which today's callers do not pass): a master the hop's open makes,
-or a `ProxyCommand`'s `ssh` that finds none live and becomes one, would otherwise run a person's `LocalCommand` here,
-and `-W` clears forwards only where a person's configuration says nothing of it, so their `ClearAllForwardings no`
-would have the `ProxyCommand` and the forward check open each `LocalForward`, `RemoteForward`, `DynamicForward` and
-`Tunnel` they give the host. `ansible_vars(target)` gives layer 1's
-Ansible child the address, the port, the account, the program and `ansible_ssh_common_args` holding exactly the same
-options in the same order, so that its `ssh`, `sftp` and `scp` ride the same master and a jump of the person's reaches
-the file transfers too.
+passes a shell. `shown_argv(target)` is the same line with `-G` and no command, which dials nothing, and `shown` runs it
+as `run` runs a command: what this computer's ssh would use for the machine, which `keys.py` reads its agent and
+identity files from (§16.10). No `-F`: the person's own `~/.ssh/config` is read, as today, where a key, an agent or a
+jump of theirs is named. The product's options, in order: `checks.vm_ssh_args` as it stands (the known-hosts file,
+`CheckHostIP=no`, `UpdateHostKeys=no`, `HostKeyAlias` the identity, `ForwardAgent=no`; for the Proxmox host
+`UpdateHostKeys=no` and `ForwardAgent=no` alone), `ControlPath=<the shared directory>/<checks.vm_control_name>-%r-%p`
+(`none` for a first use), `ControlMaster=no`, `BatchMode=yes`, `ForwardX11=no` and `PermitLocalCommand=no` (pinned,
+where a person's `ForwardX11 yes`, or Ubuntu's own `ForwardX11Trusted yes`, would hand the machine this computer's
+display), `StrictHostKeyChecking=yes` (or `accept-new` for the two forms above), `ConnectTimeout=10`,
+`ServerAliveInterval=15`, `ServerAliveCountMax=3`, `PreferredAuthentications=publickey`, `ClearAllForwardings=yes`,
+`RequestTTY=no`, `LogLevel=ERROR`, and the identity file where there is one. `BatchMode=yes` on every `ssh` the engine
+starts means a key that wants a passphrase fails in one sentence and never waits at a terminal it cannot reach. Every
+connection authenticates by public key alone, the Proxmox host's too: today's Ansible connection also offers GSSAPI and
+host-based authentication, and those are added only if someone asks. `ControlMaster=no` means a child rides a master the
+engine opened in the shared directory (`connections.py`'s `ensure`), or connects alone where none lives, and is never a
+master itself. The hop's own `ssh` keeps `LogLevel=INFO`, which route.py pins because it reads `ssh`'s words, and the
+new engine's pins `ForwardX11=no`, `PermitLocalCommand=no` and `ClearAllForwardings=yes` first on every line it is run
+with, the `ProxyCommand` a machine is given among them (`route.hop_settings`' `pinned`, which today's callers do not
+pass): a master the hop's open makes, or a `ProxyCommand`'s `ssh` that finds none live and becomes one, would otherwise
+run a person's `LocalCommand` here, and `-W` clears forwards only where a person's configuration says nothing of it, so
+their `ClearAllForwardings no` would have the `ProxyCommand` and the forward check open each `LocalForward`,
+`RemoteForward`, `DynamicForward` and `Tunnel` they give the host. `ansible_vars(target)` gives layer 1's Ansible child
+the address, the port, the account, the program and `ansible_ssh_common_args` holding exactly the same options in the
+same order, so that its `ssh`, `sftp` and `scp` ride the same master and a jump of the person's reaches the file
+transfers too.
 
 **A bounded call.** `run(job, target, command, stdin, limits, env, started)` is a coroutine. The child is started
 through `children.start` as an `ssh` child of the job's run, in a process group of its own, with `env` and the job's
@@ -3451,7 +3490,10 @@ the shared files may never supply, is each host's own, and so is `vm_searchdomai
 are; of them `claude_ssh_host_domain` and `vm_ssh_route`, how this computer finds and reaches a host's VMs, are this
 computer's, in `client.yml`'s map `hosts`, so that another computer that copies the fleet's folder reaches them its own
 way. A setting whose default is made from the machine's name is each machine's own. A list's default is a tuple and a
-mapping's read-only, so no reader changes the table. `rows()`, `row(name)` and `group(name)` read it. Nothing generates
+mapping's read-only, so no reader changes the table: `plain(default)` is the copy a reader hands on or prints, and a row
+is compared by identity alone, so that one whose default is a mapping can be hashed. A description names no Ansible,
+playbook, today's `local.yml` or `hosts.yml`, nor a vault variable: a name with `vault_` before it is a row's. `rows()`,
+`row(name)` and `group(name)` read it. Nothing generates
 it, and nothing is generated from it into a tracked file. `tests/unit/test_aw_fleet_registry.py` holds the table, with
 the place of each of today's settings in two literal sets (this computer's, by scope, and each host's, by home), every
 other one the fleet's; `tests/unit/test_aw_fleet_registry_today.py`, the cutover's check, which goes with today's files,
@@ -3486,9 +3528,16 @@ expression. `run_values(texts, secrets=...)` types the words of `--set`: a name 
 hold a secret is never given for one run, and a value that holds one of the vault's secrets (every caller names them,
 each a `Secret`, struck and never revealed) is refused in the text and in the value; the result is what a run records as
 its inputs and `resolve`'s top layer. `set` and `unset` write one value into the file of its home, under `store.locked`,
-only while the file's digest is the one its caller read (`expect`), whole and in ASCII, read back as meant before
-`store.replace` puts it in place, a new file at `paths.FILE_MODE` in folders made through `files.py` at
-`paths.DIR_MODE`, a link where one goes refused; `set_current` writes
+only while the file's digest is the one its caller read (`expect`), whole and in UTF-8 whatever the locale's
+encoding, read back as meant before `store.replace` puts it in place, a new file at `paths.FILE_MODE` in folders made
+through `files.py` at `paths.DIR_MODE`, a link where one goes refused. A write lays the whole file out anew, so it keeps
+no comment a person wrote in it (the owner's answer of 2026-11-22). A scratch file a write killed part way left beside
+the file, which would travel with `fleet/`, is taken out by the next write of that file, under its lock, before it
+reads (`files.sweep`), by the name `mkstemp` gives a scratch alone, so that a person's own `.settings.yml.<x>.tmp`
+stays; a scratch stays until that file's next write. A file is opened once, with no link followed and no wait on a pipe, and read only where it is a
+regular file: a link or a FIFO there is refused by its path. A file's integer is YAML 1.2's, its digits in decimal, as typed text's
+is (`WHOLE`): `0777` in a file is 777, as typed, where YAML 1.1 reads 511, and `0x10`, `1_000` or `1:30` is text,
+refused for a row of type `int` by its line; `set_current` writes
 `client.yml`'s `current_host` the same way. `literals(path)` is the one reader of a file of literals the fleet keeps, a
 host's `host.yml` too. Every refusal is a `Refused`, whose sentence never says a value back. Nothing else in `fleet/`
 writes a file but `files.py`, for `fleet.json` and `vault.age`, and `hosts.py`'s `write`, a host's `host.yml` and
@@ -3516,9 +3565,11 @@ on a call; the ownership tags, since a VM is the fleet's by its pool and its rec
 the one that names it in the VPN's messages; the template a run chooses and the golden's build VM a role sets for
 itself; a folder of this computer's; each machine's own repositories and whether its Tailscale had a login, which its
 record keeps; the three lines that name a machine's host and the two routes to it, the run's; and one a row of another
-name stands for (`destroy_allow_unrecorded`).
-`refusal(name)` says why of any other option of the roles a row does not have too: one a row's setting reaches is set
-through that row alone, and one whose spec takes any value has no type. Of today's 203 options, 71 are passed through.
+name stands for (`destroy_allow_unrecorded`). `options()` lists too each option a row's setting reaches, refused as set
+through that row alone, with the row's name (`through`), and the one whose spec takes any value, which has no type: so a
+role's every option is there for the settings verb to list beside its rows. `refusal(name)` says the same why by name,
+`default(option)` gives the role's own default, which applies where an option is set nowhere, and `described()` each
+role's short description. Of today's 203 options, 71 are passed through.
 The two whose value is several lines by what it is (`TEXT`: `proxmox_template_image_key`, an armored key, and
 `claude_code_global_instructions`, a whole `CLAUDE.md`) are each read by a row of type `text`.
 `overrides.py` takes the name of one passed through where it takes a row's, at home `fleet` and scope `global`: at the
@@ -3603,7 +3654,9 @@ mode, since the data folder already holds `tools/env-run`'s `checkouts/` at the 
 asked for that is there is the person's and taken as it is, a link among them (a `~/.config` kept in a dotfiles folder,
 macOS's `/var`). `write(path, text)` writes a file whole through `store.replace`, its folder made by `folder`, a new
 file at 0600, one that is there keeping its mode, and through a link the file it names replaced: a file is one a person
-may keep elsewhere on purpose, a folder everything beneath it. `fleet.json`, `vault.age` (`sealed.py`), the overrides'
+may keep elsewhere on purpose, a folder everything beneath it. `sweep(path)` takes out the scratch files
+`store.replace` left beside a file where a write was killed between its scratch file and its rename, its caller holding
+`store.locked(path)`. `fleet.json`, `vault.age` (`sealed.py`), the overrides'
 folders (`overrides.py`), a host's folders (`hosts.py`'s `write`), the jobs folder (`runs/job.py`) and the locks
 folder (`runs/locks.py`) are made through it, and nothing else of `fleet/` or `runs/` makes a folder but a job's own,
 inside the jobs folder, and a run's short-lived directory (16.8).
@@ -3724,6 +3777,67 @@ and not in `engine/` so that every workflow (`engine/fleet.py`, 16.4) and `statu
 open a host the one way; `tests/unit/test_aw_ownership.py` holds that it imports nothing of the engine, pydantic,
 Ansible, Jinja2 or the MCP SDK, and `tests/unit/test_aw_fleet.py` the refusal on each road, the repr and what the route
 is settled from.
+
+**The settings verb: `settings_verb.py`.** `settings` is the verb's handler, here and not in `engine/` so that a read
+imports no workflow: `--value` is `write`'s, `--reset` `reset`'s, the word `edit` `edit`'s, and anything else a read,
+`show`'s. Alone it says how to use it and lists the groups (`registry.GROUPS` and each role, its spec's
+short description beside it); a group lists its rows and, for a role, every option of its spec no row names
+(`passthrough.options()`), passed through with its value or its role's own default (an expression of the role's shown
+as text, `wiring` and `wiring_in`), or said why it is no setting, with the value of the row it is set through (`via`);
+a name explains one row or option, its file, its default and the line that changes it; `--all` lists every row, each
+option the fleet's file sets and each name of the vault's closed list, set or not set; `--changed` only what the files
+change; `--host` names whose values. The host is the one `hosts.reach` gives a lenient request, or none where the fleet
+has none yet; the values are `overrides.resolve`'s, each row naming its file and its home, the computer's own among
+them (O16 item 17 waits on the owner). A secret is masked by its row's kind alone: a row that may hold one
+(`claude_code_settings`), an option its role marks the vault's, and each of the vault's names are set or not set, never
+a value; the check of every printed value against every decrypted secret that today's `tools/settings` makes goes for
+the reads. `--all` alone opens the vault, with the key `vaultkey.open` finds from `vault_key_file` and
+`vault_key_command`, to read which names it holds, and says in one note where it cannot; no read writes, starts a child
+or imports Ansible. `--json` prints today's keys (`target`, `changed_only`, `settings`, `notes`; each row every key of
+today's, `home` added, and each row of `--all` its `section`, its group).
+
+The writes change one setting in the file that is its home, through `overrides.set` and `overrides.unset`,
+compare-and-swap on the digest `overrides.read` gave at the start, under the file's short lock those take and no lock of
+a run, as today's `just settings` takes none; `--host` names the host whose file a host's row is written in, and a
+fleet's row says that it is the fleet's. What a name can be written as is one function, `settable`: a name the vault
+holds (its closed list, or today's `vault_` names), the host's address and the other fields of its `host.yml` (today's
+`ansible_host` and `vm_ssh_jump` among them), each role option `passthrough.refusal` refuses (a secret, set through a
+row, made from each machine's name, set by a run), an internal value of today's defaults, a row that may hold a secret,
+one given for one run alone (`--set`) and one that is each machine's own are refused with today's sentence, which names
+`aw vault` where today's named `just vault`, and says a name back only where it is one the program knows. A value is
+typed by `overrides.typed`; before that and after it, a value that holds a secret the vault holds is refused, looked for
+by `overrides.holds_a_secret` in the text and in every string `overrides.strings` finds in the value, the vault opened
+with its key (a vault that cannot be opened refuses the write; no vault yet holds nothing), as today but for the
+identifier and a secret of fewer than four characters, whose length `_hunted` alone reads (`REVEALS`). No refusal says the value back. A file the overrides' reader
+refuses (an inline `!vault` among what it refuses) is never written over; the file is written whole, which the
+sentence after a write says, with what applies the value, by the roles of the variables it sets (`wiring`; the roles
+configure runs are `CONFIGURED`, held to `playbooks/configure.yml`), and `--json` today's `wrote`/`reset`, `now` and
+`notes`. `--reset` takes the setting out of its file, and that is all: a file of overrides keeps no example's line to
+put back. `edit` refuses with no terminal; it writes every setting `settable` takes and one line holds, each under its
+description, set or commented out with its value, to a file in a folder of its own, opens `VISUAL`, `EDITOR` or `vi` on
+it (the one child a verb that is no run starts, in the foreground and holding no lock: `STARTERS` in
+`tests/unit/test_aw_children.py`), and on return types each changed line as `--value` does and takes a line that is
+gone as `--reset`: all of them once no line is refused, a line refused said by its number and the document offered
+again. A host's row is refused by its line in a fleet with no host. Before writing it reads the files again, and where
+another write changed one meanwhile it writes nothing and offers the document again, its changes still those made to
+what was first read. Each file is then written once with all its changes (`overrides.set_many`); where a later file's
+write is refused, the files written before it are named. An editor that fails, a document it took away, and a
+`VISUAL` or `EDITOR` no shell would split each refuse with nothing written. A row that may hold a secret is never in
+the document. `tests/unit/test_aw_settings_verb.py` holds it.
+
+**The host verb: `host_verb.py`.** `host` is `host`'s handler. The list and its JSON are today's `hosts/choose.py`'s
+`listing` and `where` over `hosts.py`'s layout, from the files alone, the JSON through `wire.to_wire` with today's keys;
+`--for` and `--host` beside `--json` say which host that run would reach, and `hosts/choose.py`'s warning of a name
+another host's alias records names the runs that would write it as the layout's `writing_runs`, in `aw`'s words. With a
+name it is no run and makes no job: where `runs/lock_sets.py`'s `locks_for` says `fleet`, it holds the fleet's lock
+through `runs/locks.py`'s `exclusive` for its one change, titled with the command as the printer writes it, so it is
+refused naming the run while any run lives, and a run is refused while it holds it. `host <name>` writes
+`client.yml`'s `current_host` through `hosts.make_current`. `host <name> --remove`, with no terminal refused before
+anything is read, refuses the fleet's one host and the current host, asks for the name to be typed holding no lock, so
+that no run is refused while the question waits, then takes the fleet's lock, makes the same checks again and deletes
+the host's folder under the lock its `host.yml`'s writer takes; its VMs and their aliases stay, and so does its token in
+the vault, which the line it prints names (`aw vault --host <name>`; O16 item 18 waits on the owner). The typed
+confirmation is the verb's own, not `engine/confirm.py`'s. `tests/unit/test_aw_host_verb.py` holds it.
 
 ## 16.10 `guest/` — the helper, the system layer's inputs, layer 2
 
@@ -4169,6 +4283,39 @@ the two calls), a launcher that resolves elsewhere refused and removed on every 
 installed over, the download gone whatever happened, `stable` never npm's version, npm not answering and a sudo that wants a password each a named failure, the
 version `guest.states` reads after it by each method, the steps' runner, and a scan of the step's source: no channel's name in an
 `install` argument and no URL of the installer script.
+
+**A person's keys.** The keys a machine accepts are the person's own, `vm_ssh_public_keys`, and layer 1 alone adds them:
+`common`'s keys tasks (`roles/common/tasks/keys.yml`) put each listed key on the account, every line of it made the
+listed form, and leave every other line, so the list only adds and a key that is on a machine and not in the list stays.
+They find a listed key where `sshd` reads a line's key, at its start or after one word of options
+(`common_ssh_key_options`, a backslash escaping a double quote alone), so a line of another key whose comment or forced
+command names a listed key is not its line. No task the system play reaches takes a key off `authorized_keys` or writes
+the file whole: each task that names the file or `~/.ssh`, or a variable that does, in any of its keys (its arguments,
+`vars`, `loop` and `with_` values, `when`), is a read, `~/.ssh` made a folder, a `lineinfile` that adds its line with no
+pattern, or a `lineinfile` or `replace` whose pattern, its task's and its role's variables put in and each value a
+template gives escaped, matches within one line, and which, rendered for a listed key as Ansible renders it, writes the
+listed line and finds no line `sshd` reads as another key's (`tests/unit/test_aw_keys.py`, through the ratchet's walk).
+And nothing of the engine sends Proxmox's `sshkeys` but the create's settings call (`create.settings_call`), since a
+changed `sshkeys` makes a living VM's next start a new cloud-init instance; the same test holds it by a scan. Taking a
+key off is an act of its own, never the side effect of two lists that differ: `aw deploy --only configure --remove-key
+<fingerprint>`, whose `lib/claude_vm/guest/keys.py` `remove(job, target, fingerprint, ...)` reads the account's
+`~/.ssh/authorized_keys` through the runner, finds each line whose key has that SHA256 fingerprint (read as `sshd` reads
+it: options in front skipped, a quoted one whole, a backslash escaping a quote alone, an RSA key under `rsa-sha2-256` or
+`rsa-sha2-512` its key, a line commented out no key's), and takes those lines off with `ansible.builtin.lineinfile`,
+`state: absent`, in a one-task play of its own, `lib/claude_vm/guest/plays/remove_key.yml`, which layer 1's child runs
+as the account, never as root (`layer1.PLAY_NAMES` holds its one variable, the key's pattern, given in the play's
+variables file, which no template reads). The pattern is the key's type and base64 at the place `sshd` reads a key,
+within one line, so a line of another key whose option or comment names this one is kept; `lineinfile` writes through a
+linked `~/.ssh` and keeps the file's mode. The file is read again after, and must be what it was less those lines.
+Refused with nothing changed: a key the list names, which the next configure would put back; a key this computer's ssh
+offers the machine, which the run may be using; and a fingerprint on no line. What ssh offers is asked of ssh for each
+machine (`runner.shown`, `ssh -G` with the machine's whole line: the product's options, `vm_ssh_options`, the person's
+own `~/.ssh/config`): the agent its `identityagent` names (a path, `${VAR}` or ssh's older `$VAR`, else the run's
+`SSH_AUTH_SOCK`), asked for its keys, and each `identityfile`'s public half; an identity file that is there whose public
+half cannot be read, one named with a token `keys.py` does not expand, or a `pkcs11provider`, whose token's keys it
+cannot list, refuses the key too. `deploy` refuses a listed key, and one the run's own environment offers, before the
+run. A computer that is lost has the one procedure: its key out of `vm_ssh_public_keys`, then `--remove-key` from
+another computer.
 
 **How the engine's tests reach a machine.** A test of the new engine reaches no real machine: it reaches a stand-in,
 a directory of the test's own that `tests/unit/aw_machine.py` makes, through the SSH runner (§16.6) as it reaches a

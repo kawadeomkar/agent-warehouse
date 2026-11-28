@@ -145,6 +145,11 @@ REFUSALS: dict[str, tuple[list[str], int, str]] = {
         1,
         "error: --value sets a value and --reset takes one out: one or the other",
     ),
+    "settings.5-1": (
+        ["settings", "edit", "--json"],
+        1,
+        "error: aw settings edit opens the settings in your editor, which is no report: give it no --json",
+    ),
     "destroy.1-1": (
         ["destroy", "--confirm=alpha"],
         1,

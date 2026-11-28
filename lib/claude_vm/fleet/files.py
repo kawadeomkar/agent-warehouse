@@ -9,6 +9,10 @@ mode is never a refusal. The folders above the one asked for that are there are 
 links among them (a `~/.config` kept in a dotfiles folder, macOS's `/var`); one this module had to make is held as
 the folder asked for is, since it was not there to be chosen.
 
+`sweep(path)` takes out the scratch files `store.replace` left beside path where a write was killed between its
+scratch file and its rename, which nothing else would remove and which would travel with `fleet/`: its caller holds
+`store.locked(path)`, so that no write under way loses its scratch file.
+
 `write(path, text)` writes a file of the fleet's whole: its folder made by `folder`, then `store.replace`, which
 writes beside it, flushes and renames, so a reader finds the old file or the new one and never a part, a new file at
 `paths.FILE_MODE` (0600). A file that is there keeps its mode, and through a link the file it names is the one
@@ -24,6 +28,7 @@ folders of the state. Standard library only, with `store` and `text`.
 from __future__ import annotations
 
 import os
+import re
 import stat
 from pathlib import Path
 
@@ -88,6 +93,32 @@ def folder(path: str | os.PathLike) -> Path:
         # The umask may take bits from mkdir's mode: the mode is set, never asked for.
         os.chmod(made, paths.DIR_MODE)
     return where
+
+
+# The scratch file store.replace writes beside a file it replaces, by the file's name: .<name>.<random>.tmp, its
+# random part the eight characters tempfile.mkstemp makes one of (its _RandomNameSequence's), so that a person's own
+# .<name>.<anything>.tmp is never taken for one.
+SCRATCH = ".{name}.*.tmp"
+MADE_BY_MKSTEMP = "[a-z0-9_]{8}"
+
+
+def sweep(path: str | os.PathLike) -> list[str]:
+    """Take out each scratch file store.replace left beside path, where a write was killed before its rename; the
+    caller holds store.locked(path). Returns their names. Only a regular file of the name mkstemp gives a scratch is
+    taken out; a scratch stays until the file's next write."""
+    where = Path(os.path.abspath(path))
+    made = re.compile(rf"\.{re.escape(where.name)}\.{MADE_BY_MKSTEMP}\.tmp")
+    taken = []
+    for scratch in sorted(where.parent.glob(SCRATCH.format(name=where.name))):
+        if made.fullmatch(scratch.name) is None:
+            continue
+        try:
+            if stat.S_ISREG(os.lstat(scratch).st_mode):
+                os.unlink(scratch)
+                taken.append(scratch.name)
+        except FileNotFoundError:
+            continue
+    return taken
 
 
 def write(path: str | os.PathLike, text: str) -> None:

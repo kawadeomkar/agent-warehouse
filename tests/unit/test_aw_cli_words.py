@@ -86,6 +86,9 @@ SHARED = {
 # The verbs that need their one word, which a usage line shows without brackets, and those whose words are no word to
 # give, since they refuse any (words.py's Words.needed and Words.refused).
 NEEDED = {"code", "release"}
+# The verbs whose words an agent's tool needs where the terminal does not: none would reach the default VM, or the one
+# job that runs (words.py's Words.agent_needed).
+AGENT_NEEDED = {"destroy", "cancel"}
 REFUSED = {"init", "mcp"}
 # The locks a run of each verb takes, as the locks are ruled: one machine's by its name, the fleet's for what changes
 # the whole fleet, and for three verbs a kind worked out from the words given.
@@ -500,6 +503,7 @@ def test_the_verbs_that_need_their_word_and_those_that_refuse_any_are_those_name
     taking = {name: verb.words for name, verb in VERBS.items() if verb.words is not None}
     assert {name for name, held in taking.items() if held.needed} == NEEDED
     assert {name for name, held in taking.items() if held.refused} == REFUSED
+    assert {name for name, held in taking.items() if held.agent_needed} == AGENT_NEEDED
     # A verb needs one word, never several, and one that refuses any word takes none.
     assert all(not taking[name].plural for name in NEEDED | REFUSED) and NEEDED & REFUSED == set()
 
@@ -565,6 +569,8 @@ OTHER_FATES = {
     ("host", "for_", "hosts"): words.refused(words.HOST_ASKED),
     ("host", "host", "hosts"): words.refused(words.HOST_ASKED),
     ("host", "name", "hosts"): words.refused(words.HOST_NAME_LEFT_OUT),
+    # A call given it would wait until the job ends (I1): the job tool follows a job, and returns at its waits.
+    ("logs", "follow", "logs"): words.refused(words.FOLLOW_REFUSED),
 }
 
 

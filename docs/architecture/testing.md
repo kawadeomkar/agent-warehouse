@@ -881,7 +881,13 @@ scenario's own Ansible was given, which the configuration names in place of its 
 [§16.10](engine.md#1610-guest--the-helper-the-system-layers-inputs-layer-2)). The task is changed exactly
 when the play changed something, so that the idempotence stage holds the second converge to no change; `verify.yml`
 reads the driver's record of each converge, the first having changed the container, then what the three roles left
-there.
+there. Between them, `side_effect.yml` holds the person's keys
+([§16.10](engine.md#1610-guest--the-helper-the-system-layers-inputs-layer-2), "A person's keys"): two keys the list does
+not name put on the account, one commented out too and two lines of the second whose comment or forced command names the
+listed key, are kept by a third converge that changes nothing; then `molecule/system/remove_key.py` takes the first off
+through `guest/keys.py`'s `remove` whole, its two roads to the machine that need an SSH server swapped for the
+container's (the keys file read by `docker exec` as the account, and layer 1's child given its test-only connection as
+the account), and every other line, the file's mode and the listed key stay.
 
 The `provision` scenario's checks are four files `verify.yml` imports in turn: `seeds.yml`, the fixtures
 below; `fleet.yml`, discovery, `just status`, the playbooks where they must refuse or report, `destroy.yml` and

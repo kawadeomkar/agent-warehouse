@@ -43,7 +43,7 @@ from aw_machine import Machine, filed, layer1_host, machine, ssh_stand_in, targe
 from harness import REPO
 
 from claude_vm.fleet import paths
-from claude_vm.guest import layer1, system
+from claude_vm.guest import keys, layer1, system
 from claude_vm.guest import variables as play_variables
 from claude_vm.runs import children, rundir
 from claude_vm.runs import job as jobs
@@ -476,7 +476,7 @@ def test_layer_1_s_hold_takes_what_the_play_s_writer_writes(made, tmp_path) -> N
     written = system.variables(rundir.path_for(made, "vars.json"), {"common_user": "dev"}, secrets=())
     said = str(_layer1_holds(made, _alpha(tmp_path), written))
     assert said.startswith("the run's environment is a mapping of names to values"), said
-    assert layer1.PLAY_NAMES == {system.PLAY: system.NAMES}
+    assert layer1.PLAY_NAMES == {system.PLAY: system.NAMES, keys.PLAY: keys.NAMES}
 
 
 # Lists a caller might hand layer 1 for a file that names two of the play's own (its check's fact, the base's register):

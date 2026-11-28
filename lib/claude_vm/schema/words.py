@@ -112,7 +112,9 @@ class Words:
     shows without brackets (aw code <name>); refused, that the words are no word to give, as today's EXTRA is (init's
     and mcp's, which each refuse any): help leaves them out of a usage line and the command reference out of its rows,
     and says no form for them, nor does the refusal of one outside its pattern, and the one check refuses no
-    placeholder of them, which the verb's own rule refuses as any word."""
+    placeholder of them, which the verb's own rule refuses as any word. agent_needed, that an agent's tool needs a word
+    the terminal does not, where none would reach what nobody named (destroy's names, the default VM; cancel's job, the
+    one job that runs, a terminal's among them)."""
 
     name: str
     plural: bool
@@ -124,6 +126,7 @@ class Words:
     example: str | None = None
     needed: bool = False
     refused: bool = False
+    agent_needed: bool = False
 
 
 @dataclass(frozen=True)
@@ -261,6 +264,7 @@ ADOPT_REFUSED = "an agent never adopts a machine: the person's, at a terminal or
 REMOVE_KEY_REFUSED = "it takes a key off each VM's account: the person's, at a terminal"
 TAKE_OVER_REFUSED = "it clears another computer's run recorded on a machine: the person's, at a terminal"
 PRINT_COMMANDS_REFUSED = "it prints the commands the Proxmox host's root runs: the administrator's, by hand"
+FOLLOW_REFUSED = "it waits until the job ends: an agent follows a job with job, which returns when it waits or ends"
 INSTALLED_REFUSED = "the installed program's, after 3.0: a checkout refuses it, and takes a newer version by git pull"
 DETACHED_RUN_REFUSED = "the run --detach starts is given it by the program itself: nobody types it"
 
@@ -759,8 +763,8 @@ _VERBS: tuple[Verb, ...] = (
                 {"settings": refused(VALUE_LEFT_OUT), "settings_set": PROPERTY},
             ),
         ),
-        rules=("settings.1", "settings.2", "settings.3", "settings.4"),
-        handler=None,
+        rules=("settings.1", "settings.2", "settings.3", "settings.4", "settings.5"),
+        handler="fleet.settings_verb:settings",
         card="D9",
         locks="none",
         changes=False,
@@ -771,7 +775,9 @@ _VERBS: tuple[Verb, ...] = (
         group="use",
         doc="Save the VM(s)' own Claude sessions here, release them from Claude, GitHub and Tailscale, then delete "
         "them",
-        words=Words("name", True, "names", "vm_name", "The VMs; none means agent-warehouse-default", PROPERTY),
+        words=Words(
+            "name", True, "names", "vm_name", "The VMs; none means agent-warehouse-default", PROPERTY, agent_needed=True
+        ),
         options=(
             _value(
                 "confirm",
@@ -862,7 +868,7 @@ _VERBS: tuple[Verb, ...] = (
             ),
         ),
         rules=("host.1", "host.2", "host.3", "check.names.1", "host.4"),
-        handler=None,
+        handler="fleet.host_verb:host",
         card="D12",
         locks="words",
         changes=False,
@@ -881,7 +887,11 @@ _VERBS: tuple[Verb, ...] = (
             PROPERTY,
         ),
         options=(
-            _flag("follow", "With a job: print its log, then each line it adds, until the job ends"),
+            _flag(
+                "follow",
+                "With a job: print its log, then each line it adds, until the job ends",
+                refused(FOLLOW_REFUSED),
+            ),
             _flag("save", "With a job: say where its log is kept on this computer"),
         ),
         rules=(),
@@ -902,6 +912,7 @@ _VERBS: tuple[Verb, ...] = (
             "job_id",
             "The job to stop, by its ID as logs lists it; none stops the one job that runs",
             PROPERTY,
+            agent_needed=True,
         ),
         options=(),
         rules=(),

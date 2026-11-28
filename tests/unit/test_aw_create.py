@@ -336,7 +336,6 @@ def test_a_size_is_read_by_one_reader_into_its_capital_form(home) -> None:
         ({"check": True}, "G20", "aw deploy --check"),
         ({"only": "provision", "adopt": True}, "J7", "deploy's --adopt"),
         ({"only": "provision", "take_over": True}, "L25", "deploy's --take-over"),
-        ({"only": "configure", "remove_key": "SHA256:" + "A" * 43}, "F8", "deploy's --remove-key"),
         # A part of the VM's second layer (card G4): --only configure's, and --tags beside names, which is the same.
         ({"only": "configure", "tags": "claude_code"}, "G9", "--tags claude_code"),
         ({"names": ["delta"], "tags": "common,tailscale"}, "G9", "--tags tailscale"),

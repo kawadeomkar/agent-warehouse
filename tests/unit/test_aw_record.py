@@ -791,11 +791,15 @@ NAMES_A_DESCRIPTION = {
     "lib/claude_vm/pve/answers.py": "a configuration read back, its description among its fields",
     "lib/claude_vm/fleet/passthrough.py": "a role's spec read, whose description of an option is what a person reads of"
     " it: no VM's, and nothing sent",
+    "lib/claude_vm/fleet/settings_verb.py": "the settings verb's reads, which print what a setting or an option does as"
+    " its description, for a person to read: no VM's, and nothing sent",
     "lib/claude_vm/engine/create.py": "the clone, which carries the record's first form, rendered by pve/record.py,"
     " as its notes from the call on (card G24): the first write of the new VM's is engine/record.py's",
     "lib/claude_vm/pve/template.py": "a template's record handed to today's proxmox_template_drift as the line of notes"
     " it reads, in a configuration of its own: the judgement, which holds no client and sends nothing"
     " (tests/unit/test_aw_engine_template.py)",
+    "lib/claude_vm/cli/mcp_backend.py": "the agents' tools' JSON Schemas, each property with the description a model"
+    " reads: no VM's, and nothing sent",
     "lib/claude_vm/pve/commands.py": "qm create of the base template over root SSH, the record its build made as its"
     " first notes, rendered by pve/record.py: the template's first write, before it exists, so that no client can send"
     " it (card E12, tests/unit/test_aw_engine_template.py)",
