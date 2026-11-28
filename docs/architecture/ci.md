@@ -7,12 +7,16 @@ A pull request from a branch whose name starts with `stack/` onto another such b
 lowest, each a draft on the one below it, its tree a part of the tree the pull request from `base-first` carries
 whole - runs no job, `CI result` included: that pull request's run is a batch's whole run, and ten of the stack's
 opened at once held the account's runners for over half an hour. Every job's `if:` is the gate
-`!(startsWith(github.head_ref, 'stack/') && startsWith(github.base_ref, 'stack/'))`, joined after its own condition
-where it has one (`tests/unit/test_ci.py` holds each job to it, and reads each job's condition for a pull request from
-`stack/` onto `stack/`, one from `base-first`, one from a `stack/` branch onto `main`, one from another branch onto a
-`stack/` one, a push, the weekly run and a manual run). It reads both branches: a pull request to `main` from a
+`!(startsWith(github.head_ref, 'stack/') && startsWith(github.base_ref, 'stack/') && github.event.pull_request.head.repo.full_name == github.repository)`,
+joined after its own condition where it has one (`tests/unit/test_ci.py` holds each job to it, and reads each job's
+condition for a pull request from `stack/` onto `stack/`, one from `base-first`, one from a `stack/` branch onto `main`, one from another branch onto a
+`stack/` one, a fork's from `stack/` onto `stack/`, a push, the weekly run and a manual run). It reads both branches: a pull request to `main` from a
 branch named `stack/...`, a fork's too, runs every job, since `CI result` is `main`'s required check and GitHub
-counts a skipped one as passed; so does the stack's lowest, on `main`, were it ever pushed again. It cannot be a
+counts a skipped one as passed; so does the stack's lowest, on `main`, were it ever pushed again. And it reads where the head
+is: a fork's pull request is never skipped, since a fork's `stack/` onto a `stack/` branch, its base changed to `main`
+afterwards, starts no run (a change of base is `edited`, which `pull_request` does not take by default), and its
+skipped `CI result` would stand as passed. `types:` is not widened for it: only the owner can push a `stack/` branch
+of the repository's own, and the owner may merge past the check anyway. It cannot be a
 filter under `on:`: `pull_request`'s `branches` and `branches-ignore` name the base branch alone.
 `github.head_ref` and `github.base_ref` are a pull request's branches and empty for every other event, so a push,
 the weekly run and a manual run run every job as before. The

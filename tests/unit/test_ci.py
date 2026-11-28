@@ -83,9 +83,14 @@ def test_ci_result_passes_only_when_each_job_succeeded_or_was_skipped(tmp_path, 
 # The gate every job runs under: a pull request from a branch whose name starts with stack/ onto another (the area
 # stack's above its lowest, each a part of the tree the pull request from base-first carries whole, whose run is a
 # batch's whole run) runs no job, CI result included. Both branches are read: a pull request to main from a branch
-# named stack/... runs every job, since CI result is main's required check and a skipped one passes. github.head_ref
-# and github.base_ref are a pull request's branches and empty for every other event.
-STACK_GATE = "!(startsWith(github.head_ref, 'stack/') && startsWith(github.base_ref, 'stack/'))"
+# named stack/... runs every job, since CI result is main's required check and a skipped one passes. And a fork's pull
+# request is never skipped: its base changed to main afterwards starts no run (an edited), and the skipped check would
+# stand. github.head_ref and github.base_ref are a pull request's branches and empty for every other event, whose
+# github.event.pull_request is null.
+STACK_GATE = (
+    "!(startsWith(github.head_ref, 'stack/') && startsWith(github.base_ref, 'stack/')"
+    " && github.event.pull_request.head.repo.full_name == github.repository)"
+)
 # A job's own condition, where it has one, which the gate is joined after.
 OWN_CONDITION = {
     "dependency-review": "github.event_name == 'pull_request'",
@@ -98,12 +103,16 @@ STACK_PULL = {
     "github.head_ref": "stack/aw-11-batch-1",
     "github.base_ref": "stack/aw-10-ci",
     "github.ref": "refs/pull/322/merge",
+    "github.repository": "owner/agent-warehouse",
+    "github.event.pull_request.head.repo.full_name": "owner/agent-warehouse",
 }
 BASE_FIRST_PULL = {
     "github.event_name": "pull_request",
     "github.head_ref": "base-first",
     "github.base_ref": "main",
     "github.ref": "refs/pull/310/merge",
+    "github.repository": "owner/agent-warehouse",
+    "github.event.pull_request.head.repo.full_name": "owner/agent-warehouse",
 }
 # A pull request from a branch of another name onto base-first.
 OTHER_PULL = BASE_FIRST_PULL | {"github.head_ref": "ci/a35-stack-gate", "github.base_ref": "base-first"}
@@ -111,7 +120,16 @@ OTHER_PULL = BASE_FIRST_PULL | {"github.head_ref": "ci/a35-stack-gate", "github.
 STACK_HEAD_ON_MAIN = BASE_FIRST_PULL | {"github.head_ref": "stack/aw-01-foundations", "github.base_ref": "main"}
 # Another head on a stack/ base: a pull request onto a branch of the stack from a branch that is none of its.
 OTHER_HEAD_ON_STACK = STACK_PULL | {"github.head_ref": "ci/a35-stack-gate"}
-PUSH = {"github.event_name": "push", "github.head_ref": "", "github.base_ref": "", "github.ref": "refs/heads/main"}
+# A fork's stack/ onto a stack/ branch of the repository's: never skipped.
+FORK_STACK_ON_STACK = STACK_PULL | {"github.event.pull_request.head.repo.full_name": "someone/agent-warehouse"}
+PUSH = {
+    "github.event_name": "push",
+    "github.head_ref": "",
+    "github.base_ref": "",
+    "github.ref": "refs/heads/main",
+    "github.repository": "owner/agent-warehouse",
+    "github.event.pull_request.head.repo.full_name": None,
+}
 SCHEDULE = PUSH | {"github.event_name": "schedule"}
 DISPATCH = PUSH | {"github.event_name": "workflow_dispatch"}
 
@@ -131,8 +149,8 @@ EXPRESSION_FUNCTIONS = {
 def _runs(condition: str, context: dict[str, str]) -> bool:
     """Whether a job whose if: is condition runs, for a run GitHub hands context: its expressions as far as ci.yml's
     conditions use them (a string with no quote in it, a context, a call of EXPRESSION_FUNCTIONS, !, == and !=
-    between strings, && and ||, parentheses), each operator at GitHub's precedence. Anything else raises, so that a
-    condition this cannot read fails the test it is read in, rather than being taken for true or for false."""
+    between strings or null, && and ||, parentheses), each operator at GitHub's precedence. Anything else raises, so
+    that a condition this cannot read fails the test it is read in, rather than being taken for true or for false."""
     wrapped = re.fullmatch(r"\s*\$\{\{(.*)\}\}\s*", condition, re.S)
     words = EXPRESSION_TOKENS.finditer(wrapped[1] if wrapped else condition)
     tokens = [(each.lastgroup, each[each.lastgroup]) for each in words]
@@ -170,9 +188,10 @@ def _runs(condition: str, context: dict[str, str]) -> bool:
             return left
         _, operator = take()
         right = negated()
-        if not (isinstance(left, str) and isinstance(right, str)):
-            raise ValueError(f"{condition!r}: only strings are compared here")
-        return (left.casefold() == right.casefold()) is (operator == "==")
+        if not all(isinstance(each, str) or each is None for each in (left, right)):
+            raise ValueError(f"{condition!r}: only strings and null are compared here")
+        same = left == right if None in (left, right) else left.casefold() == right.casefold()
+        return same is (operator == "==")
 
     def negated():
         if peek() == "!":
@@ -224,6 +243,7 @@ def test_every_job_runs_under_the_area_stack_s_gate_joined_after_its_own_conditi
         (OTHER_PULL, set(JOBS) - OUTSIDE),
         (STACK_HEAD_ON_MAIN, set(JOBS) - OUTSIDE),
         (OTHER_HEAD_ON_STACK, set(JOBS) - OUTSIDE),
+        (FORK_STACK_ON_STACK, set(JOBS) - OUTSIDE),
         (PUSH, set(JOBS) - OUTSIDE - {"dependency-review"}),
         (SCHEDULE, set(JOBS) - {"dependency-review"}),
         (DISPATCH, set(JOBS) - {"dependency-review"}),
@@ -234,15 +254,17 @@ def test_every_job_runs_under_the_area_stack_s_gate_joined_after_its_own_conditi
         "another branch's",
         "stack/ onto main",
         "another branch onto stack/",
+        "a fork's stack/ onto stack/",
         "a push",
         "the schedule",
         "a manual run",
     ],
 )
 def test_a_pull_request_of_the_area_stack_runs_no_job_and_every_other_run_the_jobs_it_ran(context, running):
-    # Each job's if: read as GitHub reads it, a job with none run as GitHub runs it: on a pull request from stack/ onto
-    # stack/ no job takes a runner, CI result included; on any other pull request, a stack/ head on main or another
-    # head on a stack/ base among them, every job of the gate, dependency review included; on a push the same but
+    # Each job's if: read as GitHub reads it, a job with none run as GitHub runs it: on a pull request of the
+    # repository's own from stack/ onto stack/ no job takes a runner, CI result included; on any other pull request, a
+    # stack/ head on main, another head on a stack/ base and a fork's stack/ onto stack/ among them, every job of the
+    # gate, dependency review included; on a push the same but
     # dependency review; on the schedule and a manual run those and the canary.
     ran = {name for name, job in JOBS.items() if _runs(job.get("if", "success()"), context)}
     assert ran == running, (sorted(ran - running), sorted(running - ran))
