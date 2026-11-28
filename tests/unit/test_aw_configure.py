@@ -64,6 +64,7 @@ from claude_vm.runs import job as jobs
 from claude_vm.runs import locks, model, rundir
 from claude_vm.schema.rules import CONFIGURE_ROLES
 from claude_vm.schema.words import EXITS
+from claude_vm.secret import MARK
 
 CONFIGURE_PY = REPO / "lib" / "claude_vm" / "engine" / "configure.py"
 # The UUID of a VM no stand-in is: a record that names it is a copy of another VM's notes.
@@ -345,7 +346,7 @@ class Swapped:
 
 
 @pytest.fixture
-def swapped(monkeypatch, tmp_path, installed, made, engine_guard) -> Swapped:
+def swapped(monkeypatch, tmp_path, made, engine_guard) -> Swapped:
     """The play swapped and layer 1 over the local connection; the stand-in ssh first on this process's PATH."""
     engine_guard.first_on_path(made.root / SSH_FOLDER)
     return Swapped(monkeypatch, tmp_path / "play", True)
@@ -527,7 +528,8 @@ def test_every_secret_the_run_holds_is_struck_from_what_layer_1_says(made, job, 
     # Nor on any connection's command line, nor in the play's variables.
     assert all(secret not in " ".join(call["argv"]) for call in machine.calls())
     assert secret not in swapped.calls[0]["variables"].read_text()
-    assert [str(each) for each in swapped.calls[0]["redacted"]] and len(swapped.calls[0]["redacted"]) >= 1
+    # The job's redaction list holds it: the list layer 1's child, and every event of the run, is struck of.
+    assert "redacted" not in swapped.calls[0] and any(each.struck(secret) == MARK for each in job.redacted)
 
 
 def test_a_stopped_vm_is_started_first_where_the_plan_says(made, job, heard, swapped) -> None:
@@ -614,7 +616,7 @@ def test_a_task_that_failed_as_the_stop_came_is_still_the_vm_s_failure_drawn_fai
     assert fed.mark(machine.identity, "configure") == "failed"
 
 
-def test_a_layer_1_child_a_ctrl_c_stopped_is_drawn_stopped_never_failed(made, tmp_path, installed) -> None:
+def test_a_layer_1_child_a_ctrl_c_stopped_is_drawn_stopped_never_failed(made, tmp_path) -> None:
     # The first checkpoint's finding 3: the run's own Ctrl-C ends layer 1's child in the middle of a task, through the
     # run's ladder, and its exit status alone fails nothing: the system layer is drawn stopped, as the VM's end says.
     [(_, machine)] = _provisioned(made, "delta").values()
@@ -679,7 +681,7 @@ def short() -> Iterator[Path]:
 
 
 @pytest.fixture
-def hopped(monkeypatch, tmp_path, installed, made, engine_guard) -> Swapped:
+def hopped(monkeypatch, tmp_path, made, engine_guard) -> Swapped:
     """The play swapped, layer 1 over its own SSH connection; the stand-in Proxmox host the hop, at the fake's own
     address, where host.yml points the host."""
     if not Path(layer1.PYTHON).is_file():

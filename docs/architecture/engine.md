@@ -2493,7 +2493,7 @@ fleet's folders (`fleet/files.py`).
 | `starter` | What started it: `{"kind": "terminal"}`, `{"kind": "detach"}`, or `{"kind": "mcp", "server": <id>}`, that server's own ID |
 | `host`, `machines` | The host the run is on, and the machines it names, by identity |
 | `making` | The machines it is making that have no identity yet, each by its stand-in key with the name a person chose, until its join |
-| `names` | The name of each machine joined from `making`, by its identity, `{identity: name}`: the join keeps it there |
+| `names` | The name of each machine, by its identity, `{identity: name}`: given with `machines` at `create`, or joined from `making`, which the join keeps there |
 | `locks` | The names of the locks it holds |
 | `attached` | Whether it runs at a terminal |
 | `pid`, `started` | Its process and when it started: information for a person and for a machine's `job` line, never read to decide a state |
@@ -2536,10 +2536,16 @@ a test probes the run's own lock from its own process. No module of `runs/` keep
 process's start or reads the process table for one, which a scan in the test holds.
 
 **Events.** `emit(kind, machine, text, **data)` hands one event, with its time, to each listener the run registered
-with `listen` (the live view and the text log), in order and in the run's own process. The kinds are `stage`, `step`,
+with `listen` (the text log and the live view), in order and in the run's own process: each hears it whatever one
+before it raised, and the first error is raised once the last has heard, so that a view whose terminal has gone never
+keeps the run's end from its log. The kinds are `stage`, `step`,
 `report`, `waiting`, `next`, `join` and `end`; another is refused, `child` among them, since a child the run started is
 its registry's (`children.py`). Every string an event carries goes through
-`text.plain_text`, and a `Secret` anywhere in one is refused before anything is written or heard. What an agent and
+`text.plain_text`, and a `Secret` anywhere in one is refused before anything is written or heard. The job holds the
+run's redaction list: every secret the run opens is added to it (`redact`, a `Secret` alone, each once; `redacted` is
+the list), and every string of an event, its text, its data and their keys, is struck of each of them
+(`secret.struck_all`), before and after it is made plain, so that neither the record nor a listener has one; layer 1's
+child is struck of the same list (§16.10). `tests/unit/test_aw_job.py` holds it. What an agent and
 `logs` read is also kept in the record: a `waiting` (empty text: nothing), a `next` with its `matter` (an empty line
 removes it), a machine's `end` with its outcome and the stage its last `stage` event named, and the run's `end` (no
 machine) with its outcome and exit status. Only the process that made a job emits its events, listens to them or drops
@@ -2577,6 +2583,54 @@ a run that never ran. Only a record already gone is no error of the unlink's, an
 folder's removal. `tests/unit/test_aw_job.py` holds it all, each state made by a run in a child process: a SIGKILL
 reads `lost` with nothing written after it, a child that outlives its killed run holds no lock, and the record is
 unlinked while the drop holds the folder's lock.
+
+**The text log: `textlog.py`.** Each run writes one plain-text log, a listener of its job's events registered before
+the live view: `<LOG_DIR>/<stamp>-<verb>[-<part>].log`, the stamp the run's start (`YYYYMMDD-HHMMSS`, as
+`tools/run-logged` names today's), the verb a row of the table whose run is a job, and the part one of the values of a
+pattern that is no machine's (deploy's `--only`, login's `--only`) or `check`, so that no word a person typed as a name
+becomes a file's (`name`). The folder is made where it is missing and kept at mode 0700; the file is made new at 0600,
+never through a link, and a second run of a verb in the same second takes the next free name (`-2.log`). Its first
+line names the job and its command; then each event is one line a line of its text, with its time, its kind, its
+machine by its name (the record's `names` and `making`, a first event's `name`, a join's: never a stand-in where a
+name is known; a join says the identity it joins) and what it carries; and a line of the program's own for what the
+ladder keeps off the terminal (the loop's own reports: `attached.py`'s `_unsaid`). Each line is written whole with one
+`os.write`, so it is on disk through any end of the process, `os._exit` and a kill among them; the descriptor is no
+child's. A log that cannot be made or written is said once on standard error, and the run goes on without it: the
+listener never raises. The record's `log` names the file. Where it goes (`logs(home, run)`): `LOG_DIR` as the
+environment gives it (`RunWords`), a relative one from the folder the run started in; `LOG_DIR` empty, no text log for
+a run at a terminal and the job's own folder for a detached one, which nobody could follow otherwise; not set, a
+checkout's `.logs/` where the fleet's home is the checkout's own, as today's justfile has it, and the state folder's
+`logs/` for the installed program and for a home `AGENT_WAREHOUSE_HOME` names, a test's among them. `runs.run` opens
+it once the run's locks are taken, after the prune, and closes it once the run has ended; a run whose ladder never
+began, and so left no job, leaves no log either.
+
+**The prune: `prune.py`.** When a run that writes a log starts, `prune(log_dir, jobs_dir, retention)` deletes what is
+older than `LOG_RETENTION_DAYS` (14 where it is not set; a value that is no whole number prunes nothing and says so),
+as `find -mtime +<days>` counts it, and three kinds of thing alone: a file at `LOG_DIR`'s top named as a log is
+(`LOG_NAME`, today's `[0-9]*-*.log`), never a link, and only where `LOG_DIR` is itself a folder: `runs.run` holds it
+to be one (textlog's `_kept`, never a link) before the prune, and a `LOG_DIR` that is a link has nothing in it pruned
+and the run no log; a job's folder, named by a job's ID, a directory and never a link, whose lock is free
+(`lock_held`), aged by its end, else its record's last change (a run killed outright), else the folder's own (a folder
+a drop could not empty, which has no record), the age read first and the lock only of a job old enough, so another
+run's `create`, whose lock is taken without waiting, never meets the prune's; and the short-lived directory that job's run
+left (`rundir.py`'s, which nothing else removes once its run was killed), only where the record names one of its form,
+`aw-run-<that job's ID>-…`, a directory, this account's. A job whose lock is held is a run that lives and is never
+pruned, whatever its age; one whose lock cannot be read is said by its ID and kept, never read as free. A log and a
+job's folder are held, before they go, to be entries of `LOG_DIR` and the jobs folder by their real paths, and a run's
+directory to be of its job's name and this account's, so the vault's key file, `client.yml` and the
+fleet's folder, which lie outside every one of them, are never reached, whatever a record says. Today's MCP server
+prunes its own jobs at a fixed 14 days (`lib/claude_vm/mcp/server.py`); this prune is the new engine's.
+
+**`logs`: `listing.py`.** The handler of `logs`, which loads no pydantic, Ansible, asyncio, workflow or MCP module
+(`tests/unit/test_aw_cli_imports.py`). With no job, every job newest first (`listed`): its ID, its state (`state`), its
+start, how long it ran or has run, its command and its log's path; a lost job is said so, its record never written.
+With a job, its text log as written, each line made plain; `--save` says where it is already, since a run's log is
+written as it goes. With `--follow`, the log and then each line added, read as the file grows, until the job's lock is
+free, and then whatever the file gained, since a run writes its end before its lock goes; then its outcome, and each
+machine's by its name (`names`, and `making` for one not yet made). Ctrl-C ends the follow, says the job goes on and
+exits 130. A job with no log is said so; its follow waits for its end all the same. A job whose lock cannot be read is
+said so, never as `lost`. Before any job is read, a fleet's record whose jobs store is newer than this program reads is
+refused by name (`record.refuse_newer`). `tests/unit/test_aw_logs.py` holds the log, the prune and `logs`.
 
 **A run's children: `children.py`.** Every process a run starts carries the job's marker, `AGENT_WAREHOUSE_JOB`, the
 name today's MCP jobs set, with the job's ID: whatever reads it matches the ID, never the name alone. `start` gives it
@@ -3122,7 +3176,8 @@ machine by its name, as the frame does (the model's name for its key, a join's b
 stand-in, is never said. Nothing in `runs/` writes an escape
 sequence or reads the terminal itself: the region, the palette, the title and the echo are `tui/`'s. The model's
 machines are the job's own, `job.json`'s `machines`, by identity, the key every event of a machine names, each with the
-name a person chose where the caller gives it (`names`): the record keeps identities alone, and the view says a machine
+name a person chose where the caller gives it (`names`): the record's `machines` keeps identities alone, with their
+names in its `names`, and the view says a machine
 by its name. A row is keyed by the machine's identity, or, for a VM the run is making, by its stand-in key until its
 join: drawn by its name from its first event (from `job.json`'s `making` where the view is made after that event, and
 from its `names` where it is made after the join), and
@@ -3675,7 +3730,8 @@ is settled from.
 `lib/claude_vm/guest/` is where what the engine does inside a machine goes: the helper, which is sent to the machine
 and never installed there, and the inputs of the system layer, which Ansible converges as a child with built-in modules
 only, and layer 2, the rest of the work, in plain code. It imports `ssh/`, `schema/`, `fleet/` and `runs/` (the one
-starter of a child, and the run's directory), and nothing of `engine/`, `cli/` or `control/`, and no pydantic. A plugin
+starter of a child, and the run's directory), and of `vendors/` the verified downloads, the vendored keys, the proxy's
+choice and the trust's refusal, which layer 2's install of Claude Code reads its release by; nothing of `engine/`, `cli/` or `control/`, and no pydantic. A plugin
 of that Ansible child is the one code of the new engine that imports `ansible`. It lives under `guest/ansible/`, where
 the child's own configuration names it.
 
@@ -3791,27 +3847,11 @@ collection: the product's own (the callback's, and the engine's filter folder,
 `lib/claude_vm/guest/ansible/filter_plugins/`, whose one adapter, `aw_filters.py`, gives `plain_text` and
 `sshd_match_spec`, the two the roles call, each the core's function of its name - never today's `filter_plugins/`, whose
 filters run on this computer as a play calls them, `proxmox_trust_holds` opening a connection to the address it is
-given; a role that calls another filter adds it to the adapter) and, for every other kind, an empty folder of the run's
-directory, Python's path not scanned for
-collections, so that nothing under the caller's home or `/usr/share/ansible` is searched (a vars plugin in
-`~/.ansible/plugins/vars` runs without being enabled), but for one folder, for now. **Until F6a** (the owner's answer
-of 2026-11-23), the collections' path is the checkout's own folder of Galaxy collections, the one today's product's
-runs read and `just install` fills from `requirements.yml`, under the caller's data folder: three tasks of the system
-play's roles call a collection's module, which ansible-core resolves as the play loads, so with no folder of
-collections named the product's own child cannot load the play at all. `checkout_collections` asks `tools/env-run
---collections` for it, a `program` child of the run given only the run's `PATH`, `HOME` and `XDG_DATA_HOME`, so that
-it is found as every recipe finds it and never worked out a second way; an answer that is not one absolute path, or
-none within 30 s, is refused before anything is written. The folder it names is then held to `requirements.yml`'s pins
-before the play's child starts (`held_collections`), as today's `tools/check collections` holds it before every
-recipe's run: each collection pinned there, at its pin, by its own `MANIFEST.json`, where `ansible-galaxy` reads an
-installed collection's version, read by the engine itself rather than by a second child (about 2 s of `ansible-galaxy`
-a run). A folder that is not there, a collection at another version or not there, and a `tools/env-run` that is not
-there to run (no file, none executable, or one the system cannot run) are each refused in one sentence that names `just
-install`, which fills the folder, before anything is written, never Ansible's exit 4 at the load or a bare
-`FileNotFoundError`. For that time this folder is the one place under the caller's
-home that Ansible searches: it holds the collections pinned there, and a collection's vars plugin runs only where it
-is enabled, which the configuration enables none of. F6a, once built-in modules replace those three, takes the folder
-out, and the collections' path is the run's empty folder again. Ansible still adds the play's own folders beside it
+given; a role that calls another filter adds it to the adapter) and, for every other kind and for the collections, an
+empty folder of the run's directory, Python's path not scanned for collections, so that nothing under the caller's home
+or `/usr/share/ansible` is searched (a vars plugin in `~/.ansible/plugins/vars` runs without being enabled): every
+module the system play's roles call is `ansible.builtin`'s (the ratchet, below), so the play needs no Galaxy
+collection. Ansible still adds the play's own folders beside it
 (`playbooks/library/`, `action_plugins/` and `module_utils/`, today's) and each role's, and searches a `collections/`
 beside the play whatever the configuration names: the ratchet (below) holds the play's folder to those three, none
 holding a name of Ansible's own, and the roles to none. `ssh_args`, the one place ahead
@@ -3842,12 +3882,10 @@ for no protection more), the events pipe's descriptor
 runs (cancelled) ends the child with its tree (`claude_vm.proc`), its detached task worker among it. Only a test passes
 `test_connection`, the host variables of a test-only connection: `local` for a play of one task on a stand-in machine,
 `community.docker.docker` for a Molecule container, with the folder of collections that connection is found in beside it
-(`test_collections`), named in place of the checkout's. `tests/unit/test_aw_layer1.py` holds it: the configuration read
-back by `ansible-config dump --only-changed`, every folder ansible-core's own definitions search under its home named,
-a run's folder of collections the one `tools/env-run --collections` names for the run's environment, which is given
-only what it reads, and an answer of it that is no folder refused, the folder held to `requirements.yml`'s pins with
-today's `tools/check collections`'s own verdict over the same folders, each way it is not ready and a `tools/env-run`
-not there to run refused in its sentence, a vars plugin under the caller's home never run, a
+(`test_collections`), named in place of the empty folder. `tests/unit/test_aw_layer1.py` holds it: the configuration
+read back by `ansible-config dump --only-changed`, every folder ansible-core's own definitions search under its home
+named, a run's collections' path its empty folder whatever the caller's environment names, a vars plugin under the
+caller's home never run, a
 play of one ping on a stand-in with its child in the run's registry, the environment as a task's module sees it, each
 refusal before anything is written, SIGINT to the child's group and a cancelled call each leaving nothing, the words
 Ansible's own ssh connection gave the stand-in `ssh` held by this computer's `ssh -G` over a `Host *` that loosens
@@ -3920,8 +3958,9 @@ name fail as one key. A module of `ansible.builtin` is one written so that ansib
 module, neither removed, and that names one of ansible-core's own actions or modules there: the table sends
 `ansible.builtin.synchronize` (whose rsync starts here), `ansible.builtin.patch` and hundreds more to a collection, and
 a test holds that no name it keeps within `ansible.builtin` comes to one of those the scans read by name. A module
-outside `ansible.builtin` fails but the three F6a replaces with built-in ones
-(`ansible.posix.authorized_key`, `ansible.posix.sysctl`, `community.general.npm`). Nothing it reaches sets a variable
+outside `ansible.builtin` fails, and none is allowed, so that the product needs no Galaxy collection: the person's keys
+are `file` and `lineinfile`, the watch limit `copy` and a `sysctl -p` of its file, the global npm packages a read of
+`npm ls -g` and an `npm install -g` of each it lacks, its three commands in `REASONS` with the rest. Nothing it reaches sets a variable
 whose name begins `ansible_` - the vars of a play, block, task, role entry or dependency, `vars_files`, `vars_prompt`, a
 role's defaults and vars, a fact (a templated name refused), a register, a loop's variable, an include's `apply`,
 `add_host` - nor includes variables at all, which the play's first check cannot see. And nothing runs or writes on this
@@ -3952,20 +3991,15 @@ writes a mark in the test's own folder - a copy given its `src` by `module_defau
 interpreter so given, `ansible.builtin.synchronize`'s rsync, a copy, template or include of a name that starts with `~`,
 `q` named apart from its call, a template's own delimiters and its `#jinja2:` line, an include in a task's string, and
 an import two files below the play; and review 67's `loop_with: pipe` and a role's `files/` linked to a folder
-elsewhere. Until F6a those
-three modules need their collections, from
-the checkout's own folder that layer 1's configuration names for now (above), or a test's in its place, the
-scenario's. The `system` scenario
+elsewhere. The `system` scenario
 (`molecule/system/`, [§11.3](testing.md#113-playbook-scenarios--just-test-integration-and-provision)) converges a
 container through `layer1.run` with the test-only `community.docker.docker` connection, twice, the second changing
 nothing. `tests/unit/test_aw_layer1_play.py` holds the opening tasks equal to the guest play's, a part asked for running
 that role alone, the check passing the inventory the engine wrote and failing a fact or a variables file beside the play
 by the variable's name, a machine's output holding `{{` read as its text by a message, a fact, a condition and an
 assert, a file beside the play that points `inventory_file` at a forged copy failing the check, the refusal, and the
-product's own child, started as the engine starts it, loading the play from the checkout's folder of collections: with
-none there the run is refused, naming `just install`, before anything starts; held at its pins with no module in it,
-the child exits 4 at the load, unable to resolve `ansible.posix.authorized_key` (F6's finding), so the play needs what
-is in it; and with the checkout's real folder the play starts.
+product's own child, started as the engine starts it, loading the play and starting it with no folder of collections
+at all (ansible-core resolves a role's modules as the play loads, and a collection's would fail the load).
 
 **A play's variables.** ansible-core loads an extra-variables file as a trusted source, so a string in it that holds
 `{{`, `{%` or `{#` would be rendered as a template: a setting would be code. `lib/claude_vm/guest/variables.py`'s
@@ -4067,7 +4101,7 @@ machine's `end` have it, with the name a person chose beside it (`name`) for wha
 play's name, its data a fixed set of fields each held to its type (`status`, `part`, `task`, and where there is one the
 item, the message, the output, the return code, the exception, the warnings, the diff, the attempts, and whether the
 result was censored or its failure ignored). Every string is struck of every secret of the run's redaction list
-(`redacted`, the `Secret`s the run opened, which `layer1.run` is handed), the longest first (`secret.struck_all`), so
+(the job's, `Job.redacted`: every `Secret` the run opened, which the run adds with `redact`), the longest first (`secret.struck_all`), so
 that of two where one holds the other the longer is struck whole; made plain (`text.plain_text`); and struck again, so
 that a secret an escape sequence split is struck once whole; then cut to its field's bound, after the strike. A
 message, an item or an output written as a structure stays one until each of its strings is so made, and is then made
@@ -4090,6 +4124,51 @@ form, raw and escaped; of two secrets one inside the other, the longer struck wh
 and its end keyed by the one identity the record names; a control sequence reaching the log as plain text; the diff's
 two rules; the pipe closed by its reader before and in the play; a listener's failure; and the reader's own rules on
 lines of its own.
+
+**Layer 2's steps.** `lib/claude_vm/guest/layer2/step.py` is the one shape of a step: a `name` (its events' key, as a
+stage's step is keyed), a `part` (one of a configure's six), `probe(ctx)`, which reads the machine and changes nothing,
+`apply(ctx, state)`, which brings it from that state to its settings and says whether it changed anything (nothing
+where the state is what the settings name, so a second run applies nothing), and `difference(state)`, what `apply`
+would change, what it is about, as it is and as it would be, or none: what F21's `--check --diff` says, with no
+`apply`. A step that cannot go on raises `Failed` with its sentence. The `Context` is one machine's in one run: the job,
+the route's `Target`, the key its events name it by, the settings by name, the environment of its children and the
+cancel flag; `run` is the SSH runner's one bounded call on the machine, as its account or as root through its sudo by
+its path under `sudo -n` (where sudo wants a password the call fails, since a VM the engine makes has a passwordless
+sudo and no secret follows a step's command), and `emit` one event about the machine. `run_steps(ctx, steps)` runs a
+machine's steps in order, each between two `step` events, its part and the run's stage on each, the end `done` with
+whether it changed anything or `failed` with why; the first that fails stops the machine, and a run that is stopping
+starts no next step. It returns the machine's outcome, each step's change and why it failed.
+
+**Claude Code's install.** `lib/claude_vm/guest/layer2/claude_install.py`'s step `claude-install` is every way Claude
+Code is installed, today's `install_native.yml` and `install_npm.yml` in plain code, which nothing of layer 1 does:
+it reads `claude_code_install_method` and `claude_code_download_url`, the role's options passed through by their own
+names (the role's own defaults where none is set, held equal to them), `claude_code_version`, held to stable, latest or
+a release's version before anything runs, and `tls_ca_file` and `network_proxy` for this computer's reads. Natively, the
+default, the probe reads as the machine's account what `~/.local/bin/claude` resolves to and that file's SHA-256, and
+runs nothing of it: an install counts only where the launcher resolves to a release's file under
+`~/.local/share/claude/versions/` (the layout the binary's own `install` keeps, which the helper's probe reads the
+version from) and that file is the binary the signed manifest of its version gives, and anything else is installed
+over; a channel installs only where no such install is and an exact version where another is; the release is settled here by `vendors/downloads.py`'s
+`claude_release` (§16.7), which returns the version and the digests only once Anthropic's signature of its manifest
+verified by the vendored key, so this module verifies nothing itself. The machine's platform is read (`uname -m`,
+today's map) and a release with no binary for it refused; then, as the account, three calls: the binary downloaded by
+the machine's `curl` (https alone, bounded) into `~/.claude/downloads` and its SHA-256 said back and held here to the
+manifest's; its digest checked again on the machine and only then its own `install` of that exact release run, never a
+channel's name, bounded there by `timeout`, and what `~/.local/bin/claude` resolves to held to that release's file
+under `~/.local/share/claude/versions/` and to the same digest, the launcher removed where it is not; and the download
+removed, whatever happened. The installer script is never used. Under `npm`, as root:
+`npm --version` must answer, `npm ls -g --depth=0 --json` is read, and `@anthropic-ai/claude-code` is installed with
+`npm install -g` where it is absent, with its version only where an exact one is wanted, so a channel installs once and
+an exact version moves it, and what npm lists after is held to it (`guest/npm.py` reads the list; `guest/states.py`
+reads it too, as the account, for a machine whose method is npm, since the probe reads the native launcher alone). The difference names the release installed and the
+one wanted. `tests/unit/test_aw_claude_install.py` carries `test_signed_downloads.py`'s cases against the step, on F30's
+stand-in machines and the fake download server over TLS with keys of the test's own: each method installing once, a
+second run applying nothing, an exact version moving it, a manifest that does not verify, of another release or past
+its cap, a binary not the manifest's never run (on this computer, and on the machine where the download changes between
+the two calls), a launcher that resolves elsewhere refused and removed on every run, a launcher the step did not verify
+installed over, the download gone whatever happened, `stable` never npm's version, npm not answering and a sudo that wants a password each a named failure, the
+version `guest.states` reads after it by each method, the steps' runner, and a scan of the step's source: no channel's name in an
+`install` argument and no URL of the installer script.
 
 **How the engine's tests reach a machine.** A test of the new engine reaches no real machine: it reaches a stand-in,
 a directory of the test's own that `tests/unit/aw_machine.py` makes, through the SSH runner (§16.6) as it reaches a

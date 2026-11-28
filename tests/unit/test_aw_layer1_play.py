@@ -14,11 +14,9 @@ switch layer 1 gives its child is at ignore: a module's result holding {{ is rea
 condition and an assert, where at error each of them fails. The check reads the inventory back by its own source,
 ansible_inventory_sources, which no source of the host's variables outranks: a variables file beside the play that
 points inventory_file at a forged copy saying what it sets fails it (review 45's low 3). Started as the engine starts
-it, the product's child loads the play only from the checkout's own folder of Galaxy collections, which its
-configuration names until F6a, held to requirements.yml's pins first: with none there, the run is refused naming just
-install and nothing starts; held at its pins with no module in it, ansible-core fails as the play loads, on
-ansible.posix.authorized_key (F6's finding (a)), so the play needs what is in it; and with the checkout's real folder
-the play starts. And a setting the engine cannot serve yet is refused by
+it, the product's child loads the play and starts it with no folder of Galaxy collections at all, the collections' path
+its run's empty folder, since every module the roles call is ansible.builtin's (F6a): a module of a collection would
+fail the load (F6's finding (a)). And a setting the engine cannot serve yet is refused by
 name before anything is written: common_user_passwordless_sudo other than true. The play's variables hold the names it
 takes alone (guest/wiring.py's NAMES): a name of the play's own facts or registers, of a role's registers or internals,
 a loop's variable or a setting's row is refused by name by the play's writer, and by layer 1's hold of a variables file
@@ -35,14 +33,12 @@ import importlib.util
 import inspect
 import json
 import os
-import shutil
 import subprocess
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
 import yaml
-from aw_kit import collections_folder, plant_collections
 from aw_machine import Machine, filed, layer1_host, machine, ssh_stand_in, target
 from harness import REPO
 
@@ -52,10 +48,6 @@ from claude_vm.guest import variables as play_variables
 from claude_vm.runs import children, rundir
 from claude_vm.runs import job as jobs
 from claude_vm.ssh import hostkeys
-
-# Until F6a, every run here but the one that holds the folder itself finds the checkout's folder of Galaxy collections
-# planted at requirements.yml's pins in the test's home, which layer 1 holds it to before its child starts.
-pytestmark = pytest.mark.usefixtures("installed")
 
 CONFIGURE = REPO / "playbooks" / "configure.yml"
 GUEST_PLAY = "Configure Claude development VMs"
@@ -152,38 +144,21 @@ def test_the_play_runs_the_three_system_roles_under_today_s_tags_on_its_one_host
     assert system.PLAY == REPO.resolve() / "playbooks" / "system.yml"
 
 
-def _collections() -> str:
-    """The folder of the collections the three roles call until F6a: the run's own, as just test gives it."""
-    for folder in os.environ.get("ANSIBLE_COLLECTIONS_PATH", "").split(os.pathsep):
-        if folder and (Path(folder) / "ansible_collections" / "ansible" / "posix").is_dir():
-            return folder
-    raise AssertionError("no folder of ANSIBLE_COLLECTIONS_PATH holds ansible.posix: run the tests through just")
-
-
-# What ansible-core says, and exits 4 with, where the system play loads with no folder of collections that holds the
-# modules three tasks of the roles call until F6a: the first it resolves (F6's finding (a)).
-UNRESOLVED = "couldn't resolve module/action 'ansible.posix.authorized_key'"
-
-
 class Loaded(Exception):
     """The play's start heard: the child loaded the play, and is ended there, before any task of it."""
 
 
-def test_the_product_s_child_loads_the_system_play_from_the_checkout_s_collections_held_to_their_pins(
-    made, tmp_path, engine_guard, installed
-) -> None:
+def test_the_product_s_child_loads_the_system_play_with_no_folder_of_collections(made, tmp_path, engine_guard) -> None:
     # Started as the engine starts it: the product's own configuration (no test-only connection or folder), the run's
     # environment, the play, over Ansible's own ssh to the stand-in machine, whose own key is filed (the stand-in ssh
-    # first on PATH, so that nothing reaches past it). The checkout's folder is the one tools/env-run --collections
-    # names for the run's environment, this test's own home: first not there, then at requirements.yml's pins with no
-    # module in it, then the checkout's real one linked in.
+    # first on PATH, so that nothing reaches past it). ansible-core resolves every module of a role's statically loaded
+    # tasks as the play loads; with the collections' path the run's empty folder, and the folder the caller's
+    # environment names never given to the child, the play loads and starts: it needs no Galaxy collection.
     root = tmp_path / "machines"
     alpha = machine(root, "alpha")
     filed(alpha)
     engine_guard.first_on_path(ssh_stand_in(root, [alpha]))
     env = dict(os.environ)
-    folder = collections_folder(env)
-    assert folder == installed and folder.is_relative_to(Path(env["HOME"])), folder
     heard: list[jobs.Event] = []
     made.listen(heard.append)
 
@@ -192,28 +167,13 @@ def test_the_product_s_child_loads_the_system_play_from_the_checkout_s_collectio
             raise Loaded(event.text)
 
     made.listen(loaded)
-
-    def converge() -> layer1.Ended:
-        return asyncio.run(layer1.run(made, target(alpha), system.PLAY, name="alpha", host_flag="", env=env))
-
-    # The folder not there: refused before anything is written or started, naming just install, never Ansible's exit 4.
-    shutil.rmtree(folder)
-    with pytest.raises(layer1.Refused, match=r"are not installed \(.* is no folder\): run just install\Z"):
-        converge()
-    directory = rundir.made(made)
-    assert directory is not None and list(directory.iterdir()) == []
-    assert heard == [] and children.live(made) == []
-    # At its pins, with no module in it: held, and the play does not load, nor any play start: it needs what is in it.
-    plant_collections(folder)
-    ended = converge()
-    assert ended.status == 4 and UNRESOLVED in ended.said, ended.said
-    assert heard == [] and children.live(made) == []
-    # The checkout's real folder there: the play loads and starts, never that failure.
-    shutil.rmtree(folder)
-    folder.symlink_to(_collections(), target_is_directory=True)
     with pytest.raises(Loaded, match="^Converge the machine's system layer$"):
-        converge()
+        asyncio.run(layer1.run(made, target(alpha), system.PLAY, name="alpha", host_flag="", env=env))
     assert [event.data.get("status") for event in heard] == ["play"], heard
+    directory = rundir.made(made)
+    assert directory is not None
+    configured = (directory / layer1.CONFIG).read_text().splitlines()
+    assert f"collections_path = {directory / layer1.NONE}" in configured, configured
     assert children.live(made) == []
 
 
@@ -223,7 +183,8 @@ def test_a_part_asked_for_runs_that_role_alone_after_the_opening_tasks(tmp_path:
     # inventory of one machine as layer 1 writes them: nothing is run, nothing is reached.
     alpha = machine(tmp_path / "machines", "alpha")
     config, inventory = tmp_path / "layer1.cfg", tmp_path / "inventory.yml"
-    config.write_text(layer1.configuration_text(tmp_path, Path(_collections())))
+    config.write_text(layer1.configuration_text(tmp_path))
+    (tmp_path / layer1.NONE).mkdir()
     inventory.write_text(json.dumps(layer1.inventory_document(target(alpha), "alpha")))
     listed = subprocess.run(
         [str(layer1.program()), "-i", str(inventory), "--list-tasks", "--tags", part, str(system.PLAY)],
@@ -484,11 +445,11 @@ NOT_TAKEN = [
 
 
 def _layer1_holds(job: jobs.Job, alpha: Machine, given: Path) -> layer1.Refused:
-    """What layer 1 says of the variables file given beside the system play, in an environment that names neither
-    HOME nor XDG_DATA_HOME: a file it holds is refused for that, once every check before it has passed, so that
-    nothing is written or started either way."""
+    """What layer 1 says of the variables file given beside the system play, with an environment that is no mapping: a
+    file it holds is refused for that, the check held after the file's, so that nothing is written or started either
+    way."""
     with pytest.raises(layer1.Refused) as refused:
-        asyncio.run(layer1.run(job, target(alpha), system.PLAY, given, name="alpha", host_flag="", env={}))
+        asyncio.run(layer1.run(job, target(alpha), system.PLAY, given, name="alpha", host_flag="", env="a word"))
     directory = rundir.made(job)
     assert directory is not None and list(directory.iterdir()) == [given] * (given.parent == directory)
     assert children.live(job) == []
@@ -513,7 +474,8 @@ def test_a_name_the_play_does_not_take_is_refused_by_its_writer_and_by_layer_1_s
 
 def test_layer_1_s_hold_takes_what_the_play_s_writer_writes(made, tmp_path) -> None:
     written = system.variables(rundir.path_for(made, "vars.json"), {"common_user": "dev"}, secrets=())
-    assert str(_layer1_holds(made, _alpha(tmp_path), written)).startswith("the run's environment names neither HOME")
+    said = str(_layer1_holds(made, _alpha(tmp_path), written))
+    assert said.startswith("the run's environment is a mapping of names to values"), said
     assert layer1.PLAY_NAMES == {system.PLAY: system.NAMES}
 
 

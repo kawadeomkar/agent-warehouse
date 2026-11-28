@@ -885,7 +885,7 @@ _VERBS: tuple[Verb, ...] = (
             _flag("save", "With a job: say where its log is kept on this computer"),
         ),
         rules=(),
-        handler=None,
+        handler="runs.listing:logs",
         card="C12",
         locks="none",
         changes=False,

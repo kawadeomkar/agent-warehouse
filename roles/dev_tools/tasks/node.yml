@@ -29,9 +29,32 @@
     state: present
     update_cache: "{{ dev_tools_node_repo.changed }}"
 
+# What npm has installed globally, by its own list: a package there at any
+# version is left as it is, and so is one named with the version it is at. npm
+# ls exits 1 where its tree has a problem, and lists it all the same.
+- name: node | Read the global npm packages
+  ansible.builtin.command:
+    argv: [npm, ls, -g, --depth=0, --json]
+  register: dev_tools_npm_listed
+  changed_when: false
+  failed_when: dev_tools_npm_listed.rc not in [0, 1]
+  check_mode: false
+  when: dev_tools_npm_global_packages | length > 0
+
 - name: node | Install global npm packages
-  community.general.npm:
-    name: "{{ item }}"
-    global: true
-    state: present
-  loop: "{{ dev_tools_npm_global_packages }}"
+  ansible.builtin.command:
+    argv: [npm, install, -g, "{{ item }}"]
+  register: dev_tools_npm_installed
+  changed_when: true
+  loop: "{{ dev_tools_npm_global_packages | reject('in', dev_tools_npm_present) | list }}"
+  vars:
+    # Each package the list holds whole (neither missing nor invalid), by its
+    # name and by its name at its version.
+    dev_tools_npm_found: >-
+      {{ ((dev_tools_npm_listed.stdout | default('', true) or '{}') | from_json).get('dependencies', {})
+         | dict2items | rejectattr('value.missing', 'defined') | rejectattr('value.invalid', 'defined') | list }}
+    dev_tools_npm_present: >-
+      {{ dev_tools_npm_found | map(attribute='key') | list
+         + dev_tools_npm_found | selectattr('value.version', 'defined') | map(attribute='key')
+           | zip(dev_tools_npm_found | selectattr('value.version', 'defined') | map(attribute='value.version'))
+           | map('join', '@') | list }}

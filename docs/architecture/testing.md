@@ -794,9 +794,17 @@ the role's, at the task named where one is, with a message that matches every pa
 runs the role over it, asserts the failure names the setting and the file, and removes the drop-in
 whatever happened: `AllowTcpForwarding no` sorted before the role's drop-in, `DisableForwarding yes`,
 and a `Match User dev` block sorted last that limits forwarding to the remote direction - the case a
-global `sshd -T` cannot see. Then it runs the role switched off and asserts both files are gone, and
+global `sshd -T` cannot see. Where `/proc/sys` is writable (the container is privileged, and the run
+is told that no virtualisation type is a container's) it runs the role with the watch limit one above
+the kernel's: the run writes the file and applies it; the kernel's own put back by hand stays through a
+second run, which writes and applies nothing; and the kernel's own is left whatever happened. Then it
+runs the role switched off and asserts both files are gone, and
 switched on again for verify, which reads the drop-in, the sysctl file and `sshd -T` (forwarding on,
 converge's keepalive values in effect).
+
+`dev_tools`' converge installs one global npm package, `cowsay`, which verify runs, and its
+idempotence run installs nothing again. The side effect runs the node tasks over it named alone and at
+the version npm lists, and asserts npm was asked to install neither.
 
 `tailscale`'s scenario runs two VMs - one that never had Tailscale and one where it was installed and
 signed in by hand - with the real package and daemon, log upload off, and the stand-in `tailscale` in front
@@ -824,10 +832,20 @@ is. Converge starts the first and, with no port in the container, leaves the age
 effect finds it stopped, gives the role a stand-in for the port and runs its services again, and verify
 finds both running.
 
-Last, the side effect puts a line of the user's own into `/etc/tmux.conf` and runs the tmux tasks with
+The side effect then puts a line of the user's own into `/etc/tmux.conf` and runs the tmux tasks with
 `common_tmux_settings: []`, which takes the block out and leaves that line alone, then as converge ran them.
 Verify finds the block back beside the user's line, the file still 0644, and a tmux of its own loading the
 file with no error and each setting in effect, the user's among them.
+
+Last, the side effect adds the person's keys over a keys file that holds more, through a `~/.ssh` that is a link
+to a folder of the user's open to all: both lines of the listed key, the first with options in front and another
+comment, become the listed form, the line of a key not on the list is kept (directly before one of them, which a
+pattern that reached over a line's end would take in) and so is a line of the key commented out, a real key's line
+becomes its listed form, whose options hold a backslash, as written, the folder the link names is made 0700 and the
+file 0600, the user's, and a second run changes nothing. Converge lists that real key too, whose base64 holds `r`,
+`n` and `+`. A
+listed key that is no public key is refused, and so are an item of two lines, one commented out and a key listed
+twice. Then `~/.ssh` is put back as converge left it, for verify to find the listed key there.
 
 `proxmox_vm`'s scenario is the interesting one: it runs against the fake PVE API and asserts the VMID
 came from Proxmox (9001, the next free one) and that the address came from the VM's own NIC —
@@ -859,8 +877,8 @@ The `system` scenario runs no play of Molecule's own on its container. Its `conv
 writes the play's variables through `lib/claude_vm/guest/system.py`, files a made-up key under the machine's identity
 (layer 1 asks for one, and the test-only connection never reads it), and starts layer 1's child through `layer1.run`
 with its test-only connection, `community.docker.docker` to the container, and the folder of collections the
-scenario's own Ansible was given, which the configuration names in place of the checkout's own folder (the product's
-until F6a, [§16.10](engine.md#1610-guest--the-helper-the-system-layers-inputs-layer-2)). The task is changed exactly
+scenario's own Ansible was given, which the configuration names in place of its empty one (the product's needs none,
+[§16.10](engine.md#1610-guest--the-helper-the-system-layers-inputs-layer-2)). The task is changed exactly
 when the play changed something, so that the idempotence stage holds the second converge to no change; `verify.yml`
 reads the driver's record of each converge, the first having changed the container, then what the three roles left
 there.

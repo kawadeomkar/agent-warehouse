@@ -12,10 +12,14 @@ folder's mode, a disk's error) is raised as itself, never taken for a run that h
 decide it, reads a process's start or reads the process table: the pid and the start in the record are information for a
 person and for a machine's `job` line.
 
-`emit` hands one event of the run to the listeners the run registered (the live view, the text log), in order and in
-the run's own process; no event is written to a file of its own. What an agent and `logs` need of a run while it runs
-is kept in the record: what it waits for, NEXT STEPS, each machine's outcome, and at the end the run's. Every string
-the record and an event hold is made plain (`text.plain_text`), and a `Secret` is refused before anything is written.
+`emit` hands one event of the run to the listeners the run registered (the text log, the live view), in order and in
+the run's own process, each whatever one before it raised; no event is written to a file of its own. What an agent
+and `logs` need of a run while it runs is kept in the record: what it waits for, NEXT STEPS, each machine's outcome,
+and at the end the run's. Every string the record and an event hold is made plain (`text.plain_text`), and a
+`Secret` is refused before anything is written. The job holds the run's redaction list: every secret the run opens
+is added to it (`redact`), and `emit` strikes each of them (`secret.struck_all`) from every string of an event, its
+text, its data and their keys, before and after it is made plain, so before the record or any listener sees it;
+layer 1's child reads the same list (guest/layer1.py).
 
 A machine is named in the record and the events by its identity (`agent-warehouse-<its SMBIOS UUID>`), which a VM the
 run is making does not have until its clone gives it one. Until then the run names it by a stand-in key (`stand_in()`,
@@ -56,7 +60,7 @@ from pathlib import Path
 from claude_vm import store
 from claude_vm.fleet import files, paths
 from claude_vm.schema import patterns
-from claude_vm.secret import Secret
+from claude_vm.secret import Secret, struck_all
 from claude_vm.text import plain_text
 
 # A job's ID, as today's MCP jobs' (lib/claude_vm/mcp/jobs.py): sixteen lowercase hex digits, the pattern `job_id`.
@@ -87,7 +91,7 @@ FIELDS = (
     "host",  # the host the run is on, or None
     "machines",  # the machines it names, by identity
     "making",  # the machines it is making that have no identity yet: {stand-in key: the name a person chose}
-    "names",  # the name of each machine joined from `making`, by its identity: {identity: the name a person chose}
+    "names",  # each machine's name, by its identity: given at create, or joined from `making`: {identity: name}
     "locks",  # the names of the locks it holds
     "attached",  # whether it runs at a terminal
     "pid",  # the run's process: information, never read to decide a state
@@ -191,6 +195,8 @@ class Job:
         self._named: set[str] = set()
         # Every machine an end of this run's has named, by the key it named it by.
         self._ended: set[str] = set()
+        # The run's redaction list: every secret the run opened, struck from every event it emits.
+        self._redacted: list[Secret] = []
 
     def __repr__(self) -> str:
         return f"Job({str(self.folder)!r})"
@@ -287,10 +293,38 @@ class Job:
             raise RuntimeError(f"job {self.id} is not this process's: only the run that made a job hears its events")
         self._listeners.append(listener)
 
+    def redact(self, *secrets: Secret) -> None:
+        """Each of secrets added to the run's redaction list, once: struck from every event this job's run emits from
+        now on. Refused, nothing added, where one is not a Secret."""
+        if not all(isinstance(secret, Secret) for secret in secrets):
+            raise TypeError("the run's redaction list holds Secrets alone: every secret the run opened, as opened")
+        for secret in secrets:
+            if not any(secret is held for held in self._redacted):
+                self._redacted.append(secret)
+
+    @property
+    def redacted(self) -> tuple[Secret, ...]:
+        """The run's redaction list, as it is now: every secret the run opened, in the order it was added."""
+        return tuple(self._redacted)
+
+    def _struck(self, value: object) -> object:
+        """value with every secret of the redaction list struck from each of its strings, keys too."""
+        if not self._redacted:
+            return value
+        if isinstance(value, str):
+            return struck_all(value, self._redacted)
+        if isinstance(value, Mapping):
+            return {self._struck(key): self._struck(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [self._struck(item) for item in value]
+        return value
+
     def emit(self, kind: str, machine: str | None, text: str, **data: object) -> Event:
         """One event of this run: checked, made plain, kept in the record where its kind is one an agent or `logs`
         reads (`waiting`, `next`, an `end`, a `join`, and the first event of a machine not yet made), then handed to
-        each listener in order. Refused before anything is written or heard: a kind not in KINDS, a Secret anywhere in
+        each listener in order, every secret of the run's redaction list struck from its text and its data, each
+        listener hearing it whatever one before it raised, and the first error raised after the last. Refused
+        before anything is written or heard: a kind not in KINDS, a Secret anywhere in
         it, an end with no outcome, a machine not yet made first named with no name, an event that names a stand-in
         joined already, and a join the module refuses."""
         if self._held_here() is None:
@@ -304,10 +338,12 @@ class Job:
             raise TypeError(f"an event's machine is a str or None, not a {type(machine).__name__}")
         if not isinstance(text, str):
             raise TypeError(f"an event's text is a str, not a {type(text).__name__}")
-        carried = _plain(data)
+        carried = self._struck(_plain(self._struck(data)))
         assert isinstance(carried, dict)
         about = plain_text(machine) if machine is not None else None
-        event = Event(time.time(), kind, about, plain_text(text), carried)
+        said = self._struck(plain_text(self._struck(text)))
+        assert isinstance(said, str)
+        event = Event(time.time(), kind, about, said, carried)
         change = self._recorded(event)
         if change is not None:
             self._change(change)
@@ -326,8 +362,16 @@ class Job:
             self._stages[event.machine] = event.text
         if kind == "end" and event.machine is not None:
             self._ended.add(event.machine)
+        # Every listener hears it, whatever one before it raised: the first error is raised once the last has heard.
+        failed: BaseException | None = None
         for listener in self._listeners:
-            listener(event)
+            try:
+                listener(event)
+            except BaseException as error:
+                if failed is None:
+                    failed = error
+        if failed is not None:
+            raise failed
         return event
 
     def _recorded(self, event: Event) -> Callable[[dict], dict] | None:
@@ -481,11 +525,14 @@ def create(
     attached: bool,
     *,
     inputs: Mapping[str, object] | None = None,
+    names: Mapping[str, str] | None = None,
 ) -> Job:
     """A new job of this process's own: `jobs/<id>/` at mode 0700, its lock taken before anything else is written and
     held until this process ends, then `job.json` at 0600. The jobs folder is made as every folder of the fleet's is
-    (fleet/files.py's folder): at 0700 where it is missing, and refused where a link stands in its place. Every value
-    is checked before anything is made."""
+    (fleet/files.py's folder): at 0700 where it is missing, and refused where a link stands in its place. names is the
+    name a person chose for each of machines, by its identity, which the record's `names` keeps beside the joins', so
+    that `logs` and an agent say a machine by its name; a name for no machine given is refused. Every value is checked
+    before anything is made."""
     if not isinstance(verb, str) or not verb:
         raise ValueError("a job names its verb")
     if not isinstance(command, str):
@@ -499,6 +546,11 @@ def create(
             "a job's machines are identities: a machine not yet made is named by its stand-in in the run's events, and"
             " kept in `making` until its join"
         )
+    given = dict(names or {})
+    if not all(isinstance(key, str) and isinstance(name, str) and name for key, name in given.items()):
+        raise TypeError("a job's names are {identity: the name a person chose}, each a str")
+    if set(given) - set(machines):
+        raise ValueError("a job's names are its machines' own: each is given by the identity of a machine it names")
     if not isinstance(attached, bool):
         raise TypeError("whether a job is attached is a bool")
     if not isinstance(starter, Mapping) or starter.get("kind") not in STARTERS:
@@ -519,7 +571,7 @@ def create(
         "host": host,
         "machines": list(machines),
         "making": {},
-        "names": {},
+        "names": given,
         "locks": [],
         "attached": attached,
         "pid": os.getpid(),

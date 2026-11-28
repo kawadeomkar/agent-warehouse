@@ -136,15 +136,24 @@
         quiet: true
 
     # Written for the record wherever the role runs, applied only where /proc/sys
-    # is writable. ansible.posix.sysctl reads the live value only when it sets it.
+    # is writable, and only when the file changed: systemd-sysctl applies it
+    # again at every boot.
+    - name: Write the inotify watch limit for the editor's file watcher
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/60-vscode-server.conf
+        content: "fs.inotify.max_user_watches={{ vscode_server_inotify_watches }}\n"
+        owner: root
+        group: root
+        mode: "0644"
+      register: vscode_server_inotify_file
+
     - name: Raise the inotify watch limit for the editor's file watcher
-      ansible.posix.sysctl:
-        name: fs.inotify.max_user_watches
-        value: "{{ vscode_server_inotify_watches }}"
-        sysctl_file: /etc/sysctl.d/60-vscode-server.conf
-        sysctl_set: "{{ ansible_facts['virtualization_type'] not in vscode_server_container_virt_types }}"
-        reload: "{{ ansible_facts['virtualization_type'] not in vscode_server_container_virt_types }}"
-        state: present
+      ansible.builtin.command:
+        argv: [sysctl, -p, /etc/sysctl.d/60-vscode-server.conf]
+      changed_when: vscode_server_inotify_file.changed
+      when:
+        - vscode_server_inotify_file.changed
+        - ansible_facts['virtualization_type'] not in vscode_server_container_virt_types
 
 # Off (vscode_remote: false), the two files the block writes go.
 - name: Remove the sshd drop-in

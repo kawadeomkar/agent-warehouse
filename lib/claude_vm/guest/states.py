@@ -16,6 +16,11 @@ today's shape (status/reach.py's `read`): its reads, `{"unreachable": True, "msg
 `{"failed": True, "msg": ...}`, and a verb out of its time keeps the reads it sent before apt's simulation, the
 upgrades said not read.
 
+Where the machine's settings name npm as Claude Code's method (`claude.method`), the claude part is read once more,
+as the machine's user: npm's global list (guest/npm.py), since the probe reads the native launcher alone; the record
+says it installed, with its version, where the list has Claude Code's package, and not installed where it has none or
+npm does not answer.
+
 found.py is reused as it stands, a name taken from it and never the module: today's `status` makes a TLS context
 elsewhere, so this module is one tests/unit/test_aw_vendor_trust.py's CONTEXTS names, with why. Standard library and
 found.py only; nothing of Ansible is loaded, now or when a machine is read.
@@ -29,7 +34,7 @@ from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING
 
 from claude_vm.fleet import paths
-from claude_vm.guest import bundle, remote
+from claude_vm.guest import bundle, npm, remote
 from claude_vm.ssh import runner
 from claude_vm.status.found import ssh_found
 
@@ -181,4 +186,21 @@ async def read(
         become_exe=become_exe,
     )
     sections = sorted({SECTIONS[part] for part in chosen})
-    return _narrowed(ssh_found(found, settings, name, host, sections, joined_before), chosen)
+    records = _narrowed(ssh_found(found, settings, name, host, sections, joined_before), chosen)
+    claude = settings.get("claude")
+    if records.get("claude") is not None and isinstance(claude, Mapping) and claude.get("method") == "npm":
+        records["claude"] = {**records["claude"], **await _npm_installed(job, target, env, limits)}
+    return records
+
+
+async def _npm_installed(job: Job, target: runner.Target, env: Mapping[str, str], limits: runner.Limits) -> dict:
+    """Claude Code as npm's global list has it, read as the machine's user: whether it is installed, and its
+    version."""
+    result = await runner.run(job, target, list(npm.LIST), b"", limits, dict(env))
+    version = None
+    if isinstance(result, runner.Done) and result.status in npm.LISTED:
+        try:
+            version = npm.version(result.lines)
+        except ValueError:
+            version = None
+    return {"installed": version is not None, "version": version or ""}

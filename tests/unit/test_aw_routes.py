@@ -661,7 +661,7 @@ def test_the_route_is_this_computer_s_own_for_each_host_and_never_another_s(
 
 
 def test_a_configure_through_a_stand_in_hop_passes_and_with_the_hop_refused_stops_before_the_vm(
-    made_fleet, short, run, made, stand_ins, tmp_path, installed
+    made_fleet, short, run, made, stand_ins, tmp_path
 ):
     if not Path(layer1.PYTHON).is_file():
         pytest.skip(f"this machine has no {layer1.PYTHON}, the machine's interpreter the inventory names")
@@ -1050,9 +1050,9 @@ def test_no_module_of_the_new_engine_but_routes_and_ssh_s_own_makes_or_changes_a
                 taken.add(own)
     assert found == {}, "a machine's Target is routes.py's alone, marked by its connections: take one from targets"
     assert taken == set(OWN_ROADS), set(OWN_ROADS) - taken
-    # The one module that imports by a name at run time loads a verb's handler, which the table of verbs names in cli/
-    # or engine/, never ssh/.
-    assert {verb.handler.split(".")[0] for verb in VERBS.values() if verb.handler} <= {"cli", "engine"}
+    # The one module that imports by a name at run time loads a verb's handler, which the table of verbs names in cli/,
+    # engine/ or runs/ (logs' reader of jobs, C12), never ssh/.
+    assert {verb.handler.split(".")[0] for verb in VERBS.values() if verb.handler} <= {"cli", "engine", "runs"}
 
 
 # A road, planted in a module of engine/, and the road the scan sees it as; then what it does not take for one.

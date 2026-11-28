@@ -42,7 +42,7 @@ from test_aw_layout import _imported, _package
 from claude_vm.fleet import paths
 from claude_vm.runs import job as jobs
 from claude_vm.schema import patterns
-from claude_vm.secret import Secret
+from claude_vm.secret import MARK, Secret
 from claude_vm.text import plain_text
 
 LIB = REPO / "lib"
@@ -568,6 +568,34 @@ def test_a_secret_given_to_emit_raises_and_nothing_is_written_or_heard(made, eve
         made.update(inputs={"token": Secret(SECRET)})
     assert heard == [] and _folder(made) == before
     assert searched_for([SECRET], made.folder) == []
+
+
+# A secret the run opened, and one that holds it: the longer is struck whole.
+OPENED = "opened-secret-4f1c"
+
+
+def test_each_secret_of_the_redaction_list_is_struck_from_an_event_before_the_record_or_a_listener_has_it(made) -> None:
+    heard = []
+    made.listen(heard.append)
+    longer = Secret(f"{OPENED}-and-more")
+    made.redact(Secret(OPENED), longer, longer)
+    assert len(made.redacted) == 2
+    made.emit("waiting", "alpha", f"the token is {OPENED}-and-more", section="claude")
+    made.emit("report", "alpha", "x", said={OPENED: [f"in {OPENED} a list"]})
+    # Split by a control character, which plain text takes out: struck after it too.
+    made.emit("next", "alpha", "x", matter="claude", line=f"run {OPENED[:5]}\x01{OPENED[5:]}")
+    made.emit("end", None, f"ended {OPENED}", outcome="failed", exit=1, why=OPENED)
+    assert all(OPENED not in json.dumps([event.text, event.data]) for event in heard), heard
+    assert heard[0].text == f"the token is {MARK}" and heard[1].data == {"said": {MARK: [f"in {MARK} a list"]}}
+    assert heard[2].data["line"] == f"run {MARK}"
+    assert searched_for([OPENED], made.folder) == []
+
+
+@pytest.mark.parametrize("given", [[OPENED], [Secret(OPENED), OPENED.encode()], [None]])
+def test_the_redaction_list_holds_secrets_alone(made, given) -> None:
+    with pytest.raises(TypeError, match="Secrets alone"):
+        made.redact(*given)
+    assert made.redacted == ()
 
 
 @pytest.mark.parametrize(

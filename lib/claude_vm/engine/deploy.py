@@ -145,7 +145,7 @@ def deploy(run: Any, **values: object) -> int:
         return _refused(f"error: {one_line(str(error), None).removeprefix('error: ')}")
 
     from .. import runs
-    from ..runs import ask, locks
+    from ..runs import ask, locks, textlog
 
     host_name = reached.host.name
     templating = stage == template.STAGE
@@ -217,5 +217,16 @@ def deploy(run: Any, **values: object) -> int:
         values=values,
         lock_machines=[(host_name, name) for name in chosen],
         lock_policy=locks.policy_of(str(settings["run_lock"].value)),
+        logs=textlog.logs(home, run, part=_log_part(values)),
     )
     return runs.run(draft, body)
+
+
+def _log_part(values: Mapping[str, object]) -> str | None:
+    """The part of the run's log's name, as today's justfile names deploy's logs: check for --check, the stage --only
+    names, configure for --tags; none for a whole deploy."""
+    if values.get("check") is True:
+        return "check"
+    if values.get("only"):
+        return str(values["only"])
+    return "configure" if values.get("tags") else None

@@ -189,7 +189,8 @@ classDef rescue stroke:#665352,stroke-width:2px;
 | Add NodeSource repository | `ansible.builtin.deb822_repository` |  |
 | Pin Node.js to NodeSource over the distro package | `ansible.builtin.copy` |  |
 | Install Node.js | `ansible.builtin.apt` |  |
-| Install global npm packages | `community.general.npm` |  |
+| Read the global npm packages | `ansible.builtin.command` | <code>dev_tools_npm_global_packages &#124; length > 0</code> |
+| Install global npm packages | `ansible.builtin.command` |  |
 
 ```mermaid
 flowchart TD
@@ -206,8 +207,9 @@ classDef rescue stroke:#665352,stroke-width:2px;
   Start-->|Task| node___Add_NodeSource_repository0[node   add nodesource repository]:::task
   node___Add_NodeSource_repository0-->|Task| node___Pin_Node_js_to_NodeSource_over_the_distro_package1[node   pin node js to nodesource over the distro<br>package]:::task
   node___Pin_Node_js_to_NodeSource_over_the_distro_package1-->|Task| node___Install_Node_js2[node   install node js]:::task
-  node___Install_Node_js2-->|Task| node___Install_global_npm_packages3[node   install global npm packages]:::task
-  node___Install_global_npm_packages3-->End
+  node___Install_Node_js2-->|Task| node___Read_the_global_npm_packages3[node   read the global npm packages<br>When: **dev tools npm global packages   length   0**]:::task
+  node___Read_the_global_npm_packages3-->|Task| node___Install_global_npm_packages4[node   install global npm packages]:::task
+  node___Install_global_npm_packages4-->End
 ```
 
 ### `rust.yml`
