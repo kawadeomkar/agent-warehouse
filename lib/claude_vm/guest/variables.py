@@ -7,20 +7,27 @@ Ansible's loader reads a file as JSON first, and its decoder (ansible._internal'
 on as text, without the trusted mark, whatever the file's own trust. That decoder is Ansible's internal, so the tests
 (tests/unit/test_aw_variables.py), not its documentation, hold this across releases.
 
-`write(path, document, secrets=...)` writes the file whole with the standard library, at 0600, in the run's directory
-(runs/rundir.py's `path_for`): a file of its own beside the path, then put in its place, never written through a link.
-It refuses, before anything is written:
+`write(path, document, secrets=..., names=...)` writes the file whole with the standard library, at 0600, in the run's
+directory (runs/rundir.py's `path_for`): a file of its own beside the path, then put in its place, never written
+through a link. `names` are the names the play takes, its caller's to give and never left out: for the system play,
+guest/system.py's `NAMES`, guest/wiring.py's one list. It refuses, before anything is written:
 
-- a variable whose name is no role variable's (`NAME`), and above all one that begins `ansible_`: those name the play's
-  connection - `ansible_ssh_common_args`, `ansible_host_key_checking`, `ansible_ssh_executable`, `ansible_user` - and
-  an extra variable outranks the inventory, where the SSH runner's options are (layer1.py);
+- a variable whose name has not the shape a role variable's has (`NAME`), held first, so that no refusal says a name
+  with a control character;
+- a variable whose name begins `ansible_`: those name the play's connection - `ansible_ssh_common_args`,
+  `ansible_host_key_checking`, `ansible_ssh_executable`, `ansible_user` - and an extra variable outranks the inventory,
+  where the SSH runner's options are (layer1.py);
 - a variable named as one of `FIXED`: the inventory's own name of the machine (layer1.py's `NAME_VARIABLE`), Ansible's
   magic variables (`inventory_hostname`, `group_names`, `inventory_file`, ...) and the names ansible-core reserves
   (`get_reserved_names()`: `omit`, a play's and a task's keywords, Jinja's globals such as `lookup` and `range`). An
   extra variable outranks each of them for every task of the play: `omit` set would make every `default(omit)` of the
   roles pass a value, `inventory_hostname` would rename the host, `lookup` would be text no task could call. The list is
   written here, since this module imports no Ansible; tests/unit/test_aw_variables.py holds it to the locked
-  ansible-core's own;
+  ansible-core's own. These three hold whatever `names` lists;
+- a variable that is none of `names`, by its name: an extra variable outranks a play's vars, a task's vars, a set_fact
+  and a register too, so a name of the play's own (the system play's check that the connection is the engine's,
+  `system_not_written`), a register (`configure_base`) or a role's internal (`common_names_1x`, a list of files moved as
+  root) would turn the play's own logic off for every task;
 - a key anywhere that begins `__ansible`, which Ansible's decoder reads as its own (`__ansible_unsafe`,
   `__ansible_vault`, `__ansible_type`): one it cannot read fails the JSON decoding, and Ansible's loader then reads the
   very same text as YAML, where a wrapped string is a plain mapping and its string a template it trusts;
@@ -34,9 +41,10 @@ It refuses, before anything is written:
 - a document that holds a secret the run opened (`secrets`, the Secrets every caller names), anywhere in a name, a
   string or the file's text: no secret is ever in this file, and a refusal never says one back.
 
-`held(path)` holds a file to what `write` makes - JSON, a mapping of role variables' names, every string wrapped and
-nothing above refused, its nesting measured on its text before it is decoded - and layer1.run asks it of the file it is
-given before anything is written or started.
+`held(path, names)` holds a file to what `write` makes - JSON, a mapping of the names the play takes, every string
+wrapped and nothing above refused, its nesting measured on its text before it is decoded - and layer1.run asks it of the
+file it is given, with the names of its own list of the play's (layer1.py's `PLAY_NAMES`), never a caller's, before
+anything is written or started.
 
 Standard library only, and nothing at import but json, math, os, re and tempfile.
 """
@@ -59,7 +67,8 @@ WRAPPER = "__ansible_unsafe"
 RESERVED = "__ansible"
 # What begins the name of a variable that sets the play's connection, its interpreter or its become.
 CONNECTION = "ansible_"
-# A play's variable: a role variable's name, as the roles' argument_specs.yml name them.
+# The shape of a play's variable's name: a role variable's, as the roles' argument_specs.yml name them. A shape alone:
+# the names a play takes are its caller's (`names`).
 NAME = re.compile(r"[a-z][a-z0-9_]*")
 # The names no play's variable takes, but those that begin CONNECTION, which are refused for that: the name the
 # inventory gives the machine a person chose (layer1.py's NAME_VARIABLE, which this module cannot import, since layer1
@@ -263,9 +272,19 @@ def _hold(value: object, depth: int) -> None:
         raise Refused(f"a play's variables hold no {type(value).__name__}")
 
 
-def _names(document: Mapping[str, object]) -> None:
-    """Each variable a role variable's name, none the connection's and none of FIXED: the name is held to NAME before
-    a sentence says it."""
+def _taken(names: object) -> frozenset[str]:
+    """The names a play takes, as its caller gives them: a collection of strings, never one string."""
+    if isinstance(names, (str, bytes)) or not isinstance(names, Iterable):
+        raise Refused("the names a play takes are a collection of names, given beside its variables")
+    found = list(names)
+    if not all(type(name) is str for name in found):
+        raise Refused("the names a play takes are each a string")
+    return frozenset(found)
+
+
+def _names(document: Mapping[str, object], names: frozenset[str]) -> None:
+    """Each variable of a role variable's shape, none the connection's, none of FIXED, and one of the names the play
+    takes: the name is held to NAME before a sentence says it."""
     for name in document:
         if not NAME.fullmatch(name):
             raise Refused(
@@ -280,6 +299,11 @@ def _names(document: Mapping[str, object]) -> None:
             raise Refused(
                 f"{name} is a name Ansible gives the play itself, or the inventory the machine's: a play's variables"
                 f" never hold one, which would outrank it for every task"
+            )
+        if name not in names:
+            raise Refused(
+                f"{name} is no variable of the play's: its variables hold the names it takes alone, since any other"
+                f" would outrank the play's own or its roles' for every task"
             )
 
 
@@ -310,17 +334,19 @@ def _secrets(given: object) -> tuple[Secret, ...]:
     return found
 
 
-def _content(document: Mapping[str, object], *, secrets: Iterable[Secret]) -> str:
+def _content(document: Mapping[str, object], *, secrets: Iterable[Secret], names: Iterable[str]) -> str:
     """The variables file's text for document, every string wrapped, each rule above held. secrets are the Secrets the
-    run opened; a document that holds one anywhere is refused, its name said only where the name itself holds none."""
+    run opened; a document that holds one anywhere is refused, its name said only where the name itself holds none.
+    names are the names the play takes."""
     opened = _secrets(secrets)
+    taken = _taken(names)
     if not isinstance(document, Mapping):
         raise Refused("a play's variables are a mapping of names to values")
     if not all(type(name) is str for name in document):
         raise Refused("a play's variables are named by strings")
     if _holds_a_secret(document, opened):
         raise Refused("a name of the play's variables holds a secret the run opened: no secret is ever in the file")
-    _names(document)
+    _names(document, taken)
     written: dict[str, object] = {}
     for name, value in document.items():
         wrapped = written[name] = wrap(value)
@@ -333,17 +359,19 @@ def _content(document: Mapping[str, object], *, secrets: Iterable[Secret]) -> st
     return made
 
 
-def write(path: str | os.PathLike, document: Mapping[str, object], *, secrets: Iterable[Secret]) -> Path:
-    """document written to path as the play's variables file, every string wrapped and each rule above held, at MODE,
-    whole: a file of its own beside path, then put in its place, so that a link at path is replaced and never written
-    through. path is absolute, its folder the run's directory (rundir.path_for). Everything is held before anything is
-    written."""
+def write(
+    path: str | os.PathLike, document: Mapping[str, object], *, secrets: Iterable[Secret], names: Iterable[str]
+) -> Path:
+    """document written to path as the play's variables file, every string wrapped and each rule above held, its names
+    among names, the names the play takes, at MODE, whole: a file of its own beside path, then put in its place, so that
+    a link at path is replaced and never written through. path is absolute, its folder the run's directory
+    (rundir.path_for). Everything is held before anything is written."""
     if not isinstance(path, (str, os.PathLike)) or not Path(path).is_absolute():
         raise Refused("the variables file's path is an absolute one, in the run's directory")
     where = Path(path)
     if not where.parent.is_dir():
         raise Refused(f"the variables file's folder, {where.parent}, is not a folder")
-    content = _content(document, secrets=secrets)
+    content = _content(document, secrets=secrets, names=names)
     descriptor, staged = tempfile.mkstemp(dir=where.parent, prefix=f".{where.name}.", suffix=".writing")
     try:
         os.fchmod(descriptor, MODE)
@@ -389,10 +417,11 @@ def _nesting(content: str) -> None:
             opened -= 1
 
 
-def held(path: str | os.PathLike) -> Path:
-    """path, a variables file held to what `write` makes: JSON, a mapping of role variables' names, none the
-    connection's, every string wrapped, and nothing else `write` refuses. Refused, before any child reads it, with what
-    is wrong and never a value of it."""
+def held(path: str | os.PathLike, names: Iterable[str]) -> Path:
+    """path, a variables file held to what `write` makes: JSON, a mapping of the names the play takes (names), none
+    the connection's, every string wrapped, and nothing else `write` refuses. Refused, before any child reads it, with
+    what is wrong and never a value of it."""
+    taken = _taken(names)
     where = Path(path)
     try:
         content = where.read_text(encoding="utf-8")
@@ -407,7 +436,7 @@ def held(path: str | os.PathLike) -> Path:
         raise Refused(f"the variables file, {where}, is not the JSON a play's variables are written as") from None
     if type(document) is not dict:
         raise Refused(f"the variables file, {where}, holds a mapping of names to values")
-    _names(document)
+    _names(document, taken)
     for value in document.values():
         _hold(value, 1)
     return where

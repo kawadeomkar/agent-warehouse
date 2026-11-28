@@ -149,7 +149,8 @@ command reference and a line that shows a command's form write it: lower case, i
 Today's verbs keep today's words and help, with `aw` where a sentence said `just`, but where a later card changed one:
 `mcp` takes the vault's key file as `--vault-key-file`, `init --host` names a host of the fleet alone, held to the
 pattern of a host's name, and `settings`' word may be `edit`, which opens the settings in your editor. Beside the
-table, `EXITS` names the exit status of every verb but `status` (0 done, 1 refused before anything ran, 130 cancelled)
+table, `EXITS` names the exit status of every verb but `status` (0 done, 1 refused before anything ran, 2 a run that
+began and failed, a machine of it or the whole, 130 cancelled)
 and `STATUS_EXITS` those of `status` (today's 0, 1, 2 and 3, and 3 for a read a person cancelled, as today's `status`
 gives it, in its run of one host and of several); within each, no meaning has two numbers and no number two meanings,
 but `status`'s 3, which today means a read that failed and one a person cancelled, and a script may read. A `status`
@@ -559,19 +560,21 @@ across fields, which `Record` holds here and each plain reader's judge holds for
 - Both take the VM as an `Owned` (16.5), which the one check alone makes, and refuse anything else, a target a read gave
   above all, before anything is sent.
 
-No other module of the new engine sends a VM's description to Proxmox. `tests/unit/test_aw_record.py` holds it: every
-field round-trips; a person's lines beside the block are kept byte for byte, today's record lines among them; a block
-of a format this program does not read, and every other it cannot read, is refused and never rewritten; a value with
-any line break, or anything else that is not plain text on one line, is refused; the notes' bound is counted in
-characters; and `tests/unit/test_vm_repos.py`'s cases of a VM's own list are carried. Against the fake Proxmox under
-enforcement: a record written reads back field for field; of two writers the second is refused, reads again and lands
-with the first's change kept, as does a write a person's edit came between; a second write of the same record sends
-nothing; a block the engine cannot read, a copy's record, a record that names another VM's UUID, a VM's record
-rewritten as a build's or a golden's (its first form's rest still written), any record over one of another kind read,
-and notes past the bound send nothing; a record of a template, a golden or a build that names no UUID is refused, made
-or read; and the label is `vm_label`'s value beside a person's tags. A syntax-tree scan holds that no module of the new
-engine names a description to send but this one, the client, its table, its reader of answers, and the template's
-judgement (16.5), which holds no client, each with why.
+No other module of the new engine sends a VM's description to Proxmox, but the base template's first write: its build's
+`qm create` over root SSH (`pve/commands.py`, 16.5), which gives the template the record the build made, naming the UUID
+made for it, before the template exists, so that no client can send it. `tests/unit/test_aw_record.py` holds it: every
+field round-trips; a person's lines beside the block are kept byte for byte, today's record lines among them; a block of
+a format this program does not read, and every other it cannot read, is refused and never rewritten; a value with any
+line break, or anything else that is not plain text on one line, is refused; the notes' bound is counted in characters;
+and `tests/unit/test_vm_repos.py`'s cases of a VM's own list are carried. Against the fake Proxmox under enforcement: a
+record written reads back field for field; of two writers the second is refused, reads again and lands with the first's
+change kept, as does a write a person's edit came between; a second write of the same record sends nothing; a block the
+engine cannot read, a copy's record, a record that names another VM's UUID, a VM's record rewritten as a build's or a
+golden's (its first form's rest still written), any record over one of another kind read, and notes past the bound send
+nothing; a record of a template, a golden or a build that names no UUID is refused, made or read; and the label is
+`vm_label`'s value beside a person's tags. A syntax-tree scan holds that no module of the new engine names a description
+to send but this one, the client, its table, its reader of answers, the template's judgement (16.5), which holds no
+client, and the build's commands, whose `--description` it finds too, each with why.
 
 **The base template: `template.py`.** Every VM is a full clone of the base template, so `deploy`, as its first link,
 asks whether the template is what its settings would build. `compare(client, settings, pool=, host_flag=)` reads it
@@ -595,6 +598,59 @@ said with the `aw init` line that grants the token `VM.Audit` and `VM.Clone` on 
 and cloned from while it stays out of the pool; the judgement, given what `status`'s reads give and the record by the
 plain `parse`, says what `compare` says, a template's record that names no UUID and a copy of another's refused among
 them, and imports nothing of the engine and not the client; and `compare` sends nothing but GETs.
+
+`build(ctx, host, settings)` builds the base template where it is missing or differs, with today's role's steps, over
+root SSH to the host as `routes.host_target` reaches it, holding the host's `template` section exclusively (16.8), so
+that it waits for clones in flight and they for it. The image's checksum is held to its form first: an image with no
+checksum to hold it to, a custom image with the default's, and a signature with no list to sign are refused before
+anything is read. Then it reads, as root, the whole cluster's listing and the configuration of the guest at the
+template's ID (`pve/commands.py`'s `pvesh` reads, which give what the API gives, the configuration's digest and decoded
+notes among it, where `qm config` prints neither), and judges them by `pve/template.py`'s functions, root seeing what
+the token may not: a guest there that is no template of this engine's, outside the pool or on another node is refused as
+`compare` refuses it and never touched; the same template is left as it is, and so is one whose difference
+`proxmox_template_rebuild: false` keeps; a template of the person's own is never built. Then, on this computer, the
+image's SHA-256 from its checksum list, verified by `vendors/downloads.py` (16.7) by Ubuntu's key or the person's own,
+from an unsigned list, or as the checksum gives it. On the host, each step one argument list of `pve/commands.py`'s
+through the SSH runner, nothing on its standard input: the image fetched by the host's `curl` into the engine's own
+image directory (`/var/lib/vz/aw-images`, or `proxmox_template_image_dir`), made 0755 and read by `stat` as it is, never
+through a link, and refused unless it is a directory of the account that builds (root's, by `id -u`) that no other may
+write in, since any account that can would leave a link there for root to write through; under a name of its own,
+anything there cleared first, held by the host's `sha256sum` to the digest verified here and removed, naming both, where
+it differs, then renamed into place by `mv -T`, over a link with the image's name and never into where it leads, and
+left where it is already there with that digest; where the guest agent goes in, the image tool installed by apt where
+`proxmox_template_manage_libguestfs` is on and dpkg's own state of it (`${db:Status-Status}`) says it is not installed,
+one the administrator holds counted as there, and one neither installed nor absent, or whose state could not be read,
+refused, installing nothing; the image's system read with `virt-cat` and one outside the Debian family refused by name,
+and a copy, its name cleared first, customised with `virt-customize`; the template that differs removed only once judged
+again just before it is destroyed, the listing and the configuration read anew: still this engine's template that
+differs, with its record, its name, its node and the pool, under the SMBIOS UUID first judged (`Compared.identity`); one
+taken out of the pool, stripped of its record, renamed or replaced in the minutes the image took is left as it is and
+said with the judgement's sentence; a refusal of Proxmox's for a template a linked clone uses said with
+`proxmox_template_rebuild: false` as the way on; `qm create` with today's settings, the SMBIOS UUID made here, the
+record as its notes and the fleet's pool; the disk imported; the cloud-init drive, the boot order and DHCP, with no
+`ciupgrade`; `qm template`; and the template read back and judged again, which must find it as its settings would build
+it. The customised copy is removed whatever happens. What the build leaves on the host is recorded in `host.yml`'s
+`made` through `fleet/hosts.py`'s one writer as it is made (16.9): each image file it downloaded (`file`), the template
+by its ID, and each package of the image tool this run installed (`package`), none that was there before, so that a
+cleanup removes exactly that.
+
+`tests/unit/test_aw_engine_template.py` holds the build against a stand-in Proxmox host of `tests/unit/aw_machine.py`'s,
+reached as root through the stand-in ssh, whose `qm`, `virt-customize` and `virt-cat` are the role's scenario's fakes
+(`tests/molecule/`), its `pvesh` reading `qm`'s state, its `apt-get` and `dpkg-query` stand-ins of the test's own, and
+the image and its signed checksum list served by `tests/molecule/fake_downloads.py`, the list signed by a key of the
+test's: the first build runs today's steps in their order, its `qm` calls, its customisation and its template's settings
+those of the role's scenario, and records the image file and the template in `made`, the copy and the download's own
+name gone; a link planted at the download's name, at the copy's or at the image's, to a directory, is never written
+through, and the directory a link, writable by another account or another account's stops the build before anything is
+fetched; a second run reads and changes nothing; a list whose signature does not verify, or that names no image, fetches
+nothing on the host; an image whose digest differs is removed and both digests are said; every command is one of
+`pve/commands.py`'s, nothing on its standard input, under the section's lock; a template a linked clone uses is said
+with the way on; a template with no record of the build and a guest outside the pool are never removed, and nor is a
+template that, after it was judged to differ, was taken out of the pool, moved to another, stripped of its record,
+renamed or given another UUID; an image outside the Debian family, a custom image with no checksum of its own and a
+template of the person's own build nothing; and the image tool's packages are recorded only where this run installed
+them: a package held is left as it is, one dpkg says is not installed is installed, and one half configured or whose
+read failed stops the build before apt runs.
 
 **What `init` makes on a host: `access.py`.** One list names every object a first `init` makes on a Proxmox host with
 its administrator's authority, and one check tells what is there of each; the script that makes them is their one
@@ -762,12 +818,15 @@ and a pool or a token Proxmox refuses, are refusals with nothing written; with n
 or a new one gets one. Then each file through its one writer, none of whose locks is held around another's, each only
 where nothing is set: the key (`vaultkey.make_key` at `vault_key_file`'s place), `fleet.json`, the vault
 (`sealed.create`, then the secret as the host's `token`), `host.yml` and its anchor (`hosts.write`), with `made`
-recording by ID the pool, the user and the token the administrator made by hand where the secret was given, the host's
-storage, bridge and pool (`aw-fleet` where none is given or set), the fleet's `github_username` and `vpn`, and
-`client.yml`'s current host. The names written where none is given are the engine's own: the user `agent-warehouse@pve`,
-the token `aw`, the pool `aw-fleet`, and the first host `pve`. A run stopped after any write goes on from what it wrote,
-and the same run again writes nothing. The modes other cards build (`--check`, `--print-commands`, `--machines`) are
-refused by name until each lands.
+recording by ID what the administrator made by hand where the secret was given, the host's storage, bridge and pool
+(`aw-fleet` where none is given or set), the fleet's `github_username` and `vpn`, and `client.yml`'s current host. The
+names written where none is given are the engine's own: the user `agent-warehouse@pve`, the token `aw`, the pool
+`aw-fleet`, and the first host `pve`. `made` records the pool, the user and the token only where each is that default
+(`OWN_NAMES`), never a name the person gave or `host.yml` sets, which may be an object of the person's own that a
+cleanup by `made` would then remove; the run's report names the fleet the pool's mark gives wherever the secret was
+given, though `made` may then record nothing. A run stopped after any write goes on from what it wrote, and the same
+run again writes nothing. The modes other cards build (`--check`, `--print-commands`, `--machines`) are refused by name
+until each lands.
 
 **`init` at a terminal: `attended`.** With standard input a terminal whose foreground the run is, as `runs/ask.py`'s
 `terminal()` decides for each question (16.8), and no `--no-prompt`, the same steps run drawn live (`INIT`, one stage
@@ -928,6 +987,65 @@ a `Target` or changes one's route after it was made, by a scan that reads every 
 any name (an alias, an attribute chain, a bound name, `partial`, `type(target)(...)`, `importlib`), a `replace` of a
 `Target`'s route and the mark, or what it was decided from, set anywhere but `target_for`; a change the scan cannot
 see is the runner's to refuse.
+
+**A VM made: `create.py`, and `deploy`'s handler: `deploy.py`.** `aw deploy --only provision` makes or resumes each VM
+named, the default VM where none is (`vm_default_name`), side by side, under each VM's lock (C7's `machines`); every
+other stage of `deploy`, and `--check`, `--adopt`, `--take-over` and `--remove-key`, is refused naming the card that
+builds it. Before anything is created, the run reads the fleet (`fleet.requested`, a changing read, so a VM it may not
+change refuses the run), settles the route (`routes.settle`, whose hop that cannot be used stops the run), refuses a VM
+with no key in `vm_ssh_public_keys` and no console password in the vault (`vm_password`), and compares the base template
+(`template.compare`): only one it may clone from is cloned from, any other said with why, and none with no cloud-init
+drive, which a VM's user and keys reach it by (its configuration read once, as today's custom template check reads it;
+the comparison does not hold it). Then for each VM, each step an event of the run and each safe to run again:
+
+- **The clone.** Under the short section `nextid-<host>` the next free VMID is asked for and the clone sent onto it,
+  full, onto `proxmox_storage`, into the pool, carrying the record's first form (kind `vm`, stage `cloning`, the run's
+  job); `template-<host>` is held shared until its task ends, so a rebuild waits for it, and `nextid` is let go once
+  the call has answered. A VMID taken - at the call, or in the task by another run's clone that came first - is asked
+  for again, and nothing is deleted there. A clone whose answer was lost is settled by reading that VMID until no
+  clone's lock holds it; where this run's first form landed there, the VM fails, since no task of the run's owns it.
+  A clone joins the pool only once its task ends, so where the token may read no VM outside the pool (`VM.Audit` on
+  `/vms`, `proxmox_audit_scope: pool`) or that VMID's configuration is refused, the VM fails at once, saying to delete
+  the clone where it landed: nothing is cloned again. A clone cannot be undone, so from its send to its record's write
+  the run's shield holds a Ctrl-C off (`Context.shield`), its task followed with no stop; a second Ctrl-C still ends it.
+- **Its record and its label.** The new member is owned by the run's job and its own clone's task (`fleet.owned`), its
+  SMBIOS UUID read (a VM with none fails, saying what to set), its record written - stage `unfinished`, its own list of
+  repositories where `--repos` gives one, the agent's mark where the job's starter is an agent's - and then, in a call
+  of its own, `vm_label`. Its events, named by a stand-in key until then, are joined to its identity.
+- **Needs configuration.** `need_configuration(record, config, force)` decides alone whether the settings call, the
+  start and the record write after it are made: a VM with no cloud-init user, a record still the first form or not
+  `provisioned`, or a repair (`proxmox_vm_force_update`). It reads no ownership. A provisioned VM is otherwise left as
+  it is - a stopped one stays stopped unless `--start` - and a second run sends nothing but reads.
+- **The settings call** (`settings_call`), through the client's `edit_config`, holding the VM's UUID: the cloud-init
+  user, its keys, its network, the nameservers and search domain where set, the start at boot, the guest agent, the
+  cores, the memory and its minimum, `ciupgrade=0` only where `vm_first_boot_upgrade` is false, and `cipassword` only
+  where the vault holds `vm_password`. A repair of a VM created with a size of its own sends no part of it the run
+  does not give. The root disk is grown at the VM's create alone, a create resumed included, and only where it is
+  smaller than asked; a repair of a provisioned VM given a `--disk` larger than its disk is refused, as another size
+  for a VM that exists is.
+- **The start and the address.** The VM is started where it does not run, its task followed; its address is waited
+  for from its guest agent on its own network card, then held against every running member's; then one record write
+  sets `provisioned` and the size the run gave it, its unit in capital (`fleet/overrides.py`'s `capital`, the one
+  reader of a size, the settings' and the options' alike).
+- **The host key.** The VM's `Target` comes from `Route.targets`; for a VM the run created, or one resumed before its
+  first configure, with no key filed under its identity, `Route.first_use` gives the connection of its own that takes
+  the key into a fresh scratch file in the run's directory, tried again with the same `Target` while its `sshd` comes
+  up; the key is read back (`hostkeys.taken`) and filed under the identity (`hostkeys.file`, which refuses a second
+  one), and only then is the machine's master made sure of (`Route.ensure`).
+
+A step that fails fails its VM alone, said; the run then exits 2 (`EXITS`' `failed`). One after the record's write
+leaves the VM a member without `provisioned` that the next run resumes. One before it - a clone whose answer was lost,
+whose follow failed or whose record could not be written - leaves the clone, where it landed, in its first form, which
+no later run may own: each later run is refused, and the refusal (`pve/ownership.py`) says to delete that VMID in
+Proxmox, then run it again. A refusal before anything was created exits 1, and a lock another run holds is refused by
+`cli/main.py` in `runs/locks.py`'s `Held`'s sentence. `tests/unit/test_aw_create.py` holds it on a whole fleet folder
+against the fake, the VMs stand-in machines (16.10): two VMs made in one run, then a second run that sends nothing but
+reads; a VMID taken before the clone landed; a clone whose answer was lost sent once, under either audit scope; a failed
+start resumed, and a running VM resumed never started again; a Ctrl-C during the clone held until its record is written;
+a stopped VM left stopped, and started with `--start`; a size for a VM the run creates, kept on a repair and refused for
+one that exists, a larger disk on a repair too; `--repos` given, added to and refused; and, without the fake, the keys
+of today's settings call, `need_configuration`'s cases and that it reads no ownership, the one size reader, and each
+stage refused by its card.
 
 ## 16.5 `pve/` — the typed Proxmox client and the one table of privileges
 
@@ -1316,6 +1434,19 @@ of `engine/` and not the client.
   (16.4), never on the pool, whose role would reach it. Whether it is a template, and its name, are read from the
   guest's own configuration, never from the listing, which lags what a run just did.
 
+**The base template's commands over root SSH: `commands.py`.** What a build of the base template runs on the host
+(16.4), each an argument list, in plain code that runs nothing: `engine/template.py`'s `build` runs each through the SSH
+runner, which joins its words with `shlex.join`, so the host's shell reads each value as one word, and sends nothing on
+standard input. They are the host's own programs, by name as root's PATH finds them: `pvesh`'s two reads, the cluster's
+listing and a guest's configuration, as JSON as the API gives them; `qm create`, `set`, `template` and `destroy`;
+`curl`, `sha256sum` and coreutils for the image; `virt-cat` and `virt-customize` under libguestfs's own appliance;
+`dpkg-query` and `apt-get`. Every value is held to its form before a list is made, so no setting's word is read as
+another option, a second word or a path outside the one meant: a guest's ID in Proxmox's range, a path absolute and of
+plain parts, none `.` or `..` or beginning with a dash, a node, storage, bridge and pool as `checks.proxmox_name` holds
+them, a package as Debian names one, and a URL one word of http or https. `create`'s notes are the record
+`pve/record.py` renders, the template's first write, made before it exists so that its record names its UUID from the
+start; `test_aw_record.py`'s scan names this module for it.
+
 `status` moves onto the client in its own workstream. `tests/unit/test_aw_pve_reads.py` runs every read against the fake
 Proxmox, which serves a node's certificate from `tests/unit/pki.py` (`harness.fake_fleet`'s `certificate`), with the
 engine's pool and token, granted as `init` grants them and held to the table, so every read is a call the table has a
@@ -1432,7 +1563,10 @@ hop is made by, whose socket's name it shares: a connection to it rides the hop'
 home so long that the hop's socket would pass `route.SOCKET_MOST` it is still made, and each connection to it logs in
 alone (`shared` false, `ControlPath=none`), as a machine's does: the hop's master is opened only by `ensure_hop`, only
 where the settled route goes through the host, and from such a home that route is refused (`LONG_HOP`), so no master
-could have been there to ride. Every line of the runner's carries `ControlMaster=no`, the host's among them.
+could have been there to ride. A `Target` with no identity that carries what only a machine's takes - a known-hosts file
+of the product's, a hop, the person's options, a first use or a route's mark - is refused as it is made and again at
+every line, so a machine's made the host's in place, its identity taken off a copy, reaches nothing. Every line of the
+runner's carries `ControlMaster=no`, the host's among them.
 
 - **A person's own options.** `vm_ssh_options` is a mapping of `ssh`'s option names to values, given as `-o Name=value`
   after the product's options: `ssh` keeps the first value it is given, so a person's option changes whatever the
@@ -2863,7 +2997,18 @@ for one run, never saying the value. `typed(option, text)` holds typed text to t
 to a row. A kind of option no row's type holds (a list of anything but strings, choices of anything but a string) is
 refused as the table is made, before it could be passed through. `tests/unit/test_aw_fleet_passthrough.py` holds it:
 every option a row's, passed through or refused, none left out; each passed through carrying its spec; no secret passed
-through, nor an option that `defaults.yml` or a role's own task file, handler or `vars/main.yml` sets (a scan of them);
+through, nor an option that `defaults.yml`, a role or a play sets for itself, by each road a scan reads: of every folder
+under `roles/`, with an `argument_specs.yml` or none, its task files and handlers, `.yaml` too, and every file of its
+`vars/` folder, and of every play, its tasks and keywords, that reads a `set_fact` by any of its names, given its names
+directly (a templated name as every name it can make), through `action:` or `local_action:` (text split at its first
+whitespace of any kind, or a mapping's `module` split the same way, beside the rest of the mapping and its own `args:`),
+`args:` or a `module_defaults` (on the play, a role entry, a block or a task), a `register`, a `vars:`, a play's
+`vars_files` and `vars_prompt`, and a role entry's parameters; and that finds no road whose names it cannot read - an
+`include_vars`, a template in their place, a free-form name of no variable's shape - no `include_tasks`, `import_tasks`,
+`import_playbook`, `include_role` or `import_role` of a file or a role it does not read (outside a role's `tasks/`,
+`handlers/` or `vars/` and the plays, a hidden file or one of another suffix, a role outside `roles/`), no role's
+`dependencies`, and no `module_defaults` group that holds a `set_fact` (a loop's variable, which outranks an extra
+variable, is not read);
 each refusal's reason; a value held to its spec typed and in a file; each `text` read back whole from the fleet's file,
 the vendored key among them, a control character but the line's end and an expression refused by its line, and neither
 typed; and, against today's `tools/settings` run
@@ -3214,8 +3359,9 @@ read as the host's own variables are, so that an extra variable, a variables fil
 vars plugin that would loosen the host key's checking or replace the program fails it by name before anything
 connects; the play's own vars and its roles' are none of those, and the ratchet holds every file the play reaches to
 setting no `ansible_` variable. `system.variables(path, document, secrets=...)` writes the play's variables through
-`variables.write` alone, after refusing by its name a setting the engine cannot serve yet: `common_user_passwordless_sudo`
-other than true, which needs a become password that no play is handed before F24.
+`variables.write` alone, given `system.NAMES` (guest/wiring.py's `NAMES`) as the names the play takes, after refusing by
+its name a setting the engine cannot serve yet: `common_user_passwordless_sudo` other than true, which needs a become
+password that no play is handed before F24.
 
 Layer 1 is held to state modules, and reaches nothing of this computer: `tests/unit/test_aw_layer1_ratchet.py` holds
 what the play reaches through a walk of its own that reads what Ansible reads. It follows the play's pre-tasks, tasks,
@@ -3271,7 +3417,8 @@ is in it; and with the checkout's real folder the play starts.
 
 **A play's variables.** ansible-core loads an extra-variables file as a trusted source, so a string in it that holds
 `{{`, `{%` or `{#` would be rendered as a template: a setting would be code. `lib/claude_vm/guest/variables.py`'s
-`write(path, document, secrets=...)` writes the play's variables as one JSON file, `vars.json` in the run's directory,
+`write(path, document, secrets=..., names=...)` writes the play's variables as one JSON file, `vars.json` in the run's
+directory,
 in which every string is `{"__ansible_unsafe": <the string>}` (`wrap`): Ansible's loader reads the file as JSON first,
 and its decoder hands such a string on as text, without the trusted mark. The standard library writes it, at 0600,
 whole, beside the path and then put in its place, never through a link. Nothing is written where a variable's name is
@@ -3285,11 +3432,25 @@ roles pass one, the keywords of a play, a block and a task, and the templates' g
 where a key anywhere begins `__ansible`, which the decoder reads as its own, or anything else would fail Ansible's JSON decoding (an integer past 64 bits, a float that is not finite, a
 nesting past 32 levels), since its loader then reads the very same text as YAML, where a wrapped string is a plain
 mapping and its string a trusted template; where a string is no text UTF-8 holds, which fails the YAML too; where a
-value is of a type no variable holds, a `Secret` above all; or where the document holds a secret the run opened, in a
-name, a string or the file's text, which the refusal never says back: no secret is ever in this file. `layer1.run` holds
-the file it is given to the same rules (`held`) before anything is written or started. The decoder is under
-`ansible._internal`, so the tests, not Ansible's documentation, hold this across releases:
-`tests/unit/test_aw_variables.py` holds `FIXED` equal to what a child of the locked ansible-core gives a host, a play
+value is of a type no variable holds, a `Secret` above all; where the document holds a secret the run opened, in a
+name, a string or the file's text, which the refusal never says back: no secret is ever in this file; or, those first,
+whatever it lists, where a variable is none of `names`, the names the play takes, which its caller gives and never leaves
+out. An extra variable outranks a play's vars, a task's vars, a `set_fact` and a `register` too, so a name of the play's
+own logic would turn it off for every task: the system play's check that the connection is the engine's
+(`system_not_written`, `system_connection_variables`), a register of its opening tasks (`configure_base`), a role's
+internal or register (`common_names_1x`, a list of files moved as root; `common_sshd_hardening`;
+`common_user_password_salt`), a loop's `item`. For the system play the names are `guest/wiring.py`'s `NAMES`, the one
+list, made from its `PLAY`, `TABLE` and `INTERNALS` and written once, which `guest/system.py` names beside the play
+(`system.NAMES`); a later variable of the play is added there. `layer1.run` holds the file it is given to the same rules
+(`held(path, names)`) and to the names of its own list of each play's (`PLAY_NAMES`, the system play to `system.NAMES`),
+never a caller's: it takes no names, so a caller cannot widen the list by handing the file's own names or the play's
+with more, and a variables file beside a play it lists none for is refused, a copy of the system play elsewhere among
+them, before anything is written or started. The decoder is under `ansible._internal`, so the tests, not Ansible's
+documentation, hold this across releases:
+`tests/unit/test_aw_variables.py` holds each rule, a name outside `names` among them, by `write`, by `held` and by
+`layer1.run`, and `tests/unit/test_aw_layer1_play.py` each name above refused by `system.variables` and by layer 1's hold
+beside the system play, and a caller's own list refused (the file's names, a set made from them, `NAMES` and two
+more); `test_aw_variables.py` holds `FIXED` equal to what a child of the locked ansible-core gives a host, a play
 and a role's task beside an inventory's and a play's own, and its reserved names; it loads a written file through
 Ansible's own loader, in a Python of its own, and finds no string trusted (the same document unwrapped, every string trusted), and through a real child on a stand-in machine a
 wrapped `{{ 7 * 7 }}` reaches a task as that text, an unwrapped one is templated, with the untrusted-template switch at
@@ -3317,13 +3478,18 @@ passwordless sudo off, which `system.variables` refuses until F24 hands the pass
 file on a pipe, so no secret is ever in the file. A name of the settings that is a variable made here and no row of its
 own name - `common_user`, `common_hostname`, `common_user_password` - is refused by name, as `--set` and the fleet's
 file refuse `common_user_password` as the vault's; so are a part that is none of the play's, a target that is no VM name
-and a profile's name that is no setting or option of the table. Every value is a copy.
-`tests/unit/test_aw_guest_wiring.py` holds the table to the roles' specs, every variable in it or among the internals
-once; each setting to the row today's wiring reaches the variable from, both ways; each option to `passthrough.py`'s,
-both ways; and the output, for the registry's defaults and three sets of overrides (the rows the play reads, every
-option of its roles, values given for one run), equal variable by variable to what a child of the locked ansible-core
-gives the same roles, with a machine's facts set, from today's example inventory with the same values in `local.yml`,
-against the one host's inventory layer 1 writes and the file the play's own writer made, loaded as extra variables. The
+and a profile's name that is no setting or option of the table. Every value is a copy. `NAMES` is every name of `PLAY`,
+`TABLE` and `INTERNALS`, the names the play's variables may hold, and with every option set the function makes each of
+them. `tests/unit/test_aw_guest_wiring.py` holds the table to the roles' specs, every variable in it or among the
+internals once; each setting to the row today's wiring reaches the variable from, both ways; each option to
+`passthrough.py`'s, both ways; `NAMES` to the table, every name the function makes among them and taken by the writer
+and by layer 1's hold, with layer 1's own list; and the output, for the registry's defaults and four sets of overrides
+(the rows the play reads, twice, with their switches set apart; every option of its roles; values given for one run),
+equal variable by variable, in type and value (`true` is not `1`), to what a child of the locked ansible-core gives the
+same roles, with a machine's facts set, from today's example inventory with the same values in `local.yml`, against the
+one host's inventory layer 1 writes and the file the play's own writer made, loaded as extra variables. No two rows the
+play reads carry one value in every case, which the test holds too, so a row read in another's place is a difference.
+The
 `system` scenario converges its container from `role_variables` alone, its settings written into a fleet home of its own
 and given with `--set`, with no `group_vars` or `host_vars` beside the play or the inventory.
 

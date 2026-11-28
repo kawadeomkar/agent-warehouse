@@ -417,6 +417,14 @@ def test_host_yml_holds_no_field_of_one_computer_s(home) -> None:
         ("made", [{"what": "pool", "id": "x", "by": "engine", ODD: 1}], "made takes a list of what was made"),
         ("made", [{"what": "pool", "id": "", "by": "engine"}], "made takes a list of what was made"),
         ("made", {"what": "pool"}, "made takes a list of what was made"),
+        # What a build of the base template makes, each by the form a cleanup removes it by (card E12).
+        ("made", [{"what": "template", "id": ODD, "by": "engine"}], "a template's id is a guest's ID"),
+        ("made", [{"what": "template", "id": 99, "by": "engine"}], "a template's id is a guest's ID"),
+        ("made", [{"what": "file", "id": f"images/{ODD}", "by": "engine"}], "a file's an absolute path"),
+        ("made", [{"what": "file", "id": f"/var/../{ODD}", "by": "engine"}], "a file's an absolute path"),
+        ("made", [{"what": "file", "id": f"/var/lib/-{ODD}", "by": "engine"}], "a file's an absolute path"),
+        ("made", [{"what": "package", "id": f"-{ODD}", "by": "engine"}], "a package's a Debian package's name"),
+        ("made", [{"what": "package", "id": f"{ODD} vim", "by": "engine"}], "a package's a Debian package's name"),
         ("ssh_user", None, "ssh_user is empty there: give it a value, or take its line out"),
     ],
 )
@@ -502,6 +510,8 @@ def test_what_was_made_on_a_host_is_read_by_its_id_and_who_made_it(home) -> None
         {"what": "token", "id": "aw@pve!aw", "by": "administrator"},
         {"what": "grant", "id": "/pool/aw-lab AWRole aw@pve!aw", "by": "engine"},
         {"what": "template", "id": 9100, "by": "engine"},
+        {"what": "file", "id": "/var/lib/vz/aw-images/noble-minimal-cloudimg-amd64.img", "by": "engine"},
+        {"what": "package", "id": "libguestfs-tools", "by": "engine"},
     ]
     _host("lab", fields={**_fields(), "made": made})
     found = reach(_layout(), Request()).fields.made
@@ -510,6 +520,8 @@ def test_what_was_made_on_a_host_is_read_by_its_id_and_who_made_it(home) -> None
         ("token", "aw@pve!aw", "administrator"),
         ("grant", "/pool/aw-lab AWRole aw@pve!aw", "engine"),
         ("template", "9100", "engine"),
+        ("file", "/var/lib/vz/aw-images/noble-minimal-cloudimg-amd64.img", "engine"),
+        ("package", "libguestfs-tools", "engine"),
     ]
 
 

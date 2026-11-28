@@ -32,7 +32,9 @@ the folder itself is put in its place. Under the fleet's lock (the verb's row: `
    host's overrides (storage, bridge and pool, the pool's name `aw-fleet` where none is given or set), the fleet's
    (`github_username`, `vpn`), and `client.yml`'s current host where none is set. Each only where nothing is set, so
    the same run again writes nothing. Where the secret was given, `host.yml`'s `made` records by ID what the
-   administrator made by hand from the printed commands: the pool, the user and the token (ruling B1, rule 5).
+   administrator made by hand from the printed commands (ruling B1, rule 5): the pool, the user and the token, each
+   only where its name is the engine's own default (card E19, the owner's answer of 2026-11-23), never a name the
+   person gave or set in host.yml, which may name an object of theirs that a cleanup by `made` would then remove.
 
 The names written where none is given are the engine's own (card E1; ruling B1, rule 1): the user `agent-warehouse@pve`,
 the token `aw` and the pool `aw-fleet`; and the first host is `pve`, as today's. The modes built by other cards are
@@ -110,8 +112,12 @@ FIRST_HOST = "pve"
 # it read, more than a secret is.
 SECRET_VARIABLE = "AGENT_WAREHOUSE_TOKEN_SECRET"
 SECRET_MOST = 4096
-# Who made what init records, where the secret was given: the administrator, by hand, from the printed commands.
+# Who made what init records, where the secret was given: the administrator, by hand, from the printed commands. Only
+# the engine's own default names are recorded so (card E19, the owner's answer of 2026-11-23): the pool, the token's
+# user and the token by its full ID, each where the run's name for it equals OWN_NAMES's, and nothing for a name the
+# person gave or host.yml sets, which may name an object of the person's own.
 BY_HAND = "administrator"
+OWN_NAMES = {"pool": POOL, "user": TOKEN_USER, "token": f"{TOKEN_USER}!{TOKEN_ID}"}
 # The modes of init built by other cards, refused by name until each lands.
 NOT_YET = {"check": "E6", "print_commands": "E7", "machines": "J14"}
 # The settings each host sets for itself that init writes where given or answered, in the order a sentence names them.
@@ -1174,11 +1180,8 @@ async def _the_host(
             if rule is not None:
                 raise Refused(f"{rule.removeprefix('error: ')}; nothing was written")
             fleet_id = found_mark.fleet
-            made = (
-                hosts.Made("pool", pool, BY_HAND),
-                hosts.Made("user", token_user, BY_HAND),
-                hosts.Made("token", full_id, BY_HAND),
-            )
+            names = {"pool": pool, "user": token_user, "token": full_id}
+            made = tuple(hosts.Made(what, name, BY_HAND) for what, name in names.items() if name == OWN_NAMES[what])
         else:
             fleet_id = found.fleet.fleet if found.fleet is not None else record.new_id()
         if asking is not None:
@@ -1391,11 +1394,13 @@ def _report(
     wrote: Sequence[str],
     asking: _Asking | None,
 ) -> list[str]:
-    """What a run says once it has written: the certificate, the fleet, what was written, and what is left."""
+    """What a run says once it has written: the certificate, the fleet, what was written, and what is left. The fleet's
+    line is said wherever the host was settled with a secret given or typed, whose token read the pool's mark: made may
+    record nothing then."""
     name = found.name
     own = {} if found.layers.host is None else found.layers.host.settings
     lines = [] if settled is None else [settled.kept.said]
-    if settled is not None and settled.made:
+    if settled is not None and settled.typed.secret is not None:
         lines.append(f"the fleet {settled.fleet_id}, as the pool's mark names it, which the token given reads")
     lines.append(
         f"wrote {', '.join(wrote)}" if wrote else "nothing to write: the fleet's folder holds every value given already"

@@ -273,7 +273,7 @@ def test_aw_version_names_this_checkout(tmp_path, home) -> None:
     ("words", "said"),
     [
         (("status",), not_built(VERBS["status"])),
-        (("deploy", "alpha"), not_built(VERBS["deploy"])),
+        (("code", "alpha"), not_built(VERBS["code"])),
         (("hunter2",), no_such_command()),
     ],
 )

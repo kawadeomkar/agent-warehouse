@@ -19,7 +19,11 @@ configuration names until F6a, held to requirements.yml's pins first: with none 
 install and nothing starts; held at its pins with no module in it, ansible-core fails as the play loads, on
 ansible.posix.authorized_key (F6's finding (a)), so the play needs what is in it; and with the checkout's real folder
 the play starts. And a setting the engine cannot serve yet is refused by
-name before anything is written: common_user_passwordless_sudo other than true.
+name before anything is written: common_user_passwordless_sudo other than true. The play's variables hold the names it
+takes alone (guest/wiring.py's NAMES): a name of the play's own facts or registers, of a role's registers or internals,
+a loop's variable or a setting's row is refused by name by the play's writer, and by layer 1's hold of a variables file
+given beside the play, which takes the play's names from its own list and never from its caller, before anything is
+written or started; an extra variable would outrank each for every task (review 53's finding 1, review 65's 2).
 """
 
 from __future__ import annotations
@@ -28,6 +32,7 @@ import ast
 import asyncio
 import base64
 import importlib.util
+import inspect
 import json
 import os
 import shutil
@@ -454,5 +459,96 @@ def test_passwordless_sudo_turned_off_is_refused_by_name_before_anything_is_writ
 def test_what_the_engine_serves_is_written_by_the_variables_writer(made, document) -> None:
     path = system.variables(rundir.path_for(made, "vars.json"), document, secrets=())
     assert path == rundir.path_for(made, "vars.json")
-    assert play_variables.held(path) == path
+    assert play_variables.held(path, system.NAMES) == path
     assert json.loads(path.read_text()) == play_variables.wrap(document)
+
+
+# ------------------------------------------------------------------------------- the names the play takes alone ----
+
+# Names of a role variable's shape that the system play's variables never hold, and an extra variable would outrank for
+# every task: the play's own facts and registers (its check that the connection is the engine's, the guest play's
+# base), a role's registers and internals (common's list of files moved as root, its sshd settings, the password's
+# salt), a loop's variable, a setting's row, and a role variable of another play's.
+NOT_TAKEN = [
+    "system_not_written",
+    "system_connection_variables",
+    "configure_base",
+    "configure_no_connection",
+    "common_names_1x",
+    "common_sshd_hardening",
+    "common_user_password_salt",
+    "item",
+    "vm_user",
+    "claude_code_version",
+]
+
+
+def _layer1_holds(job: jobs.Job, alpha: Machine, given: Path) -> layer1.Refused:
+    """What layer 1 says of the variables file given beside the system play, in an environment that names neither
+    HOME nor XDG_DATA_HOME: a file it holds is refused for that, once every check before it has passed, so that
+    nothing is written or started either way."""
+    with pytest.raises(layer1.Refused) as refused:
+        asyncio.run(layer1.run(job, target(alpha), system.PLAY, given, name="alpha", host_flag="", env={}))
+    directory = rundir.made(job)
+    assert directory is not None and list(directory.iterdir()) == [given] * (given.parent == directory)
+    assert children.live(job) == []
+    return refused.value
+
+
+@pytest.mark.parametrize("name", NOT_TAKEN)
+def test_a_name_the_play_does_not_take_is_refused_by_its_writer_and_by_layer_1_s_hold(made, tmp_path, name) -> None:
+    said = f"{name} is no variable of the play's: its variables hold the names it takes alone"
+    assert name not in system.NAMES
+    path = rundir.path_for(made, "vars.json")
+    # The writer's own refusal, which a caller of layer 1 already reads.
+    with pytest.raises(play_variables.Refused) as refused:
+        system.variables(path, {"common_user": "dev", name: True}, secrets=())
+    assert str(refused.value).startswith(said), refused.value
+    assert not path.exists()
+    # A file made by hand, as the writer would have made it but for the name, given beside the play.
+    given = tmp_path / "given.json"
+    given.write_text(json.dumps({"common_user": {"__ansible_unsafe": "dev"}, name: True}))
+    assert str(_layer1_holds(made, _alpha(tmp_path), given)).startswith(said)
+
+
+def test_layer_1_s_hold_takes_what_the_play_s_writer_writes(made, tmp_path) -> None:
+    written = system.variables(rundir.path_for(made, "vars.json"), {"common_user": "dev"}, secrets=())
+    assert str(_layer1_holds(made, _alpha(tmp_path), written)).startswith("the run's environment names neither HOME")
+    assert layer1.PLAY_NAMES == {system.PLAY: system.NAMES}
+
+
+# Lists a caller might hand layer 1 for a file that names two of the play's own (its check's fact, the base's register):
+# the file's own names, a set made from them, and the play's list with the two added (review 65's finding 2).
+GIVEN_NAMES = {
+    "the file's names": lambda document: list(document),
+    "a set made from them": lambda document: set(document),
+    "the play's names and the two": lambda document: system.NAMES | {"system_not_written", "configure_base"},
+}
+
+
+@pytest.mark.parametrize("case", list(GIVEN_NAMES))
+def test_a_caller_s_own_list_of_names_is_refused_and_the_play_s_own_holds_the_file(made, tmp_path, case) -> None:
+    alpha = _alpha(tmp_path)
+    document = {"common_user": "dev", "system_not_written": [], "configure_base": {"stdout": ""}}
+    given = tmp_path / "given.json"
+    given.write_text(json.dumps(play_variables.wrap(document)))
+    # layer1.run takes no list of names at all: a caller's is refused before anything is held, written or started.
+    assert "names" not in inspect.signature(layer1.run).parameters
+    with pytest.raises(TypeError, match="names"):
+        asyncio.run(
+            layer1.run(
+                made,
+                target(alpha),
+                system.PLAY,
+                given,
+                name="alpha",
+                host_flag="",
+                env={},
+                names=GIVEN_NAMES[case](document),
+            )
+        )
+    assert rundir.made(made) is None or list(rundir.made(made).iterdir()) == []
+    assert children.live(made) == []
+    # Without it, the file is held to the play's own list, which takes neither.
+    said = "system_not_written is no variable of the play's: its variables hold the names it takes alone"
+    assert str(_layer1_holds(made, alpha, given)).startswith(said)

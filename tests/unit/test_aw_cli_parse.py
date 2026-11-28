@@ -548,12 +548,12 @@ def test_a_python_that_is_no_virtualenv_s_is_refused_for_every_verb_before_anyth
 
 def test_main_exits_1_on_a_refusal_and_says_the_habit_first(monkeypatch, capsys) -> None:
     monkeypatch.setattr(dispatch, "lacking", lambda: [])
-    assert main([str(REPO / "tools" / "aw"), "deploy", "my_vm"]) == EXITS["refused"] == 1
+    assert main([str(REPO / "tools" / "aw"), "code", "my_vm"]) == EXITS["refused"] == 1
     said = capsys.readouterr()
     assert said.out == ""
     assert said.err.splitlines() == [
         habits.HYPHENATED.format(name="my_vm", changed="my-vm"),
-        dispatch.not_built(VERBS["deploy"]),
+        dispatch.not_built(VERBS["code"]),
     ]
 
 
@@ -569,7 +569,7 @@ REFUSED = [
     ("init", TYPED),
     (TYPED,),
     (f"--attended={TYPED}", "status"),
-    ("deploy", "--cores", "8", "alpha"),
+    ("code", "alpha"),
     ("cancel", "0123456789abcdef"),
 ]
 
@@ -586,13 +586,14 @@ def test_tools_aw_and_the_launcher_refuse_in_one_line_that_says_nothing_typed(ho
 def test_the_done_lines_are_said_as_the_card_says(home) -> None:
     # aw on PATH is the launcher, so its sentences name aw, as in this process.
     path = (on_path(home),)
-    built = run_launcher("deploy", "--cores", "8", "alpha", home=home, cwd=REPO, first_on_path=path)
-    assert built.stderr == dispatch.not_built(VERBS["deploy"]) + "\n" and "(card G3 builds it)" in built.stderr
+    built = run_launcher("code", "alpha", home=home, cwd=REPO, first_on_path=path)
+    card = VERBS["code"].card
+    assert built.stderr == dispatch.not_built(VERBS["code"]) + "\n" and f"(card {card} builds it)" in built.stderr
     core = run_launcher("deploy", "--core", "8", home=home, cwd=REPO, first_on_path=path)
     assert (core.returncode, core.stderr) == (1, checks.no_option("deploy", "--core") + "\n")
 
 
-@pytest.mark.parametrize("words", [("deploy", "--core", "8"), ("deploy", "alpha"), (TYPED,), ("deploy", BAD)])
+@pytest.mark.parametrize("words", [("deploy", "--core", "8"), ("code", "alpha"), (TYPED,), ("deploy", BAD)])
 def test_a_refusal_imports_no_ansible_and_no_module_of_the_engine(home, words) -> None:
     loaded = imports_of(*words, home=home)
     assert "claude_vm.cli.parse" in loaded

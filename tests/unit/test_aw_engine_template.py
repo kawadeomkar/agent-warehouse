@@ -25,35 +25,76 @@ Under pool an ID outside the pool reads unseen, never missing. A template of the
 proxmox_template_custom names, is only read and held to what a clone needs.
 
 The invariant with a test of its own: compare sends nothing but GETs.
+
+build builds the base template over root SSH (card E12) on a stand-in Proxmox host of tests/unit/aw_machine.py's,
+reached as root through the stand-in ssh: its qm, virt-customize and virt-cat the role's scenario's fakes, its pvesh
+reading qm's state as the API would give it, its dpkg-query and apt-get the test's, its curl, sha256sum and coreutils
+the system's (on macOS, GNU's mv -T and stat --format stand-ins of the test's); the image served by
+tests/molecule/fake_downloads.py over HTTP for the host's curl, and its checksum list and its signature, by a key of the
+test's, by another over TLS for this computer. The first build runs today's steps in their order, as the role's scenario
+(roles/proxmox_template/molecule/default/verify.yml) holds them, and records the image file and the template in
+host.yml's made; a second run reads and changes nothing; a list that does not verify, or names no image, fetches nothing
+on the host; an image whose digest differs is removed and both digests said; each command is pve/commands.py's, nothing
+on its standard input, under the host's template section, with no ciupgrade; only the image tool's packages this run
+installed are recorded, one held is there, and one half configured or unread stops the build; a link at the download's
+name, the copy's or the image's is never written through, and an image directory another account could write in stops
+the build; a difference is rebuilt at the same ID, and kept under proxmox_template_rebuild: false; a template a linked
+clone uses is said with the way on; a template with no record of the build, a guest outside the pool and a template that
+changed after it was judged - out of the pool, its record stripped, renamed, another guest - are never removed; an image
+outside the Debian family, a custom image with no checksum of its own and a template of the person's own build nothing;
+and every value a command takes is held to its form.
 """
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
+import hashlib
+import json
+import os
+import shutil
+import sys
+import urllib.parse
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
 from aw_kit import imports_of
-from fleet_fixture import pinned
-from harness import ENGINE_POOL, _pve, _pve_requests, engine_grant, engine_token, fake_fleet
+from aw_machine import SYSTEM_PATH, Machine, filed, machine, ssh_stand_in, target
+from fleet_fixture import pinned, with_port
+from harness import (
+    ENGINE_POOL,
+    FAKES,
+    _executable,
+    _pve,
+    _pve_requests,
+    _start,
+    engine_grant,
+    engine_token,
+    fake_fleet,
+)
 from pki import proxmox_pki
+from signing import Signer
 
 from claude_vm import proxmox
 from claude_vm.engine import template
 from claude_vm.engine.record import Record
-from claude_vm.fleet import overrides, paths
-from claude_vm.pve import pin
+from claude_vm.fleet import hosts, overrides, paths
+from claude_vm.pve import commands, pin
 from claude_vm.pve import record as block
 from claude_vm.pve import template as judging
 from claude_vm.pve.client import Proxmox, Token
+from claude_vm.runs import job as jobs
+from claude_vm.runs import locks
 from claude_vm.schema.words import Line
 from claude_vm.secret import Secret
+from claude_vm.ssh import runner
 
 REPO = Path(__file__).resolve().parents[2]
-# The module's certificate authority, which signs the fake's certificate: cheap enough to make again on each worker
-# (tests/unit/conftest.py).
-EACH_WORKER = {"pki"}
+# The module's certificate authority, which signs the fake's certificate, and the image vendor's key of the build's
+# tests: cheap enough to make again on each worker (tests/unit/conftest.py).
+EACH_WORKER = {"pki", "signer"}
 # The fake's template (tests/molecule/fake_pve_api.py's VMS), as the settings' defaults name it.
 TEMPLATE = 9000
 NAME = "ubuntu-24.04-cloudinit"
@@ -639,3 +680,900 @@ def test_compare_is_given_the_pool_and_the_host_s_flag(fleet, home, pool, host_f
     with Proxmox(fleet.base, pin.kept(fleet.pki["ca"]), fleet.token) as client, pytest.raises((TypeError, ValueError)):
         template.compare(client, _settings(), pool=pool, host_flag=host_flag)
     assert fleet.sent() == []
+
+
+# ---------------------------------------------------------------------------------- the build over root SSH ----
+
+# The image the lab's mirror serves, and the name its URL and the checksum list give it.
+IMAGE_FILE = "noble-minimal-cloudimg-amd64.img"
+IMAGE_BYTES = b"a cloud image, as the test stands in for one\n"
+IMAGE_SHA = hashlib.sha256(IMAGE_BYTES).hexdigest()
+# Where the vendor's server keeps the checksum list and its signature, as Ubuntu lays them out.
+LISTED_AT = "ubuntu/minimal/releases/noble/release"
+FAKE_DOWNLOADS = FAKES / "fake_downloads.py"
+# The host's programs a build runs, by name: nothing else, and no shell or interpreter given a script.
+HOST_PROGRAMS = {
+    "pvesh",
+    "qm",
+    "mkdir",
+    "id",
+    "stat",
+    "sha256sum",
+    "curl",
+    "mv",
+    "rm",
+    "cp",
+    "virt-cat",
+    "virt-customize",
+    "dpkg-query",
+    "apt-get",
+}
+
+# The host's pvesh, as root reads with it: the cluster's listing and a guest's configuration, as JSON, from fake_qm.sh's
+# state - each guest's configuration, its pool and its node (pve unless a file says another) - and any other guests a
+# test lists in guests.json; a configuration with its digest and its notes decoded, as the API gives them. Every call
+# is a JSON line of pvesh.log.
+PVESH = r"""
+import hashlib
+import json
+import os
+import re
+import sys
+import urllib.parse
+
+STATE = sys.argv[1]
+ARGS = sys.argv[2:]
+with open(os.path.join(STATE, "pvesh.log"), "a", encoding="utf-8") as log:
+    log.write(json.dumps(ARGS) + "\n")
+
+
+def kept(name, default=""):
+    path = os.path.join(STATE, name)
+    if not os.path.exists(path):
+        return default
+    with open(path, encoding="utf-8") as handle:
+        return handle.read().strip()
+
+
+def configuration(guest):
+    with open(os.path.join(STATE, f"{guest}.conf"), "rb") as handle:
+        data = handle.read()
+    values = {}
+    for line in data.decode("utf-8").splitlines():
+        key, _, value = line.partition(": ")
+        values[key] = urllib.parse.unquote(value) if key == "description" else value
+    if "template" in values:
+        values["template"] = int(values["template"])
+    return values, hashlib.sha1(data).hexdigest()
+
+
+if ARGS == ["get", "/cluster/resources", "--type", "vm", "--output-format", "json"]:
+    listing = json.loads(kept("guests.json", "[]"))
+    for name in sorted(os.listdir(STATE)):
+        found = re.fullmatch(r"([0-9]+)[.]conf", name)
+        if found is None:
+            continue
+        guest = int(found.group(1))
+        values, _ = configuration(guest)
+        entry = {
+            "id": f"qemu/{guest}",
+            "type": "qemu",
+            "vmid": guest,
+            "node": kept(f"{guest}.node", "pve"),
+            "name": values.get("name", ""),
+            "status": "stopped",
+            "template": values.get("template", 0),
+        }
+        if kept(f"{guest}.pool"):
+            entry["pool"] = kept(f"{guest}.pool")
+        listing.append(entry)
+    print(json.dumps(listing))
+    sys.exit(0)
+asked = re.fullmatch(r"/nodes/([a-z0-9-]+)/qemu/([0-9]+)/config", ARGS[1]) if len(ARGS) == 4 else None
+if asked is not None and ARGS[0] == "get" and ARGS[2:] == ["--output-format", "json"]:
+    if not os.path.exists(os.path.join(STATE, f"{asked.group(2)}.conf")):
+        where = f"nodes/{asked.group(1)}/qemu-server/{asked.group(2)}.conf"
+        sys.stderr.write(f"Configuration file '{where}' does not exist\n")
+        sys.exit(2)
+    values, digest = configuration(int(asked.group(2)))
+    print(json.dumps({**values, "digest": digest}))
+    sys.exit(0)
+sys.stderr.write("stand-in pvesh: a read it does not answer\n")
+sys.exit(2)
+"""
+
+
+# GNU's `mv -fT <from> <to>` and `stat --format=<format> <path>`, as the build runs them, where the system's are BSD's
+# (macOS): the rename over whatever has the name, never into a directory, and what the name itself is, never through a
+# link; anything else they are asked is refused.
+GNU = r"""
+import os, stat, sys
+
+program, words = sys.argv[1], sys.argv[2:]
+if program == "mv" and len(words) == 3 and words[0] == "-fT":
+    try:
+        os.replace(words[1], words[2])
+    except OSError as error:
+        sys.exit(f"mv: {error}")
+elif program == "stat" and len(words) == 2 and words[0].startswith("--format="):
+    try:
+        found = os.lstat(words[1])
+    except OSError as error:
+        sys.exit(f"stat: {error}")
+    kinds = {stat.S_IFDIR: "directory", stat.S_IFLNK: "symbolic link", stat.S_IFREG: "regular file"}
+    kind = kinds.get(stat.S_IFMT(found.st_mode), "weird file")
+    mode = format(stat.S_IMODE(found.st_mode), "o")
+    print(words[0].removeprefix("--format=").replace("%u", str(found.st_uid)).replace("%a", mode).replace("%F", kind))
+else:
+    sys.exit(f"stand-in {program}: words it does not answer: {words}")
+"""
+
+
+def _dpkg_query(root: Path) -> str:
+    """The host's dpkg-query for one package, as dpkg answers --show in the format asked, ${Status} as its three words
+    and ${db:Status-Status} as the last: a package in root/installed is wanted and installed; one root/dpkg names, a
+    line `<package> <want> <state>`, as that line says, where a state of `exit-<n>` ends the read with that status; any
+    other none found."""
+    return f"""#!/bin/sh
+format=$2
+for package in "$@"; do :; done
+line=
+if grep -qxF -e "$package" "{root / "installed"}"; then
+  line="install installed"
+elif [ -f "{root / "dpkg"}" ]; then
+  line=$(awk -v p="$package" '$1 == p {{ print $2, $3 }}' "{root / "dpkg"}")
+fi
+if [ -z "$line" ]; then
+  echo "dpkg-query: no packages found matching $package" >&2
+  exit 1
+fi
+want=${{line% *}}
+state=${{line#* }}
+case "$state" in exit-*) echo "dpkg-query: the status database could not be read" >&2; exit "${{state#exit-}}" ;; esac
+case "$format" in
+  *'${{db:Status-Status}}'*) printf '%s\\n' "$state" ;;
+  *'${{Status}}'*) printf '%s ok %s\\n' "$want" "$state" ;;
+  *) echo "stand-in dpkg-query: a format it does not answer" >&2; exit 2 ;;
+esac
+"""
+
+
+def _apt_get(root: Path) -> str:
+    """The host's apt-get: each call a line of apt.log, and each package install names installed, as dpkg then says."""
+    return f"""#!/bin/sh
+printf '%s\\n' "$*" >> "{root / "apt.log"}"
+if [ "$1" = install ]; then
+  shift
+  for package in "$@"; do
+    case "$package" in -*) ;; *) printf '%s\\n' "$package" >> "{root / "installed"}" ;; esac
+  done
+fi
+exit 0
+"""
+
+
+def _stand_ins(host: Machine, root: Path) -> None:
+    """The Proxmox host's programs a build runs, in its bin/: qm, virt-customize and virt-cat the role's scenario's
+    fakes (tests/molecule/), each given files of the test's own under root; pvesh, dpkg-query and apt-get the test's.
+    curl, sha256sum, coreutils and env are the system's, sha256sum through shasum where the system has none."""
+    qm = root / "qm"
+    qm.mkdir(parents=True)
+    (root / "installed").write_text("")
+    (root / "pvesh.py").write_text(PVESH)
+    tools = {
+        "qm": f'#!/bin/sh\nFAKE_QM_STATE="{qm}" exec bash "{FAKES / "fake_qm.sh"}" "$@"\n',
+        "virt-customize": (
+            f'#!/bin/sh\nFAKE_VIRT_CUSTOMIZE_LOG="{root / "customize.log"}" '
+            f'exec sh "{FAKES / "fake_virt_customize.sh"}" "$@"\n'
+        ),
+        "virt-cat": (
+            f'#!/bin/sh\nFAKE_VIRT_CAT_OS_RELEASE="{root / "os-release"}" exec sh "{FAKES / "fake_virt_cat.sh"}" "$@"\n'
+        ),
+        "pvesh": f'#!/bin/sh\nexec "{sys.executable}" -I "{root / "pvesh.py"}" "{qm}" "$@"\n',
+        "dpkg-query": _dpkg_query(root),
+        "apt-get": _apt_get(root),
+    }
+    if shutil.which("sha256sum", path=os.pathsep.join(SYSTEM_PATH)) is None:
+        tools["sha256sum"] = '#!/bin/sh\nexec shasum -a 256 "$@"\n'
+    if sys.platform == "darwin":
+        # BSD's mv has no -T and its stat no --format: GNU's, as a Proxmox host has them, for the build's own words.
+        (root / "gnu.py").write_text(GNU)
+        for name in ("mv", "stat"):
+            tools[name] = f'#!/bin/sh\nexec "{sys.executable}" -I "{root / "gnu.py"}" {name} "$@"\n'
+    # The machine's dpkg-query is a link to the stand-in every machine shares: taken out, never written through.
+    (host.bin / "dpkg-query").unlink()
+    for name, text in tools.items():
+        _executable(host.bin / name, text)
+
+
+@pytest.fixture(scope="module")
+def signer() -> Signer:
+    """The image's vendor's key, as the test stands in for it."""
+    return Signer()
+
+
+@dataclasses.dataclass
+class Lab:
+    """A Proxmox host, a stand-in machine of tests/unit/aw_machine.py's reached as root, whose programs are _stand_ins'
+    over the files in root; the mirror the image is fetched from by the host's curl, over plain HTTP; the vendor's
+    server, over TLS, that serves the checksum list and its signature by signer; the host lab's host.yml, which made
+    is recorded in; and the run's job."""
+
+    host: Machine
+    root: Path
+    mirror: str
+    vendor: str
+    signer: Signer
+    ca: Path
+    job: jobs.Job
+
+    @property
+    def images(self) -> Path:
+        return self.root / "images"
+
+    @property
+    def qm(self) -> Path:
+        return self.root / "qm"
+
+    def serve(self, data: bytes = IMAGE_BYTES) -> None:
+        where = self.root / "mirror" / "images" / IMAGE_FILE
+        where.parent.mkdir(parents=True, exist_ok=True)
+        where.write_bytes(data)
+
+    def sums(self, listing: bytes | None = None, *, signed: bytes | None = None) -> None:
+        """The checksum list, the image's line among others, and its signature of signed (the list unless given)."""
+        body = listing
+        if body is None:
+            body = f"{'0' * 64} *{IMAGE_FILE}.manifest\n{IMAGE_SHA} *{IMAGE_FILE}\n".encode()
+        folder = self.root / "vendor" / LISTED_AT
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "SHA256SUMS").write_bytes(body)
+        (folder / "SHA256SUMS.gpg").write_text(self.signer.sign(body if signed is None else signed))
+
+    def settings(self, **changes: object) -> dict[str, object]:
+        """The run's settings: the image the mirror serves, held to the vendor's list signed by the test's key, kept
+        in images, with the vendor's CA trusted and no proxy; the image tool left as the host has it, unless changes
+        say."""
+        listed = f"{self.vendor}/{LISTED_AT}/SHA256SUMS"
+        wired = {
+            "proxmox_template_image_url": f"{self.mirror}/images/{IMAGE_FILE}",
+            "proxmox_template_image_checksum": f"sha256:{listed}",
+            "proxmox_template_image_signature": f"{listed}.gpg",
+            "proxmox_template_image_key": self.signer.public(),
+            "proxmox_template_image_fingerprint": self.signer.fingerprint,
+            "proxmox_template_image_dir": str(self.images),
+            "proxmox_template_manage_libguestfs": False,
+            "tls_ca_file": str(self.ca),
+            "network_proxy": "none",
+        }
+        return _settings(**{**wired, **changes})
+
+    def build(self, settings: dict[str, object] | None = None) -> template.Compared:
+        ctx = SimpleNamespace(job=self.job, emit=self.job.emit, cancelled=asyncio.Event())
+        host = SimpleNamespace(
+            name="lab",
+            pool=ENGINE_POOL,
+            host_flag="",
+            layout=hosts.Layout(paths.home(REPO)),
+            environ=dict(os.environ),
+        )
+        given = self.settings() if settings is None else settings
+        return asyncio.run(template.build(ctx, host, given, target=target(self.host)))  # type: ignore[arg-type]
+
+    def qm_calls(self) -> list[list[str]]:
+        """Every qm call, its words as fake_qm.sh logs them, quoted as bash's %q quotes them."""
+        log = self.qm / "calls.log"
+        return [line.split() for line in log.read_text().splitlines()] if log.exists() else []
+
+    def conf(self, guest: int = TEMPLATE) -> list[str]:
+        path = self.qm / f"{guest}.conf"
+        return path.read_text().splitlines() if path.exists() else []
+
+    def identity(self, guest: int = TEMPLATE) -> str:
+        return next(line.split("uuid=", 1)[1] for line in self.conf(guest) if line.startswith("smbios1: "))
+
+    def record(self, guest: int = TEMPLATE) -> dict:
+        notes = next(line.split(": ", 1)[1] for line in self.conf(guest) if line.startswith("description: "))
+        return block.parse(urllib.parse.unquote(notes))
+
+    def customised(self) -> list[str]:
+        log = self.root / "customize.log"
+        return log.read_text().splitlines() if log.exists() else []
+
+    def apt(self) -> list[str]:
+        log = self.root / "apt.log"
+        return log.read_text().splitlines() if log.exists() else []
+
+    def fetched(self) -> list[str]:
+        """Every path the mirror was asked for: the host's curl's."""
+        log = self.root / "mirror" / "requests"
+        return log.read_text().splitlines() if log.exists() else []
+
+    def asked(self) -> list[str]:
+        """Every path the vendor's server was asked for: this computer's."""
+        log = self.root / "vendor" / "requests"
+        return log.read_text().splitlines() if log.exists() else []
+
+    def reads(self) -> list[list[str]]:
+        log = self.qm / "pvesh.log"
+        return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+
+    def made(self) -> list[tuple[str, str, str]]:
+        found = hosts.Layout(paths.home(REPO)).fields("lab").made
+        return [(one.what, one.id, one.by) for one in found]
+
+    def in_images(self) -> list[str]:
+        return sorted(os.listdir(self.images)) if self.images.exists() else []
+
+
+@pytest.fixture
+def lab(engine_guard, home, tmp_path, pki, signer):
+    machines = tmp_path / "machines"
+    host = machine(machines, "pve", account="root")
+    filed(host)
+    engine_guard.first_on_path(ssh_stand_in(machines, [host]))
+    root = tmp_path / "lab"
+    _stand_ins(host, root)
+    for served in ("mirror", "vendor"):
+        (root / served).mkdir()
+    ca = root / "ca.pem"
+    ca.write_text(pki["ca"])
+    # host.yml of the host lab, which made is recorded in: its API is never asked anything here.
+    with_port(9, "lab")
+    servers = []
+    job = jobs.create(paths.jobs_dir(paths.home(REPO)), "deploy", "deploy", "lab", [], {"kind": "terminal"}, True)
+    try:
+        mirror, mirror_port = _start(FAKE_DOWNLOADS, str(root / "mirror"))
+        servers.append(mirror)
+        vendor, vendor_port = _start(FAKE_DOWNLOADS, str(root / "vendor"), "--tls", str(pki["cert"]), str(pki["key"]))
+        servers.append(vendor)
+        made = Lab(host, root, f"http://127.0.0.1:{mirror_port}", f"https://127.0.0.1:{vendor_port}", signer, ca, job)
+        made.serve()
+        made.sums()
+        yield made
+    finally:
+        jobs.drop(job)
+        for server in servers:
+            server.terminate()
+            server.wait(timeout=10)
+
+
+def _stopped(lab: Lab, settings: dict[str, object] | None = None) -> str:
+    with pytest.raises(template.Refused) as refused:
+        lab.build(settings)
+    return str(refused.value)
+
+
+def test_the_first_build_runs_today_s_steps_in_their_order_and_records_what_it_made(lab) -> None:
+    built = lab.build()
+    identity = lab.identity()
+    assert (built.outcome, built.identity, built.differences) == (template.SAME, identity, ())
+    # The role's scenario's verify: the calls, in their order; the settings the template has; what went into the image.
+    calls = lab.qm_calls()
+    assert [call[:3] for call in calls] == [
+        ["create", str(TEMPLATE), "--name"],
+        ["set", str(TEMPLATE), "--scsi0"],
+        ["set", str(TEMPLATE), "--ide2"],
+        ["template", str(TEMPLATE)],
+    ]
+    copy = lab.images / f"agent-warehouse-{TEMPLATE}.img"
+    settings = lab.settings()
+    storage, bridge = settings["proxmox_storage"], settings["proxmox_bridge"]
+    conf = lab.conf()
+    for line in (
+        f"name: {NAME}",
+        f"net0: virtio,bridge={bridge}",
+        f"scsi0: {storage}:0,import-from={copy},discard=on",
+        f"ide2: {storage}:cloudinit",
+        "boot: order=scsi0",
+        "ipconfig0: ip=dhcp",
+        "agent: enabled=1",
+        "cpu: host",
+        "ostype: l26",
+        "cores: 2",
+        "memory: 2048",
+        "template: 1",
+    ):
+        assert line in conf, (line, conf)
+    assert (lab.qm / f"{TEMPLATE}.pool").read_text().strip() == ENGINE_POOL
+    assert lab.customised() == [f"--add {copy} --install qemu-guest-agent --truncate /etc/machine-id"]
+    # The record names the template's own UUID from its first write, the image's digest and what went into it.
+    assert lab.record() == {
+        "kind": "template",
+        "uuid": identity,
+        "build": str(template.BUILD),
+        "image": IMAGE_SHA,
+        "image_url": f"{lab.mirror}/images/{IMAGE_FILE}",
+        "packages": ("qemu-guest-agent",),
+    }
+    # The list and its signature read here, the image fetched on the host; the copy and the download's name gone.
+    assert lab.asked() == [f"/{LISTED_AT}/SHA256SUMS", f"/{LISTED_AT}/SHA256SUMS.gpg"]
+    assert lab.fetched() == [f"/images/{IMAGE_FILE}"]
+    assert lab.in_images() == [IMAGE_FILE] and (lab.images / IMAGE_FILE).read_bytes() == IMAGE_BYTES
+    assert lab.made() == [("file", str(lab.images / IMAGE_FILE), "engine"), ("template", str(TEMPLATE), "engine")]
+    # The image tool as the host has it: nothing asked of apt.
+    assert lab.apt() == []
+
+
+def test_a_second_run_reads_and_changes_nothing(lab) -> None:
+    lab.build()
+    before = (lab.qm_calls(), lab.conf(), lab.customised(), lab.fetched(), lab.asked(), lab.made(), lab.in_images())
+    reads = len(lab.reads())
+    again = lab.build()
+    assert again.outcome == template.SAME
+    assert (lab.qm_calls(), lab.conf(), lab.customised(), lab.fetched(), lab.asked(), lab.made(), lab.in_images()) == (
+        before
+    )
+    # Two reads of root's, the listing and the template's configuration, and nothing else on the host.
+    assert [read[1] for read in lab.reads()[reads:]] == ["/cluster/resources", f"/nodes/pve/qemu/{TEMPLATE}/config"]
+
+
+@pytest.mark.parametrize(
+    "listing",
+    [
+        pytest.param("tampered", id="a list whose signature does not verify"),
+        pytest.param("unlisted", id="a list that names no image"),
+    ],
+)
+def test_a_list_that_does_not_verify_or_names_no_image_fetches_nothing_on_the_host(lab, listing) -> None:
+    good = f"{IMAGE_SHA} *{IMAGE_FILE}\n".encode()
+    if listing == "tampered":
+        lab.sums(good.replace(IMAGE_SHA[:8].encode(), b"0" * 8), signed=good)
+    else:
+        lab.sums(f"{IMAGE_SHA} *other.img\n".encode())
+    refused = _stopped(lab)
+    assert "The image's SHA-256 was not taken, so nothing was fetched on the host" in refused, refused
+    assert lab.fetched() == [] and lab.qm_calls() == [] and not lab.images.exists() and lab.made() == []
+    # Before anything on the host: the listing alone, which said nothing is at the ID.
+    assert [read[1] for read in lab.reads()] == ["/cluster/resources"]
+
+
+def test_an_image_whose_digest_differs_is_removed_and_both_digests_are_said(lab) -> None:
+    other = IMAGE_BYTES.replace(b"cloud", b"cloud-other")
+    lab.serve(other)
+    refused = _stopped(lab)
+    assert IMAGE_SHA in refused and hashlib.sha256(other).hexdigest() in refused, refused
+    assert "it was removed, and the base template was not built" in refused
+    assert lab.fetched() == [f"/images/{IMAGE_FILE}"]
+    assert lab.in_images() == [] and lab.qm_calls() == [] and lab.customised() == [] and lab.made() == []
+
+
+def test_each_command_is_the_commands_module_s_with_nothing_on_its_standard_input_under_the_section(
+    lab, monkeypatch
+) -> None:
+    seen: list[tuple[list[str], object, list[str]]] = []
+    real = runner.run
+
+    async def recording(job, at, command, stdin, limits, env, *more, **named):
+        seen.append((list(command), stdin, sorted(locks.locks_held().values())))
+        return await real(job, at, command, stdin, limits, env, *more, **named)
+
+    monkeypatch.setattr(runner, "run", recording)
+    lab.build(lab.settings(proxmox_template_manage_libguestfs=True))
+    url, image = f"{lab.mirror}/images/{IMAGE_FILE}", str(lab.images / IMAGE_FILE)
+    copy = str(lab.images / f"agent-warehouse-{TEMPLATE}.img")
+    commands_run = [command for command, _, _ in seen]
+    programs = [next(word for word in command if word != "env" and "=" not in word) for command in commands_run]
+    assert programs == [
+        "pvesh",
+        "mkdir",
+        "id",
+        "stat",
+        "sha256sum",
+        "rm",
+        "curl",
+        "sha256sum",
+        "mv",
+        "dpkg-query",
+        "dpkg-query",
+        "apt-get",
+        "apt-get",
+        "virt-cat",
+        "rm",
+        "cp",
+        "virt-customize",
+        "qm",
+        "qm",
+        "qm",
+        "qm",
+        "rm",
+        "pvesh",
+        "pvesh",
+    ]
+    assert set(programs) <= HOST_PROGRAMS
+    # The directory made and read as it is; the fetch: the host's curl to a name of its own cleared first, the host's
+    # sha256sum, the rename; each the module's own words.
+    assert commands_run[1:9] == [
+        commands.folder(str(lab.images)),
+        commands.account(),
+        commands.kind_of(str(lab.images)),
+        commands.digest_of(image),
+        commands.removed(f"{image}.part"),
+        commands.fetch(url, f"{image}.part"),
+        commands.digest_of(f"{image}.part"),
+        commands.put_in_place(f"{image}.part", image),
+    ]
+    assert commands_run[13:17] == [
+        commands.os_release(image),
+        commands.removed(copy),
+        commands.copied(image, copy),
+        commands.customised(copy, ("qemu-guest-agent",)),
+    ]
+    assert commands_run[21] == commands.removed(copy)
+    # Nothing on any command's standard input, and every one under the host's template section.
+    assert {stdin for _, stdin, _ in seen} == {None}
+    assert all(any("template-lab" in held for held in holding) for _, _, holding in seen), seen
+    # No word ciupgrade: a clone's first boot upgrades by Proxmox's default.
+    assert not any("ciupgrade" in word for command in commands_run for word in command)
+    # The image tool, missing on the host, installed by this run and recorded.
+    assert lab.apt() == ["update", "install --yes libguestfs-tools dhcpcd-base"]
+    assert [entry for entry in lab.made() if entry[0] == "package"] == [
+        ("package", "libguestfs-tools", "engine"),
+        ("package", "dhcpcd-base", "engine"),
+    ]
+
+
+def test_only_the_image_tool_s_packages_this_run_installed_are_recorded(lab) -> None:
+    (lab.root / "installed").write_text("libguestfs-tools\n")
+    lab.build(lab.settings(proxmox_template_manage_libguestfs=True))
+    assert lab.apt() == ["update", "install --yes dhcpcd-base"]
+    assert [entry for entry in lab.made() if entry[0] == "package"] == [("package", "dhcpcd-base", "engine")]
+    # Once both are there, nothing more is installed or recorded.
+    lab.build(lab.settings(proxmox_template_manage_libguestfs=True, proxmox_template_cpu_type="x86-64-v3"))
+    assert lab.apt() == ["update", "install --yes dhcpcd-base"]
+    assert [entry for entry in lab.made() if entry[0] == "package"] == [("package", "dhcpcd-base", "engine")]
+
+
+def _packages(lab: Lab) -> list[tuple[str, str, str]]:
+    return [entry for entry in lab.made() if entry[0] == "package"]
+
+
+def test_a_package_the_administrator_holds_is_there_and_never_installed_again_or_recorded(lab) -> None:
+    # dpkg wants libguestfs-tools held, and it is installed: `hold ok installed`; dhcpcd-base it has never had.
+    (lab.root / "dpkg").write_text("libguestfs-tools hold installed\n")
+    built = lab.build(lab.settings(proxmox_template_manage_libguestfs=True))
+    assert built.outcome == template.SAME
+    assert lab.apt() == ["update", "install --yes dhcpcd-base"]
+    assert _packages(lab) == [("package", "dhcpcd-base", "engine")]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        pytest.param("unknown not-installed", id="not installed"),
+        pytest.param("deinstall config-files", id="removed, its configuration kept"),
+    ],
+)
+def test_a_package_dpkg_says_is_not_installed_is_installed_and_recorded(lab, line) -> None:
+    (lab.root / "dpkg").write_text(f"libguestfs-tools {line}\n")
+    (lab.root / "installed").write_text("dhcpcd-base\n")
+    built = lab.build(lab.settings(proxmox_template_manage_libguestfs=True))
+    assert built.outcome == template.SAME
+    assert lab.apt() == ["update", "install --yes libguestfs-tools"]
+    assert _packages(lab) == [("package", "libguestfs-tools", "engine")]
+
+
+@pytest.mark.parametrize(
+    ("line", "words"),
+    [
+        pytest.param(
+            "install half-configured",
+            'dpkg says libguestfs-tools is "half-configured" on the Proxmox host, neither installed nor absent',
+            id="half configured",
+        ),
+        pytest.param(
+            "install exit-2",
+            "Whether libguestfs-tools is installed could not be read on the Proxmox host: it ended with status 2",
+            id="a read that failed",
+        ),
+        pytest.param(
+            "install exit-255",
+            "Whether libguestfs-tools is installed could not be read on the Proxmox host",
+            id="a read that ended 255",
+        ),
+    ],
+)
+def test_a_package_neither_installed_nor_absent_or_unread_is_refused_and_nothing_installed(lab, line, words) -> None:
+    (lab.root / "dpkg").write_text(f"libguestfs-tools {line}\n")
+    refused = _stopped(lab, lab.settings(proxmox_template_manage_libguestfs=True))
+    assert words in refused and "the base template was not built" in refused, refused
+    assert lab.apt() == [] and _packages(lab) == []
+    assert lab.qm_calls() == [] and lab.customised() == [] and lab.in_images() == [IMAGE_FILE]
+
+
+VICTIM = b"a file of root's outside the image directory\n"
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param(f"{IMAGE_FILE}.part", id="at the download's name"),
+        pytest.param(f"agent-warehouse-{TEMPLATE}.img", id="at the copy's name"),
+    ],
+)
+def test_a_link_planted_at_a_name_the_build_writes_is_never_written_through(lab, name) -> None:
+    victim = lab.root / "victim"
+    victim.write_bytes(VICTIM)
+    lab.images.mkdir(mode=0o755)
+    (lab.images / name).symlink_to(victim)
+    built = lab.build()
+    assert built.outcome == template.SAME
+    assert victim.read_bytes() == VICTIM
+    image = lab.images / IMAGE_FILE
+    assert not image.is_symlink() and image.read_bytes() == IMAGE_BYTES
+    assert lab.in_images() == [IMAGE_FILE]
+    assert lab.made() == [("file", str(image), "engine"), ("template", str(TEMPLATE), "engine")]
+
+
+def test_a_link_at_the_image_s_name_to_a_directory_is_replaced_never_written_into(lab) -> None:
+    elsewhere = lab.root / "elsewhere"
+    elsewhere.mkdir()
+    lab.images.mkdir(mode=0o755)
+    (lab.images / IMAGE_FILE).symlink_to(elsewhere, target_is_directory=True)
+    built = lab.build()
+    assert built.outcome == template.SAME
+    assert sorted(os.listdir(elsewhere)) == []
+    image = lab.images / IMAGE_FILE
+    assert not image.is_symlink() and image.read_bytes() == IMAGE_BYTES
+
+
+def _a_link(lab: Lab) -> None:
+    elsewhere = lab.root / "elsewhere"
+    elsewhere.mkdir()
+    lab.images.symlink_to(elsewhere, target_is_directory=True)
+
+
+def _writable(lab: Lab) -> None:
+    lab.images.mkdir()
+    lab.images.chmod(0o775)
+
+
+def _another_s(lab: Lab) -> None:
+    # The account that builds is another than the one the directory belongs to: the host's id says another number.
+    _executable(lab.host.bin / "id", f"#!/bin/sh\necho {os.getuid() + 1}\n")
+
+
+@pytest.mark.parametrize(
+    ("planted", "words"),
+    [
+        pytest.param(_a_link, "is a symbolic link, not a directory", id="a link"),
+        pytest.param(_writable, "may be written by accounts other than root (mode 775)", id="writable by its group"),
+        pytest.param(_another_s, f"belongs to the account numbered {os.getuid()}, not to root", id="another's"),
+    ],
+)
+def test_an_image_directory_another_account_could_write_in_stops_the_build_before_anything_is_fetched(
+    lab, planted, words
+) -> None:
+    planted(lab)
+    refused = _stopped(lab)
+    assert f"The image directory {lab.images} " in refused and words in refused, refused
+    assert "The base template was not built." in refused
+    assert lab.fetched() == [] and lab.qm_calls() == [] and lab.made() == []
+    assert not (lab.root / "elsewhere").exists() or sorted(os.listdir(lab.root / "elsewhere")) == []
+
+
+def test_a_difference_is_rebuilt_at_the_same_id_with_a_uuid_of_its_own(lab) -> None:
+    lab.build()
+    first = lab.identity()
+    built = lab.build(lab.settings(proxmox_template_cpu_type="x86-64-v3"))
+    assert built.outcome == template.SAME and built.identity == lab.identity() != first
+    assert [call[0] for call in lab.qm_calls()] == ["create", "set", "set", "template", "destroy"] + [
+        "create",
+        "set",
+        "set",
+        "template",
+    ]
+    assert "cpu: x86-64-v3" in lab.conf() and lab.record()["uuid"] == lab.identity()
+    # The image already held to its digest is not fetched again, and the template is recorded once.
+    assert lab.fetched() == [f"/images/{IMAGE_FILE}"]
+    assert lab.made() == [("file", str(lab.images / IMAGE_FILE), "engine"), ("template", str(TEMPLATE), "engine")]
+    assert lab.in_images() == [IMAGE_FILE]
+
+
+def test_a_difference_kept_under_rebuild_false_changes_nothing(lab) -> None:
+    lab.build()
+    calls = lab.qm_calls()
+    kept = lab.build(lab.settings(proxmox_template_cpu_type="x86-64-v3", proxmox_template_rebuild=False))
+    assert kept.outcome == template.DIFFERENT and kept.usable and lab.qm_calls() == calls
+
+
+def test_a_template_a_linked_clone_uses_is_said_with_the_way_on_and_the_copy_removed(lab) -> None:
+    lab.build()
+    conf = lab.conf()
+    (lab.qm / f"{TEMPLATE}.linked").write_text("")
+    refused = _stopped(lab, lab.settings(proxmox_template_cpu_type="x86-64-v3"))
+    assert f"can't remove VM {TEMPLATE}" in refused and "linked clone" in refused, refused
+    assert "set proxmox_template_rebuild to false" in refused
+    assert lab.conf() == conf and lab.qm_calls()[-1][:2] == ["destroy", str(TEMPLATE)]
+    assert lab.in_images() == [IMAGE_FILE]
+
+
+@pytest.mark.parametrize(
+    ("planted", "words"),
+    [
+        pytest.param({"pool": ENGINE_POOL}, "keeps no record of this engine's build", id="no record of the build"),
+        pytest.param({"pool": "someone-else"}, "is no member of the pool", id="a guest outside the pool"),
+    ],
+)
+def test_a_template_with_no_record_or_a_guest_outside_the_pool_is_never_destroyed_or_created(
+    lab, planted, words
+) -> None:
+    # Today's template, finished, as a person's or another program's: no record of this engine's in its notes.
+    lab.qm.joinpath(f"{TEMPLATE}.conf").write_text(
+        f"name: {NAME}\nsmbios1: uuid=9a0e1c2d-3b4f-4a5b-8c6d-7e8f90a1b2c3\ntemplate: 1\n"
+    )
+    lab.qm.joinpath(f"{TEMPLATE}.pool").write_text(planted["pool"] + "\n")
+    refused = _stopped(lab)
+    assert words in refused, refused
+    assert lab.qm_calls() == [] and lab.fetched() == [] and lab.asked() == [] and lab.made() == []
+    assert lab.conf()[0] == f"name: {NAME}"
+
+
+def _out_of_the_pool(lab: Lab) -> None:
+    (lab.qm / f"{TEMPLATE}.pool").unlink()
+
+
+def _in_another_pool(lab: Lab) -> None:
+    (lab.qm / f"{TEMPLATE}.pool").write_text("someone-else\n")
+
+
+def _record_stripped(lab: Lab) -> None:
+    path = lab.qm / f"{TEMPLATE}.conf"
+    path.write_text("".join(line for line in path.read_text().splitlines(True) if not line.startswith("description: ")))
+
+
+def _renamed(lab: Lab) -> None:
+    path = lab.qm / f"{TEMPLATE}.conf"
+    path.write_text(path.read_text().replace(f"name: {NAME}\n", "name: renamed-by-hand\n"))
+
+
+def _another_guest(lab: Lab) -> None:
+    # Another guest at the ID with the template's record copied into its notes: its own SMBIOS UUID, the record's not.
+    path = lab.qm / f"{TEMPLATE}.conf"
+    old = f"smbios1: uuid={lab.identity()}\n"
+    path.write_text(path.read_text().replace(old, "smbios1: uuid=0f0e0d0c-0b0a-4909-8807-060504030201\n"))
+
+
+def _rebuilt_elsewhere(lab: Lab) -> None:
+    # Rebuilt by another run, as differing as before: another UUID, in the configuration and the record alike.
+    path = lab.qm / f"{TEMPLATE}.conf"
+    path.write_text(path.read_text().replace(lab.identity(), "0f0e0d0c-0b0a-4909-8807-060504030201"))
+
+
+@pytest.mark.parametrize(
+    ("change", "words"),
+    [
+        pytest.param(_out_of_the_pool, "is no member of the pool", id="taken out of the pool"),
+        pytest.param(_in_another_pool, "is no member of the pool", id="moved to another pool"),
+        pytest.param(_record_stripped, "keeps no record of this engine's build", id="its record stripped"),
+        pytest.param(_renamed, 'holds a template named "renamed-by-hand"', id="renamed"),
+        pytest.param(_another_guest, "is never rebuilt or cloned", id="another guest, the record copied"),
+        pytest.param(_rebuilt_elsewhere, "differs from its settings: cpu", id="rebuilt under another UUID"),
+    ],
+)
+def test_a_template_that_changed_after_it_was_judged_is_never_destroyed(lab, monkeypatch, change, words) -> None:
+    lab.build()
+    real = template._fetched
+
+    async def changed(*args, **named):
+        await real(*args, **named)
+        # Between the judgement and the removal, in the minutes the image takes: a person's change at the ID.
+        change(lab)
+
+    monkeypatch.setattr(template, "_fetched", changed)
+    refused = _stopped(lab, lab.settings(proxmox_template_cpu_type="x86-64-v3"))
+    assert f"The guest at ID {TEMPLATE} changed after it was judged to differ from its settings" in refused, refused
+    assert words in refused, refused
+    assert "destroy" not in [call[0] for call in lab.qm_calls()] and lab.conf()
+    assert lab.made() == [("file", str(lab.images / IMAGE_FILE), "engine"), ("template", str(TEMPLATE), "engine")]
+    assert lab.in_images() == [IMAGE_FILE]
+
+
+def test_an_image_outside_the_debian_family_is_refused_by_name(lab) -> None:
+    (lab.root / "os-release").write_text('NAME="Fedora Linux"\nID=fedora\n')
+    refused = _stopped(lab)
+    assert "is no Ubuntu or Debian image" in refused and "ID=fedora" in refused, refused
+    assert lab.qm_calls() == [] and lab.customised() == [] and lab.in_images() == [IMAGE_FILE]
+
+
+@pytest.mark.parametrize(
+    ("changes", "words"),
+    [
+        pytest.param(
+            {"proxmox_template_image_checksum": judging.OPTIONS["proxmox_template_image_checksum"]},
+            "with no proxmox_template_image_checksum of its own",
+            id="a custom image with the default's checksum",
+        ),
+        pytest.param(
+            {"proxmox_template_image_checksum": ""},
+            "with no proxmox_template_image_checksum of its own",
+            id="a custom image with no checksum",
+        ),
+        pytest.param(
+            {"proxmox_template_image_checksum": f"md5:{'0' * 32}"},
+            "proxmox_template_image_checksum is sha256:",
+            id="a checksum of another kind",
+        ),
+        pytest.param(
+            {"proxmox_template_image_checksum": f"sha256:{IMAGE_SHA}"},
+            "so proxmox_template_image_checksum must be sha256:<the URL",
+            id="a signature with no list to sign",
+        ),
+        pytest.param(
+            {"proxmox_template_custom": "my-own-template"},
+            "which is only read and cloned: no base template is built",
+            id="a template of the person's own",
+        ),
+    ],
+)
+def test_what_cannot_be_built_is_refused_before_anything_is_read(lab, changes, words) -> None:
+    refused = _stopped(lab, lab.settings(**changes))
+    assert words in refused, refused
+    assert lab.host.calls() == [] and lab.asked() == [] and lab.fetched() == []
+
+
+def test_the_default_image_is_held_to_ubuntu_s_signed_list_beside_it(home) -> None:
+    image = template._Image.of(_settings(), TEMPLATE)
+    listed = str(template.OPTIONS["proxmox_template_image_checksum"]).removeprefix("sha256:")
+    assert (image.url, image.checksum, image.signature) == (IMAGE, listed, f"{listed}.gpg")
+    assert (image.directory, image.path) == (template.IMAGE_DIR, f"{template.IMAGE_DIR}/{IMAGE.rsplit('/', 1)[1]}")
+    assert image.copy == f"{template.IMAGE_DIR}/agent-warehouse-{TEMPLATE}.img" and image.manage
+    # A list of another server's is signed by none unless the settings name its signature, and "" turns Ubuntu's off.
+    other = _settings(proxmox_template_image_url=SERVER, proxmox_template_image_checksum="sha256:https://example.org/S")
+    assert template._Image.of(other, TEMPLATE).signature == ""
+    assert template._Image.of(_settings(proxmox_template_image_signature=""), TEMPLATE).signature == ""
+    # Without the guest agent, the download itself is imported and nothing is customised.
+    plain = template._Image.of(_settings(proxmox_template_install_guest_agent=False), TEMPLATE)
+    assert (plain.copy, plain.packages, plain.imported) == ("", (), plain.path)
+
+
+@pytest.mark.parametrize(
+    ("changes", "asked"),
+    [
+        pytest.param({"proxmox_template_image_signature": ""}, ["SHA256SUMS"], id="an unsigned list"),
+        pytest.param(
+            {"proxmox_template_image_signature": "", "proxmox_template_image_checksum": f"sha256:{IMAGE_SHA}"},
+            [],
+            id="the digest itself",
+        ),
+    ],
+)
+def test_an_unsigned_list_or_the_digest_itself_holds_the_image_alone(lab, changes, asked) -> None:
+    built = lab.build(lab.settings(**changes))
+    assert built.outcome == template.SAME and lab.record()["image"] == IMAGE_SHA
+    assert lab.asked() == [f"/{LISTED_AT}/{name}" for name in asked]
+
+
+CREATE = {
+    "name": NAME,
+    "ostype": "l26",
+    "cpu": "host",
+    "cores": 2,
+    "memory": 2048,
+    "bridge": "vmbr0",
+    "uuid": "9a0e1c2d-3b4f-4a5b-8c6d-7e8f90a1b2c3",
+    "notes": "agent-warehouse record (format 1)\nkind: template\nend of agent-warehouse record",
+    "pool": ENGINE_POOL,
+}
+
+
+@pytest.mark.parametrize(
+    ("made", "words"),
+    [
+        pytest.param(lambda: commands.create(TEMPLATE, **{**CREATE, "bridge": "vmbr0 --pool x"}), "bridge"),
+        pytest.param(lambda: commands.create(TEMPLATE, **{**CREATE, "name": "-x"}), "name"),
+        pytest.param(lambda: commands.create(TEMPLATE, **{**CREATE, "notes": "--delete 1"}), "notes"),
+        pytest.param(lambda: commands.create(99, **CREATE), "guest's ID"),
+        pytest.param(lambda: commands.import_disk(TEMPLATE, "local-lvm", "/var/../etc/img"), "absolute path"),
+        pytest.param(lambda: commands.import_disk(TEMPLATE, "local-lvm", "images/x.img"), "absolute path"),
+        pytest.param(lambda: commands.fetch("file:///etc/shadow", "/var/x.img"), "URL"),
+        pytest.param(lambda: commands.fetch("https://a/x.img b", "/var/x.img"), "URL"),
+        pytest.param(lambda: commands.removed("/var/lib/-rf"), "absolute path"),
+        pytest.param(lambda: commands.install(["-y"]), "package"),
+        pytest.param(lambda: commands.customised("/var/x.img", ["vim,bash"]), "package"),
+        pytest.param(lambda: commands.config("pve/../x", TEMPLATE), "node"),
+    ],
+)
+def test_each_value_a_command_takes_is_held_to_its_form(made, words) -> None:
+    with pytest.raises(ValueError, match=words):
+        made()

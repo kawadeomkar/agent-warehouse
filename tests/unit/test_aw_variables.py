@@ -11,13 +11,15 @@ ansible-core pin moves (docs/architecture/toolchain.md).
 
 What the writer refuses, before anything is written: a variable that names the play's connection (any `ansible_`
 name: an extra variable outranks the inventory, where the SSH runner's options are), a name Ansible gives the play
-itself or the inventory the machine's (`FIXED`, held to the locked ansible-core's magic variables and reserved names), a
-key Ansible's decoder reads as
-its own, anything that would make Ansible's JSON decoding fail and its loader read the text as YAML - where a wrapped
-template is trusted, as a test shows - a type no variable holds, and a document that holds a secret the run opened,
-anywhere, never said back. The file is 0600, whole, never written through a link; layer1.run holds the file it is
-given to the same rules before its child starts, a connection's variable above all. The invariant with a test of its
-own: a walk of every file written here finds no bare string leaf.
+itself or the inventory the machine's (`FIXED`, held to the locked ansible-core's magic variables and reserved names),
+each whatever the names the play takes list, and a name of a role variable's shape that is none of those names, which
+its caller gives beside the document and never leaves out (`TAKEN` here), a key Ansible's decoder reads as its own,
+anything that would make Ansible's JSON decoding fail and its loader read the text as YAML - where a wrapped template
+is trusted, as a test shows - a type no variable holds, and a document that holds a secret the run opened, anywhere,
+never said back. The file is 0600, whole, never written through a link; layer1.run holds the file it is given to the
+same rules and to the names of its own list of the play's (`PLAY_NAMES`, which a test here gives its own play) before
+its child starts, a connection's variable above all, and refuses a file beside a play it lists no names for. The
+invariant with a test of its own: a walk of every file written here finds no bare string leaf.
 """
 
 from __future__ import annotations
@@ -40,7 +42,7 @@ from aw_machine import Machine, layer1_host, machine, target
 from harness import REPO
 
 from claude_vm.fleet import paths
-from claude_vm.guest import layer1, variables
+from claude_vm.guest import layer1, system, variables
 from claude_vm.runs import children, rundir
 from claude_vm.runs import job as jobs
 from claude_vm.secret import MARK, Secret
@@ -73,6 +75,15 @@ EVERY_KIND = {
     "aw_nested": {"list": [TEMPLATE, {"deeper": [True, None, 7, "x"]}], TEMPLATE: "a key that looks like one", "": []},
     "aw_mapping": {},
 }
+# The names this file's plays take, as the writer's caller gives them and as layer 1's list gives them for a play of a
+# test's own here (_listed): every variable its documents name.
+TAKEN = frozenset(
+    {
+        *EVERY_KIND,
+        *("aw_x", "aw_y", "aw_z", "aw_w", "aw_s", "aw_t", "aw_one", "aw_deep", "aw_keys", "aw_name_ok", "aw_plain"),
+        *("aw_token", "aw_line", "aw_list", "aw_map", "aw_pin", "aw_pins"),
+    }
+)
 
 
 # ---------------------------------------------------------------- helpers ----
@@ -125,6 +136,13 @@ def _vars(job: jobs.Job) -> Path:
     return rundir.path_for(job, "vars.json")
 
 
+def _listed(play: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """play, a test's own, added to layer 1's list of the names each play takes, with this file's (TAKEN), for the
+    test alone: layer1.run takes a play's names from that list, never from its caller."""
+    monkeypatch.setattr(layer1, "PLAY_NAMES", {**layer1.PLAY_NAMES, play: TAKEN})
+    return play
+
+
 # ---------------------------------------------------------------- the wrapping ----
 
 
@@ -148,7 +166,7 @@ def test_a_walk_of_every_file_written_finds_no_bare_string_leaf(made) -> None:
         {},
     ]
     for document in documents:
-        written = json.loads(variables.write(_vars(made), document, secrets=()).read_text())
+        written = json.loads(variables.write(_vars(made), document, secrets=(), names=TAKEN).read_text())
         assert _bare(written) == [], document
         assert _same(_unwrapped(written), document)
     # The walk finds one: a file written without the wrapping.
@@ -174,8 +192,11 @@ CONNECTION = [
 @pytest.mark.parametrize("name", CONNECTION)
 def test_write_refuses_a_variable_that_names_the_play_s_connection(made, name) -> None:
     folder = _vars(made).parent
+    # Whatever the names the play takes list: no list lets a connection's variable through.
     with pytest.raises(variables.Refused) as refused:
-        variables.write(_vars(made), {"aw_name_ok": "x", name: "-o StrictHostKeyChecking=no"}, secrets=())
+        variables.write(
+            _vars(made), {"aw_name_ok": "x", name: "-o StrictHostKeyChecking=no"}, secrets=(), names={*TAKEN, name}
+        )
     assert str(refused.value).startswith(f"{name} names the play's connection"), refused.value
     assert _written(folder) == []
 
@@ -184,8 +205,9 @@ def test_write_refuses_a_variable_that_names_the_play_s_connection(made, name) -
     "name", ["Ansible", "1st", "a-b", "a b", "", "_private", "__ansible_unsafe", "a.b", "é", "ansible_x\n", "omit\x1b"]
 )
 def test_write_refuses_a_name_that_is_no_role_variable_s(made, name) -> None:
+    # Held to the shape before the names the play takes are asked, so that no list lets such a name through.
     with pytest.raises(variables.Refused, match="named as a role variable is") as refused:
-        variables.write(_vars(made), {name: "x"}, secrets=())
+        variables.write(_vars(made), {name: "x"}, secrets=(), names={*TAKEN, name})
     # The name is held before a sentence says it: one with a control character never reaches the message.
     assert not name or name not in str(refused.value)
     assert _written(_vars(made).parent) == []
@@ -196,13 +218,56 @@ def test_write_and_held_refuse_each_name_ansible_gives_the_play_or_the_inventory
     made, tmp_path, name
 ) -> None:
     said = f"{name} is a name Ansible gives the play itself, or the inventory the machine's"
+    # Whatever the names the play takes list.
     with pytest.raises(variables.Refused) as refused:
-        variables.write(_vars(made), {"aw_x": "x", name: "kept"}, secrets=())
+        variables.write(_vars(made), {"aw_x": "x", name: "kept"}, secrets=(), names={*TAKEN, name})
     assert str(refused.value).startswith(said), refused.value
     assert _written(_vars(made).parent) == []
     with pytest.raises(variables.Refused) as refused:
-        variables.held(_hand_made(tmp_path, json.dumps({name: {WRAPPER: "kept"}})))
+        variables.held(_hand_made(tmp_path, json.dumps({name: {WRAPPER: "kept"}})), {*TAKEN, name})
     assert str(refused.value).startswith(said), refused.value
+
+
+# Names of a role variable's shape that the plays of this file do not take: one of no play's, the system play's own
+# check, a loop's variable, and a role variable another play would take.
+NOT_TAKEN = ["aw_other", "system_not_written", "item", "common_user"]
+
+
+@pytest.mark.parametrize("name", NOT_TAKEN)
+def test_write_and_held_refuse_a_name_the_play_does_not_take_by_its_name(made, tmp_path, name) -> None:
+    said = f"{name} is no variable of the play's: its variables hold the names it takes alone"
+    with pytest.raises(variables.Refused) as refused:
+        variables.write(_vars(made), {"aw_x": "x", name: "kept"}, secrets=(), names=TAKEN)
+    assert str(refused.value).startswith(said), refused.value
+    assert "kept" not in str(refused.value)
+    assert _written(_vars(made).parent) == []
+    with pytest.raises(variables.Refused) as refused:
+        variables.held(_hand_made(tmp_path, json.dumps({"aw_x": {WRAPPER: "x"}, name: {WRAPPER: "kept"}})), TAKEN)
+    assert str(refused.value).startswith(said), refused.value
+    # Taken by a play that takes it.
+    written = variables.write(_vars(made), {name: "kept"}, secrets=(), names={name})
+    assert variables.held(written, [name]) == written
+
+
+@pytest.mark.parametrize("names", ["aw_x", b"aw_x", None, 7, [b"aw_x"], [None], ["aw_x", 7]])
+def test_the_names_a_play_takes_are_a_collection_of_strings(made, tmp_path, names) -> None:
+    with pytest.raises(variables.Refused, match="^the names a play takes are"):
+        variables.write(_vars(made), {"aw_x": "x"}, secrets=(), names=names)
+    assert _written(_vars(made).parent) == []
+    with pytest.raises(variables.Refused, match="^the names a play takes are"):
+        variables.held(_hand_made(tmp_path, json.dumps({"aw_x": {WRAPPER: "x"}})), names)
+
+
+def test_the_names_a_play_takes_are_never_left_out(made, tmp_path) -> None:
+    with pytest.raises(TypeError, match="names"):
+        variables.write(_vars(made), {"aw_x": "x"}, secrets=())  # type: ignore[call-arg]
+    with pytest.raises(TypeError, match="names"):
+        variables.held(_hand_made(tmp_path, json.dumps({"aw_x": {WRAPPER: "x"}})))  # type: ignore[call-arg]
+    assert _written(_vars(made).parent) == []
+    # A play that takes none takes an empty document alone.
+    assert variables.held(variables.write(_vars(made), {}, secrets=(), names=()), ()) == _vars(made)
+    with pytest.raises(variables.Refused, match="^aw_x is no variable of the play's"):
+        variables.write(_vars(made), {"aw_x": "x"}, secrets=(), names=())
 
 
 def test_the_inventory_s_name_of_the_machine_is_among_the_fixed_names() -> None:
@@ -297,7 +362,7 @@ DECODING = [
 @pytest.mark.parametrize(("case", "document", "said"), DECODING, ids=[case for case, _, _ in DECODING])
 def test_write_refuses_what_ansible_s_json_decoding_would_not_read(made, case, document, said) -> None:
     with pytest.raises(variables.Refused, match=said):
-        variables.write(_vars(made), document, secrets=())
+        variables.write(_vars(made), document, secrets=(), names=TAKEN)
     assert _written(_vars(made).parent) == []
 
 
@@ -309,12 +374,12 @@ def test_write_takes_the_edges_it_refuses_past(made) -> None:
         "aw_z": _nested(deepest, 1),
         "aw_w": _nested_mappings(deepest, {}),
     }
-    path = variables.write(_vars(made), edges, secrets=())
+    path = variables.write(_vars(made), edges, secrets=(), names=TAKEN)
     written = json.loads(path.read_text())
     assert _same(_unwrapped(written), edges)
     # held's scan of the text takes the deepest file write writes: a wrapped string at the last level is one bracket
     # more in the text than any value's level.
-    assert variables.held(path) == path
+    assert variables.held(path, TAKEN) == path
 
 
 @pytest.mark.parametrize("levels", [variables.DEPTH_MOST + 1, 1000, 100_000])
@@ -322,7 +387,7 @@ def test_write_takes_the_edges_it_refuses_past(made) -> None:
 def test_write_refuses_a_nesting_past_the_bound_before_its_walk_goes_deeper(made, shape, levels) -> None:
     # Python's own recursion gives up near a thousand levels: the refusal is the walk's, never a RecursionError.
     with pytest.raises(variables.Refused, match="no deeper than 32 levels"):
-        variables.write(_vars(made), {"aw_x": shape(levels, "x")}, secrets=())
+        variables.write(_vars(made), {"aw_x": shape(levels, "x")}, secrets=(), names=TAKEN)
     assert _written(_vars(made).parent) == []
 
 
@@ -344,7 +409,7 @@ class _Own(str):
 )
 def test_write_refuses_a_type_no_variable_holds(made, case, value, said) -> None:
     with pytest.raises(variables.Refused, match=said) as refused:
-        variables.write(_vars(made), {"aw_x": [value]}, secrets=())
+        variables.write(_vars(made), {"aw_x": [value]}, secrets=(), names=TAKEN)
     assert "a-secret-value" not in str(refused.value)
     assert _written(_vars(made).parent) == []
 
@@ -353,24 +418,24 @@ def test_write_refuses_a_value_that_holds_itself(made) -> None:
     looped: list[object] = ["x"]
     looped.append(looped)
     with pytest.raises(variables.Refused, match="holds itself"):
-        variables.write(_vars(made), {"aw_x": looped}, secrets=())
+        variables.write(_vars(made), {"aw_x": looped}, secrets=(), names=TAKEN)
     mapping: dict[str, object] = {}
     mapping["k"] = [mapping]
     with pytest.raises(variables.Refused, match="holds itself"):
-        variables.write(_vars(made), {"aw_x": mapping}, secrets=())
+        variables.write(_vars(made), {"aw_x": mapping}, secrets=(), names=TAKEN)
     # The same value twice, side by side, holds nothing of itself.
     shared = ["x"]
-    assert variables.write(_vars(made), {"aw_x": [shared, shared]}, secrets=()).is_file()
+    assert variables.write(_vars(made), {"aw_x": [shared, shared]}, secrets=(), names=TAKEN).is_file()
 
 
 def test_write_refuses_what_is_not_a_document_or_a_path(made) -> None:
     for document in (["aw_x"], "aw_x", None):
         with pytest.raises(variables.Refused, match="a mapping of names to values"):
-            variables.write(_vars(made), document, secrets=())
+            variables.write(_vars(made), document, secrets=(), names=TAKEN)
     with pytest.raises(variables.Refused, match="an absolute one"):
-        variables.write("vars.json", {}, secrets=())
+        variables.write("vars.json", {}, secrets=(), names=TAKEN)
     with pytest.raises(variables.Refused, match="is not a folder"):
-        variables.write(_vars(made).parent / "absent" / "vars.json", {}, secrets=())
+        variables.write(_vars(made).parent / "absent" / "vars.json", {}, secrets=(), names=TAKEN)
     assert _written(_vars(made).parent) == []
 
 
@@ -393,7 +458,7 @@ NUMBER = "424242424242"
 def test_write_refuses_a_document_that_holds_a_secret_the_run_opened(made, case, document, names) -> None:
     opened = [Secret("unused"), Secret(SECRET), Secret(NUMBER)]
     with pytest.raises(variables.Refused, match="a secret the run opened") as refused:
-        variables.write(_vars(made), document, secrets=opened)
+        variables.write(_vars(made), document, secrets=opened, names=TAKEN)
     said = str(refused.value)
     assert SECRET not in said and NUMBER not in said
     assert said.startswith(names) if names else "aw_" not in said, said
@@ -403,11 +468,11 @@ def test_write_refuses_a_document_that_holds_a_secret_the_run_opened(made, case,
 def test_the_secrets_are_secrets_and_an_empty_one_strikes_nothing(made) -> None:
     for given in ([SECRET], SECRET, Secret(SECRET), None):
         with pytest.raises(TypeError, match="Secret"):
-            variables.write(_vars(made), {"aw_x": "x"}, secrets=given)
-    written = variables.write(_vars(made), {"aw_x": "x", "aw_y": ""}, secrets=[Secret("")])
+            variables.write(_vars(made), {"aw_x": "x"}, secrets=given, names=TAKEN)
+    written = variables.write(_vars(made), {"aw_x": "x", "aw_y": ""}, secrets=[Secret("")], names=TAKEN)
     assert json.loads(written.read_text()) == {"aw_x": {WRAPPER: "x"}, "aw_y": {WRAPPER: ""}}
     # A secret's mark is no secret: a document may hold the text the mark is.
-    assert variables.write(_vars(made), {"aw_x": MARK}, secrets=[Secret(SECRET)]).is_file()
+    assert variables.write(_vars(made), {"aw_x": MARK}, secrets=[Secret(SECRET)], names=TAKEN).is_file()
 
 
 # ---------------------------------------------------------------- how it is written ----
@@ -428,7 +493,7 @@ def test_the_file_is_written_whole_at_0600_and_never_through_a_link(made, tmp_pa
     outside.write_text("theirs")
     outside.chmod(0o644)
     where.symlink_to(outside)
-    written = _under(0, where, {"aw_x": "x"}, secrets=())
+    written = _under(0, where, {"aw_x": "x"}, secrets=(), names=TAKEN)
     assert written == where
     # The link replaced by a file of its own, the file it named untouched.
     assert not where.is_symlink() and stat.S_IMODE(where.lstat().st_mode) == 0o600
@@ -439,7 +504,7 @@ def test_the_file_is_written_whole_at_0600_and_never_through_a_link(made, tmp_pa
     assert json.loads(content) == {"aw_x": {WRAPPER: "x"}}
     assert _written(where.parent) == ["vars.json"]
     # A second write replaces it, at 0600 under a umask that would leave less.
-    _under(0o277, where, {"aw_y": 1}, secrets=())
+    _under(0o277, where, {"aw_y": 1}, secrets=(), names=TAKEN)
     assert json.loads(where.read_text()) == {"aw_y": 1}
     assert stat.S_IMODE(where.lstat().st_mode) == 0o600
     assert _written(where.parent) == ["vars.json"]
@@ -479,7 +544,7 @@ HAND_MADE = [
 @pytest.mark.parametrize(("case", "text", "said"), HAND_MADE, ids=[case for case, _, _ in HAND_MADE])
 def test_held_refuses_a_file_write_would_not_have_made(tmp_path, case, text, said) -> None:
     with pytest.raises(variables.Refused, match=said):
-        variables.held(_hand_made(tmp_path, text))
+        variables.held(_hand_made(tmp_path, text), TAKEN)
 
 
 def _deep(levels: int) -> str:
@@ -528,19 +593,19 @@ def test_held_measures_the_nesting_on_the_text_before_any_decoder_reads_it(
     monkeypatch.setattr(variables, "json", SimpleNamespace(loads=loads))
     path = _hand_made(tmp_path, text)
     if taken:
-        assert variables.held(path) == path
+        assert variables.held(path, TAKEN) == path
         assert asked == [len(text)]
     else:
         with pytest.raises(variables.Refused, match="no deeper than 32"):
-            variables.held(path)
+            variables.held(path, TAKEN)
         assert asked == []
 
 
 def test_held_takes_what_write_writes(made, tmp_path) -> None:
-    written = variables.write(_vars(made), EVERY_KIND, secrets=())
-    assert variables.held(written) == written
+    written = variables.write(_vars(made), EVERY_KIND, secrets=(), names=TAKEN)
+    assert variables.held(written, TAKEN) == written
     with pytest.raises(variables.Refused, match="cannot be read"):
-        variables.held(tmp_path / "absent.json")
+        variables.held(tmp_path / "absent.json", TAKEN)
 
 
 # ---------------------------------------------------------------- Ansible's own loader ----
@@ -591,7 +656,7 @@ def _loaded(path: Path) -> dict:
 
 
 def test_ansible_s_loader_reads_no_string_of_a_written_file_as_trusted(made, tmp_path) -> None:
-    written = variables.write(_vars(made), EVERY_KIND, secrets=())
+    written = variables.write(_vars(made), EVERY_KIND, secrets=(), names=TAKEN)
     found = _loaded(written)
     for how in ("loaded", "json"):
         assert found[how]["trusted"] == [], found[how]
@@ -670,7 +735,7 @@ def _converge(
     built = layer1.environment
     monkeypatch.setattr(layer1, "environment", lambda *words, **named: {**built(*words, **named), SWITCH: switch})
     folder.mkdir(parents=True, exist_ok=True)
-    play = folder / "play.yml"
+    play = _listed(folder / "play.yml", monkeypatch)
     play.write_text(json.dumps([{"hosts": "all", "gather_facts": False, "tasks": tasks}]))
     return asyncio.run(
         layer1.run(
@@ -690,7 +755,7 @@ def test_a_wrapped_template_reaches_a_task_as_its_text_and_an_unwrapped_one_is_t
     made, tmp_path, monkeypatch
 ) -> None:
     alpha = _alpha(tmp_path)
-    written = variables.write(_vars(made), {"aw_text": TEMPLATE}, secrets=())
+    written = variables.write(_vars(made), {"aw_text": TEMPLATE}, secrets=(), names=TAKEN)
     ended = _converge(
         made, alpha, tmp_path / "wrapped", written, [_writes(alpha, "out.txt", "{{ aw_text }}")], "ignore", monkeypatch
     )
@@ -699,7 +764,7 @@ def test_a_wrapped_template_reaches_a_task_as_its_text_and_an_unwrapped_one_is_t
     # The control: the same variable unwrapped, run's own check of the file set aside, is a template Ansible renders.
     plain = tmp_path / "plain.json"
     plain.write_text(json.dumps({"aw_text": TEMPLATE}))
-    monkeypatch.setattr(layer1, "_variables", lambda path: path)
+    monkeypatch.setattr(layer1, "_variables", lambda path, play: path)
     ended = _converge(
         made, alpha, tmp_path / "plain", plain, [_writes(alpha, "plain.txt", "{{ aw_text }}")], "ignore", monkeypatch
     )
@@ -709,7 +774,7 @@ def test_a_wrapped_template_reaches_a_task_as_its_text_and_an_unwrapped_one_is_t
 
 def test_with_the_switch_at_error_a_wrapped_template_used_as_one_fails_its_task(made, tmp_path, monkeypatch) -> None:
     alpha = _alpha(tmp_path)
-    written = variables.write(_vars(made), {"aw_text": TEMPLATE, "aw_plain": "no template"}, secrets=())
+    written = variables.write(_vars(made), {"aw_text": TEMPLATE, "aw_plain": "no template"}, secrets=(), names=TAKEN)
     used = {
         "name": "use it",
         "block": [_writes(alpha, "plain.txt", "{{ aw_plain }}"), _writes(alpha, "out.txt", "{{ aw_text }}")],
@@ -726,7 +791,7 @@ def test_with_the_switch_at_error_a_wrapped_template_used_as_one_fails_its_task(
 
 def test_every_scalar_type_round_trips_through_a_real_child(made, tmp_path, monkeypatch) -> None:
     alpha = _alpha(tmp_path)
-    written = variables.write(_vars(made), EVERY_KIND, secrets=())
+    written = variables.write(_vars(made), EVERY_KIND, secrets=(), names=TAKEN)
     every = "{{ {" + ", ".join(f"'{name}': {name}" for name in EVERY_KIND) + "} | to_json }}"
     ended = _converge(
         made, alpha, tmp_path / "every", written, [_writes(alpha, "every.json", every)], "ignore", monkeypatch
@@ -744,12 +809,12 @@ def test_every_scalar_type_round_trips_through_a_real_child(made, tmp_path, monk
     ],
 )
 def test_run_refuses_a_variables_file_with_a_connection_s_variable_before_the_child_starts(
-    made, tmp_path, name, value
+    made, tmp_path, monkeypatch, name, value
 ) -> None:
     alpha = _alpha(tmp_path)
     given = tmp_path / "given.json"
     given.write_text(json.dumps({"aw_text": {WRAPPER: "x"}, name: value}))
-    play = tmp_path / "play.yml"
+    play = _listed(tmp_path / "play.yml", monkeypatch)
     play.write_text(json.dumps([{"hosts": "all", "gather_facts": False, "tasks": [{"ansible.builtin.ping": {}}]}]))
     with pytest.raises(layer1.Refused) as refused:
         asyncio.run(
@@ -775,15 +840,27 @@ def test_run_refuses_a_variables_file_with_a_connection_s_variable_before_the_ch
     [
         ("a bare string", '{"aw_text": "{{ 7 * 7 }}"}', "is wrapped, so that Ansible never reads it as a template"),
         ("YAML", "aw_text: x\n", "is not the JSON"),
+        ("a name the play does not take", '{"aw_other": {"__ansible_unsafe": "x"}}', "^aw_other is no variable of"),
     ],
 )
-def test_run_refuses_a_variables_file_write_would_not_have_made(made, tmp_path, case, text, said) -> None:
+def test_run_refuses_a_variables_file_write_would_not_have_made(made, tmp_path, monkeypatch, case, text, said) -> None:
     alpha = _alpha(tmp_path)
     given = _hand_made(tmp_path, text)
-    play = tmp_path / "play.yml"
+    play = _listed(tmp_path / "play.yml", monkeypatch)
     play.write_text("[]")
     with pytest.raises(layer1.Refused, match=said):
         asyncio.run(layer1.run(made, target(alpha), play, given, name="alpha", host_flag="", env=dict(os.environ)))
     directory = rundir.made(made)
     assert directory is not None
     assert _written(directory) == [] and children.live(made) == []
+
+
+@pytest.mark.parametrize("case", ["a play of its own", "a copy of the system play"])
+def test_run_refuses_a_variables_file_beside_a_play_it_lists_no_names_for(made, tmp_path, case) -> None:
+    alpha = _alpha(tmp_path)
+    given = variables.write(_vars(made), {"aw_text": "x"}, secrets=(), names=TAKEN)
+    play = tmp_path / "play.yml"
+    play.write_text("[]" if case == "a play of its own" else system.PLAY.read_text())
+    with pytest.raises(layer1.Refused, match=f"^{play} takes no variables file: layer 1 holds one to the names of"):
+        asyncio.run(layer1.run(made, target(alpha), play, given, name="alpha", host_flag="", env=dict(os.environ)))
+    assert _written(given.parent) == ["vars.json"] and children.live(made) == []
