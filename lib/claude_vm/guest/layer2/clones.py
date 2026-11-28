@@ -46,9 +46,10 @@ of the API, which takes no token), and the verb puts them in the account's known
 
 **The report** is one, each run: how many repositories of how many were selected for the folder and what was skipped,
 with why (empty, private for want of a credential, a leading dot), what of the machine's own list the account has none
-of, and that private repositories are not listed while no token lists; the organisation's sentence under NEXT STEPS'
-`github_identity`. A repository that could not be cloned, or a checkout that could not be pulled, fails the step,
-naming each with git's last line; the rest are cloned.
+of, that private repositories are not listed while no token lists, and each checkout the pull left as it is, with why
+(a link, another repository, a branch of the person's own, local changes, no fast-forward); the organisation's
+sentence under NEXT STEPS' `github_identity`. A repository that could not be cloned, or a checkout git failed to
+pull, fails the step, naming each with git's last line; the rest are cloned.
 
 The token is on the run's redaction list before anything is read (github.wanted), and no message, event, argument or
 difference carries it. Standard library; asyncio is imported inside the coroutine that reads GitHub's keys.
@@ -695,7 +696,7 @@ class Clones:
             changed = True
         done = await self._verb(ctx, want, state.folder, state.selection, state.keys, check=False)
         changed = changed or bool(done["known_hosts"] or done["cloned"] or done["leftovers"] or done["pulled"])
-        self._say(ctx, state)
+        self._say(ctx, state, done)
         if done["not_cloned"]:
             failed = "; ".join(
                 f"{one['name']} ({one['said'] or ('git exited ' + str(one['rc']))})" for one in done["not_cloned"]
@@ -856,11 +857,11 @@ class Clones:
             raise Failed(f"{state.folder} could not be made on the machine: {_failure(result)}")
 
     @staticmethod
-    def _say(ctx: Context, state: State) -> None:
+    def _say(ctx: Context, state: State, done: Mapping[str, object]) -> None:
         # Here alone, as github.py does: guest/ is imported where the engine is not.
         from claude_vm.engine import report
 
-        report.say(ctx.job, ctx.machine, "github_identity", *reported(state))
+        report.say(ctx.job, ctx.machine, "github_identity", *reported(state, done))
 
 
 def _answered(document: object) -> bool:
@@ -872,7 +873,7 @@ def _answered(document: object) -> bool:
     for key in ("cloned", "skipped_existing", "leftovers", "pulled"):
         if not (isinstance(document.get(key), list) and all(isinstance(one, str) for one in document[key])):
             return False
-    for key in ("not_cloned", "not_pulled"):
+    for key in ("not_cloned", "not_pulled", "left"):
         failures = document.get(key)
         if not (isinstance(failures, list) and all(isinstance(one, dict) for one in failures)):
             return False
@@ -885,8 +886,9 @@ def _shown(names: object) -> list[str]:
     return [text.one_line(str(name), 100) for name in names] if isinstance(names, list) else []
 
 
-def reported(state: State) -> tuple[str, str]:
-    """The step's report and its NEXT STEPS line under github_identity, as clone.yml's three messages say them."""
+def reported(state: State, done: Mapping[str, object]) -> tuple[str, str]:
+    """The step's report and its NEXT STEPS line under github_identity, as clone.yml's three messages say them, and
+    the checkouts the pull left as they are (done, the verb's document), each with why."""
     want, selection, name = state.want, state.selection, state.want.gh.name
     skipped = ", ".join(_shown(list(selection.empty))) or "none"
     if selection.private:
@@ -906,6 +908,10 @@ def reported(state: State) -> tuple[str, str]:
             f"{name}: not cloned from its own list of repositories, as {want.username} has none listed by that name:"
             f" {', '.join(_shown(list(selection.own_missing)))}.{unlisted}"
         )
+    kept = done.get("left") or []
+    if kept:
+        each = "; ".join(f"{text.one_line(one['name'], 100)} ({text.one_line(one['said'], 200)})" for one in kept)
+        said.append(f"{name}: not pulled, and left as they are: {_said(want, each)}.")
     left = ""
     if state.organisation:
         login = text.one_line(str(state.listing.user.get("login") or want.username), 100)
