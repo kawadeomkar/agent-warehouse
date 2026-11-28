@@ -25,7 +25,10 @@ and a comment points at one of them. That most prose goes is the rule's result, 
 | A tool's directive, with its rule's code | ruff's `noqa` and `ruff: noqa`, `type: ignore[...]`, `pragma: no cover`, `fmt: off`, `on` or `skip`; several in one comment, each after a `#` of its own | `# noqa: E501`, `# type: ignore[attr-defined]` |
 | A shebang, or a coding line | on the first line, or on one of the first two | `#!/usr/bin/env python3` |
 
-A comment is one of these whole: one that starts as a pointer and goes on is a pointer not of its form.
+A comment is one of these whole, or one pointer with directives beside it, each after a `#` of its own, as a test
+pointer past the line's limit takes ruff's `E501`:
+`# test: tests/unit/test_aw_comments.py::test_each_allowed_kind_is_let_through  # noqa: E501`. One that starts as a
+pointer and goes on in words is a pointer not of its form.
 
 **A docstring is the contract**: what the function, class or module does, takes, returns and raises, in 5 lines at
 most, its quotes' lines counted. The why goes where a comment's would.

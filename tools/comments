@@ -104,8 +104,9 @@ def kind(root: Path, comment: str, line: int, known: set[str]) -> str | None:
     parts = [part.strip() for part in re.split(r"\s#", comment[1:])]
     if all(DIRECTIVE.match(part) for part in parts):
         return None
-    if len(parts) == 1 and POINTER.match(parts[0]):
-        part = parts[0]
+    pointers = [part for part in parts if POINTER.match(part)]
+    if len(pointers) == 1 and all(DIRECTIVE.match(part) for part in parts if not POINTER.match(part)):
+        part = pointers[0]
         section, test = SECTION.match(part), TEST.match(part)
         if part.startswith("§"):
             return None if section and section.group(1) in known else "CMT002§"

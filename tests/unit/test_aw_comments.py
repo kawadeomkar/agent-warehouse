@@ -132,6 +132,11 @@ def test_a_hash_in_a_string_is_no_comment(tmp_path: Path, text: str, path: str) 
         "# type: ignore[attr-defined]",
         "# type: ignore[attr-defined, arg-type]",
         "# type: ignore[attr-defined]  # noqa: E501",
+        "# test: tests/unit/test_aw_x.py::test_y  # noqa: E501",
+        "# test: tests/unit/test_aw_x.py::TestZ::test_w  # noqa: E501  # type: ignore[attr-defined]",
+        "# §16.6  # noqa: E501",
+        "# noqa: B008  # §16.6",
+        "# upstream: astral-sh/ruff#1234  # pragma: no cover",
         "# pragma: no cover",
         "# fmt: off",
         "# fmt: on",
@@ -178,6 +183,9 @@ def test_a_shebang_or_a_coding_line_lower_down_is_prose(tmp_path: Path) -> None:
         ("# upstream: astral-sh/ruff", UPSTREAM),
         ("# upstream: https://github.com/astral-sh/ruff/issues/1", UPSTREAM),
         ("# upstream: astral-sh/ruff#0", UPSTREAM),
+        ("# test: tests/unit/test_aw_x.py::test_none  # noqa: E501", TEST),
+        ("# noqa: E501  # test: tests/unit/test_aw_x.py::test_y holds it", TEST),
+        ("# §16.7  # noqa: E501", SECTION),
     ],
 )
 def test_a_pointer_to_nothing_is_refused(tmp_path: Path, comment: str, what: str) -> None:
@@ -186,7 +194,17 @@ def test_a_pointer_to_nothing_is_refused(tmp_path: Path, comment: str, what: str
 
 
 @pytest.mark.parametrize(
-    "comment", ["# see §16.6", "# noqa: E501 - a long line", "# noqa", "# type: ignore", "# ruff: noqa"]
+    "comment",
+    [
+        "# see §16.6",
+        "# noqa: E501 - a long line",
+        "# noqa",
+        "# type: ignore",
+        "# ruff: noqa",
+        "# test: tests/unit/test_aw_x.py::test_y  # it holds the rule",
+        "# §16.6  # noqa: E501 - a long line",
+        "# §16.6  # §16.6",
+    ],
 )
 def test_a_pointer_or_a_directive_with_words_is_prose(tmp_path: Path, comment: str) -> None:
     root = _checkout(tmp_path, {ENGINE: f"x = 1  {comment}\n"}, {ENGINE: 1})
