@@ -385,6 +385,10 @@ def _a_checkout(where: Path) -> Path:
         (("--newer",), "--newer is"),
         (("--rollback",), "--rollback is"),
         (("--without", "mcp"), "--without is"),
+        (("--version=",), "--version is"),
+        (("--version", ""), "--version is"),
+        (("--without=",), "--without is"),
+        (("--without", ""), "--without is"),
         (("--newer", "--lock", "--without", "mcp"), "--newer, --without are"),
     ],
 )

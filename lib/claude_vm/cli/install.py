@@ -73,7 +73,8 @@ def _refused(sentence: str) -> int:
 
 
 def _given(values: Mapping[str, object], field: str) -> bool:
-    return values.get(field) not in (None, False, "")
+    """Whether field was typed: the dispatch hands only what was given, so an empty value (`--version=`) was."""
+    return values.get(field) not in (None, False)
 
 
 def install(run: Any, **values: object) -> int:
