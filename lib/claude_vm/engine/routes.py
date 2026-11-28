@@ -19,15 +19,20 @@ identity, its one address, the account a run logs in as, this computer's `ssh_ex
 `vm_ssh_options` for it (client.yml's for that machine, else for every machine, else the run's), and, where the route
 goes through the host and the machine brings no jump of its own - a `ProxyJump`, a `-J` or a `ProxyCommand` other than
 `none` among those options, or in what `ssh -G` resolves for its address from the person's own `~/.ssh/config` - the
-hop's `ProxyCommand` to its own address (connections.py's `target_for`). Only a Proxmox VM (fleet.KIND) takes the hop.
-Before anything connects to one, each machine's own `ssh` is asked, with its whole line and no configuration file,
-which proxy it would take, and any other than the route's is refused (connections.py's `held`). Where any takes the hop,
-the hop's login is made, once a run, and one forward of its own to the first of them by name checks that the host
-forwards to the machines (route.hop_forward, a connection of its own under its hard limit): a host that refuses to
-forward, or an `ssh` that cannot use it as a hop, stops the run; a machine that says nothing to it, or a login for the
-forward that does not finish, is said once and stops nothing, the machine failing alone when it is first reached.
-Nothing here dials a machine itself, and no module of engine/ but this one makes a `Target` or the connections that
-give one (tests/unit/test_aw_routes.py holds it).
+hop's `ProxyCommand` to its own address (connections.py's `target_for`), which marks each `Target` with the route it was
+given (`routed_as`: `direct`, `hop` or `own`) and what it was decided from (`routed_from`): the runner connects to no
+machine's `Target` unmarked, nor to one marked through the hop that has lost it, nor to one whose address, account,
+port, ssh program, options or hop changed since; a step that needs another takes it again from `targets`. Only a
+Proxmox VM (fleet.KIND) takes the hop. Before anything connects to one, each machine's own `ssh` is asked, with its
+whole line and no configuration file, which proxy it would take, and any other than the route's is refused
+(connections.py's `held`): every machine first, then the hop's login, then the forward. Where any takes the hop, the
+hop's login is made, once a run, and one forward of its own to the first of them by name checks that the host forwards
+to the machines (route.hop_forward, a connection of its own under its hard limit): a host that refuses to forward, or
+an `ssh` that cannot use it as a hop, stops the run, and every later `targets` of the run raises it again, as does one
+that waited on that forward; a machine that says nothing to it, or a login for the forward that does not finish, is
+said once and stops nothing, the machine failing alone when it is first reached. Nothing here dials a machine itself,
+and no module of the new engine but this one and ssh/'s own makes a `Target` or the connections that give one, or
+changes a `Target`'s route after it was made (tests/unit/test_aw_routes.py holds it, by a scan).
 
 `Route.ready()` makes sure of the hop's shared connection again before a step that reaches many machines at once, and
 after a wait on a person, wherever the login was made: `-O check`, and an open where none answers; it fails no
@@ -188,6 +193,8 @@ class Route:
     lock: asyncio.Lock
     logged_in: bool = False
     forwarded: bool = False
+    # The sentence of a forward's verdict that stopped the run: every later targets raises it again.
+    stopped: str = ""
     said: list[str] = dataclasses.field(default_factory=list)
 
     @property
@@ -241,25 +248,28 @@ class Route:
     async def _forward(self, name: str, target: runner.Target) -> None:
         """One forward of its own through the hop to target, the first machine by name that takes it, once a run: the
         run stops where the host refuses to forward there or ssh cannot use it as a hop, and a machine that said
-        nothing, or a login for the forward that did not finish, is said."""
+        nothing, or a login for the forward that did not finish, is said. Made once a verdict came back: one a
+        cancellation or a refusal cut is made again by the next targets. A verdict that stops the run is kept
+        (`stopped`), and every later targets raises it again: Unusable is the run's stop, even where a caller caught
+        it, and a targets that waited on the lock while another's forward was refused raises it too."""
+        why = None
         async with self.lock:
-            if self.forwarded:
-                return
-            self.forwarded = True
-            verdict = await self.connections.forward(target, self.settled)
-        machine = f"{name} at {target.address}"
-        why = verdict.get("why")
-        if why == "prohibited":
-            raise Unusable(
-                PROHIBITED.format(
-                    label=self.label,
-                    machine=machine,
-                    said=route.ssh_said(verdict.get("said")).rstrip(".") or "no reason given",
-                    tail=TAIL if self.settled.get("setting") == "auto" else "",
-                )
-            )
-        if why in STOPS:
-            raise Unusable(one_line(route.forward_said(dict(self.settled), name, target.address, verdict), None))
+            if not self.forwarded:
+                verdict = await self.connections.forward(target, self.settled)
+                self.forwarded = True
+                machine = f"{name} at {target.address}"
+                why = verdict.get("why")
+                if why == "prohibited":
+                    self.stopped = PROHIBITED.format(
+                        label=self.label,
+                        machine=machine,
+                        said=route.ssh_said(verdict.get("said")).rstrip(".") or "no reason given",
+                        tail=TAIL if self.settled.get("setting") == "auto" else "",
+                    )
+                elif why in STOPS:
+                    self.stopped = one_line(route.forward_said(dict(self.settled), name, target.address, verdict), None)
+        if self.stopped:
+            raise Unusable(self.stopped)
         if why in SAYS:
             self.say(one_line(route.forward_said(dict(self.settled), name, target.address, verdict), None))
 
@@ -298,7 +308,11 @@ class Route:
         """Each of machines as the runner reaches it, in their order: the one function that makes a machine's SSH
         arguments (see the module's docstring). Refused where a machine has no address, its options are not what a
         connection takes, or its own ssh would not go where the route says (nothing was dialled); Unusable where the
-        hop, needed by a machine that takes it, cannot be used."""
+        hop, needed by a machine that takes it, cannot be used, and again at every later call once a forward's verdict
+        stopped the run. Each machine is asked of its own ssh (held) before anything connects: the hop's login and the
+        forward come after every machine is held, so a machine refused there leaves nothing reached."""
+        if self.stopped:
+            raise Unusable(self.stopped)
         program = self.values["ssh_executable"].value
         made: list[runner.Target] = []
         for machine in machines:

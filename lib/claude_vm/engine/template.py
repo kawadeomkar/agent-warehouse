@@ -78,11 +78,18 @@ def _found(config: VmConfig) -> judging.Fields | record.Unreadable | None:
 
 
 def _custom(
-    client: Proxmox, settings: Mapping[str, object], listing: tuple[Resource, ...], name: str, node: str, pool: str
+    client: Proxmox,
+    settings: Mapping[str, object],
+    listing: tuple[Resource, ...],
+    name: str,
+    node: str,
+    pool: str,
+    host_flag: str,
 ) -> Compared:
     """A template of the person's own, which proxmox_template_custom names: whether the token may read every guest,
     asked only where none of that name is listed, and the configuration of the one template of that name on the
-    node, judged by pve/template.py's custom."""
+    node, judged by pve/template.py's custom, which says init's line, for host_flag's host, where the token may not
+    read it."""
     readable = bool(judging.named(listing, name)) or _reads(client, judging.GUESTS)
     template_id = judging.custom_id(listing, name, node)
     return judging.custom(
@@ -94,6 +101,7 @@ def _custom(
         disk=str(judging.option(settings, "proxmox_vm_disk")),
         nic=str(settings["proxmox_nic"]),
         readable=readable,
+        host_flag=host_flag,
     )
 
 
@@ -111,7 +119,7 @@ def compare(client: Proxmox, settings: Mapping[str, object], *, pool: str, host_
     listing = client.resources("vm")
     custom = str(settings["proxmox_template_custom"] or "")
     if custom:
-        return _custom(client, settings, listing, custom, node, pool)
+        return _custom(client, settings, listing, custom, node, pool, host_flag)
     base = judging.Base.of(settings, pool=pool, host_flag=host_flag)
     entry = judging.at(listing, base.template_id)
     readable = entry is None and _reads(client, f"{judging.GUESTS}/{base.template_id}")

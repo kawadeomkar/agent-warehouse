@@ -7,33 +7,34 @@ configuration, `layer1.cfg`, and an inventory of one host, `inventory-<identity>
 machines starts one child a machine, each with an inventory of its own. The configuration names the stdout callback
 (`CALLBACK`) and no other, one fork, facts kept under `ansible_facts`, pipelining, the `yaml` inventory plugin alone,
 the roles of this checkout or release (`ROLES`), Ansible's local temporary files in the run's directory, and every
-folder Ansible looks for a plugin or a collection in: the product's own (the callback's, `CALLBACKS`, and today's
-filters, which the roles call, `FILTERS`), and an empty folder of the run's directory (`NONE`) for every other kind,
-with Python's path not scanned for collections, so that nothing under the caller's HOME or under /usr/share/ansible is
-searched (a vars plugin in ~/.ansible/plugins/vars runs without being enabled) - but, until F6a, the collections: three
-tasks of the roles call a Galaxy collection's module, which ansible-core resolves as the play loads, so the system play
-loads only where one is found. Until then the collections' path is the checkout's own folder, the one today's
-product's runs read, asked of its tools/env-run for the run's environment (`checkout_collections`): under the person's
-XDG_DATA_HOME, or HOME's .local/share, filled by `just install` from requirements.yml. Before the child starts it is
-held to requirements.yml's pins (`held_collections`), as today's tools/check collections holds it before every recipe's
-run: a folder, with each collection pinned there at its pin by the collection's own MANIFEST.json, as ansible-galaxy
-reads an installed one; a folder that is not there, a collection at another version or not there, and a tools/env-run
-that is not there to run are each refused in one sentence that names `just install` (`_unready`), before anything is
-written. F6a takes all of it out, and the collections' path is NONE's again. `ssh_args`, the one place ahead of
-Ansible's own words to ssh, holds `SSH_ARGS`: public keys and no other way to log in, as the runner offers (Ansible's
-own `PreferredAuthentications` puts GSSAPI and host-based first), never Ansible's default, which would put
-`ControlMaster=auto` ahead of the host's options and make the child a connection's master. The inventory's one host
-is named by the machine's identity, `agent-warehouse-<its SMBIOS UUID>`, never by a name a person
-chose, which is a variable (`NAME_VARIABLE`): a VM named after an inventory host once had today's status send the API
-token to the address its own agent reported. Its variables are the address, the account, `/usr/bin/python3` and
-`/usr/bin/sudo` by their paths, and the connection exactly as the SSH runner makes it (`runner.ansible_vars`): its
+folder Ansible looks for a plugin or a collection in: the product's own (the callback's, `CALLBACKS`, and the two
+filters the roles call, `FILTERS`, a folder of the engine's own beside the callback's that holds them alone - never
+today's filter_plugins/, whose filters reach out from this computer), and an empty folder of the run's directory
+(`NONE`) for every other kind, with Python's path not scanned for collections, so that nothing under the caller's HOME
+or under /usr/share/ansible is searched (a vars plugin in ~/.ansible/plugins/vars runs without being enabled) - but,
+until F6a, the collections: three tasks of the roles call a Galaxy collection's module, which ansible-core resolves as
+the play loads, so the system play loads only where one is found. Until then the collections' path is the checkout's own
+folder, the one today's product's runs read, asked of its tools/env-run for the run's environment
+(`checkout_collections`): under the person's XDG_DATA_HOME, or HOME's .local/share, filled by `just install` from
+requirements.yml. Before the child starts it is held to requirements.yml's pins (`held_collections`), as today's
+tools/check collections holds it before every recipe's run: a folder, with each collection pinned there at its pin by
+the collection's own MANIFEST.json, as ansible-galaxy reads an installed one; a folder that is not there, a collection
+at another version or not there, and a tools/env-run that is not there to run are each refused in one sentence that
+names `just install` (`_unready`), before anything is written. F6a takes all of it out, and the collections' path is
+NONE's again. `ssh_args`, the one place ahead of Ansible's own words to ssh, holds `SSH_ARGS`: public keys and no other
+way to log in, as the runner offers (Ansible's own `PreferredAuthentications` puts GSSAPI and host-based first), never
+Ansible's default, which would put `ControlMaster=auto` ahead of the host's options and make the child a connection's
+master. The inventory's one host is named by the machine's identity, `agent-warehouse-<its SMBIOS UUID>`, never by a
+name a person chose, which is a variable (`NAME_VARIABLE`): a VM named after an inventory host once had today's status
+send the API token to the address its own agent reported. Its variables are the address, the account, `/usr/bin/python3`
+and `/usr/bin/sudo` by their paths, and the connection exactly as the SSH runner makes it (`runner.ansible_vars`): its
 options first, `StrictHostKeyChecking=yes` against the product's own known-hosts file under the identity, the shared
 control socket (the master `connections.ensure` opened before) with `ControlMaster=no`, and the hop only where the
 target carries one. The child never takes a key at first use: a target whose identity has no key filed is refused by
 name before anything starts, with the line that files it (`NoKey`), and so is a first use's target. The inventory is a
-source Ansible templates, so a value of it that would open a template is refused, never written. The variables file
-is held first to what guest/variables.py writes, since an extra variable outranks the inventory: no `ansible_` name,
-which would replace the connection's, and every string wrapped, so that none is read as a template.
+source Ansible templates, so a value of it that would open a template is refused, never written. The variables file is
+held first to what guest/variables.py writes, since an extra variable outranks the inventory: no `ansible_` name, which
+would replace the connection's, and every string wrapped, so that none is read as a template.
 
 The child's environment is an allow list (`KEPT`, then the engine's own): `PATH`, `HOME`, `LANG` and `SSH_AUTH_SOCK`
 where the caller's environment has them, `ANSIBLE_CONFIG` naming the generated configuration, the untrusted-template
@@ -44,18 +45,19 @@ given `-v`, and the job's marker, which children.start adds. Nothing else of the
 `ANSIBLE_*`, no `PYTHON*`, no stdout callback exported. Its command line is the program, `-i` and the inventory, the
 variables only as `-e @<file>` (never `key=value`, which splits on whitespace), `--tags` with the parts asked for,
 `--check` and `--diff` where asked, and the play. It is started through children.start as an `ansible` child of the run,
-in a session of its own, so that it has no terminal and a terminal's Ctrl-C reaches the run alone, which hands it on as
-SIGINT to the child's group (runs/attached.py); its standard input is `/dev/null`, and its one pipe is the events',
-whose write end goes over through start's descriptors and whose read end the run reads to its end, while the child
-runs: the product's callback (`CALLBACK`, in `CALLBACKS`, which only this configuration names) writes each event of the
-play there as a line of JSON, and guest/events.py hands each to the run's own `emit` as a `step` event of the machine,
-keyed by its identity as the run's record keys it, with the name a person chose beside it, every secret of the run's
-redaction list (`redacted`) struck from it. A listener that fails while the child runs ends the child, and its error is
-raised. What the child prints on its standard output and error - with the product's callback, Ansible's own words
-alone: a warning, an error before a play starts - goes to a file of its own, never the terminal, and its last `MOST`
-bytes from a line's start come back, struck and plain the same way, with the exit status and the counts the events gave
-(`Ended`). However the call ends, nothing it started is left: a child still running when it ends is ended with its tree
-(claude_vm.proc).
+in the run's directory, so that no file of the folder the run was started from is one Ansible finds (a relative path
+of a task file is looked for in the working folder too), in a session of its own, so that it has no terminal and a
+terminal's Ctrl-C reaches the run alone, which hands it on as SIGINT to the child's group (runs/attached.py); its
+standard input is `/dev/null`, and its one pipe is the events', whose write end goes over through start's descriptors
+and whose read end the run reads to its end, while the child runs: the product's callback (`CALLBACK`, in `CALLBACKS`,
+which only this configuration names) writes each event of the play there as a line of JSON, and guest/events.py hands
+each to the run's own `emit` as a `step` event of the machine, keyed by its identity as the run's record keys it, with
+the name a person chose beside it, every secret of the run's redaction list (`redacted`) struck from it. A listener that
+fails while the child runs ends the child, and its error is raised. What the child prints on its standard output and
+error - with the product's callback, Ansible's own words alone: a warning, an error before a play starts - goes to a
+file of its own, never the terminal, and its last `MOST` bytes from a line's start come back, struck and plain the same
+way, with the exit status and the counts the events gave (`Ended`). However the call ends, nothing it started is left: a
+child still running when it ends is ended with its tree (claude_vm.proc).
 
 Only tests pass `test_connection`: the host variables of a test-only connection, `local` for a play of one task on a
 stand-in machine (tests/unit/aw_machine.py's `layer1_host`) and `community.docker.docker` for a Molecule container,
@@ -116,8 +118,10 @@ CALLBACK = "aw_events"
 CALLBACKS = Path(__file__).resolve().parent / "ansible" / "callback_plugins"
 # The roles of this checkout or release: the folder beside lib/ that holds this module.
 ROLES = Path(__file__).resolve().parents[3] / "roles"
-# Today's filters, which the roles call (plain_text, sshd_match_spec): the folder beside lib/ that holds this module.
-FILTERS = Path(__file__).resolve().parents[3] / "filter_plugins"
+# The two filters the roles call, plain_text and sshd_match_spec, in a folder of the engine's own beside the callback's
+# that holds them alone: today's filter_plugins/ holds filters that reach out from this computer (proxmox_trust_holds
+# opens a connection to the address it is given), which a play could call.
+FILTERS = Path(__file__).resolve().parent / "ansible" / "filter_plugins"
 # Until F6a, the checkout's own folder of Galaxy collections, which the three tasks of the roles that call a collection
 # need for the play to load at all: asked of this checkout's tools/env-run (--collections), as every recipe of today's
 # product asks it, never worked out a second way. It reads the person's HOME and XDG_DATA_HOME and runs the programs on
@@ -664,20 +668,19 @@ async def run(
     test_collections: Path | None = None,
 ) -> Ended:
     """play run on target by one ansible-playbook, a child of job's run in a session of its own, with the configuration
-    and the inventory written into the run's directory and the environment built from env's allow list; started(process)
-    called once it runs; each event of the play handed to job's emit as a step event of the machine, keyed by target's
-    identity with name beside it, as it comes, every secret of redacted (every secret the run opened) struck from it;
-    its exit status, the end of what it printed, and the counts. The configuration names the checkout's own folder of
-    collections for env (checkout_collections) until F6a, or test_collections where a test gives it.
-    name is the name a person chose for the machine, and host_flag the host a line that names it names (the printer's).
-    Everything is held before anything is written or started: a target that is no machine's, a first use's, or whose
-    identity has no key filed, a play or a variables file that is not there, a variables file that is not what
+    and the inventory written into the run's directory, where it works, and the environment built from env's allow
+    list; started(process) called once it runs; each event of the play handed to job's emit as a step event of the
+    machine, keyed by target's identity with name beside it, as it comes, every secret of redacted (every secret the run
+    opened) struck from it; its exit status, the end of what it printed, and the counts. The configuration names the
+    checkout's own folder of collections for env (checkout_collections) until F6a, or test_collections where a test
+    gives it. name is the name a person chose for the machine, and host_flag the host a line that names it names (the
+    printer's). Everything is held before anything is written or started: a target that is no machine's, a first use's,
+    or whose identity has no key filed, a play or a variables file that is not there, a variables file that is not what
     guest/variables.py writes, a part, a flag, a verbosity or a redaction list that is not one, a test's folder of
     collections given without a test-only connection, an environment that names neither HOME nor XDG_DATA_HOME where no
     test gives its folder; and, where none does, the checkout's folder of collections not there or not at
     requirements.yml's pins, or no tools/env-run to find it, in the sentence that names just install. A listener of
-    job's that fails while the child runs ends the
-    child, and its error is raised."""
+    job's that fails while the child runs ends the child, and its error is raised."""
     import asyncio
     import tempfile
 
@@ -721,7 +724,8 @@ async def run(
     try:
         given = environment(env, config, writing, verbosity)
         with tempfile.TemporaryFile() as printed:
-            # The events pipe's write end goes over through start's descriptors, its last argument: no other is handed.
+            # The events pipe's write end goes over through start's descriptors: no other is handed. The child works in
+            # the run's directory, never the caller's folder, where Ansible looks for a task file a relative path names.
             process = await children.start(
                 job,
                 words,
@@ -732,6 +736,7 @@ async def run(
                 printed,
                 children.ANSIBLE,
                 (writing,),
+                cwd=directory,
             )
             os.close(writing)
             writing = -1

@@ -770,6 +770,33 @@ def test_under_auto_an_ssh_g_past_its_limit_settles_nothing_for_the_new_engine(t
     assert time.monotonic() - started < 10 and not route._LIVE
 
 
+@pytest.mark.parametrize(
+    ("words", "said"),
+    [
+        ("echo 'vdollar_percent_expand: unknown key %Q' >&2\n", "vdollar_percent_expand: unknown key %Q"),
+        ("", "it said nothing"),
+    ],
+)
+def test_under_auto_an_ssh_g_that_exits_with_an_error_settles_nothing_for_the_new_engine(tmp_path, words, said):
+    # A line of the person's configuration that ssh -G refuses for the host alone - a ControlPath with a token ssh does
+    # not know, which the hop's own lines outrank with theirs - leaves where ssh dials unsaid, whatever it printed: read
+    # as the address as written, it would settle direct where the configuration sends the host to a tailnet, and the
+    # run would dial the VMs straight (review 46, G7.md 1). Today's callers settle as they did; the new engine settles
+    # nothing, in ssh's own words.
+    ssh = _program(tmp_path / "ssh", f"#!/bin/sh\necho 'hostname 100.101.102.103'\n{words}exit 255\n")
+    hop = route.hop_settings(ssh=ssh, host="192.0.2.10", control_dir="/tmp/cp")
+    with pytest.raises(route.HopRefused) as refused:
+        route.route_settle("auto", hop, signalled_settles=False)
+    assert str(refused.value) == (
+        f"ssh -G for the Proxmox host exited 255 without saying where ssh dials for it ({said}), so the route under"
+        " vm_ssh_route: auto is not settled: mend what ssh says of your ssh configuration for the host, or set"
+        " vm_ssh_route: direct or host"
+    )
+    today = route.route_settle("auto", hop)
+    assert today == {"route": "direct", "addresses": ["192.0.2.10"], "dialled": "192.0.2.10"}
+    assert not route._LIVE
+
+
 def test_a_caller_ended_during_an_ssh_ends_it_and_waits_for_it(tmp_path, monkeypatch):
     pid_file = tmp_path / "pid"
     program = _program(tmp_path / "slow", f"#!/bin/sh\necho $$ > {pid_file}\nexec sleep 60\n")

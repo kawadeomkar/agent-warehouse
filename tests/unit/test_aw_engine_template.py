@@ -35,6 +35,7 @@ from pathlib import Path
 import pytest
 import yaml
 from aw_kit import imports_of
+from fleet_fixture import pinned
 from harness import ENGINE_POOL, _pve, _pve_requests, engine_grant, engine_token, fake_fleet
 from pki import proxmox_pki
 
@@ -66,7 +67,10 @@ SERVER = IMAGE.replace("/minimal/", "/server/")
 
 def _settings(**changes: object) -> dict[str, object]:
     """Every row's value for a run against the host lab, as fleet/overrides.py resolves them in this test's own home
-    (the settings' defaults: proxmox_template_vmid 9000, proxmox_node pve and the rest), with changes over them."""
+    (the settings' defaults: proxmox_template_vmid 9000, proxmox_node pve and the rest), with changes over them: the
+    host's settings this file's fleet is read with, the route to its VMs pinned direct first, as every fleet a test
+    makes pins it (fleet_fixture.pinned)."""
+    pinned("lab")
     resolved = overrides.resolve(paths.home(REPO), "lab")
     return {**{name: found.value for name, found in resolved.items()}, **changes}
 
@@ -169,7 +173,17 @@ def test_each_outcome_is_said_in_one_sentence() -> None:
     braces = dataclasses.replace(kept, differences=("image https://x.invalid/{line}.img → https://y.invalid/a.img",))
     assert "{line}.img" in braces.said()
     assert "(proxmox_audit_scope: pool)" in _compared(template.UNSEEN).said()
-    assert "place it in the pool" in _compared(template.UNSEEN, custom=True).said()
+    # A person's own template the token may not read is granted it by init, on its own path (card E1): never moved into
+    # the pool, whose role would reach it.
+    granting = "grants the token VM.Audit and VM.Clone on that template alone, which stays out of the pool."
+    unseen = _compared(template.UNSEEN, custom=True, line=Line("init", {}, host_flag=""))
+    assert unseen.said().endswith(f"(proxmox_audit_scope: pool): aw init {granting}")
+    assert "in the pool, where" not in unseen.said()
+    elsewhere = dataclasses.replace(unseen, line=Line("init", {}, host_flag="lab2"))
+    assert elsewhere.said().endswith(f"aw init --host lab2 {granting}")
+    for line in (None, Line("deploy", {"only": "template"}, host_flag="")):
+        with pytest.raises(ValueError, match="said with the init line"):
+            _compared(template.UNSEEN, custom=True, line=line)
     assert _compared(template.REFUSED, why=("Why.",)).said() == "Why."
     assert "only read and cloned" in _compared(template.CUSTOM, custom=True).said()
     lacking = _compared(template.CUSTOM, custom=True, why=("it has no net0", "its guest agent is off"))
@@ -518,11 +532,15 @@ def test_a_template_of_the_person_s_own_is_held_to_what_a_clone_needs(fleet, hom
 
 def test_a_template_of_the_person_s_own_outside_the_pool_is_unseen_under_pool(pooled, home) -> None:
     pooled.made_template(9500, "my-template")
-    found = pooled.compare(_settings(proxmox_template_custom="my-template"))
+    found = pooled.compare(_settings(proxmox_template_custom="my-template"), host_flag="lab2")
     assert (found.outcome, found.custom, found.template_id) == (template.UNSEEN, True, None)
-    assert "place it in the pool" in found.said()
-    pooled.member(9500)
-    assert pooled.compare(_settings(proxmox_template_custom="my-template")).usable
+    assert found.line == Line("init", {}, host_flag="lab2")
+    assert "aw init --host lab2 grants the token VM.Audit and VM.Clone on that template alone" in found.said()
+    # What init then grants (card E1: the clone role on the template's own path, for the user and the token), with the
+    # template left out of the pool: it is read, and cloned from.
+    engine_grant(pooled.base, "/vms/9500", "VM.Audit,VM.Clone")
+    granted = pooled.compare(_settings(proxmox_template_custom="my-template"))
+    assert granted.usable and (granted.outcome, granted.template_id) == (template.CUSTOM, 9500)
 
 
 # ------------------------------------------------------------------------ the judgement status calls too ----

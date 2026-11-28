@@ -19,6 +19,7 @@ the test alone; the module imports the standard library and the patterns.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import subprocess
@@ -391,7 +392,9 @@ def _new(work: Path, where: paths.Home, fleet: dict[str, object], run: tuple[str
     document = wiring.role_variables(_settings(where, run), NAME, ROLES)
     written = system.variables(work / "vars.json", document, secrets=())
     identity = f"{layer1.PREFIX}{uuid.uuid5(uuid.NAMESPACE_DNS, NAME)}"
-    target = runner.machine(identity, "192.0.2.10", "dev", work / "cp", known_hosts=work / "known_hosts")
+    made = runner.machine(identity, "192.0.2.10", "dev", work / "cp", known_hosts=work / "known_hosts")
+    # Marked as a route settled straight at it marks one (connections.target_for), which the runner's lines take alone.
+    target = dataclasses.replace(made, routed_as="direct", routed_from=runner.decided_from(made))
     inventory = work / f"{layer1.INVENTORY_PREFIX}{identity}{layer1.INVENTORY_SUFFIX}"
     inventory.write_text(json.dumps(layer1.inventory_document(target, NAME), indent=2) + "\n")
     assert sorted(path.name for path in work.iterdir()) == sorted(["vars.json", inventory.name]), "nothing beside it"

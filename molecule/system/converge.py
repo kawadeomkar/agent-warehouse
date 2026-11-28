@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import dataclasses
 import json
 import os
 import struct
@@ -108,7 +109,9 @@ def main(container: str) -> int:
     home = paths.home(REPO, environ)
     identity = f"agent-warehouse-{uuid.uuid5(uuid.NAMESPACE_DNS, container)}"
     known_hosts = scenario / "known_hosts"
-    target = runner.machine(identity, ADDRESS, ACCOUNT, scenario / "cp", known_hosts=known_hosts)
+    made = runner.machine(identity, ADDRESS, ACCOUNT, scenario / "cp", known_hosts=known_hosts)
+    # Marked as a route settled straight at it marks one (connections.target_for): the runner's lines take no other.
+    target = dataclasses.replace(made, routed_as="direct", routed_from=runner.decided_from(made))
     hostkeys.file(known_hosts, identity, _key())
     command = f"deploy {NAME} --only configure"
     job = jobs.create(paths.jobs_dir(home), "deploy", command, None, [identity], {"kind": "terminal"}, True)

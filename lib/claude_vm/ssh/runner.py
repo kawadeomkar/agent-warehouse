@@ -4,9 +4,17 @@
 A machine is a `Target`, a frozen record of everything its connection is made from: the machine's identity, the one
 IPv4 address it is reached at, the account and the port, the known-hosts file its key is checked against, the one
 shared control directory, an identity file or none, the hop through the Proxmox host or none, the person's own options
-for it (the setting `vm_ssh_options`), and whether this is a first use. The Proxmox host itself is the second form of
-it (`proxmox_host`), for root SSH and as the hop: no identity, its key in the person's own known-hosts file, taken at
-first use as `ssh` reaches it today.
+for it (the setting `vm_ssh_options`), whether this is a first use, and the route's mark (`routed_as`): how the route a
+run settled reaches it, straight to its address, through the hop or by a jump of its own, which `connections.py`'s
+`target_for` alone gives (engine/routes.py's `Route.targets` calls it), with what the route decided it from
+(`routed_from`: its address, account, port, ssh program and options, and the hop it gave). A machine's `Target` is made
+unmarked (`machine`), and the runner makes no command line of one: a `Target` made anywhere but through the route is
+refused before anything starts, and so is one marked through the hop that no longer has it, or one whose address,
+account, port, ssh program, options or hop are no longer what the route decided from (a `dataclasses.replace`, or any
+other way of changing one), so that nothing dials a machine by a road the route did not give it: a first use's
+known-hosts file is all that changes after the route. The Proxmox host itself is the second form of it
+(`proxmox_host`), for root SSH and as the hop: no identity, its key in the person's own known-hosts file, taken at first
+use as `ssh` reaches it today, and no mark.
 
 `argv` builds the whole command line, each value one word and none through a shell: the product's options first, since
 `ssh` keeps the first value it is given for an option, then the hop's, then the person's, then `--`, the address and the
@@ -171,6 +179,26 @@ _FORWARD = re.compile(
     r":[0-9]{1,5}"
 )
 
+# How the route a run settled reaches a machine, the mark connections.target_for gives its Target, the one place that
+# gives one: straight to its address (the route is direct, or the machine is no Proxmox VM), through the hop, or by a
+# jump of its own. A Target marked through the hop has one, and one marked otherwise has none.
+ROUTED_AS = ("direct", "hop", "own")
+_ROUTED_SAID = {"direct": "straight at its address", "hop": "through the hop", "own": "by a jump of its own"}
+# What the route decided a machine's mark from, and the hop it gave, kept on its Target beside the mark (routed_from,
+# decided_from): the runner refuses a Target any of them changed on since, by whatever spelling, since its mark is then
+# no longer the route's - an address moved to another VM's, a jump taken out of its options. Only a first use's
+# known-hosts file changes after the route (connections.first_use), and the files and the directory a connection is
+# checked and shared in, which decide no road.
+ROUTED_FROM = ("address", "account", "port", "ssh", "given", "hop")
+_ROUTED_FROM_SAID = {
+    "address": "address",
+    "account": "account",
+    "port": "port",
+    "ssh": "ssh program",
+    "given": "vm_ssh_options",
+    "hop": "hop",
+}
+
 # The longest a forward is held, in seconds: a sign-in's wait on a person, a few minutes, well within it.
 FORWARD_MOST = 24 * 60 * 60
 
@@ -211,7 +239,12 @@ class Hop:
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class Target:
     """What a connection to a machine is made from, or to the Proxmox host itself (`identity` None): each value held
-    before any child starts. `given` is the person's own options, as (name, value) pairs in their order."""
+    before any child starts. `given` is the person's own options, as (name, value) pairs in their order. `routed_as` is
+    the route's mark, one of ROUTED_AS, which connections.target_for alone gives and dataclasses.replace carries: "" for
+    a machine's Target no route has marked, which the runner makes no command line of (options), and for the host.
+    `routed_from` is what the route decided the mark from (decided_from, as target_for read it), given with the mark and
+    carried with it: a Target whose fields of ROUTED_FROM are no longer those is refused as it is made, and again where
+    a command line is made of one changed by other means; () unmarked."""
 
     identity: str | None
     address: str
@@ -224,6 +257,8 @@ class Target:
     given: tuple[tuple[str, str], ...] = ()
     first_use: bool = False
     ssh: str = "ssh"
+    routed_as: str = ""
+    routed_from: tuple[tuple[str, object], ...] = dataclasses.field(default=(), repr=False)
 
     def __post_init__(self) -> None:
         _port(self.port)
@@ -258,6 +293,19 @@ class Target:
         object.__setattr__(self, "given", _given(self.given))
         if self.hop is not None and route.ssh_jump(given_words(self)):
             raise Refused("a machine given a jump of its own in vm_ssh_options takes no hop through the Proxmox host")
+        if self.routed_as not in ("", *ROUTED_AS):
+            raise Refused(f"a machine's Target is marked with the route it was given: {', '.join(ROUTED_AS)}")
+        if self.routed_as == "hop" and self.hop is None:
+            raise Refused(
+                "a machine the route reaches through the Proxmox host has lost its hop, and would be dialled from here:"
+                " nothing was started"
+            )
+        if self.routed_as not in ("", "hop") and self.hop is not None:
+            raise Refused(f"a machine the route reaches {_ROUTED_SAID[self.routed_as]} takes no hop through the host")
+        if not self.routed_as and self.routed_from:
+            raise Refused("a machine's Target no route marked carries nothing a route decided from")
+        if self.routed_as and (changed := _changed(self)):
+            raise Refused(_moved(self, changed))
         if self.first_use:
             scratch = self.known_hosts.resolve()
             kept = [KNOWN_HOSTS, *PERSONS_KNOWN_HOSTS]
@@ -280,10 +328,17 @@ class Target:
         return route.socket_fits(socket)
 
     def _as_the_host(self) -> None:
-        if self.known_hosts is not None or self.hop is not None or self.given or self.first_use:
+        if (
+            self.known_hosts is not None
+            or self.hop is not None
+            or self.given
+            or self.first_use
+            or self.routed_as
+            or self.routed_from
+        ):
             raise Refused(
                 "the Proxmox host's key is the person's own known-hosts file's, taken at first use, and it takes no"
-                " hop and no vm_ssh_options"
+                " hop, no vm_ssh_options and no route's mark"
             )
         try:
             # A socket past the length is no refusal of a setting: shared and options say it (route.socket_fits).
@@ -476,6 +531,56 @@ def _policy(target: Target) -> str:
 # ---------------------------------------------------------------- the command line ----
 
 
+def decided_from(target: Target) -> tuple[tuple[str, object], ...]:
+    """What a route decides target's mark from, and the hop it gives, as (name, value) pairs of ROUTED_FROM in its
+    order: what connections.target_for keeps beside the mark it gives (Target.routed_from)."""
+    return tuple((name, getattr(target, name)) for name in ROUTED_FROM)
+
+
+def _changed(target: Target) -> list[str]:
+    """The fields of ROUTED_FROM that target no longer holds as its route decided from: none where it is as the route
+    marked it; every one where what it keeps is not a record of them."""
+    now = decided_from(target)
+    if target.routed_from == now:
+        return []
+    try:
+        then = dict(target.routed_from)
+    except (TypeError, ValueError):
+        then = {}
+    changed = [name for name, value in now if name not in then or then[name] != value]
+    return changed if changed and set(then) == set(ROUTED_FROM) else list(ROUTED_FROM)
+
+
+def _moved(target: Target, changed: Sequence[str]) -> str:
+    """Why a Target changed since its route marked it is refused, its changed fields named."""
+    said = ", ".join(_ROUTED_FROM_SAID[name] for name in changed)
+    return (
+        f"a machine the route reaches {_ROUTED_SAID[target.routed_as]} was marked so for the address, account, port,"
+        f" ssh program, vm_ssh_options and hop it had then, and its {said} changed since, so the mark is no longer the"
+        " route's: nothing was started; take it again from the route (engine/routes.py's Route.targets)"
+    )
+
+
+def _routed(target: Target) -> None:
+    """A machine's Target held to the route's mark before any command line is made of it: Refused where no route
+    marked it (made anywhere but through engine/routes.py's Route.targets), where one marked through the hop has none,
+    or where any of what the route decided its mark from changed since (routed_from) - as Target holds it when it is
+    made, and again here, for one changed since by other means."""
+    if target.routed_as not in ROUTED_AS:
+        raise Refused(
+            "a machine's Target is made by the route the run settled (engine/routes.py's Route.targets), which marks"
+            " how it is reached: this one is unmarked, so nothing was started"
+        )
+    if (target.routed_as == "hop") != (target.hop is not None):
+        raise Refused(
+            f"a machine the route reaches {_ROUTED_SAID[target.routed_as]} "
+            + ("has lost its hop" if target.hop is None else "has been given a hop")
+            + ": nothing was started"
+        )
+    if changed := _changed(target):
+        raise Refused(_moved(target, changed))
+
+
 def given_words(target: Target) -> list[str]:
     """The person's own options for target, as words: -o Name=value each, in their order."""
     return [word for name, value in target.given for word in ("-o", f"{name}={value}")]
@@ -499,11 +604,13 @@ def options(target: Target, forward: bool = False) -> list[str]:
     keeps its forwards whatever a person's ClearAllForwardings says; so is a first use's, which a master that still
     lives for the identity and the address would otherwise carry, so that ssh wrote no key into its scratch file; and
     so is every connection of a machine whose socket's path would be too long (Target.shared). The Proxmox host's
-    connections ride the hop's, and past its socket's length each logs in alone, as a machine's does."""
+    connections ride the hop's, and past its socket's length each logs in alone, as a machine's does. A machine's
+    Target is one the route marked (_routed)."""
     if target.is_host:
         socket = _host_socket(target)
         words = ["-o", "UpdateHostKeys=no", "-o", "ForwardAgent=no"]
     else:
+        _routed(target)
         socket = f"{target.control_dir}/{_control_name(target)}-%r-%p"
         words = shlex.split(checks.vm_ssh_args(target.identity, target.known_hosts))
     alone = forward or target.first_use or not target.shared

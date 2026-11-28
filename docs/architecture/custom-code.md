@@ -823,7 +823,14 @@ good, and runs at exit, Ctrl-C included.
   question steps it aside the same way, inside `aside()`, which the wrappers use too.
 - **The terminal.** Its echo is off while the region is up, and on for a prompt and at the end: an Enter
   typed during a run would move the cursor under the region, and the next redraw would leave a copy of it
-  behind. A resize (`SIGWINCH`) pushes the screen into the scrollback and draws afresh, since no count of
+  behind. Meanwhile it keeps at a Ctrl-C what it has not read yet (`NOFLSH`), where it would throw away a line
+  said above or part of a frame - macOS all it holds unread, Linux what it holds past its line discipline's
+  buffer - and the keys typed unseen before it are left for the next reader, as keys typed with no Ctrl-C are.
+  For a prompt and at the end the settings are put back exactly as found. A change of the terminal's settings
+  that a signal interrupts is made again (`set_terminal`):
+  `TCSADRAIN` waits for the output to drain, a signal whose handler raises nothing (a first Ctrl-C, a hold's note,
+  a resize) ends the wait with `EINTR`, and `termios` does not try again itself; taken for no terminal, it dropped
+  the settings to put back and left the echo off for the prompt. A resize (`SIGWINCH`) pushes the screen into the scrollback and draws afresh, since no count of
   what was drawn holds once a frame meant for the old size has wrapped. `title()` sets the tab's title (OSC
   0) when it changes, and `bell()` rings.
 
@@ -852,6 +859,13 @@ line (`collapsed`), to the screen and the log.
   an answer's first letter (`y` and `n` for a yes or no), Enter to choose, Esc to decide later. A long list scrolls
   in a window, the hint saying where the marked answer is; the terminal's size is read at each redraw, since
   `prompt_until` runs in Ansible's results thread, where no SIGWINCH handler can be set.
+- **The same menu, for the new engine** (`asked`): its keys read by a coroutine of the caller's, as a read on the
+  run's event loop gives them, several at once or a sequence in parts, and cut as `ask` reads them one at a time
+  (`split`); the drawing (`Shown`), the terminal's settings (`raw`) and the keys' meaning are `ask`'s own, and its
+  changes of the settings are `set_terminal`'s, each `TCSAFLUSH`'s, as `getpass` makes them, so that a key typed
+  before the menu is never taken and one typed after its answer is never left for the shell. The new engine's
+  questions ask it, reading on the loop, never in a thread
+  ([§16.8](engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run)); `ask` is unchanged for today's.
 
 **`Output`**, beside it, is what every live output does around its region, whatever it draws: whether to draw
 (`can_draw()`, unless the caller decided), whether to colour (the caller's `ANSIBLE_NOCOLOR`), the region, and the

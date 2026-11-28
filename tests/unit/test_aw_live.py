@@ -5,11 +5,13 @@ At a pseudo-terminal of the test's own (harness._at_a_pseudo_terminal), each run
 runs.run as a verb makes one, whose body makes the live view and emits one of tests/unit/test_aw_run_view.py's canned
 runs, a moment between its events: the frames it drew, each redraw one write, read back by tests/unit/vt.py with no line
 wrapped at 80 or 100 columns, and none drawn once the run has ended; the terminal's echo off while it draws and back at
-the end, however the run ended (a return, a Ctrl-C, a SIGTERM, a SIGHUP); a report said above the region and left there;
-a failure said above, and the summary's head where it failed; the stopping line a Ctrl-C makes said above the region,
-never inside it, and the footer saying the run is stopping; the summary, then NEXT STEPS once, after it, and the bell; a
-SIGTERM or a SIGHUP at a random moment while events flow, which leaves no frame's remains and loses no line said above;
-and a question asked with the region aside, the view found by the run's job. Piped, and with -v at a terminal, nothing
+the end, its settings then those it had before the run, however the run ended (a return, a Ctrl-C, a SIGTERM, a
+SIGHUP); a report said above the region and left there; a failure said above, and the summary's head where it failed;
+the stopping line a Ctrl-C makes said above the region, never inside it, and the footer saying the run is stopping; the
+summary, then NEXT STEPS once, after it, and the bell; 300 reports said above with nobody reading and a Ctrl-C typed
+before the terminal has read any, each still on the screen; a SIGTERM or a SIGHUP at a random moment while events
+flow, which leaves no frame's remains and loses no line said above; and a question asked with the region aside, the
+view found by the run's job. Piped, and with -v at a terminal, nothing
 is drawn: a line as each step ends, or each event as a line; piped into a reader that leaves after the first line, the
 run ends with its own status. In this process, with a clock of the test's own: what a run off a terminal prints is
 exactly what the view gives after each event (what is said above, the lines of what ended), then the summary and NEXT
@@ -21,6 +23,13 @@ comes meanwhile delivered after; a job has one view, a second refused; and a str
 broken pipe pointed at /dev/null. The rule with a test of its own: nothing in runs/ writes an escape sequence or reads
 /dev/tty itself, by a scan. The cases of tests/unit/test_live_commands.py about what a run draws each have their twin
 here (TWINS), before K14 removes that file.
+
+A key a test types at a run's terminal (an act) waits for a frame that shows what the run waits for, never for the
+terminal's title alone. The region writes the title one write before the frame that says the same, and at an interrupt
+a terminal without NOFLSH throws away what the run wrote and its reader has not read (which macOS's pseudo-terminal
+keeps until it is read, Linux's for a moment): the region's NOFLSH, which the case of 300 reports holds, is what keeps a
+Ctrl-C typed between the two from taking the frame with it. So the Ctrl-C's act is played again over the run's own
+writes, read one at a time as macOS can hand them over, and a scan holds every act of this file to a frame.
 """
 
 from __future__ import annotations
@@ -410,6 +419,17 @@ async def body(ctx):
         asked.extend([echoes(), time.monotonic()])
         await asyncio.sleep(1.0)
         return 0
+    if way == "burst":
+        # Once the test says go, a report said above the region each turn with no pause, while the test reads nothing;
+        # then the Ctrl-C it types, and the run stopped as for "stop".
+        while not (folder / "go").exists():
+            await asyncio.sleep(0.01)
+        for turn in range(1, 301):
+            ctx.emit("report", "alpha", f"report {turn:05}")
+        (folder / "said").write_text("")
+        await ctx.cancelled.wait()
+        await asyncio.sleep(0.6)
+        return 130
     if way == "hold":
         await asyncio.sleep(600)
     if way == "stop":
@@ -434,16 +454,19 @@ sys.exit(runs.run(draft, body))
 """
 
 # At a pseudo-terminal: the run as a child in the terminal's foreground group, and once it has ended, whether the
-# terminal echoes and how the run ended, as one line of JSON. A Ctrl-C typed reaches both: this one takes it with a
-# handler that does nothing, never SIG_IGN, which the run would inherit (as tests/unit/test_aw_attached.py's).
+# terminal echoes, how the run ended, and whether the terminal's settings are those it had before the run, as one line
+# of JSON. A Ctrl-C typed reaches both: this one takes it with a handler that does nothing, never SIG_IGN, which the run
+# would inherit (as tests/unit/test_aw_attached.py's).
 WATCHES = r"""
 import json, signal, subprocess, sys, termios
 signal.signal(signal.SIGINT, lambda *_: None)
+before = termios.tcgetattr(0)
 run = subprocess.Popen(sys.argv[1:])
 status = run.wait()
-print(json.dumps({"echo": bool(termios.tcgetattr(0)[3] & termios.ECHO), "status": status}), flush=True)
+after = termios.tcgetattr(0)
+print(json.dumps({"echo": bool(after[3] & termios.ECHO), "status": status, "same": after == before}), flush=True)
 """
-WATCHED = re.compile(rb'\{"echo": (true|false), "status": (-?\d+)\}')
+WATCHED = re.compile(rb'\{"echo": (true|false), "status": (-?\d+), "same": (true|false)\}')
 # The run's Python: isolated, as every run of the engine's is, and in UTF-8 whatever the locale (-I ignores PYTHONUTF8).
 CHILD = [sys.executable, "-I", "-X", "utf8", "-c", RUN]
 # A canned run's pauses: a moment between two events, and a longer one where the run would be at work, for the
@@ -498,6 +521,8 @@ def _at_a_terminal(
     harness._fail_if_the_desktop_was_reached(stand_ins(home))
     found = WATCHED.search(raw)
     assert rc == 0 and found is not None, raw.decode(errors="replace")
+    # However the run ended, the terminal's settings are those it had before it: the echo, and NOFLSH, as found.
+    assert found.group(3) == b"true", raw.decode(errors="replace")
     watched = {"echo": found.group(1) == b"true", "status": int(found.group(2))}
     kept = folder / "kept.json"
     return AtATerminal(Ran(rc, raw, "", screen), watched, json.loads(kept.read_text()) if kept.is_file() else None)
@@ -506,6 +531,57 @@ def _at_a_terminal(
 def _redraws(writes: list[str]) -> list[str]:
     """The writes that drew the region."""
     return [write for write in writes if SYNC_ON.decode() in write or SYNC_OFF.decode() in write]
+
+
+# ---------------------------------------------------------------- what a test types at, and when ----
+
+
+def _newest_frame(output: bytes) -> str:
+    """The newest frame drawn whole in what was read, its escapes left out: '' before the first, and while one is
+    still being drawn, whose end a Ctrl-C typed now could take with it."""
+    start = output.rfind(SYNC_ON)
+    if start < 0 or output.find(SYNC_OFF, start) < 0:
+        return ""
+    return Ran(0, output[start:], "").frames[-1]
+
+
+def _ctrl_c_once_waiting() -> tuple[Callable[[bytes, VT, int, Path], None], list[int]]:
+    """An act that types Ctrl-C once, when the newest frame read says the run waits for you, and what it typed."""
+    typed: list[int] = []
+
+    def interrupt(output: bytes, screen: VT, master: int, folder: Path) -> None:
+        if not typed and "waiting for you" in _newest_frame(output):
+            typed.append(os.write(master, b"\x03"))
+
+    return interrupt, typed
+
+
+def _read_one_write_at_a_time(
+    writes: list[str], act: Callable[[bytes, VT, int, Path], None], typed: list[int]
+) -> bytes:
+    """The run's own writes read as macOS's terminal can hand them over, each on its own, and the act told after each,
+    as _at_a_terminal tells it after each read: what had been read when the act typed a key (what the run wrote after
+    is what the terminal's flush at a Ctrl-C would take), or everything, where it never typed."""
+    screen, read = VT(100, 30), b""
+    keys = os.open(os.devnull, os.O_WRONLY)
+    try:
+        for write in writes:
+            data = write.encode()
+            screen.feed(data)
+            read += data
+            act(read, screen, keys, Path())
+            if typed:
+                break
+    finally:
+        os.close(keys)
+    return read
+
+
+def _the_wait_drawn(frames: list[str], said: str) -> int:
+    """The last frame that says the run waits for you; that none did, said in words."""
+    waiting = [index for index, frame in enumerate(frames) if "waiting for you" in frame]
+    assert waiting, f"no frame read says the run waits for you, the frame the Ctrl-C waits for:\n{said}"
+    return waiting[-1]
 
 
 @pytest.mark.parametrize("cols", [80, 100])
@@ -570,16 +646,18 @@ def test_a_failed_run_is_drawn_its_failure_said_above_and_its_end_says_where(hom
 
 def test_a_ctrl_c_is_said_above_the_region_the_footer_says_stopping_and_the_run_is_said_stopped(home, tmp_path) -> None:
     _events(tmp_path, canned.TO_THE_SIGN_IN)
-    typed: list[int] = []
-
-    def interrupt(output: bytes, screen: VT, master: int, folder: Path) -> None:
-        # Once the run waits for you, as its title says, and once only.
-        if not typed and screen.titles and screen.titles[-1].endswith("waiting for you"):
-            typed.append(os.write(master, b"\x03"))
-
+    # Once a frame shows the run waits for you, and once only.
+    interrupt, typed = _ctrl_c_once_waiting()
     seen = _at_a_terminal(home, tmp_path, "stop", act=interrupt)
-    ran = seen.ran
+    ran, kept = seen.ran, seen.kept
     assert typed and seen.watched == {"echo": True, "status": 130}, ran.text
+    # The race, made to happen: the same act over the run's own writes, read one at a time. Where it types, the frame
+    # this test looks for below has been read, so the terminal's flush at the Ctrl-C cannot take it.
+    assert kept is not None
+    replayed, typed_again = _ctrl_c_once_waiting()
+    read = _read_one_write_at_a_time(kept["writes"], replayed, typed_again)
+    assert typed_again, read.decode(errors="replace")
+    _the_wait_drawn(Ran(0, read, "").frames, read.decode(errors="replace"))
     ran.assert_drawn_and_gone()
     lines = ran.transcript.split("\n")
     # The ladder's line, on standard error, said above the region on a line of its own, and never inside a frame.
@@ -587,12 +665,57 @@ def test_a_ctrl_c_is_said_above_the_region_the_footer_says_stopping_and_the_run_
     assert len(stopping) == 1 and stopping[0].startswith(STOPPING), ran.transcript
     assert not any(STOPPING in frame for frame in ran.frames)
     # A frame after it says the run is stopping, and the wait for you ended.
-    after = ran.frames[[index for index, frame in enumerate(ran.frames) if "waiting for you" in frame][-1] + 1 :]
+    after = ran.frames[_the_wait_drawn(ran.frames, ran.transcript) + 1 :]
     assert any(re.search(r"· stopping", frame) for frame in after), after
     head = next(line for line in lines if line.startswith("agent-warehouse  deploy alpha · "))
     assert re.match(r"agent-warehouse  deploy alpha · stopped after \d+ s at Claude", head), head
     assert lines.index(stopping[0]) < lines.index(head)
     assert ran.screen.titles[-1] == "deploy alpha · stopped"
+
+
+# How many reports the bursting run says above the region (each as FLOWED reads it, below), and how long the test,
+# reading nothing, waits for the run to have said them all before it types its Ctrl-C: a run whose write waits for the
+# terminal's reader, once the terminal holds as much unread as it takes, has said fewer, which wait unread the same.
+BURST_REPORTS, BURST_WAIT = 300, 1.5
+
+
+def _ctrl_c_before_the_terminal_reads() -> tuple[Callable[[bytes, VT, int, Path], None], list[int]]:
+    """An act that, once a frame is drawn whole, lets the run say its reports and reads nothing meanwhile, then types
+    Ctrl-C, once: everything the run said since is still unread by the terminal when the Ctrl-C lands."""
+    typed: list[int] = []
+
+    def burst(output: bytes, screen: VT, master: int, folder: Path) -> None:
+        if typed or not _newest_frame(output):
+            return
+        (folder / "go").write_text("")
+        waited = time.monotonic() + BURST_WAIT
+        while not (folder / "said").exists() and time.monotonic() < waited:
+            time.sleep(0.02)
+        typed.append(os.write(master, b"\x03"))
+
+    return burst, typed
+
+
+def test_a_ctrl_c_typed_before_the_terminal_reads_what_the_run_said_loses_none_of_it(home, tmp_path) -> None:
+    # At an interrupt the terminal throws away what the run wrote and its reader has not read, unless NOFLSH, which
+    # the region sets beside the echo: on Linux what it holds past its line discipline's buffer, on macOS all it holds.
+    # So the run says 300 reports above the region (the body's "burst") with the test reading nothing, and the Ctrl-C
+    # lands before the test has read any of them: each is on the screen, once and in order.
+    _events(tmp_path, canned.ONE_TO_CONFIGURE[:6])
+    burst, typed = _ctrl_c_before_the_terminal_reads()
+    seen = _at_a_terminal(home, tmp_path, "burst", act=burst)
+    ran = seen.ran
+    lines = ran.screen.transcript()
+    tail = "\n".join(lines[-60:])
+    assert typed and seen.watched == {"echo": True, "status": 130}, tail
+    ran.assert_drawn_and_gone()
+    screen = ran.transcript
+    head = re.search(r"^agent-warehouse  deploy alpha · stopped after .+ at configure", screen, re.M)
+    assert head is not None, tail
+    said = [int(number) for number in FLOWED.findall(screen[: head.start()])]
+    lost = sorted(set(range(1, BURST_REPORTS + 1)) - set(said))
+    assert said == list(range(1, BURST_REPORTS + 1)), (f"{len(lost)} lost, the first {lost[:5]}", tail)
+    assert len([line for line in lines if line.startswith(STOPPING)]) == 1, tail
 
 
 @pytest.mark.parametrize("signum", [signal.SIGTERM, signal.SIGHUP], ids=["SIGTERM", "SIGHUP"])
@@ -787,7 +910,9 @@ def test_what_an_event_says_is_said_whole_and_a_signal_meanwhile_is_delivered_af
 
 def test_standard_errors_lines_are_said_above_whole_and_a_signal_meanwhile_is_delivered_after() -> None:
     errors = Signalling("one", signal.SIGHUP)
-    above = live._Above(live.Display(io.StringIO(), errors), errors)
+    display = live.Display(io.StringIO(), errors)
+    # Each whole line handed to the display, as the view hands them while no question is up (Live._complained).
+    above = live._Above(display, errors, lambda lines: [display.display(line, stderr=True) for line, _ in lines])
     with _ending_on(signal.SIGHUP), pytest.raises(Ended):
         above.write("one\ntwo\n")
     assert errors.getvalue() == "one\ntwo\n"
@@ -912,6 +1037,106 @@ def test_nothing_in_runs_writes_an_escape_sequence_or_reads_the_terminal_itself(
 )
 def test_the_scan_finds_each_way_to_the_terminal(source) -> None:
     assert _talks_to_the_terminal(source), source
+
+
+# What a frame is read through here: the newest one drawn whole, or every one.
+FRAME_READERS = {"_newest_frame", "frames"}
+
+
+def _acts_at_the_title_alone(source: str) -> list[str]:
+    """Where an act given as act= reads the screen's titles and no frame (FRAME_READERS) anywhere in it, by line: an
+    act is a function of the file's, by its name (every one of that name), or a lambda; one of any other form, which
+    this scan cannot read, is said too."""
+    tree = ast.parse(source)
+    functions: dict[str, list[ast.AST]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            functions.setdefault(node.name, []).append(node)
+    found = []
+    for node in ast.walk(tree):
+        for keyword in node.keywords if isinstance(node, ast.Call) else []:
+            if keyword.arg != "act" or (isinstance(keyword.value, ast.Constant) and keyword.value.value is None):
+                continue
+            value = keyword.value
+            acts = [value] if isinstance(value, ast.Lambda) else functions.get(getattr(value, "id", ""), [])
+            if not acts:
+                found.append(f"line {node.lineno}: an act this scan cannot read, {ast.unparse(value)}")
+            for act in acts:
+                read = {sub.attr for sub in ast.walk(act) if isinstance(sub, ast.Attribute)}
+                read |= {sub.id for sub in ast.walk(act) if isinstance(sub, ast.Name)}
+                if "titles" in read and not read & FRAME_READERS:
+                    found.append(f"line {act.lineno}: an act at the title alone")
+    return found
+
+
+def test_no_act_types_at_the_title_alone() -> None:
+    source = Path(__file__).read_text()
+    assert _acts_at_the_title_alone(source) == []
+    # The acts of this file the scan reads: the Ctrl-C's, the kills', and the reader's own that tells each.
+    given = {
+        ast.unparse(keyword.value)
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call)
+        for keyword in node.keywords
+        if keyword.arg == "act"
+    }
+    assert {"interrupt", "end_it", "drive"} <= given, given
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "def interrupt(output, screen, master, folder):\n"
+        "    if screen.titles and screen.titles[-1].endswith('waiting for you'):\n"
+        "        os.write(master, b'x')\n"
+        "run(act=interrupt)",
+        "run(act=lambda output, screen, master, folder: 'waiting' in screen.titles[-1])",
+        "def act(output, screen, master, folder):\n"
+        "    def deeper():\n"
+        "        return screen.titles\n"
+        "    deeper()\n"
+        "run(home, act=act)",
+        "def end_it(output, screen, master, folder):\n    pass\n"
+        "def end_it(output, screen, master, folder):\n    return screen.titles[-1]\n"
+        "run(act=end_it)",
+        "run(act=made.interrupt)",
+        "run(act=elsewhere)",
+    ],
+)
+def test_the_scan_finds_each_act_at_the_title_alone(source) -> None:
+    assert _acts_at_the_title_alone(source), source
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "def interrupt(output, screen, master, folder):\n"
+        "    if screen.titles and 'waiting for you' in _newest_frame(output):\n"
+        "        os.write(master, b'x')\n"
+        "run(act=interrupt)",
+        "run(act=lambda output, screen, master, folder: len(ran.frames))",
+        "def end_it(output, screen, master, folder):\n    return 'motd' in '\\n'.join(screen.lines)\nrun(act=end_it)",
+        "run(argv, act=None)",
+    ],
+)
+def test_the_scan_passes_an_act_that_reads_a_frame_or_no_title(source) -> None:
+    assert _acts_at_the_title_alone(source) == [], source
+
+
+@pytest.mark.parametrize(
+    ("output", "newest"),
+    [
+        (b"", ""),
+        (b"\x1b]0;deploy alpha \xc2\xb7 waiting for you\x07", ""),
+        (SYNC_ON + b"one\x1b[K\n" + SYNC_OFF, "one\n"),
+        (SYNC_ON + b"one" + SYNC_OFF + b"\x07" + SYNC_ON + b"two" + SYNC_OFF, "two"),
+        # The newest still being drawn: none whole yet, its end still to come.
+        (SYNC_ON + b"one" + SYNC_OFF + SYNC_ON + b"waiting for", ""),
+    ],
+    ids=["nothing", "a title alone", "one frame", "the newest of two", "one still drawn"],
+)
+def test_the_newest_frame_is_the_last_drawn_whole_and_none_while_one_is_drawn(output, newest) -> None:
+    assert _newest_frame(output) == newest
 
 
 def test_each_drawing_case_of_todays_parts_has_its_twin_here() -> None:

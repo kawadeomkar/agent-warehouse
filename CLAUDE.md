@@ -547,8 +547,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `ssh` is ended by its pid alone, since it shares their own group; an `ssh -G`'s standard error is read from a
       file, so a program its `Match exec` left holding it costs no answer; `route` settles nothing where its `ssh -G`
       gave no answer, ended by a signal, out of its time, not started since the run is ending, or not run at all, the
-      `ssh` program or the temporary file its errors are read from not made (`signalled_settles=False`), and refuses
-      the route through the host where the hop's socket would pass
+      `ssh` program or the temporary file its errors are read from not made, or exited with an error, said in `ssh`'s
+      own words (`signalled_settles=False`), and refuses the route through the host where the hop's socket would pass
       `route.SOCKET_MOST`, naming `vm_ssh_route: direct` or a shorter home; every line of the hop's own `ssh` pins
       `ForwardX11=no`, `PermitLocalCommand=no` and `ClearAllForwardings=yes` first (`route.hop_settings`' `pinned`),
       so none takes a person's forwards or tunnel, which `-W` clears only by default. It keeps every
@@ -572,17 +572,26 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - A run of the new engine settles its route once, through `lib/claude_vm/engine/routes.py` alone (`settle`):
       `vm_ssh_route` as client.yml keeps it for the run's host (its map `hosts`, never another host's), `auto` worked
       out at each run from where `ssh -G` dials the host, the hop the host's own `Target` (`host_target`, root SSH's
-      too: host.yml's address, `ssh_user`, `ssh_port` and `jump`, this computer's `ssh_identity_file` and
-      `ssh_executable`), its login made at the run's start where `vm_ssh_options` for every machine names no jump, else
-      by the first machine that takes the hop. `Route.targets` is the one function that makes a machine's `Target`:
-      the person's `vm_ssh_options` for it, the hop where it brings no jump of its own and is a Proxmox VM, each held
-      (`held`) before anything connects, then one forward of its own to the first by name through the hop
-      (`Connections.forward`, `route.hop_forward`): a host that refuses to forward or that `ssh` cannot use stops the
-      run (`routes.Unusable`), and nothing dials a machine. `Route.ready()` makes sure of the shared connection again
-      before a step that reaches many machines and after a wait on a person, failing none. No module of `engine/` but
-      `routes.py` makes a `Target`; every fleet a test makes pins `vm_ssh_route: direct`
-      (`tests/unit/fleet_fixture.py`). `tests/unit/test_aw_routes.py` holds it, on stand-in machines and a stand-in
-      hop.
+      too: host.yml's address, `ssh_user` and `ssh_port`, this computer's `ssh_identity_file` and `ssh_executable`; the
+      hop logs in as host.yml's `jump` in place of `ssh_user` where it names one, `Connections.route`'s doing), its
+      login made at the run's start where `vm_ssh_options` for every machine names no jump, else by the first machine
+      that takes the hop. `Route.targets` is the one function that makes a machine's `Target`: the person's
+      `vm_ssh_options` for it, the hop where it brings no jump of its own and is a Proxmox VM, marked with the route it
+      was given (`routed_as`: `direct`, `hop` or `own`, by `connections.target_for` alone), every one held (`held`)
+      before anything connects, then the hop's login, then one forward of its own to the first by name through the
+      hop (`Connections.forward`, `route.hop_forward`): a host that refuses to forward or that `ssh` cannot use stops
+      the run (`routes.Unusable`), raised again by every later `targets` and by one that waited on it, and nothing
+      dials a machine. The runner makes no command line of a machine's `Target` unmarked, nor of one marked `hop`
+      without its hop, nor of one whose address, account, port, `ssh` program, options or hop changed since it was
+      marked (`routed_from`: a `dataclasses.replace` is refused as it is made, any other change at every line); a step
+      that needs another takes it again from `targets`. `Route.ready()` makes sure of the shared
+      connection again before a step that reaches many machines and after a wait on a person, failing none. No module
+      of the new engine but `routes.py` and `ssh/`'s own makes a `Target` or changes one's route after it was made (a
+      scan sees the runner under any name, a `replace` of a `Target`'s route and the mark, and the runner refuses what
+      it cannot see); every fleet a test makes
+      pins `vm_ssh_route: direct` before anything reads it (`tests/unit/fleet_fixture.py`'s `pinned`).
+      `tests/unit/test_aw_routes.py` holds it, on stand-in machines and a stand-in hop, each maker of a test's fleet
+      read back.
 - **`just code` writes in one directory of its own on the VM, the session copies, the rest of Claude Code it
   carries and one fast-forward aside, and never answers VS Code's, Zed's or Claude Code's security questions.** Read
   [§4.9](docs/architecture/lifecycle.md#49-playbookscodeyml),
@@ -782,8 +791,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       and a nested recipe joins its parent's run through the `live_run` setting, never the environment.
     - The region draws one write per redraw in synchronized output, up exactly the lines drawn, so no line may
       wrap (`tests/unit/vt.py` counts them); steps aside for every prompt (`prompt_until`, and a `vars_prompt`'s
-      `do_var_prompt`), back only half a second after it; keeps the echo off while it is up; and never hides the
-      cursor.
+      `do_var_prompt`), back only half a second after it; keeps the echo off while it is up, and at a Ctrl-C what
+      the terminal has not read (`NOFLSH`), the settings put back exactly as found; and never hides the cursor.
     - A question with a few answers - `just init`'s yes or no, a storage, a bridge - is a menu picked with the
       arrow keys (`lib/claude_vm/tui/choose.py`), drawn with `screen.py` while the region steps aside, never a second
       way of drawing. Its answers ride in `prompt_until`'s `complete_input` as built-in bytes (Enter's two and
@@ -791,6 +800,15 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       cannot import it kills Ansible's results thread on the prompt and hangs the run. The engine's hook
       (`engine.choosing`) asks it under `Display`'s lock, reads stdin, never `/dev/tty`, and hands anything else to
       Ansible's own prompt; a hidden question never carries its answers.
+    - The new engine asks every question through `lib/claude_vm/runs/ask.py`: each has a default, its safe answer,
+      taken with a line said wherever standard input is no terminal whose foreground the run is (`--attended` changes
+      nothing); at one, one question at a time (a second waits till the first has ended, never nests), the run's view,
+      `Live.of(context.job)`, steps aside (`aside()`, back half a second after the answer) and keeps its own lines and
+      standard error's till the question ends, each change of the terminal's settings is `TCSAFLUSH`'s (the keys typed
+      before flushed, the rest of a paste never left for the shell) and a Ctrl-C keeps what was typed on its line
+      (`NOFLSH`), every read is the run's `Context.typed` - never
+      `/dev/tty`, `getpass` or a thread - the menu is `choose.asked`, a choice's words and note are made one line of
+      plain text, and a hidden answer is a `Secret`, in no event. `tests/unit/test_aw_ask.py` holds it.
     - What the callbacks, engines and tools share is one package, `claude_vm` in `lib/`, imported, never loaded
       by path ([§7.10](docs/architecture/custom-code.md#710-libclaude_vm--the-controllers-python-as-one-package)),
       and every test that runs something at a terminal opens it through `harness._at_a_pseudo_terminal`.
@@ -1035,10 +1053,22 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       (short, `ansible.builtin.`, `ansible.legacy.`); a role the play names, one included or imported from anywhere, and
       one a role's `meta/main.yml` names among its dependencies; each role's files in every spelling Ansible takes
       (`main.yaml`, `main.json`, a `main/` folder of defaults or vars, a file an include's `_from` names); the play's
-      `vars_files`; the roles' templates. A road it does not follow - a playbook imported, an include in a handler, a
-      name only a run can say, a collection's role or a `collections` keyword, a role in the play's own roles folder,
-      a template outside a role or one that includes another - raises `Unfollowed` and fails every test: follow it in
-      the walk, never pass it over.
+      `vars_files`; the roles' templates and argument specs; and each file of a role's `files/` that a `copy`,
+      `unarchive`, `assemble` or `uri` sends from this computer. A road it does not follow - a playbook imported, an
+      include in a handler, a name only a run can say, a collection's role or a `collections` keyword, a role in the
+      play's own roles folder, a template outside a role or one that includes another (`{%+` too) - raises
+      `Unfollowed` and fails every test: follow it in the walk, never pass it over.
+    - So does a task file Ansible looks for elsewhere before the walk's: an `import_tasks` in a role's file that an
+      include or import brought in (looked for first under that file's own folder's `tasks/`, then the working
+      folder's), and any include or import two files below the play (looked for beside the play first). A file sent
+      from this computer outside a role, or that is no regular file of its own role's `files/` (a name under `files/`
+      and a folder too), is refused alike.
+    - So does what Ansible takes from the play's folder and a role's that the walk does not read: `group_vars/` or
+      `host_vars/` beside the play, read whenever the host joins a group; `collections/` beside it, searched whatever
+      the configuration names; a folder of any kind of plugin but the three `BESIDE_THE_PLAY` lists with its reason
+      (`library`, `action_plugins`, `module_utils`), whose names are held off Ansible's own - Ansible looks for its
+      own module, action or module_utils there first, and a local `normal.py` runs here for every module with no
+      action of its own; and any folder of plugins in a role. The kinds and Ansible's names are read from Ansible.
     - Every task it reaches is a module of `ansible.builtin` that converges a state, or a `command`, `shell`, `raw`,
       `script` or `expect` that `REASONS` lists with its reason and with its module and arguments as Ansible's own
       parser reads them: a changed command changes its entry in the same commit, and two such tasks of one file and
@@ -1048,8 +1078,14 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       var, fact (a templated name refused), register, loop variable, include's `apply` or `add_host`, and no
       `include_vars` at all.
     - Nothing it reaches runs or writes on this computer: no `delegate_to`, `local_action` or `connection` keyword, no
-      `fetch`, no play over any host but `all`, no `with_` loop, and no lookup but the five `LOOKUPS` lists by its file
-      and whole string, read in every file the walk read and in the templates.
+      `fetch`, no `group_by` or `add_host` (a group joined after the play's check), no play over any host but `all`,
+      no `with_` loop, and no lookup but the five `LOOKUPS` lists by its file and whole string, read in every file the
+      walk read (the roles' argument specs, which Ansible templates here, among them) and in the templates.
+    - The child runs in the run's own directory (`children.start`'s `cwd`), never the caller's folder, where Ansible
+      looks for a task file too; and its configuration names the engine's own filter folder,
+      `lib/claude_vm/guest/ansible/filter_plugins/`, whose one adapter gives `plain_text` and `sshd_match_spec`, the
+      two the roles call, never today's `filter_plugins/`, whose `proxmox_trust_holds` opens a connection from here.
+      A role that calls another filter adds it there, with the core's function of its name.
     - The play's opening tasks are `playbooks/configure.yml`'s, copied as they stand, and
       `tests/unit/test_aw_layer1_play.py` holds them equal: a change to one is made to both. Its first check reads the
       inventory back by `ansible_inventory_sources`, never by `inventory_file`, a host's variable that a file beside the

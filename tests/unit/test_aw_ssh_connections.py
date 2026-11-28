@@ -22,6 +22,7 @@ import ast
 import asyncio
 import base64
 import contextlib
+import dataclasses
 import inspect
 import ipaddress
 import json
@@ -252,7 +253,16 @@ def _host(short_dir: Path, address: str = HOST) -> runner.Target:
 
 
 def _machine(tmp_path: Path, short_dir: Path, address: str = ADDRESS, **over) -> runner.Target:
+    """A machine's Target as engine/routes.py makes one before target_for: unmarked, which the runner makes no command
+    line of (_marked marks one as target_for would)."""
     return runner.machine(IDENTITY, address, "dev", short_dir, **{"known_hosts": tmp_path / "known_hosts", **over})
+
+
+def _marked(target: runner.Target) -> runner.Target:
+    """target marked as target_for marks one, for a test that reaches a machine with no route settled: through the hop
+    where it has one, else straight at its address; with what the mark was decided from, as target_for gives it."""
+    mark = "hop" if target.hop is not None else "direct"
+    return dataclasses.replace(target, routed_as=mark, routed_from=runner.decided_from(target))
 
 
 def _settle(short_dir: Path, setting: str, address: str = HOST, **over) -> dict:
@@ -305,7 +315,7 @@ def test_every_connection_lives_in_the_run_s_one_control_directory(tmp_path, sho
 
 def test_a_machine_s_socket_is_named_by_its_identity_its_address_and_its_hop(tmp_path, short_dir) -> None:
     hop = runner.Hop(" ".join(route.hop_argv(_settle(short_dir, "host")["hop"], ADDRESS, "yes")), "awh-0123456789ab")
-    direct, through = _machine(tmp_path, short_dir), _machine(tmp_path, short_dir, hop=hop)
+    direct, through = _marked(_machine(tmp_path, short_dir)), _marked(_machine(tmp_path, short_dir, hop=hop))
     assert connections.socket_path(direct) == short_dir / f"{checks.vm_control_name(IDENTITY, ADDRESS)}-dev-22"
     assert (
         connections.socket_path(through) == short_dir / f"{checks.vm_control_name(IDENTITY, ADDRESS, hop.name)}-dev-22"
@@ -369,7 +379,7 @@ def test_a_machine_whose_socket_s_path_would_be_too_long_logs_in_alone_said_once
     try:
         conns = connections.Connections(long_dir, dict(os.environ))
         for address in (ADDRESS, OTHER_ADDRESS):
-            target = _machine(tmp_path, long_dir, address)
+            target = _marked(_machine(tmp_path, long_dir, address))
             assert not target.shared and "ControlPath=none" in runner.options(target)
             # No master is used, so none is made sure of: no Master, whose ok would say one answers.
             assert asyncio.run(conns.ensure(made, target)) is None
@@ -642,7 +652,7 @@ def test_under_host_a_machine_s_line_holds_the_hop_s_command_word_for_word(tmp_p
     settled = _route(conns, "host", _host(short_dir))
     target = _target(conns, made, _machine(tmp_path, short_dir), settled, {"Compression": "yes"})
     proxy = " ".join(route.hop_argv(settled["hop"], ADDRESS, settled["policy"]))
-    assert target.hop == runner.Hop(proxy, os.path.basename(settled["hop"]["socket"]))
+    assert target.hop == runner.Hop(proxy, os.path.basename(settled["hop"]["socket"])) and target.routed_as == "hop"
     assert f" -W {ADDRESS}:%p " in f" {proxy} " and "%h" not in proxy
     words = runner.argv(target, ["true"])
     assert f"ProxyCommand={proxy}" in words and target.given == (("Compression", "yes"),)
@@ -657,7 +667,7 @@ def test_under_host_a_machine_s_line_holds_the_hop_s_command_word_for_word(tmp_p
 def test_under_direct_a_machine_takes_no_hop_and_nothing_is_read(tmp_path, short_dir, stand_in, made) -> None:
     conns = connections.Connections(short_dir, dict(os.environ))
     target = _target(conns, made, _machine(tmp_path, short_dir), _route(conns, "direct", _host(short_dir)))
-    assert target.hop is None and _calls(stand_in) == []
+    assert target.hop is None and target.routed_as == "direct" and _calls(stand_in) == []
 
 
 @pytest.mark.parametrize(
@@ -666,7 +676,7 @@ def test_under_direct_a_machine_takes_no_hop_and_nothing_is_read(tmp_path, short
 def test_a_machine_given_a_jump_by_vm_ssh_options_takes_no_hop(tmp_path, short_dir, stand_in, made, given) -> None:
     conns = connections.Connections(short_dir, dict(os.environ))
     target = _target(conns, made, _machine(tmp_path, short_dir), _route(conns, "host", _host(short_dir)), given)
-    assert target.hop is None and target.given == tuple(given.items())
+    assert target.hop is None and target.given == tuple(given.items()) and target.routed_as == "own"
     # Decided from the options alone: the person's configuration is not asked.
     assert _calls(stand_in) == []
 
@@ -682,7 +692,8 @@ def test_a_machine_whose_own_ssh_config_shows_a_jump_takes_no_hop(home, tmp_path
     conns = connections.Connections(short_dir, dict(os.environ))
     settled = _route(conns, "host", _host(short_dir))
     machine = _machine(tmp_path, short_dir)
-    assert _target(conns, made, machine, settled).hop is None
+    configured = _target(conns, made, machine, settled)
+    assert configured.hop is None and configured.routed_as == "own"
     # Read once a run for each machine: asked again, the run's reading is used.
     assert _target(conns, made, machine, settled).hop is None
     assert _kinds(stand_in) == ["-G"]
@@ -708,9 +719,10 @@ def test_target_for_takes_a_machine_with_no_hop_and_no_options_of_its_own(tmp_pa
     for machine in (
         _machine(tmp_path, short_dir, given={"Compression": "yes"}),
         _target(conns, made, _machine(tmp_path, short_dir), settled),
+        _marked(_machine(tmp_path, short_dir)),
         _host(short_dir),
     ):
-        with pytest.raises(runner.Refused, match="no hop and no vm_ssh_options"):
+        with pytest.raises(runner.Refused, match="no hop and no vm_ssh_options, unmarked"):
             _target(conns, made, machine, settled)
     # The person's options are held as the runner holds them.
     with pytest.raises(runner.Refused, match="vm_ssh_options sets ControlPath"):
@@ -742,9 +754,9 @@ def test_held_refuses_any_other_proxy_before_anything_connects(tmp_path, short_d
     elsewhere = runner.Hop(" ".join(route.hop_argv(other, ADDRESS, settled["policy"])), "awh-0123456789ab")
     refusals = {
         # No hop and no jump of its own: ssh would dial the VM from here.
-        "dialling it from here": _machine(tmp_path, short_dir),
+        "dialling it from here": _marked(_machine(tmp_path, short_dir)),
         # Another host's hop: not this route's command.
-        "not the hop": _machine(tmp_path, short_dir, hop=elsewhere),
+        "not the hop": _marked(_machine(tmp_path, short_dir, hop=elsewhere)),
     }
     for said, target in refusals.items():
         with pytest.raises(connections.Unheld, match=said) as refused:
@@ -839,7 +851,7 @@ def test_ensure_opens_a_master_once_unmarked_and_finds_it_the_second_time(
 
 def test_ensure_removes_a_dead_socket_file_first(tmp_path, short_dir, stand_in, made) -> None:
     conns = connections.Connections(short_dir, dict(os.environ))
-    target = _machine(tmp_path, short_dir)
+    target = _marked(_machine(tmp_path, short_dir))
     connections.socket_path(target).write_text("stale")
     assert asyncio.run(conns.ensure(made, target)) == connections.Master(ok=True, opened=True, said="")
     assert _kinds(stand_in) == ["-O check", "open", "-O check"]
@@ -849,7 +861,7 @@ def test_ensure_removes_a_dead_socket_file_first(tmp_path, short_dir, stand_in, 
 def test_an_open_that_fails_says_why_and_is_not_tried_again(tmp_path, short_dir, stand_in, made) -> None:
     (stand_in / f"mode-{ADDRESS}").write_text("refused")
     conns = connections.Connections(short_dir, dict(os.environ))
-    master = asyncio.run(conns.ensure(made, _machine(tmp_path, short_dir)))
+    master = asyncio.run(conns.ensure(made, _marked(_machine(tmp_path, short_dir))))
     assert master == connections.Master(ok=False, opened=False, said=f"{ADDRESS}: Permission denied (publickey).")
     assert _kinds(stand_in) == ["-O check", "open", "-O check"]
 
@@ -860,7 +872,7 @@ def test_a_socket_whose_check_ran_out_its_time_is_kept_and_the_open_beside_it_en
     # Never removed: a master that does not answer within the check's limit may be another run's, busy. The open beside
     # it says the socket exists and would go on as a connection of its own, so it is ended then, well within its limit.
     conns = connections.Connections(short_dir, dict(os.environ))
-    target = _machine(tmp_path, short_dir)
+    target = _marked(_machine(tmp_path, short_dir))
     connections.socket_path(target).write_text("hung")
     monkeypatch.setitem(route.LIMITS, "check", 0.5)
     started = time.monotonic()
@@ -875,7 +887,7 @@ def test_a_socket_whose_check_ran_out_its_time_is_kept_and_the_open_beside_it_en
 
 def test_ensure_never_opens_a_master_for_a_first_use_or_the_host(tmp_path, short_dir, stand_in, made) -> None:
     conns = connections.Connections(short_dir, dict(os.environ))
-    first = _machine(tmp_path, short_dir, known_hosts=tmp_path / "scratch", first_use=True)
+    first = _marked(_machine(tmp_path, short_dir, known_hosts=tmp_path / "scratch", first_use=True))
     with pytest.raises(runner.Refused, match="no master is opened for a machine until its key is filed"):
         asyncio.run(conns.ensure(made, first))
     with pytest.raises(runner.Refused, match="ensure_hop"):
@@ -977,14 +989,15 @@ def test_a_first_use_is_decided_by_the_key_filed_and_takes_its_key_in_the_run_s_
 ) -> None:
     conns = connections.Connections(short_dir, dict(os.environ))
     product = tmp_path / "known_hosts"
-    target = _machine(tmp_path, short_dir)
+    target = _marked(_machine(tmp_path, short_dir))
     with pytest.raises(runner.Refused, match="no run directory"):
         connections.first_use(made, target)
     directory = rundir.make(made)
     try:
         first = connections.first_use(made, target)
         scratch = directory.resolve() / f"{hostkeys.SCRATCH_PREFIX}{IDENTITY}"
-        assert (first.first_use, first.known_hosts) == (True, scratch)
+        # Its route's mark carried: a first use is the same machine, reached the same way.
+        assert (first.first_use, first.known_hosts, first.routed_as) == (True, scratch, "direct")
         assert scratch.read_bytes() == b"" and stat.S_IMODE(scratch.stat().st_mode) == 0o600
         # On a connection of its own, and no master is opened for it: its key is not filed yet.
         assert "ControlPath=none" in runner.options(first)

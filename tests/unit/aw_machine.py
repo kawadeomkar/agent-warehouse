@@ -23,9 +23,10 @@
   opened. A ProxyCommand other than none, the first given, is run as ssh runs one before the key is checked, its
   %-tokens expanded, and the connection goes on only where it answers as an SSH server first does. ssh -G is answered by
   this computer's own ssh, by its path, given the test's own configuration (-F with HOME's .ssh/config, or /dev/null,
-  where the line gives no -F), which dials nothing and reads nothing of the developer's; it never runs this computer's
-  ssh otherwise, never reads or writes this computer's own ~/.ssh, and refuses a command that names a sudo by its path,
-  which on a lane would be this computer's own and run as root on the runner.
+  where the line gives no -F), which dials nothing and reads nothing of the developer's - after the seconds a file
+  slow-G beside it holds, or ended by a signal where a file killed-G is there, as a person's Match exec may make it; it
+  never runs this computer's ssh otherwise, never reads or writes this computer's own ~/.ssh, and refuses a command that
+  names a sudo by its path, which on a lane would be this computer's own and run as root on the runner.
 - `hop(root)` makes a stand-in Proxmox host the hop to the machines (engine/routes.py), in the modes `hop_modes()` sets:
   its -O check and -O stop are answered from a file at the socket's path (live, or stale for a socket nothing listens
   at), its master's open writes that file or is refused as a login, and a forward through it (-W) meets the host
@@ -33,7 +34,8 @@
   sshd's first words.
 - `filed(machine, path)` files the machine's key under its identity in the known-hosts file at path, as B5 files one;
   `target(machine)` is the machine as B3's runner reaches it, its key checked strictly in the file `filed` writes by
-  default.
+  default, marked as a route marks one (runner.Target.routed_as, with what it was decided from): straight at it, or
+  through the hop it is given.
 - `planted(fake, vmid, machine)` makes the Proxmox fake's VM vmid that machine: its guest agent reports the machine's
   address on the VM's own network card, and its SMBIOS UUID is the identity's, so that a VM made against the fake is
   reached at the stand-in. An adopted machine is one made without it, reached at the address machine() gave it, under
@@ -445,6 +447,13 @@ if "G" in flags:
         log(unrouted, "refused: -G, no ssh on this computer")
         said("stand-in ssh: this computer has no ssh to ask -G of", 255)
     log(unrouted, "-G")
+    # slow-G beside the stand-in: ssh -G takes that many seconds first, as a person's Match exec may; killed-G: it is
+    # ended by a signal before it answers.
+    if os.path.exists(os.path.join(HERE, "slow-G")):
+        with open(os.path.join(HERE, "slow-G")) as seconds:
+            time.sleep(float(seconds.read()))
+    if os.path.exists(os.path.join(HERE, "killed-G")):
+        os.kill(os.getpid(), 9)
     if "F" not in valued:
         config = os.path.join(os.environ.get("HOME", "/nonexistent"), ".ssh", "config")
         argv = ["-F", config if os.path.isfile(config) else "/dev/null", *argv]
@@ -996,12 +1005,19 @@ def filed(made: Machine, path: Path | None = None) -> Path:
     return where
 
 
-def target(made: Machine, **over) -> runner.Target:
+def target(made: Machine, *, routed_as: str | None = None, **over) -> runner.Target:
     """made as B3's runner reaches it: its identity, address and account, its key checked strictly against
     known_hosts(made), where a test files it with filed(made), and a control directory that is never made. over goes
-    to runner.machine (first_use, known_hosts, given, ...)."""
+    to runner.machine (first_use, known_hosts, given, ...). Marked as a route marks one (connections.target_for, which
+    a test that settles no route does not reach): through the hop where over gives one, else straight at its address;
+    routed_as gives another mark, "" none, which the runner refuses. A mark is given with what it was decided from
+    (runner.decided_from), as target_for gives it."""
     given = {"known_hosts": known_hosts(made), **over}
-    return runner.machine(made.identity, made.address, made.account, CONTROL, **given)
+    made_target = runner.machine(made.identity, made.address, made.account, CONTROL, **given)
+    mark = ("hop" if made_target.hop is not None else "direct") if routed_as is None else routed_as
+    if not mark:
+        return made_target
+    return dataclasses.replace(made_target, routed_as=mark, routed_from=runner.decided_from(made_target))
 
 
 def interfaces(mac: str, address: str) -> list[dict]:

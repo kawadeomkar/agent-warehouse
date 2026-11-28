@@ -53,6 +53,7 @@ from typing import NamedTuple
 import harness
 import pytest
 from aw_kit import ENTRY, LAUNCHER, run_launcher
+from fleet_fixture import pinned
 from harness import REPO
 
 from claude_vm.fleet import hosts, overrides, paths, record, sealed, vaultkey
@@ -538,9 +539,10 @@ def _job(jobs: Path, running: bool) -> subprocess.Popen[str]:
 def _fleet(words: tuple[str, ...], *, whole: bool = True) -> Iterator[tuple[str, ...]]:
     """The test's own fleet, in the home AGENT_WAREHOUSE_HOME names, and the line's words, its JOB the ID of the job
     made for it. Whole, as init and the runs before a read leave one, each written by its one writer: the fleet's
-    record; HOSTS, each with its host.yml and the settings it sets for itself, the first the current host; a setting of
-    the fleet's; the vault, with its key, holding each host's token; and for logs a job that has ended, for cancel one
-    that runs until cancel stops it, ended once the line is done if it did not. Not whole, its record alone."""
+    record; HOSTS, each with its host.yml and the settings it sets for itself, and the route to its VMs pinned direct
+    (fleet_fixture.pinned), the first the current host; a setting of the fleet's; the vault, with its key, holding each
+    host's token; and for logs a job that has ended, for cancel one that runs until cancel stops it, ended once the
+    line is done if it did not. Not whole, its record alone."""
     where = paths.home(REPO)
     record.write(where, record.first(FLEET))
     if not whole:
@@ -554,6 +556,8 @@ def _fleet(words: tuple[str, ...], *, whole: bool = True) -> Iterator[tuple[str,
         for setting, value in {"proxmox_node": name, **ALWAYS}.items():
             digest = overrides.set(where, setting, value, name, digest)
     hosts.make_current(layout, next(iter(HOSTS)), overrides.MISSING)
+    for name in HOSTS:
+        pinned(name)
     overrides.set(where, *FLEET_SETTING, None, overrides.MISSING)
     key = vaultkey.make_key(paths.key_file(where))
     sealed.create(where, key)

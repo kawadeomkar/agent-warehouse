@@ -17,9 +17,17 @@ product's options is refused before anything connects; a stale shared connection
 B8's refusal of every route but direct is gone, host and auto now settling a hop; a configure through the stand-in hop
 passes, layer 1's own ssh riding it, and with the hop refused stops before any connection to the VM; the route is this
 computer's own for each host and never another's; only a Proxmox VM takes the hop; the connections' notes and the
-route's line are said once; the shared connection is made sure of again and fails no machine. The rules with a test of
-their own: every harness pins vm_ssh_route: direct, the new engine's fleet fixture among them; and no module of
-engine/ but routes.py makes a Target, so every runner call there takes the arguments routes.py made.
+route's line are said once; the shared connection is made sure of again and fails no machine. And review 46's (G7.md):
+a route that cannot be settled - from a home too long for the hop's socket, or an ssh -G for the host past its limit,
+ended by a signal or exiting with an error - stops the run with nothing reached; every machine is held before the hop's
+login and the forward; a forward's verdict that stopped the run stops every later targets, and one cut before its
+verdict is made again; and the runner connects to no machine's Target the route did not mark, nor to one that lost its
+hop. And review 56's (G29.md): a forward's verdict that stopped the run stops a targets that waited on it too; and the
+runner connects to no machine's Target whose address, account, port, ssh program or options changed since the route
+marked it, straight, by a jump of its own or through the hop. The rules with a test of their own: every fleet a test
+makes pins vm_ssh_route: direct before anything reads it, each maker read back; and no module of the new engine but
+routes.py and ssh/'s own makes a Target, or changes one's route after it was made, by any name a scan can see, so every
+runner call takes the arguments routes.py made.
 """
 
 from __future__ import annotations
@@ -37,11 +45,13 @@ import types
 from collections.abc import Iterator
 from pathlib import Path
 
+import fleet_fixture
 import pytest
 from aw_machine import LOOPBACK, Machine, hop, hop_modes, machine, ssh_stand_in, unrouted
-from fleet_fixture import ROUTE, whole_fleet
+from fleet_fixture import ROUTE, whole_fleet, with_port
 from harness import REPO, fake_fleet, repo_files
 from pki import proxmox_pki
+from test_aw_layout import NEW_MODULES
 
 from claude_vm import checks, route
 from claude_vm.engine import fleet, routes
@@ -50,9 +60,11 @@ from claude_vm.guest import layer1
 from claude_vm.hosts.model import Request
 from claude_vm.runs import job as jobs
 from claude_vm.runs import rundir
+from claude_vm.schema.words import VERBS
 from claude_vm.ssh import connections, hostkeys, runner
 
-ENGINE = REPO / "lib" / "claude_vm" / "engine"
+LIB = REPO / "lib" / "claude_vm"
+ENGINE = LIB / "engine"
 ROUTES = ENGINE / "routes.py"
 # Where ssh dials the host, as a test's own configuration sends it there: a tailnet's address, and a LAN's.
 TAILNET = "100.101.102.103"
@@ -334,6 +346,159 @@ def test_a_vm_that_says_nothing_through_the_host_is_said_and_stops_nothing(
     assert line.startswith(said) and "within 1 s" in line, line
 
 
+# Each road on which the route cannot be settled (review 46, G7.md 1 and 3): through the host from a home too long for
+# the hop's socket; and under auto, an ssh -G for the host that says nothing within its limit, one ended by a signal,
+# and one that exits with an error - a line of the person's configuration it refuses for the host alone, a ControlPath
+# with a token ssh does not know, which the hop's own lines outrank with their own, so the hop itself would have worked.
+# Each: the setting given, the stand-in's mode for ssh -G, a line for the person's configuration, and what the sentence
+# says.
+REFUSED_LINE = "  ControlPath /tmp/%Q\n"
+UNSETTLED = {
+    "a home too long for the hop's socket": ("host", "", "", "would be longer than"),
+    "ssh -G past its limit": ("auto", "slow-G", "", "said nothing of where ssh dials for it within 0.5 s"),
+    "ssh -G ended by a signal": ("auto", "killed-G", "", "was ended by a signal (9) before it said where ssh dials"),
+    "ssh -G exiting with an error": ("auto", "", REFUSED_LINE, "exited 255 without saying where ssh dials"),
+}
+
+
+@pytest.mark.parametrize("road", UNSETTLED)
+def test_a_route_that_cannot_be_settled_stops_the_run_and_nothing_is_reached(
+    made_fleet, short, run, stand_ins, addresses, monkeypatch, tmp_path, road
+):
+    # Settled direct from the address as written, each would dial the VMs where the person's configuration sends the
+    # host to a tailnet: settle stops the run, the sentence naming vm_ssh_route, and nothing reaches the host or a VM.
+    setting, mode, line, said = UNSETTLED[road]
+    _set(ROUTE, setting)
+    home = short
+    if road == "a home too long for the hop's socket":
+        home = tmp_path / ("h" * 60)
+        home.mkdir()
+    _config(f"Host {LOOPBACK}\n  HostName {TAILNET}\n{line}", home)
+    if mode == "slow-G":
+        (stand_ins.folder / mode).write_text("30")
+        monkeypatch.setitem(route.LIMITS, "config", 0.5)
+    elif mode:
+        (stand_ins.folder / mode).write_text("")
+
+    async def body() -> None:
+        found = await _settled(run, home)
+        await found.targets([_vm(stand_ins.alpha), _vm(stand_ins.beta)])
+
+    with pytest.raises(routes.Unusable) as refused:
+        asyncio.run(body())
+    sentence = refused.value.sentence
+    assert said in sentence and "vm_ssh_route: direct" in sentence, sentence
+    assert stand_ins.pve.calls() == stand_ins.alpha.calls() == stand_ins.beta.calls() == []
+    # Under auto, the one ssh -G for the host, and none for a VM; under host, none at all.
+    assert [call["outcome"] for call in unrouted(stand_ins.folder)] == (["-G"] if setting == "auto" else [])
+
+
+@pytest.mark.parametrize("login", ["made at the start", "put off"])
+def test_every_machine_is_held_before_the_hop_s_login_and_the_forward(
+    made_fleet, short, run, stand_ins, monkeypatch, login
+):
+    # held, then the login, then the forward (review 46, G7.md 4): a machine whose own ssh would not go where the route
+    # says stops the run before the hop is logged in to, where every machine's options put the login off, and before
+    # the forward to the machine beside it that would take the hop. What held refuses is held's own tests' (a line ssh
+    # refuses, planted here for beta alone): this holds the order.
+    _set(ROUTE, "host")
+    alpha, beta = stand_ins.alpha, stand_ins.beta
+    if login == "put off":
+        _set("vm_ssh_options", {"ProxyJump": "jump.invalid"})
+        _set("vm_ssh_options", {"ServerAliveInterval": "5"}, machine_name="alpha")
+    real = route.ssh_shown
+
+    def shown(ssh, words, destination, *args, **kwargs):
+        if destination == beta.address:
+            return {"ok": False, "proxycommand": "", "proxyjump": "", "said": "planted: a line ssh refuses"}
+        return real(ssh, words, destination, *args, **kwargs)
+
+    monkeypatch.setattr(route, "ssh_shown", shown)
+
+    async def body() -> routes.Refused:
+        found = await _settled(run, short)
+        with pytest.raises(routes.Refused) as refused:
+            await found.targets([_vm(alpha), _vm(beta)])
+        return refused.value
+
+    refused = asyncio.run(body())
+    assert type(refused) is routes.Refused and "ssh refused its options: planted" in refused.sentence, refused
+    # No forward, and no login but the one made at the run's start.
+    at_the_start = ["-O check", "a master, opened", "-O check"]
+    assert _outcomes(stand_ins.pve) == (at_the_start if login == "made at the start" else [])
+    assert alpha.calls() == beta.calls() == []
+
+
+def test_a_forward_that_stopped_the_run_stops_every_later_targets(made_fleet, short, run, stand_ins):
+    # Unusable is the run's stop, even where a step caught it for one machine: a later targets raises it again, and
+    # hands out no hop through a host that refuses to forward (review 46, G7.md 5).
+    _set(ROUTE, "host")
+    hop_modes(stand_ins.pve, forward="prohibited")
+    alpha, beta = stand_ins.alpha, stand_ins.beta
+
+    async def body() -> list[str]:
+        found = await _settled(run, short)
+        sentences = []
+        for machines in ([alpha], [alpha, beta], [beta]):
+            with pytest.raises(routes.Unusable) as refused:
+                await found.targets([_vm(made_machine) for made_machine in machines])
+            sentences.append(refused.value.sentence)
+        return sentences
+
+    first, *again = asyncio.run(body())
+    assert first.startswith(f"{LABEL} refused to forward to alpha at ") and again == [first, first], again
+    assert [outcome for outcome in _outcomes(stand_ins.pve) if outcome.startswith("forward")] == [
+        f"forward {alpha.address}:22 unshared"
+    ]
+
+
+def test_two_targets_at_once_after_a_refused_forward_both_stop_the_run(made_fleet, short, run, stand_ins):
+    # Two targets of one step at once (a TaskGroup over the machines): the one that waited on the lock while the
+    # other's forward was refused hands out no hop either, and raises the same stop (review 56, G29.md 3).
+    _set(ROUTE, "host")
+    hop_modes(stand_ins.pve, forward="prohibited")
+    alpha, beta = stand_ins.alpha, stand_ins.beta
+
+    async def body() -> list[object]:
+        found = await _settled(run, short)
+        return await asyncio.gather(found.targets([_vm(alpha)]), found.targets([_vm(beta)]), return_exceptions=True)
+
+    first, second = asyncio.run(body())
+    assert type(first) is routes.Unusable and type(second) is routes.Unusable, (first, second)
+    assert first.sentence == second.sentence and f"{LABEL} refused to forward to " in first.sentence
+    assert len([outcome for outcome in _outcomes(stand_ins.pve) if outcome.startswith("forward")]) == 1
+    assert alpha.calls() == beta.calls() == []
+
+
+def test_a_forward_cut_before_its_verdict_is_made_again_by_the_next_targets(made_fleet, short, run, stand_ins):
+    # A cancellation or a refusal that cuts the forward leaves no verdict: the next targets makes it.
+    _set(ROUTE, "host")
+    alpha = stand_ins.alpha
+    asked: list[str] = []
+
+    async def body() -> runner.Target:
+        found = await _settled(run, short)
+        real = found.connections.forward
+
+        async def cut(target: runner.Target, settled) -> dict:
+            asked.append(target.address)
+            if len(asked) == 1:
+                raise runner.Refused("planted: the forward was cut before its verdict")
+            return await real(target, settled)
+
+        found.connections.forward = cut
+        with pytest.raises(runner.Refused, match="planted"):
+            await found.targets([_vm(alpha)])
+        [at] = await found.targets([_vm(alpha)])
+        return at
+
+    at = asyncio.run(body())
+    assert asked == [alpha.address, alpha.address] and at.hop is not None
+    assert [outcome for outcome in _outcomes(stand_ins.pve) if outcome.startswith("forward")] == [
+        f"forward {alpha.address}:22 unshared"
+    ]
+
+
 # ---------------------------------------------------------------- a jump of a machine's own ----
 
 
@@ -387,9 +552,13 @@ def test_a_line_that_would_lose_the_product_s_options_is_refused_before_anything
         _set("vm_ssh_options", {"ProxyCommand": "none"}, machine_name="beta")
         [beta] = await found.targets([_vm(stand_ins.beta)])
         assert beta.hop is not None and _proxy(beta).startswith("ssh ")
-        # A Target the route did not make, its hop taken off: its own ssh would dial it from here, which held refuses.
+        # A Target the route did not make, its hop taken off and its mark forged as direct, with what it would have
+        # been decided from (which the scan below refuses in the engine's code): its own ssh would dial it from here,
+        # which held refuses.
+        bare = dataclasses.replace(beta, hop=None, routed_as="", routed_from=())
+        forged = dataclasses.replace(bare, routed_as="direct", routed_from=runner.decided_from(bare))
         with pytest.raises(connections.Unheld, match="dialling it from here"):
-            await found.connections.held(dataclasses.replace(beta, hop=None), found.settled)
+            await found.connections.held(forged, found.settled)
 
     asyncio.run(body())
     assert stand_ins.alpha.calls() == stand_ins.beta.calls() == []
@@ -467,16 +636,24 @@ def nuc(home, tmp_path, made_fleet, pki):
         yield whole_fleet(home, base, directory, pki, host="nuc", fleet=made_fleet.fleet)
 
 
-def test_the_route_is_this_computer_s_own_for_each_host_and_never_another_s(made_fleet, nuc, short, run, stand_ins):
-    # pve's through the host, in client.yml's map hosts under pve: nuc, which sets its own, never reads pve's.
+def test_the_route_is_this_computer_s_own_for_each_host_and_never_another_s(
+    made_fleet, nuc, short, run, stand_ins, addresses
+):
+    # pve's through the host, in client.yml's map hosts under pve: nuc, its own pin taken out, reads the default, auto,
+    # never pve's - worked out at the run from where ssh dials nuc, which no configuration sends to a tailnet, it
+    # settles direct, and an inherited host would settle a hop.
     _set(ROUTE, "host")
+    where = paths.home(REPO)
+    overrides.unset(where, ROUTE, "nuc", overrides.read(where, "nuc").client.digest)
+    assert overrides.resolve(where, "nuc")[ROUTE] == overrides.Value(ROUTE, "auto", overrides.DEFAULT)
 
-    async def body() -> list[str]:
-        return [(await _settled(run, short, name)).settled["route"] for name in ("pve", "nuc")]
+    async def body() -> list[tuple[object, object]]:
+        settled = [(await _settled(run, short, name)).settled for name in ("pve", "nuc")]
+        return [(each["route"], each["setting"]) for each in settled]
 
-    assert asyncio.run(body()) == ["host", "direct"]
-    client = overrides.read(paths.home(REPO), "nuc").client
-    assert {name: dict(own) for name, own in client.hosts.items()} == {"pve": {ROUTE: "host"}, "nuc": {ROUTE: "direct"}}
+    assert asyncio.run(body()) == [("host", "host"), ("direct", "auto")]
+    client = overrides.read(where, "nuc").client
+    assert {name: dict(own) for name, own in client.hosts.items()} == {"pve": {ROUTE: "host"}}
     assert ROUTE not in client.settings
 
 
@@ -513,6 +690,110 @@ def test_a_configure_through_a_stand_in_hop_passes_and_with_the_hop_refused_stop
     assert f"forward {alpha.address}:22" in _outcomes(stand_ins.pve)
 
 
+# ---------------------------------------------------------------- the route's mark ----
+
+
+def test_the_runner_connects_to_no_target_the_route_did_not_mark_nor_one_that_lost_its_hop(
+    made_fleet, short, run, made, stand_ins
+):
+    # Under host, a Target of the route's with its hop taken off - a dataclasses.replace a later step could make - is a
+    # valid machine's Target that would dial the VM at its address: refused as it is made, and again where a command
+    # line is made of one changed by other means; and a machine's Target the route did not make at all, unmarked, at
+    # each of the runner's command lines (review 46, G7.md 2). Nothing reaches the VM.
+    _set(ROUTE, "host")
+    alpha = stand_ins.alpha
+
+    async def body() -> runner.Target:
+        found = await _settled(run, short)
+        [at] = await found.targets([_vm(alpha)])
+        return at
+
+    at = asyncio.run(body())
+    assert at.routed_as == "hop" and at.hop is not None
+    with pytest.raises(runner.Refused, match="has lost its hop, and would be dialled from here"):
+        dataclasses.replace(at, hop=None)
+    changed = dataclasses.replace(at)
+    object.__setattr__(changed, "hop", None)
+    with pytest.raises(runner.Refused, match="has lost its hop: nothing was started"):
+        runner.argv(changed, ["true"])
+    unmarked = runner.machine(alpha.identity, alpha.address, alpha.account, at.control_dir)
+    for line in (
+        lambda: runner.argv(unmarked, ["true"]),
+        lambda: runner.forward_argv(unmarked, ["8080:127.0.0.1:8080"], 5),
+        lambda: runner.ansible_vars(unmarked),
+        lambda: asyncio.run(runner.run(made, unmarked, ["true"], None, runner.LIMITS, dict(os.environ))),
+    ):
+        with pytest.raises(runner.Refused, match="this one is unmarked, so nothing was started"):
+            line()
+    assert alpha.calls() == []
+
+
+# Each field the route decided a machine's mark from, changed as a later step could change it, with the words the
+# runner names it by: alpha's address moved to beta's, which the route reaches through the hop where it goes through
+# the host; another account, port and ssh program; and its options with a jump's ProxyJump none, which takes a jump the
+# person's own configuration gives out of its line.
+MOVES = {
+    "address": "address",
+    "account": "account",
+    "port": "port",
+    "ssh": "ssh program",
+    "given": "vm_ssh_options",
+}
+
+
+@pytest.mark.parametrize("mark", ["direct", "own", "hop"])
+def test_the_runner_connects_to_no_target_changed_since_the_route_marked_it(
+    made_fleet, short, run, made, stand_ins, mark
+):
+    # The mark is bound to what the route decided it from (review 56, G29.md 2 and 7): alpha's Target, marked straight
+    # at it (direct), by the jump the person's own configuration gives its address (own) or through the hop (hop), with
+    # a field changed - by a replace, refused as it is made, or by other means, refused by each of the runner's lines -
+    # reaches nothing. Under host, its address moved to beta's dialled beta from here, where the route gives beta the
+    # hop, before the mark was bound.
+    alpha, beta = stand_ins.alpha, stand_ins.beta
+    if mark != "direct":
+        _set(ROUTE, "host")
+    if mark == "own":
+        _config(f"Host {alpha.address}\n  ProxyJump jump.invalid\n", short)
+
+    async def body() -> tuple[runner.Target, ...]:
+        found = await _settled(run, short)
+        return await found.targets([_vm(alpha), _vm(beta)])
+
+    at, beta_at = asyncio.run(body())
+    assert (at.routed_as, at.routed_from) == (mark, runner.decided_from(at))
+    assert (beta_at.hop is None) is (mark == "direct")
+    values = {
+        "address": beta.address,
+        "account": "other",
+        "port": 2222,
+        "ssh": "ssh-other",
+        "given": (("ProxyJump", "none"),),
+    }
+    lines = (
+        lambda target: runner.argv(target, ["true"]),
+        lambda target: runner.forward_argv(target, ["8080:127.0.0.1:8080"], 5),
+        runner.ansible_vars,
+        lambda target: asyncio.run(runner.run(made, target, ["true"], None, runner.LIMITS, dict(os.environ))),
+    )
+    for name, said in MOVES.items():
+        moved = f"its {said} changed since, so the mark is no longer the route's: nothing was started"
+        # Through the hop, another address is refused first by the hop's own -W, which names the machine's address.
+        first = "another address than the machine's own" if (mark, name) == ("hop", "address") else moved
+        with pytest.raises(runner.Refused, match=first):
+            dataclasses.replace(at, **{name: values[name]})
+        changed = dataclasses.replace(at)
+        object.__setattr__(changed, name, values[name])
+        for line in lines:
+            with pytest.raises(runner.Refused, match=moved):
+                line(changed)
+    # A first use's known-hosts file decides no road, and goes with the mark (connections.first_use).
+    first_use = dataclasses.replace(at, known_hosts=short / "scratch", first_use=True)
+    assert (first_use.routed_as, first_use.routed_from) == (at.routed_as, at.routed_from)
+    assert runner.argv(first_use, ["true"])[-1] == "true"
+    assert alpha.calls() == beta.calls() == []
+
+
 # ---------------------------------------------------------------- the rules ----
 
 
@@ -526,62 +807,326 @@ def test_every_harness_pins_the_route_direct(made_fleet, short):
         assert host.values[ROUTE].value == "direct"
 
 
-# What makes a runner's Target: only routes.py of engine/ calls them, or names the connections that give one.
+def test_every_fleet_a_test_makes_pins_the_route_before_anything_reads_it(home, tmp_path, pki, monkeypatch):
+    # Each maker of a fleet the new engine's tests have, read back as tests/unit/test_vm_route.py reads today's
+    # harnesses (review 46, G7.md 6), each in a home of its own: whole_fleet's before aw init, which reads the fleet
+    # first, and with_port, which every init test writes its host with; H34's fleet of the quick commands; the host the
+    # certificate's tests keep; and the settings the template's tests read.
+    import test_aw_cli_imports
+    import test_aw_engine_certificate
+    import test_aw_engine_template
+
+    pinned = overrides.Value(ROUTE, "direct", overrides.CLIENT)
+
+    def route_of(host: str) -> overrides.Value:
+        return overrides.resolve(paths.home(REPO), host)[ROUTE]
+
+    def own_home(name: str) -> None:
+        (tmp_path / name).mkdir()
+        monkeypatch.setenv(paths.VARIABLE, str(tmp_path / name))
+
+    at_init: list[overrides.Value] = []
+    real = fleet_fixture.run_aw
+
+    def init(*words: str, **kwargs):
+        at_init.append(route_of(words[words.index("--host") + 1]))
+        return real(*words, **kwargs)
+
+    monkeypatch.setattr(fleet_fixture, "run_aw", init)
+    directory = tmp_path / "fake"
+    directory.mkdir()
+    for base in fake_fleet(directory, engine=True, certificate=(pki["cert"], pki["key"])):
+        made_one = whole_fleet(home, base, directory, pki)
+    assert at_init == [pinned] and route_of(made_one.host) == pinned
+    with_port(8006, "nuc")
+    assert route_of("nuc") == pinned
+    own_home("quick")
+    with test_aw_cli_imports._fleet(("status",)):
+        assert {name: route_of(name) for name in test_aw_cli_imports.HOSTS} == dict.fromkeys(
+            test_aw_cli_imports.HOSTS, pinned
+        )
+    own_home("certificate")
+    test_aw_engine_certificate._keep(types.SimpleNamespace(anchor=None), "lab")
+    assert route_of("lab") == pinned
+    own_home("template")
+    assert test_aw_engine_template._settings()[ROUTE] == "direct" and route_of("lab") == pinned
+
+
+# The scan: where a road to a machine's Target is taken. RUNNER defines it; CONNECTIONS marks it with its route.
+RUNNER = "claude_vm.ssh.runner"
+CONNECTIONS = "claude_vm.ssh.connections"
+# What makes a Target, the Proxmox host's or a machine's, or a machine's hop: the runner's, by any name.
 MAKERS = frozenset({"machine", "proxmox_host", "Target", "Hop"})
+# What gives a machine's Target its route, called on any object: the run's connections, and target_for, which marks it.
+GIVERS = frozenset({"target_for", "Connections"})
+# A Target's fields a replace may change only in ssh/connections.py: the route's - its hop, the person's options, the
+# mark and what it was decided from - and a first use's. A replace that names none of them changes no route: address is
+# left out, since other records of the engine's have one (a fleet's Target, a host's fields), and the runner refuses a
+# Target whose address, account, port or ssh program changed since the route marked it (runner.Target.routed_from), by
+# whatever spelling (test_the_runner_connects_to_no_target_changed_since_the_route_marked_it).
+CHANGES = frozenset({"hop", "given", "routed_as", "routed_from", "first_use", "known_hosts"})
+# The route's mark and what it was decided from, which only connections.target_for sets.
+MARKS = frozenset({"routed_as", "routed_from"})
+# Each road a module of the new engine's takes as its own, by its file under lib/claude_vm/, the road and the function
+# it is in ("*": anywhere in it), with why. ssh/runner.py, which defines the Target, is not read.
+OWN_ROADS = {
+    ("ssh/connections.py", "maker", "target_for"): "the hop's ProxyCommand it gives a machine, a runner.Hop",
+    ("ssh/connections.py", "replace", "target_for"): "the person's options, the hop and the route's mark it gives",
+    ("ssh/connections.py", "replace", "first_use"): "a machine's Target made a first use, its mark carried",
+    ("ssh/connections.py", "mark", "target_for"): "the one place a machine's Target is marked with its route",
+    ("engine/routes.py", "maker", "host_target"): "the Proxmox host's own Target, for the hop and for root SSH",
+    ("engine/routes.py", "maker", "targets"): "each machine's Target, unmarked, for target_for to give it its route",
+    ("engine/routes.py", "connections", "*"): "the run's connections, which settle the route and give each Target",
+    ("cli/dispatch.py", "import", "*"): "a verb's handler, by the module the table of verbs names, cli/ or engine/",
+}
 
 
-def _makes_a_target(source: str) -> list[str]:
-    """Each place source makes a runner's Target, or takes what gives one: a call of runner.machine, proxmox_host,
-    Target or Hop, by the module or by a name imported from it; an import of ssh/connections.py; a call of target_for
-    or of Connections. What no scan sees: a name built at run time (getattr), and a dataclasses.replace of a Target
-    handed in."""
-    found = []
-    for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.ImportFrom):
-            module = node.module or ""
+def _new_engine_files() -> list[Path]:
+    """The new engine's Python: every module of its subpackages, secret.py, and tools/aw."""
+    wanted = [where for name in NEW_MODULES for where in (f"lib/claude_vm/{name}", f"lib/claude_vm/{name}.py")]
+    return [*(path for path in repo_files(*wanted, untracked=True) if path.suffix == ".py"), REPO / "tools" / "aw"]
+
+
+def _package(path: Path) -> tuple[str, ...]:
+    """The package a module of lib/ is in, which its relative imports start from: ("claude_vm", "engine") for
+    engine/routes.py and for engine/__init__.py; none for tools/aw."""
+    if not path.is_relative_to(REPO / "lib"):
+        return ()
+    return path.relative_to(REPO / "lib").parts[:-1]
+
+
+def _bound(tree: ast.AST, package: tuple[str, ...]) -> dict[str, str]:
+    """Each name a module's imports bind, with the dotted name it stands for, its relative imports read from package;
+    runner and connections, where nothing binds them, stand for the runner and the connections, as in this file's
+    cases."""
+    names = {"runner": RUNNER, "connections": CONNECTIONS}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
             for alias in node.names:
-                if module.endswith("runner") and alias.name in MAKERS:
-                    found.append(f"line {node.lineno}: from {module} import {alias.name}")
-                if module.endswith("connections") or (module.endswith("ssh") and alias.name == "connections"):
-                    found.append(f"line {node.lineno}: imports connections")
-        elif isinstance(node, ast.Import):
-            found += [f"line {node.lineno}: imports connections" for a in node.names if a.name.endswith("connections")]
-        elif isinstance(node, ast.Call):
-            func = node.func
-            owner = getattr(func.value, "id", "") if isinstance(func, ast.Attribute) else ""
-            name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
-            if (owner == "runner" and name in MAKERS) or name in ("target_for", "Connections"):
-                found.append(f"line {node.lineno}: {owner + '.' if owner else ''}{name}")
+                # import a.b binds a; import a.b as c binds c to a.b.
+                head = alias.name.split(".")[0]
+                names[alias.asname or head] = alias.name if alias.asname else head
+        elif isinstance(node, ast.ImportFrom):
+            base = node.module or ""
+            if node.level:
+                base = ".".join([*package[: len(package) - node.level + 1], *([node.module] if node.module else [])])
+            for alias in node.names:
+                names[alias.asname or alias.name] = f"{base}.{alias.name}" if base else alias.name
+    return names
+
+
+def _imported(node: ast.Import | ast.ImportFrom, package: tuple[str, ...]) -> list[str]:
+    """The dotted names an import statement brings in."""
+    if isinstance(node, ast.Import):
+        return [alias.name for alias in node.names]
+    base = node.module or ""
+    if node.level:
+        base = ".".join([*package[: len(package) - node.level + 1], *([node.module] if node.module else [])])
+    return [f"{base}.{alias.name}" if base else alias.name for alias in node.names]
+
+
+def _dotted(node: ast.AST, names: dict[str, str]) -> str:
+    """The dotted name an attribute or a name stands for, its head read through the imports; "" for anything else."""
+    parts = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if not isinstance(node, ast.Name):
+        return ""
+    return ".".join([names.get(node.id, node.id), *reversed(parts)])
+
+
+def _typed(tree: ast.AST) -> set[int]:
+    """The nodes of tree that only name a type: annotations, and isinstance's and issubclass's second argument."""
+    roots: list[ast.AST] = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            each = node.args
+            given = [*each.posonlyargs, *each.args, *each.kwonlyargs, each.vararg, each.kwarg]
+            roots += [arg.annotation for arg in given if arg is not None and arg.annotation is not None]
+            roots += [node.returns] if node.returns is not None else []
+        elif isinstance(node, ast.AnnAssign):
+            roots.append(node.annotation)
+        elif isinstance(node, ast.Call) and getattr(node.func, "id", "") in ("isinstance", "issubclass"):
+            roots += node.args[1:2]
+    return {id(inner) for root in roots for inner in ast.walk(root)}
+
+
+def _within(tree: ast.AST) -> dict[int, str | None]:
+    """Each node of tree, by its id, with the name of the innermost function it is in: None for the module's own."""
+    found: dict[int, str | None] = {}
+
+    def visit(node: ast.AST, function: str | None) -> None:
+        for child in ast.iter_child_nodes(node):
+            inner = child.name if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) else function
+            found[id(child)] = inner
+            visit(child, inner)
+
+    visit(tree, None)
     return found
 
 
-def test_no_module_of_engine_but_routes_makes_a_target() -> None:
-    files = [path for path in repo_files("lib/claude_vm/engine", untracked=True) if path.suffix == ".py"]
-    assert ROUTES in files and ENGINE / "init.py" in files, files
-    found = {path.name: where for path in files if path != ROUTES and (where := _makes_a_target(path.read_text()))}
-    assert found == {}, "a machine's SSH arguments are routes.py's alone: take a Target from routes.targets"
-    assert _makes_a_target(ROUTES.read_text())
+def _roads(source: str, package: tuple[str, ...] = ("claude_vm", "engine")) -> list[tuple[str, str | None, str]]:
+    """Each road source takes to a machine's Target - (what, the function it is in, where) - by any name a scan can see:
+
+    - maker: the runner's machine, proxmox_host or Hop named at all (a call, a bound name, partial's argument), or its
+      Target but as a type, by the module under any name (an alias, its whole name, an attribute chain) or imported;
+    - runner: the runner module handed on as a value (getattr's argument, a name bound to it);
+    - connections: ssh/connections.py named or imported at all, or target_for or Connections called on anything;
+    - class: a Target made from another's class, type(target)(...) or target.__class__(...);
+    - import: importlib, or __import__, which import a module by a name built at run time;
+    - replace: dataclasses.replace, copy.replace or __replace__ under any name, changing a field of CHANGES, or given a
+      mapping spread into it;
+    - mark: the route's mark, or what it was decided from, set - given as a keyword, assigned, or named in a string
+      (setattr, a mapping's key).
+
+    Only the outermost of an attribute chain is read. What none of them sees: a name built from pieces at run time."""
+    tree = ast.parse(source)
+    names, typed, within = _bound(tree, package), _typed(tree), _within(tree)
+    inner = {id(node.value) for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
+    found: list[tuple[str, str | None, str]] = []
+
+    def take(what: str, node: ast.AST, said: str) -> None:
+        found.append((what, within.get(id(node)), f"line {getattr(node, 'lineno', 0)}: {said}"))
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            for dotted in _imported(node, package):
+                if dotted == CONNECTIONS or dotted.startswith(f"{CONNECTIONS}."):
+                    take("connections", node, f"imports {dotted}")
+                elif dotted.rpartition(".")[0] == RUNNER and dotted.rpartition(".")[2] in MAKERS:
+                    take("maker", node, f"imports {dotted}")
+                elif dotted.split(".")[0] == "importlib":
+                    take("import", node, f"imports {dotted}")
+        elif isinstance(node, (ast.Name, ast.Attribute)) and id(node) not in inner:
+            dotted = _dotted(node, names)
+            if dotted in {f"{RUNNER}.{name}" for name in MAKERS - {"Target"}}:
+                take("maker", node, dotted)
+            elif dotted == f"{RUNNER}.Target" and id(node) not in typed:
+                take("maker", node, dotted)
+            elif dotted == RUNNER:
+                take("runner", node, "the runner module handed on")
+            elif dotted == CONNECTIONS or dotted.startswith(f"{CONNECTIONS}."):
+                take("connections", node, dotted)
+            if isinstance(node, ast.Attribute) and node.attr in MARKS and isinstance(node.ctx, ast.Store):
+                take("mark", node, f"{node.attr} assigned")
+        elif isinstance(node, ast.Constant) and node.value in MARKS:
+            take("mark", node, f"{node.value} named in a string")
+        elif isinstance(node, ast.Call):
+            func = node.func
+            called = _dotted(func, names)
+            last = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+            if last in GIVERS:
+                take("connections", node, f"{last} called")
+            if isinstance(func, ast.Call) and _dotted(func.func, names) == "type" or last == "__class__":
+                take("class", node, "a Target made from another's class")
+            if called in ("importlib.import_module", "__import__"):
+                take("import", node, called)
+            changes = {keyword.arg for keyword in node.keywords}
+            if called in ("dataclasses.replace", "copy.replace") or last == "__replace__":
+                if None in changes or changes & CHANGES:
+                    take("replace", node, f"{called or last} of {sorted(changes - {None}) or 'a mapping spread'}")
+            for mark in sorted(changes & MARKS):
+                take("mark", node, f"{mark} given")
+    return found
 
 
-@pytest.mark.parametrize(
-    ("source", "found"),
-    [
-        ('runner.machine(identity, address, "dev", control)', True),
-        ('runner.proxmox_host(address, "root", control)', True),
-        ("runner.Target(identity=None, address=a, account='root', control_dir=c)", True),
-        ("runner.Hop(command, name)", True),
-        ("from ..ssh.runner import machine", True),
-        ("from claude_vm.ssh.runner import proxmox_host as host", True),
-        ("from ..ssh import connections", True),
-        ("from claude_vm.ssh.connections import Connections", True),
-        ("import claude_vm.ssh.connections", True),
-        ("await made.target_for(job, base, settled)", True),
-        ("Connections(control, env)", True),
-        ("await runner.run(job, target, command, None, limits, env)", False),
-        ("from ..ssh import runner", False),
-        ("target: runner.Target = at", False),
-        ("dataclasses.replace(target, address=address)", False),
-    ],
-)
-def test_the_target_scan_sees_each_way(source, found) -> None:
-    assert bool(_makes_a_target(source)) is found
+def test_no_module_of_the_new_engine_but_routes_and_ssh_s_own_makes_or_changes_a_target() -> None:
+    # Held where the connection is made too (the route's mark, above): a scan sees what a slip would write, and the
+    # mark what it cannot. Every road of OWN_ROADS is still taken: one no module takes any more goes out of it.
+    files = _new_engine_files()
+    assert {ROUTES, LIB / "ssh" / "connections.py", ENGINE / "init.py", LIB / "guest" / "layer1.py"} <= set(files)
+    found: dict[str, list[str]] = {}
+    taken = set()
+    for path in files:
+        rel = path.relative_to(LIB).as_posix() if path.is_relative_to(LIB) else path.relative_to(REPO).as_posix()
+        if rel == "ssh/runner.py":
+            continue
+        for what, function, where in _roads(path.read_text(), _package(path)):
+            own = next((key for key in ((rel, what, function), (rel, what, "*")) if key in OWN_ROADS), None)
+            if own is None:
+                found.setdefault(rel, []).append(f"{where} ({what})")
+            else:
+                taken.add(own)
+    assert found == {}, "a machine's Target is routes.py's alone, marked by its connections: take one from targets"
+    assert taken == set(OWN_ROADS), set(OWN_ROADS) - taken
+    # The one module that imports by a name at run time loads a verb's handler, which the table of verbs names in cli/
+    # or engine/, never ssh/.
+    assert {verb.handler.split(".")[0] for verb in VERBS.values() if verb.handler} <= {"cli", "engine"}
+
+
+# A road, planted in a module of engine/, and the road the scan sees it as; then what it does not take for one.
+SEEN = [
+    ('runner.machine(identity, address, "dev", control)', "maker"),
+    ('runner.proxmox_host(address, "root", control)', "maker"),
+    ("runner.Target(identity=None, address=a, account='root', control_dir=c)", "maker"),
+    ("runner.Hop(command, name)", "maker"),
+    ("from ..ssh.runner import machine", "maker"),
+    ("from claude_vm.ssh.runner import proxmox_host as host", "maker"),
+    # The runner under another name: an alias, its whole name, an attribute chain, a bound name, partial.
+    ('from ..ssh import runner as r\nr.machine(identity, address, "dev", control)', "maker"),
+    ("import claude_vm.ssh.runner as r\nr.Target(identity=i, address=a, account='dev', control_dir=c)", "maker"),
+    ("import claude_vm.ssh.runner\nclaude_vm.ssh.runner.machine(i, a, 'dev', c)", "maker"),
+    ("from .. import ssh\nssh.runner.machine(identity, address, 'dev', control)", "maker"),
+    ("from ..ssh import runner as r\nmake = r.machine\nmake(identity, address, 'dev', control)", "maker"),
+    ("import functools\nfunctools.partial(runner.machine, identity)(address, 'dev', control)", "maker"),
+    ("from ..ssh import runner as r\nmake = r.Target", "maker"),
+    ("from ..ssh import runner as r\ngetattr(r, 'machine')(identity, address, 'dev', control)", "runner"),
+    # A Target made from another's class.
+    ("type(target)(identity=i, address=a, account='dev', control_dir=c)", "class"),
+    ("target.__class__(identity=i, address=a, account='dev', control_dir=c)", "class"),
+    # A module imported by its name at run time.
+    ("import importlib\nimportlib.import_module('claude_vm.ssh.connections')", "import"),
+    ("from importlib import import_module", "import"),
+    ("__import__('claude_vm.ssh.connections')", "import"),
+    # A Target changed after the route made it, by any spelling of replace.
+    ("dataclasses.replace(target, hop=None)", "replace"),
+    ("import dataclasses as dc\ndc.replace(target, given=())", "replace"),
+    ("from dataclasses import replace as changed\nchanged(target, hop=None)", "replace"),
+    ("import copy\ncopy.replace(target, hop=None)", "replace"),
+    ("target.__replace__(given=())", "replace"),
+    ("dataclasses.replace(target, **changes)", "replace"),
+    ("dataclasses.replace(target, routed_from=())", "replace"),
+    # The route's mark, or what it was decided from, set anywhere but where the route gives it.
+    ("dataclasses.replace(target, hop=None, routed_as='direct')", "mark"),
+    ("object.__setattr__(target, 'routed_as', 'direct')", "mark"),
+    ("target.routed_as = 'direct'", "mark"),
+    ("runner.machine(i, a, 'dev', c, routed_as='direct')", "mark"),
+    ("dataclasses.replace(target, address=a, routed_from=runner.decided_from(moved))", "mark"),
+    ("object.__setattr__(target, 'routed_from', ())", "mark"),
+    ("target.routed_from = ()", "mark"),
+    # The connections.
+    ("from ..ssh import connections", "connections"),
+    ("from . import connections", "connections"),
+    ("from claude_vm.ssh.connections import Connections", "connections"),
+    ("import claude_vm.ssh.connections", "connections"),
+    ("from .. import ssh\nssh.connections.first_use(job, target)", "connections"),
+    ("await made.target_for(job, base, settled)", "connections"),
+    ("Connections(control, env)", "connections"),
+]
+UNSEEN = [
+    "from ..ssh import runner\nawait runner.run(job, target, command, None, limits, env)",
+    "from ..ssh import runner",
+    "from ..ssh import runner\ntarget: runner.Target = at",
+    "from ..ssh import runner\nisinstance(target, runner.Target)",
+    "from ..ssh import runner\ndef reach(target: runner.Target) -> runner.Target | None: ...",
+    # Seen by the runner instead, which refuses a Target whose address changed since the route marked it.
+    "dataclasses.replace(target, address=address)",
+    "dataclasses.replace(limits, seconds=left)",
+    "dataclasses.replace(target)",
+    "await found.connections.held(target, found.settled)",
+    "said = target.routed_as",
+    "said = runner.decided_from(target) == target.routed_from",
+]
+
+
+@pytest.mark.parametrize(("source", "what"), SEEN)
+def test_the_target_scan_sees_each_way(source, what) -> None:
+    # "from . import connections" is planted in ssh/, beside it; every other, in engine/.
+    package = ("claude_vm", "ssh") if source == "from . import connections" else ("claude_vm", "engine")
+    assert what in {road for road, _, _ in _roads(source, package)}, _roads(source, package)
+
+
+@pytest.mark.parametrize("source", UNSEEN)
+def test_the_target_scan_takes_no_other_way_for_one(source) -> None:
+    assert _roads(source) == []

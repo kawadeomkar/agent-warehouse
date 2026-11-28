@@ -8,12 +8,13 @@ user and token, which fake_fleet made, and the pool's mark with a fleet ID the h
 the node's certificate's fingerprint, the storage and the bridge, and a refusing ssh first on PATH, so that root SSH,
 which init tries for the host's certificates where nothing else vouches for them, never answers and never reaches this
 computer's ssh. Two things are written before and after it, each through its one writer: host.yml's `api_port`, the
-fake's port, which no option of init's gives (a person with a port of their own writes it so); and the host's node,
-which init's checks settle on the host (card E6) and which no option gives either. And the route to the host's VMs is
-pinned to `vm_ssh_route: direct`, as every harness pins it: under auto a run would ask this computer's ssh where it
-dials the host (engine/routes.py), and a test that reaches VMs through the host sets the route itself. What it returns
-says where each thing is: the fleet's home, the host, the fleet's ID, the fake's address and port, the token's ID and
-secret (the fake's, made for the test), and the fingerprint kept.
+fake's port, which no option of init's gives (a person with a port of their own writes it so), and with it the route
+to the host's VMs pinned to `vm_ssh_route: direct` (`pinned`), before init or anything else reads it, as every fleet a
+test makes pins it: under auto a run would ask this computer's ssh where it dials the host (engine/routes.py), and a
+test that reaches VMs through the host sets the route itself; and the host's node, which init's checks settle on the
+host (card E6) and which no option gives either. What it returns says where each thing is: the fleet's home, the host,
+the fleet's ID, the fake's address and port, the token's ID and secret (the fake's, made for the test), and the
+fingerprint kept.
 
 The folder is the test's own: AGENT_WAREHOUSE_HOME (tests/unit/conftest.py's aw_home), so a test calls it with the kit's
 `home` fixture made. Nothing here reaches a network but the fake on loopback, nor this computer's ssh, ~/.ssh or
@@ -63,12 +64,22 @@ def mark_pool(base: str, fleet: str, pool: str = ENGINE_POOL, controller: str = 
     _pve(base, "PUT", "pools", poolid=pool, comment=mark.Mark(fleet, controller).line)
 
 
+def pinned(host: str = HOST) -> None:
+    """This computer's route to host's VMs pinned to vm_ssh_route: direct, in client.yml's map hosts, through its one
+    writer: what every fleet a test makes does before anything reads the route (tests/unit/test_aw_routes.py holds
+    each maker to it)."""
+    where = paths.home(REPO)
+    overrides.set(where, ROUTE, "direct", host, overrides.read(where, None).client.digest)
+
+
 def with_port(port: int, host: str = HOST, address: str = "127.0.0.1") -> None:
     """host.yml of a host not set up yet, written through its one writer with the fake's port, the engine's token's
-    user and ID and address: what a person writes for an API on a port of its own, before init."""
+    user and ID and address: what a person writes for an API on a port of its own, before init; and the route to its
+    VMs pinned (pinned), before init reads anything."""
     layout = hosts.Layout(paths.home(REPO))
     fields = {"address": address, "api_port": port, "token_user": ENGINE_USER, "token_id": ENGINE_TOKEN}
     hosts.write(layout, host, layout.state(host).digest, change=lambda raw: raw.update(fields))
+    pinned(host)
 
 
 def refusing_ssh(home: Path) -> Path:
@@ -121,7 +132,4 @@ def whole_fleet(
     assert ran.returncode == 0, ran
     where = paths.home(REPO)
     overrides.set(where, "proxmox_node", node, host, overrides.read(where, host).host.digest)
-    # How this computer reaches the host's VMs, pinned straight to them: auto would ask ssh -G where it dials the
-    # host, and a test that goes through the host sets it itself (engine/routes.py).
-    overrides.set(where, ROUTE, "direct", host, overrides.read(where, host).client.digest)
     return Fleet(where.root, host, fleet, base, port, token, secret, fingerprint)
