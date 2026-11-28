@@ -5,8 +5,19 @@ person. Writes nothing."""
 
 from __future__ import annotations
 
-from .layout import Layout
+from typing import TYPE_CHECKING
+
 from .model import SHARED_HOSTS, Choice, Host, HostList, HostRow, Note, Refused, Request, Where
+
+if TYPE_CHECKING:
+    # The layout is the caller's, and named here only for the annotations: so the new engine, whose fleet/hosts.py
+    # takes these rules over a layout of its own, loads neither today's layout nor the vault reader it imports.
+    from .layout import Layout
+
+
+# The runs that write a VM's alias, as a warning names them: today's recipes, where a layout names none of its own (the
+# new engine's, fleet/hosts.py's, names them as its program does).
+WRITING_RUNS = "just deploy, just code"
 
 
 def pick(layout: Layout, given: str = "", lenient: bool = False) -> Host | None:
@@ -51,8 +62,8 @@ def choose(layout: Layout, request: Request) -> Choice:
                         level="warning",
                         text=f"{said}, as its SSH alias records, and this run is against {given}: it reaches the VM "
                         f"of the name on {given}. A VM name belongs to one host, so the alias stays where it is, and a "
-                        "run here that would write it - just deploy, just code - is refused: give one of them another "
-                        "name",
+                        f"run here that would write it - {getattr(layout, 'writing_runs', WRITING_RUNS)} - is refused: "
+                        "give one of them another name",
                     )
                 )
         else:

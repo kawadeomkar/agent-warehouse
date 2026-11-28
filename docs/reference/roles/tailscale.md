@@ -60,6 +60,18 @@ With tailscale_login_interactive, or the answer to the question tailscale_login_
 
 Also takes, as described under `main`: `tailscale_enabled`, `tailscale_wanted`, `tailscale_off_setting`, `tailscale_login_timeout`, `tailscale_login_desktop`, `tailscale_login_server`, `tailscale_advertise_tags`, `tailscale_marker_dir`, `tailscale_host_flag`.
 
+## Entry point `system`
+
+**Install Tailscale where it is the VPN, and nothing more**
+
+Reads what is installed and who installed it, and installs Tailscale from its apt repository where it is the VPN and no Tailscale is there or the one there is this role's. The join, the settings and the report are the new engine's own, its layer 2. With tailscale_wanted false it changes nothing.
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `tailscale_wanted` | bool | same as `tailscale_enabled` | Whether Tailscale is the VPN; wired from the vpn setting (tailscale). Set through `tailscale_enabled` in local.yml. |
+
+Also takes, as described under `main`: `tailscale_upload_logs`, `tailscale_daemon_flags`, `tailscale_marker_dir`.
+
 ## Entry point `release`
 
 **Take the VM off the tailnet before it is destroyed**
@@ -546,6 +558,30 @@ classDef rescue stroke:#665352,stroke-width:2px;
   state___Read_Tailscale_s_state_once_it_has_settled0-->|Task| state___Fail_when_the_tailscaled_this_role_started_does_not_answer1[state   fail when the tailscaled this role started<br>does not answer<br>When: **tailscale ours   bool and not ansible check mode<br>and not  tailscale check without package   bool**]:::task
   state___Fail_when_the_tailscaled_this_role_started_does_not_answer1-->|Task| state___Read_the_settings_of_a_running_node2[state   read the settings of a running node<br>When: **tailscale backend     running**]:::task
   state___Read_the_settings_of_a_running_node2-->End
+```
+
+### `system.yml` - entry point `system`
+
+| Task | Module | When |
+|---|---|---|
+| Read what is installed, and who installed it | `ansible.builtin.include_tasks` |  |
+| Install Tailscale where it is the VPN, and this role installed it or nothing has | `ansible.builtin.include_tasks` | <code>tailscale_wanted &#124; bool and tailscale_ours &#124; bool</code> |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Include task| system___Read_what_is_installed__and_who_installed_it_ownership_yml_0[system   read what is installed  and who installed<br>it<br>include_task: ownership yml]:::includeTasks
+  system___Read_what_is_installed__and_who_installed_it_ownership_yml_0-->|Include task| system___Install_Tailscale_where_it_is_the_VPN__and_this_role_installed_it_or_nothing_has_install_yml_1[system   install tailscale where it is the vpn <br>and this role installed it or nothing has<br>When: **tailscale wanted   bool and tailscale ours   bool**<br>include_task: install yml]:::includeTasks
+  system___Install_Tailscale_where_it_is_the_VPN__and_this_role_installed_it_or_nothing_has_install_yml_1-->End
 ```
 
 ### `unmanaged.yml`

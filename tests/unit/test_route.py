@@ -11,9 +11,12 @@ import json
 import os
 import shlex
 import shutil
+import signal
 import socket
 import subprocess
+import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -21,6 +24,7 @@ import pytest
 from harness import REPO
 
 from claude_vm import route
+from claude_vm.status import reach
 
 HOP = route.hop_settings(user="root", host="pve.example.ts.net", control_dir="/tmp/cp", name="pve")
 ROUTE = {"route": "host", "hop": HOP, "policy": "accept-new"}
@@ -153,6 +157,94 @@ def test_the_hop_s_command_word_for_word():
     unshared = route.hop_argv(hop, "192.0.2.77", "yes", port=22, shared=False)
     assert "ControlPath=none" in unshared and "ControlPersist=120" not in unshared
     assert unshared[-2:] == ["192.0.2.77:22", "forwarder@100.64.0.7"] and "StrictHostKeyChecking=yes" in unshared
+
+
+def test_the_new_engine_s_hop_pins_the_display_and_local_commands_off_first_on_every_line():
+    # A person's Host * of ForwardX11 yes, or PermitLocalCommand yes with a LocalCommand, reaches the hop's own ssh,
+    # which reads their config: the open's master, or a ProxyCommand's ssh that finds none live and becomes one, would
+    # run that command here; and their ClearAllForwardings no would have every -W line open their forwards and tunnel.
+    # Today's callers pass no pinned, and their lines are as above.
+    settings = {"ssh": "/usr/bin/ssh", "user": "forwarder", "host": "100.64.0.7", "control_dir": "/tmp/cp"}
+    today, hop = route.hop_settings(**settings), route.hop_settings(**settings, pinned=True)
+    assert hop == {**today, "pinned": True} and "pinned" not in today
+    pins = ["-o", "ForwardX11=no", "-o", "PermitLocalCommand=no", "-o", "ClearAllForwardings=yes"]
+    for line in (
+        lambda one: route.hop_argv(one, "192.0.2.77", "accept-new"),
+        lambda one: route.hop_argv(one, "192.0.2.77", "yes", port=22, shared=False, level="VERBOSE"),
+        lambda one: route.hop_open_argv(one, "accept-new"),
+    ):
+        assert line(hop) == [line(today)[0], *pins, *line(today)[1:]]
+        assert "ForwardX11=no" not in line(today) and "PermitLocalCommand=no" not in line(today)
+    # Today's open alone clears them, at its end.
+    assert "ClearAllForwardings=yes" not in route.hop_argv(today, "192.0.2.77", "accept-new")
+    assert route.hop_open_argv(today, "accept-new")[-4:-2] == ["-o", "ClearAllForwardings=yes"]
+    # A machine's ProxyCommand is that line, and so is the line ssh must show for it (vm_route_refusal).
+    settled = {"route": "host", "hop": hop, "policy": "accept-new"}
+    proxy = " ".join(route.hop_argv(hop, "192.0.2.77", "accept-new"))
+    assert route.vm_hop(settled, "192.0.2.77")["option"] == "-o " + shlex.quote(f"ProxyCommand={proxy}")
+    shown = {"ok": True, "proxycommand": proxy, "proxyjump": "", "said": ""}
+    assert route.vm_route_refusal(settled, "192.0.2.77", True, shown) == ""
+    unpinned = " ".join(route.hop_argv(today, "192.0.2.77", "accept-new"))
+    assert route.vm_route_refusal(settled, "192.0.2.77", True, {**shown, "proxycommand": unpinned}) != ""
+
+
+# A person's config for the host that keeps their forwards and a tunnel on every line, -W's among them: OpenSSH has -W
+# imply ClearAllForwardings only where the config sets none (readconf.c, fill_default_options).
+FORWARDS = """Host *
+  ClearAllForwardings no
+  LocalForward 127.0.0.1:47011 127.0.0.1:22
+  RemoteForward 47012 127.0.0.1:22
+  DynamicForward 127.0.0.1:47013
+  Tunnel yes
+"""
+
+
+def test_no_line_of_the_new_engine_s_hop_takes_a_person_s_forwards_or_tunnel_as_ssh_itself_resolves_it(tmp_path):
+    ssh = _real_ssh()
+    config = tmp_path / "config"
+    config.write_text(FORWARDS)
+    settings = {"ssh": ssh, "user": "forwarder", "host": "100.64.0.7", "control_dir": "/tmp/cp"}
+
+    def shown(line: list[str]) -> dict:
+        # ssh -G resolves the line with the person's config and dials nothing.
+        ran = subprocess.run([line[0], "-G", "-F", str(config), *line[1:]], capture_output=True, text=True, timeout=30)
+        assert ran.returncode == 0, ran.stderr
+        options: dict = {}
+        for said in ran.stdout.splitlines():
+            word, _, value = said.partition(" ")
+            options.setdefault(word, []).append(value)
+        return options
+
+    for pinned in (False, True):
+        hop = route.hop_settings(**settings, pinned=pinned)
+        for line in (
+            # A machine's ProxyCommand as ssh runs it, its %p made the machine's port.
+            route.hop_argv(hop, "192.0.2.77", "accept-new", port=22),
+            route.hop_argv(hop, "192.0.2.77", "yes", port=22, shared=False, level="VERBOSE"),
+            route.hop_open_argv(hop, "accept-new"),
+            [*route._common(hop, "accept-new"), *route._shared(hop), *route._place(hop), "-O", "check", "pve"],
+        ):
+            options = shown(line)
+            forwards = [options.get(word) for word in ("localforward", "remoteforward", "dynamicforward")]
+            if pinned or "-N" in line:
+                assert options["clearallforwardings"] == ["yes"] and options["tunnel"] == ["false"], line
+                assert forwards == [None, None, None], line
+            else:
+                # Today's lines but the open's keep them: what the pin is for.
+                assert options["clearallforwardings"] == ["no"] and None not in forwards, line
+
+
+def test_a_socket_past_the_length_is_left_to_the_new_engine_where_it_asks():
+    # Today's callers are refused with today's sentence; the new engine says it in its own words (ssh/connections.py).
+    long = "/" + "d" * 80
+    with pytest.raises(route.HopRefused, match="set ansible_control_path_dir to a shorter directory"):
+        route.hop_settings(host="pve", control_dir=long)
+    hop = route.hop_settings(host="pve", control_dir=long, sized=False)
+    assert hop["socket"].startswith(f"{long}/awh-") and not route.socket_fits(hop["socket"])
+    assert route.socket_fits(route.hop_settings(host="pve", control_dir="/tmp/cp")["socket"])
+    # sized holds the length alone: a setting that is not one plain word is refused whatever it says.
+    with pytest.raises(route.HopRefused, match="control directory"):
+        route.hop_settings(host="pve", control_dir="/tmp/%C", sized=False)
 
 
 def test_the_hop_s_socket_is_named_by_the_hop_and_fits_macos():
@@ -314,7 +406,8 @@ def test_vm_ssh_jump_that_is_more_than_an_account_is_refused_by_name(value, said
 # else the mode. An open beside a live master is a client with ControlMaster=auto, which asks the host for a session
 # (logged in "sessions"), and with ControlMaster=yes says the socket exists and goes on as a connection of its own; at
 # a stale one, auto takes the path over and yes says it exists. "lost" plays an open whose master another caller's
-# unlink took the path from, "lost-once" that the first time only. A master whose socket holds "quiet" says it runs
+# unlink took the path from, "lost-once" that the first time only, and "asks" one that waits, its pid in open.pid, as
+# one stopped at the terminal by a question waits until a run ends it. A master whose socket holds "quiet" says it runs
 # and carries nothing, as one whose far side froze: a forward over it fails as its client does. At LogLevel=VERBOSE a
 # forward whose login is done says so first, as OpenSSH does: every forward but "stalled", which waits before any
 # login, and "login", refused it.
@@ -344,6 +437,7 @@ case " $* " in
     hang-then-opened) : > "$socket"; exec sleep 60 ;;
     refused) echo "root@pve: Permission denied (publickey)." >&2; exit 255 ;;
     lost) exit 0 ;;
+    asks) echo $$ > "$here/open.pid"; exec sleep 60 ;;
     lost-once) [ -e "$here/lost" ] && { : > "$socket"; exit 0; }; : > "$here/lost"; exit 0 ;;
     *) : > "$socket"; exit 0 ;;
     esac ;;
@@ -497,25 +591,209 @@ def test_a_control_directory_that_cannot_be_made_is_said_never_raised(tmp_path, 
     assert not held["ok"] and held["said"].startswith(f"the control directory {short_dir}/file/cp: ")
 
 
-def test_every_ssh_of_the_hop_still_running_is_ended_for_a_caller_that_ends_at_once(tmp_path):
+def test_every_ssh_of_the_hop_still_running_is_ended_for_a_caller_that_ends_at_once(tmp_path, monkeypatch):
     # just status's Ctrl-C ends its process at once (os._exit), while a thread of its waits on the hop's login: the
-    # login's ssh is ended first, never left to run on under init.
-    import threading
-
+    # login's ssh is ended first, never left to run on under init - one whose start is still under way too. That start
+    # is held open here, its ssh running and Popen not yet returned, and let go only once end_all has run or must wait
+    # for it: the moment that, met by chance on a loaded machine, once left the ssh running.
+    monkeypatch.setattr(route, "_OVER", threading.Event())
     pid_file = tmp_path / "pid"
     program = _program(tmp_path / "slow", f"#!/bin/sh\necho $$ > {pid_file}\nexec sleep 60\n")
+    started, go = threading.Event(), threading.Event()
+
+    class Held(subprocess.Popen):
+        def __init__(self, argv, *args, **kwargs):
+            super().__init__(argv, *args, **kwargs)
+            if argv == [program]:
+                started.set()
+                go.wait(10)
+
+    monkeypatch.setattr(subprocess, "Popen", Held)
     ended: list = []
     waiting = threading.Thread(target=lambda: ended.append(route._run([program], 60)), daemon=True)
     waiting.start()
-    deadline = time.monotonic() + 10
-    while not (pid_file.exists() and pid_file.read_text().strip()) and time.monotonic() < deadline:
-        time.sleep(0.05)
-    started = time.monotonic()
+    try:
+        deadline = time.monotonic() + 10
+        while not (started.is_set() and pid_file.exists() and pid_file.read_text().strip()):
+            assert time.monotonic() < deadline, "the stand-in ssh never started"
+            time.sleep(0.05)
+        ender = threading.Thread(target=route.end_all, daemon=True)
+        ender.start()
+        while ender.is_alive() and not route._LIVE_LOCK.locked():
+            assert time.monotonic() < deadline, "end_all neither ran nor waited"
+            time.sleep(0.01)
+        go.set()
+        let_go = time.monotonic()
+        waiting.join(10)
+        ender.join(10)
+        assert ended and ended[0]["rc"] is not None and time.monotonic() - let_go < 5
+        with pytest.raises(ProcessLookupError):
+            os.kill(int(pid_file.read_text()), 0)
+        assert not route._LIVE
+    finally:
+        go.set()
+        route.end_all()  # a run of this test that failed leaves no ssh behind it
+        waiting.join(10)
+
+
+def test_no_ssh_of_the_hop_s_is_started_once_the_run_has_ended(tmp_path, monkeypatch):
+    # A thread of just status's that came to start one after its Ctrl-C ended the others would start it just before
+    # os._exit, to run on by itself.
+    monkeypatch.setattr(route, "_OVER", threading.Event())
+    ran = tmp_path / "ran"
+    program = _program(tmp_path / "ssh", f"#!/bin/sh\ntouch {ran}\n")
     route.end_all()
-    waiting.join(10)
-    assert ended and ended[0]["rc"] is not None and time.monotonic() - started < 5
-    with pytest.raises(ProcessLookupError):
-        os.kill(int(pid_file.read_text()), 0)
+    said = f"{program}: not started, the run ended"
+    assert route._run([program], 5) == {"rc": 255, "said": said, "killed": False, "banner": False}
+    assert not ran.exists() and not route._LIVE
+
+
+@pytest.mark.parametrize("asked", ["route_settle", "route_settle, the new engine's", "ssh_shown"])
+def test_an_ssh_g_being_started_is_ended_by_end_all_with_the_rest(tmp_path, monkeypatch, asked):
+    # route_settle's ssh -G reads the person's own ssh config, whose Match exec may run anything: one that just status's
+    # Ctrl-C meets while it starts is ended with the hop's other ssh, never left to run on under init. Its start is held
+    # open here, the ssh -G running and Popen not yet returned, as the hop's login's is above. Its limit is far past the
+    # bound below: one end_all missed is waited for to its limit, which the bound must tell from an end at once.
+    monkeypatch.setattr(route, "_OVER", threading.Event())
+    monkeypatch.setitem(route.LIMITS, "config", 30)
+    pid_file = tmp_path / "pid"
+    ssh = _program(tmp_path / "ssh", f"#!/bin/sh\necho $$ > {pid_file}\nexec sleep 60\n")
+    started, go = threading.Event(), threading.Event()
+
+    class Held(subprocess.Popen):
+        def __init__(self, argv, *args, **kwargs):
+            super().__init__(argv, *args, **kwargs)
+            if argv[:1] == [ssh]:
+                started.set()
+                go.wait(10)
+
+    monkeypatch.setattr(subprocess, "Popen", Held)
+    hop = route.hop_settings(ssh=ssh, host="192.0.2.10", control_dir="/tmp/cp")
+    calls = {
+        "route_settle": lambda: route.route_settle("auto", hop),
+        "route_settle, the new engine's": lambda: route.route_settle("auto", hop, signalled_settles=False),
+        "ssh_shown": lambda: route.ssh_shown(ssh, [], "192.0.2.10"),
+    }
+    answered: list = []
+
+    def ask():
+        try:
+            answered.append(calls[asked]())
+        except route.HopRefused as refused:
+            answered.append(refused)
+
+    waiting = threading.Thread(target=ask, daemon=True)
+    waiting.start()
+    try:
+        deadline = time.monotonic() + 10
+        while not (started.is_set() and pid_file.exists() and pid_file.read_text().strip()):
+            assert time.monotonic() < deadline, "the stand-in ssh -G never started"
+            time.sleep(0.05)
+        ender = threading.Thread(target=route.end_all, daemon=True)
+        ender.start()
+        go.set()
+        let_go = time.monotonic()
+        waiting.join(10)
+        ender.join(10)
+        assert answered and time.monotonic() - let_go < 5
+        with pytest.raises(ProcessLookupError):
+            os.kill(int(pid_file.read_text()), 0)
+        assert not route._LIVE
+    finally:
+        go.set()
+        route.end_all()  # a run of this test that failed leaves no ssh behind it
+        waiting.join(10)
+    [answer] = answered
+    if asked == "route_settle":
+        # Today's callers: as an ssh -G that could not answer, the address as written.
+        assert answer == {"route": "direct", "addresses": ["192.0.2.10"], "dialled": "192.0.2.10"}
+    elif asked == "ssh_shown":
+        assert answer == {"ok": False, "proxycommand": "", "proxyjump": "", "said": f"{ssh} -G exited -9"}
+    else:
+        assert isinstance(answer, route.HopRefused) and "ended by a signal (9)" in str(answer)
+
+
+def test_no_ssh_g_is_started_once_the_run_has_ended(tmp_path, monkeypatch):
+    monkeypatch.setattr(route, "_OVER", threading.Event())
+    ran = tmp_path / "ran"
+    ssh = _program(tmp_path / "ssh", f"#!/bin/sh\ntouch {ran}\necho 'hostname 100.101.102.103'\n")
+    hop = route.hop_settings(ssh=ssh, host="192.0.2.10", control_dir="/tmp/cp")
+    route.end_all()
+    # Today's callers: as an ssh that cannot be run, the address as written; the new engine's settle nothing.
+    assert route.route_settle("auto", hop) == {"route": "direct", "addresses": ["192.0.2.10"], "dialled": "192.0.2.10"}
+    with pytest.raises(route.HopRefused, match="was not started, since the run is ending, so the route under"):
+        route.route_settle("auto", hop, signalled_settles=False)
+    said = f"{ssh}: not started, the run ended"
+    assert route.ssh_shown(ssh, [], "192.0.2.10") == {"ok": False, "proxycommand": "", "proxyjump": "", "said": said}
+    assert not ran.exists() and not route._LIVE
+
+
+@pytest.mark.parametrize("missing", ["the temporary folder", "the ssh program"])
+def test_under_auto_an_ssh_g_that_cannot_be_run_settles_nothing_for_the_new_engine(tmp_path, monkeypatch, missing):
+    # Its standard error is read from a temporary file: where none can be made, as where the ssh program is not there,
+    # the person's HostName for the host is never read. Today's callers settle from the address as written, as they
+    # did; the new engine settles nothing, and says what could not be made (review 41, B31.md 1).
+    ran = tmp_path / "ran"
+    ssh = _program(tmp_path / "ssh", f"#!/bin/sh\ntouch {ran}\necho 'hostname 100.101.102.103'\n")
+    nowhere = tmp_path / "nowhere"
+    if missing == "the temporary folder":
+        monkeypatch.setattr(tempfile, "tempdir", str(nowhere))
+    else:
+        ssh = str(nowhere)
+    hop = route.hop_settings(ssh=ssh, host="192.0.2.10", control_dir="/tmp/cp")
+    assert route.route_settle("auto", hop) == {"route": "direct", "addresses": ["192.0.2.10"], "dialled": "192.0.2.10"}
+    with pytest.raises(route.HopRefused) as refused:
+        route.route_settle("auto", hop, signalled_settles=False)
+    # What could not be made: the ssh program, or a file of the folder, which tempfile names at random.
+    said = str(refused.value)
+    assert said.startswith(f"ssh -G for the Proxmox host could not be run (No such file or directory: {nowhere}"), said
+    assert said.endswith(
+        "), so the route under vm_ssh_route: auto is not settled: run it again, or set vm_ssh_route: direct or host"
+    )
+    assert not ran.exists() and not route._LIVE
+
+
+def test_under_auto_an_ssh_g_past_its_limit_settles_nothing_for_the_new_engine(tmp_path):
+    # Its kill at the limit is a signal too: read as no answer, it would settle from the address as written, direct,
+    # where the person's own configuration may send the host to a tailnet. Today's callers settle as they did.
+    ssh = _program(tmp_path / "ssh", "#!/bin/sh\nexec sleep 30\n")
+    hop = route.hop_settings(ssh=ssh, host="192.0.2.10", control_dir="/tmp/cp")
+    started = time.monotonic()
+    with pytest.raises(route.HopRefused) as refused:
+        route.route_settle("auto", hop, limit=0.5, signalled_settles=False)
+    assert str(refused.value) == (
+        "ssh -G for the Proxmox host said nothing of where ssh dials for it within 0.5 s, so the route under"
+        " vm_ssh_route: auto is not settled: run it again, or set vm_ssh_route: direct or host"
+    )
+    today = route.route_settle("auto", hop, limit=0.5)
+    assert today == {"route": "direct", "addresses": ["192.0.2.10"], "dialled": "192.0.2.10"}
+    assert time.monotonic() - started < 10 and not route._LIVE
+
+
+@pytest.mark.parametrize(
+    ("words", "said"),
+    [
+        ("echo 'vdollar_percent_expand: unknown key %Q' >&2\n", "vdollar_percent_expand: unknown key %Q"),
+        ("", "it said nothing"),
+    ],
+)
+def test_under_auto_an_ssh_g_that_exits_with_an_error_settles_nothing_for_the_new_engine(tmp_path, words, said):
+    # A line of the person's configuration that ssh -G refuses for the host alone - a ControlPath with a token ssh does
+    # not know, which the hop's own lines outrank with theirs - leaves where ssh dials unsaid, whatever it printed: read
+    # as the address as written, it would settle direct where the configuration sends the host to a tailnet, and the
+    # run would dial the VMs straight (review 46, G7.md 1). Today's callers settle as they did; the new engine settles
+    # nothing, in ssh's own words.
+    ssh = _program(tmp_path / "ssh", f"#!/bin/sh\necho 'hostname 100.101.102.103'\n{words}exit 255\n")
+    hop = route.hop_settings(ssh=ssh, host="192.0.2.10", control_dir="/tmp/cp")
+    with pytest.raises(route.HopRefused) as refused:
+        route.route_settle("auto", hop, signalled_settles=False)
+    assert str(refused.value) == (
+        f"ssh -G for the Proxmox host exited 255 without saying where ssh dials for it ({said}), so the route under"
+        " vm_ssh_route: auto is not settled: mend what ssh says of your ssh configuration for the host, or set"
+        " vm_ssh_route: direct or host"
+    )
+    today = route.route_settle("auto", hop)
+    assert today == {"route": "direct", "addresses": ["192.0.2.10"], "dialled": "192.0.2.10"}
     assert not route._LIVE
 
 
@@ -534,6 +812,525 @@ def test_a_caller_ended_during_an_ssh_ends_it_and_waits_for_it(tmp_path, monkeyp
         route._run([program], 30)
     with pytest.raises(ProcessLookupError):
         os.kill(int(pid_file.read_text()), 0)
+
+
+# An ssh -G whose person's Match exec runs a program of its own, in the ssh's own process group, that would outlive it:
+# it writes that program's pid and its own beside itself, then waits for the program, as ssh -G waits for its Match
+# exec. Ended by its pid alone, it leaves the program running.
+MATCH_EXEC = (
+    "#!/bin/sh\n"
+    'sleep 60 > /dev/null 2>&1 &\necho $! > "$0.child.part" && mv "$0.child.part" "$0.child"\n'
+    'echo $$ > "$0.pid.part" && mv "$0.pid.part" "$0.pid"\nwait\n'
+)
+
+
+def _match_exec(tmp_path: Path) -> str:
+    return _program(tmp_path / "ssh", MATCH_EXEC)
+
+
+def _its_pids(ssh: str) -> tuple[int, int]:
+    """The stand-in's pid and its Match exec's program's, once both are written."""
+    deadline = time.monotonic() + 10
+    while not (Path(f"{ssh}.pid").is_file() and Path(f"{ssh}.child").is_file()):
+        assert time.monotonic() < deadline, "the stand-in ssh -G never started its Match exec's program"
+        time.sleep(0.02)
+    return int(Path(f"{ssh}.pid").read_text()), int(Path(f"{ssh}.child").read_text())
+
+
+def _gone(pid: int) -> bool:
+    """Whether pid has ended: no such process, or one dead that nothing has reaped yet."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    return not state or state.startswith("Z")
+
+
+def _until_gone(*pids: int) -> bool:
+    deadline = time.monotonic() + 5
+    while not all(_gone(pid) for pid in pids):
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.05)
+    return True
+
+
+def _end(*pids: int) -> None:
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+# Each road an ssh of the new engine's, started in a process group of its own, is ended on: end_all, for a caller about
+# to end at once, met by route_settle's ssh -G, ssh_shown's and _run's ssh; the three time-outs of _asked and _run; and
+# a caller ended meanwhile, _run's and _asked's.
+LEADERS = {
+    "end_all, route_settle's ssh -G": ("end_all", "route_settle"),
+    "end_all, ssh_shown's ssh -G": ("end_all", "ssh_shown"),
+    "end_all, _run's ssh": ("end_all", "_run"),
+    "_asked past its limit, route_settle's ssh -G": ("limit", "route_settle"),
+    "_asked past its limit, ssh_shown's ssh -G": ("limit", "ssh_shown"),
+    "_run past its limit": ("limit", "_run"),
+    "_run with its caller ended meanwhile": ("caller", "_run"),
+    "_asked with its caller ended meanwhile, route_settle's ssh -G": ("caller", "route_settle"),
+    "_asked with its caller ended meanwhile, ssh_shown's ssh -G": ("caller", "ssh_shown"),
+}
+
+
+@pytest.mark.parametrize("road", LEADERS)
+def test_an_ssh_of_the_new_engine_s_is_ended_with_its_group_and_the_match_exec_s_program_with_it(
+    tmp_path, monkeypatch, road
+):
+    # Its ssh -G reads the person's own ssh config, whose Match exec may run anything: an ssh ended by its pid alone
+    # leaves that program running under init (B24's hand-back; the owner's word of 2026-11-22). One started with
+    # process_group=0, the new engine's, leads its group, and each of its ends ends that group.
+    monkeypatch.setattr(route, "_OVER", threading.Event())
+    how, caller = LEADERS[road]
+    ssh = _match_exec(tmp_path)
+    hop = route.hop_settings(ssh=ssh, host="192.0.2.10", control_dir="/tmp/cp")
+    limit = 0.5 if how == "limit" else 30
+    calls = {
+        "route_settle": lambda: route.route_settle("auto", hop, limit=limit, process_group=0, signalled_settles=False),
+        "ssh_shown": lambda: route.ssh_shown(ssh, [], "192.0.2.10", limit=limit, process_group=0),
+        "_run": lambda: route._run([ssh], limit, process_group=0),
+    }
+    if how == "caller":
+        real_sleep = time.sleep
+
+        def interrupted(seconds):
+            # The caller's thread alone ended, once the stand-in has started its program: this test's waits sleep on.
+            if threading.current_thread().name == "asking" and Path(f"{ssh}.pid").is_file():
+                raise KeyboardInterrupt
+            real_sleep(seconds)
+
+        class Interrupted(subprocess.Popen):
+            # _asked's wait: a Ctrl-C lands in its communicate once the stand-in has started its program.
+            def communicate(self, *args, **kwargs):
+                if threading.current_thread().name == "asking":
+                    _its_pids(ssh)
+                    raise KeyboardInterrupt
+                return super().communicate(*args, **kwargs)
+
+        monkeypatch.setattr(route.time, "sleep", interrupted)
+        monkeypatch.setattr(subprocess, "Popen", Interrupted)
+    answered: list = []
+
+    def ask():
+        try:
+            answered.append(calls[caller]())
+        except (route.HopRefused, KeyboardInterrupt) as ended:
+            answered.append(ended)
+
+    waiting = threading.Thread(target=ask, name="asking", daemon=True)
+    waiting.start()
+    pids: tuple[int, ...] = ()
+    try:
+        pids = _its_pids(ssh)
+        if how == "end_all":
+            route.end_all()
+        waiting.join(15)
+        assert answered and not waiting.is_alive()
+        assert _until_gone(*pids), f"left running: {[pid for pid in pids if not _gone(pid)]}"
+        assert not route._LIVE and not route._LEADING
+    finally:
+        _end(*pids)
+        route.end_all()  # a run of this test that failed leaves no ssh behind it
+        waiting.join(10)
+
+
+# Today's caller, just status, in a process group of its own as a shell starts one, with a program of its own in its
+# group: it runs the stand-in ssh as it does (no process_group), ends it at its limit or by end_all, and then says what
+# it saw, which it can only where its own group was never signalled.
+TODAYS_CALLER = r"""
+import json, os, subprocess, sys, threading, time
+lib, ssh, how = sys.argv[1:4]
+sys.path.insert(0, lib)
+from claude_vm import route
+bystander = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+if how == "limit":
+    ended = route._run([ssh], 0.5)
+else:
+    got = []
+    waiting = threading.Thread(target=lambda: got.append(route._run([ssh], 30)), daemon=True)
+    waiting.start()
+    deadline = time.monotonic() + 10
+    while not (os.path.isfile(ssh + ".pid") and os.path.isfile(ssh + ".child")):
+        if time.monotonic() > deadline:
+            sys.exit("the stand-in ssh never started")
+        time.sleep(0.02)
+    route.end_all()
+    waiting.join(10)
+    ended = got[0]
+time.sleep(0.5)
+print(json.dumps({"ended": ended, "bystander": bystander.poll() is None}), flush=True)
+bystander.kill()
+"""
+
+
+@pytest.mark.parametrize("how", ["limit", "end_all"])
+def test_today_s_callers_ssh_is_ended_by_its_pid_alone_and_their_own_group_is_never_signalled(tmp_path, how):
+    ssh = _match_exec(tmp_path)
+    pids: tuple[int, ...] = ()
+    try:
+        ran = subprocess.run(
+            [sys.executable, "-I", "-c", TODAYS_CALLER, str(REPO / "lib"), ssh, how],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            process_group=0,
+        )
+        pids = _its_pids(ssh)
+        assert ran.returncode == 0, ran.stderr
+        said = json.loads(ran.stdout)
+        assert said["bystander"] is True
+        # Killed at its limit, rc None; or by end_all, its status -9.
+        assert said["ended"]["rc"] == (None if how == "limit" else -signal.SIGKILL), said
+        stand_in, program = pids
+        assert _until_gone(stand_in)
+        # The Match exec's program, in the caller's group, lives on: a kill of the group would have reached the caller.
+        assert not _gone(program)
+    finally:
+        _end(*pids)
+
+
+# An ssh -G that exits at once and leaves a program in its group holding its standard output - which no real Match
+# exec's can, OpenSSH giving the command /dev/null for it - so that _asked's wait meets a leader that has exited and
+# that nothing has reaped yet: at its limit, and when end_all ends that program's group.
+LEFT_HOLDING = (
+    "#!/bin/sh\n"
+    'sleep 60 &\necho $! > "$0.child.part" && mv "$0.child.part" "$0.child"\n'
+    'echo $$ > "$0.pid.part" && mv "$0.pid.part" "$0.pid"\n'
+)
+EXITED = {
+    "_asked past its limit, route_settle's ssh -G": ("limit", "route_settle"),
+    "_asked past its limit, ssh_shown's ssh -G": ("limit", "ssh_shown"),
+    "end_all, route_settle's ssh -G": ("end_all", "route_settle"),
+    "end_all, ssh_shown's ssh -G": ("end_all", "ssh_shown"),
+}
+
+
+@pytest.mark.parametrize("road", EXITED)
+def test_an_ssh_g_that_has_exited_is_ended_with_its_group_and_what_it_left_running_with_it(tmp_path, monkeypatch, road):
+    # A kill that asked poll() first reaped such a leader and left its group running (C25.md 1): the program at the
+    # limit, and at end_all both the program and _asked's wait, out to its limit.
+    monkeypatch.setattr(route, "_OVER", threading.Event())
+    how, caller = EXITED[road]
+    ssh = _program(tmp_path / "ssh", LEFT_HOLDING)
+    hop = route.hop_settings(ssh=ssh, host="192.0.2.10", control_dir="/tmp/cp")
+    limit = 0.5 if how == "limit" else 30
+    calls = {
+        "route_settle": lambda: route.route_settle("auto", hop, limit=limit, process_group=0, signalled_settles=False),
+        "ssh_shown": lambda: route.ssh_shown(ssh, [], "192.0.2.10", limit=limit, process_group=0),
+    }
+    answered: list = []
+
+    def ask():
+        try:
+            answered.append(calls[caller]())
+        except route.HopRefused as refused:
+            answered.append(refused)
+
+    waiting = threading.Thread(target=ask, name="asking", daemon=True)
+    waiting.start()
+    pids: tuple[int, ...] = ()
+    try:
+        pids = _its_pids(ssh)
+        stand_in, program = pids
+        if how == "end_all":
+            assert _until_gone(stand_in), "the stand-in ssh -G never exited"
+            ending = time.monotonic()
+            route.end_all()
+            waiting.join(10)
+            # Its limit is 30 s: a program left running holds _asked's pipe that long.
+            assert time.monotonic() - ending < 5
+        else:
+            waiting.join(10)
+        assert answered and not waiting.is_alive()
+        assert _until_gone(program), "the program it left running was not ended with its group"
+        assert not route._LIVE and not route._LEADING
+    finally:
+        _end(*pids)
+        route.end_all()  # a run of this test that failed leaves no ssh behind it
+        waiting.join(10)
+
+
+def _pids_in(path: Path) -> list[int]:
+    try:
+        return [int(line) for line in path.read_text().split()]
+    except (FileNotFoundError, ValueError):
+        return []
+
+
+def _matching(tmp_path: Path, command: str) -> str:
+    """An ssh that is this machine's OpenSSH given a config of the test's own, nothing of ~/.ssh: for every host, a
+    ``Match exec`` that runs ``command`` in /bin/sh, then ``HostName 100.101.102.103``, a tailnet address, so that its
+    answer settles the route through the host."""
+    real = _real_ssh()
+    config = tmp_path / "ssh_config"
+    config.write_text(f'Match exec "{command}"\n  HostName 100.101.102.103\n')
+    return _program(tmp_path / "ssh", f'#!/bin/sh\nSHELL=/bin/sh\nexport SHELL\nexec {real} -F {config} "$@"\n')
+
+
+# A program a Match exec put in the background, which keeps ssh -G's standard error as OpenSSH leaves it, and the answer
+# ssh -G gives as it exits: a stand-in that does as OpenSSH does, and this machine's OpenSSH.
+LEAVES_ITS_ERRORS = "#!/bin/sh\nsleep 60 > /dev/null &\necho $! >> {child}\necho 'hostname 100.101.102.103'\n"
+
+
+@pytest.mark.parametrize("caller", ["today's", "the new engine's"])
+@pytest.mark.parametrize("ssh_is", ["a stand-in", "this machine's OpenSSH"])
+def test_an_ssh_g_s_answer_is_kept_whole_while_a_program_its_match_exec_left_holds_its_standard_error(
+    tmp_path, ssh_is, caller
+):
+    # Read through a pipe, ssh -G's standard error held _asked to its limit and the whole answer was thrown away: the
+    # new engine refused, saying ssh -G said nothing, and today's settled direct from the address as written (B24.md 3).
+    child = tmp_path / "child"
+    if ssh_is == "a stand-in":
+        ssh = _program(tmp_path / "ssh", LEAVES_ITS_ERRORS.format(child=child))
+    else:
+        ssh = _matching(tmp_path, f"sleep 61 & echo $! >> {child}")
+    hop = route.hop_settings(ssh=ssh, host="192.0.2.10", control_dir="/tmp/cp")
+    keywords = {} if caller == "today's" else {"process_group": 0, "signalled_settles": False}
+    try:
+        started = time.monotonic()
+        settled = route.route_settle("auto", hop, limit=30, **keywords)
+        took = time.monotonic() - started
+        if not _pids_in(child):
+            pytest.skip("this machine's ssh -G runs no Match exec")
+        assert settled == {"route": "host", "addresses": ["100.101.102.103"], "dialled": "100.101.102.103"}
+        # Its limit is 30 s: the program holds its standard error for 60.
+        assert took < 5 and not route._LIVE
+    finally:
+        _end(*_pids_in(child))
+
+
+# Each end of this machine's OpenSSH's ssh -G whose Match exec put a program in the background: past _asked's limit and
+# by end_all while the Match exec still runs; and by end_all once ssh -G has answered and exited, before it is reaped,
+# held there as a thread switch may hold it.
+REAL_ROADS = {
+    "past _asked's limit, ssh -G still running": "limit",
+    "end_all, ssh -G still running": "end_all",
+    "end_all, ssh -G exited and not yet reaped": "unreaped",
+}
+
+
+@pytest.mark.parametrize("road", REAL_ROADS)
+def test_the_program_a_real_ssh_g_s_match_exec_put_in_the_background_ends_with_its_group(tmp_path, monkeypatch, road):
+    monkeypatch.setattr(route, "_OVER", threading.Event())
+    how = REAL_ROADS[road]
+    child = tmp_path / "child"
+    running = "" if how == "unreaped" else f"; echo $$ >> {child}; exec sleep 30"
+    ssh = _matching(tmp_path, f"sleep 61 & echo $! >> {child}{running}")
+    hop = route.hop_settings(ssh=ssh, host="192.0.2.10", control_dir="/tmp/cp")
+    reaping, go = threading.Event(), threading.Event()
+
+    class Unreaped(subprocess.Popen):
+        def wait(self, timeout=None):
+            if how == "unreaped" and threading.current_thread().name == "asking" and not reaping.is_set():
+                reaping.set()
+                go.wait(10)
+            return super().wait(timeout)
+
+    monkeypatch.setattr(subprocess, "Popen", Unreaped)
+    answered: list = []
+
+    def ask():
+        try:
+            limit = 2 if how == "limit" else 30
+            answered.append(route.route_settle("auto", hop, limit=limit, process_group=0, signalled_settles=False))
+        except route.HopRefused as refused:
+            answered.append(refused)
+
+    waiting = threading.Thread(target=ask, name="asking", daemon=True)
+    waiting.start()
+    try:
+        wanted = 1 if how == "unreaped" else 2
+        deadline = time.monotonic() + 10
+        while len(_pids_in(child)) < wanted and waiting.is_alive() and not reaping.is_set():
+            assert time.monotonic() < deadline, "this machine's ssh -G never ran its Match exec"
+            time.sleep(0.02)
+        if how == "unreaped":
+            assert reaping.wait(10), "ssh -G never answered"
+        pids = _pids_in(child)
+        if not pids:
+            pytest.skip("this machine's ssh -G runs no Match exec")
+        if how != "limit":
+            route.end_all()
+        go.set()
+        waiting.join(15)
+        assert answered and not waiting.is_alive()
+        assert _until_gone(*pids), f"left running: {[pid for pid in pids if not _gone(pid)]}"
+        if how == "unreaped":
+            # It had answered: the answer stands.
+            assert answered == [{"route": "host", "addresses": ["100.101.102.103"], "dialled": "100.101.102.103"}]
+        else:
+            assert isinstance(answered[0], route.HopRefused), answered
+        assert not route._LIVE and not route._LEADING
+    finally:
+        go.set()
+        _end(*_pids_in(child))
+        route.end_all()  # a run of this test that failed leaves no ssh behind it
+        waiting.join(10)
+
+
+# The doors of route.py and status/reach.py, one rule: the door is checked, the child started and recorded in one step
+# under the lock end_all takes, and end_all shuts the door under it. Each way of breaking it is given the moment that
+# shows it, and none passes: the door read before the lock (end_all runs whole as the start waits for the lock), the
+# door shut after the lock is let go (a start tries as it is shut), and the record made after it (end_all runs as the
+# record is made).
+class _Gate:
+    """A door's lock that, the first time the starting thread asks for it, lets end_all run whole on another thread
+    before granting it."""
+
+    def __init__(self, lock, end_all):
+        self.lock, self.end_all, self.met = lock, end_all, False
+
+    def __enter__(self):
+        if threading.current_thread().name == "starting" and not self.met:
+            self.met = True
+            ending = threading.Thread(target=self.end_all, daemon=True)
+            ending.start()
+            ending.join(10)
+        self.lock.acquire()
+        return self
+
+    def __exit__(self, *exc):
+        self.lock.release()
+
+
+class _Shut(threading.Event):
+    """A door whose shutting first lets a start on another thread try for half a second."""
+
+    def __init__(self, begin):
+        super().__init__()
+        self.begin, self.met = begin, False
+
+    def set(self):
+        if not self.met:
+            self.met = True
+            starting = threading.Thread(target=self.begin, name="starting", daemon=True)
+            starting.start()
+            starting.join(0.5)
+        super().set()
+
+
+class _Slow(set):
+    """What runs, whose first record lets end_all run on another thread for half a second before it is made."""
+
+    def __init__(self, end_all):
+        super().__init__()
+        self.end_all, self.met = end_all, False
+
+    def add(self, item):
+        if not self.met:
+            self.met = True
+            ending = threading.Thread(target=self.end_all, daemon=True)
+            ending.start()
+            ending.join(0.5)
+        super().add(item)
+
+
+DOORS = {
+    "route.py": (route, "_LIVE_LOCK", "_OVER", "_LIVE", lambda program: route._run([program], 60)),
+    "status/reach.py": (
+        reach,
+        "_children_lock",
+        "_over",
+        "_children",
+        lambda program: reach._attempt([program], "", print),
+    ),
+}
+WAYS = ("the door read before the lock", "the door shut after the lock", "the record made after the lock")
+
+
+def _left(pid_file: Path) -> bool:
+    """Whether the program that writes pid_file was started and still runs: given a second to start."""
+    deadline = time.monotonic() + 1
+    while not (pid_file.is_file() and pid_file.read_text().strip()):
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.02)
+    return not _until_gone(int(pid_file.read_text()))
+
+
+@pytest.mark.parametrize("way", WAYS)
+@pytest.mark.parametrize("door", DOORS)
+def test_each_door_is_checked_its_child_started_and_recorded_and_it_is_shut_under_one_lock(
+    tmp_path, monkeypatch, door, way
+):
+    module, lock, over, live, start = DOORS[door]
+    pid_file = tmp_path / "pid"
+    program = _program(tmp_path / "ssh", f"#!/bin/sh\necho $$ > {pid_file}\nexec sleep 60\n")
+
+    def starting():
+        try:
+            start(program)
+        except OSError:
+            pass  # reach's door, found shut
+
+    monkeypatch.setattr(module, over, threading.Event())
+    monkeypatch.setattr(module, live, set())
+    if way == WAYS[0]:
+        hook = _Gate(getattr(module, lock), module.end_all)
+        monkeypatch.setattr(module, lock, hook)
+    elif way == WAYS[1]:
+        hook = _Shut(starting)
+        monkeypatch.setattr(module, over, hook)
+    else:
+        hook = _Slow(module.end_all)
+        monkeypatch.setattr(module, live, hook)
+    try:
+        if way == WAYS[1]:
+            module.end_all()
+        else:
+            started = threading.Thread(target=starting, name="starting", daemon=True)
+            started.start()
+            started.join(5)
+        assert hook.met, "end_all never met the start"
+        # Its limits are 20 s and more: a program left would still run.
+        assert not _left(pid_file), "a child was started that end_all did not end"
+    finally:
+        module.end_all()  # a run of this test that failed leaves no child behind it
+        _end(*_pids_in(pid_file))
+
+
+# The program the closed port's case connects to: refused at once wherever the suite runs (B25.md 1).
+@pytest.mark.parametrize("system", ["linux", "darwin"])
+def test_the_closed_port_of_the_real_sshd_s_cases_is_refused_at_once_on_each_system(system):
+    server, port = _listening("closed", system)
+    try:
+        # Kept bound, never listening, on Linux, which refuses it; closed elsewhere, since macOS drops a connection to a
+        # bound socket that does not listen with nothing said, so its case would read silent, not refused.
+        assert (server.fileno() == -1) is (system != "linux")
+        if system != "linux" or sys.platform == "linux":
+            with pytest.raises(ConnectionRefusedError):
+                socket.create_connection(("127.0.0.1", port), timeout=5).close()
+    finally:
+        server.close()
+
+
+def test_an_open_ended_by_a_signal_from_outside_is_said_as_ended_never_as_a_connection_made(hop_at, tmp_path):
+    # The new engine's run ends an ssh the terminal stopped as it asked there, with a SIGKILL of its own: the open made
+    # no connection, and the failure says so (C25.md 5).
+    hop = hop_at("asks")
+    opened = tmp_path / "open.pid"
+
+    def end_it():
+        deadline = time.monotonic() + 10
+        while not (opened.is_file() and opened.read_text().strip()):
+            if time.monotonic() > deadline:
+                return
+            time.sleep(0.02)
+        os.kill(int(opened.read_text()), signal.SIGKILL)
+
+    ending = threading.Thread(target=end_it, daemon=True)
+    ending.start()
+    held = route.hop_held(hop, "accept-new", limits={"open": 30})
+    ending.join(10)
+    said = f"the open of {hop['socket']} was ended by a signal (9) before it made a connection there"
+    assert held == {"ok": False, "opened": False, "said": said}
 
 
 def test_a_name_that_gets_no_answer_in_time_does_not_resolve(monkeypatch):
@@ -913,18 +1710,30 @@ AllowTcpForwarding yes
 
 
 def _port() -> int:
+    """A port for the sshd, which binds it later itself: one another binder may take first, which real_sshd chooses
+    again for. Every other port of a test is one it holds from its choosing on (_listening)."""
     with socket.socket() as one:
         one.bind(("127.0.0.1", 0))
         return one.getsockname()[1]
 
 
-def _listening(port: int, kind: str) -> socket.socket:
-    """A listener on the loopback that takes each connection and, by ``kind``, says nothing (mute), closes it at once
-    without a word (wordless), or sends an SSH server's banner and then nothing (banner): a hop whose login stalls."""
+def _listening(kind: str, system: str = sys.platform) -> tuple[socket.socket, int]:
+    """(a socket on the loopback, its port), bound to a port of the kernel's choosing and held from then on, so that no
+    other test, worker or port of this test's takes it between its choosing and its binding. By ``kind``: closed, so
+    that a connection to it is refused - on Linux (``system``) bound and never listening, which Linux refuses; elsewhere
+    bound and closed again, since macOS drops a connection to a bound socket that does not listen with nothing said,
+    and there the port is one another binder may take first; or a listener that takes each connection and says nothing
+    (mute), closes it at once without a word (wordless), or sends an SSH server's banner and then nothing (banner): a
+    hop whose login stalls."""
     import threading
 
     server = socket.socket()
-    server.bind(("127.0.0.1", port))
+    server.bind(("127.0.0.1", 0))
+    port = server.getsockname()[1]
+    if kind == "closed":
+        if system != "linux":
+            server.close()
+        return server, port
     server.listen(8)
     held = []
 
@@ -942,7 +1751,35 @@ def _listening(port: int, kind: str) -> socket.socket:
             held.append(connection)
 
     threading.Thread(target=serve, daemon=True).start()
-    return server
+    return server, port
+
+
+def _sshd_listening(sshd: str, here: Path) -> tuple[subprocess.Popen, int]:
+    """real_sshd's sshd started and listening: (it, its port). It binds its port itself, after _port chose it, so that
+    another binder may take the port first: the port is then chosen again, never read as an sshd that cannot start
+    here. It listens once it says so at its own port, since a connection answered there could be another's."""
+    host_key = (here / "host.pub").read_text().strip()
+    log = here / "sshd.log"
+    for _ in range(5):
+        port = _port()
+        (here / "known_hosts").write_text(f"[127.0.0.1]:{port} {host_key}\n")
+        (here / "sshd_config").write_text(SSHD.format(port=port, here=here))
+        with log.open("w") as written:
+            argv = [sshd, "-D", "-e", "-f", str(here / "sshd_config")]
+            daemon = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=written, stderr=written)
+        deadline = time.monotonic() + 10
+        while daemon.poll() is None:
+            if f"Server listening on 127.0.0.1 port {port}." in log.read_text():
+                return daemon, port
+            if time.monotonic() > deadline:
+                daemon.kill()
+                daemon.wait()
+                pytest.skip("sshd did not listen within 10 s")
+            time.sleep(0.1)
+        said = log.read_text()
+        if "Address already in use" not in said:
+            pytest.skip(f"sshd would not start here as this user: {said[-300:]}")
+    pytest.fail("five ports in a row were taken between their choosing and sshd's bind")
 
 
 @pytest.fixture
@@ -959,34 +1796,19 @@ def real_sshd(tmp_path, short_dir):
         subprocess.run([keygen, "-q", "-t", "ed25519", "-N", "", "-f", str(here / key)], check=True, timeout=30)
     ok, restricted = ((here / f"{key}.pub").read_text().strip() for key in ("ok", "restricted"))
     (here / "authorized_keys").write_text(f"{ok}\nrestrict {restricted}\n")
-    port = _port()
-    (here / "known_hosts").write_text(f"[127.0.0.1]:{port} {(here / 'host.pub').read_text().strip()}\n")
-    (here / "sshd_config").write_text(SSHD.format(port=port, here=here))
-    log = here / "sshd.log"
-    with log.open("w") as written:
-        argv = [sshd, "-D", "-e", "-f", str(here / "sshd_config")]
-        daemon = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=written, stderr=written)
+    daemon, port = _sshd_listening(sshd, here)
     try:
-        deadline = time.monotonic() + 10
-        while True:
-            if daemon.poll() is not None:
-                pytest.skip(f"sshd would not start here as this user: {log.read_text()[-300:]}")
-            try:
-                socket.create_connection(("127.0.0.1", port), timeout=1).close()
-                break
-            except OSError:
-                if time.monotonic() > deadline:
-                    pytest.skip("sshd did not listen within 10 s")
-                time.sleep(0.1)
 
-        def hop(key: str, at: int) -> dict:
+        def hop(key: str, at: int, pinned: bool = False) -> dict:
             ssh = _program(
                 here / f"ssh-{key}",
                 f"#!/bin/sh\nexec ssh -F /dev/null -o UserKnownHostsFile={here}/known_hosts"
                 f" -o GlobalKnownHostsFile=/dev/null -o IdentityFile={here}/{key} -o IdentitiesOnly=yes"
                 ' -o IdentityAgent=none "$@"\n',
             )
-            return route.hop_settings(ssh=ssh, user=getpass.getuser(), host="127.0.0.1", port=at, control_dir=short_dir)
+            return route.hop_settings(
+                ssh=ssh, user=getpass.getuser(), host="127.0.0.1", port=at, control_dir=short_dir, pinned=pinned
+            )
 
         yield hop, port
     finally:
@@ -1006,14 +1828,20 @@ def real_sshd(tmp_path, short_dir):
         ("the host stops after its banner", "ok", "banner", "sshd", "stalled", False),
     ],
 )
+@pytest.mark.parametrize("pinned", [False, True], ids=["today's", "pinned"])
 def test_each_verdict_of_the_real_ssh_says_at_verbose_what_it_says_at_info(
-    real_sshd, case, key, hop_is, target, why, banner
+    real_sshd, case, key, hop_is, target, why, banner, pinned
 ):
+    # Pinned, the new engine's line (route.hop_settings' pinned): ClearAllForwardings=yes clears a person's forwards and
+    # leaves the -W the forward is, which a real sshd shows verdict by verdict (review 41, B31.md 3).
     hop, port = real_sshd
-    others = {kind: _port() for kind in ("closed", "mute", "wordless", "banner")}
-    servers = [_listening(others[kind], kind) for kind in ("mute", "wordless", "banner")]
+    servers: dict = {}
     try:
-        settings = hop(key, port if hop_is == "sshd" else others[hop_is])
+        for kind in ("closed", "mute", "wordless", "banner"):
+            servers[kind] = _listening(kind)
+        others = {kind: at for kind, (_, at) in servers.items()}
+        settings = hop(key, port if hop_is == "sshd" else others[hop_is], pinned)
+        assert ("ClearAllForwardings=yes" in route.hop_argv(settings, "127.0.0.1", "yes")) is pinned
         at = port if target == "sshd" else others[target]
         verdict = route.hop_forward(settings, "127.0.0.1", "yes", port=at, limit=2)
         assert (verdict["why"], verdict["banner"]) == (why, banner), (case, verdict)
@@ -1021,7 +1849,7 @@ def test_each_verdict_of_the_real_ssh_says_at_verbose_what_it_says_at_info(
         assert route.forward_verdict(info["rc"], info["said"], info["killed"])["said"] == verdict["said"], case
         assert "Authenticated" not in verdict["said"]
     finally:
-        for server in servers:
+        for server, _ in servers.values():
             server.close()
 
 

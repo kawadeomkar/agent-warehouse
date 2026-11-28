@@ -123,14 +123,15 @@ environment where `python3` is not it.
 
 | Recipe | What it does |
 |---|---|
-| `just lint [<part>...]` | Every linter: the lock, YAML, Ansible, Python, the justfile, playbook syntax, pre-commit hooks |
+| `just lint [<part>...]` | Every linter: the lock, YAML, Ansible, Python, comments, the justfile, playbook syntax, pre-commit hooks |
 | &emsp;`--all-hooks` | hooks: run every pre-commit hook, the ones lint's other parts cover too |
-| &emsp;`<part>` | lock (uv.lock against pyproject.toml), yaml (yamllint --strict), ansible (ansible-lint, production profile), python (ruff check and format --check), just (just --fmt --check), syntax (--syntax-check on every playbook), hooks (the pre-commit hooks the others do not cover) |
+| &emsp;`<part>` | lock (uv.lock against pyproject.toml), yaml (yamllint --strict), ansible (ansible-lint, production profile), python (ruff check and format --check), comments (tools/comments: each comment of a kind a check reads, the new engine held to tests/unit/comments.json), just (just --fmt --check), syntax (--syntax-check on every playbook), hooks (the pre-commit hooks the others do not cover) |
 | `just test [<part>...]` | Lint, then every test: unit and Molecule (the local quality gate) |
 | &emsp;`--role ROLES` | Only these roles' scenarios, comma-separated: on its own it means the role part (just test --role common,claude_code) |
 | &emsp;`--shard SHARD` | Only the I-th of N shards of the unit tests, each group of tests whole, as CI splits them: on its own it means the unit part (just test unit --shard 2/3) |
 | &emsp;`--jobs JOBS` | Run the Molecule scenarios this many at a time, the longest first, each one's whole output in a log of its own and a line as each ends; one at a time without it, as their images share one disk (just test molecule --jobs 4) |
-| &emsp;`<part>` | unit (pytest over tests/unit/, a worker per CPU, no network), molecule (every Molecule scenario: role, integration, provision), role (the roles' own scenarios), integration (the full configure playbook against a Docker container), provision (provision.yml and discover.yml against a fake Proxmox API) |
+| &emsp;`--short` | The short set, for a change that touches no file of main's but CLAUDE.md, docs/ and zensical.toml, and adds none to a folder today's product reads whole, any other refused naming the file (tools/check short): lint, the new engine's tests and the tests of today's suite that read the tree (tests/unit/conftest.py's TREE), in minutes where unit takes half an hour; a set of its own, with no part or other option |
+| &emsp;`<part>` | unit (pytest over tests/unit/, a worker per CPU, no network), engine (only the new engine's tests, tests/unit/test_aw_*.py, which unit runs too: seconds, no Docker), molecule (every Molecule scenario: role, integration, provision, system), role (the roles' own scenarios), integration (the full configure playbook against a Docker container), provision (provision.yml and discover.yml against a fake Proxmox API), system (the new engine's system play, playbooks/system.yml, converged in a Docker container by its layer-1 child) |
 | `just docs [<part>]` | Regenerate the wiki's reference pages from the files they describe |
 | &emsp;`<part>` | serve (the wiki as a site at http://127.0.0.1:8000, rebuilt as you save) or build (the site in site/, failing on a broken link or anchor) |
 | `just vagrant [<part>]` | End-to-end test of configure.yml on a VirtualBox VM |

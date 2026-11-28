@@ -65,10 +65,26 @@ VSCODE_ELSEWHERE = {
     "inventory/group_vars/all/defaults.yml": 7,
     "inventory/group_vars/all/local.yml.example": 7,
     "justfile": 2,
+    # aw status's settings carry the editors' rows today's inventory defaults hold (claude_editors), for the probe's
+    # windows and the line under ACCESS, held equal to those by test_aw_status_inputs.py: data, by design (card G15).
+    "lib/claude_vm/cli/status_inputs.py": 4,
     "lib/claude_vm/editors/model.py": 1,
     "lib/claude_vm/editors/registry.py": 5,
     "lib/claude_vm/editors/zed.py": 1,
+    # The new engine's settings table carries today's settings and their sentences, which name the editors as data, by
+    # design: editor's default and choices, and the descriptions of the editor's own settings.
+    "lib/claude_vm/fleet/registry.py": 7,
     "lib/claude_vm/run/recipes.py": 1,
+    # The new engine's patterns of the command line name the editors as data, by design: code's --editor.
+    "lib/claude_vm/schema/patterns.py": 1,
+    # The new engine's table of verbs carries today's help sentences, which name the editors: code's and --editor's.
+    "lib/claude_vm/schema/words.py": 2,
+    # The list of what the new engine writes on the computer carries today's row of VS Code's extension, data a person
+    # reads, as playbooks/vars/controller_writes.yml does (card G8).
+    "lib/claude_vm/engine/controller_writes.py": 6,
+    # aw code, the engine's code.yml (card G17): the family whose extension it installs and whose settings it reads,
+    # where they are, and the helpers of the family's terminal, imported from its module.
+    "lib/claude_vm/engine/code.py": 6,
     "playbooks/code.yml": 14,
     "playbooks/configure.yml": 1,
     "playbooks/destroy.yml": 1,
@@ -94,11 +110,13 @@ def test_vs_code_is_named_outside_its_own_files_no_more_than_it_is_now() -> None
     _held(_lines_naming(VSCODE_TERMS, VSCODE_OWN, VSCODE_PROMISED), VSCODE_ELSEWHERE, "VS Code")
 
 
-# Proxmox's own: its two roles, its filters and the script just init runs on the host as root. Anywhere else, a line
-# that names its API's settings, its collection or its raw cluster listing reads Proxmox directly - the reads a
-# second hypervisor would have to be put behind (docs/architecture/decisions.md §15.4).
+# Proxmox's own: its two roles, its filters, the script just init runs on the host as root, and the new engine's
+# subpackage of Proxmox's API, lib/claude_vm/pve/. Anywhere else, a line that names its API's settings, its collection
+# or its raw cluster listing reads Proxmox directly - the reads a second hypervisor would have to be put behind
+# (docs/architecture/decisions.md §15.4).
 PROXMOX_OWN = re.compile(
-    r"^(roles/proxmox_vm/|roles/proxmox_template/|filter_plugins/proxmox\.py$|lib/claude_vm/proxmox\.py$|tools/proxmox-access\.sh$)"
+    r"^(roles/proxmox_vm/|roles/proxmox_template/|filter_plugins/proxmox\.py$|lib/claude_vm/proxmox\.py$"
+    r"|tools/proxmox-access\.sh$|lib/claude_vm/pve/)"
 )
 # From 2.6 every request to the API checks its certificate by one value, proxmox_api_validate, against
 # proxmox_api_ca_path (custom-code.md §7.16): each validate_certs line read proxmox_validate_certs before, which named
@@ -111,6 +129,25 @@ PROXMOX_ELSEWHERE = {
     "inventory/group_vars/all/local.yml.example": 4,
     "inventory/group_vars/all/vault.yml.example": 2,
     "lib/claude_vm/ansible/engine.py": 4,
+    # The new engine's one writer of a VM's record, which reaches a VM by its node and its VMID, as every workflow will.
+    "lib/claude_vm/engine/record.py": 3,
+    # The fleet as the new engine reads it: each member of the pool a target by its node and its VMID, and each read of
+    # it, its configuration, its state and its guest agent, made by its VMID. The one check is pve/ownership.py's. A
+    # deletion's whole read lists the pool once more where a member was unread, and keeps only those it still names.
+    "lib/claude_vm/engine/fleet.py": 28,
+    # A VM made: the next VMID asked and cloned onto, the new member found at its task's VMID, and the sentences that
+    # name a VM or the template by it, as today's role's do, the clone whose answer was lost among them.
+    "lib/claude_vm/engine/create.py": 24,
+    # A VM deleted: its state read at its node and VMID, held to the VMID confirmed when owned again after its stop,
+    # and looked for at its VMID in the cluster's listing once its deletion's task has ended.
+    "lib/claude_vm/engine/destroy.py": 9,
+    # A VM configured: a stopped VM's sentence names it by its VMID, and its start waits for its address by it.
+    "lib/claude_vm/engine/configure.py": 3,
+    # The aliases' prune: the host's VMs listed by VMID as proxmox.ssh_config_prune reads a cluster's listing, and the
+    # sentence that names a member of the pool listed with no name by its VMID.
+    "lib/claude_vm/engine/aliases.py": 5,
+    # aw code's window (card G17): the VM by name and VMID, as the editor's plan takes it.
+    "lib/claude_vm/engine/code.py": 1,
     "lib/claude_vm/mcp/confirm.py": 4,
     "lib/claude_vm/refs.py": 3,
     "lib/claude_vm/run/model.py": 4,
@@ -118,6 +155,9 @@ PROXMOX_ELSEWHERE = {
     # status read them there. With them, the internals made from the run's host that no settings file may set, the
     # two that say how its certificate is checked among them.
     "lib/claude_vm/hosts/kinds.py": 12,
+    # aw status's reader of the pool: the pool's members, each one's configuration and the node's other VMs, read
+    # from Proxmox's API by design, and the VM each answer is of (card G16).
+    "lib/claude_vm/cli/status_pool.py": 31,
     "lib/claude_vm/status/engine.py": 16,
     "lib/claude_vm/status/model.py": 18,
     # With whether the API's certificate is checked, which the report says of each host whether or not it reads it.
@@ -169,9 +209,19 @@ ZED_ELSEWHERE = {
     "inventory/group_vars/all/defaults.yml": 9,
     "inventory/group_vars/all/local.yml.example": 3,
     "justfile": 1,
+    # aw status's settings carry the editors' rows, as VS Code's table says (card G15).
+    "lib/claude_vm/cli/status_inputs.py": 6,
     "lib/claude_vm/editors/model.py": 1,
     "lib/claude_vm/editors/registry.py": 4,
+    # aw code, the engine's code.yml (card G17): Zed's task file's place, imported from its module.
+    "lib/claude_vm/engine/code.py": 1,
+    # The new engine's settings table names the editors as data, by design: editor's choices and its sentences.
+    "lib/claude_vm/fleet/registry.py": 4,
     "lib/claude_vm/run/recipes.py": 1,
+    # The new engine's patterns of the command line name the editors as data, by design: code's --editor.
+    "lib/claude_vm/schema/patterns.py": 1,
+    # The new engine's table of verbs carries today's help sentences, which name the editors: --editor's.
+    "lib/claude_vm/schema/words.py": 1,
     "playbooks/code.yml": 2,
     "playbooks/tasks/session_read.yml": 2,
     "roles/vscode_server/meta/argument_specs.yml": 1,

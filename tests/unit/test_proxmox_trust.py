@@ -2,15 +2,14 @@
 TLS server that serves a node's certificate alone, as pveproxy does, signed by a CA made the way Proxmox makes one -
 with no keyUsage, as every Proxmox VE 8 host's, or with it - and never a real host.
 
-What it rests on (docs/getting-started/proxmox-access.md): Python 3.13 and later verify strictly, refuse a CA without
-keyUsage and take the node's own certificate as an anchor of its own; Python 3.12 does neither. Each case is held to
-the Python it runs on, since the run's clients - Ansible's uri, requests - verify as that Python does.
+What it rests on (docs/getting-started/proxmox-access.md): every Python the project runs on (3.13 or later) verifies
+strictly, refuses a CA without keyUsage and takes the node's own certificate as an anchor of its own, and the run's
+clients - Ansible's uri, requests - verify as that Python does.
 """
 
 from __future__ import annotations
 
 import ssl
-import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -22,7 +21,6 @@ from pki import proxmox_pki
 
 from claude_vm import trust
 
-STRICT = sys.version_info >= (3, 13)
 # A key's PEM block, as a file read from the host could hold beside a certificate: spelt in parts, since the secret
 # scanners take the whole header for a key committed.
 A_KEY = "-----BEGIN " + "PRIVATE KEY-----\nAAAA\n-----END " + "PRIVATE KEY-----\n"
@@ -31,32 +29,32 @@ A_KEY = "-----BEGIN " + "PRIVATE KEY-----\nAAAA\n-----END " + "PRIVATE KEY-----\
 class _Proxmox(BaseHTTPRequestHandler):
     """Proxmox's answer to a request with no token."""
 
-    def do_GET(self):  # noqa: N802 - http.server's name
+    def do_GET(self):  # http.server's name
         self.send_response(401, "No ticket")
         self.end_headers()
 
-    def do_HEAD(self):  # noqa: N802 - http.server's name
+    def do_HEAD(self):  # http.server's name
         self.send_response(501, "method 'HEAD' not available")
         self.end_headers()
 
-    def log_message(self, format, *args):  # noqa: A002 - http.server's signature
+    def log_message(self, format, *args):  # http.server's signature
         pass
 
 
 class _Silent(_Proxmox):
     """Something in the host's place that says nothing to a request with no token: it sees which request carries one."""
 
-    def do_GET(self):  # noqa: N802 - http.server's name
+    def do_GET(self):  # http.server's name
         pass
 
-    def do_HEAD(self):  # noqa: N802 - http.server's name
+    def do_HEAD(self):  # http.server's name
         pass
 
 
 class _ProxmoxDelaying(_Proxmox):
     """pveproxy as it is: a GET with no token waits three seconds for its 401 (live, 2026-11-15)."""
 
-    def do_GET(self):  # noqa: N802 - http.server's name
+    def do_GET(self):  # http.server's name
         time.sleep(3)
         super().do_GET()
 
@@ -93,14 +91,13 @@ def _candidates(pki):
 def test_a_ca_without_key_usage_is_refused_where_python_is_strict_and_the_node_s_certificate_kept(pve_8):
     pki, url = pve_8
     picked = trust.proxmox_trust_pick(_candidates(pki), url)
-    assert picked["name"] == ("node" if STRICT else "ca")
-    assert picked["pem"] == (pki["node"] if STRICT else pki["ca"])
+    assert picked["name"] == "node"
+    assert picked["pem"] == pki["node"]
     assert picked["fingerprint"] == trust.pem_fingerprint(picked["pem"]) and picked["fingerprint"].count(":") == 31
-    # This machine's trust store never trusts a Proxmox CA, and where Python is strict, its CA alone is refused.
+    # This machine's trust store never trusts a Proxmox CA, and checked strictly, its CA alone is refused.
     whys = {refusal["name"]: refusal["why"] for refusal in picked["refusals"]}
     assert "store" in whys
-    if STRICT:
-        assert "key usage" in whys["ca"].lower()
+    assert "key usage" in whys["ca"].lower()
 
 
 def test_a_ca_with_key_usage_is_kept_wherever(pve_9):
@@ -120,8 +117,8 @@ def test_a_certificate_that_names_another_address_verifies_against_nothing(tmp_p
     assert [refusal["name"] for refusal in picked["refusals"]] == ["store", "ca", "node"]
     whys = {refusal["name"]: refusal["why"].lower() for refusal in picked["refusals"]}
     assert "mismatch" in whys["ca"]
-    # Python 3.12 takes no certificate but a CA's as an anchor: the node's is refused for its chain before its name.
-    assert ("mismatch" in whys["node"]) if STRICT else ("issuer" in whys["node"])
+    # The node's own certificate is an anchor of its own: it is refused for its name, as the CA is.
+    assert "mismatch" in whys["node"]
 
 
 def test_nothing_answering_is_said_and_no_candidate_is_kept():
@@ -199,8 +196,8 @@ def test_just_status_checks_against_the_trust_file_and_says_a_certificate_that_c
             "Request failed: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get"
             " local issuer certificate (_ssl.c:1032)>",
             "inventory/proxmox-trust.pem",
-            "does not verify against inventory/proxmox-trust.pem. If Proxmox renewed it, the host was reinstalled, or"
-            " this machine's Python changed",
+            "does not verify against inventory/proxmox-trust.pem. If Proxmox renewed it or the host was reinstalled,"
+            " just init reads the host's own",
         ),
         (
             "certificate verify failed: self-signed certificate in certificate chain",
@@ -269,26 +266,12 @@ def test_just_status_reads_the_same_and_its_snapshot_sees_the_file_come_and_go(t
     assert tmp_path / "hosts" / "nuc" / "proxmox-trust.pem" in set(settings._inventory_files(hosts))
 
 
-# ------------------------------------------------------------------- either Python's verification ---
-# CI runs 3.12 and the environment just install makes 3.13 or later: each candidate is tried with both Python's flags
-# forced, so both paths run on either.
-
-
-@pytest.mark.parametrize("strict", [True, False])
-def test_which_candidate_verifies_follows_python_s_strictness_forced(pve_8, strict):
-    pki, url = pve_8
-    picked = trust.proxmox_trust_pick(_candidates(pki), url, strict=strict)
-    # Strict: Proxmox VE 8's CA, with no keyUsage, is refused and the node's own certificate is its own anchor; not:
-    # the CA verifies, and the node's certificate alone would not.
-    assert picked["name"] == ("node" if strict else "ca"), picked["refusals"]
-
-
 def test_of_a_node_certificate_file_only_the_node_s_own_is_kept(pve_9):
     # A custom certificate is served with its chain: kept whole, each intermediate would be an anchor of its own.
     pki, url = pve_9
     chained = pki["node"] + pki["ca"]
     assert trust.pem_first(chained) == pki["node"]
-    picked = trust.proxmox_trust_pick([{"name": "node", "pem": chained}], url, strict=True)
+    picked = trust.proxmox_trust_pick([{"name": "node", "pem": chained}], url)
     assert (picked["name"], picked["pem"]) == ("node", pki["node"])
 
 

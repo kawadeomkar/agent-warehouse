@@ -23,7 +23,9 @@ Nor this machine's tailscale: the developer's Mac may have the real CLI (at
 /usr/local/bin/tailscale, say), signed in to their own tailnet, and an `up` or a
 `logout` that reached it would act on it. A failing stand-in for it is first on
 every run's PATH too; tests/unit/test_tailscale.py puts
-tests/molecule/fake_tailscale.sh ahead of it, in a host's bin/.
+tests/molecule/fake_tailscale.sh ahead of it, in a host's bin/. A run of the new
+engine's tools/aw (tests/unit/aw_kit.py) gets failing stand-ins for this
+machine's ssh, ansible-playbook and login keychain too (REFUSED_TOOLS).
 
 stdin is /dev/null for every run but those at a pseudo-terminal of the
 harness's own, and each run has a process group of its own: with no terminal a
@@ -152,6 +154,9 @@ PASSED_ON = frozenset(
         "LANGUAGE",
         "ANSIBLE_COLLECTIONS_PATH",
         "ANSIBLE_COLLECTIONS_PATHS",
+        # The new engine's home, which tests/unit/conftest.py puts in each test's own directory: never the
+        # developer's fleet folder (fleet/paths.py). Nothing of today's product reads it.
+        "AGENT_WAREHOUSE_HOME",
     }
 )
 
@@ -166,6 +171,12 @@ DESKTOP_STAND_IN = """#!/bin/sh
 printf '%s %s\\n' "${0##*/}" "$*" >> "$(dirname "$0")/calls.log"
 exit 1
 """
+# And what the new engine's program must never start on this machine in a test, beside those: this machine's ssh,
+# which reaches a real machine with the developer's keys; ansible-playbook outside a stand-in machine; and the login
+# keychain's two programs, macOS's security and Linux's secret-tool. tests/unit/aw_kit.py puts them first on the PATH
+# of every run of tools/aw, and nothing else does: a playbook's run checks its SSH config with this machine's ssh -G.
+# Each is DESKTOP_STAND_IN, in a directory of its own (_refused).
+REFUSED_TOOLS = ("ssh", "ansible-playbook", "security", "secret-tool")
 
 
 # What the stand-ins record, each in a file of its own: read as it is, empty while the file is missing - nothing
@@ -339,6 +350,21 @@ def _desktop_calls(root: Path) -> str:
     return _text(root / ".desktop" / "calls.log")
 
 
+def _refused(root: Path) -> Path:
+    """The directory of the new engine's refusing stand-ins (REFUSED_TOOLS) for runs under root, made on first use."""
+    refused = root / ".refused"
+    refused.mkdir(exist_ok=True)
+    for tool in REFUSED_TOOLS:
+        _executable(refused / tool, DESKTOP_STAND_IN)
+    return refused
+
+
+def _refused_calls(root: Path) -> str:
+    """What the new engine's refusing stand-ins under root were asked to do: nothing, in a test that keeps to its
+    rules."""
+    return _text(root / ".refused" / "calls.log")
+
+
 def _refusing_ssh(root: Path, env: dict | None = None) -> dict:
     """env with REFUSING_SSH first on PATH, from root/ssh-stand-in, and the desktop stand-ins after it: a run given
     it as its env reaches no real ssh."""
@@ -361,6 +387,12 @@ def _fail_if_the_desktop_was_reached(root: Path) -> None:
         pytest.fail(
             f"a run under {root} called this machine's browser or clipboard, or its tailscale, gh or claude"
             f" (a stand-in caught it):\n{calls}"
+        )
+    refused = _refused_calls(root)
+    if refused:
+        pytest.fail(
+            f"a run under {root} called this machine's ssh, ansible-playbook or login keychain"
+            f" (a stand-in caught it):\n{refused}"
         )
 
 
@@ -571,7 +603,7 @@ def _at_a_pseudo_terminal(
         stdin=slave,
         stdout=slave,
         stderr=slave,
-        preexec_fn=_take_the_terminal,  # noqa: PLW1509 - only signal, setsid and ioctl, safe beside xdist's thread
+        preexec_fn=_take_the_terminal,  # only signal, setsid and ioctl, safe beside xdist's thread
     )
     os.close(slave)
     output, deadline = b"", time.monotonic() + timeout
@@ -604,6 +636,53 @@ def _at_a_pseudo_terminal(
             _end(process)
         os.close(master)
     return process.returncode, output
+
+
+# The prompt of the shell _in_a_shell starts, which no run writes.
+SHELL_PROMPT = b"PROMPT$ "
+
+
+def _in_a_shell(cwd: Path, env: dict, steps: list[tuple], *, timeout: float = 150) -> tuple[bytes, bytes]:
+    """An interactive bash at a pseudo-terminal of its own (_at_a_pseudo_terminal), as a person's: job control, no
+    startup file, its prompt SHELL_PROMPT and its history written to cwd/history at its exit. Each step (wanted, keys):
+    once wanted appears after where the step before found its own, keys are typed - bytes, or a list of them a moment
+    apart - or, where keys is a function, called as keys(master, output). The last step types the shell's `exit`.
+    Every byte the terminal showed, and the history the shell wrote: for a test of what a run leaves on the shell's
+    line, and in its history, after a Ctrl-Z, a Ctrl-\\ or a Ctrl-C."""
+    shell = {
+        **env,
+        "PS1": SHELL_PROMPT.decode(),
+        "HISTFILE": str(cwd / "history"),
+        "HISTSIZE": "500",
+        "HISTFILESIZE": "500",
+        # macOS's bash says otherwise that zsh is the default shell, at every start.
+        "BASH_SILENCE_DEPRECATION_WARNING": "1",
+    }
+    left = list(steps)
+    state = {"at": 0}
+
+    def act(chunk: bytes, output: bytes, master: int, process: subprocess.Popen) -> None:
+        while left:
+            wanted, keys = left[0]
+            found = output.find(wanted, state["at"])
+            if found < 0:
+                return
+            left.pop(0)
+            state["at"] = found + len(wanted)
+            if callable(keys):
+                keys(master, output)
+                continue
+            for key in [keys] if isinstance(keys, bytes) else keys:
+                os.write(master, key)
+                time.sleep(0.2)
+
+    argv = ["/bin/bash", "--norc", "--noprofile", "-i"]
+    rc, output = _at_a_pseudo_terminal(argv, cwd, shell, size=(100, 30), act=act, timeout=timeout, poll=0.05)
+    said = output.decode(errors="replace")
+    assert not left, f"no {left[0][0]!r} appeared:\n{said}"
+    assert rc == 0, said
+    history = cwd / "history"
+    return output, history.read_bytes() if history.is_file() else b""
 
 
 # How often a run at a terminal is looked at while keys wait for their prompt, and how long the prompt's raw mode
@@ -1152,7 +1231,7 @@ def _pve_vm(base: str, vmid: int, name: str, *, running: bool = False, agent_pol
         for _ in range(agent_polls):
             try:
                 _pve(base, "GET", f"nodes/pve/qemu/{vmid}/agent/network-get-interfaces")
-            except Exception:  # noqa: BLE001 - the fake refuses the first polls on purpose
+            except Exception:  # the fake refuses the first polls on purpose
                 pass
 
 
@@ -1186,14 +1265,96 @@ def _pve_requests(directory: Path) -> list[dict]:
     return _json_lines(directory / "pve" / "calls.log")
 
 
-def fake_fleet(directory: Path, version: str = "9.2.21"):
+# What the new engine makes on a Proxmox host, by its own names: one pool, one role, one user and the user's one token,
+# made with privilege separation. fake_fleet(engine=True) makes them in the fake through Proxmox's own routes.
+ENGINE_POOL = "aw-fleet"
+ENGINE_ROLE = "AgentWarehouse"
+ENGINE_USER = "agent-warehouse@pve"
+ENGINE_TOKEN = "aw"
+
+
+def fake_fleet(
+    directory: Path,
+    version: str = "9.2.21",
+    engine: bool = False,
+    certificate: tuple[Path, Path] | None = None,
+    enforce: bool = False,
+):
     """The fake Proxmox, on VE 9 unless told, with alpha and beta running and their agents up, and gamma stopped;
-    its URL."""
-    for base in _fake_pve(directory):
+    its URL. With engine, also the new engine's pool, role, user and token, the role granted the user and the token on
+    the pool: engine_token(directory) gives the token's ID and secret. It serves certificate, its file and its key's,
+    where given (a node's of tests/unit/pki.py, which a client can verify), else one of its own, self-signed. With
+    enforce, the fake holds every request of a token made through /access to the engine's table of privileges
+    (lib/claude_vm/pve/privileges.py), and the test fails at its end where one of them named a call, or sent a
+    configuration's key, that no row of the table names. With engine, the test also fails at its end where the new
+    engine's client sent a PUT or a POST to a VM's configuration with no digest: read from what the fake was sent, it
+    holds for every method a test reaches."""
+    for base in _fake_pve(directory, certificate):
         _pve(base, "PUT", "fake/version", version=version)
         for vmid, name, running in [(9010, "alpha", True), (9011, "beta", True), (9012, "gamma", False)]:
             _pve_vm(base, vmid, name, running=running, tags="agent-warehouse", ciuser="dev", onboot="1")
             if name == "alpha":
                 # Made two days ago, so its day of history is its own; beta and gamma were made just now.
                 _pve(base, "PUT", "fake/disk-ctime", vmid=vmid, ctime=int(time.time()) - 2 * 86400)
+        if engine:
+            _pve_engine(base, directory)
+        if enforce:
+            _pve(base, "PUT", "fake/enforce", on=1)
         yield base
+    if enforce:
+        unmatched = _json_lines(directory / "pve" / "unmatched.log")
+        assert unmatched == [], f"requests of the engine's token that no row of privileges.CALLS names: {unmatched}"
+    if engine:
+        assert digestless(directory) == [], (
+            f"writes of a VM's configuration the engine's client sent with no digest: {digestless(directory)}"
+        )
+
+
+def digestless(directory: Path) -> list[dict]:
+    """Every PUT or POST to a VM's configuration that the new engine's client (its user agent, pve/pin.py's) sent the
+    fake in directory with no digest: none may be (card B22). The fake's log keeps each path as it was sent, so it is
+    read here with its %-escapes decoded, as the fake's routing reads it and Proxmox does: .../confi%67 is a
+    configuration's path too (card B28)."""
+    from claude_vm.pve import pin
+
+    return [
+        entry
+        for entry in _pve_requests(directory)
+        if entry["agent"] == pin.USER_AGENT
+        and entry["method"] in ("PUT", "POST")
+        and urllib.parse.unquote(entry["path"]).rstrip("/").endswith("/config")
+        and "digest" not in entry["params"]
+    ]
+
+
+def _pve_engine(base: str, directory: Path) -> None:
+    """The new engine's objects in the fake at base, made as an administrator makes them, the role holding what the
+    engine's table needs on its pool (privileges.needed); the token's ID and secret, which Proxmox says once, kept in
+    directory/pve/engine-token.json for engine_token."""
+    from claude_vm.pve import privileges
+
+    full_id = f"{ENGINE_USER}!{ENGINE_TOKEN}"
+    _pve(base, "POST", "pools", poolid=ENGINE_POOL, comment="the fake fleet of the new engine")
+    _pve(base, "POST", "access/roles", roleid=ENGINE_ROLE, privs=",".join(sorted(privileges.needed("pool"))))
+    _pve(base, "POST", "access/users", userid=ENGINE_USER)
+    made = _pve(base, "POST", f"access/users/{ENGINE_USER}/token/{ENGINE_TOKEN}", privsep=1)["data"]
+    _pve(base, "PUT", "access/acl", path=f"/pool/{ENGINE_POOL}", roles=ENGINE_ROLE, users=ENGINE_USER, tokens=full_id)
+    (directory / "pve" / "engine-token.json").write_text(
+        json.dumps({"id": made["full-tokenid"], "secret": made["value"]})
+    )
+
+
+def engine_grant(base: str, path: str, privileges: str, propagate: bool = True) -> None:
+    """A role of privileges (comma-separated) granted the engine's user and its token at path in the fake at base, as
+    init grants beside the role on the pool (card E1): VM.Audit on /vms, the role on a storage and a bridge, Sys.Audit
+    on the node. Each grant makes a role of its own."""
+    role = f"aw-grant-{os.urandom(6).hex()}"
+    _pve(base, "POST", "access/roles", roleid=role, privs=privileges)
+    full_id = f"{ENGINE_USER}!{ENGINE_TOKEN}"
+    _pve(base, "PUT", "access/acl", path=path, roles=role, users=ENGINE_USER, tokens=full_id, propagate=int(propagate))
+
+
+def engine_token(directory: Path) -> tuple[str, str]:
+    """The ID and the secret of the token fake_fleet(directory, engine=True) made."""
+    made = json.loads((directory / "pve" / "engine-token.json").read_text())
+    return made["id"], made["secret"]

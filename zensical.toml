@@ -84,10 +84,12 @@ nav = [
     { "13. Toolchain" = "architecture/toolchain.md" },
     { "14. File map" = "architecture/file-map.md" },
     { "15. Design decisions" = "architecture/decisions.md" },
+    { "16. The engine that replaces the playbooks" = "architecture/engine.md" },
   ] },
   { "Development" = [
     { "Testing" = "development/testing.md" },
     { "This wiki" = "development/docs.md" },
+    { "Comments" = "development/comments.md" },
   ] },
 ]
 

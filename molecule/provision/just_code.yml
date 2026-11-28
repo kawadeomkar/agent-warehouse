@@ -145,7 +145,7 @@
           # No settings file: said so, VS Code will ask, and trusting this window covers every project.
           - verify_runs[0].stdout is search('A terminal named Claude then starts claude in it')
           - verify_runs[0].stdout is search('trust the window .*, then choose Allow when VS Code asks about automatic tasks')
-          - verify_runs[0].stdout is search('No VS Code settings file at \S+/vscode/settings.json, so whether you have answered')
+          - verify_runs[0].stdout is search('No VS Code settings file at \\S+/vscode/settings.json, so whether you have answered')
           - verify_runs[0].stdout is search(('Trusting this window trusts every project in ' ~ verify_ws ~ '.') | regex_escape)
           - verify_runs[2].stdout is search('Trusting the window of just code alpha instead trusts every project')
           # The session notes: beside the window each time, and in a project's window from outside its folder.
@@ -270,7 +270,7 @@
           - verify_notes_before.results[1].stat.mode == '0700'
           - verify_notes_text is match('# alpha\n')
           - verify_notes_text is search('<!-- agent-warehouse:live -->\n## Signed in\n\nOpening the window fills this in;')
-          - verify_notes_text is search('\| LAN address \| `192.0.2.51`')
+          - verify_notes_text is search('\\| LAN address \\| `192.0.2.51`')
           - verify_notes_text is search('`just login alpha --only claude`')
         fail_msg: "just code wrote {{ verify_notes_before.results | map(attribute='stat.mode') | list }}: {{ verify_notes_text }}"
         quiet: true

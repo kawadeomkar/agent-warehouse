@@ -47,6 +47,13 @@ repos:
         entry: tools/env-run ruff format
         language: system
         types: [python]
+      # The comment rule (docs/development/comments.md) over the Python files
+      # a commit changes; just lint runs it over the whole checkout.
+      - id: comments
+        name: comments (tools/comments)
+        entry: tools/env-run python -I tools/comments
+        language: system
+        types: [python]
       # The wiki's reference pages are generated from these files; a commit
       # that changes one rewrites the pages, and the hook fails until they
       # are added too, as a formatter does.

@@ -14,6 +14,7 @@ number promises about, as CONTRIBUTING.md lists it, is held to the justfile.
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
@@ -22,6 +23,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import tomllib
 import yaml
 from harness import GIT_ENV
 from molecule.constants import DEFAULT_CONFIG
@@ -42,8 +44,9 @@ def test_ci_result_needs_every_job_but_the_canary():
 
 
 def test_ci_result_runs_whatever_its_jobs_did():
-    # Without always() a failed job skips it, and a skipped required check passes.
-    assert RESULT["if"] == "always()"
+    # Without always() a failed job skips it, and a skipped required check passes. The area stack's gate alone skips
+    # it, on a pull request of the stack, where no job runs (the tests below).
+    assert RESULT["if"] == f"always() && {STACK_GATE}"
 
 
 def test_no_job_of_the_gate_can_fail_and_still_succeed():
@@ -73,6 +76,236 @@ def test_ci_result_passes_only_when_each_job_succeeded_or_was_skipped(tmp_path, 
     assert (run.returncode == 0) is passes, (results, run.stdout, run.stderr)
     for name in RESULT["needs"]:
         assert f"{name}: {results.get(name, 'success')}" in run.stdout
+
+
+# ---------------------------------------------------------------------------------- the area stack's pull requests ---
+
+# The gate every job runs under: a pull request from a branch whose name starts with stack/ onto another (the area
+# stack's above its lowest, each a part of the tree the pull request from base-first carries whole, whose run is a
+# batch's whole run) runs no job, CI result included. Both branches are read: a pull request to main from a branch
+# named stack/... runs every job, since CI result is main's required check and a skipped one passes. And a fork's pull
+# request is never skipped: its base changed to main afterwards starts no run (an edited), and the skipped check would
+# stand. github.head_ref and github.base_ref are a pull request's branches and empty for every other event, whose
+# github.event.pull_request is null.
+STACK_GATE = (
+    "!(startsWith(github.head_ref, 'stack/') && startsWith(github.base_ref, 'stack/')"
+    " && github.event.pull_request.head.repo.full_name == github.repository)"
+)
+# A job's own condition, where it has one, which the gate is joined after.
+OWN_CONDITION = {
+    "dependency-review": "github.event_name == 'pull_request'",
+    "canary": "(github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')",
+    "result": "always()",
+}
+# Each kind of run that starts ci.yml, by the contexts GitHub hands its jobs' conditions.
+STACK_PULL = {
+    "github.event_name": "pull_request",
+    "github.head_ref": "stack/aw-11-batch-1",
+    "github.base_ref": "stack/aw-10-ci",
+    "github.ref": "refs/pull/322/merge",
+    "github.repository": "owner/agent-warehouse",
+    "github.event.pull_request.head.repo.full_name": "owner/agent-warehouse",
+}
+BASE_FIRST_PULL = {
+    "github.event_name": "pull_request",
+    "github.head_ref": "base-first",
+    "github.base_ref": "main",
+    "github.ref": "refs/pull/310/merge",
+    "github.repository": "owner/agent-warehouse",
+    "github.event.pull_request.head.repo.full_name": "owner/agent-warehouse",
+}
+# A pull request from a branch of another name onto base-first.
+OTHER_PULL = BASE_FIRST_PULL | {"github.head_ref": "ci/a35-stack-gate", "github.base_ref": "base-first"}
+# A stack/ head on main: the stack's lowest (#311), or any branch named stack/... a pull request to main comes from.
+STACK_HEAD_ON_MAIN = BASE_FIRST_PULL | {"github.head_ref": "stack/aw-01-foundations", "github.base_ref": "main"}
+# Another head on a stack/ base: a pull request onto a branch of the stack from a branch that is none of its.
+OTHER_HEAD_ON_STACK = STACK_PULL | {"github.head_ref": "ci/a35-stack-gate"}
+# A fork's stack/ onto a stack/ branch of the repository's: never skipped.
+FORK_STACK_ON_STACK = STACK_PULL | {"github.event.pull_request.head.repo.full_name": "someone/agent-warehouse"}
+PUSH = {
+    "github.event_name": "push",
+    "github.head_ref": "",
+    "github.base_ref": "",
+    "github.ref": "refs/heads/main",
+    "github.repository": "owner/agent-warehouse",
+    "github.event.pull_request.head.repo.full_name": None,
+}
+SCHEDULE = PUSH | {"github.event_name": "schedule"}
+DISPATCH = PUSH | {"github.event_name": "workflow_dispatch"}
+
+# The words of GitHub's expressions that ci.yml's conditions use; any other character is a token of its own, refused.
+EXPRESSION_TOKENS = re.compile(
+    r"\s*(?:(?P<string>'[^']*')|(?P<op>&&|\|\||==|!=|[!(),])|(?P<name>[A-Za-z_][\w.-]*)|(?P<other>\S))"
+)
+EXPRESSION_FUNCTIONS = {
+    # GitHub compares strings ignoring case, startsWith's included.
+    "startsWith": lambda text, prefix: str(text).casefold().startswith(str(prefix).casefold()),
+    # The status functions, read for a run in which every job a job needs passed.
+    "always": lambda: True,
+    "success": lambda: True,
+}
+
+
+def _runs(condition: str, context: dict[str, str]) -> bool:
+    """Whether a job whose if: is condition runs, for a run GitHub hands context: its expressions as far as ci.yml's
+    conditions use them (a string with no quote in it, a context, a call of EXPRESSION_FUNCTIONS, !, == and !=
+    between strings or null, && and ||, parentheses), each operator at GitHub's precedence. Anything else raises, so
+    that a condition this cannot read fails the test it is read in, rather than being taken for true or for false."""
+    wrapped = re.fullmatch(r"\s*\$\{\{(.*)\}\}\s*", condition, re.S)
+    words = EXPRESSION_TOKENS.finditer(wrapped[1] if wrapped else condition)
+    tokens = [(each.lastgroup, each[each.lastgroup]) for each in words]
+    at = 0
+
+    def peek() -> str | None:
+        return tokens[at][1] if at < len(tokens) else None
+
+    def take(expected: str | None = None) -> tuple[str, str]:
+        nonlocal at
+        if at == len(tokens) or expected not in (None, tokens[at][1]):
+            raise ValueError(f"{condition!r}: {expected or 'a word'} expected at its token {at}")
+        at += 1
+        return tokens[at - 1]
+
+    def either():
+        value = both()
+        while peek() == "||":
+            take()
+            right = both()
+            value = value or right
+        return value
+
+    def both():
+        value = compared()
+        while peek() == "&&":
+            take()
+            right = compared()
+            value = value and right
+        return value
+
+    def compared():
+        left = negated()
+        if peek() not in ("==", "!="):
+            return left
+        _, operator = take()
+        right = negated()
+        if not all(isinstance(each, str) or each is None for each in (left, right)):
+            raise ValueError(f"{condition!r}: only strings and null are compared here")
+        same = left == right if None in (left, right) else left.casefold() == right.casefold()
+        return same is (operator == "==")
+
+    def negated():
+        if peek() == "!":
+            take()
+            return not negated()
+        return operand()
+
+    def operand():
+        kind, word = take()
+        if word == "(":
+            value = either()
+            take(")")
+            return value
+        if kind == "string":
+            return word[1:-1]
+        if kind == "name" and peek() == "(":
+            take("(")
+            arguments = []
+            while peek() != ")":
+                if arguments:
+                    take(",")
+                arguments.append(either())
+            take(")")
+            return EXPRESSION_FUNCTIONS[word](*arguments)
+        if kind == "name":
+            return context[word]
+        raise ValueError(f"{condition!r}: {word!r} where a value goes")
+
+    value = either()
+    if at != len(tokens):
+        raise ValueError(f"{condition!r}: words left after its token {at}")
+    return bool(value)
+
+
+def test_every_job_runs_under_the_area_stack_s_gate_joined_after_its_own_condition():
+    # Every job, read from the workflow, the canary too, which runs on no pull request, so that one rule reads every
+    # job: a job added later without the gate fails here, as does a gate written another way.
+    for name, job in JOBS.items():
+        own = OWN_CONDITION.get(name)
+        assert job.get("if") == (f"{own} && {STACK_GATE}" if own else STACK_GATE), (name, job.get("if"))
+    assert set(OWN_CONDITION) <= set(JOBS), sorted(OWN_CONDITION)
+
+
+@pytest.mark.parametrize(
+    ("context", "running"),
+    [
+        (STACK_PULL, set()),
+        (BASE_FIRST_PULL, set(JOBS) - OUTSIDE),
+        (OTHER_PULL, set(JOBS) - OUTSIDE),
+        (STACK_HEAD_ON_MAIN, set(JOBS) - OUTSIDE),
+        (OTHER_HEAD_ON_STACK, set(JOBS) - OUTSIDE),
+        (FORK_STACK_ON_STACK, set(JOBS) - OUTSIDE),
+        (PUSH, set(JOBS) - OUTSIDE - {"dependency-review"}),
+        (SCHEDULE, set(JOBS) - {"dependency-review"}),
+        (DISPATCH, set(JOBS) - {"dependency-review"}),
+    ],
+    ids=[
+        "stack/ onto stack/",
+        "base-first's",
+        "another branch's",
+        "stack/ onto main",
+        "another branch onto stack/",
+        "a fork's stack/ onto stack/",
+        "a push",
+        "the schedule",
+        "a manual run",
+    ],
+)
+def test_a_pull_request_of_the_area_stack_runs_no_job_and_every_other_run_the_jobs_it_ran(context, running):
+    # Each job's if: read as GitHub reads it, a job with none run as GitHub runs it: on a pull request of the
+    # repository's own from stack/ onto stack/ no job takes a runner, CI result included; on any other pull request, a
+    # stack/ head on main, another head on a stack/ base and a fork's stack/ onto stack/ among them, every job of the
+    # gate, dependency review included; on a push the same but
+    # dependency review; on the schedule and a manual run those and the canary.
+    ran = {name for name, job in JOBS.items() if _runs(job.get("if", "success()"), context)}
+    assert ran == running, (sorted(ran - running), sorted(running - ran))
+
+
+@pytest.mark.parametrize(
+    ("condition", "runs"),
+    [
+        ("!startsWith(github.head_ref, 'stack/')", False),
+        ("${{ !startsWith(github.head_ref, 'Stack/') }}", False),
+        ("!startsWith(github.head_ref, 'stack/aw-12')", True),
+        ("!(github.event_name == 'pull_request') || github.head_ref != 'stack/aw-11-batch-1'", False),
+        ("github.event_name == 'pull_request' || github.event_name == 'push' && github.head_ref == ''", True),
+        ("!github.base_ref", False),
+        ("'Base-First' == 'base-first'", True),
+    ],
+)
+def test_the_reading_of_a_condition_is_github_s(condition, runs):
+    # The reader the test above holds the jobs with, on a pull request of the stack: GitHub's precedence (&& before
+    # ||), its strings compared ignoring case, a string that is not empty true.
+    assert _runs(condition, STACK_PULL) is runs
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        "contains(github.head_ref, 'stack/')",
+        "github.event.pull_request.head.ref == 'x'",
+        "always() &&",
+        "always() always()",
+        "github.head_ref == 1",
+        "(always()",
+        "always() & true",
+        "!github.base_ref == 'x'",
+        "github.head_ref == 'it''s'",
+    ],
+)
+def test_a_condition_the_reading_does_not_know_fails_it(condition):
+    # A function, a context or a form it was not taught is refused, never taken for true or false.
+    with pytest.raises((ValueError, KeyError)):
+        _runs(condition, STACK_PULL)
 
 
 # ------------------------------------------------------------------------------------------ the Molecule image ---
@@ -105,11 +338,123 @@ def test_every_scenario_runs_the_one_image_pinned_by_digest():
     assert IMAGE.fullmatch(image), image
 
 
+def test_every_molecule_scenario_the_justfile_orders_is_a_job_of_ci_s():
+    # The justfile's molecule_order names every scenario (test_justfile.py holds that), and CI runs each: a role's in
+    # the molecule job's matrix, by --role, and the playbook scenarios in the playbooks job's, by the part of just test
+    # that runs each - the configure and image scenarios integration's, the new engine's system play its own.
+    order = re.search(r"^molecule_order := '([^']*)'$", (REPO / "justfile").read_text(), re.M)[1].split()
+    roles = JOBS["molecule"]["strategy"]["matrix"]["role"]
+    runs = [step["run"] for step in JOBS["molecule"]["steps"] if "run" in step]
+    assert runs == ["just test --role ${{ matrix.role }}"]
+    parts = {"configure": "integration", "image": "integration", "provision": "provision", "system": "system"}
+    assert sorted(order) == sorted([*roles, *parts])
+    assert {entry["type"] for entry in JOBS["playbooks"]["strategy"]["matrix"]["include"]} == set(parts.values())
+    runs = [step["run"] for step in JOBS["playbooks"]["steps"] if "run" in step]
+    assert runs == ["just test ${{ matrix.type }}"]
+
+
 def test_the_debian_job_runs_the_vpn_and_editor_roles_on_debian_pinned_by_digest():
     debian = JOBS["debian"]
     assert re.fullmatch(r"geerlingguy/docker-debian12-ansible@sha256:[0-9a-f]{64}", debian["env"]["MOLECULE_IMAGE"])
     assert debian["strategy"]["matrix"]["role"] == ["tailscale", "vscode_server"]
     assert [step["run"] for step in debian["steps"] if "run" in step] == ["just test --role ${{ matrix.role }}"]
+
+
+def test_one_unit_shard_runs_on_the_oldest_python_the_project_takes_and_every_other_job_on_the_actions():
+    # The setup action's default is the checkout's own environment's Python, the newest (test_justfile.py holds it
+    # to the justfile's managed_python); one shard of the unit suite runs again on requires-python's floor, so that
+    # what only a newer Python has fails there.
+    requires = tomllib.loads((REPO / "pyproject.toml").read_text())["project"]["requires-python"]
+    floor = re.fullmatch(r">=([0-9]+\.[0-9]+)", requires)
+    assert floor, requires
+    oldest = JOBS["unit-oldest"]
+    assert oldest["name"] == f"Unit tests on Python {floor[1]} (1/6)"
+    setups = [step for step in oldest["steps"] if step.get("uses") == "./.github/actions/setup"]
+    assert [step.get("with") for step in setups] == [{"python-version": floor[1]}]
+    shards = len(JOBS["unit"]["strategy"]["matrix"]["shard"])
+    assert [step["run"] for step in oldest["steps"] if "run" in step] == [f"just test unit --shard 1/{shards}"]
+    # The engine job's matrix names the floor and the default both, which the test below holds it to.
+    named = {("ci.yml", "unit-oldest"), ("ci.yml", "engine")}
+    others = []
+    for workflow in sorted((REPO / ".github" / "workflows").glob("*.yml")):
+        for name, job in yaml.safe_load(workflow.read_text())["jobs"].items():
+            for step in job.get("steps", []):
+                if step.get("uses") == "./.github/actions/setup" and (workflow.name, name) not in named:
+                    others.append((workflow.name, name, (step.get("with") or {}).get("python-version")))
+    assert others and all(version is None for _, _, version in others), others
+
+
+# A hosted macOS runner named by its version alone: macos-26, never macos-latest or a larger runner's name.
+MACOS_BY_VERSION = re.compile(r"macos-[0-9]+\Z")
+
+
+def test_the_engine_job_runs_on_linux_and_on_macos_pinned_by_its_version_on_the_oldest_python_and_the_actions():
+    # The new engine's suite on both systems it runs on and both ends of the Pythons it takes: requires-python's floor
+    # and the setup action's default (test_justfile.py holds that to the justfile's managed_python). Its macOS is
+    # named by its version, never macos-latest, which GitHub moves under a workflow; its Linux is the one every other
+    # job runs on.
+    requires = tomllib.loads((REPO / "pyproject.toml").read_text())["project"]["requires-python"]
+    floor = re.fullmatch(r">=([0-9]+\.[0-9]+)", requires)
+    assert floor, requires
+    action = yaml.safe_load((REPO / ".github" / "actions" / "setup" / "action.yml").read_text())
+    default = str(action["inputs"]["python-version"]["default"])
+    engine = JOBS["engine"]
+    # The job whole, with no key of its own beyond these: an if: but the area stack's gate would skip it (on pull
+    # requests, say), which CI result takes as passed; an env: (a PYTEST_ADDOPTS) would narrow the suite it runs; and
+    # without its limit a job hung on a macOS runner would hold it for GitHub's 360 minutes.
+    assert set(engine) == {"name", "if", "runs-on", "timeout-minutes", "strategy", "steps"}, sorted(engine)
+    assert engine["if"] == STACK_GATE
+    assert engine["timeout-minutes"] == 30
+    assert set(engine["strategy"]) == {"fail-fast", "matrix"}, engine["strategy"]
+    assert engine["name"] == "Engine tests (${{ matrix.os }}, Python ${{ matrix.python }})"
+    assert engine["runs-on"] == "${{ matrix.os }}"
+    assert engine["strategy"]["fail-fast"] is False
+    matrix = engine["strategy"]["matrix"]
+    assert set(matrix) == {"os", "python"}, matrix
+    assert sorted(matrix["python"]) == sorted({floor[1], default}) and len(matrix["python"]) == 2, matrix["python"]
+    linux, macos = matrix["os"]
+    assert linux == JOBS["unit"]["runs-on"], matrix["os"]
+    assert MACOS_BY_VERSION.fullmatch(macos), macos
+    # Each step as the unit job's: its checkout, the setup action given the matrix's Python, then the suite; before
+    # it, on Linux, the image of the guest helper's floor pulled, so that its test runs there and is not skipped (the
+    # test never pulls; macOS's runner has no docker).
+    checkout, setup, pull, run = engine["steps"]
+    assert checkout == JOBS["unit"]["steps"][0]
+    assert setup == {"uses": "./.github/actions/setup", "with": {"python-version": "${{ matrix.python }}"}}
+    assert pull == {
+        "name": "Pull the guest helper's floor",
+        "if": "runner.os == 'Linux'",
+        "run": f"docker pull {_helper_floor_image()}",
+    }
+    assert run == {"name": "Engine tests", "run": "just test engine"}
+
+
+def _helper_floor_image() -> str:
+    """The image tests/unit/test_aw_guest_helper.py runs the helper's floor on, its IMAGE, read without importing
+    it."""
+    tree = ast.parse((REPO / "tests" / "unit" / "test_aw_guest_helper.py").read_text())
+    (image,) = [
+        node.value.value
+        for node in tree.body
+        if isinstance(node, ast.Assign) and [getattr(target, "id", None) for target in node.targets] == ["IMAGE"]
+    ]
+    return image
+
+
+def test_nothing_at_the_workflow_s_level_narrows_or_skips_the_jobs_it_runs():
+    # Above every job's keys, the workflow's own: its env: reaches each job (a PYTEST_ADDOPTS there would narrow the
+    # engine's suite and the unit shards with every test green), its defaults: would run each step under another
+    # shell, and an on: without pull_request, or one that filters them, would leave CI result unsaid on a pull request.
+    assert set(WORKFLOW["env"]) == {"PY_COLORS", "ANSIBLE_FORCE_COLOR"}, WORKFLOW["env"]
+    assert "defaults" not in WORKFLOW, WORKFLOW["defaults"]
+    assert "pull_request" in WORKFLOW["on"], WORKFLOW["on"]
+    assert WORKFLOW["on"]["pull_request"] is None, WORKFLOW["on"]["pull_request"]
+
+
+@pytest.mark.parametrize("runs_on", ["macos-latest", "macos-latest-large", "macos-26-xlarge", "macos-26\n", "macos"])
+def test_a_macos_runner_named_by_anything_but_its_version_is_not_taken(runs_on):
+    # The names GitHub gives the runners that move under a workflow (latest) or are larger, paid ones.
+    assert not MACOS_BY_VERSION.fullmatch(runs_on)
 
 
 def test_the_canary_runs_the_pinned_image_unpinned():

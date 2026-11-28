@@ -50,7 +50,7 @@ Also takes, as described under `main`: `common_user`, `common_user_shell`, `comm
 
 ## Internal values
 
-Set in `roles/common/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 2 of the 9 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
+Set in `roles/common/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 2 of the 14 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
 
 | Name | Purpose | Value |
 |---|---|---|
@@ -59,6 +59,11 @@ Set in `roles/common/vars/main.yml`. These are not settings: Ansible ranks a rol
 | `common_ssh_path` | The PATH the drop-in gives common_user's ssh sessions, and the drop-in: whole, since SetEnv takes no variables. | <code>{{ (common_ssh_path_dirs &#124; map('regex_replace', '^', ansible_facts.getent_passwd[common_user][4] ~ '/') &#124; list + [common_ssh_path_system]) &#124; join(':') }}</code> |
 | `common_ssh_path_dropin` |  | `/etc/ssh/sshd_config.d/15-agent-warehouse-path.conf` |
 | `common_cloud_init_user_cfg` | With common_user_passwordless_sudo off: cloud-init's settings for the user it creates, read after cloud.cfg and every drop-in sorted before it. | `/etc/cloud/cloud.cfg.d/99-agent-warehouse-user.cfg` |
+| `common_ssh_key_pattern` | A public key as an authorized_keys line holds it, options before it and a comment after: its type and its base64, by which keys.yml finds a line of the same key. | <code>(?:^&#124;\s)((?:ssh&#124;ecdsa&#124;sk)-\S+)\s+(AAAA[0-9A-Za-z+/]+=*)(?:\s&#124;\Z)</code> |
+| `common_ssh_key_options` | The options in front of a key on an authorized_keys line, as sshd skips them: one word to the first blank outside double quotes, where a backslash escapes a double quote alone, inside quotes and out. | <code>(?:\\"&#124;\\(?!")&#124;[^ \t"\n\\]&#124;"(?:\\"&#124;\\(?!")&#124;[^"\n\\])*")+</code> |
+| `common_ssh_key_line_break` | What keys.yml refuses in an item, a line break and a line commented out, and the backslash it doubles in a replacement: here, in YAML's single quotes, so that each reaches Python's re as written, never through a Jinja string. | `[\r\n]` |
+| `common_ssh_key_commented` |  | `[ \t]*#` |
+| `common_backslash` |  | `\` |
 | `common_sshd_hardening` | The sshd hardening and apt's setting, by path. | `/etc/ssh/sshd_config.d/10-agent-warehouse.conf` |
 | `common_apt_downloads` |  | `/etc/apt/apt.conf.d/90agent-warehouse-downloads` |
 | `common_names_1x` | Each file by its name through 1.x and its name from 2.0, which names.yml moves it to (2.x), and the tmux block's 1.x marker, which tmux.yml takes out. | `[{"old": "/etc/ssh/sshd_config.d/10-claude-on-proxmox.conf", "new": "{{ common_sshd_hardening }}"}, {"old": "/etc/ssh/sshd_config.d/15-claude-on-proxmox-path.conf", "new": "{{ common_ssh_path_dropin }}"}, {"old": "/etc/apt/apt.conf.d/90claude-on-proxmox-downloads", "new": "{{ common_apt_downloads }}"}, {"old": "/etc/cloud/cloud.cfg.d/99-claude-on-proxmox-user.cfg", "new": "{{ common_cloud_init_user_cfg }}"}]` |
@@ -79,7 +84,7 @@ each file. Generated from the task files, so a task added, renamed or removed sh
 | Set hostname | `ansible.builtin.hostname` | <code>common_manage_hostname and ansible_facts['virtualization_type'] not in common_container_virt_types</code> |
 | Create the user | `ansible.builtin.include_tasks` |  |
 | Grant or take away passwordless sudo | `ansible.builtin.include_tasks` |  |
-| Authorise SSH keys | `ansible.posix.authorized_key` |  |
+| Authorise SSH keys | `ansible.builtin.include_tasks` |  |
 | Harden sshd, or take the hardening away | `ansible.builtin.include_tasks` |  |
 | Put ~/.local/bin on PATH for all users | `ansible.builtin.include_tasks` |  |
 | Put the per-user directories on PATH for ssh commands | `ansible.builtin.include_tasks` |  |
@@ -105,8 +110,8 @@ classDef rescue stroke:#665352,stroke-width:2px;
   Set_the_timezone_timezone_yml_2-->|Task| Set_hostname3[set hostname<br>When: **common manage hostname and ansible facts <br>virtualization type   not in common container virt<br>types**]:::task
   Set_hostname3-->|Include task| Create_the_user_user_yml_4[create the user<br>include_task: user yml]:::includeTasks
   Create_the_user_user_yml_4-->|Include task| Grant_or_take_away_passwordless_sudo_sudo_yml_5[grant or take away passwordless sudo<br>include_task: sudo yml]:::includeTasks
-  Grant_or_take_away_passwordless_sudo_sudo_yml_5-->|Task| Authorise_SSH_keys6[authorise ssh keys]:::task
-  Authorise_SSH_keys6-->|Include task| Harden_sshd__or_take_the_hardening_away_sshd_yml_7[harden sshd  or take the hardening away<br>include_task: sshd yml]:::includeTasks
+  Grant_or_take_away_passwordless_sudo_sudo_yml_5-->|Include task| Authorise_SSH_keys_keys_yml_6[authorise ssh keys<br>include_task: keys yml]:::includeTasks
+  Authorise_SSH_keys_keys_yml_6-->|Include task| Harden_sshd__or_take_the_hardening_away_sshd_yml_7[harden sshd  or take the hardening away<br>include_task: sshd yml]:::includeTasks
   Harden_sshd__or_take_the_hardening_away_sshd_yml_7-->|Include task| Put____local_bin_on_PATH_for_all_users_profile_yml_8[put    local bin on path for all users<br>include_task: profile yml]:::includeTasks
   Put____local_bin_on_PATH_for_all_users_profile_yml_8-->|Include task| Put_the_per_user_directories_on_PATH_for_ssh_commands_ssh_path_yml_9[put the per user directories on path for ssh<br>commands<br>include_task: ssh path yml]:::includeTasks
   Put_the_per_user_directories_on_PATH_for_ssh_commands_ssh_path_yml_9-->|Include task| Write_the_tmux_settings_tmux_yml_10[write the tmux settings<br>include_task: tmux yml]:::includeTasks
@@ -205,6 +210,36 @@ classDef rescue stroke:#665352,stroke-width:2px;
 
   Start-->|Task| image_options___Record_what_the_image_is_built_with0[image options   record what the image is built<br>with]:::task
   image_options___Record_what_the_image_is_built_with0-->End
+```
+
+### `keys.yml`
+
+| Task | Module | When |
+|---|---|---|
+| Refuse a listed key that is no public key alone on its line, or one listed twice | `ansible.builtin.assert` |  |
+| Make ~/.ssh, its target where it is a link | `ansible.builtin.file` | <code>common_user_ssh_public_keys &#124; length > 0</code> |
+| Look for the keys file | `ansible.builtin.stat` | <code>common_user_ssh_public_keys &#124; length > 0</code> |
+| Make every line of a listed key its listed form | `ansible.builtin.replace` | <code>common_keys_file.stat.exists</code> |
+| Authorise each SSH key | `ansible.builtin.lineinfile` |  |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Task| keys___Refuse_a_listed_key_that_is_no_public_key_alone_on_its_line__or_one_listed_twice0[keys   refuse a listed key that is no public key<br>alone on its line  or one listed twice]:::task
+  keys___Refuse_a_listed_key_that_is_no_public_key_alone_on_its_line__or_one_listed_twice0-->|Task| keys___Make____ssh__its_target_where_it_is_a_link1[keys   make    ssh  its target where it is a link<br>When: **common user ssh public keys   length   0**]:::task
+  keys___Make____ssh__its_target_where_it_is_a_link1-->|Task| keys___Look_for_the_keys_file2[keys   look for the keys file<br>When: **common user ssh public keys   length   0**]:::task
+  keys___Look_for_the_keys_file2-->|Task| keys___Make_every_line_of_a_listed_key_its_listed_form3[keys   make every line of a listed key its listed<br>form<br>When: **common keys file stat exists**]:::task
+  keys___Make_every_line_of_a_listed_key_its_listed_form3-->|Task| keys___Authorise_each_SSH_key4[keys   authorise each ssh key]:::task
+  keys___Authorise_each_SSH_key4-->End
 ```
 
 ### `masked_units.yml`

@@ -29,6 +29,8 @@ import pytest
 import yaml
 from harness import REPO, _every_task, _run
 
+from claude_vm.guest import layer1, system
+
 COMMON = REPO / "roles" / "common"
 SUDO = COMMON / "tasks" / "sudo.yml"
 DEFAULTS = REPO / "inventory" / "group_vars" / "all" / "defaults.yml"
@@ -104,12 +106,13 @@ def test_the_password_is_the_user_s_before_any_rule_goes() -> None:
     # Unlocked as well: a new cloud-init instance locks it and keeps the hash, which the module compares unlocked.
     assert given["ansible.builtin.user"]["password_lock"] is False
     password = order.index(given["name"])
-    # And a rule that takes it must be left, or the run locks itself and every later one out.
+    # And a rule that takes it must be left, or the run locks itself and every later one out. A conditional's
+    # literal, which Jinja decodes: its \s is written twice (tests/unit/test_anchors.py).
     left = _named(off, "while no other takes the password")
     assert (
         left["ansible.builtin.assert"]["that"].split()
         == (
-            "common_user_sudo_before.stdout_lines | select('match', '\\s+[(]') | reject('search', 'NOPASSWD') | list"
+            "common_user_sudo_before.stdout_lines | select('match', '\\\\s+[(]') | reject('search', 'NOPASSWD') | list"
             " | length > 0"
         ).split()
     )
@@ -190,3 +193,26 @@ def test_every_play_becomes_root_through_sudo_s_path_with_the_vm_password(
     assert report["rc"] == 0, report["stderr"]
     shown = report["plays"][0]["tasks"][0]["hosts"]["alpha"]["msg"]
     assert shown == f"/usr/bin/sudo|{password}"
+
+
+def test_the_system_play_becomes_root_through_sudo_s_path_and_nothing_else_names_one() -> None:
+    # The new engine's system play: become, through the inventory the engine writes, which names sudo by its path, and
+    # its first task refuses a connection where anything that outranks the inventory names another.
+    (play,) = yaml.safe_load(system.PLAY.read_text())
+    assert play["become"] is True
+    assert layer1.SUDO == "/usr/bin/sudo"
+    assert {"ansible_become_exe", "ansible_become_method", "ansible_become_user", "ansible_sudo_exe"} <= set(
+        play["vars"]["system_connection_variables"]
+    )
+    assert "ansible_become_exe" not in yaml.safe_dump(play["pre_tasks"][1:])
+
+
+@pytest.mark.parametrize("value", [False, "no", 0])
+def test_the_system_play_takes_no_passwordless_sudo_off_until_a_password_can_reach_it(tmp_path, value) -> None:
+    # Off, sudo asks the user's password, which the new engine hands no play yet (F24): refused by name, before the
+    # play's variables are written or its child starts.
+    written = tmp_path / "vars.json"
+    with pytest.raises(system.Refused, match="common_user_passwordless_sudo"):
+        system.variables(written, {"common_user_passwordless_sudo": value}, secrets=())
+    assert not written.exists()
+    assert system.variables(written, {"common_user_passwordless_sudo": True}, secrets=()) == written

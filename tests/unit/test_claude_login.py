@@ -104,7 +104,7 @@ from harness import (
 
 ROLE = REPO / "roles" / "claude_code"
 # lib/claude_vm/desktop.py, whose controller_run the sign-in records the run waiting for it with.
-from claude_vm import desktop as DESKTOP  # noqa: E402
+from claude_vm import desktop as DESKTOP
 
 FAKE_CLAUDE = REPO / "tests" / "molecule" / "fake_claude.sh"
 PLAYBOOK = REPO / "playbooks" / "claude_login.yml"

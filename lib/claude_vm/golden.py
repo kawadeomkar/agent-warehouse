@@ -19,7 +19,7 @@ from typing import Any, Final
 # The roles a golden template carries, each through its `image` entry point.
 BAKED: Final = ("common", "dev_tools", "claude_code")
 # The scrub the build runs on the image: in the digest, so a scrub made safer makes a new golden rather than leave the
-# old ones selectable until they age out.
+# old ones selectable for the rest of their life.
 SCRUB: Final = ("playbooks/tasks/golden_generalize.yml",)
 
 # A secret shorter than this is no secret worth the name: the example vault leaves values empty.

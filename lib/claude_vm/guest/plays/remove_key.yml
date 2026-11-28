@@ -1,0 +1,16 @@
+---
+# deploy --only configure --remove-key's one task (lib/claude_vm/guest/keys.py; docs/architecture/engine.md §16.10):
+# each line of the account's authorized_keys that holds one key taken off, as the account, never as root, so that it
+# reaches only what the account could change already. The key's pattern is the play's one variable, made by keys.py's
+# pattern() and given in the play's variables file, which no template reads: its backslashes reach Python's re as
+# written. lineinfile writes through a linked ~/.ssh and keeps the file's mode.
+- name: Take one key off the account
+  hosts: all
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Take the key's lines off the account's authorized_keys
+      ansible.builtin.lineinfile:
+        path: ~/.ssh/authorized_keys
+        regexp: "{{ remove_key_pattern }}"
+        state: absent

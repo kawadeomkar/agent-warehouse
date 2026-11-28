@@ -1,7 +1,8 @@
 ---
 # What converge.yml cannot show: that the role refuses an sshd on which
-# something else has taken the forwarding away, naming the file, and
-# that vscode_server_enabled: false removes what an earlier run wrote. The
+# something else has taken the forwarding away, naming the file, that the
+# watch limit is applied once where /proc/sys is writable, and that
+# vscode_server_enabled: false removes what an earlier run wrote. The
 # container is left as converge.yml made it, so verify.yml checks that state.
 - name: Side effect
   hosts: all
@@ -23,6 +24,69 @@
       loop_control:
         loop_var: vscode_server_foreign
         label: "{{ vscode_server_foreign.file }}"
+
+    # Where /proc/sys is writable (no virtualisation type taken for a
+    # container's), the limit is applied when its file changes, and only then:
+    # one above the kernel's own after a run that writes the file; put back by
+    # hand, it stays put back through a second run, which changes nothing. The
+    # container is privileged, so the value is the kernel's: it is left as it
+    # was, and the file goes with the run switched off below.
+    - name: Install sysctl, which a VM's image has and the container may lack
+      ansible.builtin.apt:
+        name: procps
+        state: present
+
+    - name: Read the kernel's watch limit
+      ansible.builtin.command:
+        argv: [sysctl, -n, fs.inotify.max_user_watches]
+      register: vscode_server_side_effect_live
+      changed_when: false
+
+    - name: Apply the limit where /proc/sys is writable, once
+      vars:
+        vscode_server_side_effect_raised: "{{ vscode_server_side_effect_live.stdout | int + 1 }}"
+      block:
+        - name: Run the role where /proc/sys is writable, the limit one above the kernel's
+          ansible.builtin.include_role:
+            name: vscode_server
+          vars:
+            vscode_server_container_virt_types: []
+            vscode_server_inotify_watches: "{{ vscode_server_side_effect_raised | int }}"
+
+        - name: Read the limit the run applied
+          ansible.builtin.command:
+            argv: [sysctl, -n, fs.inotify.max_user_watches]
+          register: vscode_server_side_effect_applied
+          changed_when: false
+          failed_when: >-
+            vscode_server_side_effect_applied.stdout | int != vscode_server_side_effect_raised | int
+            or not vscode_server_inotify_file.changed
+
+        - name: Put the kernel's own limit back by hand
+          ansible.builtin.command:
+            argv: [sysctl, -w, "fs.inotify.max_user_watches={{ vscode_server_side_effect_live.stdout }}"]
+          changed_when: true
+
+        - name: Run the role again with the same limit
+          ansible.builtin.include_role:
+            name: vscode_server
+          vars:
+            vscode_server_container_virt_types: []
+            vscode_server_inotify_watches: "{{ vscode_server_side_effect_raised | int }}"
+
+        - name: Read the limit after the second run, which wrote nothing and applied nothing
+          ansible.builtin.command:
+            argv: [sysctl, -n, fs.inotify.max_user_watches]
+          register: vscode_server_side_effect_again
+          changed_when: false
+          failed_when: >-
+            vscode_server_side_effect_again.stdout != vscode_server_side_effect_live.stdout
+            or vscode_server_inotify_file.changed
+      always:
+        - name: Leave the kernel's own limit
+          ansible.builtin.command:
+            argv: [sysctl, -w, "fs.inotify.max_user_watches={{ vscode_server_side_effect_live.stdout }}"]
+          changed_when: true
 
     - name: Run the role switched off
       ansible.builtin.include_role:

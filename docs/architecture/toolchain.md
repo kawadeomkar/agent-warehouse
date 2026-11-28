@@ -6,7 +6,12 @@ you bring one (`PYTHON=`, or `python3` as the shell finds it in the checkout whe
 otherwise the checkout's own. `just install` runs `uv sync --locked`, which refuses a lock that no longer
 matches `pyproject.toml`: into one of yours `--inexact`, with Python downloads off, so the versions the lock
 pins go in and nothing else of the environment is removed; into the checkout's own, which the first run
-makes, `--managed-python --python 3.13` (`managed_python`), on a Python uv downloads, exactly the lock's.
+makes, `--managed-python --python 3.14` (`managed_python`, which the launcher `aw` and CI's setup action name too,
+held to one by `tests/unit/test_justfile.py`), on a Python uv downloads, exactly the lock's. The floor is
+`pyproject.toml`'s `requires-python`, Python 3.13, which the program `aw` and ansible-core 2.22 need: `just install`
+refuses a virtualenv of yours below it before uv starts, in one sentence that names the floor and the two ways out -
+a virtualenv of 3.13 or later, or none, so that the checkout's own is made - and ruff checks `lib/` against it
+(`py313`). CI runs every job on 3.14 and one shard of the unit suite on 3.13 too ([§12](ci.md)).
 That one lives in the checkout's folder outside it,
 `${XDG_DATA_HOME:-~/.local/share}/agent-warehouse/checkouts/<folder>-<cksum of its path>`
 (`tools/env-run --data`), never a `.venv` in the checkout, so a worktree or a second clone has its own; and
@@ -44,6 +49,7 @@ linters' and tests' the `dev` group, and the wiki's the `docs` group; `just inst
 | pytest | `just test unit` |
 | pre-commit | the hooks run on commit, and the file checks CI runs with them |
 | proxmoxer, requests | the `community.proxmox` collection, on the controller |
+| pyrage | the new engine's vault, one age file of named secrets encrypted whole ([§16.9](engine.md#169-fleet--the-fleets-files-the-settings-the-secrets-and-the-fleets-mark)); a `[project]` dependency, which nothing of today's product imports |
 | docsible | `just docs`: each role's reference page - its variables, internal values, tasks and a flowchart of each task file |
 | Zensical | the wiki in `docs/` built as a site (`just docs serve`, `just docs build`) |
 | Markdown, pymdown-extensions | the site's rendering and its heading anchors, kept the ones GitHub makes |
@@ -53,17 +59,24 @@ linters' and tests' the `dev` group, and the wiki's the `docs` group; `just inst
 **just**, the other tool on `PATH`, runs every command (`justfile`; [Commands](../reference/commands.md)).
 It is yours to install, as uv is, 1.59.0 or later, from its own releases - Homebrew, `cargo install just`,
 or the release archive checked against its `SHA256SUMS`; not PyPI's `rust-just`, a third party's own build
-of it. The justfile's `set minimum-version` refuses an older one. CI installs upstream's x86_64 Linux
-archive, checked against the SHA256 in `.github/actions/setup/action.yml`, at the version written there
-as `JUST_VERSION`, in the justfile's `minimum-version` and as its `just_pin`; `test_justfile.py` holds the
-three to one. Dependabot moves neither file, so moving to a new `just` is by hand: the three versions, and
-the archive's line of the new release's `SHA256SUMS` as `JUST_SHA256`. The justfile's format is checked
+of it. The justfile's `set minimum-version` refuses an older one. CI installs upstream's archive for the
+runner's system, x86_64 Linux's or arm64 macOS's, each checked against its own SHA256 in
+`.github/actions/setup/action.yml`, at the version written there as `JUST_VERSION`, in the justfile's
+`minimum-version` and as its `just_pin`; `test_justfile.py` holds the three to one, and every SHA256 in
+the action beside that one version. Dependabot moves neither file, so moving to a new `just` is by hand:
+the three versions, and the two archives' lines of the new release's `SHA256SUMS`, the
+`x86_64-unknown-linux-musl` one as `JUST_SHA256` and the `aarch64-apple-darwin` one as `JUST_SHA256_MACOS`. The justfile's format is checked
 (`just lint just`) only by the pinned version, which `just lint` says when it skips it.
 
 The uv every VM gets is the `dev_tools` role's own pin (`dev_tools_uv_version`, with each architecture's
 SHA-256), which Dependabot does not read. It moves with the `uv` pin in `pyproject.toml`: never older than it,
 which `tests/unit/test_pins.py` holds, so a Dependabot bump of the controller's uv fails that test until the
 VM's follows, its digests taken from the release's `.sha256` files.
+
+**Before the ansible-core pin moves**, these tests pass on the new version, each holding something of Ansible's that
+no documentation promises: `tests/unit/test_aw_variables.py`, the new engine's play's variables file, every string
+marked unsafe, read by Ansible's own loader - whose decoder is `ansible._internal`'s - and by a real `ansible-playbook`
+([§16.10](engine.md#1610-guest--the-helper-the-system-layers-inputs-layer-2)).
 
 Collections: `community.proxmox`, `community.general`, `community.docker` and `ansible.posix`, pinned
 to exact versions in `requirements.yml`, with `community.library_inventory_filtering_v1`, which

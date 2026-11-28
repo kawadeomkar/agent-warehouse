@@ -4,9 +4,9 @@
 #
 #   tools/molecule-lanes <jobs> <bin> <log dir> <stamp> <scenario>...
 #
-# A scenario is configure, provision or a role's name, in the order the justfile's molecule_order gives them, the
-# longest first, so the short ones fill in beside it. Side by side, the scenarios would interleave on the screen and
-# in one log, so each one's output - Molecule's lines and Ansible's, without colour - goes to
+# A scenario is configure, image, provision, system or a role's name, in the order the justfile's molecule_order gives
+# them, the longest first, so the short ones fill in beside it. Side by side, the scenarios would interleave on the
+# screen and in one log, so each one's output - Molecule's lines and Ansible's, without colour - goes to
 # <log dir>/<stamp>-test-<scenario>.log alone, and this says one line as each ends: and when one failed, where its
 # log is and how its output ended. Without a log dir (LOG_DIR=) that end is kept until it is said. Every scenario
 # runs, failed or not, and this fails when any did. Ctrl-C reaches each scenario as it reaches one run alone: they
@@ -32,7 +32,7 @@ if [ "${1:-}" = --one ]; then
     log=$(mktemp)
   fi
   case "$scenario" in
-  configure | image | provision) where=. args="test -s $scenario" ;;
+  configure | image | provision | system) where=. args="test -s $scenario" ;;
   *) where="roles/$scenario" args=test ;;
   esac
   start=$(date +%s)

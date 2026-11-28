@@ -2348,7 +2348,7 @@ def test_the_session_s_checkout_folder_is_held_to_what_project_takes():
     project = next(
         t for t in _tasks(_the_window(_play())["block"]) if t["name"] == "Refuse a project that is not one folder name"
     )
-    pattern = "'^[A-Za-z0-9._-]{1,100}\\Z'"
+    pattern = "'^[A-Za-z0-9._-]{1,100}\\\\Z'"  # as a Jinja literal writes \Z (tests/unit/test_anchors.py)
     assert any(pattern in str(that) for that in check["ansible.builtin.assert"]["that"])
     assert any(pattern in str(that) for that in project["ansible.builtin.assert"]["that"])
 

@@ -22,8 +22,8 @@ SET_FACT = {"set_fact", "ansible.builtin.set_fact", "ansible.legacy.set_fact"}
 IMPORTS = {f"{prefix}import_{kind}" for prefix in ("", "ansible.builtin.") for kind in ("tasks", "role", "playbook")}
 
 
-from claude_vm.ansible.engine import FILE_PREFIX  # noqa: E402
-from claude_vm.run import recipes  # noqa: E402
+from claude_vm.ansible.engine import FILE_PREFIX
+from claude_vm.run import recipes
 
 RECIPES = sorted(recipes.RECIPES)
 
@@ -260,6 +260,25 @@ def test_a_vms_address_and_id_are_where_the_engine_reads_them():
     assert "claude_vm_addressed" in set_facts, set_facts
 
 
+def _test_recipe() -> str:
+    """The script of the justfile's test recipe: its lines from its first to the next that is not indented."""
+    found = re.search(r"^test [^\n]*:\n((?:(?:    [^\n]*)?\n)*)", (REPO / "justfile").read_text(), re.M)
+    assert found, "the justfile has no test recipe"
+    return found[1]
+
+
+def test_every_part_test_runs_is_a_stage_of_its_declaration_listed_in_its_order():
+    # The test recipe draws each part it runs as the stage of its name, and lists the stages to come in the order it
+    # names them: a part with no stage of the declaration's would be drawn out of its place, its tests counted in none.
+    script = _test_recipe()
+    declared = [stage.key for stage in recipes.RECIPES["test"].stages]
+    ran = set(re.findall(r"\bpart ([a-z]+) --", script))
+    assert {"unit", "engine", "molecule", "role", "integration", "provision"} <= ran, ran
+    assert ran | {"lint"} == set(declared), (ran, declared)
+    (listed,) = re.findall(r"for part in ([a-z ]+); do\n\s*if runs \"\$part\"", script)
+    assert ["lint", *listed.split(), "molecule"] == declared, (listed, declared)
+
+
 # Each live test, and what it must name to run a real playbook as that playbook's own tests run it: the runner, or
 # every path they pin. A live test that runs only stand-ins - deploy's, playbooks named as the real ones in a
 # directory of its own - takes nothing from the repository's playbooks/. Each pin is read from the test's code
@@ -267,6 +286,8 @@ def test_a_vms_address_and_id_are_where_the_engine_reads_them():
 # as a dict's key or a call's argument (`"key"`), or a key given a constant (`"key": False`).
 LIVE_TESTS = {
     "test_deploy_live.py": (),
+    # The new engine's live view, which runs no playbook: its runs are the engine's own, of canned events.
+    "test_aw_live.py": (),
     # login.yml as test_sign_in_plays.py runs it: its stand-in VMs and extra vars, which keep every sign-in off this
     # machine's browser, clipboard and terminal.
     "test_login_live.py": ("from test_sign_in_plays import", "_extra(", "_hosts("),
@@ -296,6 +317,9 @@ LIVE_TESTS = {
         '"claude_ssh_user_config"',
     ),
     "test_status_live.py": ("status_root",),
+    # aw status against the fake, on a fleet folder of the test's own, and tools/status beside it as test_status.py runs
+    # it: no playbook.
+    "test_aw_status_live.py": ("status_root",),
 }
 
 

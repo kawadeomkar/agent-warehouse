@@ -49,8 +49,8 @@ DOCS = ROOT / "docs"
 GROUP_VARS = ROOT / "inventory" / "group_vars" / "all"
 
 sys.path.insert(0, str(ROOT / "lib"))  # the controller's package (docs/architecture/custom-code.md §7.10)
-from claude_vm import plugin  # noqa: E402
-from claude_vm.wiring import alias_of, parse_example, role_of, roles, set_by, specs, wiring  # noqa: E402
+from claude_vm import plugin
+from claude_vm.wiring import alias_of, parse_example, role_of, roles, set_by, specs, wiring
 
 plugin.own(str(ROOT / "lib"))  # this checkout's package, never another's that sys.path had first
 

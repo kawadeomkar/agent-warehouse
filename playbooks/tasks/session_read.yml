@@ -23,7 +23,7 @@
 
 - name: session_read | Refuse a --session that is not a session ID
   ansible.builtin.assert:
-    that: code_session_id is match('^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z')
+    that: code_session_id is match('^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\Z')
     fail_msg: >-
       --session is the ID of one of this machine's Claude Code sessions, the name of its transcript under
       ~/.claude/projects/ (/resume shows it, and so does /status in the session), such as
@@ -214,7 +214,7 @@
 - name: session_read | Refuse a checkout folder an editor cannot be handed as it is
   ansible.builtin.assert:
     that:
-      - code_session_plan.session.name | string is match('^[A-Za-z0-9._-]{1,100}\Z')
+      - code_session_plan.session.name | string is match('^[A-Za-z0-9._-]{1,100}\\Z')
       - code_session_plan.session.name | string not in ['.', '..']
     fail_msg: >-
       --session's checkout on {{ claude_vm_names[0] }} is in a folder whose name a GitHub repository could not have,

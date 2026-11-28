@@ -16,6 +16,15 @@ raises Interrupted, which the hook turns into what prompt_until raises, so pause
 terminal's settings are restored whatever happens. Once chosen, the menu is erased; the hook says the answer on one
 line (collapsed).
 
+The same menu, its keys read by a caller's coroutine (asked): the new engine's questions, which read on the run's
+event loop, never in a thread (docs/architecture/engine.md §16.8). Its keys come as a read gives them, several at once
+or a sequence in parts, and are split as ask reads them one at a time (split); the drawing (Shown) and the terminal's
+settings (raw) are ask's own, each change of the settings is TCSAFLUSH's, which discards what was typed and not read,
+and a change a signal interrupts is made again (live_region's set_terminal). The question's words above the menu are
+written once the terminal is raw, where a Ctrl-C is a key and throws nothing the terminal has not read away; the change
+back is made with the run's signals held off till it is made, and only while the run is the terminal's foreground
+(live_region's put_back).
+
 Stdlib only; imported as claude_vm.tui.choose (docs/architecture/custom-code.md §7.10).
 """
 
@@ -27,7 +36,7 @@ import select
 import termios
 
 from . import screen
-from .live_region import SYNC_OFF, SYNC_ON, can_draw
+from .live_region import SYNC_OFF, SYNC_ON, can_draw, change, put_back, uninterrupted
 
 # The mark of a prompt whose answers ride along: a NUL each side, so no key a person types is ever it.
 MARKER = b"\x00agent-warehouse:choices\x00"
@@ -183,6 +192,93 @@ def can_choose(stdin, stdout, environ=None):
     return foreground and can_draw(stdout, environ)
 
 
+def raw(settings):
+    """The terminal's settings while a menu is up, from those found: no echo, no line, no signal keys, no flow control,
+    a carriage return read as typed, and each key read as it comes."""
+    quiet = list(settings)
+    quiet[0] = settings[0] & ~(termios.ICRNL | termios.IXON)
+    quiet[3] = settings[3] & ~(termios.ECHO | termios.ICANON | termios.IEXTEN | termios.ISIG)
+    quiet[6] = list(settings[6])
+    quiet[6][termios.VMIN], quiet[6][termios.VTIME] = 1, 0
+    return quiet
+
+
+def interrupt_of(settings):
+    """The bytes the terminal's interrupt key, Ctrl-C, is read as once raw has turned its signal off."""
+    interrupt = settings[6][termios.VINTR]
+    return interrupt if isinstance(interrupt, bytes) else bytes([interrupt])
+
+
+class Shown:
+    """The menu on the screen, from the cursor down: drawn in place, one write per redraw in synchronized output, each
+    line cut short of the terminal's width; drawn again where the terminal's size changed; and erased."""
+
+    def __init__(self, menu, stdout, color):
+        self.menu, self.stdout, self.color = menu, stdout, color
+        self.drawn = 0  # the lines on the screen
+        self.size = None  # the terminal's (cols, rows) when it was last drawn
+
+    def _size(self):
+        try:
+            return tuple(os.get_terminal_size(self.stdout.fileno()))
+        except (OSError, ValueError):
+            return None
+
+    def draw(self, chosen):
+        cols, rows = self._size() or (80, 24)
+        lines = [screen.render(line, self.color) for line in frame(self.menu, chosen, cols, rows)]
+        up = f"\x1b[{self.drawn - 1}A" if self.drawn > 1 else ""
+        self.stdout.write(SYNC_ON + up + "\r" + "\x1b[K\n".join(lines) + "\x1b[K\x1b[J" + SYNC_OFF)
+        self.stdout.flush()
+        self.drawn = len(lines)
+        self.size = (cols, rows)
+
+    def resized(self, chosen):
+        """Drawn again where the terminal's size is not what it was drawn for; left where it cannot be read."""
+        now = self._size()
+        if now is not None and now != self.size:
+            self.draw(chosen)
+
+    def erase(self):
+        if self.drawn:
+            self.stdout.write((f"\x1b[{self.drawn - 1}A" if self.drawn > 1 else "") + "\r\x1b[J")
+            self.stdout.flush()
+            self.drawn = 0
+
+
+def _end_of(typed, at):
+    """Where the escape sequence that starts at `at` ends, by _keys's rule: a CSI at its final byte, an SS3 after the
+    one byte that follows its O, any other after its second byte; None where typed ends first."""
+    kind = typed[at + 1 : at + 2]
+    if not kind:
+        return None
+    if kind == b"O":
+        return at + 3 if len(typed) >= at + 3 else None
+    if kind == b"[":
+        for end in range(at + 2, len(typed)):
+            if 0x40 <= typed[end] <= 0x7E:
+                return end + 1
+        return None
+    return at + 2
+
+
+def split(typed):
+    """What a read gave, as the keys _keys would have read one at a time: each byte, and each escape sequence whole;
+    and what is left of a sequence typed has not yet ended (b"" where none is), which the next read may end."""
+    keys, at = [], 0
+    while at < len(typed):
+        if typed[at : at + 1] != b"\x1b":
+            keys.append(typed[at : at + 1])
+            at += 1
+            continue
+        end = _end_of(typed, at)
+        if end is None:
+            return keys, typed[at:]
+        keys.append(typed[at:end])
+        at = end
+    return keys, b""
+
+
 def _keys(fd):
     """The next key's bytes: one byte, or an escape sequence whole; b"" at the end of the input; None when nobody
     typed for IDLE_SECONDS."""
@@ -210,43 +306,18 @@ def ask(menu, stdin, stdout, color=True):
     at the terminal's interrupt key. The terminal is left as it was found, and the menu erased."""
     stdin_fd = stdin.fileno()
     settings = termios.tcgetattr(stdin_fd)
-    interrupt = settings[6][termios.VINTR]
-    interrupt = interrupt if isinstance(interrupt, bytes) else bytes([interrupt])
-    quiet = list(settings)
-    quiet[0] = settings[0] & ~(termios.ICRNL | termios.IXON)
-    quiet[3] = settings[3] & ~(termios.ECHO | termios.ICANON | termios.IEXTEN | termios.ISIG)
-    quiet[6] = list(settings[6])
-    quiet[6][termios.VMIN], quiet[6][termios.VTIME] = 1, 0
-    drawn = 0
-
-    def draw(chosen):
-        nonlocal drawn
-        try:
-            cols, rows = os.get_terminal_size(stdout.fileno())
-        except (OSError, ValueError):
-            cols, rows = 80, 24
-        lines = [screen.render(line, color) for line in frame(menu, chosen, cols, rows)]
-        up = f"\x1b[{drawn - 1}A" if drawn > 1 else ""
-        stdout.write(SYNC_ON + up + "\r" + "\x1b[K\n".join(lines) + "\x1b[K\x1b[J" + SYNC_OFF)
-        stdout.flush()
-        drawn = len(lines)
-        return cols, rows
-
+    interrupt = interrupt_of(settings)
+    shown = Shown(menu, stdout, color)
     # Keys typed before the question was there are not its answer.
     termios.tcflush(stdin_fd, termios.TCIFLUSH)
-    termios.tcsetattr(stdin_fd, termios.TCSANOW, quiet)
+    termios.tcsetattr(stdin_fd, termios.TCSANOW, raw(settings))
     try:
         chosen = menu["chosen"]
-        size = draw(chosen)
+        shown.draw(chosen)
         while True:
             sequence = _keys(stdin_fd)
             if sequence is None:
-                try:
-                    now = tuple(os.get_terminal_size(stdout.fileno()))
-                except (OSError, ValueError):
-                    now = size
-                if now != size:
-                    size = draw(chosen)
+                shown.resized(chosen)
                 continue
             if sequence == b"":
                 return ""
@@ -255,11 +326,64 @@ def ask(menu, stdin, stdout, color=True):
             what, then = step(menu, chosen, key_of(sequence))
             if what == "move" and then != chosen:
                 chosen = then
-                size = draw(chosen)
+                shown.draw(chosen)
             elif what in ("choose", "later"):
                 return then
     finally:
-        if drawn:
-            stdout.write((f"\x1b[{drawn - 1}A" if drawn > 1 else "") + "\r\x1b[J")
-            stdout.flush()
+        shown.erase()
         termios.tcsetattr(stdin_fd, termios.TCSADRAIN, settings)
+
+
+async def asked(menu, read, stdin, stdout, color=True, above=""):
+    """ask, with the keys read by read(seconds), a coroutine function of the caller's: what was typed since the last
+    read, b"" at the end of the input, or None where nothing was typed within seconds. The same menu, keys and answers,
+    and the same end: Interrupted at the terminal's interrupt key, read as a byte, the menu erased and the terminal left
+    as it was found whatever happens, its interrupt key's signal back among it, a change a signal interrupted made again
+    (live_region.set_terminal). Each change is TCSAFLUSH's, as getpass makes them: the keys typed before the menu and
+    whatever is still unread once it is answered are discarded, never an answer and never left for the shell. above,
+    the question's words, is written once the terminal is raw, before the menu is first drawn. The change back is made
+    with the run's signals held off till it is made, and only while this process is the terminal's foreground
+    (live_region.put_back). A read's error, or its cancellation, goes through as itself. Stdin's descriptor is read
+    only through read."""
+    stdin_fd = stdin.fileno()
+    settings = termios.tcgetattr(stdin_fd)
+    interrupt = interrupt_of(settings)
+    shown = Shown(menu, stdout, color)
+    # TCSAFLUSH, as getpass sets and puts back: the keys typed before flushed in the call that makes the terminal raw,
+    # and what is still unread once the menu is answered discarded with the change back, never left for the shell.
+    # Made at once: a run in the background waits for the terminal there (SIGTTOU), as the menu needs it.
+    change(stdin_fd, termios.TCSAFLUSH, raw(settings), wait=True)
+    try:
+        if above:
+            stdout.write(above)
+            stdout.flush()
+        chosen = menu["chosen"]
+        shown.draw(chosen)
+        left = b""  # the start of a sequence a read has not yet ended
+        while True:
+            got = await read(SEQUENCE_SECONDS if left else IDLE_SECONDS)
+            if got is None and not left:
+                shown.resized(chosen)
+                continue
+            if got is None:
+                # Nothing ended it in time: Esc alone, or a sequence the menu has no use for.
+                keys, left = [left], b""
+            elif got == b"":
+                return ""
+            else:
+                keys, left = split(left + got)
+            for sequence in keys:
+                if sequence == interrupt:
+                    raise Interrupted
+                what, then = step(menu, chosen, key_of(sequence))
+                if what == "move" and then != chosen:
+                    chosen = then
+                    shown.draw(chosen)
+                elif what in ("choose", "later"):
+                    return then
+    finally:
+        with uninterrupted():
+            try:
+                shown.erase()
+            finally:
+                put_back(stdin_fd, termios.TCSAFLUSH, settings)

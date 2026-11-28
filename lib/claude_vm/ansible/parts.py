@@ -67,7 +67,7 @@ SHELLS = frozenset({"bash", "sh", "zsh", "dash"})
 WARNING = re.compile(r"\bwarn(ing)?s?\b", re.IGNORECASE)
 # What a check says of warnings every time, which nobody can act on: a syntax check's plays target groups only a run
 # fills; ansible-lint runs offline as its config asks, says how to turn deprecations off, and counts "0 warning(s)".
-# And Molecule's: a requirements file or a playbook a scenario has no need of, the remote temporary directory a fresh
+# And Molecule's: a requirements file or a playbook a scenario has no need of, the remote_tmp directory a fresh
 # container makes, a scenario's prompt that takes its default, and ansible-core's own internal collection, which has
 # no version to read.
 ROUTINE = re.compile(
@@ -79,7 +79,7 @@ ROUTINE = re.compile(
 STALE_SECONDS = 24 * 3600
 # What of LIVE_DIR is this project's to prune, which a LIVE_DIR exported for anything else must not lose: a state, as
 # the justfile names one - the run's stamp, its top recipe, its shell's PID - the pytest reader's events beside it,
-# and save_state's temporary.
+# and save_state's file in progress.
 OWN = re.compile(r"\d{8}-\d{6}-[a-z][a-z-]*-\d+(?:\.json|-pytest-\w+\.jsonl)|\.state-\w+")
 
 
@@ -102,7 +102,7 @@ def save_state(path, state):
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(path.parent, 0o700)
     # A run whose shell died of a signal never said its end, and left its state: gone a day later. Only a state and
-    # a temporary are pruned, and only as plain files: LIVE_DIR is whatever the environment says.
+    # save_state's file in progress are pruned, and only as plain files: LIVE_DIR is whatever the environment says.
     for stale in path.parent.iterdir():
         with contextlib.suppress(OSError):
             if stale != path and OWN.fullmatch(stale.name) and stale.is_file() and not stale.is_symlink():

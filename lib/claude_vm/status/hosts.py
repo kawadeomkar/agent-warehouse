@@ -2,10 +2,12 @@
 one screen, which draws what each child sends as it lands (docs/architecture/lifecycle.md §4.6).
 
 The engine is not safe to run twice in one process: reach ends every probe at one host's refusal (its _over), and
-Ansible's GlobalCLIArgs is one per process. So each host's read is a process of its own, run with --emit, which writes
-what it lands as JSON lines on its standard output and draws nothing; this process holds what each host found, builds
-each host's report with the same model, and draws them all through the one live region, every VM filling in as its
-host's child reads it. A host that does not answer costs no more than its own timeout, the others drawn meanwhile.
+route.py every ssh of the hop's at a failure or a Ctrl-C (route._OVER), each starting none after for the rest of the
+process; and Ansible's GlobalCLIArgs is one per process. So each host's read is a process of its own, run with --emit,
+which writes what it lands as JSON lines on its standard output and draws nothing; this process holds what each host
+found, builds each host's report with the same model, and draws them all through the one live region, every VM filling
+in as its host's child reads it. A host that does not answer costs no more than its own timeout, the others drawn
+meanwhile.
 
 After every child has ended, what only the whole checkout shows: an alias recorded for a host whose listing has no
 such VM (the prune against that host clears it), and a VM name two hosts each have. Read-only, as every child is.

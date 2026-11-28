@@ -11,6 +11,14 @@ only into its own folder (.cache/status/) and the run's log.
 Drawn through the one live region every live output shares (claude_vm.tui.live_region), from the same model and the
 same functions for the frames and the finished report. Piped, under --json, or at a terminal that cannot draw it,
 nothing is drawn.
+
+Which of the listing's VMs are the fleet's is the reader's to say (`run`'s reader): today's, `Tagged`, the VMs whose
+tags hold the project's, the one tools/status runs with; aw status hands it another, its reader of the pool (`Pool`),
+which reads the pool's members and each one's record (docs/architecture/engine.md §16.3). Each of Tagged's methods is
+a place where the two part, and each does what this engine did before there was a second. `program` is the name the
+run's own messages give the program: just for tools/status, aw for aw status; the commands a report names are today's
+lines unless the settings give them printed whole under "lines" (aw status's, model.py's printed_line), which the
+drawing is given too.
 """
 
 from __future__ import annotations
@@ -27,7 +35,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime
 from pathlib import Path
 
@@ -41,6 +49,8 @@ from . import found as vm_found
 from . import model, reach, settings
 
 GET_WORKERS = 8
+# How long the main thread waits at a time for what it asked off itself (_off_main): the most a Ctrl-C waits to land.
+OFF_MAIN_SLICE = 0.1
 # What is read before anything else, the listing first: the version, the storages' and the nodes' figures, and the
 # pools the token may read the members of (Pool.Audit), without which the listing names no guest's pool.
 FIRST_WAVE = (
@@ -100,6 +110,10 @@ class Screen:
 
     def __init__(self, sections, quiet, log_path):
         self.found: dict = {}
+        # The commands the report names printed whole, by key (model.py's _line), once the settings are loaded.
+        self.lines = None
+        # How long a command the report keeps (Run.commands), once the run is made.
+        self.commands = model.FIELD_LIMIT
         self.sections = sections
         self.quiet = quiet
         self.started = time.monotonic()
@@ -125,8 +139,8 @@ class Screen:
             title = f"agent-warehouse  {self.now_said()} · reading Proxmox"
             text = status_view.skeleton_text(title, self.sections, self.color, glyph=glyph, cols=cols - 1)
             return text.split("\n") + [model.one_line(f"{glyph} listing the VMs · {elapsed}", cols - 1)]
-        report = model.status_report(dict(self.found), self.now_said(), time.time(), live=True)
-        text = status_view.status_text(report, self.color, glyph=glyph, cols=cols - 1)
+        report = model.status_report(dict(self.found), self.now_said(), time.time(), live=True, commands=self.commands)
+        text = status_view.status_text(report, self.color, glyph=glyph, cols=cols - 1, lines=self.lines)
         api = [vm["name"] for vm in report["vms"] if vm.get("pending_api")]
         ssh = [vm["name"] for vm in report["vms"] if vm.get("pending_ssh")]
         if api:
@@ -172,12 +186,12 @@ class Screen:
         self.out.title("status · done")
         self.out.finish()
         reading = self.reading(report)
-        plain = status_view.status_text(report, False, reading=reading)
+        plain = status_view.status_text(report, False, reading=reading, lines=self.lines)
         if self.quiet:
             # Under --json the screen gets the JSON alone; the run log still gets the report.
             self.display.display(plain, log_only=True)
         else:
-            coloured = status_view.status_text(report, True, reading=reading) if self.color else plain
+            coloured = status_view.status_text(report, True, reading=reading, lines=self.lines) if self.color else plain
             self.out.print([(coloured, plain)])
 
 
@@ -253,6 +267,34 @@ class Proxmox:
 
     def later(self, item):
         return self.pool.submit(self.get, item)
+
+
+def _off_main(pool, call, *args, **kwargs):
+    """``call``'s answer, run on a thread of ``pool`` while this one waits for it: how the main thread asks anything
+    that starts an ssh of route.py's. Python raises a Ctrl-C's KeyboardInterrupt in the main thread alone, so it lands
+    in this wait, never between an ssh's start and its record (route._started), and end_all ends that ssh with the
+    rest."""
+    return _waited(pool.submit(call, *args, **kwargs))
+
+
+def _waited(future):
+    """``future``'s answer, waited for on the main thread a slice at a time: where Python's locks are a mutex and a
+    condition (macOS), a signal wakes no wait without a limit, and a Ctrl-C would land only once the future had ended
+    (a probe's 45 s at most)."""
+    while not future.done():
+        try:
+            future.exception(timeout=OFF_MAIN_SLICE)
+        except TimeoutError:
+            pass
+    return future.result()
+
+
+def _as_done(futures):
+    """Each of ``futures`` as it ends, as ``as_completed`` gives them, each wait a slice long (``_waited``)."""
+    pending = set(futures)
+    while pending:
+        done, pending = wait(pending, timeout=OFF_MAIN_SLICE, return_when=FIRST_COMPLETED)
+        yield from done
 
 
 def _data(result):
@@ -363,6 +405,63 @@ def _wanted(vm_settings, config):
     return {**vm_settings["drift"], "sized": vm_settings["sized_tag"] in tags}
 
 
+class Tagged:
+    """Today's reader of the fleet, the default of run's: the listing's VMs whose tags hold the project's, each read as
+    today's engine reads one. Every method takes the run and changes nothing of what it was given."""
+
+    def members(self, run, api, data, waited):
+        """The listing's entries that are the fleet's VMs: those its tags name, never a template, though it carry the
+        ownership tag, as claude_vm_tagged has it: a VM made one by hand. A reader that reads more asks api for it and
+        waits by waited (the main thread's wait, a slice at a time); one that cannot say which are the fleet's says why
+        by run.unread and gives None."""
+        pattern = run.fleet["tag_pattern"]
+        return proxmox_reads.not_templates(
+            [
+                one
+                for one in data
+                if isinstance(one, dict)
+                and one.get("type") == "qemu"
+                and "tags" in one
+                and re.search(pattern, one["tags"])
+            ]
+        )
+
+    def ready(self, item):
+        """A read the reader has already made, as a finished future, or None: today's has made none."""
+        return None
+
+    def later(self, run, requested):
+        """GETs of the reader's own, sent after every read of the fleet's: none."""
+        return []
+
+    def joined(self, run, entry):
+        """Whether the VM had joined the tailnet before: its tag that says so."""
+        joined = run.fleet["tailscale_tag_pattern"]
+        tags = str(entry.get("tags") or "")
+        before = bool(re.search(joined, tags))
+        return before
+
+    def unkeyed(self, run, name, how, key_alias):
+        """Why the VM's SSH sections are not read before its probe is sent, with where to go on: ("", "")."""
+        return "", ""
+
+    def wanted(self, run, vm_settings, entry, config):
+        """What the settings ask of the VM: _wanted's."""
+        return _wanted(vm_settings, config)
+
+    def contents(self, run, contents, results):
+        """Each storage's disks, as the model counts them: as Proxmox listed them."""
+        return contents
+
+    def fleet(self, run, fleet, results):
+        """The fleet as the model made it, from the listing (results empty) or from every read: as it is."""
+        return fleet
+
+    def report(self, run, report):
+        """The finished report: as the model made it."""
+        return report
+
+
 def _aliases(fleet):
     text = ""
     if fleet["ssh_config"]:
@@ -379,14 +478,24 @@ def _aliases(fleet):
 class Run:
     """One run: the fleet read, each VM read beside it, each piece drawn as it lands."""
 
-    def __init__(self, opts, screen, config):
+    # A command (model.status_clean's: a VM's, an attention item's, a way on) cut to a field's length on today's
+    # road, kept whole on aw's.
+    commands = model.FIELD_LIMIT
+
+    def __init__(self, opts, screen, config, reader=None, program="just"):
         self.opts = opts
+        self.reader = reader or Tagged()
         self.screen = screen
         self.config = config
         self.fleet = config["fleet"]
         self.names = config["run"]["names"]
         self.sections = list(screen.sections)
         self.settings = {**self.fleet["settings"], "names": self.names, "sections": self.sections}
+        # The program Tailscale's line names where it names one of its own (lines.py's tailscale_report), and on aw's
+        # road a VM's commands kept whole.
+        if program != "just":
+            self.settings["program"] = program
+            self.commands = model.LINE_LIMIT
         self.over_ssh = model.status_needs_ssh(self.sections)
         self.cache = Path(opts.cache) if opts.cache else None
         self.known = (settings.read_json(self.cache / "upgrades.json") or {}) if self.cache else {}
@@ -395,7 +504,7 @@ class Run:
         self.password_lock = threading.Lock()
         self.passwords: dict = {}
         # Through the Proxmox host (lib/claude_vm/route.py): the route, worked out at each run; the hop's login, made
-        # once, by the first VM that takes the hop (None until then); and each VM that did not answer through the hop,
+        # once, by the first VM that takes the hop (None before then); and each VM that did not answer through the hop,
         # for the hop's own words after the probes.
         self.route: dict | None = None
         self.hop_lock = threading.Lock()
@@ -431,18 +540,18 @@ class Run:
 
         def land(read):
             part = vm_found.ssh_found(read, vm_settings, name, host, sections, joined_before)
-            self.screen.land(name, model.status_clean({"ssh": {**part, **route}}), merge=True)
+            self.screen.land(name, self.clean({"ssh": {**part, **route}}), merge=True)
 
         def early(read):
             try:
                 land(read)
-            except Exception:  # noqa: BLE001 - what its root sent: the whole answer, next, says so of this VM
+            except Exception:  # what its root sent: the whole answer, next, says so of this VM
                 return
 
         try:
             read = reach.read(how, self.asked(vm_settings, key), early, lambda: self.password(name))
             land(read)
-        except Exception as error:  # noqa: BLE001 - a failure, or what its root sent, is that VM's, said as not read
+        except Exception as error:  # a failure, or what its root sent, is that VM's, said as not read
             read = {"failed": True, "msg": str(error) or type(error).__name__}
             land(read)
         # Through the hop, a connection that ended before the VM's sshd spoke is all ssh says of a VM that does not
@@ -465,7 +574,7 @@ class Run:
             {"unreachable": True, "msg": said}, vm_settings, name, how["host"], self.sections, joined_before
         )
         part.update(refusal="hop", hop_hint=hint)
-        self.screen.land(name, model.status_clean({"ssh": part}), merge=True)
+        self.screen.land(name, self.clean({"ssh": part}), merge=True)
 
     # --- the route through the Proxmox host ------------------------------------------------------------------------
     def settle_route(self):
@@ -546,12 +655,13 @@ class Run:
         verdicts = {}
         for name in names[:3]:
             how = unanswered[name][0]
-            verdicts[name] = routes.hop_forward(hop, how["host"], "yes", port=how.get("port") or 22)
+            # Each ssh of the hop's asked off the main thread, which takes a Ctrl-C (_off_main).
+            verdicts[name] = _off_main(pool, routes.hop_forward, hop, how["host"], "yes", port=how.get("port") or 22)
             if verdicts[name]["why"] == "answered" and verdicts[name].get("banner"):
-                routes.hop_stop(hop, "yes")
-                routes.hop_held(hop, "yes")
+                _off_main(pool, routes.hop_stop, hop, "yes")
+                _off_main(pool, routes.hop_held, hop, "yes")
                 for job in [pool.submit(self.probe, one, *unanswered[one]) for one in names]:
-                    job.result()
+                    _waited(job)
                 # Each that still did not answer: the hop's words for it, as the others get them.
                 unanswered = dict(self.unanswered)
                 self.unanswered.clear()
@@ -566,12 +676,16 @@ class Run:
         """The pool the probes run in: no more connections at once than Ansible's forks would open."""
         return ThreadPoolExecutor(max_workers=max(1, min(count, int(self.fleet["forks"]))))
 
+    def clean(self, value):
+        """``value`` made plain text for the screen, its commands cut to this road's length."""
+        return model.status_clean(value, commands=self.commands)
+
     # --- the fleet ------------------------------------------------------------------------------------------------
     def unread(self, unread, hint):
         fleet = model.status_fleet(
             None, settings={**self.settings, "proxmox_hint": hint}, unread=unread, hosts=self.fleet["hosts"]
         )
-        self.screen.land("localhost", {"fleet": model.status_clean(fleet)})
+        self.screen.land("localhost", {"fleet": self.clean(fleet)})
 
     def from_listing(self):
         api = Proxmox(self.fleet)
@@ -583,7 +697,7 @@ class Run:
 
     def read_fleet(self, api):
         first = [api.later(path) for path in FIRST_WAVE]
-        listing = first[0].result()
+        listing = _waited(first[0])
         if listing["status"] != 200 or not isinstance(_data(listing), list):
             status = listing["status"]
             if status in (401, 403):
@@ -601,41 +715,38 @@ class Run:
                 )
             return
         data = _data(listing)
-        pattern = self.fleet["tag_pattern"]
-        # Never a template, though it carry the ownership tag, as claude_vm_tagged has it: a VM made one by hand.
-        tagged = proxmox_reads.not_templates(
-            [
-                one
-                for one in data
-                if isinstance(one, dict)
-                and one.get("type") == "qemu"
-                and "tags" in one
-                and re.search(pattern, one["tags"])
-            ]
-        )
+        tagged = self.reader.members(self, api, data, _waited)
+        if tagged is None:
+            return
         requested = [one for one in tagged if "name" in one and one["name"] in self.names] if self.names else tagged
-        early = model.status_clean(
-            model.status_fleet(
-                data,
-                tagged=tagged,
-                requested=requested,
-                aliases=[] if self.fleet["ssh_config"] else None,
-                settings=self.settings,
-                hosts=self.fleet["hosts"],
-                pending=True,
+        early = self.clean(
+            self.reader.fleet(
+                self,
+                model.status_fleet(
+                    data,
+                    tagged=tagged,
+                    requested=requested,
+                    aliases=[] if self.fleet["ssh_config"] else None,
+                    settings=self.settings,
+                    hosts=self.fleet["hosts"],
+                    pending=True,
+                ),
+                [],
             )
         )
         self.screen.land("localhost", {"fleet": early})
-        lists = [one.result() for one in first[1:]]
+        lists = [_waited(one) for one in first[1:]]
         template = proxmox_reads.built_template(data, self.fleet["template_name"]) or None
         storages = model.status_storages(lists, self.fleet["storage"])
         vms = [vm for vm in early["vms"] if vm.get("read")]
         items = _second_wave(requested, template, storages, {vm["name"] for vm in vms})
-        futures = [api.later(item) for item in items]
+        # The reader's own reads after every one of the fleet's, so that no VM's probe waits behind them.
+        items += self.reader.later(self, requested)
+        futures = [self.reader.ready(item) or api.later(item) for item in items]
         pool = self.probes(len(vms))
         try:
             denied, jobs = self.reach_each(vms, requested, items, futures, pool)
-            results = [] if denied else [future.result() for future in futures]
+            results = [] if denied else [_waited(future) for future in futures]
             denied = denied or _denied(results)
             if denied:
                 reach.end_all()
@@ -643,7 +754,7 @@ class Run:
                 return
             whole = self.fill(data, tagged, requested, lists, results, vms)
             for job in jobs:
-                job.result()
+                _waited(job)
             # The hop's login is made by the first VM that takes the hop, on a thread of the pool, and may fail after
             # fill landed the fleet: landed again here, once the probes are joined, so the hop's line is there for
             # each VM that points at it - never from the login's own thread, which could land before fill's copy.
@@ -663,9 +774,9 @@ class Run:
         refusal for a VM, said, with no probe started after it, or ""; the probes)."""
         if not self.over_ssh:
             return "", []
-        # The route, before the first probe starts; the API's reads go on meanwhile. The hop's login waits for a VM
-        # that takes the hop.
-        self.route = self.settle_route()
+        # The route, before the first probe starts, off the main thread, since under auto it asks ssh -G (_off_main);
+        # the API's reads go on meanwhile. The hop's login waits for a VM that takes the hop.
+        self.route = _off_main(pool, self.settle_route)
         # What a VM's line says of the route: the hop it went through, or that it was dialled straight with a
         # Proxmox host to go through. A mark, never the words, which status_clean would cut as a setting's.
         if self.route:
@@ -683,7 +794,7 @@ class Run:
         waiting = {future: at for at, pair in enumerate(pairs) for future in pair.values()}
         left = [len(pair) for pair in pairs]
         jobs = []
-        for future in as_completed(waiting):
+        for future in _as_done(waiting):
             at = waiting[future]
             left[at] -= 1
             if left[at] or len(pairs[at]) < 2:
@@ -707,10 +818,13 @@ class Run:
         # Its host key held where every run holds it: the project's own file, under the VM's identity from Proxmox,
         # never the address it reports (status_ssh_args, first, still takes no new key).
         how["ssh_args"] = f"{how['ssh_args']} {vm_ssh_args(row['key_alias'], how['known_hosts'])}"
-        joined = self.fleet["tailscale_tag_pattern"]
-        tags = str(entry.get("tags") or "")
-        before = bool(re.search(joined, tags))
+        before = self.reader.joined(self, entry)
         vm_settings = settings.for_vm(self.config, name)
+        # A VM this computer has filed no host key for is not dialled: said, with the way on, as the hop's are.
+        unkeyed, way = self.reader.unkeyed(self, name, how, row["key_alias"])
+        if unkeyed:
+            self.unread_through(name, how, vm_settings, before, unkeyed, way)
+            return
         hop = {"name": "", "option": "", "via": ""}
         if self.route:
             hop = self.through(name, how, vm_settings, before, address, row)
@@ -791,10 +905,11 @@ class Run:
             part = {
                 "api": model.status_vm_api(mine, time.time(), listed.get("created")),
                 "drift": proxmox_reads.proxmox_vm_drift(
-                    listed.get("config") or {}, _wanted(settings.for_vm(self.config, name), listed.get("config"))
+                    listed.get("config") or {},
+                    self.reader.wanted(self, settings.for_vm(self.config, name), listed, listed.get("config")),
                 ),
             }
-            self.screen.land(name, model.status_clean(part), merge=True)
+            self.screen.land(name, self.clean(part), merge=True)
         return {"args": args, "hop_landed": landed}
 
     def fleet_whole(self, data, tagged, requested, lists, results):
@@ -807,25 +922,30 @@ class Run:
             {**one, "item": {"node": one["item"]["node"], "storage": one["item"]["storage"]}}
             for one in _picked(results, "content")
         ]
+        contents = self.reader.contents(self, contents, results)
         drift = []
         # A template the user built is compared with nothing: the project never rebuilds it.
         if template_config.get("status") == 200 and not self.settings.get("template_custom"):
             drift = proxmox_reads.proxmox_template_drift(_data(template_config), self.fleet["template_wanted"])
-        whole = model.status_clean(
-            model.status_fleet(
-                data,
-                tagged=tagged,
-                requested=requested,
-                addressed=proxmox_reads.guest_addresses(requested, configs, networks, self.fleet["nic"]),
-                configs=configs,
-                lists=lists,
-                contents=contents,
-                template_config=template_config,
-                template_drift=drift,
-                aliases=_aliases(self.fleet),
-                settings={**self.settings, "proxmox_hint": ""},
-                unread="",
-                hosts=self.fleet["hosts"],
+        whole = self.clean(
+            self.reader.fleet(
+                self,
+                model.status_fleet(
+                    data,
+                    tagged=tagged,
+                    requested=requested,
+                    addressed=proxmox_reads.guest_addresses(requested, configs, networks, self.fleet["nic"]),
+                    configs=configs,
+                    lists=lists,
+                    contents=contents,
+                    template_config=template_config,
+                    template_drift=drift,
+                    aliases=_aliases(self.fleet),
+                    settings={**self.settings, "proxmox_hint": ""},
+                    unread="",
+                    hosts=self.fleet["hosts"],
+                ),
+                results,
             )
         )
         self.screen.land("localhost", {"fleet": whole})
@@ -834,7 +954,7 @@ class Run:
     def from_inventory(self):
         """Discovery off: no Proxmox, the inventory's claude_vms each read as it says it is reached."""
         fleet = model.status_fleet([], settings=self.settings, aliases=_aliases(self.fleet))
-        self.screen.land("localhost", {"fleet": model.status_clean(fleet)})
+        self.screen.land("localhost", {"fleet": self.clean(fleet)})
         if not self.over_ssh:
             return
         hosts = self.config["inventory"]
@@ -845,7 +965,7 @@ class Run:
                 for name, one in hosts.items()
             ]
             for job in jobs:
-                job.result()
+                _waited(job)
         except BaseException:
             reach.end_all()
             raise
@@ -861,23 +981,31 @@ class Run:
             settings.write_json(self.cache / "upgrades.json", {**self.known, **self.kept})
 
 
+# The program the run's last line names, set by run before it ends for a Ctrl-C (the engine is not safe twice in one
+# process): just, or aw for aw status.
+_SAID_AS = ["just"]
+
+
 def _end_for_an_interrupt(screen):
     # Every ssh first, the hop's login on a thread of the pool among them: os._exit runs no thread's finally.
     reach.end_all()
     routes.end_all()
     if screen:
         screen.out.finish()
-    print("just status: interrupted", file=sys.stderr)
+    print(f"{_SAID_AS[0]} status: interrupted", file=sys.stderr)
     sys.stdout.flush()
     os._exit(3)
 
 
-def run(opts) -> int:
-    """One just status: the report on screen and in the log, printed as JSON with ``--json``; its exit code."""
+def run(opts, loader=settings.load, reader=None, program="just") -> int:
+    """One just status: the report on screen and in the log, printed as JSON with ``--json``; its exit code. loader
+    gives the run's settings, called as settings.load is, with opts and where Ansible's warnings are said: today's own,
+    or aw status's, which hands it the settings it worked out before the run. reader says which VMs are the fleet's
+    (Tagged, today's, where none is given), and program is the name the run's own messages give the program."""
     try:
         sections = settings.sections(opts.only)
     except ValueError as error:
-        print(f"just status: {error}", file=sys.stderr)
+        print(f"{program} status: {error}", file=sys.stderr)
         return 3
 
     def drawn():
@@ -888,26 +1016,33 @@ def run(opts) -> int:
     # A password script may ask at the terminal: the outline waits for its answer rather than being drawn over it.
     screen = None if settings.may_ask(opts) else drawn()
     try:
-        config = settings.load(opts, screen.display.display if screen else None)
+        config = loader(opts, screen.display.display if screen else None)
         screen = screen or drawn()
+        if isinstance(screen, Screen):
+            screen.lines = config["fleet"]["settings"].get("lines")
         if opts.emit:
             fleet = config["fleet"]
             keys = ("ssh_config", "ssh_config_file", "ssh_config_legacy")
             screen.emit({"settings": {key: fleet.get(key) for key in keys}})
         if config["run"].get("only") and not opts.only:
             screen.sections = sections = settings.sections(config["run"]["only"])
-        Run(opts, screen, config).go()
-        report = model.status_report(dict(screen.found), screen.now_said(), time.time())
+        reading = Run(opts, screen, config, reader, program)
+        if isinstance(screen, Screen):
+            screen.commands = reading.commands
+        reading.go()
+        found = model.status_report(dict(screen.found), screen.now_said(), time.time(), commands=reading.commands)
+        report = reading.reader.report(reading, found)
         screen.finish(report)
         if opts.json and not opts.emit:
             sys.stdout.write(json.dumps(report, indent=4, sort_keys=True) + "\n")
             sys.stdout.flush()
     except KeyboardInterrupt:
+        _SAID_AS[0] = program
         _end_for_an_interrupt(screen)
-    except Exception as error:  # noqa: BLE001 - said once, whatever failed, and the run's exit is the one for that
+    except Exception as error:  # said once, whatever failed, and the run's exit is the one for that
         if screen:
             screen.out.finish()
-        print(f"just status: the run failed: {one_line(str(error), 2000)}", file=sys.stderr)
+        print(f"{program} status: the run failed: {one_line(str(error), 2000)}", file=sys.stderr)
         reach.end_all()
         routes.end_all()
         return 3

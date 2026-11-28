@@ -73,7 +73,7 @@ def _ssh_options(host_vars, options=_OPTIONS) -> dict:
 def _split(value) -> list[str]:
     from ansible.plugins.connection.ssh import Connection
 
-    return Connection._split_ssh_args(str(value or ""))  # noqa: SLF001 - the words ssh is given, split as Ansible does
+    return Connection._split_ssh_args(str(value or ""))  # the words ssh is given, split as Ansible does
 
 
 class ActionModule(ActionBase):

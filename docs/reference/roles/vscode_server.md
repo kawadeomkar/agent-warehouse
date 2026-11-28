@@ -42,7 +42,8 @@ each file. Generated from the task files, so a task added, renamed or removed sh
 | &emsp;Read the configuration sshd applies to the editor's connection | `ansible.builtin.command` |  |
 | &emsp;Find what turns forwarding off, if anything does | `ansible.builtin.find` |  |
 | &emsp;Fail when sshd does not allow port forwarding | `ansible.builtin.assert` |  |
-| &emsp;Raise the inotify watch limit for the editor's file watcher | `ansible.posix.sysctl` |  |
+| &emsp;Write the inotify watch limit for the editor's file watcher | `ansible.builtin.copy` |  |
+| &emsp;Raise the inotify watch limit for the editor's file watcher | `ansible.builtin.command` | <code>vscode_server_inotify_file.changed and ansible_facts['virtualization_type'] not in vscode_server_container_virt_types</code> |
 | Remove the sshd drop-in | `ansible.builtin.file` | <code>not vscode_server_enabled &#124; bool</code> |
 | Remove the inotify setting | `ansible.builtin.file` | <code>not vscode_server_enabled &#124; bool</code> |
 
@@ -67,9 +68,10 @@ classDef rescue stroke:#665352,stroke-width:2px;
   Find_where_the_editor_s_connection_will_come_from4-->|Task| Read_the_configuration_sshd_applies_to_the_editor_s_connection5[read the configuration sshd applies to the editor<br>s connection]:::task
   Read_the_configuration_sshd_applies_to_the_editor_s_connection5-->|Task| Find_what_turns_forwarding_off__if_anything_does6[find what turns forwarding off  if anything does]:::task
   Find_what_turns_forwarding_off__if_anything_does6-->|Task| Fail_when_sshd_does_not_allow_port_forwarding7[fail when sshd does not allow port forwarding]:::task
-  Fail_when_sshd_does_not_allow_port_forwarding7-->|Task| Raise_the_inotify_watch_limit_for_the_editor_s_file_watcher8[raise the inotify watch limit for the editor s<br>file watcher]:::task
-  Raise_the_inotify_watch_limit_for_the_editor_s_file_watcher8-.->|End of Block| Set_up_and_check_what_a_remote_editor_needs0_block_start_0
-  Raise_the_inotify_watch_limit_for_the_editor_s_file_watcher8-->|Task| Remove_the_sshd_drop_in1[remove the sshd drop in<br>When: **not vscode server enabled   bool**]:::task
+  Fail_when_sshd_does_not_allow_port_forwarding7-->|Task| Write_the_inotify_watch_limit_for_the_editor_s_file_watcher8[write the inotify watch limit for the editor s<br>file watcher]:::task
+  Write_the_inotify_watch_limit_for_the_editor_s_file_watcher8-->|Task| Raise_the_inotify_watch_limit_for_the_editor_s_file_watcher9[raise the inotify watch limit for the editor s<br>file watcher<br>When: **vscode server inotify file changed and ansible<br>facts  virtualization type   not in vscode server<br>container virt types**]:::task
+  Raise_the_inotify_watch_limit_for_the_editor_s_file_watcher9-.->|End of Block| Set_up_and_check_what_a_remote_editor_needs0_block_start_0
+  Raise_the_inotify_watch_limit_for_the_editor_s_file_watcher9-->|Task| Remove_the_sshd_drop_in1[remove the sshd drop in<br>When: **not vscode server enabled   bool**]:::task
   Remove_the_sshd_drop_in1-->|Task| Remove_the_inotify_setting2[remove the inotify setting<br>When: **not vscode server enabled   bool**]:::task
   Remove_the_inotify_setting2-->End
 ```

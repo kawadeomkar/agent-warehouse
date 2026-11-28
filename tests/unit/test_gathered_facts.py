@@ -52,6 +52,10 @@ NOT_FACTS = {
     "ansible_inventory_sources",
     "ansible_managed",
 }
+# And every variable of the connection the new engine's system play holds to the inventory it writes, which it names in
+# a list of its own (playbooks/system.yml): none is a fact.
+(SYSTEM_PLAY,) = yaml.safe_load((REPO / "playbooks" / "system.yml").read_text())
+NOT_FACTS |= set(SYSTEM_PLAY["vars"]["system_connection_variables"])
 # A variable read at the top level, or through hostvars[host]., vars. or
 # ansible_facts., none of which holds a fact under its ansible_ name with the
 # injection off; not a key read off a register (job.ansible_job_id) or a path
@@ -138,8 +142,9 @@ def test_every_run_a_test_makes_leaves_facts_out_of_the_top_level():
     elsewhere = [
         f"{path.name}:{line}"
         for path in sorted((REPO / "tests" / "unit").glob("*.py"))
-        # test_mcp_server.py names ANSIBLE_CONFIG as a variable a run must never get from the server's environment.
-        if path.name not in {"harness.py", Path(__file__).name, "test_mcp_server.py"}
+        # test_mcp_server.py and test_aw_mcp_server.py name ANSIBLE_CONFIG as a variable a run must never get from the
+        # server's environment.
+        if path.name not in {"harness.py", Path(__file__).name, "test_mcp_server.py", "test_aw_mcp_server.py"}
         for line in _config_spellings(path.read_text())
     ]
     assert not elsewhere, "write and name the run's ansible.cfg with harness.ansible_config: " + ", ".join(elsewhere)

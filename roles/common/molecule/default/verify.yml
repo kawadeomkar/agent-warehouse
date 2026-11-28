@@ -229,7 +229,7 @@
           - "'allow-passthrough on' in common_verify_tmux.stdout_lines"
           - "'focus-events on' in common_verify_tmux.stdout_lines"
           - "'mouse on' in common_verify_tmux.stdout_lines"
-          - common_verify_tmux.stdout is search('^terminal-features\[\d+\] xterm\*:extkeys$', multiline=True)
+          - common_verify_tmux.stdout is search('^terminal-features\\[\\d+\\] xterm\\*:extkeys$', multiline=True)
         fail_msg: "{{ common_verify_tmux.stdout }}"
         quiet: true
       vars:

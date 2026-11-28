@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import inspect
 import json
 import os
 import re
+import shutil
 import statistics
 import subprocess
+import sys
+import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 
 import ansible.module_utils
@@ -17,7 +22,48 @@ import pytest
 from ansible.module_utils import basic
 from ansible.module_utils.testing import patch_module_args
 
+from claude_vm.fleet import paths
+
 ROOT = Path(__file__).resolve().parents[2]
+# The new engine's test kit, whose fixture `home` every test may ask for (tests/unit/aw_kit.py).
+pytest_plugins = ("aw_kit",)
+# The new engine's tests: every test of a file named so, which `just test engine` runs alone (-m engine).
+ENGINE_FILES = "test_aw_"
+# The tests of today's suite that read the tree, whose result a new file or a changed page can change, marked `tree`:
+# `just test --short` runs them beside the engine's (-m "engine or tree"), for a change that touches no file of main's
+# but CLAUDE.md, docs/ and zensical.toml (docs/architecture/testing.md §11.1). Each a file, every test of it, or a file
+# and a test's name, every case of that test. Found by planting the faults such a change can make and running the whole
+# suite over them once, and by reading which of today's tests read a file only the new engine's branch has (the
+# launcher aw): test_aw_guards.py's FOUND holds what each fault failed, and what reading found, and each entry here to
+# one of them. A test of today's that a short-set change broke all the same joins it, and FOUND with it. A set literal:
+# test_aw_guards.py reads it with ast.literal_eval.
+TREE = {
+    "test_anchors.py",
+    "test_ci.py",
+    "test_claude_vm.py",
+    "test_commands.py",
+    # What the project writes on this machine: every file that makes a write, CLAUDE.md's invariant, the security model.
+    "test_controller_writes.py",
+    # Every tracked file, for the live output's variable: a new module of the engine's could name it.
+    "test_deploy_live.py::test_no_other_test_or_scenario_draws_a_run",
+    "test_docs.py",
+    "test_gathered_facts.py",
+    # Every file of tests/unit/, for a golden template turned on.
+    "test_golden.py::test_golden_templates_stay_off_wherever_a_test_or_the_vagrantfile_runs_a_deploy",
+    # The launcher at the checkout's top, aw, names the managed Python the justfile and CI's setup do.
+    "test_justfile.py::test_the_managed_python_is_one_version",
+    # Every test file named as a live test, test_*_live.py, an engine's among them.
+    "test_live_recipes.py::test_every_live_test_runs_a_real_playbook_only_as_its_own_tests_do",
+    # Every module of the MCP server's package, a new one among them.
+    "test_mcp_tools.py::test_the_server_reads_nothing_of_its_environment_but_through_the_allow_list",
+    # The key files, and the new engine's table of them, lib/claude_vm/vendors/keys.py.
+    "test_pins.py",
+    "test_ratchets.py",
+    "test_shards.py",
+    # Every test file that names tools/status.
+    "test_status.py::test_every_status_run_in_a_test_writes_into_its_own_directory",
+    "test_tracked_files.py",
+}
 # What the modules in playbooks/library/ share, for the tests that load one by its path: Ansible puts a playbook's
 # module_utils folder on the path it builds the playbook's modules from, and nothing does in this process.
 ansible.module_utils.__path__.append(str(ROOT / "playbooks" / "module_utils"))
@@ -74,11 +120,251 @@ def fail_main(main, args):
 DURATIONS = ROOT / "tests" / "unit" / "durations.json"
 
 
+# The developer's own fleet folders, as the run found them, and what of them a test made, changed or removed; and the
+# directory of the session's own that AGENT_WAREHOUSE_HOME names before a test's own does (docs/development/testing.md).
+DEVELOPERS = pytest.StashKey[tuple]()
+TOUCHED = pytest.StashKey[list]()
+SESSION_HOME = pytest.StashKey[str]()
+
+
+# The names the session watches at the top of a folder of the developer's: every name paths owns, and the names
+# beneath the state folder, which are at the top of the installed program's state folder (WHOLE). In a checkout's own
+# .aw/, its fleet's files, client.yml and the key alone (CHECKOUT): not its state folder, which the developer's own aw
+# run from that checkout writes its jobs, locks and logs into while a suite runs, and which can be made again
+# (review/code/D1.md, finding 11). The installed program's folders stay watched whole until H14 decides for them.
+WHOLE = (*paths.OWN, *paths.BENEATH_STATE)
+CHECKOUT = tuple(name for name in paths.OWN if name != paths.STATE)
+
+
+def footprint(watched) -> dict[str, tuple]:
+    """watched maps each folder to the names watched there: each of those names in its folder, and everything beneath
+    one that is a folder, as lstat sees it, so that a name made, changed or removed shows as a difference. Nothing
+    else there is looked at (a sign-in on a machine the product configured writes the names
+    paths.RESERVED_ON_A_MACHINE reserves into the same folder), and no file is opened: the key file is the
+    developer's secret."""
+    found = {}
+    for top in (Path(folder) / name for folder, names in watched.items() for name in names):
+        beneath = [Path(root) / entry for root, dirs, files in os.walk(top) for entry in (*dirs, *files)]
+        for path in (top, *beneath):
+            try:
+                seen = os.lstat(path)
+            except FileNotFoundError:
+                continue
+            found[str(path)] = (seen.st_mode, seen.st_size, seen.st_mtime_ns, seen.st_ctime_ns, seen.st_ino)
+    return found
+
+
+def _main_worktree(root: Path) -> Path | None:
+    """The main worktree of the checkout at root, which differs from it where the suite runs from another worktree:
+    the folder of git's common directory. None where git cannot say."""
+    try:
+        found = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            env={name: value for name, value in os.environ.items() if not name.startswith("GIT_")},
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    common = Path(found.stdout.strip())
+    return common.parent if found.returncode == 0 and common.is_absolute() and common.name == ".git" else None
+
+
+def developers_folders(environ, root: Path = ROOT) -> dict[Path, tuple[str, ...]]:
+    """The developer's own fleet folders, which no test touches, each with the names watched there: the installed
+    program's three (the config, the state and the data folder's agent-warehouse/) whole, this checkout's .aw/ and the
+    main worktree's but for their state folders, and the folder AGENT_WAREHOUSE_HOME names where the developer
+    exported it, whole unless it is one of those .aw/ folders. Each by its name alone: no file of theirs is opened, so
+    no fleet_home is followed."""
+    watched = dict.fromkeys(paths.installed(environ), WHOLE)
+    watched[root / paths.CHECKOUT_HOME] = CHECKOUT
+    main = _main_worktree(root)
+    if main is not None:
+        watched[main / paths.CHECKOUT_HOME] = CHECKOUT
+    if environ.get(paths.VARIABLE):
+        try:
+            watched.setdefault(paths.home(root, environ).root, WHOLE)
+        except paths.Refused:
+            pass  # A home paths refuses is one the new engine never writes in.
+    return watched
+
+
+def watch_the_developers_folders(config, environ, root: Path = ROOT) -> None:
+    """Read the developer's fleet folders (developers_folders) before any test runs, with what environ exported: once,
+    in the process that ends the session, never in an xdist worker."""
+    if not hasattr(config, "workerinput"):
+        folders = developers_folders(environ, root)
+        config.stash[DEVELOPERS] = (folders, footprint(folders))
+
+
 def pytest_configure(config):
     # A kill or a hangup ends this process as Ctrl-C would, in the controller and in every worker: the test running
     # gets a KeyboardInterrupt, its run and everything under it ended by the harness on the way out, where the default
     # ended the process at once and left them (tests/unit/interrupts.py).
     interrupts.install()
+    # First, while AGENT_WAREHOUSE_HOME is still what the developer exported: a folder of theirs to watch.
+    watch_the_developers_folders(config, os.environ)
+    # Before a test's own directory (aw_home), what runs first - a module's playbook run, made once for its tests -
+    # gets a directory of the session's own, never the developer's fleet, whatever their shell exported.
+    config.stash[SESSION_HOME] = os.environ[paths.VARIABLE] = tempfile.mkdtemp(prefix="aw-home-")
+
+
+def pytest_unconfigure(config):
+    shutil.rmtree(config.stash.get(SESSION_HOME, ""), ignore_errors=True)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Fail the session if a test made, changed or removed a name the new engine owns in the developer's folders."""
+    watched = session.config.stash.get(DEVELOPERS, None)
+    if watched is None:
+        return
+    folders, before = watched
+    after = footprint(folders)
+    touched = sorted(path for path in before.keys() | after.keys() if before.get(path) != after.get(path))
+    if touched:
+        session.config.stash[TOUCHED] = touched
+        if session.exitstatus == pytest.ExitCode.OK:
+            session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    touched = config.stash.get(TOUCHED, [])
+    if touched:
+        terminalreporter.section("the developer's fleet folders", red=True)
+        terminalreporter.line("A test made, changed or removed these, where the tests never reach (fleet/paths.py):")
+        for path in touched:
+            terminalreporter.line(f"  {path}")
+
+
+@pytest.fixture(autouse=True)
+def aw_home(tmp_path) -> Iterator[Path]:
+    """AGENT_WAREHOUSE_HOME in this test's own directory, which nothing here makes: the new engine's fleet, its state
+    and its key are there and never the developer's, and the harness passes it on to every run (PASSED_ON). Function
+    scoped, as a session-scoped autouse fixture would join every test to one xdist group (_shared). Set by a
+    MonkeyPatch of its own, undone at its own teardown: a test's monkeypatch.undo() never puts the developer's back."""
+    home = tmp_path / "aw-home"
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv(paths.VARIABLE, str(home))
+        yield home
+
+
+# How long a draining change of a terminal's settings waits, in a test of this process's own, for another thread to read
+# what its pseudo-terminal's master holds unread (drainwatch).
+DRAIN_GRACE = 2.0
+
+
+@pytest.fixture(autouse=True)
+def drainwatch() -> Iterator[list[str]]:
+    """A draining change of a terminal's settings (TCSADRAIN, TCSAFLUSH) made in this process at a pseudo-terminal it
+    opened, with output its master holds unread and nothing reading it: a failure of the test, on Linux. macOS waits
+    there until the master has read everything (ttywait), where Linux returns at once, so such a test hangs on macOS
+    alone (#310's hang); here it fails on Linux too. Each master opened during the test (os.openpty, which pty.openpty
+    calls) is watched by its terminal's name; at such a change, one still holding output after DRAIN_GRACE - which
+    another thread reading it would have taken - is noted, and the test fails at its end. Output macOS makes where Linux
+    makes none is made too: the end of input (VEOF) typed at a master while the terminal is canonical and echoes is
+    echoed there as ^D on macOS, where Linux echoes nothing, so on Linux that echo is written at the slave (macos_echo).
+    Off Linux nothing is noted: FIONREAD on a master there counts what its slave has not read, never the slave's output,
+    so it would fail a test that leaves what was typed unread and never see the output it is for. Then, on every
+    platform, the hold of a terminal tui/live_region.py keeps for this process, which a region a test started and never
+    finished would leave to the next test, given back. Function scoped, as aw_home is, and by a MonkeyPatch of its
+    own."""
+    import fcntl
+    import struct
+    import termios
+    import threading
+    import time
+
+    from claude_vm.tui import live_region
+
+    masters: dict[str, tuple[int, int, int]] = {}  # the terminal's name: its master, by descriptor and identity
+    echoed: set[str] = set()  # the terminals given an echo of macOS's own (macos_echo)
+    found: list[str] = []
+    opened, changed, wrote = os.openpty, termios.tcsetattr, os.write
+
+    def openpty() -> tuple[int, int]:
+        master, slave = opened()
+        with contextlib.suppress(OSError):
+            stat = os.fstat(master)
+            masters[os.ttyname(slave)] = (master, stat.st_dev, stat.st_ino)
+        return master, slave
+
+    def watched(fd: int) -> str | None:
+        """The terminal whose master fd is, still the one opened."""
+        for name, (master, dev, ino) in masters.items():
+            if master == fd:
+                with contextlib.suppress(OSError):
+                    stat = os.fstat(fd)
+                    if (stat.st_dev, stat.st_ino) == (dev, ino):
+                        return name
+        return None
+
+    def macos_echo(fd, data):
+        """What is typed at a watched master (os.write), with the echo macOS makes there and Linux does not made too, as
+        macOS makes it: an end of input typed while the terminal is canonical and echoes - its mode at that moment, read
+        before the write, never after, when the program may have read it and put its own mode back - is echoed as ^D
+        and two backspaces over it (XNU's ttyinput), written at the slave before what was typed reaches the master,
+        so that it comes before anything the program writes once it reads, and the master holds it as it would on
+        macOS till it is read. Typed in any other mode (a menu's raw one), nothing."""
+        name = watched(fd) if masters else None
+        ends = 0
+        if name is not None:
+            with contextlib.suppress(OSError, termios.error):
+                mode = termios.tcgetattr(fd)
+                lflag, eof = mode[3], mode[6][termios.VEOF]
+                eof = eof if isinstance(eof, bytes) else bytes([eof])
+                if eof != b"\0" and lflag & termios.ICANON and lflag & termios.ECHO:
+                    ends = bytes(data).count(eof)
+        if ends:
+            with contextlib.suppress(OSError):
+                slave = os.open(name, os.O_WRONLY | os.O_NOCTTY)
+                try:
+                    wrote(slave, b"^D\b\b" * ends)
+                finally:
+                    os.close(slave)
+                echoed.add(name)
+        return wrote(fd, data)
+
+    def unread(name: str) -> int:
+        master, dev, ino = masters[name]
+        try:
+            stat = os.fstat(master)
+            if (stat.st_dev, stat.st_ino) != (dev, ino):
+                return 0
+            return struct.unpack("i", fcntl.ioctl(master, termios.FIONREAD, struct.pack("i", 0)))[0]
+        except OSError:
+            return 0
+
+    def tcsetattr(fd, when, settings):
+        name = None
+        if sys.platform == "linux" and when in (termios.TCSADRAIN, termios.TCSAFLUSH) and masters:
+            with contextlib.suppress(OSError):
+                name = os.ttyname(fd)
+        if name in masters and unread(name):
+            waited = time.monotonic() + DRAIN_GRACE
+            while (left := unread(name)) and time.monotonic() < waited:
+                time.sleep(0.02)
+            if left:
+                kind = "TCSADRAIN" if when == termios.TCSADRAIN else "TCSAFLUSH"
+                mac = ", an end of input's echo of macOS's among them" if name in echoed else ""
+                found.append(
+                    f"a {kind} change of {name}'s settings, in {threading.current_thread().name}, with {left} bytes"
+                    f" unread at its master{mac}, and nothing reading them: macOS waits there for good"
+                )
+        return changed(fd, when, settings)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(os, "openpty", openpty)
+        patch.setattr(termios, "tcsetattr", tcsetattr)
+        if sys.platform == "linux":
+            patch.setattr(os, "write", macos_echo)
+        yield found
+    hold = live_region._HOLD
+    if hold.found is not None and threading.current_thread() is threading.main_thread():
+        hold.give_back()
+    assert not found, found
 
 
 def pytest_addoption(parser):
@@ -135,8 +421,15 @@ def pytest_collection_modifyitems(config, items):
     a test that asks for a fixture by name any other way than a `fixture` parameter stays whole. A module's
     EACH_WORKER names the fixtures cheap enough to make again on each worker that needs one - a fake server - which
     join nothing. Only this project's fixtures count: pytest's own tmp_path rests on a session-scoped one, made per
-    worker anyway. First, so that xdist's own hook, which turns the marks into groups, sees them.
+    worker anyway. First, so that xdist's own hook, which turns the marks into groups, sees them, and pytest's own,
+    which selects by -m, sees the new engine's tests marked `engine` (every test of a file ENGINE_FILES names) and the
+    tests of today's that read the tree marked `tree` (TREE).
     """
+    for item in items:
+        if item.path.name.startswith(ENGINE_FILES):
+            item.add_marker(pytest.mark.engine)
+        if {item.path.name, f"{item.path.name}::{getattr(item, 'originalname', item.name)}"} & TREE:
+            item.add_marker(pytest.mark.tree)
     reached = {id(item): _shared(item) for item in items}
     whole = {item.module.__name__ for item in items if reached[id(item)] is None}
     parent: dict[str, str] = {}

@@ -9,7 +9,7 @@ git-ignored file, never in a commit.
 You need [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13.4 or newer (`brew install uv`, or its
 standalone installer), [just](https://github.com/casey/just) 1.59 or newer (`brew install just`, or `cargo install
 just`, from its own releases), and Docker Engine for the tests. Python comes with uv, or bring a virtualenv of
-Python 3.12+ of your own (`PYTHON=`).
+Python 3.13+ of your own (`PYTHON=`).
 
 ```bash
 just init     # just install (the locked packages, the Galaxy collections), git hooks, the config, asked for
@@ -45,6 +45,15 @@ at a prompt. Use it rather than a `subprocess` call of your own: a run inherits 
 names, never reads your terminal, and fails its test if it calls a browser opener, a clipboard or this
 machine's `tailscale`, `gh` or `claude`.
 
+The new engine's tests, `tests/unit/test_aw_*.py`, share `tests/unit/aw_kit.py` the same way, and `just test engine`
+runs them alone, in seconds: the `home` fixture for the test's own home, and `run_aw` or `aw_at_a_terminal` for
+`tools/aw`, whose run also fails its test if it calls this machine's `ssh`, `ansible-playbook` or login keychain.
+`tests/unit/test_aw_guards.py` refuses a test that runs `tools/aw` any other way. The test's own process is guarded too,
+whatever its `monkeypatch` undoes: never set `PATH` there, and put a stand-in of your own first with
+`engine_guard.first_on_path(dir)` (or `first_on_path=(dir, ...)` for a run), a folder of the test's own directory. A
+fixture wider than one test runs outside that guard and is refused unless `WIDER_THAN_A_TEST` names it with why, and an
+`aw` command a test names is held to the one table of verbs and options (`tests/unit/test_commands.py`).
+
 Tests never talk to a real Proxmox, a real GitHub, a real Tailscale or a real hypervisor:
 `tests/molecule/` holds a fake or a stand-in for each, listed in
 [docs/architecture/testing.md](docs/architecture/testing.md#114-the-fakes--testsmolecule). If your change
@@ -59,6 +68,9 @@ run's output, module arguments injected, for every canned token (`test_no_token_
 searches every run and every file for every canned key; `tests/unit/test_release.py` searches destroy's
 release for every canned GitHub token and Tailscale API credential. A task that handles a new
 secret gets a canned value and a place in those searches.
+In the new engine a secret is a `Secret` (`lib/claude_vm/secret.py`), shown only as a mark and read by
+`reveal()` in the modules `test_aw_guards.py`'s `REVEALS` names; its tests look for a canned one with the kit's
+`searched_for`, which fails a search that read nothing.
 
 ## Conventions
 
@@ -88,6 +100,11 @@ secret gets a canned value and a place in those searches.
   behaviour it describes. Its reference pages are generated: edit their sources - which
   [docs/development/docs.md](docs/development/docs.md) lists - and run `just docs`, which the commit hook
   runs too.
+- **A comment of the new engine's is a pointer or a directive**: `# §16.6`, `# test: tests/unit/test_x.py::test_y`,
+  `# upstream: owner/repo#N`, or a tool's directive with its rule's code; a docstring says the contract in 5 lines at
+  most. Any other comment is prose, held to `tests/unit/comments.json`'s count, which only goes down; a workaround's
+  comment is refused everywhere. [Comments](docs/development/comments.md) has the kinds and where each content goes;
+  `just lint comments` runs the check.
 - **Idempotence** is not optional. A task that reports `changed` on a second run will fail CI.
 - **A pattern that holds a value to a shape ends at the end of the text**: `\Z`, or Python's `fullmatch`, never `$`,
   which also matches just before a newline that ends the text, so `'^[a-z]+$'` takes `"web\n"`. Ansible's `match`,
@@ -96,6 +113,15 @@ secret gets a canned value and a place in those searches.
   end with `$`. A pattern that must hold the whole value is anchored at both ends: one with no end anchor holds only
   its start. `tests/unit/test_anchors.py` holds every pattern written in a test, in Python or in a `*_pattern`
   variable.
+- **A conditional's backslash that starts no escape is written twice**: `when: x is match('^[a-z]+\\Z')`, which
+  reads as `^[a-z]+\Z`. Ansible evaluates a conditional (`when`, `changed_when`, `failed_when`, `until`, `assert`'s
+  `that`) as Jinja does, and Jinja decodes a string literal as Python's `unicode-escape` does: a `\Z` written once is
+  kept, with a warning that such sequences will not work in the future, and a known escape becomes its character
+  (`'\1'` is U+0001). So too in a `{% %}` block and in a template file. Inside `{{ }}` of a value, Ansible's own lexer
+  escapes the backslashes first, so a literal there reads as written: `'^[a-z]+\Z'`, and `'\1'` a backreference. Write
+  them as the YAML scalar hands them on: four times, not twice, in a double-quoted one, which reads two as one.
+  `tests/unit/test_anchors.py` reads every literal of the files Ansible reads as Ansible decodes it, a rule it holds to
+  Ansible's own templar, and fails on one that warns.
 - **A moment the run waits for the person is set apart.** A `pause` or `vars_prompt` passes its text
   through the `banner` filter (`'…' | banner('USER INPUT REQUIRED', host=inventory_hostname,
   topic='…') ~ 'Code'`), and a debug task that shows a page to approve, or a retried task that waits on
@@ -134,9 +160,9 @@ The editor and the VPN are choices: a setting naming one row of a list in the in
 
 ## Pull requests
 
-CI runs lint, unit tests, every Molecule scenario and the integration scenario on your PR, plus a
-dependency review. No job uses a secret, so the full suite runs on pull requests from forks - please keep
-it that way and do not add a job that needs one.
+CI runs lint, unit tests, every Molecule scenario and the integration scenario on your PR, the new
+engine's tests on Ubuntu and on macOS, plus a dependency review. No job uses a secret, so the full suite runs on
+pull requests from forks - please keep it that way and do not add a job that needs one.
 
 Before opening a PR, run `just test` - in full on a throwaway VM rather than the machine that holds your vault,
 since its scenarios run what they download as root in privileged containers

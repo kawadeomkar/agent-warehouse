@@ -13,20 +13,28 @@
   GET    /fake/exchanged         the client ID of every exchange asked for
   GET    /fake/asked             the path of every request made of the API
 
-It never reaches Tailscale: there is no network code but the listener.
+It never reaches Tailscale: there is no network code but the listener. Plain HTTP, as today's tailscale role's
+tests reach it; given --tls with a certificate's file and its key's, it serves HTTPS with that certificate alone, as
+the new engine's one transport, which takes an https:// address only, reaches it
+(tests/unit/test_aw_tailscale_api.py).
 
-Usage: fake_tailscale_api.py <port> [<node id>=<machine name>]...
+Usage: fake_tailscale_api.py <port> [--tls <certfile> <keyfile>] [<node id>=<machine name>]...
 """
 
 import json
+import ssl
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
 PORT = int(sys.argv[1])
+ARGS = sys.argv[2:]
+TLS = ARGS[1:3] if ARGS[:1] == ["--tls"] else None
+if TLS is not None:
+    ARGS = ARGS[3:]
 TOKENS = {"tskey-api-good-0000", "tskey-api-oauth-0000"}
 FORBIDDEN = "tskey-api-denied-0000"
-DEVICES = dict(arg.split("=", 1) for arg in sys.argv[2:])
+DEVICES = dict(arg.split("=", 1) for arg in ARGS)
 DELETED: list = []
 EXCHANGED: list = []
 ASKED: list = []
@@ -105,6 +113,10 @@ class Handler(BaseHTTPRequestHandler):
 
 
 server = HTTPServer(("127.0.0.1", PORT), Handler)
+if TLS is not None:
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(TLS[0], TLS[1])
+    server.socket = context.wrap_socket(server.socket, server_side=True)
 # Given port 0 the system picks a free one, said on stdout: tests/unit/harness.py starts fakes so,
 # never on a port it probed and freed, which another xdist worker's fake could take first.
 if PORT == 0:

@@ -44,10 +44,10 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "lib"))  # the controller's package (docs/architecture/custom-code.md §7.10)
-from claude_vm import store, wire  # noqa: E402
-from claude_vm.hosts import choose, resolve, setup  # noqa: E402
-from claude_vm.hosts import layout as hosts  # noqa: E402
-from claude_vm.hosts.model import Note, OtherHost, Request  # noqa: E402
+from claude_vm import store, wire
+from claude_vm.hosts import choose, resolve, setup
+from claude_vm.hosts import layout as hosts
+from claude_vm.hosts.model import Note, OtherHost, Request
 
 TEMPLATES = REPO / "tools" / "templates" / "host"
 
@@ -157,7 +157,7 @@ def init(opts, layout: hosts.Layout) -> int:
     for new in plan.files:
         path = Path(new.path)
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        # Readable by you alone, as the shared files just init copies are: the vault is plaintext until just init
+        # Readable by you alone, as the shared files just init copies are: the vault is plaintext before just init
         # encrypts it.
         with open(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w", encoding="utf-8") as out:
             out.write(new.text)

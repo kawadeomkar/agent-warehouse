@@ -1,0 +1,284 @@
+"""A VM's record, typed: the one place a VM's stage and choices are kept, read from its notes in Proxmox and written
+back there under Proxmox's digest (docs/architecture/engine.md §16.4).
+
+`Record` is a frozen dataclass over the fields of pve/record.py's block, each held as it is made to what it may be:
+of its own types here (a flag a bool, a list a tuple, the cores and a build whole numbers), and to its form by
+pve/record.py's, the one definition, which its parse holds too, so that status's reader refuses what this one refuses
+(card G28): the kind and the stage to the format's words, the UUID to the form Proxmox gives a VM's (lower case,
+8-4-4-4-12), a name, the size and the repositories to the command line's patterns (schema/patterns.py), the digests to
+SHA-256's hex, a template's build to a whole number, its image's URL to an http or https URL and its packages to
+Debian's names, the VPNs to today's mark of one (vpn/model.py), and every text to one line of plain text. A VM's record
+names its stage, and every record but a VM's first form, which its clone carries before its UUID can be read, names
+the UUID it is written for: the rules across fields, held here. A record that is not this engine's is no record here:
+`read(config)` gives None for notes with no block of the engine's, whatever else they hold, and `Unreadable` for a
+block it cannot read, a value that is not what its field may be included; and `Copy`, an Unreadable of its own kind,
+for a record that names another VM's UUID, which a clone made without a description of its own carries from its
+source: a copy is never read as the VM's own, so no reader has to make that check itself (pve/record.py's `copied`,
+which status reads by too).
+
+`write(client, vm, change)` is the one writer of a VM's record, and the only module of the new engine that sends a
+description to Proxmox: it reads the VM's configuration, applies `change` to the record its notes hold (None where they
+hold none), renders the notes with that block alone changed, and writes them with the digest of that read through the
+client's `edit_config`, so that where another writer, a person in Proxmox's page among them, changed the configuration
+in between, the write is refused and read and applied again, `client.EDITS` times at most. Notes as Proxmox will give
+them back that equal the notes read send nothing, so a second run of the same change sends no write. It never writes a
+record that names a UUID other than the VM's own, nor one of another kind than the one read, a VM's for an Owned (so
+no write makes a VM of the fleet a build VM or a golden, which building() would take: their records have a road of
+their own, card E18), nor rewrites a block it cannot read, nor sends notes past Proxmox's 8192 characters (`TooLong`),
+each said before anything is sent.
+
+`label(client, vm, value)` writes the one label a VM carries in Proxmox's list, the setting `vm_label`'s value, beside
+whatever tags a person gave it, under the same digest; nothing decides anything from it.
+
+Both write a VM the fleet owns, an `Owned` (pve/ownership.py), which the one check alone makes, and refuse anything
+else before anything is sent, a target a read gave above all; the client holds each configuration they read to the
+Owned's SMBIOS UUID.
+
+`change` may be applied more than once, so it is a function of the record it is given alone, with no other effect.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+from collections.abc import Callable, Mapping
+
+from ..pve import record as block
+from ..pve.answers import VmConfig
+from ..pve.client import TAG, Proxmox
+from ..pve.ownership import KIND, Owned
+from ..pve.record import BUILD_FORM, Copy, TooLong, Unreadable
+from ..schema.patterns import full
+
+__all__ = ["Copy", "Record", "TooLong", "Unreadable", "label", "read", "write"]
+
+
+@dataclasses.dataclass(frozen=True)
+class Record:
+    """A VM's record: what it is of (kind), the SMBIOS UUID it was written for, the name the run asked for, the stage,
+    whether its first start went well (provisioned), its own list of repositories (None where it follows the fleet's
+    setting, () where its list names none), the size it was created with (cores, memory, disk, each where the run gave
+    one), a template's build, the digest of the image it was made from, a template's image's URL and the packages put
+    into it, the VPNs a login of which was seen on it (joined), the digest it last converged to, whether an agent's run
+    made it, and the run on it now (job). A text left "" is not written, nor a build left None or a list left ()."""
+
+    kind: str
+    uuid: str = ""
+    name: str = ""
+    stage: str = ""
+    provisioned: bool = False
+    repositories: tuple[str, ...] | None = None
+    cores: int | None = None
+    memory: str = ""
+    disk: str = ""
+    build: int | None = None
+    image: str = ""
+    image_url: str = ""
+    packages: tuple[str, ...] = ()
+    joined: tuple[str, ...] = ()
+    converged: str = ""
+    made_by_agent: bool = False
+    job: str = ""
+
+    def __post_init__(self) -> None:
+        for field in ("provisioned", "made_by_agent"):
+            if not isinstance(getattr(self, field), bool):
+                raise TypeError(f"the record's {field} is True or False")
+        for field in ("repositories", "packages", "joined"):
+            value = getattr(self, field)
+            if value is not None and not isinstance(value, tuple):
+                raise TypeError(f"the record's {field} is a tuple")
+        if self.cores is not None and (
+            isinstance(self.cores, bool) or not isinstance(self.cores, int) or not full("cores", str(self.cores))
+        ):
+            raise ValueError("the record's cores are a whole number from 1 to 999")
+        if self.build is not None and (
+            isinstance(self.build, bool) or not isinstance(self.build, int) or not BUILD_FORM.fullmatch(str(self.build))
+        ):
+            raise ValueError("the record's build is a whole number from 1")
+        # Each value as one line of the block holds it, held to its form: the kind and the stage among the format's
+        # words, and every other field's by pve/record.py's, which parse holds a block read to as well.
+        block.lines(self.fields())
+        if self.kind == "vm" and not self.stage:
+            raise ValueError("a VM's record names its stage")
+        if not self.uuid and not block.first_form({"kind": self.kind, "stage": self.stage}):
+            raise ValueError(block.NO_UUID)
+
+    @property
+    def sized(self) -> bool:
+        """Whether the VM was created with a size of its own: today's sized tag."""
+        return self.cores is not None or bool(self.memory) or bool(self.disk)
+
+    def fields(self) -> dict[str, str | tuple[str, ...] | None]:
+        """The block's fields, as pve/record.py's render takes them: what is not set given None, and left out."""
+        return {
+            "kind": self.kind,
+            "uuid": self.uuid or None,
+            "name": self.name or None,
+            "stage": self.stage or None,
+            "provisioned": block.YES if self.provisioned else None,
+            "repositories": self.repositories,
+            "cores": None if self.cores is None else str(self.cores),
+            "memory": self.memory or None,
+            "disk": self.disk or None,
+            "build": None if self.build is None else str(self.build),
+            "image": self.image or None,
+            "image_url": self.image_url or None,
+            "packages": self.packages or None,
+            "joined": self.joined or None,
+            "converged": self.converged or None,
+            "made_by_agent": block.YES if self.made_by_agent else None,
+            "job": self.job or None,
+        }
+
+    @classmethod
+    def of(cls, fields: Mapping[str, str | tuple[str, ...]]) -> Record:
+        """The record pve/record.py's parse gave: ValueError where a value is not what its field may be."""
+        cores = fields.get("cores")
+        if cores is not None and not (isinstance(cores, str) and full("cores", cores) and cores):
+            raise ValueError("the record's cores are a whole number from 1 to 999")
+        build = fields.get("build")
+        if build is not None and not (isinstance(build, str) and BUILD_FORM.fullmatch(build)):
+            raise ValueError("the record's build is a whole number from 1")
+        return cls(
+            kind=str(fields["kind"]),
+            uuid=str(fields.get("uuid", "")),
+            name=str(fields.get("name", "")),
+            stage=str(fields.get("stage", "")),
+            provisioned=fields.get("provisioned") == block.YES,
+            repositories=_names(fields.get("repositories")),
+            cores=None if cores is None else int(cores),
+            memory=str(fields.get("memory", "")),
+            disk=str(fields.get("disk", "")),
+            build=None if build is None else int(build),
+            image=str(fields.get("image", "")),
+            image_url=str(fields.get("image_url", "")),
+            packages=_names(fields.get("packages")) or (),
+            joined=_names(fields.get("joined")) or (),
+            converged=str(fields.get("converged", "")),
+            made_by_agent=fields.get("made_by_agent") == block.YES,
+            job=str(fields.get("job", "")),
+        )
+
+
+def _names(value: str | tuple[str, ...] | None) -> tuple[str, ...] | None:
+    """A list field as parse gave it: a tuple, or None where the line was left out."""
+    if value is None:
+        return None
+    if not isinstance(value, tuple):
+        raise ValueError("a list of the record's is a list")
+    return value
+
+
+def _whose(config: VmConfig) -> str:
+    return f"VM {config.vmid}'s"
+
+
+def _owned(vm: Owned) -> Owned:
+    """vm, where it is an Owned: TypeError for anything else, before anything is sent."""
+    if not isinstance(vm, Owned):
+        raise TypeError(
+            "a VM's record and label are written only to an Owned, which the one check alone makes (pve/ownership.py's"
+            " owned): never a target a read gave, a configuration or a VMID"
+        )
+    return vm
+
+
+def _edit(client: Proxmox, vm: Owned, edit: Callable[[VmConfig], Mapping[str, object] | None]) -> None:
+    """edit applied to vm's configuration, and written under the digest of the read it was applied to."""
+    client.edit_config(vm, edit)
+
+
+def read(config: VmConfig) -> Record | None:
+    """The record a VM's notes hold, from the configuration the client read; None where they hold no block of this
+    engine's. Unreadable where they hold one it cannot read, or one whose values are not what its fields may be; Copy,
+    an Unreadable of its own kind, where they hold one that names a UUID that is not the VM's own (config.identity),
+    which a clone made without a description of its own carries from its source. A VM's first form at the stage
+    cloning alone names no UUID, and cannot be told from a copy of one; a record of any other kind or stage that names
+    none is Unreadable, so a template's, a golden's or a build's record names its UUID from its first write."""
+    try:
+        fields = block.parse(config.description)
+    except Unreadable as refused:
+        raise Unreadable(refused.why, _whose(config)) from None
+    if fields is None:
+        return None
+    try:
+        found = Record.of(fields)
+    except (TypeError, ValueError) as refused:
+        raise Unreadable(str(refused), _whose(config)) from None
+    if block.copied(fields, config.identity):
+        raise Copy(_whose(config))
+    return found
+
+
+def write(client: Proxmox, vm: Owned, change: Callable[[Record | None], Record | None]) -> Record | None:
+    """Apply change to the record in the notes of vm, an Owned, and write it there under the digest of the read it was
+    made from: the record the notes then hold. change is given the record read (None where there is none) and gives the
+    record to write, or None, or the same, for no change: it may be applied again, after another writer's change was
+    read, up to the client's EDITS times, after which the last DigestMismatch is raised. Nothing is sent where the
+    notes, as Proxmox will give them back, would be what they are. TypeError where vm is no Owned; Unreadable, before
+    anything is sent, where the notes hold a block this engine cannot read, and Copy where they hold another VM's
+    record, before change is applied; ValueError where change gives a record that names a UUID other than the VM's own,
+    or one of another kind than the one read, which for an Owned is a VM's (kind vm: none read, where the notes lost
+    it since vm was owned, is taken as a VM's, and a record of another kind read now refuses any record given);
+    TooLong where the notes would pass 8192 characters; the client's Changed where another VM holds vm's VMID now."""
+    _owned(vm)
+    if not callable(change):
+        raise TypeError("change is a function of the record read")
+    outcome: list[Record | None] = [None]
+
+    def edit(config: VmConfig) -> dict[str, str] | None:
+        current = read(config)
+        new = change(current)
+        if new is None:
+            outcome[0] = current
+            return None
+        if not isinstance(new, Record):
+            raise TypeError("change gives a Record, or None for no change")
+        if new.uuid and new.uuid != config.identity:
+            raise ValueError(
+                f"the record would name a UUID that is not {_whose(config)} own: a record is written only for the VM"
+                " it names"
+            )
+        # An Owned is a VM of the fleet, made of a record of kind vm alone, so the record read is a VM's (or none, where
+        # its notes lost it since): what is written keeps that kind. A build VM's or a golden's record written here
+        # would make the VM a Building (pve/ownership.py's building) that no build cloned as one (card G28).
+        had = KIND if current is None else current.kind
+        if new.kind != had or had != KIND:
+            raise ValueError(
+                f"{_whose(config)} record would be written as one of kind {new.kind} where one of kind {had} was read:"
+                f" an Owned's record is a VM's ({KIND}) and keeps that kind, never made a build's or a golden's, whose"
+                " record a road of its own writes (card E18)"
+            )
+        try:
+            notes = block.render(config.description, new.fields())
+        except Unreadable as refused:
+            raise Unreadable(refused.why, _whose(config)) from None
+        except TooLong as refused:
+            raise TooLong(refused.length, _whose(config)) from None
+        outcome[0] = new
+        return None if notes == config.description else {"description": notes}
+
+    _edit(client, vm, edit)
+    return outcome[0]
+
+
+def label(client: Proxmox, vm: Owned, value: str) -> None:
+    """Give vm, an Owned, the label value, the setting vm_label's, beside the tags it has, under the digest of the read:
+    nothing sent where it carries it already, as Proxmox gives tags back, in lower case. TypeError where vm is no Owned;
+    ValueError for a value that is not one tag Proxmox takes, as the setting's own rule holds it (fleet/registry.py's
+    PROXMOX_TAG)."""
+    _owned(vm)
+    if not isinstance(value, str):
+        raise TypeError("a label is text")
+    if not TAG.fullmatch(value):
+        raise ValueError(
+            "the setting vm_label is one Proxmox tag: letters, digits, _, +, . and -, starting with a letter, a digit"
+            " or _, at most 100 characters"
+        )
+
+    def edit(config: VmConfig) -> dict[str, list[str]] | None:
+        if value.lower() in (tag.lower() for tag in config.tags):
+            return None
+        return {"tags": [*config.tags, value]}
+
+    _edit(client, vm, edit)

@@ -205,7 +205,7 @@ INIT_QUESTIONS = (
     Step("vault", starts=["Put the answers into the vault's text"]),
 )
 # just lint's checks, as its parts name them.
-LINT = ("lock", "yaml", "ansible", "python", "just", "syntax", "hooks")
+LINT = ("lock", "yaml", "ansible", "python", "comments", "just", "syntax", "hooks")
 # What code.yml's rescue raises again outside just deploy: whatever stopped the window, which the block's rescue took.
 WINDOW_FAILURES = Causes(blocks=["Open the VM in the editor"])
 
@@ -313,16 +313,20 @@ RECIPES = {
         raises={"Fail when a check found a problem": Causes(checklist=True)},
         marks={"ok": "g", "!!": "r", "--": "d", "NOTICE": "y"},
     ),
-    # just test: lint, nested; pytest, each test a task as live_pytest.py reports it; then each Molecule scenario a
-    # step, its actions its tasks - or, with --jobs, the scenarios side by side as one part, tools/molecule-lanes, the
-    # line it says as each ends its task's. Every part a command through tools/live.
+    # just test: lint, nested; pytest, each test a task as live_pytest.py reports it - the unit tests, the new
+    # engine's alone (engine), or with --short theirs and today's that read the tree (short); then each Molecule
+    # scenario a step, its actions its tasks - or, with --jobs, the scenarios side by side as one part,
+    # tools/molecule-lanes, the line it says as each ends its task's. Every part a command through tools/live.
     "test": Recipe(
         stages=[
             Stage("lint", steps=[Step(check) for check in LINT]),
             Stage("unit"),
+            Stage("engine"),
+            Stage("short"),
             Stage("role"),
             Stage("integration"),
             Stage("provision"),
+            Stage("system"),
             Stage("molecule"),
         ],
         window=3,

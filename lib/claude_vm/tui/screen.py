@@ -1,9 +1,11 @@
 """What every live output draws with: lines of styled text, cut and padded to a width, rendered in one palette.
 
 A line is a list of segments, (text, style): a style is one of PALETTE's keys, or "" for plain. `just status`'s
-report (tui/status.py) and every live run (tui/run.py) are built as lines and rendered
-here, so they cut, pad, colour and measure alike; live_region.py puts them on the screen. PENDING in a
-segment's text marks where the spinner's glyph goes, for a value still being read.
+report (tui/status.py) and every live run (tui/run.py's today, runs/view.py's the new engine's) are built as lines and
+rendered here, so they cut, pad, colour and measure alike; live_region.py puts them on the screen. PENDING in a
+segment's text marks where the spinner's glyph goes, for a value still being read. A run's marks (MARKS), a
+summary's head cut and parts flowed (cut_head, flow), and a report's and a failure's lines said above the region
+(report_lines, failure_lines) are here too, so both runs draw them one way, from no model of either.
 
 A line is measured in characters: one each, which East Asian ambiguous-width characters (█ ● ○ – · …) are not in a
 terminal set to draw them double (docs/architecture/custom-code.md §7.8).
@@ -13,6 +15,7 @@ Pure, nothing read or written. Imported as claude_vm.tui.screen (docs/architectu
 
 from __future__ import annotations
 
+import re
 import textwrap
 
 from ..text import plural as _plural
@@ -115,3 +118,104 @@ def clock(seconds):
     """A running timer: 0:07, 12:30."""
     minutes, rest = divmod(int(max(0, seconds)), 60)
     return f"{minutes}:{rest:02d}"
+
+
+# How a state is marked - a VM's in a step's row and in the summary, a stage's or a step's, a check's, a run's end -
+# and in what style; running's mark is the spinner's glyph.
+MARKS = {
+    "running": ("", "c"),
+    "waiting": ("⏸", "y"),
+    "done": ("✓", "g"),
+    "skipped": ("–", "d"),
+    "failed": ("✗", "r"),
+    "unreachable": ("✗", "r"),
+    "left": ("–", "d"),
+    "to come": ("○", "d"),
+    "stopped": ("■", "y"),
+}
+
+# How many lines of what a failed task said its failure draws: twice what today's run keeps of them, run/model.py's
+# FAILURE_LINES, which tests/unit/test_aw_run_view.py holds this to.
+FAILURE_SAID = 40
+
+
+def first_sentence(text):
+    """text up to the end of its first sentence, or whole when it has one."""
+    found = re.match(r"(.+?[.!?])(\s+\S)", text)
+    return found.group(1) if found else text
+
+
+def cut_head(line, limit):
+    """A summary's head cut from its right, the clock first, never into its outcome."""
+    if width(line) > limit and re.fullmatch(r" · \d\d:\d\d", line[-1][0]):
+        line = line[:-1]
+    return cut(line, limit)
+
+
+def flow(head, parts, limit, style=""):
+    """head, then parts joined by " · ", wrapped under the column head ends at."""
+    lines, line = [], list(head)
+    column = width(head)
+    for index, part in enumerate(parts):
+        piece = part if index == 0 or width(line) == column else " · " + part
+        if width(line) + len(piece) > limit and width(line) > column:
+            lines.append(line)
+            line = [(" " * column, ""), (part, style)]
+        else:
+            line.append((piece, style))
+    if line and not parts:
+        line[-1] = (line[-1][0].rstrip(), line[-1][1])
+    lines.append(line)
+    return lines
+
+
+# --- what a run says above the region, from its records --------------------------------------------------------
+def wrapped(head, lines, cols, color, style="", styles=None):
+    """head, then lines wrapped under where head ends, whole - never cut: (coloured, plain) pairs to print. A line
+    keeps its own indent, its wrapped pieces under where its words start; styles, one for each line, colour each its
+    own way."""
+    column = width(head)
+    room = max(20, cols - 1 - column)
+    out = []
+    first = True
+    for number, line in enumerate(lines):
+        style_ = (styles[number] if styles else "") or style
+        indent = len(line) - len(line.lstrip(" "))
+        pieces = fill(line.strip(), max(10, room - indent)) if line.strip() else [""]
+        for piece in pieces:
+            lead = head if first else [(" " * column, "")]
+            first = False
+            runs = [*lead, (" " * indent + piece, style_)]
+            out.append((render(runs, color), render(runs, False)))
+    return out
+
+
+def report_lines(report, cols, color):
+    """A report, whole: under its VM, which leads unless the report names it itself."""
+    who = [(report["host"], "b"), ("  ", "")] if report["named"] else []
+    return wrapped([("  ", ""), *who], report["lines"], cols, color, styles=report["styles"])
+
+
+def _block(where, who, task, took, how, said, cols, color):
+    out = [("", "")]
+    out += wrapped([("✗ ", "r")], [f"{where} · {who}: {task}{took}{how}"], cols, color, "r")
+    out += wrapped([("    ", "")], [line for line in said if line.strip()][:FAILURE_SAID], cols, color)
+    return out
+
+
+def failure_lines(failure, cols, color):
+    """A failure, for good above the region: the step, the VM, the task, what it said, and where the log has it; a
+    raise of earlier failures, each cause so, then its own words."""
+    if "causes" in failure:
+        out = []
+        for cause in failure["causes"]:
+            out += _block(cause["where"], cause["who"], cause["name"], "", "", cause["said"], cols, color)
+        if failure["own"]:
+            out += wrapped([("    ", "")], failure["own"], cols, color)
+    else:
+        took = f" ({duration(failure['seconds'])})" if failure["seconds"] is not None else ""
+        how = "" if failure["how"] == "failed" else f" · {failure['how']}"
+        out = _block(failure["where"], failure["who"], failure["task"], took, how, failure["said"], cols, color)
+    if failure["log"]:
+        out += wrapped([("    ", "")], [f"the whole output: {failure['log']}"], cols, color, "d")
+    return [*out, ("", "")]

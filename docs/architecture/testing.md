@@ -44,6 +44,102 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
+`just test engine` runs the new engine's tests alone ([§16](engine.md)): every test of a file
+`tests/unit/test_aw_*.py`, which `conftest.py`'s hook marks `engine` before xdist's hook and pytest's `-m` see the
+tests, selected with `-m engine` on the same workers and groups as the unit part. They run no playbook of their own and
+take seconds; `just test unit` still runs them with the rest. Their kit is `tests/unit/aw_kit.py`, which `conftest.py`
+registers.
+
+CI's `engine` job runs them on macOS too, and where macOS does otherwise than Linux the test says so by name. A socket
+bound and never listening is refused at once on Linux and dropped in silence on macOS, so the transport's test of a port
+nothing answers expects there what the transport says of a silent one, no connection within its limit, and tries a port
+bound and closed beside it, which both refuse. A test macOS fails for a cause not yet known is marked an expected
+failure there alone, its reason naming the card that finds the cause, and strict where it failed in every run, so that
+a pass fails the mark. On Python 3.14 the kit's `STOP_UNSEEN` marks, strictly, the stopped-asking test's two rows of a
+child the run started itself, stopped by SIGTTIN or SIGTTOU, which the watch did not say there, and its `STOP_GONE`,
+not strictly, the children's test of a stopped child, which failed once; and the test of a run at a pseudo-terminal
+that reaches the dispatch expects a failure on macOS in one outcome alone, not strictly, the run ended with its status
+and its terminal gave none of what it wrote.
+
+`just test --short` is the short set, for a change that touches no file of `main`'s but `CLAUDE.md`, `docs/` and
+`zensical.toml`, the pages' navigation, which a new page needs a line of and whose one test is in the set: while the two
+engines share one suite, a change of the new engine's own files. `tools/check short` compares the tree it runs in - the
+work tree, and what git neither tracks nor ignores - with the tip of `base-first`, the branch the new engine is built
+on, and refuses by name each path that differs and that `main` has, a deleted or renamed one too; a new file in a
+folder today's product reads whole, `roles/`, `playbooks/`, `filter_plugins/`, `callback_plugins/`, `inventory/`,
+`molecule/` or `tests/molecule/`, which today's guards of that folder would read, none of them in the set (that a
+request carrying the token follows no redirect, that a task rendering a token is `no_log`, that a line naming a VM
+names its host, that each helper is in an editor's list), so that a change that adds one, the new engine's own
+included, runs the whole set; and a test file of `tests/unit/` that is no engine file (pytest's `test_*.py` or
+`*_test.py`), which the set would not run. It reads git's lists with `-z`, so that a name git would quote, with a
+control character, a quote or a backslash in it, is held to the same rules, a control character in it shown as `?`. It
+compares the tree rather than `base-first...HEAD`, since a machine sent a worktree's files over a checkout of `main`
+has none of the branch's commits, and it refuses where either branch is not there, never passing a change it could not
+read. Then it lints, as the gate does, and runs in one pytest the new engine's tests and the tests of today's suite
+that read the tree (`-m "engine or tree"`): those `conftest.py`'s `TREE` names, which its hook marks `tree`, whose
+result a new file or a changed page can change - the pages and their links, the anchors of the patterns, the
+tracked-file guard, the file map, the commands named, the package's imports, the ratchets, the key files, the shards,
+CI's workflows, the list of what the project writes on this machine (every place that writes, `CLAUDE.md`'s words for
+each, the security model's table), and the tests that read every tracked file or every file of `tests/unit/`: the live
+output's variable, the facts read and a run's own `ansible.cfg`, a golden template turned on, a live test's name,
+`tools/status` run outside its harness, the MCP server's package reading the environment, and the launcher `aw`'s
+Python. `TREE` was found by planting the faults such a change can make and running
+the whole suite over them once, and the launcher's test by reading: `test_aw_guards.py`'s `FOUND` keeps the tests each
+fault failed, and the launcher's under what found it, and fails where one of them is not marked, where an entry of
+`TREE` names no test, or where it holds none of `FOUND`'s. It takes minutes where the unit suite takes over half an
+hour. What it gives up: a test of today's that the set leaves out and that such a change breaks - one that runs a
+playbook, say, through a hook or fixture of `tests/unit/aw_kit.py`, which every test loads - fails only where the whole
+suite runs, `just test unit` or CI's shards, and is found there among the changes since; it then joins `TREE`. A
+branch stacked on another that has not reached `base-first` yet differs from its tip in the other's files too, and is
+refused for those of `main`'s: where its own change, against the branch below it, touches none, it runs what the set
+runs without the check, `just lint` and then
+`tools/env-run pytest tests/unit -m "engine or tree" -n auto --dist loadgroup`.
+
+Most of the new engine's code runs in the test's own process, so that process is guarded as a run is.
+`engine_guard`, a fixture of the kit's that no test asks for, holds every test the `engine` marker selects, and no
+other, from setup to teardown: `HOME` and the XDG folders in the test's own home, the directory `aw_home` names
+`AGENT_WAREHOUSE_HOME`; failing stand-ins first on `PATH`, for a browser opener, a clipboard and this machine's
+`tailscale`, `gh` and `claude` (`harness._desktop`), and for its `ssh`, `ansible-playbook` and login keychain, macOS's
+`security` and Linux's `secret-tool` (`harness._refused`), with `BROWSER` one of them; every variable removed but
+`harness.PASSED_ON`'s names, the locale's, the kit's own and pytest's `PYTEST_CURRENT_TEST`; and `socket.getaddrinfo`
+and a socket's `connect` refused for anything over IP that is not loopback, with a sentence that names the fakes. Once
+the test ends, a stand-in that was reached or a connection that was refused fails it, even where the code swallowed
+the refusal. The guard is `PATH`'s: a program started by its absolute path, such as `/usr/bin/security`, is not caught,
+and neither is a local socket reached by its path. The network refusal is the test process's alone: for a child it
+starts, only the fakes hold it. The fixture `home` makes that home, for a test that writes there. The guard's changes
+are a `MonkeyPatch` of its own, undone at its own teardown, so a test's `monkeypatch.undo()` leaves them in place, and
+`aw_home` sets `AGENT_WAREHOUSE_HOME` the same way. As a test's call ends, before its own `monkeypatch` is undone, and
+again at its teardown, a `PATH` that finds this machine's own programs ahead of the stand-ins fails it: a folder of the
+test's own programs, a stand-in `ssh` say, goes first in its own process by `engine_guard.first_on_path(dir)`, held to
+the test's own directory as a run's `first_on_path=` is. pytest makes a fixture wider than one test before the guard
+holds and ends it after the guard lets go, so every such fixture of an engine file is named, with why, in
+`test_aw_guards.py`'s `WIDER_THAN_A_TEST`. Another autouse fixture of `conftest.py`'s, `drainwatch`, fails any test,
+of either suite, that makes a draining change of a pseudo-terminal's settings (`TCSADRAIN`, `TCSAFLUSH`) in its own
+process while the master it opened holds output nothing reads: macOS waits there until the master has read it all,
+where Linux returns at once, so such a test would hang on macOS alone. It looks on Linux only: on macOS `FIONREAD` on
+a master counts what its slave has not read, never the slave's output. Each master the test opens is watched by its
+terminal's name, and a change that still finds output unread after two seconds, which another thread reading it
+would have taken, is the failure. What macOS writes there and Linux does not is made too: an end of input (Ctrl-D) typed
+at the master while the terminal is canonical and echoes is echoed as `^D` on macOS alone, so on Linux the watch writes
+that echo at the slave, as macOS makes it: decided by the mode the moment it is typed, and written before it. It then gives back the hold of the terminal `tui/live_region.py` keeps for the
+process, which a region a test started and never finished would leave to the next test.
+
+A test reaches `tools/aw` through the kit alone. `run_aw` runs the program under `python -I` in an environment built
+from `harness.PASSED_ON`'s names and the home's, never the test's whole one, with the same stand-ins first on `PATH`,
+each of which fails the test once reached (`harness._fail_if_the_desktop_was_reached`); with `/dev/null` on its stdin
+unless the test gives a file or text, and a process group of its own, ended whole on a timeout. A test's `env=` never
+sets `PATH`, `HOME`, `BROWSER`, `AGENT_WAREHOUSE_HOME` or an `XDG_` variable, which would lift a guard unsaid: a program
+of the test's own, a stand-in `ssh` say, goes first on `PATH` by `first_on_path=(dir, ...)`, a folder of the test's own
+directory, ahead of the stand-ins, which stay. An `aw` command a test file names, in a NEXT STEPS line say, is held to
+the one table of verbs and options by `test_commands.py`, so a made-up option fails the suite. `aw_at_a_terminal` runs
+it at a pseudo-terminal of its own, and with `layer1=Layer1(play, connections)` with its system play swapped for a play
+of the test's own and each machine reached over F3's test-only local connection, patched in by the kit's own start
+(`SWAPPED`) before the program runs as itself, so that a Ctrl-C reaches layer 1's child through the run's own ladder; `run_launcher` runs the launcher at the checkout's top, `aw`, by its path in the
+same environment: this checkout's with the suite's own Python as `PYTHON` and never asked to install, or a copy of it in
+a checkout the test made; `imports_of` lists the modules a run loaded (`-X importtime`), or with `module=` what
+importing that one module of the checkout's `lib/` loaded, and `searched_for` is the canary search for a canned secret
+in what a run left, which fails when it read nothing.
+
 pytest over `tests/unit/`, file by file:
 
 - **The package** (`test_claude_vm.py`): `lib/` holds `claude_vm` alone; every core module imports in a fresh
@@ -55,6 +151,27 @@ pytest over `tests/unit/`, file by file:
   two writers through `store.py`, 300 changes each at once, lose none, and a replace keeps the file's mode;
   and every file in `filter_plugins/` is an adapter that loads nothing of the core when loaded, each of its filters
   the core's function of that name.
+- **The new engine's guards** (`test_aw_guards.py`): every test of a `test_aw_*.py` file, collected as the suite
+  collects it, is marked `engine` and set up with `conftest.py`'s own `aw_home`, made for it alone, and a 2.x file's
+  tests are not marked; in a pytest of its own, an engine test that runs `ssh` by name meets the stand-in and fails,
+  one that reaches past loopback fails though it swallowed the refusal, a variable the session set is gone, and a test
+  of today's keeps it, its `PATH` untouched; in the test's own process `Path.home()` is its home without asking for
+  `home`, the stand-ins are first on `PATH`, only the listed names are left, a lookup or connection past loopback is
+  refused and one to a server on loopback is not; no test file starts `tools/aw` but through the kit, each file read
+  as a syntax tree for a call that starts a program, the suite's own launchers among them, given a string, a path
+  built of `tools` and `aw`, or a name bound to one; each stand-in is first on a run's `PATH`, and one that was
+  reached fails the test; a run inherits the listed names alone, a test's `env=` cannot lift a guard, and
+  `first_on_path` goes ahead of the stand-ins and keeps them, for a run and in the test's own process, and takes only a
+  folder of the test's own directory; in a pytest of its own, a `PATH` a test set, by its `monkeypatch` or by hand,
+  fails it, and its own `monkeypatch` undone leaves the guard whole; every fixture of a `test_aw_*.py` file wider than
+  a test is named in `WIDER_THAN_A_TEST`, by a syntax-tree scan; and `imports_of` refuses a module's name that is no
+  dotted name, in its own sentence, before anything runs. A `Secret` (`lib/claude_vm/secret.py`) never shows its
+  value in a `repr`, a `str`, an f-string, `format`, `%` or a log line, pickle and JSON refuse it, and a copy is
+  itself; only the modules `REVEALS` names, the transport and the SSH runner, read `reveal`, called or kept as an attribute, or named to
+  `getattr` or `methodcaller`. And every pytest a test of the suite starts, an engine test's or one of today's, is
+  given `--basetemp`, a folder of the test's own, among the call's own words, by a syntax-tree scan of every test file
+  that sees each file known to start one: a pytest left to the temporary folder every pytest of the account shares
+  cleans it as it starts, beside the suite's own workers, and a race lost there adds a warning to its summary.
 - **The hosts core** (`test_hosts_core.py`): the core in-process - which host, in its order, the names hyphenated, a
   refusal carrying the notes said before it; choosing and listing never open a vault or run a password script;
   `resolve` reads the environment it is given; the vault check decides and writes nothing; init, the switch and the
@@ -97,7 +214,9 @@ pytest over `tests/unit/`, file by file:
   every file of each VM unchanged after and the fakes' logs holding only reads; the engine against the roles' own
   tasks and vars in check mode on the same stand-ins, state by state, the two held equal; the host key,
   `status_ssh_args` held to `ansible.cfg`'s, the options as `ssh -G` resolves them (and as they reach a stand-in `ssh`,
-  first, in `test_status.py`'s run of the fleet), and ssh's two host-key refusals each said for what it is. Every
+  first, in `test_status.py`'s run of the fleet), and ssh's two host-key refusals each said for what it is. A
+  Ctrl-C at the main thread as each ssh of the hop's starts, and a run's end as a probe's connection starts, each
+  ssh ended before the run ends at once, and no ssh of a run through the hop started on the main thread. Every
   status run in a test gets that refusing stand-in `ssh` (`status_root`), so none reaches a VM or this machine's ssh,
   and keeps nothing: the snapshot and the upgrades cache are `test_status_settings.py`'s, in a folder of its own. WORK
   (`test_status_work.py`): the checkouts' `work` over real throwaway repositories - a worktree under
@@ -145,7 +264,9 @@ pytest over `tests/unit/`, file by file:
 - **What every live output draws with** (`test_live_region.py`, `test_screen.py`, `test_vt.py`): the
   region against a stand-in `Display` - what is printed above it, a frame cut to the screen, a pause and a
   vars prompt each with the screen to themselves, the route, a screen too small, the echo off on a
-  pseudo-terminal of the test's own - whose `display`, `prompt_until`, `do_var_prompt` and lock it holds to
+  pseudo-terminal of the test's own, and from an interactive shell (`harness._in_a_shell`, a bash at a
+  pseudo-terminal with job control, its history in the test's folder) a Ctrl-Z and a `Ctrl-\` leaving nothing
+  typed on the shell's line or in its history - whose `display`, `prompt_until`, `do_var_prompt` and lock it holds to
   ansible-core's; `Output`, the colour and the words printed to the screen and the log; the lines' cut,
   alignment, palette, bars and durations, none under an hour wider than five characters; and `vt.py`, the small
   terminal the live tests read back through, reading status's and deploy's streams the same cut anywhere. Every
@@ -243,9 +364,18 @@ pytest over `tests/unit/`, file by file:
   playbook and its task's worker gone.
 - **`github_repos`** (`test_github_repos.py`) and the **tracked-file guard** (`test_tracked_files.py`), both ways.
 - **The CI gate** (`test_ci.py`): `CI result` needs every job of `ci.yml` but the canary, runs `if:
-  always()`, and no job of the gate may `continue-on-error`; its script, run as GitHub runs it, passes a
-  success or a skip and fails a failure or a cancel. Every Molecule scenario names the one image pinned by
-  digest, the shared configuration none, and the canary runs that image's repository at `:latest`.
+  always()` joined with the area stack's gate, and no job of the gate may `continue-on-error`; its script, run as
+  GitHub runs it, passes a success or a skip and fails a failure or a cancel. Every job's `if:` is the gate
+  (`!(startsWith(github.head_ref, 'stack/') && startsWith(github.base_ref, 'stack/') && github.event.pull_request.head.repo.full_name == github.repository)`),
+  joined after its own condition where it has one, and each is read as GitHub reads it for a pull request of the
+  repository's own from `stack/` onto `stack/` (no job runs), one from `base-first`, one from `stack/` onto `main`,
+  one from another branch onto `stack/` and a fork's from `stack/` onto `stack/` (every job runs), a push, the
+  weekly run and a manual run ([§12](ci.md)). Every Molecule scenario names the one image pinned by digest, the shared configuration none, and the canary runs that image's repository at `:latest`. The
+  `engine` job runs `just test engine` on the other jobs' Ubuntu and on a macOS runner named by its version,
+  never `macos-latest`, each on `requires-python`'s floor and the setup action's default Python, held whole: no
+  key but its name, the gate, runner, 30 minutes, matrix and four steps (the third pulls the guest helper's floor
+  on Linux), so no other `if:` skips it and no `env:` narrows it; and above the jobs, the workflow's own `env:`
+  holds the two colour variables alone, it has no `defaults:`, and its `on:` takes every pull request.
 - **The shards** (`test_shards.py`): `--shard` collected as each CI shard collects it - two, three and six
   shards that between them run every test exactly once, and the tests that share a fixture's run in one; every
   name an `EACH_WORKER` lists a module-scoped fixture of its own module.
@@ -529,14 +659,14 @@ pytest over `tests/unit/`, file by file:
   fleet `just status`'s tests read (`fake_fleet`) live in `tests/unit/harness.py`, shared by every module that
   runs against the fake; each file keeps its own `fake_pve` fixture.
 - **The Proxmox API's certificate** (`test_proxmox_trust.py`, and the certificate's step in `test_init_check.py`):
-  `lib/claude_vm/trust.py` against made-up PKIs served on loopback, Python's strict checking forced on and off
-  whatever this Python's own: the certificate that makes the API verify picked from this machine's store, the
-  host's CA and its node's own certificate, a CA without key usage refused where checking is strict, a key or a
-  block that is no certificate never kept, and what the address presents told from the host's own. The step at
-  a terminal and as given: the file kept and checking turned on, in another host's own folder for that host; a
-  changed certificate never trusted unasked, and its address sent no token. The HTTP client the modules use
-  verifying against the file kept, every API request that carries the token following no redirect, and `just
-  status` saying a certificate that changed, or a host whose certificate nothing checks.
+  `lib/claude_vm/trust.py` against made-up PKIs served on loopback, checked strictly, as every Python the project
+  runs on checks: the certificate that makes the API verify picked from this machine's store, the host's CA and its
+  node's own certificate, a CA without key usage refused, a key or a block that is no certificate never kept, and
+  what the address presents told from the host's own. The step at a terminal and as given: the file kept and
+  checking turned on, in another host's own folder for that host; a changed certificate never trusted unasked, and
+  its address sent no token. The HTTP client the modules use verifying against the file kept, every API request that
+  carries the token following no redirect, and `just status` saying a certificate that changed, or a host whose
+  certificate nothing checks.
 - **The managed SSH config** (`test_ssh_config.py`): `tasks/ssh_config.yml` for real against a
   temporary home, resolved with `ssh -G` - the refusal of a name or address that is not one plain word,
   the guard that every scenario and the Vagrantfile keep the managed file out of `~/.ssh`, that no
@@ -544,10 +674,12 @@ pytest over `tests/unit/`, file by file:
   alone, a group the user is not in included (macOS).
 - **Patterns and units**: `test_anchors.py` (every pattern that holds a value to a shape - in a `match`, `search` or
   `regex` test, in Python, or in a `*_pattern` variable - ends at `\Z`, never a `$` a trailing newline gets past, a `$`
-  last in a closing group included; and the values a VM or a setting supplies refuse one), `test_remote_control_unit.py`
-  (Remote Control's two units, rendered by Ansible's template module beside the ones 2.5 shipped, kept verbatim in
-  `tests/unit/units/`, byte for byte alike for a VM's values, since a unit that changed is restarted; a value systemd
-  would split or expand quoted as systemd reads it).
+  last in a closing group included; the values a VM or a setting supplies refuse one; and no Jinja string literal of
+  a file Ansible reads holds an escape Python does not know as Ansible decodes it - a conditional's, a `{% %}` block's
+  or a template file's, never one inside `{{ }}`, whose backslashes Ansible's lexer escapes first - the rule held to
+  Ansible's own templar), `test_remote_control_unit.py` (Remote Control's two units, rendered by Ansible's template
+  module beside the ones 2.5 shipped, kept verbatim in `tests/unit/units/`, byte for byte alike for a VM's values,
+  since a unit that changed is restarted; a value systemd would split or expand quoted as systemd reads it).
 - **Smaller ones**: `test_configure_tags.py` (`--tags claude_code` still runs discovery and the alias
   play), `test_deploy_report.py` (deploy's opening message, rendered by its own tasks, naming only the
   sign-ins that open a page and the VMs as a list), `test_proxmox_vm_absent.py` (deleting a VM
@@ -575,7 +707,12 @@ pytest over `tests/unit/`, file by file:
   nothing is unstable and no `.env` is read, every public recipe has a `[doc]` and every parameter its
   help and a literal pattern, the VM recipes share one name pattern, no parameter is named like an
   assignment, `self` passes on every setting, and its
-  `minimum-version`, `just_pin` and CI's `JUST_VERSION` are one version. Run: the vault and collections
+  `minimum-version`, `just_pin` and CI's `JUST_VERSION` are one version, every SHA256 of the setup action beside
+  it; the action's step run for each runner's system against a stand-in `curl` and `tar` - each system's archive
+  held to its own SHA256 by the step's own comparison with `shasum -a 256`'s digest, beside a `sha256sum` that only
+  records its words, since the step asks none and any call of it shows in the calls each run is held to, never
+  unpacked when it is not that one or when its pin is empty or a digit short, and a runner with no
+  archive pinned failed before anything is downloaded. Run: the vault and collections
   checks, each before any playbook, and the rules with `JUST_NO_DEPS` set; a run from another checkout
   refused, and run from a subdirectory, from the checkout spelt in another case and from a copy inside
   another work tree; every VM recipe passing its names as one JSON extra-var and none
@@ -661,9 +798,17 @@ the role's, at the task named where one is, with a message that matches every pa
 runs the role over it, asserts the failure names the setting and the file, and removes the drop-in
 whatever happened: `AllowTcpForwarding no` sorted before the role's drop-in, `DisableForwarding yes`,
 and a `Match User dev` block sorted last that limits forwarding to the remote direction - the case a
-global `sshd -T` cannot see. Then it runs the role switched off and asserts both files are gone, and
+global `sshd -T` cannot see. Where `/proc/sys` is writable (the container is privileged, and the run
+is told that no virtualisation type is a container's) it runs the role with the watch limit one above
+the kernel's: the run writes the file and applies it; the kernel's own put back by hand stays through a
+second run, which writes and applies nothing; and the kernel's own is left whatever happened. Then it
+runs the role switched off and asserts both files are gone, and
 switched on again for verify, which reads the drop-in, the sysctl file and `sshd -T` (forwarding on,
 converge's keepalive values in effect).
+
+`dev_tools`' converge installs one global npm package, `cowsay`, which verify runs, and its
+idempotence run installs nothing again. The side effect runs the node tasks over it named alone and at
+the version npm lists, and asserts npm was asked to install neither.
 
 `tailscale`'s scenario runs two VMs - one that never had Tailscale and one where it was installed and
 signed in by hand - with the real package and daemon, log upload off, and the stand-in `tailscale` in front
@@ -691,10 +836,20 @@ is. Converge starts the first and, with no port in the container, leaves the age
 effect finds it stopped, gives the role a stand-in for the port and runs its services again, and verify
 finds both running.
 
-Last, the side effect puts a line of the user's own into `/etc/tmux.conf` and runs the tmux tasks with
+The side effect then puts a line of the user's own into `/etc/tmux.conf` and runs the tmux tasks with
 `common_tmux_settings: []`, which takes the block out and leaves that line alone, then as converge ran them.
 Verify finds the block back beside the user's line, the file still 0644, and a tmux of its own loading the
 file with no error and each setting in effect, the user's among them.
+
+Last, the side effect adds the person's keys over a keys file that holds more, through a `~/.ssh` that is a link
+to a folder of the user's open to all: both lines of the listed key, the first with options in front and another
+comment, become the listed form, the line of a key not on the list is kept (directly before one of them, which a
+pattern that reached over a line's end would take in) and so is a line of the key commented out, a real key's line
+becomes its listed form, whose options hold a backslash, as written, the folder the link names is made 0700 and the
+file 0600, the user's, and a second run changes nothing. Converge lists that real key too, whose base64 holds `r`,
+`n` and `+`. A
+listed key that is no public key is refused, and so are an item of two lines, one commented out and a key listed
+twice. Then `~/.ssh` is put back as converge left it, for verify to find the listed key there.
 
 `proxmox_vm`'s scenario is the interesting one: it runs against the fake PVE API and asserts the VMID
 came from Proxmox (9001, the next free one) and that the address came from the VM's own NIC —
@@ -715,10 +870,28 @@ that no build started.
 | `provision` | `provision.yml`, `discover.yml` and `just status`'s engine end to end against the fake API, for a two-VM fleet, plus `destroy.yml` and `deploy.yml`'s template check as child runs; discovery runs in a stage of its own, finding the VMs by their tag, so a later `just deploy --only configure` needs nothing stored locally |
 | `image` | a golden template's image and scrub in a container, then the real `configure.yml` over it: configure has nothing left to install but Tailscale, which is never baked, and a sign-in left in the image fails the build. Run with `configure`, under `just test integration` |
 | `configure` | `configure.yml` end to end against a container standing in for a provisioned VM; then the sign-ins, `just code`'s session handoff with the real `claude` against a stand-in Messages API - copies resumed as the VM's own, `--continue` never picking one up, the records of requests sent left unsent, a saved copy resumed by its path - and `just destroy`'s pause of Remote Control around its save, with the real systemd |
+| `system` | the new engine's system play, `playbooks/system.yml`, against a container standing in for a machine, converged by its layer-1 child as the engine starts one, never by Molecule's own Ansible: `just test system` ([§16.10](engine.md#1610-guest--the-helper-the-system-layers-inputs-layer-2)) |
 
-Both symlink the **real** `inventory/group_vars/all/defaults.yml` into the scenario inventory, so the
-actual variable wiring is exercised rather than a copy. Test overrides live in `host_vars/`. The
-symlink must survive checkout — clone the repo, do not download a zip.
+The `provision` and `configure` scenarios symlink the **real** `inventory/group_vars/all/defaults.yml` into the
+scenario inventory, so the actual variable wiring is exercised rather than a copy. Test overrides live in
+`host_vars/`. The symlink must survive checkout — clone the repo, do not download a zip.
+
+The `system` scenario runs no play of Molecule's own on its container. Its `converge.yml` is one task on this machine,
+`molecule/system/converge.py`, which makes a job and its run's directory in a fleet home of the scenario's own,
+writes the play's variables through `lib/claude_vm/guest/system.py`, files a made-up key under the machine's identity
+(layer 1 asks for one, and the test-only connection never reads it), and starts layer 1's child through `layer1.run`
+with its test-only connection, `community.docker.docker` to the container, and the folder of collections the
+scenario's own Ansible was given, which the configuration names in place of its empty one (the product's needs none,
+[§16.10](engine.md#1610-guest--the-helper-the-system-layers-inputs-layer-2)). The task is changed exactly
+when the play changed something, so that the idempotence stage holds the second converge to no change; `verify.yml`
+reads the driver's record of each converge, the first having changed the container, then what the three roles left
+there. Between them, `side_effect.yml` holds the person's keys
+([§16.10](engine.md#1610-guest--the-helper-the-system-layers-inputs-layer-2), "A person's keys"): two keys the list does
+not name put on the account, one commented out too and two lines of the second whose comment or forced command names the
+listed key, are kept by a third converge that changes nothing; then `molecule/system/remove_key.py` takes the first off
+through `guest/keys.py`'s `remove` whole, its two roads to the machine that need an SSH server swapped for the
+container's (the keys file read by `docker exec` as the account, and layer 1's child given its test-only connection as
+the account), and every other line, the file's mode and the listed key stay.
 
 The `provision` scenario's checks are four files `verify.yml` imports in turn: `seeds.yml`, the fixtures
 below; `fleet.yml`, discovery, `just status`, the playbooks where they must refuse or report, `destroy.yml` and
@@ -817,16 +990,16 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
 
 | Fake | Stands in for | Notes |
 |---|---|---|
-| `fake_pve_api.py` | the Proxmox REST API | TLS, token auth, stateful VMs, a guest agent, a request log; on request, a cluster listing that lags a start or stop, as a real one does; for `just status`, each VM's live figures, a day of `rrddata`, `pending`, the agent's `get-osinfo` and `get-fsinfo`, and the storages' fill and disks |
+| `fake_pve_api.py` | the Proxmox REST API | TLS, token auth, stateful VMs, a guest agent, a request log; on request, a cluster listing that lags a start or stop, as a real one does; for `just status`, each VM's live figures, a day of `rrddata`, `pending`, the agent's `get-osinfo` and `get-fsinfo`, and the storages' fill and disks; pools, users, roles, ACL entries and tokens made through Proxmox's own routes, a VM's configuration written only with the digest a read gave and locked while its clone or deletion runs, a race's loser failed in its task as Proxmox fails it, and tasks by UPID that run, end and fail on cue, for the new engine |
 | `fake_qm.sh` | `qm` on the PVE node | stateful, one config file per VMID, logs every invocation |
-| `fake_pve_cli.py` | `pveum`, `pvesh`, `pveversion`, `hostname` and `id` on the PVE node | for `tools/proxmox-access.sh`: the roles, users, ACLs and tokens in one file, answering the calls the script makes as a Proxmox VE 9.2 host was seen to - compact JSON, a refusal for what exists, the version's own guest-agent privilege - with every call logged and a write refused on cue |
-| `fake_virt_customize.sh` | `virt-customize` | so `proxmox_template` runs in a container |
-| `fake_virt_cat.sh` | `virt-cat` | the image's `os-release`, Ubuntu's unless a test says otherwise |
+| `fake_pve_cli.py` | `pveum`, `pvesh`, `pveversion`, `hostname` and `id` on the PVE node | for `tools/proxmox-access.sh`: the roles, users, ACLs and tokens in one file, answering the calls the script makes as a Proxmox VE 9.2 host was seen to - a refusal for what exists, the version's own guest-agent privilege - with every call logged and a write refused on cue; and, for the new engine's `init`, what its script runs there, as Proxmox VE 9's source answers it: a pool made with its comment, given another by `pveum pool modify --comment` and read with it by `pvesh get /pools` (with `--poolid`, or the deprecated `pools/<pool>`, its members too), an ACL entry for a token (`pveum acl modify --tokens`), a token made with `--privsep 1` and its secret made again (`pveum user token modify --regenerate`, the one change of a token it takes), a token deleted with its ACL entries, and a role's privileges, a user's and a token's comment and a token's `privsep` read back. It prints what Proxmox prints: `pvesh` compact JSON, and `pveum`'s answers the bordered table its text format draws, as a host was seen to draw it, unless `--output-format json` asks for JSON. A token is found by its user and its name, so two users' tokens of one name stay apart; a user's and a token's ID are held to Proxmox's patterns, and an ACL entry's path is normalised and refused where Proxmox refuses it; a comment is kept only where it is not empty, as Proxmox reads `user.cfg` again at every call; an option is read as its command line reads one, a boolean given bare and any other taking the next word; and a refusal is Proxmox's sentence whole, a parameter's 400 before anything else and its lock's label where Proxmox refuses inside it. An option a command does not take here, every `pvesh` read's included, is refused as an unsupported call, never ignored. One call at a time holds the state, by a lock beside it, and writes it only where it changed it, whole, so a read writes nothing (`tests/unit/test_aw_fake_pve.py`) |
+| `fake_virt_customize.sh` | `virt-customize` | so `proxmox_template` runs in a container; its log at `FAKE_VIRT_CUSTOMIZE_LOG` where a test names one |
+| `fake_virt_cat.sh` | `virt-cat` | the image's `os-release`, Ubuntu's unless a test says otherwise, from `FAKE_VIRT_CAT_OS_RELEASE` where a test names the file |
 | `fake_github_api.py` | the GitHub REST API | serves local bare repositories, in paginated responses; `/user` and `/user/repos` answer a token, private repositories included; each repository's branches, none for a never-pushed one or a fresh one - listed as GitHub lists a repository created with no commit, with a push time and a size of 0, and served as a bare repository with no commit; `POST /credentials/revoke` takes credentials unauthenticated and refuses an authenticated call, as GitHub does, and `/fake/revoked` lists what it took, so a test can hold that nothing reaches it |
-| `fake_tailscale_api.py` | Tailscale's API | the OAuth client exchange, and a device looked up and deleted by node ID, each device with the name it was started with; 403 and 404 on cue, and `/fake/deleted` lists what went |
+| `fake_tailscale_api.py` | Tailscale's API | the OAuth client exchange, and a device looked up and deleted by node ID, each device with the name it was started with; 403 and 404 on cue, and `/fake/deleted` lists what went, `/fake/asked` every request made of the API; plain HTTP, or with `--tls` and a certificate and its key HTTPS, for the new engine's client, whose transport takes an `https://` address only |
 | `fake_gh.sh` | `gh` | the auth commands only, installed ahead of the real one on PATH; one login per user, in a file under HOME, with every call logged; a login whose check never reached GitHub, and one GitHub refused, as gh 2.103.0 reports them; `fake-page` in its state directory makes the device flow name a page that is not GitHub's, and `fake-quit` end unapproved right after naming it |
 | `fake_tailscale.sh` | `tailscale` | output that is Tailscale's own, as the research and a Headscale run recorded it, for the commands the role runs, against a node whose state is files under HOME: `status --json` and `debug prefs` shaped as a Running and a signed-out node really print, a join with a canned key on stdin, a refused or slow key, the web login's page and an approval that lands after `up` has exited (by the clock, `approve-after`, or at the Nth status read after the page, `approve-at-read`, which no loaded machine can outrun; `up-waits` shortens `up`'s own wait), `NeedsMachineAuth`, a taken name, `NoState` reads after a start, logout resetting the prefs, a node ID (`node-id`), and with `real-daemon` an answer only while the real daemon's socket exists; a key is never written, and `calls.log` shows `KEY` in its place |
-| `fake_downloads.py` | Claude Code's and Ubuntu's download servers | static files under a directory, every request logged: a release laid out as Anthropic lays one out (the channels, a manifest and its detached signature, the binaries) and an image beside its checksum list and Ubuntu's signature of it, each signed by a key `tests/unit/signing.py` made, never a vendor's |
+| `fake_downloads.py` | Claude Code's and Ubuntu's download servers | static files under a directory, every request logged: a release laid out as Anthropic lays one out (the channels, a manifest and its detached signature, the binaries) and an image beside its checksum list and Ubuntu's signature of it, each signed by a key `tests/unit/signing.py` made, never a vendor's; plain HTTP, or with `--tls` and a certificate and its key HTTPS, for the new engine's verified downloads, whose transport takes an `https://` address only |
 | `fake_anthropic_api.py` | the Anthropic Messages API | for the real `claude` in the `configure` scenario: one short answer to every request, streamed or not, on 127.0.0.1 only, with each request's body logged, so a test reads the system prompt and the history a resume sent |
 | `fake_claude.sh` | `claude` | `auth status` and `auth login` as probed against Claude Code: the page, the `Paste code here if prompted >` prompt, then `Login successful.`, `Login failed: ...` or `Invalid code` for the line read from stdin, writing `~/.claude/.credentials.json` on success; given `BROWSER`, it hands it the page that redirects to its own callback on `127.0.0.1` and takes a code from there as from stdin; `auth logout`; `fake-refusal`, `fake-no-page`, `fake-gone` and `fake-foreign-page` in its state directory make it refuse in other words, print an error in place of the page, exit before reading a code, or hand its browser a page that is not Claude's |
 
@@ -842,11 +1015,16 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
   (`verify_agent_delay`, and `claude_vm_release_agent_delay` passed to each `destroy.yml` run, whose
   play sets it to 5): 34 s of its time had been the clock's.
 - `agent_interfaces()` always reports `lo`, a `docker0` bridge the role must ignore, and the VM's own
-  `eth0` — which is what makes the "address came from the right NIC" assertion meaningful.
+  `eth0` — which is what makes the "address came from the right NIC" assertion meaningful. What an agent
+  reports is the VM's to choose, so a test plants it in its place with
+  `PUT /api2/json/fake/agent-answer?vmid=&result=<JSON>` (no `result`: as before), as the VM's root would make it say.
 - 401 replies have an empty body, as the real API does.
 - Failures carry Proxmox's reason phrase — `VM 4013 is not running` for a stopped VM's agent,
-  `QEMU guest agent is not running` while it boots — because proxmoxer copies it into the error
-  message that callers pattern-match.
+  `QEMU guest agent is not running` while it boots (`VM_NOT_RUNNING` and `AGENT_NOT_RUNNING`, the first
+  of which the new engine's client tells a stopped VM by) — because proxmoxer copies it into the error
+  message that callers pattern-match. A VM whose configuration turns no guest agent on (no `agent`, or
+  `enabled=0`) has every agent call refused first with `No QEMU guest agent configured` (`NO_AGENT`), as
+  Proxmox refuses it before whether the VM runs; every VM the fake makes takes the template's `agent`.
 - `/cluster/resources` leaves `tags` out for an untagged guest, as PVE does. Sending `tags: ""`
   hid that `claude_vm_tagged` needs `selectattr('tags', 'defined')`.
 - A second node, `pve2`, is listed as offline and holds an unrelated VM (8000, below the template so
@@ -868,6 +1046,110 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
   set (`VM.Clone:0` granted without Propagate), else the whole role `tools/proxmox-access.sh`
   makes, with the guest-agent privilege of the version `/version` reports - 8.2.4 until
   `PUT /api2/json/fake/version?version=` changes it - and for the `noagent` token, without it.
+- Pools are also made, read, changed and deleted through Proxmox's own routes, as pve-manager's `PVE/API2/Pool.pm`
+  answers them: `POST /pools` with a comment, `GET /pools` (with `poolid` and `type`, a pool's members), `PUT /pools`
+  (`vms`, `storage`, `delete`, `allow-move`, every one checked before any is written), `DELETE /pools?poolid=` of an
+  empty pool, and the deprecated `/pools/<poolid>` forms; a refusal is a 500 with Proxmox's sentence after its label.
+  A pool a guest is a member of exists made or not, as before; the fake refuses a VMID it holds no guest for, which
+  Proxmox would take, since it keeps a guest's pool on the guest.
+- Users, roles, ACL entries and tokens are made as pve-access-control's API answers: `POST /access/users`,
+  `POST /access/roles`, `PUT /access/acl` (no groups), and `POST /access/users/<userid>/token/<tokenid>`, with
+  `privsep` 1 unless given, answering `info`, `value` and `full-tokenid`; `PUT` on the same path changes it, and with
+  `regenerate=1` makes a new secret, the old one refused from then on. Such a token is accepted with its own secret
+  alone, until its `expire`, and `GET /access/permissions` answers it from the ACL entries as Proxmox computes them:
+  the deepest entries of the path win, one above it only where it propagates, and `NoAccess` among them stands alone;
+  a pool member (a storage of every pool that holds it) takes the roles held on its pools without propagate, never
+  over a `NoAccess` of its own path, and a pool's `NoAccess` leaves it nothing; with `privsep=1` the token's own
+  entries are cut to what its user holds. The roles Proxmox has from the start are there to grant and never made
+  again: `NoAccess`, and those of `fake_pve_cli.py` (`PVEAuditor`); a role takes only the privileges Proxmox VE 9
+  defines, as that stand-in knows them, the rest refused with Proxmox's sentence; and a made token's clone into a pool
+  that does not exist is refused, as `check_pool_exist` refuses it. Today's tokens are answered by the table and the
+  whole role as above. `harness.fake_fleet(engine=True)` makes the new engine's pool, its role holding what the
+  engine's one table of privileges needs on a pool (`lib/claude_vm/pve/privileges.py`'s `needed`), its user and its
+  one token, and `harness.engine_token` gives the token's ID and secret; `harness.engine_grant` grants it what `init`
+  grants beside the pool; with `certificate`, a node's certificate and key of `tests/unit/pki.py`'s, the fake serves
+  that, which a client can verify, in place of one of its own.
+- Everything a made token asks is answered as a today's token's is, nothing refused for lack of a privilege, until
+  `PUT /api2/json/fake/enforce?on=1` (`fake_fleet(enforce=True)`; no scenario turns it on): then each request of a
+  made token is held to the engine's table, which the fake reads from the checkout's `lib/` and keeps no copy of, as
+  Proxmox checks each call. It is refused, a 403 with Proxmox's words, where the token lacks on its path the privilege
+  a row of its call names - the path the request's path names, or its parameters (a clone's pool, its new VM's own path
+  by its `newid`, and its storage, or with none its source's disk's; a pool's `poolid`), or its VM's configuration (the
+  storage of the disk a resize grows) - decided by the same function that answers `GET /access/permissions`. Where a
+  row names either of two privileges, any held lets it through, and the words name both, `|` between them, as
+  Proxmox's `check_any` says them (a node's storages and a storage's disks, `Datastore.Audit` or
+  `Datastore.AllocateSpace`; a node's bridges, `SDN.Use` or `SDN.Audit`); where it names either of two paths, a
+  clone's `VM.Allocate` on the pool it names or on its new VM's, either lets it through, and the words are Proxmox's
+  bare `Permission check failed`, as the `or` of two declared checks raises it. A configuration's write is held key by
+  key: each key it sends or deletes to the privilege of the row that covers it, a key sent with an empty value too, as
+  Proxmox checks every key of the form, so a token holding `VM.Config.Options` writes the record's keys and no other,
+  and a key no row covers is refused. A task's owner reads it with no privilege; a listing (the cluster's, a node's
+  storages and bridges, the pools: the fake's `LISTINGS`) shows each entry only where the token holds what its row
+  names on it, a node's figures only so, and a guest's pool only where its pool's row is held. A call no row names, a
+  key, or a `GET` row that neither the request's path nor its parameters place and whose route lists no entry of its
+  kind, which nothing would check, is refused the same way and recorded in the state directory's `unmatched.log`, and
+  `fake_fleet(enforce=True)` fails the test at its end on one: so a call the client adds without its row fails its own
+  test. Each row a request was decided by - held on a path, read by a listing for its entries, or needing nothing - is
+  recorded in `decided.log`, by its index in the table, which the client's both-ways test holds every row to;
+  `tests/unit/test_aw_fake_pve.py` holds the log itself, whole, request by request, so a row logged and not decided fails.
+  Enforcement answers before a call's own checks, which leaves one difference from Proxmox: a request whose parameter
+  Proxmox's schema refuses (a 400) is a 403 first where the token lacks the privilege; the client refuses a malformed
+  name before sending it. A request for an object that does not exist is answered as Proxmox answers it, the privilege
+  checked first there too (`Pool.pm` checks `Pool.Audit` on the pool before it says the pool does not exist). A request
+  to a node that is down still gets its 595, as pveproxy answers it before that node's own check.
+- Whatever enforcement says, a made token is answered two refusals of Proxmox's own that today's tokens are not:
+  `/cluster/resources` asked for a type its schema does not hold - `pool`, which an answer names but a request may not
+  ask for - is a 400 with the schema's words under the parameter's name (`ENUM_REFUSED`), and a configuration's `PUT`
+  or `POST` that sends no key and deletes none, `digest` aside, is `update_vm_api`'s 500, `no options specified`
+  (`NO_OPTIONS`). Today's `just status` asks for `?type=pool`, and is answered the pools as before.
+- `GET /nodes/<node>/status` answers a node's CPU threads, memory and uptime as Proxmox VE 9 does, to a token
+  `PUT /api2/json/fake/privileges` granted `Sys.Audit` on the node (under enforcement, a made token holding it there),
+  and 403 to any other.
+  `PUT /api2/json/fake/redirect?location=` has the next request that carries a token answered with a redirect there,
+  once: a client that followed it would carry the token to another address.
+- A VM's configuration is written as qemu-server's `PVE/API2/Qemu.pm` writes it. A `PUT` or `POST` of it that sends
+  `digest` is refused, nothing written, unless that is the digest its `GET` gives now; one that sends none is taken, as
+  before, and `digest` is never kept. Before anything else, as Proxmox's schema does, one whose `sshkeys` is not still
+  percent-encoded whole once the form is decoded - unreserved characters and `%XX` alone, what today's `proxmox_kvm`
+  sends (`quote(keys, safe="")`) - is refused, nothing written. A `POST`'s task checks the digest and the lock again
+  when it ends, as Proxmox's worker does under the VM's lock, and fails, writing nothing, where a write made since
+  changed the one or set the other: the `PUT` made in between stands. A description is read back without its trailing
+  white space, as Proxmox reads one. A clone takes `description` over its source's, `pool`, which it joins when its task
+  ends, `storage` (one its node has) and `target` (another node, where the disk's storage is shared there:
+  `PUT /api2/json/fake/storages` marks one with `:shared`). It is refused, its 500 now with Proxmox's words, onto a VMID
+  this node's VM holds; onto one a container or another node's VM holds it passes the call, whose check reads this
+  node's files alone, and fails in its task. While a clone or a deletion runs, the VM's configuration holds `lock`
+  (`clone`, `destroyed`) and a write to it is refused as locked. `PUT /api2/json/fake/notes-limit?bytes=` bounds the
+  description a configuration write sends (a clone's has no limit), and
+  `PUT /api2/json/fake/clone-inherits?tags=&description=` stops a clone taking its source's tags and description. Each
+  refusal's status and words are constants at the top of the fake, read from Proxmox's source, for experiment 6 to
+  correct.
+- Where Proxmox takes two calls and fails the loser in its worker, the fake can too: `PUT /api2/json/fake/clone-race`
+  has the next clone onto a VMID this node's VM holds, and the next configuration `POST` with a stale digest, pass the
+  call as a race's loser did, answer a UPID and fail in the task, changing nothing - the clone with the lock's timeout
+  while the winner's clone runs, else that the file exists; the `POST` with the digest's refusal. Each is armed unless
+  given 0 (`clone=0`, `config=0`, which also disarms one armed before), and spent once it has changed an outcome. The
+  fake answers one request at a time, which is what makes each check and the write after it atomic; a test whose first
+  request stalls half sent while a second waits holds that.
+- Every call that answers a UPID makes a task of it, recorded in the state directory's `tasks.json` with its type, the
+  token that made it and its VM, and what the call changes is changed when the task ends, but for a clone's VM, there
+  from the call and locked until then. A task ends at once, so today's callers see it stopped at their first poll,
+  until `PUT /api2/json/fake/task-polls?polls=N` has those made after it answer running to N polls first;
+  `PUT /api2/json/fake/task-end?upid=` ends a running task nobody polls, or with no `upid` every one, as its worker
+  ends on the host whether or not anyone asks, so a run killed during a clone can be shown;
+  `PUT /api2/json/fake/task-fail?error=&type=` has the next task end with that error, changing nothing (a failed clone
+  leaves no VM), and its log, which `tasks/<upid>/log` gives as Proxmox numbers its lines, end `TASK ERROR:` and the
+  error; `PUT /api2/json/fake/task-warn?warning=&type=` has the next task log those warnings, one a line, and end a
+  success, as Proxmox counts it, its change made: its exit status `WARNINGS: <n>`, its log each as `WARN:` and then
+  `TASK WARNINGS: <n>` (`TASK_WARNINGS_STATUS`, `TASK_WARN`, `TASK_WARNINGS`, from Proxmox's source, for experiment 6 to
+  confirm). Today's own tests of the fake and the scenarios that run it hold it for today's product.
+- A call whose answer is outstanding, as a slow host's is: `PUT /api2/json/fake/hold?suffix=&methods=&param=` has the
+  next request of those methods (`PUT` by default) to a path ending with `suffix`, carrying `param` where one is given,
+  done as any other and its answer held back: the fake writes `held` in its state directory once the request is done,
+  its method and path in it, and answers when the test makes `release` there (60 s at most), removing both. Holds armed
+  one after another are taken in order, each looked for once the one before has held its request, so that a test lets
+  one call through and holds the read after it. Since the fake answers one request at a time, nothing else is answered
+  meanwhile; a run stopped while the answer is held is what `tests/unit/test_aw_create.py` shows with it.
 - What `just status` reads is shaped by that version, as Proxmox VE's own: from 9 the listing carries
   `memhost` and `rrddata` the `pressure*` fields, and a day is 1440 points; on 8 it is 70. A clone's config
   carries the template's meta `ctime`, as a real one does; its disk's `ctime` in the storage's content is when it
@@ -898,8 +1180,8 @@ runs next. `test_justfile.py` holds both.
 
 ## 11.6 Which scenarios need the network
 
-`common`, `vscode_server`, `dev_tools`, `claude_code`, `github_projects`, `tailscale` and the `configure` scenario
-install packages inside the container and need working Docker DNS. `proxmox_vm`, `proxmox_template` and the
+`common`, `vscode_server`, `dev_tools`, `claude_code`, `github_projects`, `tailscale` and the `configure` and `system`
+scenarios install packages inside the container and need working Docker DNS. `proxmox_vm`, `proxmox_template` and the
 `provision` scenario talk only to local fakes and still run offline.
 
 The packages are real downloads, so those scenarios need internet access. The `configure` scenario

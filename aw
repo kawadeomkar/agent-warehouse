@@ -1,0 +1,238 @@
+#!/bin/sh
+# aw, the new engine's command line, from this checkout (docs/architecture/engine.md §16.3): ./aw <verb> ..., or aw
+# with a link to this file in a folder on PATH. Until 3.0 every command is still just's; aw help lists its own.
+#
+# It finds its checkout from its own path, every link to it followed and every folder by its physical path, and never
+# from the working directory, so no justfile or checkout found upward ever runs in its place. It asks tools/env-run,
+# from the checkout's own folder as every caller of it does, which Python environment the checkout runs - a virtualenv
+# of your own (PYTHON, or python3 where it is one), else the checkout's own, which uv makes in the checkout's folder
+# outside it - and runs tools/aw with that Python by its absolute path, isolated (-I), with the words as typed. Nothing
+# of the folder you run it from decides which Python runs: not a version manager's choice there, nor a module there.
+#
+# install_env is install's one home: what just install does to the environment, from uv.lock, and git's pre-commit
+# hook, as just init puts it. It runs in three cases and no other: by itself, once, where the checkout's own
+# environment does not exist yet, which no run can be under way from (said on standard error, before the program);
+# for aw install --lock, which writes uv.lock and needs no environment; and for --install-env, the one word of the
+# launcher's own, which aw install's run passes it as a child that carries its job's marker (AGENT_WAREHOUSE_JOB). It
+# never installs into a virtualenv of your own unasked: where one lacks the packages, the program names aw install.
+# No Galaxy collection is installed (the engine needs none), and a virtualenv of yours below Python 3.13,
+# pyproject.toml's floor, is refused before uv starts, in just install's sentence. Where aw on PATH is not this launcher, it says in one line
+# how to put it there, making the folder ~/.local/bin where it is missing, and writes nothing outside the checkout.
+#
+# The program is told how a person runs it again, AGENT_WAREHOUSE_STARTED_AS, for every command line it prints: aw where
+# aw on PATH is this launcher, else what was typed to start it (./aw); and the launcher's own sentences that say what to
+# run say it the same way, quoted as the program's printer quotes a word. Every line it says, a path or the program in
+# it, goes through printf '%s\n', never echo, whose backslashes dash and macOS's sh read as escapes: a folder named with
+# \n, \t or \c in it would be said as another path, or cut. It is never handed a job's marker it inherited:
+# AGENT_WAREHOUSE_JOB is unset before anything but --install-env, which reads it, so the program's own environment, as
+# the system shows it, carries none, and nor does anything it starts.
+set -eu
+
+# The Python version the checkout's own environment runs on: the justfile's managed_python, which
+# tests/unit/test_aw_cli_parse.py holds equal until just install calls this launcher.
+managed_python=3.14
+
+self=$0
+case $self in */*) ;; *) self=./$self ;; esac
+started=$self
+while [ -L "$self" ]; do
+  link=$(readlink -- "$self")
+  case $link in /*) self=$link ;; *) self=$(dirname -- "$self")/$link ;; esac
+done
+# -P: a folder on the way that is a link is its target, as the kernel read the links above, so <link>/.. is the
+# target's parent and never the folder the text names.
+checkout=$(CDPATH='' cd -P -- "$(dirname -- "$self")" && pwd -P)
+launcher=$checkout/${self##*/}
+uv=${UV:-uv}
+# A copy of this file outside its checkout finds none of the tools it runs: said in one sentence, never in the shell's
+# words for a command not found.
+if ! [ -f "$checkout/tools/env-run" ] || ! [ -f "$checkout/tools/aw" ]; then
+  printf '%s\n' "error: $launcher is a copy of aw outside its checkout, so it finds none of the checkout's tools: link to the aw at the top of your checkout with ln -s, never copy it" >&2
+  exit 1
+fi
+
+# A file's physical path, every link to it followed and its folder by its physical path, as the launcher's own is
+# found above; empty where its folder cannot be entered.
+physical() {
+  file=$1
+  while [ -L "$file" ]; do
+    link=$(readlink -- "$file")
+    case $link in /*) file=$link ;; *) file=$(dirname -- "$file")/$link ;; esac
+  done
+  dir=$(CDPATH='' cd -P -- "$(dirname -- "$file")" 2>/dev/null && pwd -P) || return 0
+  printf '%s/%s\n' "$dir" "${file##*/}"
+}
+
+# How a person runs this launcher again: aw where aw on PATH is this launcher, else what was typed to start it.
+started_as() {
+  onpath=$(command -v aw 2>/dev/null) || onpath=
+  case $onpath in
+  /*) if [ "$(physical "$onpath")" = "$launcher" ]; then
+    printf '%s\n' aw
+    return
+  fi ;;
+  esac
+  printf '%s\n' "$started"
+}
+
+# A word quoted for a POSIX shell and zsh as shlex.quote quotes one: between single quotes, each ' of its own written
+# '"'"'.
+quoted() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\"'\"'/g")"
+}
+
+# A word as one word of a line a person pastes, as the program's printer writes one (schema/printer.py's quoted): bare
+# where every POSIX shell and zsh read it back as it is - shlex.quote's safe characters, spelled out so that no locale
+# widens them, and not = first, which zsh expands to a command's path - and quoted otherwise.
+word() {
+  case $1 in
+  '' | =* | *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@%+=:,./_-]*) quoted "$1" ;;
+  *) printf '%s' "$1" ;;
+  esac
+}
+
+# The program as a person runs it again, as one word of a line: aw, or what was typed, as the program says it.
+program() {
+  word "$(started_as)"
+}
+
+# Which environment the checkout runs, asked from the checkout's own folder - a version manager picks python3 by the
+# folder it is run in, and python puts that folder first on sys.path - as tools/env-run --which says it there: $kind,
+# own or managed, $named the Python it names, and $python that Python by its absolute path. A Python of your own is
+# asked there which interpreter it is, so that the one run is the one tools/env-run found there, whatever the folder
+# aw is run from: a bare name, a relative path (the checkout's, as for just) or a version manager's shim alike. Empty
+# where it cannot be run.
+pick() {
+  which=$(cd "$checkout" && tools/env-run --which)
+  kind=${which%% *}
+  named=${which#* }
+  python=$named
+  # The checkout's own environment named by a relative path (a relative XDG_DATA_HOME) is the checkout's, as a relative
+  # PYTHON is, never the working folder's.
+  case $kind:$named in
+  managed:/*) ;;
+  managed:*) python=$checkout/$named ;;
+  esac
+  if [ "$kind" = own ]; then
+    python=$(cd "$checkout" && "$named" -I -c 'import sys; print(sys.executable)' 2>/dev/null) || python=
+  fi
+}
+
+# install's one home, from the checkout's top: with --lock uv.lock written again after a pin is edited, installing
+# nothing; else the locked packages into the environment tools/env-run finds - one of yours --inexact, with no
+# download, after tools/stale_scripts.py names the packages whose commands start another Python; the checkout's own
+# exactly the lock's, on a Python uv downloads - then git's pre-commit hook.
+install_env() {
+  cd "$checkout"
+  command -v "$uv" >/dev/null 2>&1 || {
+    printf '%s\n' "error: no $uv: install uv (https://docs.astral.sh/uv/getting-started/installation/), or name it with UV=" >&2
+    exit 1
+  }
+  if [ "${1:-}" = --lock ]; then
+    UV_PYTHON_DOWNLOADS=never "$uv" lock
+    return
+  fi
+  pick
+  case $kind in
+  own)
+    # Refused, with how to make one, for a Python that is no virtualenv's.
+    tools/env-run --bin >/dev/null
+    # The floor, pyproject.toml's requires-python, before uv starts, as the Python named says its version (the first
+    # line: "Python 3.12.7"), in just install's sentence: below 3.13 is 0.x to 3.9.x, 3.10.x, 3.11.x and 3.12.x.
+    version=$("$named" --version 2>&1 | sed -n 1p)
+    case $version in
+    "Python "[0-2].* | "Python 3."[0-9].* | "Python 3.1"[0-2].*)
+      printf '%s\n' "error: [$named] is $version, and this project needs Python 3.13 or later, as its program aw and ansible-core 2.22 do: make a virtualenv of Python 3.13 or later and activate it or name it with PYTHON, or bring none - PYTHON unset and python3 no virtualenv's - and $(program) install makes this checkout's own with uv." >&2
+      exit 1
+      ;;
+    esac
+    prefix=$("$python" -I -c 'import sys; print(sys.prefix)')
+    reinstall=$("$python" -I tools/stale_scripts.py)
+    # $reinstall is words: --reinstall-package <name>, for each.
+    # shellcheck disable=SC2086
+    UV_PYTHON_DOWNLOADS=never UV_PROJECT_ENVIRONMENT="$prefix" "$uv" sync --locked --inexact --python "$python" $reinstall
+    [ -z "$reinstall" ] || "$python" -I tools/stale_scripts.py --check
+    ;;
+  *)
+    venv=${python%/bin/python}
+    printf '%s\n' "Installing into this checkout's own environment, $venv: PYTHON is unset and python3 is no virtualenv."
+    UV_PYTHON_DOWNLOADS=automatic UV_PROJECT_ENVIRONMENT="$venv" "$uv" sync --locked --managed-python --python "$managed_python"
+    ;;
+  esac
+  # The git hook names no environment (tools/git-hook), so each worktree commits through its own. Another tool's hook
+  # moves aside to pre-commit.legacy, which the hook runs first; a core.hooksPath folder, which may be every
+  # repository's, is left alone.
+  if git config core.hooksPath >/dev/null; then
+    printf '%s\n' "warning: git's core.hooksPath is set, so aw install put no git hook there: copy tools/git-hook into that folder as pre-commit to have one" >&2
+  else
+    hook=$(git rev-parse --git-path hooks/pre-commit)
+    if ! cmp -s tools/git-hook "$hook" || ! [ -x "$hook" ]; then
+      said="Installed git's pre-commit hook."
+      if [ -e "$hook" ] || [ -L "$hook" ]; then
+        if grep -q -e 'File generated by pre-commit' -e "agent-warehouse's pre-commit hook" -e "claude-on-proxmox's pre-commit hook" "$hook" 2>/dev/null; then
+          rm -f "$hook"
+          said="Updated git's pre-commit hook to this version's."
+        else
+          mv "$hook" "$hook.legacy"
+          said="Installed git's pre-commit hook; another tool's, now pre-commit.legacy, still runs first."
+        fi
+      fi
+      mkdir -p "$(dirname "$hook")"
+      cp tools/git-hook "$hook"
+      chmod 755 "$hook"
+      printf '%s\n' "$said"
+    fi
+  fi
+  # How to run aw from any folder, where aw on PATH is not this launcher: said, the folder made where it is missing, and
+  # nothing written outside the checkout.
+  if [ "$(started_as)" != aw ]; then
+    printf '%s\n' "To run aw from any folder, link it into ~/.local/bin and have that folder on your PATH: mkdir -p ~/.local/bin && ln -s $(word "$launcher") ~/.local/bin/aw"
+  fi
+}
+
+# aw install's own step, which its run starts as a child carrying its job's marker: a job's ID, sixteen hex digits.
+if [ "${1:-}" = --install-env ]; then
+  job=${AGENT_WAREHOUSE_JOB:-}
+  case $job in
+  '' | *[!0123456789abcdef]*) job= ;;
+  esac
+  if [ "${#job}" -ne 16 ] || [ "$#" -gt 2 ] || { [ "$#" -eq 2 ] && [ "$2" != --lock ]; }; then
+    printf '%s\n' "error: --install-env is a step that $(program) install's run starts: run $(program) install" >&2
+    exit 1
+  fi
+  shift
+  (install_env "$@")
+  exit 0
+fi
+# A run makes its own job and marks its own children: an inherited marker is another job's.
+unset AGENT_WAREHOUSE_JOB
+# uv.lock written again, which needs no environment.
+if [ "$#" -eq 2 ] && [ "$1" = install ] && [ "$2" = --lock ]; then
+  (install_env --lock)
+  exit 0
+fi
+
+pick
+case $kind in
+managed)
+  if ! [ -x "$python" ]; then
+    printf '%s\n' "This checkout has no Python environment yet: it is made first, from uv.lock, as $(program) install makes it." >&2
+    (install_env) >&2
+    if ! [ -x "$python" ]; then
+      printf '%s\n' "error: uv made no Python at $python: run $(program) install again, and read what it says" >&2
+      exit 1
+    fi
+  fi
+  ;;
+*)
+  # A Python that cannot be run is said here, never in the shell's words for a failed exec; one that runs but is no
+  # virtualenv's is the program's to refuse, in its own sentence, at no second start.
+  if [ -z "$python" ] || ! [ -f "$python" ] || ! [ -x "$python" ]; then
+    printf '%s\n' "error: the Python $named cannot be run: set PYTHON to a virtualenv's python, or leave it unset and aw makes this checkout's own" >&2
+    exit 1
+  fi
+  ;;
+esac
+AGENT_WAREHOUSE_STARTED_AS=$(started_as)
+export AGENT_WAREHOUSE_STARTED_AS
+exec "$python" -I "$checkout/tools/aw" "$@"

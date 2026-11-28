@@ -8,6 +8,8 @@ callback_plugins/agent_warehouse.py   the default output, the waits set apart, N
 .sessions/                        the Claude sessions just destroy saved from each VM (git-ignored, 0700, kept until deleted)
 hosts/                            the checkout's hosts but the first, one folder each - hosts.yml, group_vars/all/local.yml
                                   and vault.yml - and current, the current host's name (git-ignored; just host, §7.14)
+.aw/                              the new engine's home in this checkout (§16.9): client.yml, fleet/, state/ and
+                                  vault-key (git-ignored); nothing writes it before 3.0
 deploy.yml                        template (when missing) + provision + configure + the three sign-ins + the editor
 CLAUDE.md                         agent-facing operating rules
 README.md                         getting started; everything else is in docs/
@@ -19,6 +21,9 @@ docs/                             the wiki (docs/development/docs.md): getting-s
                                   (generated in part), architecture/ (these pages), development/
 zensical.toml                     the wiki as a site: navigation, theme, GitHub-style anchors
 justfile                          every entry point: few recipes, each narrowed by an option or a word (just help)
+aw                                the new engine's launcher (§16.3): finds its checkout from its own path, runs
+                                  tools/aw with the checkout's environment, and makes that environment and the git
+                                  hook on first use, for aw install --lock and as aw install's step (install_env)
 tools/docs.py                     just docs: the generated reference sections; templates/role.md.j2 for docsible
 tools/env-run                     run a tool from the project's environment (the git hooks) - yours, or the checkout's own - or --bin: its bin (the justfile); --data, --collections: the checkout's folder
 tools/check                       the justfile's checks: the checkout, the run's host, the vaults, the collections, names, a project
@@ -32,6 +37,12 @@ tools/host                        the checkout's hosts (tools/check host): the h
                                   removal and just init --host's files (lib/claude_vm/hosts/, §7.14)
 tools/settings                    just settings: each setting's value and where it was set, from Ansible's own variables (§7.9)
 tools/mcp                         the MCP server just mcp registers with Claude Code: its tools the recipes (§7.12)
+tools/aw                          aw, the new engine's program until 3.0 (§16): this checkout's lib/ on the path, then
+                                  lib/claude_vm/cli/main.py; nothing of today's product runs it (test_aw_layout.py)
+tools/aw-mcp                      the agents' server over the program: today's MCP server, each read aw run as a child
+                                  (lib/claude_vm/cli/mcp_serve.py, §16.3); nothing of today's product starts it
+tools/comments                    just lint comments and the commit hook: each comment of a kind a check reads, the new
+                                  engine's prose held to tests/unit/comments.json (docs/development/comments.md)
 tools/stale_scripts.py            just install: the locked packages whose commands start another Python, to reinstall
 tools/unit_durations.py           tests/unit/durations.json from a run's JUnit report: what the unit tests' shards balance by
 tools/molecule-lanes              just test molecule --jobs 4: the scenarios that many at a time, each in a log of its own
@@ -64,6 +75,9 @@ playbooks/
                                   then tailscale in a rescued block, then the Proxmox record of each Tailscale login,
                                   then an SSH alias per configured VM on the controller, and a last play failing what
                                   the rescue recorded
+  system.yml                      the new engine's system play, which its layer-1 child runs on one machine: a check
+                                  that the connection is the one the engine wrote, configure.yml's opening tasks
+                                  copied as they stand, then common → vscode_server → dev_tools (§16.10)
   destroy.yml                     confirm, verify ownership, save each VM's own Claude sessions, release (Claude, GitHub,
                                   Tailscale), delete in parallel, forget each alias
   ssh_config.yml                  refresh every alias from the fleet; fleet-wide, prune the vanished
@@ -159,7 +173,8 @@ roles/                            one role per concern, each with defaults/, met
                                   library/github_repos.py, the listing, and git_clone_many.py, the clones, several at
                                   a time, each whole or not at all (§5.6)
   tailscale/                      tasks/ownership.yml, install.yml, state.yml, connect.yml (the key), settings.yml,
-                                  report.yml, unmanaged.yml (off), login.yml and web_login.yml (the sign-in);
+                                  report.yml, unmanaged.yml (off), login.yml and web_login.yml (the sign-in),
+                                  system.yml (the new engine's layer 1: the package alone, §16.10);
                                   files/tailscale.asc (the vendored signing key)
 
 lib/claude_vm/                    the controller's Python as one package (§7.10): records.py, every record's base,
@@ -224,6 +239,100 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   more than one family uses, the helpers' directory and the marker among it; vscode.py
                                   and zed.py, each family's plan of its window; registry.py, which every plan passes
                                   (§7.10)
+lib/claude_vm/schema/             the new engine (§16), built beside today's and reached through tools/aw alone until
+                                  3.0, one subpackage each below: the command line's patterns and its one table of
+                                  verbs and options, literals written by hand; patterns.py, the one home of the
+                                  patterns, each with what a value may be in words and its examples, form, which says
+                                  it, and full, which holds a value to one; words.py, the table: each verb's words,
+                                  options, rules, handler, locks and agents' tools, the exit statuses, and each
+                                  value's placeholder; check.py, the one check every entry runs on a verb's values;
+                                  rules.py, the rules between options, each a function that says its sentence;
+                                  printer.py, the printer of a command, the one way a line a person types is written,
+                                  and said, the one way a sentence names a command
+lib/claude_vm/cli/                aw, the program: the command line read against the table, help, the dispatch;
+                                  main.py, the entry tools/aw runs; parse.py, the words read with argparse; habits.py,
+                                  today's habits, deploy's question among them; before.py, RunWords, the run's own
+                                  words; dispatch.py, a verb handed to its handler or refused; install.py, aw install
+                                  in a checkout, the launcher's install_env as a run; help.py, aw help's two
+                                  levels from the table; reference.py, the command reference's tables from it;
+                                  mcp_backend.py, the agents' tools' schemas and command lines, from the table;
+                                  mcp_serve.py, the agents' server over the program, which tools/aw-mcp starts
+lib/claude_vm/engine/             the workflows, one module a verb, in place of the playbooks; record.py, a VM's record,
+                                  typed, read from its notes and written there under Proxmox's digest; certificate.py,
+                                  the API's certificate worked out with no credential: an anchor where the computer's
+                                  certificates do not verify the host, read over root SSH or vouched for by a person;
+                                  template.py, the base template compared with what its settings would build, by GETs
+                                  alone; init.py, init with nobody there: a whole fleet folder written, the vault sealed;
+                                  fleet.py, the fleet as the engine reads it: a host's pool members as targets, what is
+                                  refused, and the Owned of each a changing read may change; access.py, the one list of
+                                  what init makes on a host, the check of each against what is there, and the script
+                                  that makes them, rendered; create.py, a VM made or resumed: cloned, recorded, set,
+                                  started, its host key filed; configure.py, a VM configured, the frame: reached, its
+                                  system layer run by layer 1, its home read, its stage written; deploy.py, deploy's
+                                  handler, each stage refused but those built; destroy.py, destroy's handler: the names
+                                  confirmed, each VM read again and deleted with its disks, its alias removed;
+                                  confirm.py, the one validator of the names that confirm a deletion; report.py, what a
+                                  run says of a machine and, straight after, its NEXT STEPS record; aliases.py, the
+                                  managed SSH config: each VM's alias written, validated and swapped, the Include added
+                                  once, the prune by origin; code.py, code's handler: one VM's window, its alias
+                                  refreshed and the editor's plan applied in code's own directory on the VM;
+                                  controller_writes.py, the one list of what the engine writes on this computer outside
+                                  the checkout
+lib/claude_vm/pve/                the typed Proxmox VE client, and the one table of each call's privilege; client.py,
+                                  Proxmox, the one class that sends the token, and its reads and writes; answers.py,
+                                  each answer's frozen record and its parsing function; pin.py, the connection the token
+                                  goes on, verified against the host's anchor or the computer's certificate file;
+                                  privileges.py, the table init grants from and the fake enforces; agent.py, a started
+                                  VM's address from its guest agent, waited for; record.py, a VM's record as the text of
+                                  its notes, parsed and rendered with nothing of the engine's but text.py; template.py,
+                                  the base template judged from what was read of it, with no client, which deploy and
+                                  status judge by alike; ownership.py, the one rule of what is the fleet's, which status
+                                  judges by too, and the Owned every write of a VM takes, which it alone makes;
+                                  script.py, the access script's fixed text, its shell and its Perl around the calls
+                                  engine/access.py renders; commands.py, the base template's build as argument lists
+                                  run over root SSH, each value held to its form, which runs nothing
+lib/claude_vm/ssh/                the runner over OpenSSH: ssh as a child, host keys taken at first use, the control
+                                  directory, the children a run holds; resolved.py, ssh -G of a configuration file, for
+                                  the aliases
+lib/claude_vm/vendors/            one HTTPS transport, Tailscale's calls, downloads held to a signature or a digest;
+                                  transport.py, the one transport, over http.client: no redirect followed, no
+                                  certificate variable read, a proxy only as an argument; proxy.py, today's proxy
+                                  from the environment it is given; trust.py, the computer's certificates,
+                                  certifi's list with the file tls_ca_file names added, and the context made from them;
+                                  keys.py, the vendored signing keys by their fingerprints; downloads.py, Claude Code's
+                                  release and an Ubuntu image's digest, each held to its vendor's signature;
+                                  tailscale.py, Tailscale's API: an OAuth client exchanged for an access token, and a
+                                  device read and deleted by its node's ID
+lib/claude_vm/runs/               a run's record and text log, the kernel's file locks, a detached run
+lib/claude_vm/fleet/              a fleet's files: where they are, the hosts, the settings table, the secrets, its mark;
+                                  paths.py, the one resolver of a fleet's home, its state folder and its key file;
+                                  registry.py, the settings table, a typed row written by hand for each setting;
+                                  overrides.py, the plain files of what a person sets, in three layers, and --set;
+                                  passthrough.py, every typed role option no row names, passed through or refused;
+                                  hosts.py, the hosts as a folder each, the current host, which one a run reaches,
+                                  and host.yml's one writer, the anchor with it;
+                                  files.py, the one maker of the fleet's folders, a link refused where one goes;
+                                  record.py, fleet.json: the fleet's ID and every store's format number;
+                                  mark.py, the pool's mark and the one rule a changing run reads it by;
+                                  secrets.py, the vault's closed list of named secrets, each with its scope and kind;
+                                  sealed.py, vault.age: the named secrets in one age file, encrypted whole;
+                                  vaultkey.py, the vault's key: made once in a file of this computer's own, found
+                                  in one order; opened.py, a host opened from these files, its client among them, the
+                                  one way every workflow and status open one
+lib/claude_vm/guest/              inside a machine: the helper, the system layer's inputs, layer 2; layer1.py,
+                                  one ansible-playbook for one machine, its configuration, inventory and
+                                  environment made by the engine; variables.py, the play's variables as one
+                                  JSON file, every string marked unsafe; events.py, its events read from the pipe
+                                  and handed to the run's emit, every secret the run opened struck from them;
+                                  ansible/callback_plugins/aw_events.py, its stdout callback, each event of the
+                                  play a line of JSON on that pipe; system.py, the system play (playbooks/system.yml),
+                                  its parts, and its variables' writer, which refuses what the engine cannot serve yet;
+                                  wiring.py, the play's variables for one machine, a pure function of the settings;
+                                  keys.py, one key taken off a machine's account by its fingerprint, through a
+                                  one-task play of its own, plays/remove_key.yml
+lib/claude_vm/control/            the add-on's, with a control VM only: nothing of the base writes here
+lib/claude_vm/secret.py           the new engine's Secret: a value shown as a mark wherever it is shown, never pickled
+                                  or turned into JSON, read only by reveal() in the modules a test names (§16.1)
 filter_plugins/proxmox.py         the adapter of lib/claude_vm/proxmox.py and checks.py, reading guest agent output:
                                   net_mac, guest_ipv4, guest_addresses;
                                   a VM's tailnet address: tailnet_ipv4; a refused token told from a slow boot:
@@ -282,13 +391,16 @@ tests/
                                   output - the model, each recipe drawn, tools/live's runs in parts (live_kit.py runs
                                   each at a terminal of its own; vt.py, a small terminal they read back through;
                                   interrupts.py, SIGTERM and SIGHUP taken as a Ctrl-C in every pytest process) -
-                                  and the wiki (test_docs.py)
+                                  and the wiki (test_docs.py); the new engine's tests, test_aw_*.py, marked engine,
+                                  with their kit, aw_kit.py, and their guards, test_aw_guards.py (§11.1);
+                                  comments.json, the count of prose tools/comments holds each new-engine file to
   molecule/                       shared fakes (§11.4): fake_pve_api.py, the PVE API and its guest agent;
                                   fake_qm.sh, fake_virt_customize.sh and fake_virt_cat.sh, the template's tools; fake_pve_cli.py,
                                   the host's commands tools/proxmox-access.sh runs; fake_github_api.py and
                                   fake_gh.sh; fake_claude.sh; fake_tailscale.sh and fake_tailscale_api.py;
                                   fake_anthropic_api.py, the Messages API for the real claude in configure;
-                                  fake_downloads.py, a vendor's download server for the signed downloads' tests.
+                                  fake_downloads.py, a vendor's download server for the signed downloads' tests,
+                                  over HTTP or, given a certificate, HTTPS.
                                   And the scenarios' shared task files: prepare_pve.yml and prepare_github.yml
                                   start the fake APIs, pve_vm.yml makes fixture VMs through the PVE one, and
                                   refused.yml runs a role where it must refuse and asserts why; and boot_wait.yml,
@@ -297,6 +409,9 @@ molecule/
   provision/                      provision.yml + discover.yml against the fake API
   configure/                      configure.yml end to end in a container
                                   (in both, group_vars/all/defaults.yml is a symlink to the real one; keep it a git checkout)
+  system/                         the new engine's system play in a container, converged by its layer-1 child from
+                                  converge.py, the scenario's driver, over the child's test-only connection; its
+                                  side effect a key kept and one taken off by remove_key.py, through guest/keys.py
 .config/molecule/config.yml       driver, shared provisioner settings, the dependency step off
 .config/ansible-lint-rules/       agent_warehouse_module_utils.py, no rule: puts playbooks/module_utils/ on the
                                   path in ansible-lint's own process, where its args rule imports the modules in

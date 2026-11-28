@@ -1,4 +1,5 @@
-"""configure.yml's wait for cloud-init, run for real against a stand-in cloud-init.
+"""configure.yml's wait for cloud-init, run for real against a stand-in cloud-init, and the new engine's system play's,
+which is the same, copied as it stands (playbooks/system.yml).
 
 A VM's first boot can fail - a package upgrade cut short by a mirror, or by a
 download corrupted on its way to the disk - and `cloud-init status --wait`
@@ -19,6 +20,7 @@ import yaml
 from harness import REPO, _failures, _local_hosts, _results, _run
 
 PLAYBOOK = REPO / "playbooks" / "configure.yml"
+SYSTEM = REPO / "playbooks" / "system.yml"
 WAIT = ("Wait for cloud-init to finish", "Read what cloud-init reported", "Fail with what cloud-init reported")
 
 # What `cloud-init status --long` printed on a VM whose first-boot upgrade
@@ -49,9 +51,10 @@ exit 99
 """
 
 
-def _wait_tasks(root: Path) -> Path:
-    """The cloud-init tasks of configure.yml's pre_tasks, as configure.yml has them, in a play of their own."""
-    play = next(p for p in yaml.safe_load(PLAYBOOK.read_text()) if p.get("name") == "Configure Claude development VMs")
+def _wait_tasks(root: Path, playbook: Path = PLAYBOOK, name: str = "Configure Claude development VMs") -> Path:
+    """The cloud-init tasks of configure.yml's pre_tasks, as configure.yml has them (or playbook, the play named so),
+    in a play of their own."""
+    play = next(p for p in yaml.safe_load(playbook.read_text()) if p.get("name") == name)
     tasks = [t for t in play["pre_tasks"] if t.get("name") in WAIT]
     assert [t["name"] for t in tasks] == list(WAIT)
     playbook = root / "wait.yml"
@@ -92,3 +95,18 @@ def test_recoverable_errors_and_success_go_on(waited):
 
 def test_what_the_vm_printed_reaches_no_message_with_its_control_characters(waited):
     assert "\x1b" not in json.dumps(_failures(waited))
+
+
+@pytest.fixture(scope="module")
+def waited_by_the_system_play(tmp_path_factory):
+    root = tmp_path_factory.mktemp("cloud_init_system")
+    hosts = _hosts(root, {"failed": 1, "recoverable": 2, "done": 0})
+    playbook = _wait_tasks(root, SYSTEM, "Converge the machine's system layer")
+    return _run(root, playbook, hosts, "-e", json.dumps({"ansible_become": False}))
+
+
+def test_the_system_play_waits_for_cloud_init_as_configure_does(waited, waited_by_the_system_play):
+    # The same failure said, by name, with the same way past it; the same hosts go on.
+    assert _failures(waited_by_the_system_play) == _failures(waited)
+    assert set(_failures(waited_by_the_system_play)) == {"failed"}
+    assert "\x1b" not in json.dumps(_failures(waited_by_the_system_play))

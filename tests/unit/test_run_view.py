@@ -20,8 +20,8 @@ import yaml
 REPO = Path(__file__).resolve().parents[2]
 
 
-from claude_vm.run import model as view  # noqa: E402
-from claude_vm.tui import run as drawn  # noqa: E402
+from claude_vm.run import model as view
+from claude_vm.tui import run as drawn
 
 STARTED = time.mktime((2026, 10, 25, 9, 30, 0, 0, 0, -1))
 LOG = ".logs/20261025-093000-deploy.log"

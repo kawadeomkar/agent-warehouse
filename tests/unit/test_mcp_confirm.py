@@ -177,7 +177,7 @@ def test_no_other_client_and_no_client_without_the_dialog_is_asked_anything(worl
     # it), and nothing is deleted.
     try:
         _, _, (result,) = _talk(world, [("destroy", {"names": ["alpha"]})], None)
-    except Exception:  # noqa: BLE001
+    except Exception:
         result = None
     assert result is None or result.is_error
     assert not [run for run in _ran(world, "playbook") if run[-1] == "playbooks/destroy.yml"]

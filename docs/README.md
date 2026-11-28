@@ -56,12 +56,14 @@ Where things are in the repository is the [file map](architecture/file-map.md).
 
 [How it is built, and why](architecture/README.md): the identity model, each playbook and role, the
 variable layers, convergence, failure modes, the security model and the tests. Read it before
-changing behaviour.
+changing behaviour. The engine that replaces the playbooks at 3.0, built beside them until then, is
+[its own section](architecture/engine.md).
 
 ## Development
 
 - [Testing](development/testing.md) - the test suite, the fakes it runs against, and CI.
 - [This wiki](development/docs.md) - how these pages are organised, generated and checked.
+- [Comments](development/comments.md) - the kinds a comment of the new engine's may be, the check and its count.
 - [CONTRIBUTING.md](https://github.com/kawadeomkar/agent-warehouse/blob/main/CONTRIBUTING.md) - setup,
   conventions and pull requests.
 - [SECURITY.md](https://github.com/kawadeomkar/agent-warehouse/blob/main/SECURITY.md) - reporting a

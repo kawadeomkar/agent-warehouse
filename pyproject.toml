@@ -7,14 +7,17 @@ name = "agent-warehouse"
 # The [project] table requires one; nothing is built or published, so it never changes.
 version = "0"
 description = "The controller's Python for the playbooks, and the linters and tests that check them."
-# The pinned ansible-core's controller range.
-requires-python = ">=3.12"
-# What the playbooks need on the controller.
+# The floor: the program aw and ansible-core 2.22 need Python 3.13 or later. just install refuses a virtualenv
+# of an older one, and CI runs one unit shard on it (tests/unit/test_justfile.py holds the floor to one version).
+requires-python = ">=3.13"
+# What the playbooks, and the new engine beside them (tools/aw), need on the controller.
 dependencies = [
     "ansible-core==2.21.6",
     # Required on the controller by the community.proxmox collection
     "proxmoxer==2.3.0",
     "requests==2.34.2",
+    # The new engine's vault: one age file of named secrets, encrypted whole (lib/claude_vm/fleet/sealed.py).
+    "pyrage==1.4.0",
 ]
 
 [dependency-groups]
@@ -71,21 +74,42 @@ testpaths = ["tests/unit"]
 pythonpath = ["tests/unit", "lib"]
 addopts = "-ra -q"
 # Registered here too, so a run without xdist (-p no:xdist) knows the mark tests/unit/conftest.py sets.
-markers = ["xdist_group(name): run every test of the group on one xdist worker"]
+markers = [
+  "xdist_group(name): run every test of the group on one xdist worker",
+  "engine: a test of the new engine, every test of a file tests/unit/test_aw_*.py, which just test engine runs alone",
+  "tree: a test of today's suite that reads the tree (tests/unit/conftest.py's TREE), which just test --short runs",
+]
 
 [tool.ruff]
 line-length = 120
 # Module code runs on the managed VM's Python (Ubuntu jammy ships 3.10), not
-# the controller's (3.12+ for the pinned ansible-core).
+# the controller's (3.13+, requires-python above).
 target-version = "py310"
 # lib/ is the controller's alone, and is imported as claude_vm (docs/architecture/custom-code.md §7.10).
-per-file-target-version = { "lib/**" = "py312" }
+per-file-target-version = { "lib/**" = "py313" }
 src = [".", "lib"]
 # The tools that are Python with no .py, which ruff finds by extension only: just lint checks them as the rest.
-extend-include = ["tools/live", "tools/mcp", "tools/settings", "tools/status"]
+extend-include = [
+    "tools/aw",
+    "tools/aw-mcp",
+    "tools/comments",
+    "tools/host",
+    "tools/live",
+    "tools/mcp",
+    "tools/settings",
+    "tools/status",
+]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "B", "UP"]
+# And the comment rule's four (docs/development/comments.md): no code left commented out (ERA001), a
+# type: ignore or noqa only with its code (PGH003, PGH004), and no noqa that suppresses nothing (RUF100).
+select = ["E", "F", "W", "I", "B", "UP", "ERA001", "PGH003", "PGH004", "RUF100"]
 # Ansible modules must keep the module-level DOCUMENTATION/EXAMPLES/RETURN strings
 # and import AnsibleModule after them.
 ignore = ["E402"]
+
+[tool.ruff.lint.per-file-ignores]
+# The helper runs on a machine's own python3, Python 3.10 at the least, but lib/** is linted at py313, and ruff takes
+# no narrower target for a folder under it: so the rules that would write past 3.10 there are kept off (UP017 makes
+# datetime.timezone.utc datetime.UTC, from 3.11; B905 asks zip for strict=). tests/unit/test_aw_guest_helper.py holds it.
+"lib/claude_vm/guest/helper/**" = ["UP017", "B905"]

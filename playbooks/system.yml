@@ -1,0 +1,269 @@
+---
+# The new engine's system play: one machine's system layer, converged by its layer-1 child, which writes the one host's
+# inventory (named by the machine's identity), the configuration and the variables, and starts this play
+# (docs/architecture/engine.md §16.10). Today's three system roles, as they stand and under today's tags, after the
+# opening tasks of the guest play today's product runs: the wait, the base's check by raw, the facts, cloud-init's
+# wait and root's temporary directory, copied here as they stand (tests/unit/test_aw_layer1_play.py holds the two
+# equal). Then Tailscale's package, where it is the VPN, by the role's entry system under the tag tailscale, and never
+# in an image. Nothing here prompts, reports or calls a vendor: the sign-ins, layer 2 and the VPN's join are the
+# engine's own.
+#
+# Every task this play reaches calls a state module of ansible.builtin, or is a command, shell or raw with its reason
+# listed (tests/unit/test_aw_layer1_ratchet.py), so that the product needs no Galaxy collection.
+- name: Converge the machine's system layer
+  hosts: all
+  become: true
+  # Gathered below, once the base check has named anything the machine cannot run, as the guest play today does.
+  gather_facts: false
+  vars:
+    # Every variable that makes the connection to the machine, says how its modules run there or how they become
+    # root: those of Ansible's ssh connection and of sudo, the connection's name, the interpreter and become's own.
+    # Each is the inventory's the engine wrote, or set nowhere (tests/unit/test_aw_layer1_play.py holds the list to
+    # ansible-core's own).
+    system_connection_variables:
+      - ansible_become
+      - ansible_become_exe
+      - ansible_become_flags
+      - ansible_become_method
+      - ansible_become_pass
+      - ansible_become_password
+      - ansible_become_user
+      - ansible_connection
+      - ansible_control_path
+      - ansible_control_path_dir
+      - ansible_host
+      - ansible_host_key_checking
+      - ansible_password
+      - ansible_pipelining
+      - ansible_port
+      - ansible_private_key
+      - ansible_private_key_file
+      - ansible_private_key_passphrase
+      - ansible_python_interpreter
+      - ansible_scp_executable
+      - ansible_scp_extra_args
+      - ansible_sftp_batch_mode
+      - ansible_sftp_executable
+      - ansible_sftp_extra_args
+      - ansible_ssh_args
+      - ansible_ssh_common_args
+      - ansible_ssh_executable
+      - ansible_ssh_extra_args
+      - ansible_ssh_host
+      - ansible_ssh_host_key_checking
+      - ansible_ssh_pass
+      - ansible_ssh_password
+      - ansible_ssh_password_mechanism
+      - ansible_ssh_pipelining
+      - ansible_ssh_pkcs11_provider
+      - ansible_ssh_port
+      - ansible_ssh_private_key
+      - ansible_ssh_private_key_file
+      - ansible_ssh_private_key_passphrase
+      - ansible_ssh_retries
+      - ansible_ssh_timeout
+      - ansible_ssh_transfer_method
+      - ansible_ssh_use_tty
+      - ansible_ssh_user
+      - ansible_ssh_verbosity
+      - ansible_sshpass_prompt
+      - ansible_sudo_chdir
+      - ansible_sudo_exe
+      - ansible_sudo_flags
+      - ansible_sudo_pass
+      - ansible_sudo_user
+      - ansible_user
+
+  pre_tasks:
+    # Today's check of the options in effect (playbooks/tasks/host_keys.yml's), made whole: each variable of the
+    # connection is the inventory's the engine wrote, as written, or set nowhere. Read as the host's own variables are,
+    # every source of them laid over the inventory - an extra variable, a variables file beside the play, a vars plugin
+    # - since one would loosen the host key's checking or replace the program with no word said. The play's own vars
+    # and its roles' are not among them: tests/unit/test_aw_layer1_ratchet.py holds every file the play reaches to
+    # setting none. Before anything connects: the check runs here, and reads the inventory back from its own source,
+    # ansible_inventory_sources (layer 1 gives one), which no source of a host's variables outranks, never by
+    # inventory_file, a host's variable that a file beside the play could point at a forged copy.
+    - name: Refuse a connection that is not the one the engine wrote
+      vars:
+        system_inventory: >-
+          {{ (lookup('ansible.builtin.file', ansible_inventory_sources | first) | from_json)['all']['hosts'] }}
+        system_written: >-
+          {{ system_inventory[inventory_hostname] | dict2items | selectattr('key', 'in', system_connection_variables)
+             | list }}
+        system_set: "{{ system_connection_variables | select('in', hostvars[inventory_hostname]) | list }}"
+        system_in_effect: >-
+          {{ dict(system_set | zip(system_set | map('extract', hostvars[inventory_hostname]))) | dict2items }}
+        system_not_written: >-
+          {{ system_in_effect | symmetric_difference(system_written) | map(attribute='key') | unique | sort | list }}
+      ansible.builtin.assert:
+        that: system_not_written | length == 0
+        fail_msg: >-
+          {{ inventory_hostname }}: {{ system_not_written | join(', ') }} set where it outranks the inventory the engine
+          wrote (an extra variable, a variables file beside the play, a vars plugin), so the connection would not be the
+          one it checked: the host key's checking, the program, the account or what becomes root. Nothing was changed.
+        quiet: true
+      tags: [always]
+
+    # Waited for in a block, so that a VM that cannot run Ansible at all, for
+    # want of Python, is said by name below rather than as a timeout.
+    - name: Wait for the VM to accept connections
+      tags: [always]
+      block:
+        - name: Wait until Ansible can run on the VM
+          ansible.builtin.wait_for_connection:
+            timeout: 300
+      rescue:
+        - name: Keep why Ansible could not run on the VM
+          ansible.builtin.set_fact:
+            configure_no_connection: "{{ ansible_failed_result.msg | default('it did not answer') }}"
+
+    # Raw, before anything needs Python: what configure cannot do without, on a
+    # base of any origin, and what it can never run on - the machine, its
+    # userland, its CPU, its C library, how its packages are installed - each
+    # said on a line of its own. Only over a connection to a real guest, not
+    # this machine. The last command is true: a test that is false is no failure.
+    - name: Read what the VM's base has
+      ansible.builtin.raw: >-
+        missing="";
+        for f in /usr/bin/python3 /usr/bin/sudo; do [ -x "$f" ] || missing="$missing $f"; done;
+        for c in apt-get systemctl{{ ' cloud-init' if configure_wait_for_cloud_init | default(true) | bool else '' }}; do
+        command -v "$c" > /dev/null 2>&1 || missing="$missing $c"; done;
+        family=$(. /etc/os-release 2> /dev/null; echo " $ID $ID_LIKE ");
+        case "$family" in *" debian "* | *" ubuntu "*) ;; *) missing="$missing an-Ubuntu-or-Debian-system"; esac;
+        echo "base-missing:$missing";
+        arch=$(uname -m 2> /dev/null); bits=$(getconf LONG_BIT 2> /dev/null);
+        case "$arch" in x86_64 | aarch64) ;; *) echo "base-refused:it is ${arch:-a machine uname does not name},
+        and Claude Code runs on x86_64 and aarch64 alone"; esac;
+        [ "$bits" = 64 ] || echo "base-refused:its userland is ${bits:-not}-bit, and Claude Code runs on a 64-bit one alone";
+        if [ "$arch" = x86_64 ] && ! grep -qw avx /proc/cpuinfo 2> /dev/null; then echo "base-refused:its CPU has no
+        AVX, which Claude Code needs: give the VM the CPU type host, or another that has it"; fi;
+        for f in /lib/ld-musl-*; do if [ -e "$f" ]; then echo "base-refused:its C library is musl, which Docker's
+        packages and Tailscale's do not run on"; break; fi; done;
+        if [ -e /run/ostree-booted ] || [ -e /etc/NIXOS ]; then echo "base-refused:its packages are an image's
+        (ostree or NixOS), not installed one by one as configure installs them"; fi;
+        true
+      become: false
+      register: configure_base
+      changed_when: false
+      check_mode: false
+      when: ansible_connection | default('ssh') != 'local'
+      tags: [always]
+
+    - name: Fail when the VM's base lacks what configure needs
+      vars:
+        configure_base_missing: >-
+          {{ configure_base.stdout | default('') | regex_search('base-missing:.*') | default('', true)
+             | replace('base-missing:', '') | trim | plain_text }}
+      ansible.builtin.assert:
+        that: configure_base_missing | length == 0
+        fail_msg: >-
+          {{ inventory_hostname }}'s base lacks what configuring it needs: {{ configure_base_missing }}. Build the VM
+          from an Ubuntu or Debian cloud image that has them (docs/guides/base-image.md); nothing was changed on it.
+        quiet: true
+      when: configure_base is not skipped
+      tags: [always]
+
+    # What the VM is can never run what configure installs, whatever it is given.
+    - name: Fail when the VM is one configure can never run on
+      vars:
+        configure_base_refused: >-
+          {{ configure_base.stdout_lines | default([]) | select('match', 'base-refused:')
+             | map('replace', 'base-refused:', '') | map('trim') | map('plain_text') | list }}
+      ansible.builtin.assert:
+        that: configure_base_refused | length == 0
+        fail_msg: >-
+          {{ inventory_hostname }} cannot be configured: {{ configure_base_refused | join('; ') }}
+          (docs/guides/base-image.md). Nothing was changed on it.
+        quiet: true
+      when: configure_base is not skipped
+      tags: [always]
+
+    - name: Fail when Ansible could not run on the VM
+      ansible.builtin.fail:
+        msg: "{{ inventory_hostname }} never accepted a connection: {{ configure_no_connection | plain_text }}"
+      when: configure_no_connection is defined
+      tags: [always]
+
+    # What the play would have gathered first, now that the VM can run it.
+    - name: Gather the VM's facts
+      ansible.builtin.setup:
+      tags: [always]
+
+    # Exit code 2 means "done with recoverable errors", which is fine for us;
+    # 1 means the VM's first boot failed, which is said below with what failed.
+    - name: Wait for cloud-init to finish
+      ansible.builtin.command:
+        cmd: cloud-init status --wait
+      register: configure_cloud_init
+      changed_when: false
+      check_mode: false
+      failed_when: false
+      when: configure_wait_for_cloud_init | default(true) | bool
+      tags: [always]
+
+    - name: Read what cloud-init reported
+      ansible.builtin.command:
+        cmd: cloud-init status --long
+      register: configure_cloud_init_long
+      changed_when: false
+      check_mode: false
+      failed_when: false
+      when:
+        - configure_wait_for_cloud_init | default(true) | bool
+        - configure_cloud_init.rc | default(0) not in [0, 2]
+      tags: [always]
+
+    # The VM chooses what cloud-init prints, so only the names of the modules
+    # that failed are quoted, through plain_text. A first boot that failed has
+    # left the VM half set up - a package upgrade cut short, say - and building
+    # it again is the sure way past one that will not happen twice: a mirror,
+    # a download corrupted on its way to the disk.
+    - name: Fail with what cloud-init reported
+      vars:
+        configure_cloud_init_failed: >-
+          {{ (configure_cloud_init_long.stdout | default('') | plain_text)
+             | regex_findall("\('([A-Za-z0-9_]+)',") | unique | list }}
+        # One line of Jinja per line of text: a more-indented line in a folded
+        # scalar keeps its line break.
+        configure_cloud_init_where: >-
+          {{ ('in ' ~ (configure_cloud_init_failed | join(', '))) if configure_cloud_init_failed | length > 0
+             else (configure_cloud_init.stdout | default('') | plain_text | regex_replace('^[.\s]+', '') | trim
+                   or 'no status') }}
+      ansible.builtin.fail:
+        msg: >-
+          {{ inventory_hostname }}: cloud-init's first boot ended in an error
+          ({{ configure_cloud_init_where }}), so the VM may be half set up. /var/log/cloud-init-output.log on it says why.
+          Building it again is the sure way past a failure that will not repeat - a mirror, a corrupted download:
+          just destroy {{ inventory_hostname }}{{ claude_host_flag | default('') }}, then just deploy
+          {{ inventory_hostname }}{{ claude_host_flag | default('') }}. Or repair it by hand, then
+          ANSIBLE_ARGS='-e configure_wait_for_cloud_init=false' just deploy {{ inventory_hostname }} --only
+          configure{{ claude_host_flag | default('') }}.
+      when:
+        - configure_wait_for_cloud_init | default(true) | bool
+        - configure_cloud_init.rc | default(0) not in [0, 2]
+      tags: [always]
+
+    # Before the roles, whose modules would make it and warn; tagged like the
+    # waits, since a role run alone by --tags can be a new VM's first.
+    - name: Make root's Ansible temporary directory
+      ansible.builtin.import_tasks: tasks/remote_tmp.yml
+      tags: [always]
+
+  roles:
+    - role: common
+      tags: [common]
+    # After common, which owns the user and sshd: this adds a second sshd
+    # drop-in and checks the result against what sshd runs with.
+    - role: vscode_server
+      tags: [vscode_server]
+    - role: dev_tools
+      tags: [dev_tools]
+
+  tasks:
+    # Tailscale, where it is the VPN: its package alone, by the role's entry system, imported so that the part's tag
+    # reaches every task it includes. Its join is layer 2's step vpn-join (docs/architecture/engine.md §16.10).
+    - name: Install Tailscale where it is the VPN
+      ansible.builtin.import_role:
+        name: tailscale
+        tasks_from: system
+      tags: [tailscale]

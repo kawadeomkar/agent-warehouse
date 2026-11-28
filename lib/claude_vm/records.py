@@ -36,7 +36,7 @@ class Checked:
         self.validate()
 
     def validate(self) -> None:
-        """A record's own rules: a hook, since super() fails in a slots dataclass on 3.12."""
+        """A record's own rules: a hook, since super() fails in a slots dataclass before Python 3.13.14."""
 
 
 _RULES: dict[type, tuple[tuple[str, Callable[[object], bool]], ...]] = {}  # each record's, worked out once

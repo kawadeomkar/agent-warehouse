@@ -11,7 +11,7 @@ import textwrap
 import time
 
 from ..proxmox import NO_TEMPLATE_RECORD
-from ..status.model import fmt_gib, remote_control, short_kernel, uptime_said, work_said
+from ..status.model import fmt_gib, printed_line, remote_control, short_kernel, uptime_said, work_said
 from .screen import PENDING, bar, cut, plural, render, seg, spark
 
 # The widest line the report draws, a tested limit.
@@ -137,12 +137,16 @@ def _storage_lines(model):
                     )
                 ]
             )
+        # What the figure of its disks counts, where it counts less than every VM's (aw status's reader).
+        if s.get("counted"):
+            lines.append([seg(f"{'':12}{s['counted']}", "d")])
     template = model.get("template") or {}
+    deploy = printed_line(_lines(model), "deploy_all", "just deploy")
     if template.get("missing"):
         said = (
-            "not on Proxmox; just deploy refuses"
+            f"not on Proxmox; {deploy} refuses"
             if template.get("custom")
-            else "not built yet; the first just deploy builds it"
+            else f"not built yet; the first {deploy} builds it"
         )
         lines.append([seg(f" {'template':<10} {template.get('name')}: {said}")])
     elif template:
@@ -289,7 +293,8 @@ def _access_lines(model):
             row += _tailnet_cells(vm, model, dns_width)
         lines.append(row)
     editor = model["settings"]["editor_name"]
-    lines.append([seg(f" {editor}: just code <name> [--project <repo>] [--session <id>]", "d")])
+    code = printed_line(_lines(model), "code_form", "just code <name> [--project <repo>] [--session <id>]")
+    lines.append([seg(f" {editor}: {code}", "d")])
     return lines
 
 
@@ -549,7 +554,8 @@ def _footer(model, reading):
         )
     line = [seg(f"exit {code}", "r" if code else "g"), seg(f" · {said}")]
     if model["vms"]:
-        line += [seg(" · "), seg("--only, --json: just help status", "d")]
+        helped = printed_line(_lines(model), "help_status", "just help status")
+        line += [seg(" · "), seg(f"--only, --json: {helped}", "d")]
     lines.append(line)
     return lines
 
@@ -565,15 +571,31 @@ SECTION_LINES = {
 }
 
 
-def status_lines(model, reading=""):
-    """The report as lines of (text, style) pieces; PENDING marks where a value is still being read."""
+def _lines(model):
+    """The lines status_lines was given printed whole, by key, as status/model.py's printed_line takes them: {} for
+    today's."""
+    return {"lines": model.get(LINES) or {}}
+
+
+# The key of the model status_lines draws from under which it carries the lines it was given to each section's: the
+# drawing's own, never a key of the report status prints as JSON.
+LINES = "_lines"
+
+
+def status_lines(model, reading="", lines=None):
+    """The report as lines of (text, style) pieces; PENDING marks where a value is still being read. lines are the
+    commands it names printed whole by key (aw status's, cli/status_inputs.py's LINES), None for today's, as just
+    status says them."""
+    model = {**model, LINES: lines or {}}
     out = [[seg(model["title"], "b")], []]
     proxmox = model["proxmox"]
     settings = model.get("settings") or {}
     if not model["vms"] and not proxmox.get("unread") and not proxmox.get("off") and not settings.get("names"):
         nodes = ", ".join(proxmox.get("nodes") or []) or "the cluster"
         tag = settings.get("tag") or "agent-warehouse"
-        out += [[seg(f"No VM on {nodes} carries the {tag} tag. Create one with: just deploy alpha")], []]
+        ours = f"carries the {tag} tag" if not lines else "is this fleet's"
+        create = printed_line(_lines(model), "deploy", "just deploy alpha", "alpha")
+        out += [[seg(f"No VM on {nodes} {ours}. Create one with: {create}")], []]
     # Without the API there is nothing to show but why.
     for section in [] if proxmox.get("unread") else model["sections"]:
         body = SECTION_LINES[section](model)
@@ -615,6 +637,7 @@ def skeleton_text(title, sections, color=False, glyph=None, cols=None):
     return "\n".join(render(cut(line, cols or WIDTH), color, glyph) for line in skeleton_lines(title, sections))
 
 
-def status_text(model, color=False, reading="", glyph=None, cols=None):
-    """The report as text: the finished report, or with ``glyph`` a live frame, each line cut to ``cols``."""
-    return "\n".join(render(cut(line, cols or WIDTH), color, glyph) for line in status_lines(model, reading))
+def status_text(model, color=False, reading="", glyph=None, cols=None, lines=None):
+    """The report as text: the finished report, or with ``glyph`` a live frame, each line cut to ``cols``; lines, the
+    commands it names printed whole (status_lines)."""
+    return "\n".join(render(cut(line, cols or WIDTH), color, glyph) for line in status_lines(model, reading, lines))

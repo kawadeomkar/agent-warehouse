@@ -140,7 +140,7 @@ list of branches leaves it to clone, as before),
 and the account as `user` (`login`, `name`, `id`), from `/user` when the token is the user's own and
 `/users/<login>` otherwise, for the git identity the role derives.
 
-Written against the managed VM's Python — `ruff` targets `py310`, not the controller's 3.12+.
+Written against the managed VM's Python — `ruff` targets `py310`, not the controller's 3.13+.
 Covered by 32 unit tests in `tests/unit/test_github_repos.py`.
 
 ---
@@ -734,7 +734,12 @@ not answer (`settle_route`, `hop_login`, `through`, `held_to_route`, `recheck`;
 [§4.6](lifecycle.md#46-toolsstatus--read-only-drawn-live)). The login's line, which a pool thread writes into the
 settings, may land after the fleet first does: the fleet is landed again on the main thread once the probes are
 joined. A VM's options that cannot be split into words are its own line, never the run's end, and a Ctrl-C ends every
-ssh of the hop's (`route.end_all`) before the run ends at once. `Display` is the three things the region asks of Ansible's: a lock, `display()`, and the
+probe (`reach.end_all`) and every ssh of the hop's (`route.end_all`) before the run ends at once. Nothing that starts
+an ssh runs on the main thread, where Python raises a Ctrl-C's `KeyboardInterrupt` and could raise it between an ssh's
+start and its record: the route's settling and `recheck`'s calls of the hop are asked of the pool, the main thread
+waiting a tenth of a second at a time (`_off_main`), since where Python's locks are a mutex and a condition (macOS) a
+signal wakes no wait without a limit.
+`Display` is the three things the region asks of Ansible's: a lock, `display()`, and the
 run's log in Ansible's own format, so `just logs` reads it as any other; a warning Ansible gives while it reads the
 settings goes through it too, or it would land inside the frame. When the run ends the region is erased and the
 finished report printed once - in colour on the screen, plain in the log - or, under `--json`, the JSON alone on
@@ -748,7 +753,9 @@ VM with a file in `inventory/host_vars/` is rendered as itself.
 
 **`status/reach.py`** — one connection per VM: `ssh` with `status_ssh_args` first, then the inventory's own ssh
 options, port and key, BatchMode, the same ControlPersist, or `docker exec` or the local interpreter for a host of the
-inventory that says so. Once a run has ended (`end_all`), every connection still open is killed and none is made. The script sent is
+inventory that says so. Once a run has ended (`end_all`), every connection still open is killed and none is made:
+each is started and recorded in one step under the lock `end_all` takes, as `route.py`'s ssh is, so that one being
+started as the run ends is waited for and killed with the rest. The script sent is
 the probe and the two files of `playbooks/module_utils/` it imports, held in memory under their own names. Root
 through `ansible_become_exe` by its path: `sudo -n`, and only where that is refused the VM user's password on stdin.
 The first line of what is sent after a password is a mark the bootstrap looks for, so a `sudo` that asks for none,
@@ -794,11 +801,15 @@ good, and runs at exit, Ctrl-C included.
   exactly the lines drawn and nothing else, so no line may wrap: a frame taller than the screen keeps its
   top and its last line, with `more` saying how many it leaves out. A screen under 4 rows or 20 columns
   gets no region, since one as tall as the screen would scroll each redraw. The cursor is never hidden.
-  Each write and its count of the lines it drew hold a Ctrl-C off between them, by a SIGINT handler of their
-  own that hands the signal to the one in place right after: a `KeyboardInterrupt` in that gap left the count
-  stale, so the erase that followed missed the region, which stayed on the screen above the run's last words.
-  A signal mask would not do: it holds the signal in one thread, the kernel hands it to another, and Python
-  raises it in the main thread all the same.
+  Each write and its count of the lines it drew hold a Ctrl-C, a SIGTERM and a SIGHUP off between them
+  (`uninterrupted`), by handlers of their own that take note of each and, once the count is right and the
+  handlers in place before are back, raise each again in the order it came, so a default still ends the process
+  there: a `KeyboardInterrupt` in that gap left the count stale, so the erase that followed missed the region,
+  which stayed on the screen above the run's last words, and a program that raises from its own SIGTERM or SIGHUP
+  handler (the new engine's run, [§16.8](engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run))
+  left a frame's remains there, or wiped lines said above it. A signal ignored, as `nohup` leaves SIGHUP, stays
+  ignored. A signal mask would not do: it holds the signal in one thread, the kernel hands it to another, and
+  Python raises it in the main thread all the same.
 - **Everything else above it.** It wraps `Display.display`: each call erases the region, prints, and draws
   it again, under `Display`'s lock, so every write to the log takes the locks in one order. A route, given
   the call's keyword arguments, may send it to the log alone (`log_only`), which a live run does with the
@@ -808,10 +819,30 @@ good, and runs at exit, Ctrl-C included.
   `Display`'s lock to read the keys (ansible-core 2.21), and a `vars_prompt` reads with `input()`
   (`Display.do_var_prompt`). Both are wrapped: the region erases and pauses itself before the prompt and draws
   again once it returns and the run has worked half a second more (`SETTLE_SECONDS`), so questions one after
-  another - `just init`'s - show no frame between them; the spinner draws nothing meanwhile.
+  another - `just init`'s - show no frame between them; the spinner draws nothing meanwhile. A program's own
+  question steps it aside the same way, inside `aside()`, which the wrappers use too.
 - **The terminal.** Its echo is off while the region is up, and on for a prompt and at the end: an Enter
   typed during a run would move the cursor under the region, and the next redraw would leave a copy of it
-  behind. A resize (`SIGWINCH`) pushes the screen into the scrollback and draws afresh, since no count of
+  behind. Meanwhile it keeps at a Ctrl-C what it has not read yet (`NOFLSH`), where it would throw away a line
+  said above or part of a frame - macOS all it holds unread, Linux what it holds past its line discipline's
+  buffer - and the keys typed unseen before it are thrown away all the same (`discard_typed`), as the terminal's
+  own Ctrl-C threw them away: the hold of the terminal (`change`) takes the Ctrl-C from the Python handler in
+  place, throws them away, and hands the signal on, or leaves a handler that throws them away itself (the new
+  engine's ladder). For a prompt and at the end the settings are put back exactly as found - at the new engine's
+  run's end with `NOFLSH` kept on until its summary and NEXT STEPS are said (`finish(kept=True)`, then
+  `release()`). Each change is made only while the process is the terminal's foreground, SIGTTOU held off, so
+  that a run a shell put in the background leaves the shell's settings and is not stopped again by one; and each
+  change back (`put_back`) with a Ctrl-C, a SIGTERM, a SIGHUP, a Ctrl-Z and a `Ctrl-\` held off till it is made
+  (`uninterrupted`). A Ctrl-Z while the region or a question holds the terminal, at its default, is the hold's too: the
+  region erased, the settings put back as found and what was typed and not read thrown away with them (`TCSAFLUSH`),
+  so that none of it reaches the shell's line or its history, then the stop; once the process goes on in the
+  foreground (`fg`) its mode is made again, the region drawn below the shell's lines and a question's words written
+  again. A `Ctrl-\` at its default the same before the quit; a handler of the program's own (the new engine's ladder,
+  which ends the run on it as on a SIGTERM) is left in place. A
+  change of the terminal's settings that a signal interrupts is made again (`set_terminal`):
+  `TCSADRAIN` waits for the output to drain, a signal whose handler raises nothing (a first Ctrl-C, a hold's note,
+  a resize) ends the wait with `EINTR`, and `termios` does not try again itself; taken for no terminal, it dropped
+  the settings to put back and left the echo off for the prompt. A resize (`SIGWINCH`) pushes the screen into the scrollback and draws afresh, since no count of
   what was drawn holds once a frame meant for the old size has wrapped. `title()` sets the tab's title (OSC
   0) when it changes, and `bell()` rings.
 
@@ -840,6 +871,15 @@ line (`collapsed`), to the screen and the log.
   an answer's first letter (`y` and `n` for a yes or no), Enter to choose, Esc to decide later. A long list scrolls
   in a window, the hint saying where the marked answer is; the terminal's size is read at each redraw, since
   `prompt_until` runs in Ansible's results thread, where no SIGWINCH handler can be set.
+- **The same menu, for the new engine** (`asked`): its keys read by a coroutine of the caller's, as a read on the
+  run's event loop gives them, several at once or a sequence in parts, and cut as `ask` reads them one at a time
+  (`split`); the drawing (`Shown`), the terminal's settings (`raw`) and the keys' meaning are `ask`'s own, and its
+  changes of the settings are `live_region`'s `change` and `put_back`, each `TCSAFLUSH`'s, as `getpass` makes them,
+  so that a key typed before the menu is never taken and one typed after its answer is never left for the shell;
+  the question's words (`above`) are written once the terminal is raw, and the change back is made with the run's
+  signals held off and only while the run is the terminal's foreground. The new engine's
+  questions ask it, reading on the loop, never in a thread
+  ([§16.8](engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run)); `ask` is unchanged for today's.
 
 **`Output`**, beside it, is what every live output does around its region, whatever it draws: whether to draw
 (`can_draw()`, unless the caller decided), whether to colour (the caller's `ANSIBLE_NOCOLOR`), the region, and the
@@ -852,7 +892,9 @@ copy of that logic.
 bold, dim, and the colours of done, to do, failed, running and waiting. `cut` (to a width, ending in a dim
 "…"), `pad`, `right` (a tail aligned to the edge, dropped before it would crowd the line), `render` (in the
 palette or plain, `PENDING` drawn as the spinner's glyph), `bar`, `spark`, `fill` (wrapped, never cut),
-`duration` and `clock`, and `plural`. A line is measured in characters, one each: a terminal set to draw
+`duration` and `clock`, and `plural`; and what a run draws, today's (`tui/run.py`) and the new engine's
+(`runs/view.py`) alike: `MARKS`, a state's mark and style, `cut_head` and `flow`, a summary's head and its parts, and
+`report_lines` and `failure_lines`, a report and a failure said whole above the region. A line is measured in characters, one each: a terminal set to draw
 East Asian ambiguous-width characters double-wide (`█`, `●`, `·`) wraps a frame drawn with them.
 
 **Loading.** A filter plugin is no module another can import, and a callback cannot ask for one by name, so
@@ -909,7 +951,9 @@ is drawn as one run, its parts in turn:
   prints, each process with its start, so a pid another process has by then is left alone), since one in a
   session of its own - ansible-core's task worker, detached by `WorkerProcess._detach`; a nested run's part -
   outlives the group, and a child that ended at the first leaves them under PID 1 or a subreaper, where no walk
-  from it finds them. SIGTERM or SIGHUP - a kill, a timeout, the tab closing - is sent on to the child's session,
+  from it finds them; `proc.end_under`, which ends what is under a process and never the process, is the new engine's
+  ([§16.8](engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run)), and nothing of today's product
+  calls it. SIGTERM or SIGHUP - a kill, a timeout, the tab closing - is sent on to the child's session,
   which no terminal signals, and to everything under it, since a playbook sends its task worker a SIGTERM on but
   not a SIGHUP, which would leave the worker behind; the region goes,
   the echo comes back, the state is saved said stopped, and the part dies of the same signal. A child a signal ended
@@ -1131,7 +1175,7 @@ test of a running `claude`, held equal to it by `tests/unit/test_code_session.py
   that import their core module only when one is called: every worker executes every file in `filter_plugins/` at
   its first lookup of any filter. `plugin.own` checks, once per process, that the `claude_vm` imported is the
   adapter's own checkout's, by `os.path.samefile`, since APFS ignores case and a resolved path keeps the case it was
-  given. pytest finds the package through `pythonpath` in `pyproject.toml`; ruff checks `lib/` against Python 3.12.
+  given. pytest finds the package through `pythonpath` in `pyproject.toml`; ruff checks `lib/` against Python 3.13.
 - **The editors' plans** (`editors/`). A window of `just code` is a plan, data: what it refuses, the directories and
   files it writes in just code's directory on the VM (by names relative to it), the helpers it copies (by name), the
   folder or file it opens, and what it says. Each editor family is a module of free functions with one,
@@ -1442,6 +1486,10 @@ host. `hosts/current` names the current host; `hosts/` is git-ignored and refuse
 - **The kinds table** (`kinds.py`): for each kind of host, as literal data, its inventory group, the settings each
   host of that kind always sets for itself, those of one network that are never inherited, its secret's two vault
   names and what `just host` shows. The resolver, `just host` and `just status` read it and name no Proxmox setting.
+  Beside it, `FLEET_KINDS` is the same kinds for the new engine's fleet of host folders
+  ([§16.9](engine.md#169-fleet--the-fleets-files-the-settings-the-secrets-and-the-fleets-mark)), which today's product
+  never reads: each host still sets its node, storage and bridge for itself, and may set its template's ID, which has
+  the table's default; the API's user, token ID, port and certificate checking are no settings there.
 - **What never falls through.** The first host's own settings live in the shared files, so a host in `hosts/` would
   inherit whatever it leaves unset. Its token's secret: `proxmox_api_token_secret` in the inventory defaults reads the
   shared `vault_proxmox_api_token_secret` only while the run's Proxmox host was defined in the shared inventory's own
@@ -1529,16 +1577,24 @@ the vendors' files (`tests/unit/openpgp/`) and signatures a key made for the tes
 one way at a time, and `tests/unit/test_signed_downloads.py`, which runs both task files against stand-in hosts and a
 stand-in for the download server (`tests/molecule/fake_downloads.py`).
 
+The new engine calls `verify` directly, where the roles call the filter: `lib/claude_vm/vendors/downloads.py` fetches
+the same two documents and their signatures on this machine, with the same caps and checks in the same order, verifies
+them with the same keys, which `lib/claude_vm/vendors/keys.py` reads from the roles' own `files/`, and returns only the
+version and the digests of a document that verified
+([§16.7](engine.md#167-vendors--one-https-transport-tailscales-calls-verified-downloads)). `test_pins.py` holds that
+table of keys to the same fingerprints, and `tests/unit/test_aw_downloads.py` covers the rest, against the same
+stand-in for the download server over TLS.
+
 ## 7.16 `lib/claude_vm/trust.py` — the certificate the Proxmox API is checked against
 
 `just init` keeps the certificate that makes the API's verify, before the token is sent anywhere
 (`playbooks/init_check.yml`, [§4.13](lifecycle.md#413-playbooksinit_checkyml)), and every request reads it after
 (`proxmox_api_validate` and `proxmox_api_ca_path` in the inventory defaults). Which certificate that is depends on
-this machine's Python as much as on the host, so it is tried, never assumed: Python 3.13 and later verify with
+the host, so it is tried, never assumed: every Python the project runs on (3.13 or later) verifies with
 `VERIFY_X509_STRICT`, which refuses a CA without `keyUsage` - every Proxmox VE 8 host's, and every 9 host's made before
 pve-cluster 9.1.2 and not issued again by 9.1.8 - and with `VERIFY_X509_PARTIAL_CHAIN`, which takes the node's own
-certificate as an anchor; 3.12 does neither. No probe here sends the token: each that asks whether a certificate
-verifies is a `HEAD /version`, which Proxmox answers 501 at once, and any HTTP answer means the certificate verified.
+certificate as an anchor. No probe here sends the token: each that asks whether a certificate verifies is a `HEAD
+/version`, which Proxmox answers 501 at once, and any HTTP answer means the certificate verified.
 Never a `GET`: Proxmox holds the 401 of one with no token back three seconds, which made the certificate's step of
 `just init` take nine.
 
@@ -1550,7 +1606,7 @@ Never a `GET`: Proxmox holds the 401 of one with no token back three seconds, wh
   `REQUESTS_CA_BUNDLE` names, which both are handed), then the host's CA, then the node's own certificate without its
   chain (`pem_first`) - and hands back the first that verifies, with its SHA-256 fingerprint as `openssl x509
   -fingerprint -sha256` prints it, and why each before it did not, which `proxmox_trust_said` makes one line of plain
-  text. `strict` forces Python 3.13's flags on or off, so that the tests run both on either Python.
+  text.
 - **`proxmox_trust_presented(candidates, url)`** reads what the address presents with a context that checks nothing,
   and says whether it is the host's: the node's certificate itself, or one that chains to the host's CA or node
   certificate whatever name it holds. The store proves no host, since any public CA signs anyone's. The step tells a
@@ -1558,6 +1614,19 @@ Never a `GET`: Proxmox holds the 401 of one with no token back three seconds, wh
   sent after the handshake: what answers sees which request carries no token, and could say nothing to this one. So
   where root SSH read the host's certificates and none verified, `just init` holds the token unless what is presented
   is the host's, a certificate read or not.
+- **`proxmox_trust_shown(url)`** reads what the address presents the same way and gives it whole, as PEM with its
+  fingerprint: for the new engine's `init` (`lib/claude_vm/engine/certificate.py`,
+  [§16.4](engine.md#164-engine--the-workflows-one-module-a-verb)), which keeps it as the host's anchor only where a
+  person vouched for it by its fingerprint, or root SSH showed it to be the host's own. Nothing of today's product
+  calls it.
+- **`anchored_context(pem)`** is the one public way to a context of the module's, for the new engine's Proxmox client
+  (`lib/claude_vm/pve/pin.py`, [§16.5](engine.md#165-pve--the-typed-proxmox-client-and-the-one-table-of-privileges)),
+  so that there stays one way to make a context from a certificate the host gave: a client context over the
+  certificates of `pem` alone, a certificate required and the name checked, with the two flags the standard library's
+  ready-made context has set by hand, and a `ValueError` where `pem` holds none. It is made by hand, not by
+  `_context`: the standard library's ready-made context, which `_context` makes, opens the file `SSLKEYLOGFILE` names
+  as it is made, unless Python ignores the environment, and the client that carries the token logs no session's keys.
+  Nothing of today's product calls it.
 
 Only `-----BEGIN CERTIFICATE-----` blocks of what was read from the host are ever kept or tried (`pem_certificates`),
 and a file larger than a certificate file is none. A trust file there turns checking on, whatever
@@ -1616,9 +1685,20 @@ that takes, and runs nothing of Ansible's.
   where ssh says `Authenticated to` once its login is done). Each reads ssh's exit status and standard error, and of
   the forward's standard output only whether its first bytes are an SSH banner, read as it comes and dropped, kept as a
   yes or no: what a forward carries is the far end's to write. A caller ended meanwhile ends that ssh and waits for it,
-  and `end_all` ends every one still running, for a caller about to end at once (`just status`'s Ctrl-C); a failure to
-  make the control directory is said, never raised. `forward_verdict` says the hop unusable only for `administratively
-  prohibited` or ssh's own failure; a far end that refused or said nothing once the login was done is the far end's
+  and `end_all` ends every one still running - among them the `ssh -G` of `route_settle`, which reads the person's
+  configuration and runs its `Match exec`, and of `ssh_shown`, which reads none - one being started too, and starts none
+  after, for a caller about to end at once (`just status`'s Ctrl-C), so that no `ssh -G` is left to run a person's
+  `Match exec`: each is checked against the door, started and recorded in one step under the lock `end_all` takes, which
+  shuts the door under it. Each of those ends, and the kill at a limit, ends today's callers' ssh by its pid alone,
+  since it shares their own process group, and one the new engine starts in a process group of its own
+  (`process_group=0`) with that group, the program a `Match exec` started with it - one it put in the background too,
+  which outlives an `ssh -G` that has exited, since a leader not yet reaped is still ended with its group (`_kill`
+  decides by `returncode`, never by `poll()`, which would reap it) (`leading` lists those, which the new engine's run
+  watches for a stop at the terminal, [§16.8](engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run)).
+  An `ssh -G`'s standard error is read from a file, as the hop's own ssh's is, so that a program a `Match exec` left
+  holding it never holds the answer back to the limit; a failure to make the control directory is said, never raised.
+  `forward_verdict` says the hop unusable only for `administratively prohibited` or ssh's own failure; a far end that
+  refused or said nothing once the login was done is the far end's
   doing, and a forward ended before it, `stalled`, the login's: a second login that waits (a key touched once) beside a
   shared connection that works stops no run, and is never read as the VM's silence. What `VERBOSE` adds is taken out
   of the words (`VERBOSE_ONLY`), so they read as at `INFO`. `hop_unanswered` reads ssh's words for a VM reached

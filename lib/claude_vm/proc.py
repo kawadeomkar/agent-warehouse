@@ -12,10 +12,13 @@ never once another has it. `end` signals a process, every process under it and e
 process's own, so a child started in this group is ended alone, never this process with it; the root's group is
 signalled whether or not it can still be looked up, since both callers start it as a group leader, a child that
 has exited, a zombie, no longer answers for its group on macOS, and its children moved on the moment it exited,
-found under it no more. The interrupts are held off while the table is read
-and the tree signalled, since a second one - a hangup moments after a kill - would otherwise end the end itself.
+found under it no more. `end_under` signals what is under a process and never the process, its group
+or this one's: the new engine's run ends what it started, and goes on to say how it ended. The interrupts are held
+off while the table is read and the tree signalled, since a second one - a hangup moments after a kill - would
+otherwise end the end itself.
 
-Imported as claude_vm.proc, by the parts' engine and tests/unit/harness.py (docs/architecture/custom-code.md §7.10).
+Imported as claude_vm.proc, by the parts' engine, the new engine's runs/attached.py and tests/unit/harness.py
+(docs/architecture/custom-code.md §7.10).
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ import contextlib
 import os
 import signal
 import subprocess
+from collections.abc import Iterable
 
 # Held off while a tree is read and signalled: one of them arriving then would abandon the end half way.
 HELD = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
@@ -63,19 +67,30 @@ def descendants(pid: int, table: dict[int, tuple[int, str]] | None = None) -> li
     return found
 
 
-def snapshot(pid: int) -> dict[int, str]:
-    """Every process under pid with its start, to remember a tree by before part of it ends."""
+def _left_out(leaving: Iterable[int], table: dict[int, tuple[int, str]]) -> set[int]:
+    """Each of leaving and everything under it, as the table lists them."""
+    left: set[int] = set()
+    for each in leaving:
+        left |= {each, *descendants(each, table)}
+    return left
+
+
+def snapshot(pid: int, *, leaving: Iterable[int] = ()) -> dict[int, str]:
+    """Every process under pid with its start, to remember a tree by before part of it ends; never one of leaving, nor
+    anything under one, read from the same table (the new engine's run leaves a shared master's open out, and a child
+    meant to outlive it)."""
     table = _table()
-    return {each: table[each][1] for each in descendants(pid, table)}
+    left = _left_out(leaving, table)
+    return {each: table[each][1] for each in descendants(pid, table) if each not in left}
 
 
-def _signal(pids: list[int], groups: set[int], signum: int) -> None:
-    """Signal each of pids, their groups and groups, but this process's own group."""
+def _signal(pids: list[int], groups: set[int], signum: int, spared: frozenset[int] = frozenset()) -> None:
+    """Signal each of pids, their groups and groups, but this process's own group and the groups spared."""
     own = os.getpgrp()
     for each in pids:
         with contextlib.suppress(ProcessLookupError, PermissionError):
             groups.add(os.getpgid(each))
-    for group in groups - {own}:
+    for group in groups - {own, *spared}:
         with contextlib.suppress(ProcessLookupError, PermissionError):
             os.killpg(group, signum)
     for each in pids:
@@ -103,6 +118,50 @@ def end(pid: int, *, remembered: dict[int, str] | None = None, signum: int = sig
             if each not in pids and table.get(each, (None, None))[1] == started:
                 pids.extend(found for found in (each, *descendants(each, table)) if found not in pids)
         _signal(pids, {pid}, signum)
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, held)
+    return pids
+
+
+def end_under(
+    pid: int,
+    remembered: dict[int, str] | None = None,
+    signum: int = signal.SIGKILL,
+    *,
+    blind=None,
+    leaving: Iterable[int] = (),
+) -> list[int]:
+    """Signal every process under pid and their groups, and never pid itself, its group or this process's: the new
+    engine's run ending what it started (docs/architecture/engine.md §16.8), where end would signal the run itself.
+
+    remembered, a snapshot from before part of the tree ended: each pid in it is signalled, with what is under it,
+    only while a process of that start is still at it, and never pid. A process under pid in pid's own group is
+    signalled alone, as end signals a child of this group. leaving, processes never signalled, nor anything under one,
+    read from the same table: the new engine's children meant to outlive their run. blind, called with the message, is
+    how a table that cannot be read is said: nothing is signalled then, since only the table leads to what is under
+    pid. The pids signalled.
+    """
+    held = signal.pthread_sigmask(signal.SIG_BLOCK, HELD)
+    try:
+        try:
+            table = _table()
+        except Blind as error:
+            if blind is not None:
+                blind(str(error))
+            return []
+        left = _left_out(leaving, table)
+        pids = [each for each in descendants(pid, table) if each not in left]
+        for each, started in (remembered or {}).items():
+            if each != pid and each not in pids and each not in left and table.get(each, (None, None))[1] == started:
+                pids.extend(
+                    found
+                    for found in (each, *descendants(each, table))
+                    if found not in pids and found != pid and found not in left
+                )
+        spared = {pid}
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            spared.add(os.getpgid(pid))
+        _signal(pids, set(), signum, frozenset(spared))
     finally:
         signal.pthread_sigmask(signal.SIG_SETMASK, held)
     return pids

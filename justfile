@@ -55,8 +55,9 @@ PYTHON := env('PYTHON', '')
 # yourself (https://docs.astral.sh/uv/getting-started/installation/, e.g.
 # `brew install uv`); it never downloads a Python for an environment of yours.
 UV := env('UV', 'uv')
-# The Python version this checkout's own environment runs on.
-managed_python := '3.13'
+# The Python version this checkout's own environment runs on, which CI's runs on too (.github/actions/setup) and the
+# launcher, aw, names: tests/unit/test_justfile.py holds the three to one.
+managed_python := '3.14'
 # Anything else for ansible-playbook, as the shell words they are, exported
 # or before the recipe: just ANSIBLE_ARGS='-vvv -f 30' deploy alpha.
 ANSIBLE_ARGS := env('ANSIBLE_ARGS', '')
@@ -192,12 +193,12 @@ configure_roles := 'common vscode_server dev_tools claude_code github_projects t
 scenario_roles := configure_roles + ' proxmox_template proxmox_vm'
 # Every Molecule scenario, the longest first, as test --jobs starts them, so that the short ones fill in beside it:
 # their order of time on CI's runners (2026-11). test_justfile.py holds it to the scenarios.
-molecule_order := 'provision configure image tailscale claude_code proxmox_vm common dev_tools vscode_server github_projects proxmox_template'
+molecule_order := 'provision configure image system tailscale claude_code proxmox_vm common dev_tools vscode_server github_projects proxmox_template'
 # Hooks lint already runs itself, so its hooks part skips them, the
-# production-profile ansible-lint and ruff never running a second time
+# production-profile ansible-lint, ruff and tools/comments never running a second time
 # (ruff-format even rewriting files). gitleaks is in it because its hook scans
 # only what is staged, and CI scans the tree and the pushed commits separately.
-pre_commit_skip := 'yamllint,ansible-lint,ruff-check,ruff-format,gitleaks'
+pre_commit_skip := 'yamllint,ansible-lint,ruff-check,ruff-format,comments,gitleaks'
 # What init says when a word follows its options - a bare word, or an
 # answer as make took it, TOKEN_SECRET=... - without saying the word, which
 # may be the secret.
@@ -406,7 +407,10 @@ init ADDRESS='' ON='' TOKEN_USER='' TOKEN_ID='' TOKEN_SECRET_FILE='' GITHUB_USER
 # (managed_python), and keeps exactly the lock's. One of yours it syncs
 # --inexact: a package the lock does not list - yours, or another project's in
 # an environment that serves both - stays where it is; --python names its
-# interpreter, so uv never swaps it for another, and downloads none. Before the sync, tools/stale_scripts.py names each locked package
+# interpreter, so uv never swaps it for another, and downloads none; one older
+# than pyproject.toml's floor, requires-python, is refused before uv starts, in
+# one sentence that names the floor and the two ways out, rather than in uv's
+# words about the lock. Before the sync, tools/stale_scripts.py names each locked package
 # with a command that starts a Python outside the environment's bin - uv
 # writes the path the environment was synced by into every command, so a sync
 # through a link into it (the .venv make venv once made) left them naming the
@@ -442,7 +446,17 @@ install LOCK='':
     case "$which" in
     own\ *)
       {{ find_bin }}
-      python=$("${which#own }" -c 'import sys; print(sys.executable)')
+      # The floor, as the Python named says its version (the first line: "Python 3.12.7"). Below 3.13 is 0.x to 3.9.x,
+      # 3.10.x, 3.11.x and 3.12.x.
+      named=${which#own }
+      version=$("$named" --version 2>&1 | sed -n 1p)
+      case "$version" in
+      "Python "[0-2].* | "Python 3."[0-9].* | "Python 3.1"[0-2].*)
+        echo "error: [$named] is $version, and this project needs Python 3.13 or later, as its program aw and ansible-core 2.22 do: make a virtualenv of Python 3.13 or later and activate it or name it with PYTHON, or bring none - PYTHON unset and python3 no virtualenv's - and just install makes this checkout's own with uv." >&2
+        exit 1
+        ;;
+      esac
+      python=$("$named" -c 'import sys; print(sys.executable)')
       prefix=$("$python" -c 'import sys; print(sys.prefix)')
       reinstall=$("$python" -I tools/stale_scripts.py)
       UV_PYTHON_DOWNLOADS=never UV_PROJECT_ENVIRONMENT="$prefix" {{ quote(UV) }} sync --locked --inexact --python "$python" $reinstall
@@ -1089,8 +1103,8 @@ mcp ANY_BRANCH='' SCREEN='' BROWSER='' PROJECT_DIR='' REMOVE='' SHOW='' VAULT_PA
 # names. The justfile's own formatting is checked only by the just CI pins,
 # since another version may format it otherwise; lint says so when it skips.
 [arg('ALL_HOOKS', long='all-hooks', value='yes', help="hooks: run every pre-commit hook, the ones lint's other parts cover too")]
-[arg('PARTS', pattern='lock|yaml|ansible|python|just|syntax|hooks', help='lock (uv.lock against pyproject.toml), yaml (yamllint --strict), ansible (ansible-lint, production profile), python (ruff check and format --check), just (just --fmt --check), syntax (--syntax-check on every playbook), hooks (the pre-commit hooks the others do not cover)')]
-[doc('Every linter: the lock, YAML, Ansible, Python, the justfile, playbook syntax, pre-commit hooks')]
+[arg('PARTS', pattern='lock|yaml|ansible|python|comments|just|syntax|hooks', help='lock (uv.lock against pyproject.toml), yaml (yamllint --strict), ansible (ansible-lint, production profile), python (ruff check and format --check), comments (tools/comments: each comment of a kind a check reads, the new engine held to tests/unit/comments.json), just (just --fmt --check), syntax (--syntax-check on every playbook), hooks (the pre-commit hooks the others do not cover)')]
+[doc('Every linter: the lock, YAML, Ansible, Python, comments, the justfile, playbook syntax, pre-commit hooks')]
 [group('develop')]
 [no-exit-message]
 [positional-arguments]
@@ -1119,7 +1133,7 @@ lint ALL_HOOKS='' *PARTS:
     plan=
     # The checks in the order they run, the line broken after "just" so that no line reads as a just command; the
     # justfile's format only where it is checked, by the just CI pins - a step listed and never run reads as a stop.
-    for part in lock yaml ansible python just \
+    for part in lock yaml ansible python comments just \
       syntax hooks; do
       if [ "$part" = just ] && [ {{ quote(just_version()) }} != {{ quote(just_pin) }} ]; then continue; fi
       if runs "$part"; then plan="$plan $part"; fi
@@ -1136,6 +1150,7 @@ lint ALL_HOOKS='' *PARTS:
       check python "$bin/ruff" check .
       check python "$bin/ruff" format --check .
     fi
+    if runs comments; then check comments "$bin/python" -I tools/comments; fi
     if runs just; then
       if [ {{ quote(just_version()) }} = {{ quote(just_pin) }} ]; then
         check just {{ quote(just_executable()) }} --justfile {{ quote(justfile()) }} --fmt --check
@@ -1168,21 +1183,26 @@ lint ALL_HOOKS='' *PARTS:
 # for a machine with the room, which runs them that many at a time
 # (tools/molecule-lanes): every scenario took 28 minutes one after another and
 # 7.5 four at a time on an 8-core runner.
+[arg('SHORT', long='short', value='yes', help="The short set, for a change that touches no file of main's but CLAUDE.md, docs/ and zensical.toml, and adds none to a folder today's product reads whole, any other refused naming the file (tools/check short): lint, the new engine's tests and the tests of today's suite that read the tree (tests/unit/conftest.py's TREE), in minutes where unit takes half an hour; a set of its own, with no part or other option")]
 [arg('JOBS', long='jobs', pattern='[1-9]?', help="Run the Molecule scenarios this many at a time, the longest first, each one's whole output in a log of its own and a line as each ends; one at a time without it, as their images share one disk (just test molecule --jobs 4)")]
 [arg('ROLES', long='role', pattern='[a-z_,]*', help="Only these roles' scenarios, comma-separated: on its own it means the role part (just test --role common,claude_code)")]
 [arg('SHARD', long='shard', pattern='([1-9][0-9]*/[1-9][0-9]*)?', help='Only the I-th of N shards of the unit tests, each group of tests whole, as CI splits them: on its own it means the unit part (just test unit --shard 2/3)')]
-[arg('PARTS', pattern='unit|molecule|role|integration|provision', help="unit (pytest over tests/unit/, a worker per CPU, no network), molecule (every Molecule scenario: role, integration, provision), role (the roles' own scenarios), integration (the full configure playbook against a Docker container), provision (provision.yml and discover.yml against a fake Proxmox API)")]
+[arg('PARTS', pattern='unit|engine|molecule|role|integration|provision|system', help="unit (pytest over tests/unit/, a worker per CPU, no network), engine (only the new engine's tests, tests/unit/test_aw_*.py, which unit runs too: seconds, no Docker), molecule (every Molecule scenario: role, integration, provision, system), role (the roles' own scenarios), integration (the full configure playbook against a Docker container), provision (provision.yml and discover.yml against a fake Proxmox API), system (the new engine's system play, playbooks/system.yml, converged in a Docker container by its layer-1 child)")]
 [doc('Lint, then every test: unit and Molecule (the local quality gate)')]
 [group('develop')]
 [no-exit-message]
 [positional-arguments]
 [script]
-test ROLES='' SHARD='' JOBS='' *PARTS:
+test ROLES='' SHARD='' JOBS='' SHORT='' *PARTS:
     {{ guard }}
-    roles=$1 shard=$2 jobs=$3
-    shift 3
-    # The words as typed, for the run's title: --role and --shard below stand for the parts they choose.
+    roles=$1 shard=$2 jobs=$3 short=$4
+    shift 4
+    # The words as typed, for the run's title: --role, --shard and --short below stand for the parts they choose.
     asked=$*
+    if [ -n "$short" ]; then
+      [ "$#" -eq 0 ] && [ -z "$roles$shard$jobs" ] || { echo "error: --short is a set of its own, with no part or other option: just test --short" >&2; exit 1; }
+      set -- short
+    fi
     if [ -n "$shard" ]; then
       [ "${shard%/*}" -le "${shard#*/}" ] || { echo "error: --shard takes I/N with I no more than N (got: [$shard])" >&2; exit 1; }
       [ -z "$roles" ] || { echo "error: --shard splits the unit tests and --role narrows the role scenarios: one at a time" >&2; exit 1; }
@@ -1204,14 +1224,20 @@ test ROLES='' SHARD='' JOBS='' *PARTS:
       done
       set -- role
     fi
-    if [ "$#" -eq 0 ]; then name=test lint=yes; set -- unit role integration provision; else name="test-$(IFS=-; printf %s "$*")" lint=; fi
+    if [ "$#" -eq 0 ]; then name=test lint=yes; set -- unit role integration provision system; else name="test-$(IFS=-; printf %s "$*")" lint=; fi
+    # The short set lints first, as the gate does.
+    [ -z "$short" ] || lint=yes
     parts=" $* "
-    case "$parts" in *" molecule "*) parts="$parts role integration provision " ;; esac
+    case "$parts" in *" molecule "*) parts="$parts role integration provision system " ;; esac
     runs() { case "$parts" in *" $1 "*) ;; *) return 1 ;; esac; }
-    if [ -n "$jobs" ] && ! runs role && ! runs integration && ! runs provision; then
+    if [ -n "$jobs" ] && ! runs role && ! runs integration && ! runs provision && ! runs system; then
       echo "error: --jobs runs Molecule scenarios side by side, and unit has none: just test molecule --jobs $jobs" >&2
       exit 1
     fi
+    # The short set holds only a change that touches no file of main's but CLAUDE.md, docs/ and zensical.toml, and adds
+    # none to a folder today's product reads whole: base-first, the integration branch the new engine is built on,
+    # against main (docs/architecture/testing.md §11.1).
+    if runs short; then tools/check short base-first main; fi
     # The scenarios --jobs runs side by side, the longest first: the parts' own, where that is more than one.
     lanes=
     if [ "${jobs:-1}" -gt 1 ]; then
@@ -1221,6 +1247,7 @@ test ROLES='' SHARD='' JOBS='' *PARTS:
         case "$scenario" in
         configure | image) part=integration ;;
         provision) part=provision ;;
+        system) part=system ;;
         *) part=role; case " $chosen " in *" $scenario "*) ;; *) continue ;; esac ;;
         esac
         if runs "$part"; then lanes="$lanes $scenario"; fi
@@ -1241,11 +1268,11 @@ test ROLES='' SHARD='' JOBS='' *PARTS:
     if [ -z {{ quote(live_run) }} ]; then
       stages=
       [ -z "$lint" ] || stages=lint
-      for part in unit role integration provision; do
-        if runs "$part" && { [ -z "$lanes" ] || [ "$part" = unit ]; }; then stages="$stages $part"; fi
+      for part in unit engine short role integration provision system; do
+        if runs "$part" && { [ -z "$lanes" ] || [ "$part" = unit ] || [ "$part" = engine ]; }; then stages="$stages $part"; fi
       done
       [ -z "$lanes" ] || stages="$stages molecule"
-      AGENT_WAREHOUSE_LIVE="test${roles:+ --role $roles}${shard:+ --shard $shard}${asked:+ $asked}"
+      AGENT_WAREHOUSE_LIVE="test${roles:+ --role $roles}${shard:+ --shard $shard}${short:+ --short}${asked:+ $asked}"
       state={{ quote(live_state) }}
       AGENT_WAREHOUSE_LIVE_STATE=${state:+$state-test-$$.json}
       AGENT_WAREHOUSE_LIVE_STAGES=$stages
@@ -1259,6 +1286,14 @@ test ROLES='' SHARD='' JOBS='' *PARTS:
     # named, so that conftest.py, which adds --shard, is read before the options are.
     if runs unit; then
       part unit --read pytest -- "$bin/pytest" -p live_pytest tests/unit -n auto --dist loadgroup ${shard:+--shard "$shard"}
+    fi
+    # The new engine's tests alone: those conftest.py marks engine, every test of tests/unit/test_aw_*.py.
+    if runs engine; then
+      part engine --read pytest -- "$bin/pytest" -p live_pytest tests/unit -m engine -n auto --dist loadgroup
+    fi
+    # The short set, after lint: the new engine's tests and today's that read the tree (conftest.py's TREE), one run.
+    if runs short; then
+      part short --read pytest -- "$bin/pytest" -p live_pytest tests/unit -m 'engine or tree' -n auto --dist loadgroup
     fi
     if [ -n "$lanes" ]; then
       # shellcheck disable=SC2086 # the scenarios' names, one word each
@@ -1282,6 +1317,9 @@ test ROLES='' SHARD='' JOBS='' *PARTS:
     fi
     if runs provision; then
       part provision --step provision --read molecule -- env PATH="$absbin:$PATH" "$absbin/molecule" test -s provision
+    fi
+    if runs system; then
+      part system --step system --read molecule -- env PATH="$absbin:$PATH" "$absbin/molecule" test -s system
     fi
 
 # The wiki in docs/ (docs/development/docs.md). Its reference pages are

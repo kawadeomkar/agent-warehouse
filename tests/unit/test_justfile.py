@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import atexit
 import contextlib
+import hashlib
 import json
 import os
 import pty
@@ -45,6 +46,7 @@ import time
 from pathlib import Path
 
 import pytest
+import tomllib
 import yaml
 from harness import GIT_ENV, _default_signals, _version, just_settings, load_module
 from harness import just_json as _json
@@ -258,6 +260,197 @@ def test_the_pinned_version_is_one_version() -> None:
     assert minimum == _pinned() == ci, (minimum, _pinned(), ci)
 
 
+SETUP = REPO / ".github" / "actions" / "setup" / "action.yml"
+# What the setup action pins of just's release: each system's archive, by the variable that holds its SHA256.
+JUST_ARCHIVES = {"JUST_SHA256": "x86_64-unknown-linux-musl", "JUST_SHA256_MACOS": "aarch64-apple-darwin"}
+
+
+def _just_step() -> dict:
+    """The setup action's step that installs just: the one that names its version."""
+    action = yaml.safe_load(SETUP.read_text())
+    (step,) = [step for step in action["runs"]["steps"] if "JUST_VERSION" in step.get("env", {})]
+    return step
+
+
+def test_every_sha256_of_the_setup_action_is_beside_the_one_just_version() -> None:
+    # Each system's archive has its SHA256 in the one step whose JUST_VERSION the test above holds to the justfile's
+    # pin: a SHA256 anywhere else in the action, or an older version's left under another name, would be one no bump
+    # of the version moves. Which variable is which system's, the runs below hold.
+    step = _just_step()
+    assert str(step["env"]["JUST_VERSION"]) == _pinned()
+    pins = {name: value for name, value in step["env"].items() if name.startswith("JUST_SHA256")}
+    assert set(pins) == set(JUST_ARCHIVES), pins
+    assert all(re.fullmatch(r"[0-9a-f]{64}", value) for value in pins.values()), pins
+    assert len(set(pins.values())) == len(pins), pins
+    assert set(re.findall(r"\b[0-9a-f]{64}\b", SETUP.read_text())) == set(pins.values())
+
+
+# The archive the stand-in curl writes, and a SHA256 of something else.
+ARCHIVE = hashlib.sha256(b"an archive of the test's own\n").hexdigest()
+OTHER = hashlib.sha256(b"another archive\n").hexdigest()
+# The sha256sum each runner has - macOS 26's Apple one in /sbin, which passes a line it cannot read with exit 0 - is
+# asked nothing by the step, which compares shasum's digest itself: a stand-in that records its words and does nothing
+# else, first on both runners' PATH, so that any call of it shows in the calls each test holds the step to.
+RECORDED_SHA256SUM = '#!/bin/sh\nprintf "sha256sum %s\\n" "$*" >> "$CALLS"\n'
+
+
+def _checker_recording(name: str, real: str) -> str:
+    """A stand-in that records its words and runs this machine's program."""
+    return f'#!/bin/sh\nprintf "{name} %s\\n" "$*" >> "$CALLS"\nexec {real} "$@"\n'
+
+
+def _pins(right: str, value: str) -> dict[str, str]:
+    """The setup action's pins: the variable right holds value, every other the SHA256 of something else."""
+    return {name: value if name == right else OTHER for name in JUST_ARCHIVES}
+
+
+def _install_just(
+    tmp_path: Path, system: str, arch: str, pins: dict[str, str]
+) -> tuple[subprocess.CompletedProcess, list[str]]:
+    """The setup action's just step as GitHub runs a composite step's (bash, -e and pipefail) on a runner of that system
+    and arch, its JUST_SHA256* variables the pins given. On PATH nothing but a stand-in curl that writes an archive of
+    the test's own and records the URL, a stand-in tar that records its words, mkdir, and the two checkers the runner
+    has, each recording its words: this machine's shasum, and a sha256sum that does nothing else (RECORDED_SHA256SUM).
+    The run, and the calls the stand-ins recorded."""
+    bin_dir, calls = tmp_path / "bin", tmp_path / "calls"
+    bin_dir.mkdir()
+    (bin_dir / "curl").write_text(
+        '#!/bin/sh\nout=\nwhile [ "$#" -gt 1 ]; do [ "$1" = -o ] && out=$2; shift; done\n'
+        'printf "curl %s\\n" "$1" >> "$CALLS"\nprintf "an archive of the test\'s own\\n" > "$out"\n'
+    )
+    (bin_dir / "tar").write_text('#!/bin/sh\nprintf "tar %s\\n" "$*" >> "$CALLS"\n')
+    shasum = shutil.which("shasum")
+    (bin_dir / "shasum").write_text(_checker_recording("shasum", shasum))
+    (bin_dir / "sha256sum").write_text(RECORDED_SHA256SUM)
+    for tool in bin_dir.iterdir():
+        tool.chmod(0o755)
+    (bin_dir / "mkdir").symlink_to(shutil.which("mkdir"))
+    step = _just_step()
+    env = {
+        "PATH": str(bin_dir),
+        "CALLS": str(calls),
+        "RUNNER_OS": system,
+        "RUNNER_ARCH": arch,
+        "RUNNER_TEMP": str(tmp_path / "temp"),
+        "GITHUB_PATH": str(tmp_path / "github-path"),
+        "JUST_VERSION": str(step["env"]["JUST_VERSION"]),
+        **pins,
+    }
+    run = subprocess.run(
+        ["/bin/bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step["run"]],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    return run, calls.read_text().splitlines() if calls.exists() else []
+
+
+def _archive_refused(archive: str, pin: str) -> str:
+    """What the step says of an archive whose SHA256 is not its pin."""
+    return (
+        f"::error::the SHA256 of {archive} is {ARCHIVE}, where its pin is '{pin}' (.github/actions/setup/action.yml)\n"
+    )
+
+
+NEEDS_SHASUM = pytest.mark.skipif(shutil.which("shasum") is None, reason="this machine has no shasum")
+# Each hosted runner, with the variable that pins its archive's SHA256.
+RUNNERS = [
+    pytest.param("Linux", "X64", "JUST_SHA256", id="linux"),
+    pytest.param("macOS", "ARM64", "JUST_SHA256_MACOS", id="macos"),
+]
+
+
+@NEEDS_SHASUM
+@pytest.mark.parametrize(("system", "arch", "pin"), RUNNERS)
+def test_the_setup_action_installs_the_just_archive_of_the_runner_s_system_held_to_its_own_sha256(
+    tmp_path, system, arch, pin
+) -> None:
+    version = str(_just_step()["env"]["JUST_VERSION"])
+    archive = f"just-{version}-{JUST_ARCHIVES[pin]}.tar.gz"
+    run, calls = _install_just(tmp_path, system, arch, _pins(pin, ARCHIVE))
+    assert run.returncode == 0, (run.stdout, run.stderr)
+    folder = tmp_path / "temp" / "just"
+    # The digest is shasum's of the archive on its standard input, on both runners: never the sha256sum each has.
+    assert calls == [
+        f"curl https://github.com/casey/just/releases/download/{version}/{archive}",
+        "shasum -a 256",
+        f"tar -xzf {folder / archive} -C {folder} just",
+    ]
+    assert (tmp_path / "github-path").read_text() == f"{folder}\n"
+
+
+@NEEDS_SHASUM
+@pytest.mark.parametrize(("system", "arch", "pin"), RUNNERS)
+def test_an_archive_that_is_not_the_one_its_system_s_sha256_names_is_never_unpacked(
+    tmp_path, system, arch, pin
+) -> None:
+    # The archive is the other system's pin's: each system is held to its own.
+    (elsewhere,) = set(JUST_ARCHIVES) - {pin}
+    archive = f"just-{_just_step()['env']['JUST_VERSION']}-{JUST_ARCHIVES[pin]}.tar.gz"
+    run, calls = _install_just(tmp_path, system, arch, _pins(elsewhere, ARCHIVE))
+    assert run.returncode == 1, (run.stdout, run.stderr)
+    assert run.stdout == _archive_refused(archive, OTHER)
+    assert [call.split()[0] for call in calls] == ["curl", "shasum"], calls
+    assert not (tmp_path / "github-path").exists()
+
+
+@NEEDS_SHASUM
+@pytest.mark.parametrize(("system", "arch", "pin"), RUNNERS)
+@pytest.mark.parametrize("malformed", ["", ARCHIVE[:-1]], ids=["empty", "a-digit-short"])
+def test_a_pin_that_is_no_sha256_is_refused_on_each_runner_whatever_its_sha256sum_passes(
+    tmp_path, system, arch, pin, malformed
+) -> None:
+    # macOS's own sha256sum, first on that runner's PATH, passes a line with either pin and exits 0: the step asks it
+    # nothing and compares the digest itself, so each is refused as a wrong one is, on both runners, and tar never runs.
+    archive = f"just-{_just_step()['env']['JUST_VERSION']}-{JUST_ARCHIVES[pin]}.tar.gz"
+    run, calls = _install_just(tmp_path, system, arch, _pins(pin, malformed))
+    assert run.returncode == 1, (run.stdout, run.stderr)
+    assert run.stdout == _archive_refused(archive, malformed)
+    assert [call.split()[0] for call in calls] == ["curl", "shasum"], calls
+    assert not (tmp_path / "github-path").exists()
+
+
+@NEEDS_SHASUM
+@pytest.mark.parametrize(("system", "arch"), [("Linux", "ARM64"), ("macOS", "X64"), ("Windows", "X64")])
+def test_a_runner_with_no_just_archive_pinned_fails_before_anything_is_downloaded(tmp_path, system, arch) -> None:
+    run, calls = _install_just(tmp_path, system, arch, dict.fromkeys(JUST_ARCHIVES, ARCHIVE))
+    assert run.returncode == 1, (run.stdout, run.stderr)
+    said = f"::error::no just archive is pinned for {system} on {arch} (.github/actions/setup/action.yml)\n"
+    assert run.stdout == said
+    assert calls == []
+
+
+def _floor() -> tuple[int, int]:
+    """pyproject.toml's requires-python, the oldest Python the project takes, as (major, minor)."""
+    requires = tomllib.loads((REPO / "pyproject.toml").read_text())["project"]["requires-python"]
+    floor = re.fullmatch(r">=([0-9]+)\.([0-9]+)", requires)
+    assert floor, requires
+    return int(floor[1]), int(floor[2])
+
+
+def test_the_managed_python_is_one_version() -> None:
+    # The Python the checkout's own environment is made on, written three times: the justfile's, which just install
+    # makes it with; the launcher's, which aw makes it with on first use; and CI's, the setup action's default.
+    justfile = re.search(r"(?m)^managed_python := '([0-9.]+)'$", JUSTFILE.read_text())
+    launcher = re.search(r"(?m)^managed_python=([0-9.]+)$", (REPO / "aw").read_text())
+    action = yaml.safe_load((REPO / ".github" / "actions" / "setup" / "action.yml").read_text())
+    ci = str(action["inputs"]["python-version"]["default"])
+    assert justfile and launcher and justfile[1] == launcher[1] == ci, (justfile, launcher, ci)
+    assert tuple(int(part) for part in ci.split(".")) >= _floor()
+
+
+def test_the_floor_is_one_version() -> None:
+    # requires-python, which uv holds the lock to, is what ruff checks lib/ against and what the sentences say:
+    # just install's refusal and tools/env-run's way to make a virtualenv.
+    major, minor = _floor()
+    ruff = tomllib.loads((REPO / "pyproject.toml").read_text())["tool"]["ruff"]
+    assert ruff["per-file-target-version"]["lib/**"] == f"py{major}{minor}"
+    assert JUSTFILE.read_text().count(f"needs Python {major}.{minor} or later") == 1
+    assert f"make one of Python {major}.{minor} or later" in (REPO / "tools" / "env-run").read_text()
+
+
 def test_no_recipe_has_a_dependency() -> None:
     # JUST_NO_DEPS or --no-deps would skip one: every check is a line of the script.
     assert {name: recipe["dependencies"] for name, recipe in _json()["recipes"].items() if recipe["dependencies"]} == {}
@@ -387,7 +580,9 @@ def test_every_recipe_that_runs_ansible_stops_at_collections_that_are_not_the_pi
     assert _runs(tmp_path, "vagrant") == []
 
 
-@pytest.mark.parametrize("args", [["lint", "yaml"], ["lint", "python"], ["lint", "lock"], ["lint", "hooks"]])
+@pytest.mark.parametrize(
+    "args", [["lint", "yaml"], ["lint", "python"], ["lint", "comments"], ["lint", "lock"], ["lint", "hooks"]]
+)
 def test_lint_s_parts_that_load_no_playbook_need_no_collections(tmp_path: Path, args) -> None:
     result = _just(*args, settings=_linters(tmp_path, galaxy_rc=1))
     assert result.returncode == 0, _output(result)
@@ -1248,7 +1443,7 @@ def _interrupted(started: Path, *command: str) -> tuple[int, str]:
             text=True,
             start_new_session=True,
             # SIGINT not ignored, whatever started the suite.
-            preexec_fn=_default_signals,  # noqa: PLW1509 - only signal calls, safe beside xdist's thread
+            preexec_fn=_default_signals,  # only signal calls, safe beside xdist's thread
         )
         deadline = time.monotonic() + 30
         while not started.exists() and time.monotonic() < deadline:
@@ -1419,6 +1614,59 @@ def test_install_refuses_the_base_python_of_the_tests_virtualenv() -> None:
     refused = _just("install", settings=[f"PYTHON={base}", "UV=false"])
     assert refused.returncode != 0
     assert "is not the Python of a virtualenv" in _output(refused)
+
+
+def _python_reporting(tmp_path: Path, version: str, name: str = "python") -> Path:
+    """A Python that says it is `version` when asked as a person asks one (`python --version`), and is the tests' own,
+    a virtualenv's, for anything else."""
+    python = tmp_path / f"reports-{version}" / name
+    python.parent.mkdir()
+    python.write_text(
+        "#!/bin/sh\n"
+        f'if [ "$#" -eq 1 ] && [ "$1" = --version ]; then echo "Python {version}"; exit 0; fi\n'
+        f'exec "{sys.executable}" "$@"\n'
+    )
+    python.chmod(0o755)
+    return python
+
+
+# The floor's sentence: Python 3.13, which the program aw and ansible-core 2.22 need, and the two ways out.
+BELOW_THE_FLOOR = (
+    "error: [{named}] is Python {version}, and this project needs Python 3.13 or later, as its program aw and"
+    " ansible-core 2.22 do: make a virtualenv of Python 3.13 or later and activate it or name it with PYTHON, or bring"
+    " none - PYTHON unset and python3 no virtualenv's - and just install makes this checkout's own with uv."
+)
+
+
+@pytest.mark.parametrize("version", ["3.12.7", "3.10.14", "3.9.6"])
+@pytest.mark.parametrize("given", ["PYTHON", "python3"])
+def test_install_refuses_a_virtualenv_below_the_floor_before_uv_starts(tmp_path: Path, version, given) -> None:
+    # Named by PYTHON, or python3 as this directory's shell finds it when that is a virtualenv: said by what it was
+    # given as, in one sentence, and nothing synced or installed.
+    python = _python_reporting(tmp_path, version, "python" if given == "PYTHON" else "python3")
+    _stand_in(tmp_path / "bin", "ansible-galaxy", NOT_THE_PINS)
+    settings = [f"UV={_uv(tmp_path)}", f"BIN={tmp_path / 'bin'}"]
+    if given == "PYTHON":
+        result = _just("install", settings=[f"PYTHON={python}", *settings])
+    else:
+        first = {"PATH": f"{python.parent}{os.pathsep}{_env()['PATH']}"}
+        result = _just("install", settings=["PYTHON=", *settings], env=first)
+    assert result.returncode == 1, _output(result)
+    named = python if given == "PYTHON" else "python3"
+    assert result.stderr.splitlines()[-1] == BELOW_THE_FLOOR.format(named=named, version=version), _output(result)
+    assert "Installing" not in result.stdout
+    assert _runs(tmp_path, "uv") == [] and _runs(tmp_path, "ansible-galaxy") == []
+
+
+@pytest.mark.parametrize("version", ["3.13.0", "3.14.2", "3.15.1"])
+def test_install_takes_a_virtualenv_at_or_above_the_floor(tmp_path: Path, version: str) -> None:
+    python = _python_reporting(tmp_path, version)
+    _stand_in(tmp_path / "bin", "ansible-galaxy", NOT_THE_PINS)
+    result = _just("install", settings=[f"PYTHON={python}", f"UV={_uv(tmp_path)}", f"BIN={tmp_path / 'bin'}"])
+    assert result.returncode == 0, _output(result)
+    assert "needs Python" not in _output(result)
+    # The Python it named, as that Python says it is: the tests' own, behind the stand-in.
+    assert _runs(tmp_path, "uv")[0][:5] == ["sync", "--locked", "--inexact", "--python", sys.executable]
 
 
 @pytest.mark.parametrize(
@@ -2142,7 +2390,7 @@ def test_install_makes_this_checkout_s_own_environment_with_uv_when_there_is_non
         "--locked",
         "--managed-python",
         "--python",
-        "3.13",
+        "3.14",
     ]
     assert (tmp_path / "uv-env").read_text().splitlines() == [f"{data}/venv", "automatic"]
     assert (tmp_path / "galaxy.args").read_text().split() == [
@@ -2267,6 +2515,7 @@ LINTERS = {
     "yaml": ("yamllint", ["--strict", "."]),
     "ansible": ("ansible-lint", []),
     "python": ("ruff", ["format", "--check", "."]),
+    "comments": ("python", ["-I", "tools/comments"]),
     "syntax": ("ansible-playbook", ["--syntax-check", "deploy.yml"]),
     "hooks": ("pre-commit", ["run", "--all-files"]),
 }
@@ -2278,9 +2527,18 @@ def _linters(tmp_path: Path, galaxy_rc: int = 0) -> list[str]:
     # tools/check collections, before the parts that load the playbooks.
     _stand_in(tmp_path / "bin", "ansible-galaxy", rc=galaxy_rc)
     _stand_in(tmp_path / "uv-bin", "uv")
-    # The environment's Python, which runs tools/live in front of every check.
-    if not (tmp_path / "bin" / "python").exists():
-        (tmp_path / "bin" / "python").symlink_to(sys.executable)
+    # The environment's Python, which runs tools/live in front of every check: a stand-in for tools/comments alone,
+    # recording its arguments and failing where comments-fails is, since the tool would read the checkout's own files.
+    python = tmp_path / "bin" / "python"
+    if not python.exists():
+        record, fails = tmp_path / "python.args", tmp_path / "comments-fails"
+        python.write_text(
+            '#!/bin/sh\nif [ "${2:-}" = tools/comments ]; then\n'
+            f'  {{ for arg in "$@"; do printf "%s\\n" "$arg"; done; echo --end--; }} >> "{record}"\n'
+            f'  [ ! -e "{fails}" ]; exit\n'
+            f'fi\nexec "{sys.executable}" "$@"\n'
+        )
+        python.chmod(0o755)
     return [
         f"BIN={tmp_path / 'bin'}",
         f"UV={tmp_path / 'uv-bin' / 'uv'}",
@@ -2329,12 +2587,21 @@ def test_a_linter_that_fails_fails_lint(tmp_path: Path, part: str, tool: str, fi
     assert any(run[:1] == ([first] if first else []) for run in _runs(tmp_path, tool)), _runs(tmp_path, tool)
 
 
+@pytest.mark.parametrize("named", [True, False], ids=["named", "every-part"])
+def test_lint_s_comments_part_is_tools_comments_and_a_finding_fails_lint(tmp_path: Path, named: bool) -> None:
+    settings = _linters(tmp_path)
+    (tmp_path / "comments-fails").touch()
+    result = _just("lint", *(["comments"] if named else []), settings=settings)
+    assert result.returncode != 0, _output(result)
+    assert _runs(tmp_path, "python") == [["-I", "tools/comments"]]
+
+
 @pytest.mark.parametrize(
     ("given", "env", "skip"),
     [
-        ([], {}, "yamllint,ansible-lint,ruff-check,ruff-format,gitleaks"),
+        ([], {}, "yamllint,ansible-lint,ruff-check,ruff-format,comments,gitleaks"),
         (["--all-hooks"], {}, ""),
-        ([], {"SKIP": "gitleaks"}, "yamllint,ansible-lint,ruff-check,ruff-format,gitleaks"),
+        ([], {"SKIP": "gitleaks"}, "yamllint,ansible-lint,ruff-check,ruff-format,comments,gitleaks"),
     ],
 )
 def test_lint_s_hooks_skip_what_lint_runs_itself(tmp_path: Path, given, env, skip) -> None:
@@ -2358,18 +2625,20 @@ def _molecule(tmp_path: Path) -> dict[str, list]:
         "role": [Path(d).name for d, run in zip(dirs, runs, strict=True) if run == ["test"]],
         "integration": [run for run in runs if run in (["test", "-s", "configure"], ["test", "-s", "image"])],
         "provision": [run for run in runs if run == ["test", "-s", "provision"]],
+        "system": [run for run in runs if run == ["test", "-s", "system"]],
     }
 
 
 @pytest.mark.parametrize(
     ("args", "runs"),
     [
-        ([], ["lint", "unit", "role", "integration", "provision"]),
+        ([], ["lint", "unit", "role", "integration", "provision", "system"]),
         (["unit"], ["unit"]),
-        (["molecule"], ["role", "integration", "provision"]),
+        (["molecule"], ["role", "integration", "provision", "system"]),
         (["role"], ["role"]),
         (["integration"], ["integration"]),
         (["provision"], ["provision"]),
+        (["system"], ["system"]),
         (["unit", "provision"], ["unit", "provision"]),
         (["--role", "common"], ["role"]),
     ],
@@ -2381,7 +2650,7 @@ def test_test_runs_lint_and_every_test_or_the_parts_named(tmp_path: Path, args: 
     assert bool(_runs(tmp_path, "yamllint")) == ("lint" in runs)
     assert bool(_runs(tmp_path, "pytest")) == ("unit" in runs)
     molecule = _molecule(tmp_path)
-    for part in ("role", "integration", "provision"):
+    for part in ("role", "integration", "provision", "system"):
         assert bool(molecule[part]) == (part in runs), (part, molecule)
 
 
@@ -2393,8 +2662,10 @@ def test_test_runs_lint_and_every_test_or_the_parts_named(tmp_path: Path, args: 
         (["role"], "molecule"),
         (["integration"], "molecule"),
         (["provision"], "molecule"),
+        (["engine"], "pytest"),
+        (["system"], "molecule"),
     ],
-    ids=["lint", "unit", "role", "integration", "provision"],
+    ids=["lint", "unit", "role", "integration", "provision", "engine", "system"],
 )
 def test_a_part_that_fails_fails_test(tmp_path: Path, args: list[str], tool: str) -> None:
     settings = _testing(tmp_path)
@@ -2450,14 +2721,16 @@ def _lanes_ran(tmp_path: Path) -> dict[str, str]:
 
 def test_molecule_order_names_every_scenario_once() -> None:
     order = _evaluate("molecule_order").split()
-    assert sorted(order) == sorted([*_evaluate("scenario_roles").split(), "configure", "image", "provision"]), order
+    assert sorted(order) == sorted(
+        [*_evaluate("scenario_roles").split(), "configure", "image", "provision", "system"]
+    ), order
     assert order[:2] == ["provision", "configure"], order
 
 
 def test_jobs_runs_the_scenarios_side_by_side_each_in_a_log_of_its_own(tmp_path: Path) -> None:
     result = _just("test", "molecule", "--jobs", "3", settings=[*_lanes(tmp_path), "stamp=20261106-120000"])
     assert result.returncode == 0, _output(result)
-    scenarios = [*_evaluate("scenario_roles").split(), "configure", "image", "provision"]
+    scenarios = [*_evaluate("scenario_roles").split(), "configure", "image", "provision", "system"]
     ran = _lanes_ran(tmp_path)
     assert sorted(ran) == sorted(scenarios), ran
     # Each with neither the run's log nor colour: every scenario's Ansible would write into that one file.
@@ -2468,7 +2741,7 @@ def test_jobs_runs_the_scenarios_side_by_side_each_in_a_log_of_its_own(tmp_path:
     for scenario in scenarios:
         assert re.search(rf"^{scenario} passed in \d+ s$", said, flags=re.M), (scenario, said)
         log = tmp_path / "logs" / f"20261106-120000-test-{scenario}.log"
-        folder = scenario if scenario not in ("configure", "image", "provision") else REPO.name
+        folder = scenario if scenario not in ("configure", "image", "provision", "system") else REPO.name
         assert log.read_text() == f"molecule ran in {folder}\n", scenario
     # Never one after another as well.
     assert "===== molecule:" not in said
@@ -2525,6 +2798,355 @@ def test_unit_runs_the_unit_tests_or_one_shard_of_them_and_nothing_else(tmp_path
     assert not _runs(tmp_path, "yamllint") and not _runs(tmp_path, "molecule")
 
 
+UNIT = ["-p", "live_pytest", "tests/unit", "-n", "auto", "--dist", "loadgroup"]
+# The new engine's tests alone, those tests/unit/conftest.py marks engine: tests/unit named, as the unit part names it,
+# and pytest-xdist's loadgroup kept, so that a fixture's run is still made once.
+ENGINE = ["-p", "live_pytest", "tests/unit", "-m", "engine", "-n", "auto", "--dist", "loadgroup"]
+
+
+@pytest.mark.parametrize(("args", "expect"), [(["engine"], [ENGINE]), (["unit", "engine"], [UNIT, ENGINE])])
+def test_engine_runs_the_new_engine_s_tests_alone_and_nothing_else(tmp_path: Path, args, expect) -> None:
+    result = _just("test", *args, settings=_testing(tmp_path))
+    assert result.returncode == 0, _output(result)
+    assert _runs(tmp_path, "pytest") == expect
+    assert not _runs(tmp_path, "yamllint") and not _runs(tmp_path, "molecule")
+
+
+def test_the_gate_runs_the_new_engine_s_tests_once_in_the_unit_part(tmp_path: Path) -> None:
+    # Every test of tests/unit, the engine's among them: never a second time as a part of their own.
+    result = _just("test", settings=_testing(tmp_path))
+    assert result.returncode == 0, _output(result)
+    assert _runs(tmp_path, "pytest") == [UNIT]
+
+
+# The short set's one run, after lint: the new engine's tests and today's that read the tree (conftest.py's TREE), on
+# the unit part's workers and groups.
+SHORT = ["-p", "live_pytest", "tests/unit", "-m", "engine or tree", "-n", "auto", "--dist", "loadgroup"]
+
+
+def _branches(tmp_path: Path) -> dict[str, str]:
+    """A repository of the two branches the short set compares, as a card's worktree has them: main, with a file of
+    today's, CLAUDE.md, a page, the pages' navigation and a test of today's; base-first, which adds a module of the new
+    engine; and the card's branch from base-first's tip, checked out. The environment that points git at it (GIT_DIR,
+    GIT_WORK_TREE), so a recipe run reads it and never this checkout."""
+    work = tmp_path / "repo"
+    env = {**GIT_ENV, "GIT_DIR": str(work / ".git"), "GIT_WORK_TREE": str(work)}
+    for name in ("justfile", "CLAUDE.md", "docs/README.md", "zensical.toml", "tests/unit/test_today.py"):
+        (work / name).parent.mkdir(parents=True, exist_ok=True)
+        (work / name).write_text(f"{name}, as main has it\n")
+    _git(work, env, "init", "-q", "-b", "main")
+    _git(work, env, "add", "-A")
+    _git(work, env, "commit", "-q", "-m", "main")
+    _git(work, env, "checkout", "-q", "-b", "base-first")
+    (work / "lib").mkdir()
+    (work / "lib" / "engine.py").write_text("the new engine's\n")
+    _git(work, env, "add", "-A")
+    _git(work, env, "commit", "-q", "-m", "base-first")
+    _git(work, env, "checkout", "-q", "-b", "feat/card")
+    return env
+
+
+def _git(work: Path, env: dict[str, str], *args: str) -> None:
+    run = subprocess.run(["git", *args], cwd=work, env=_env(env), capture_output=True, text=True, timeout=60)
+    assert run.returncode == 0, run.stdout + run.stderr
+
+
+def _short_check(tmp_path: Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    """tools/check short, as just test --short runs it: base-first against main, in the repository env points at."""
+    return subprocess.run(
+        [str(REPO / "tools" / "check"), "short", "base-first", "main"],
+        cwd=tmp_path / "repo",
+        env=_env(env),
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+
+def _change(work: Path, env: dict[str, str], change: str) -> None:
+    """One change of the card's branch: written and not committed, or committed on it, as each case says."""
+    if change == "nothing":
+        return
+    if change == "an edit of base-first's own":
+        (work / "lib" / "engine.py").write_text("changed\n")
+    elif change == "a new module":
+        (work / "lib" / "more.py").write_text("new\n")
+    elif change == "a new engine test":
+        (work / "tests" / "unit" / "test_aw_more.py").write_text("new\n")
+    elif change == "CLAUDE.md and the pages":
+        (work / "CLAUDE.md").write_text("changed\n")
+        (work / "docs" / "README.md").write_text("changed\n")
+        (work / "docs" / "new.md").write_text("new\n")
+    elif change == "a new page and its line in the navigation":
+        (work / "docs" / "new.md").write_text("new\n")
+        (work / "zensical.toml").write_text("changed\n")
+    elif change == "the system layer's own Ansible":
+        # The new engine's Ansible is under lib/claude_vm/guest/ansible/, whose folders are named as today's are.
+        for name in ("playbooks/layer.yml", "roles/layer/tasks/main.yml"):
+            (work / "lib" / "claude_vm" / "guest" / "ansible" / name).parent.mkdir(parents=True, exist_ok=True)
+            (work / "lib" / "claude_vm" / "guest" / "ansible" / name).write_text("new\n")
+    elif change == "new engine tests whose names git quotes":
+        # A newline in a name makes no second path.
+        (work / "tests" / "unit" / 'test_aw_q"x.py').write_text("new\n")
+        (work / "tests" / "unit" / "test_aw_n\nl.py").write_text("new\n")
+    elif change == "a file of main's, not committed":
+        (work / "justfile").write_text("changed\n")
+    elif change == "a file of main's, committed":
+        (work / "justfile").write_text("changed\n")
+        _git(work, env, "commit", "-q", "-am", "the card")
+    elif change == "a file of main's, deleted":
+        _git(work, env, "rm", "-q", "justfile")
+        _git(work, env, "commit", "-q", "-m", "the card")
+    elif change == "a file of main's, renamed":
+        _git(work, env, "mv", "justfile", "lib/justfile")
+        _git(work, env, "commit", "-q", "-m", "the card")
+    elif change == "a file of main's, its mode":
+        (work / "justfile").chmod(0o755)
+    elif change == "a test of today's":
+        (work / "tests" / "unit" / "test_today.py").write_text("changed\n")
+    elif change == "a new test of today's kind":
+        (work / "tests" / "unit" / "test_more.py").write_text("new\n")
+    elif change == "a new test of today's kind, in a folder":
+        (work / "tests" / "unit" / "units").mkdir()
+        (work / "tests" / "unit" / "units" / "test_more.py").write_text("new\n")
+    elif change == "a new test of today's kind, named as pytest also takes one":
+        (work / "tests" / "unit" / "more_test.py").write_text("new\n")
+    elif change == "a new helper of the tests":
+        (work / "tests" / "unit" / "aw_more.py").write_text("new\n")
+    else:
+        raise AssertionError(change)
+
+
+@pytest.mark.parametrize(
+    ("change", "count"),
+    [
+        ("nothing", 0),
+        ("an edit of base-first's own", 1),
+        ("a new module", 1),
+        ("a new engine test", 1),
+        ("a new helper of the tests", 1),
+        ("CLAUDE.md and the pages", 3),
+        ("a new page and its line in the navigation", 2),
+        ("the system layer's own Ansible", 2),
+        ("new engine tests whose names git quotes", 2),
+    ],
+)
+def test_the_short_set_takes_a_change_that_touches_no_file_of_main_s_but_claude_md_and_the_pages(
+    tmp_path: Path, change: str, count: int
+) -> None:
+    env = _branches(tmp_path)
+    _change(tmp_path / "repo", env, change)
+    check = _short_check(tmp_path, env)
+    assert check.returncode == 0, check.stdout + check.stderr
+    assert check.stdout == (
+        f"just test --short: {count} of the tree's paths differ from base-first's tip, none of them main's but"
+        " CLAUDE.md, docs/ and zensical.toml\n"
+    )
+
+
+MAIN_HAS = "which main has"
+NOT_RUN = "a test the short set does not run: a test of the new engine is a file tests/unit/test_aw_*.py"
+
+
+@pytest.mark.parametrize(
+    ("change", "named"),
+    [
+        ("a file of main's, not committed", [f"justfile, {MAIN_HAS}"]),
+        ("a file of main's, committed", [f"justfile, {MAIN_HAS}"]),
+        ("a file of main's, deleted", [f"justfile, {MAIN_HAS}"]),
+        # Its old name: --no-renames shows a rename as the file taken away from where main has it.
+        ("a file of main's, renamed", [f"justfile, {MAIN_HAS}"]),
+        ("a file of main's, its mode", [f"justfile, {MAIN_HAS}"]),
+        ("a test of today's", [f"tests/unit/test_today.py, {MAIN_HAS}"]),
+        ("a new test of today's kind", [f"tests/unit/test_more.py, {NOT_RUN}"]),
+        ("a new test of today's kind, in a folder", [f"tests/unit/units/test_more.py, {NOT_RUN}"]),
+        # pytest's other name for a test file (its python_files: test_*.py and *_test.py).
+        ("a new test of today's kind, named as pytest also takes one", [f"tests/unit/more_test.py, {NOT_RUN}"]),
+    ],
+)
+def test_the_short_set_refuses_a_change_to_a_file_of_main_s_naming_it(tmp_path: Path, change: str, named) -> None:
+    env = _branches(tmp_path)
+    _change(tmp_path / "repo", env, change)
+    check = _short_check(tmp_path, env)
+    assert check.returncode == 1, check.stdout + check.stderr
+    lines = check.stderr.splitlines()
+    assert lines[0] == (
+        "error: just test --short is for a change that touches no file of main's but CLAUDE.md, docs/ and"
+        " zensical.toml, and the tree here differs from base-first's tip in:"
+    )
+    assert lines[1:-1] == [f"  {line}" for line in named], check.stderr
+    assert lines[-1].startswith("Run the whole set: just lint, just test unit"), check.stderr
+    assert check.stdout == ""
+
+
+def test_the_short_set_names_every_file_of_main_s_a_change_touches(tmp_path: Path) -> None:
+    env = _branches(tmp_path)
+    work = tmp_path / "repo"
+    for change in ("a file of main's, committed", "a test of today's", "a new module", "a new test of today's kind"):
+        _change(work, env, change)
+    check = _short_check(tmp_path, env)
+    assert check.returncode == 1, check.stdout + check.stderr
+    assert check.stderr.splitlines()[1:-1] == [
+        f"  justfile, {MAIN_HAS}",
+        f"  tests/unit/test_more.py, {NOT_RUN}",
+        f"  tests/unit/test_today.py, {MAIN_HAS}",
+    ]
+
+
+# A new file in a folder today's product reads whole, which today's guards of that folder would read, none of them in
+# the short set: review 18's three plants (a playbook's task file, a helper of playbooks/files/, a role's task file),
+# then one in each other such folder.
+NEW_IN_TODAYS = "new in a folder today's product reads whole, whose guards the short set does not run"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "playbooks/tasks/aw_probe.yml",
+        "playbooks/files/aw-probe.txt",
+        "roles/github_projects/tasks/aw_probe.yml",
+        "roles/common/molecule/default/aw_probe.yml",
+        "filter_plugins/aw_probe.py",
+        "callback_plugins/aw_probe.py",
+        "inventory/group_vars/all/aw_probe.yml",
+        "molecule/configure/aw_probe.yml",
+        "tests/molecule/aw_probe.py",
+    ],
+)
+@pytest.mark.parametrize("committed", [False, True], ids=["not-committed", "committed"])
+def test_the_short_set_refuses_a_new_file_in_a_folder_today_s_product_reads_whole(
+    tmp_path: Path, path: str, committed: bool
+) -> None:
+    env = _branches(tmp_path)
+    work = tmp_path / "repo"
+    (work / path).parent.mkdir(parents=True, exist_ok=True)
+    (work / path).write_text("new\n")
+    if committed:
+        _git(work, env, "add", "-A")
+        _git(work, env, "commit", "-q", "-m", "the card")
+    check = _short_check(tmp_path, env)
+    assert check.returncode == 1, check.stdout + check.stderr
+    assert check.stderr.splitlines()[1:-1] == [f"  {path}, {NEW_IN_TODAYS}"], check.stderr
+    assert check.stdout == ""
+
+
+# Names git writes quoted where it is not given -z: a newline, a tab, a double quote or a backslash in them. Each is
+# refused all the same, a control character said as ?.
+QUOTED = [
+    ("tests/unit/test_n\nl.py", f"tests/unit/test_n?l.py, {NOT_RUN}"),
+    ("tests/unit/test_t\tx.py", f"tests/unit/test_t?x.py, {NOT_RUN}"),
+    ('tests/unit/test_q"x.py', f'tests/unit/test_q"x.py, {NOT_RUN}'),
+    ("tests/unit/test_b\\x.py", f"tests/unit/test_b\\x.py, {NOT_RUN}"),
+    ("playbooks/tasks/aw\nprobe.yml", f"playbooks/tasks/aw?probe.yml, {NEW_IN_TODAYS}"),
+]
+
+
+@pytest.mark.parametrize(("path", "named"), QUOTED, ids=["newline", "tab", "quote", "backslash", "in-a-folder"])
+def test_the_short_set_refuses_a_name_git_would_quote_all_the_same(tmp_path: Path, path: str, named: str) -> None:
+    env = _branches(tmp_path)
+    work = tmp_path / "repo"
+    (work / path).parent.mkdir(parents=True, exist_ok=True)
+    (work / path).write_text("new\n")
+    check = _short_check(tmp_path, env)
+    assert check.returncode == 1, check.stdout + check.stderr
+    assert check.stderr.splitlines()[1:-1] == [f"  {named}"], check.stderr
+
+
+def test_the_short_set_names_every_name_git_would_quote_on_a_line_of_its_own(tmp_path: Path) -> None:
+    # Committed, each is one name of the branch's change, a newline in it no second.
+    env = _branches(tmp_path)
+    work = tmp_path / "repo"
+    for path, _ in QUOTED:
+        (work / path).parent.mkdir(parents=True, exist_ok=True)
+        (work / path).write_text("new\n")
+    _git(work, env, "add", "-A")
+    _git(work, env, "commit", "-q", "-m", "the card")
+    check = _short_check(tmp_path, env)
+    assert check.returncode == 1, check.stdout + check.stderr
+    assert check.stderr.splitlines()[1:-1] == sorted(f"  {named}" for _, named in QUOTED), check.stderr
+
+
+@pytest.mark.parametrize("verb", ["ls-tree", "diff", "ls-files"])
+def test_the_short_set_refuses_where_git_fails_to_list_the_names(tmp_path: Path, verb: str) -> None:
+    # Each list of names is read through a pipe, whose status is the last command's: a git that fails there is a
+    # refusal all the same, never a list taken as empty.
+    env = _branches(tmp_path)
+    _change(tmp_path / "repo", env, "a new module")
+    real = shutil.which("git")
+    assert real
+    bin_dir = tmp_path / "git-bin"
+    bin_dir.mkdir()
+    (bin_dir / "git").write_text(
+        "#!/bin/sh\n"
+        f'case " $* " in *" {verb} "*) echo "fatal: {verb} failed" >&2; exit 128 ;; esac\n'
+        f'exec "{real}" "$@"\n'
+    )
+    (bin_dir / "git").chmod(0o755)
+    check = _short_check(tmp_path, {**env, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"})
+    assert check.returncode == 1, check.stdout + check.stderr
+    assert check.stderr == (
+        f"fatal: {verb} failed\nerror: just test --short reads the change with git, and git failed\n"
+    ), check.stderr
+    assert check.stdout == ""
+
+
+@pytest.mark.parametrize("missing", ["base-first", "main"])
+def test_the_short_set_refuses_where_a_branch_it_compares_is_not_there(tmp_path: Path, missing: str) -> None:
+    # As on a machine sent a worktree's files over a checkout of main's, with no base-first: a refusal, never a
+    # pass, which a change it could not read would otherwise be.
+    env = _branches(tmp_path)
+    work = tmp_path / "repo"
+    _git(work, env, "checkout", "-q", "--detach")
+    _git(work, env, "branch", "-q", "-D", missing)
+    check = _short_check(tmp_path, env)
+    assert check.returncode == 1, check.stdout + check.stderr
+    assert check.stderr == (
+        "error: just test --short compares the tree with the branches base-first and main, and this repository has no"
+        f" branch {missing}: fetch it first\n"
+    )
+
+
+def test_the_short_set_refuses_outside_a_git_work_tree(tmp_path: Path) -> None:
+    (tmp_path / "repo").mkdir()
+    check = _short_check(tmp_path, {"GIT_CEILING_DIRECTORIES": str(tmp_path)})
+    assert check.returncode == 1, check.stdout + check.stderr
+    assert check.stderr.endswith("error: just test --short reads the change with git, and this is no git work tree\n")
+
+
+def test_short_lints_then_runs_the_engine_s_tests_and_today_s_that_read_the_tree_once(tmp_path: Path) -> None:
+    env = _branches(tmp_path)
+    _change(tmp_path / "repo", env, "a new module")
+    result = _just("test", "--short", settings=_testing(tmp_path), env=env)
+    assert result.returncode == 0, _output(result)
+    assert "just test --short: 1 of the tree's paths differ from base-first's tip" in _output(result)
+    order = (tmp_path / "order").read_text().split()
+    assert order.index("yamllint") < order.index("pytest"), order
+    assert _runs(tmp_path, "pytest") == [SHORT]
+    assert not _runs(tmp_path, "molecule")
+
+
+def test_short_refuses_a_change_to_a_file_of_main_s_before_anything_runs(tmp_path: Path) -> None:
+    env = _branches(tmp_path)
+    _change(tmp_path / "repo", env, "a file of main's, committed")
+    result = _just("test", "--short", settings=_testing(tmp_path), env=env)
+    assert result.returncode == 1, _output(result)
+    assert f"  justfile, {MAIN_HAS}\n" in result.stderr
+    assert not (tmp_path / "order").exists()
+
+
+@pytest.mark.parametrize("tool", ["yamllint", "pytest"])
+def test_a_part_of_the_short_set_that_fails_fails_it(tmp_path: Path, tool: str) -> None:
+    env = _branches(tmp_path)
+    settings = _testing(tmp_path)
+    _stand_in(tmp_path / "bin", tool, rc=1)
+    result = _just("test", "--short", settings=settings, env=env)
+    assert result.returncode != 0, _output(result)
+    assert len(_runs(tmp_path, tool)) == 1, _runs(tmp_path, tool)
+    # Lint first: a lint that fails ends the run before the tests start.
+    assert bool(_runs(tmp_path, "pytest")) == (tool == "pytest")
+
+
 @pytest.mark.parametrize(
     ("args", "error"),
     [
@@ -2544,6 +3166,22 @@ def test_unit_runs_the_unit_tests_or_one_shard_of_them_and_nothing_else(tmp_path
         (["--shard", "1/2", "--jobs", "2"], "--jobs runs Molecule scenarios side by side, and unit has none"),
         (["molecule", "--jobs", "0"], NOT_MATCHED),
         (["molecule", "--jobs", "12"], NOT_MATCHED),
+        (
+            ["engine", "--shard", "1/2"],
+            "--shard splits the unit tests, which engine is not: just test unit --shard 1/2",
+        ),
+        (
+            ["--role", "common", "engine"],
+            "--role narrows the role scenarios, which engine does not run: just test --role common",
+        ),
+        (["engine", "--jobs", "2"], "--jobs runs Molecule scenarios side by side, and unit has none"),
+        # The short set is a set of its own, refused beside anything else before the branch is read.
+        (["--short", "unit"], "--short is a set of its own, with no part or other option: just test --short"),
+        (["--short", "engine"], "--short is a set of its own, with no part or other option: just test --short"),
+        (["--short", "--role", "common"], "--short is a set of its own, with no part or other option"),
+        (["--short", "--shard", "1/2"], "--short is a set of its own, with no part or other option"),
+        (["--short", "--jobs", "2"], "--short is a set of its own, with no part or other option"),
+        (["bogus"], NOT_MATCHED),
     ],
 )
 def test_test_s_options_are_checked_before_anything_runs(tmp_path: Path, args: list[str], error: str) -> None:

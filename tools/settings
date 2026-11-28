@@ -94,23 +94,23 @@ TAKES = {
 
 
 sys.path.insert(0, str(REPO / "lib"))  # the controller's package (docs/architecture/custom-code.md §7.10)
-import yaml  # noqa: E402
-from ansible import constants as C  # noqa: E402
-from ansible.cli import CLI  # noqa: E402
-from ansible.errors import AnsibleError  # noqa: E402
-from ansible.inventory.manager import InventoryManager  # noqa: E402
-from ansible.module_utils.common.arg_spec import ArgumentSpecValidator  # noqa: E402
-from ansible.parsing.dataloader import DataLoader  # noqa: E402
-from ansible.parsing.vault import VaultHelper  # noqa: E402
-from ansible.playbook.play import Play  # noqa: E402
-from ansible.plugins import loader as plugin_loader  # noqa: E402
-from ansible.plugins.loader import init_plugin_loader  # noqa: E402
-from ansible.template import Templar, trust_as_template  # noqa: E402
-from ansible.vars.manager import VariableManager  # noqa: E402
-from jinja2 import Environment, meta  # noqa: E402
+import yaml
+from ansible import constants as C
+from ansible.cli import CLI
+from ansible.errors import AnsibleError
+from ansible.inventory.manager import InventoryManager
+from ansible.module_utils.common.arg_spec import ArgumentSpecValidator
+from ansible.parsing.dataloader import DataLoader
+from ansible.parsing.vault import VaultHelper
+from ansible.playbook.play import Play
+from ansible.plugins import loader as plugin_loader
+from ansible.plugins.loader import init_plugin_loader
+from ansible.template import Templar, trust_as_template
+from ansible.vars.manager import VariableManager
+from jinja2 import Environment, meta
 
-from claude_vm import plugin, store, text, wiring  # noqa: E402
-from claude_vm.tui import screen  # noqa: E402
+from claude_vm import plugin, store, text, wiring
+from claude_vm.tui import screen
 
 plugin.own(str(REPO / "lib"))  # this checkout's package, never another's that sys.path had first
 
@@ -193,7 +193,7 @@ _Tagged.add_multi_constructor(
 
 
 def tagged(source: str):
-    return yaml.load(source, Loader=_Tagged)  # noqa: S506 - a SafeLoader, that keeps tags as text
+    return yaml.load(source, Loader=_Tagged)  # a SafeLoader, that keeps tags as text
 
 
 # ------------------------------------------------------------------------------------- the playbooks, read ---
@@ -884,7 +884,7 @@ class Settings:
         else:
             try:
                 value = context["templar"].template(context["values"][name])
-            except Exception as error:  # noqa: BLE001 - whatever a template raises, the value is not known here
+            except Exception as error:  # whatever a template raises, the value is not known here
                 refused = _cause(error, LookupRefused)
                 row["kind"] = "at_run_start" if refused else "on_the_vm"
                 if refused:

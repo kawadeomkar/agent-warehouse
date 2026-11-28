@@ -1,0 +1,213 @@
+#!/usr/bin/env python3
+"""The comment rule's check (docs/development/comments.md): each finding by path and line, and where it goes.
+
+<python> -I tools/comments [<file>...], from a checkout's top; with no file, every file git lists there. Exit 1 on
+any finding, 2 on a refusal."""
+
+from __future__ import annotations
+
+import ast
+import io
+import json
+import re
+import subprocess
+import sys
+import tokenize
+from pathlib import Path
+
+NEW = ("schema", "cli", "engine", "pve", "ssh", "vendors", "runs", "fleet", "guest", "control")
+TODAY = ("playbooks/", "roles/", "lib/", "filter_plugins/", "callback_plugins/", "inventory/", "tools/")
+EXEMPT = re.compile(r"(?:.*\.example|(?:.*/)?(?:defaults/main|vars/main|argument_specs)\.yml)\Z")
+COUNTS = "tests/unit/comments.json"
+CAP = 5
+
+WORKAROUND = re.compile(r"\b(?:workaround|hack|for now|temporary|until|flaky|race|retry|sleep)\b", re.I)
+CODES = r"[A-Z]+[0-9]+(?:, ?[A-Z]+[0-9]+)*"
+DIRECTIVE = re.compile(
+    rf"(?:noqa: {CODES}|ruff: noqa: {CODES}|type: ignore\[[\w-]+(?:, ?[\w-]+)*\]|pragma: no cover"
+    r"|fmt: (?:off|on|skip))\Z"
+)
+SECTION = re.compile(r"§(\d+(?:\.\d+)*)\Z")
+TEST = re.compile(r"test: (tests/(?:[\w-]+/)*[\w-]+\.py)((?:::\w+)+)\Z")
+UPSTREAM = re.compile(r"upstream: [A-Za-z0-9][A-Za-z0-9-]*/[\w.-]+#[1-9][0-9]*\Z")
+POINTER = re.compile(r"(?:§|test:|upstream:)")
+HEADING = re.compile(r"#{1,6} (\d+(?:\.\d+)*)\.?\s")
+CODING = re.compile(r"[ \t\f]*#.*?coding[:=][ \t]*[-\w.]+")
+
+PROSE = (
+    "a rule goes into the test that holds it, its why in the test's docstring; a design reason into its § section,"
+    " a `# §` pointer left here; a step the code shows, deleted"
+)
+WHAT = {
+    "CMT001": ("a workaround's comment", "fix the cause, or file a card and hold the case with a test"),
+    "CMT002§": ("a § pointer not of its form, or to a section no page of docs/architecture has", None),
+    "CMT002test": ("a test pointer not of its form, or to a test no file of tests/ holds", None),
+    "CMT002upstream": ("an upstream pointer not of the form owner/repo#N", None),
+    "CMT003": ("prose in a comment of the new engine's", PROSE),
+    "CMT004": (
+        f"a docstring of the new engine's past {CAP} lines",
+        f"keep what it does, takes, returns and raises, in {CAP} lines at most; for the rest, {PROSE}",
+    ),
+}
+POINTED = (
+    "point it at a § section of docs/architecture, a test of tests/ (tests/unit/test_x.py::test_y) or an upstream"
+    " issue (owner/repo#N), or delete it"
+)
+
+
+def is_new(path: str) -> bool:
+    """Whether a checkout's file, by its path from the top, is the new engine's."""
+    parts = path.split("/")
+    if parts[:2] == ["lib", "claude_vm"] and len(parts) > 2:
+        return parts[2] in NEW or parts[2] == "secret.py"
+    return path.startswith("tools/aw") or path == "tools/comments"
+
+
+def is_read(path: str, text: str) -> bool:
+    """Whether the check reads a file: Python of the new engine's or of today's product, not a wiki source."""
+    python = path.endswith(".py") or (text.startswith("#!") and "python" in text.split("\n", 1)[0])
+    return python and not EXEMPT.fullmatch(path) and (is_new(path) or path.startswith(TODAY))
+
+
+def sections(root: Path) -> set[str]:
+    """Every numbered section of docs/architecture's pages, outside their code blocks."""
+    found = set()
+    for page in sorted((root / "docs" / "architecture").glob("*.md")):
+        fenced = False
+        for line in page.read_text(encoding="utf-8").splitlines():
+            fenced = fenced != line.lstrip().startswith("```")
+            heading = None if fenced else HEADING.match(line)
+            if heading:
+                found.add(heading.group(1))
+    return found
+
+
+def holds(root: Path, path: str, names: str) -> bool:
+    """Whether a file of tests/ holds a test by its names, as a test's node ID gives them."""
+    file = root / path
+    if not file.is_file():
+        return False
+    body = ast.parse(file.read_text(encoding="utf-8")).body
+    for name in names.split("::")[1:]:
+        kinds = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+        node = next((n for n in body if isinstance(n, kinds) and n.name == name), None)
+        if node is None:
+            return False
+        body = node.body if isinstance(node, ast.ClassDef) else []
+    return True
+
+
+def kind(root: Path, comment: str, line: int, known: set[str]) -> str | None:
+    """A comment's finding, or None for one of the kinds the rule allows."""
+    if (line == 1 and comment.startswith("#!")) or (line <= 2 and CODING.match(comment)):
+        return None
+    parts = [part.strip() for part in re.split(r"\s#", comment[1:])]
+    if all(DIRECTIVE.match(part) for part in parts):
+        return None
+    pointers = [part for part in parts if POINTER.match(part)]
+    if len(pointers) == 1 and all(DIRECTIVE.match(part) for part in parts if not POINTER.match(part)):
+        part = pointers[0]
+        section, test = SECTION.match(part), TEST.match(part)
+        if not (section or test or UPSTREAM.match(part)) and WORKAROUND.search(part):
+            return "CMT001"
+        if part.startswith("§"):
+            return None if section and section.group(1) in known else "CMT002§"
+        if part.startswith("test:"):
+            return None if test and holds(root, test.group(1), test.group(2)) else "CMT002test"
+        return None if UPSTREAM.match(part) else "CMT002upstream"
+    return "CMT001" if WORKAROUND.search(comment) else "CMT003"
+
+
+def docstrings(tree: ast.Module) -> list[tuple[int, int]]:
+    """The line and column of each docstring past the cap."""
+    kinds = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+    found = []
+    for node in ast.walk(tree):
+        first = node.body[0] if isinstance(node, kinds) and node.body else None
+        if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
+            if first.end_lineno - first.lineno + 1 > CAP:
+                found.append((first.lineno, first.col_offset + 1))
+    return found
+
+
+def findings(root: Path, path: str, text: str, known: set[str]) -> list[tuple[int, int, str]]:
+    """A file's findings: (line, column, kind), CMT001 alone outside the new engine."""
+    new = is_new(path)
+    found = []
+    for token in tokenize.generate_tokens(io.StringIO(text).readline):
+        if token.type == tokenize.COMMENT:
+            found_kind = kind(root, token.string, token.start[0], known)
+            if found_kind and (new or found_kind == "CMT001"):
+                found.append((token.start[0], token.start[1] + 1, found_kind))
+    if new:
+        found += [(line, col, "CMT004") for line, col in docstrings(ast.parse(text))]
+    return found
+
+
+def said(path: str, line: int, col: int, found_kind: str) -> str:
+    what, fix = WHAT[found_kind]
+    return f"{path}:{line}:{col}: {found_kind[:6]} {what}. Fix: {fix or POINTED}."
+
+
+def listed(root: Path) -> list[str]:
+    out = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    return sorted({path for path in out.split("\0") if path and (root / path).is_file()})
+
+
+def check(root: Path, paths: list[str], whole: bool) -> list[tuple[str, int, int, str]]:
+    """Every line the check says: each finding, and each file the ratchet holds that is above or below its count."""
+    counts_file = root / COUNTS
+    allowed = json.loads(counts_file.read_text(encoding="utf-8")) if counts_file.is_file() else {}
+    known = sections(root)
+    out, counted = [], {}
+    for path in paths:
+        try:
+            text = (root / path).read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        if not is_read(path, text):
+            continue
+        try:
+            found = findings(root, path, text, known)
+        except (SyntaxError, tokenize.TokenError):
+            out.append((path, 0, 0, f"{path}: not read as Python. Fix: what ruff says of it."))
+            continue
+        held = [f for f in found if f[2] in ("CMT003", "CMT004")]
+        out += [(path, line, col, said(path, line, col, k)) for line, col, k in found if (line, col, k) not in held]
+        counted[path] = len(held)
+        if len(held) > allowed.get(path, 0):
+            out += [(path, line, col, said(path, line, col, k)) for line, col, k in held]
+    for path in sorted(set(counted) | (set(allowed) if whole else set())):
+        now, most = counted.get(path, 0), allowed.get(path, 0)
+        if now == most:
+            continue
+        count = f"CMT003 and CMT004 count {now}, {COUNTS} allows {most}"
+        fix = PROSE if now > most else f"lower its count in {COUNTS} to {now}, in this commit"
+        out.append((path, 0, 0, f"{path}: {count}. Fix: {fix}."))
+    return sorted(out, key=lambda row: row[:3])
+
+
+def main(argv: list[str]) -> int:
+    root = Path.cwd().resolve()
+    if not (root / "docs" / "architecture").is_dir():
+        print("error: tools/comments runs from a checkout's top, which has docs/architecture", file=sys.stderr)
+        return 2
+    paths = [Path(arg).resolve() for arg in argv]
+    outside = [str(path) for path in paths if not path.is_relative_to(root)]
+    if outside:
+        print(f"error: not in this checkout: {', '.join(outside)}", file=sys.stderr)
+        return 2
+    given = [path.relative_to(root).as_posix() for path in paths]
+    rows = check(root, given or listed(root), whole=not argv)
+    for row in rows:
+        print(row[3])
+    return 1 if rows else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
