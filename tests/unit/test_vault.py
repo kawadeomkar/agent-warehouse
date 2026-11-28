@@ -36,7 +36,7 @@ def _as_vaultlib(path: Path, password_files: list[str]) -> frozenset[str] | None
             try:
                 data = VaultLib([("default", VaultSecret(said))]).decrypt(data)
                 break
-            except Exception:  # noqa: BLE001 - the next file, as Ansible tries them
+            except Exception:  # the next file, as Ansible tries them
                 continue
         else:
             return None

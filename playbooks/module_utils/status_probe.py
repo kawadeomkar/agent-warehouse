@@ -113,7 +113,7 @@ def _at_once(reads, limit):
     def work(read, box):
         try:
             box["value"] = read()
-        except Exception as error:  # noqa: BLE001 - any failure is the read's own, said by name
+        except Exception as error:  # any failure is the read's own, said by name
             box["value"] = {"failed": True, "msg": str(error) or type(error).__name__}
 
     threads = []
@@ -267,7 +267,7 @@ def run_all(reads, timeout):
         def work(read=read, box=box):
             try:
                 box["value"] = read()
-            except Exception as error:  # noqa: BLE001 - any failure is the read's own, said by name
+            except Exception as error:  # any failure is the read's own, said by name
                 box["error"] = str(error) or type(error).__name__
 
         thread = threading.Thread(target=work, daemon=True)
@@ -418,7 +418,7 @@ def user_reads(asked, home, early=None):
             def simulate():
                 try:
                     box["value"] = upgrades(limit)
-                except Exception as error:  # noqa: BLE001 - said as the read's own, as run_all does
+                except Exception as error:  # said as the read's own, as run_all does
                     box["error"] = str(error) or type(error).__name__
 
             simulation = threading.Thread(target=simulate, daemon=True)
@@ -496,7 +496,7 @@ def _as_the_user(entry, write_end, asked):
         except OSError:
             pass
         _line(out, user_reads(asked, entry.pw_dir, early=lambda part: _line(out, {"early": part})))
-    except Exception as error:  # noqa: BLE001 - said as every user read's failure
+    except Exception as error:  # said as every user read's failure
         _line(out, {"failed": True, "msg": str(error) or type(error).__name__})
     out.close()
 

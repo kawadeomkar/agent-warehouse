@@ -603,7 +603,7 @@ def _at_a_pseudo_terminal(
         stdin=slave,
         stdout=slave,
         stderr=slave,
-        preexec_fn=_take_the_terminal,  # noqa: PLW1509 - only signal, setsid and ioctl, safe beside xdist's thread
+        preexec_fn=_take_the_terminal,  # only signal, setsid and ioctl, safe beside xdist's thread
     )
     os.close(slave)
     output, deadline = b"", time.monotonic() + timeout
@@ -1231,7 +1231,7 @@ def _pve_vm(base: str, vmid: int, name: str, *, running: bool = False, agent_pol
         for _ in range(agent_polls):
             try:
                 _pve(base, "GET", f"nodes/pve/qemu/{vmid}/agent/network-get-interfaces")
-            except Exception:  # noqa: BLE001 - the fake refuses the first polls on purpose
+            except Exception:  # the fake refuses the first polls on purpose
                 pass
 
 

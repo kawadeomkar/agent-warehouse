@@ -35,12 +35,12 @@ INTERRUPTED = []
 signal.signal(signal.SIGINT, lambda *_: INTERRUPTED.append(1))
 signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGINT})
 
-import argparse  # noqa: E402 - after the handler
-import importlib.util  # noqa: E402
-import os  # noqa: E402
-import re  # noqa: E402
-import sys  # noqa: E402
-from pathlib import Path  # noqa: E402
+import argparse  # after the handler
+import importlib.util
+import os
+import re
+import sys
+from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 LIVE_ENV = "AGENT_WAREHOUSE_LIVE"
@@ -180,7 +180,7 @@ def main(argv):
         return _logged(args, [*rest, *args.argv])
     stages = [label for label in os.environ.get(STAGES_ENV, "").split() if LABEL.match(label)]
     engine = _engine()
-    # INTERRUPTED itself, which the part reads once its own handler is in: a Ctrl-C until then is still this one's.
+    # INTERRUPTED itself, which the part reads once its own handler is in: a Ctrl-C before then is still this one's.
     plan = args.plan.split()
     return engine.run(_title(), args.stage, args.step or None, args.argv, state, plan, args.read, stages, INTERRUPTED)
 

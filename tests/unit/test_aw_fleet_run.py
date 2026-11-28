@@ -539,7 +539,7 @@ def test_a_ctrl_c_lets_no_other_machine_begin_and_the_record_holds_thirty_outcom
             stdout=subprocess.DEVNULL,
             stderr=err,
             env=environment(home),
-            preexec_fn=harness._default_signals,  # noqa: PLW1509 - only signal, safe beside xdist's thread
+            preexec_fn=harness._default_signals,  # only signal, safe beside xdist's thread
         )
     try:
         _until(lambda: (tmp_path / "full").exists() or process.poll() is not None, "twenty machines under way", HANG)

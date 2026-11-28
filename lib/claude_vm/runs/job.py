@@ -597,7 +597,7 @@ def create(
     else:
         raise FileExistsError(f"no free job ID in {jobs}")
     os.chmod(folder, paths.DIR_MODE)
-    # The lock first: from here the job reads `running`, and a reader passes over the folder until job.json is there.
+    # The lock first: from here the job reads `running`, and a reader passes over the folder before job.json is there.
     # Opened for writing, as an exclusive lock needs on NFS; non-inheritable, as Python opens every descriptor.
     held = os.open(folder / LOCK, os.O_RDWR | os.O_CREAT | os.O_EXCL, paths.FILE_MODE)
     try:

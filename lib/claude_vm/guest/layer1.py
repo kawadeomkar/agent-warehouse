@@ -92,7 +92,7 @@ if TYPE_CHECKING:
 
     from claude_vm.runs.job import Job
 
-# The generated configuration's name in the run's directory, and the folder of Ansible's own local temporary files
+# The generated configuration's name in the run's directory, and the folder of Ansible's own local_tmp files
 # there: one of each for a run, whatever its machines.
 CONFIG = "layer1.cfg"
 LOCAL_TMP = "ansible-local"

@@ -253,7 +253,7 @@ def read_together(jobs, readers, said):
     try:
         with ProcessPoolExecutor(readers, mp_context=multiprocessing.get_context("fork")) as pool:
             return list(pool.map(summary_of_part, jobs))
-    except Exception as error:  # noqa: BLE001 - a pool that fails leaves the reading to this process
+    except Exception as error:  # a pool that fails leaves the reading to this process
         said.append(type(error).__name__)
         return None
 

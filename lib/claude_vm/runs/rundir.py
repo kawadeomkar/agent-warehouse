@@ -31,7 +31,7 @@ from claude_vm.schema import patterns
 # The start of a run's directory's name, before the job's ID: the ID is in the name, so that a directory a killed run
 # left is told by its job, and an Ansible child's command line that holds the path names its run.
 PREFIX = "aw-run-"
-# Where the directory goes when the per-user temporary directory lies inside XDG_RUNTIME_DIR.
+# Where the directory goes when the per-user tempfile directory lies inside XDG_RUNTIME_DIR.
 FALLBACK = "/tmp"
 
 # The directory this process made for each of its jobs, by the job's folder's real path: what the run itself names a

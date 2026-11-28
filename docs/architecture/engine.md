@@ -12,7 +12,9 @@ This page describes the new engine's code as it is in the repository, and grows 
 below, which says what goes there until the change that builds a part writes how it works under that heading. The
 package's own rules, from [§7.10](custom-code.md#710-libclaude_vm--the-controllers-python-as-one-package), hold here as
 everywhere in `lib/claude_vm/`: importing a module loads none of `ansible`, `yaml`, `asyncio` or `subprocess`, and a
-package's `__init__.py` imports nothing.
+package's `__init__.py` imports nothing. Its code is held to [the comment rule](../development/comments.md): a
+comment is a pointer to a section, a test or an upstream issue, or a tool's directive, and a docstring the contract;
+what prose it still holds is counted in `tests/unit/comments.json`, and the count only goes down.
 
 ## 16.1 The rule between the two engines
 
@@ -20,7 +22,8 @@ The rule is one-way, and `tests/unit/test_aw_layout.py` holds both halves of it.
 
 - **Nothing of today's product reaches the new engine.** No file of the `justfile`, `deploy.yml`, `ansible.cfg`, the
   `Vagrantfile`, `playbooks/`, `roles/`, `filter_plugins/`, `callback_plugins/`, `inventory/` or `tools/` (but
-  `tools/aw` itself), and no module of `lib/claude_vm/` outside the new subpackages, names `tools/aw` or imports a
+  `tools/aw` itself, and `tools/comments`, which names the new engine's files to hold them to the comment rule),
+  and no module of `lib/claude_vm/` outside the new subpackages, names `tools/aw` or imports a
   module of the new engine. A Python file is read as a syntax tree: its imports, the relative ones resolved, the
   strings it holds, and the module it hands to `plugin.filters`. Any other file is read as text, so `ansible.cfg`,
   which every run of today's reads, never names the new engine's Ansible folder: only the configuration the engine

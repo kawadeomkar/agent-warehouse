@@ -82,11 +82,11 @@ def serve():
 
     def start(pki: dict, handler: type = _Proxmox) -> int:
         class Recording(handler):  # type: ignore[valid-type, misc]
-            def do_GET(self):  # noqa: N802 - http.server's name
+            def do_GET(self):  # http.server's name
                 seen.headers.append({key.lower(): value for key, value in self.headers.items()})
                 super().do_GET()
 
-            def do_HEAD(self):  # noqa: N802 - http.server's name
+            def do_HEAD(self):  # http.server's name
                 seen.headers.append({key.lower(): value for key, value in self.headers.items()})
                 super().do_HEAD()
 

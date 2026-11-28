@@ -1037,7 +1037,7 @@ def test_every_module_of_runs_that_takes_a_lock_is_one_holders_reads() -> None:
         (
             "from asyncio import subprocess as s\ns.create_subprocess_shell('x')",
             ["line 2: asyncio.subprocess.create_subprocess_shell"],
-        ),  # noqa: E501
+        ),
         ("loop.subprocess_exec(factory, 'x')", ["line 1: loop.subprocess_exec"]),
         ("import os\nos.system('x')", ["line 2: os.system"]),
         ("import os\nos.posix_spawn('x', ['x'], {})", ["line 2: os.posix_spawn"]),
@@ -1047,7 +1047,7 @@ def test_every_module_of_runs_that_takes_a_lock_is_one_holders_reads() -> None:
         (
             "import concurrent.futures\nconcurrent.futures.ProcessPoolExecutor()",
             ["line 2: concurrent.futures.ProcessPoolExecutor"],
-        ),  # noqa: E501
+        ),
         ("import posix\nposix.system('x')", ["line 2: posix.system"]),
         ("import posix\nposix.posix_spawn('x', ['x'], {})", ["line 2: posix.posix_spawn"]),
         ("import _posixsubprocess\n_posixsubprocess.fork_exec()", ["line 2: _posixsubprocess.fork_exec"]),

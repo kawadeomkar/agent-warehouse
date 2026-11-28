@@ -182,7 +182,7 @@ def _include_meta(task, search):
                 return {}
             path = view.role_tasks_file(name.split(".")[-1], tasks_from, search)
             return {"include": view.count_tasks(path), "include_role": name.split(".")[-1]} if path else {}
-    except Exception:  # noqa: BLE001 - a count is a nicety: an include whose file cannot be read is counted as it runs
+    except Exception:  # a count is a nicety: an include whose file cannot be read is counted as it runs
         return {}
     return {}
 
@@ -192,7 +192,7 @@ def tagged_in(task, play):
         return True
     try:
         return bool(task.evaluate_tags(play.only_tags, play.skip_tags, all_vars={}))
-    except Exception:  # noqa: BLE001 - tags that need a variable to say: counted, as a run may reach them
+    except Exception:  # tags that need a variable to say: counted, as a run may reach them
         return True
 
 
@@ -299,7 +299,7 @@ def play_batches(play):
         inventory = play._variable_manager._inventory
         hosts = len(inventory.get_hosts(play.hosts, order=play.order, ignore_restrictions=True))
         return view.batches(hosts, play.serial)
-    except Exception:  # noqa: BLE001 - a count is a nicety
+    except Exception:  # a count is a nicety
         return 1
 
 
@@ -375,7 +375,7 @@ class Engine(commands.Drawn):
         for play in playbook.get_plays():
             try:
                 tasks = tasks_of(play.compile(), [], play, search)
-            except Exception:  # noqa: BLE001 - a count is a nicety: a play that will not compile here still runs
+            except Exception:  # a count is a nicety: a play that will not compile here still runs
                 tasks = []
             plays.append((play._uuid, play.get_path(), tasks, play.get_name()))
         self.run.plays(plays)

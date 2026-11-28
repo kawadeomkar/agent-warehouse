@@ -309,7 +309,7 @@ def build(argv: list[str], environ: dict[str, str]) -> Any:
     server = today.Server(config, refusal, environ, backend=Program(registered))
     try:
         built = tools(server)
-    except Exception as error:  # noqa: BLE001 - a checkout's code that cannot make its tools is said, never an exit
+    except Exception as error:  # a checkout's code that cannot make its tools is said, never an exit
         said = f"This checkout's MCP server could not make its tools ({type(error).__name__}: {error})."
 
         async def status() -> str:

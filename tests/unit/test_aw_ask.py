@@ -902,7 +902,7 @@ def test_with_standard_input_on_dev_null_each_question_takes_its_default_at_once
         capture_output=True,
         env=environment(home, {"PYTHONUTF8": "1", "TMPDIR": str(temporary)}),
         timeout=60,
-        preexec_fn=harness._default_signals,  # noqa: PLW1509 - only signal, safe beside xdist's thread
+        preexec_fn=harness._default_signals,  # only signal, safe beside xdist's thread
     )
     assert ended.returncode == 0, ended.stderr
     answers = json.loads((tmp_path / "answers.json").read_text())

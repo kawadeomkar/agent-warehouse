@@ -63,6 +63,7 @@ changing behaviour. The engine that replaces the playbooks at 3.0, built beside 
 
 - [Testing](development/testing.md) - the test suite, the fakes it runs against, and CI.
 - [This wiki](development/docs.md) - how these pages are organised, generated and checked.
+- [Comments](development/comments.md) - the kinds a comment of the new engine's may be, the check and its count.
 - [CONTRIBUTING.md](https://github.com/kawadeomkar/agent-warehouse/blob/main/CONTRIBUTING.md) - setup,
   conventions and pull requests.
 - [SECURITY.md](https://github.com/kawadeomkar/agent-warehouse/blob/main/SECURITY.md) - reporting a

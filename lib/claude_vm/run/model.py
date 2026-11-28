@@ -182,7 +182,7 @@ class Task:
         self.hosts = OrderedDict()  # host: [start, end, outcome]
         self.outcome = ""
         self.wait = None  # (since, seconds it may take), while the task waits for a person
-        self.tries = None  # (this try, of how many, until when): a retried task that is no wait for a person
+        self.tries = None  # (this try, of how many, the deadline): a task tried again that is no wait for a person
         self.batch = 0  # the play, or serial play's batch, it started in
         self.prompted = 0.0  # seconds a prompt of this task had the person's attention
         self.prompting = None  # since when a prompt of this task has been up
@@ -270,7 +270,7 @@ class Step:
 
     @property
     def expected(self):
-        # A step a run in parts has only listed is one task until a part reaches it.
+        # A step a run in parts has only listed is one task, and stays one before a part reaches it.
         listed = 1 if self.planned and not self.tasks else 0
         return max(sum(self.static.values()) + self.included + self.extra, len(self.tasks), listed)
 
@@ -366,7 +366,7 @@ class Stage:
 
     @property
     def expected(self):
-        # A stage a run in parts has only listed is one task until a part reaches it.
+        # A stage a run in parts has only listed is one task, and stays one before a part reaches it.
         listed = 1 if self.planned and not self.tasks else 0
         return max(sum(step.expected for step in self.steps.values()), listed)
 
@@ -545,7 +545,7 @@ class Run:
     # --- the events -------------------------------------------------------------------------------------------
     def task(self, key, name, role, now, waits=False, hidden=False, blocks=(), ends=False, file=""):
         # Ansible starts a meta task once per host, each just before that host's result: the same task again, not
-        # another, until a play or a serial play's next batch starts.
+        # another, while no play or serial play's next batch has started.
         if self.current is not None and self.current.key == key and self.current.batch == self.batch:
             self.current.end = None
             return self.current

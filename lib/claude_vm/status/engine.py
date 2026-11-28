@@ -504,7 +504,7 @@ class Run:
         self.password_lock = threading.Lock()
         self.passwords: dict = {}
         # Through the Proxmox host (lib/claude_vm/route.py): the route, worked out at each run; the hop's login, made
-        # once, by the first VM that takes the hop (None until then); and each VM that did not answer through the hop,
+        # once, by the first VM that takes the hop (None before then); and each VM that did not answer through the hop,
         # for the hop's own words after the probes.
         self.route: dict | None = None
         self.hop_lock = threading.Lock()
@@ -545,13 +545,13 @@ class Run:
         def early(read):
             try:
                 land(read)
-            except Exception:  # noqa: BLE001 - what its root sent: the whole answer, next, says so of this VM
+            except Exception:  # what its root sent: the whole answer, next, says so of this VM
                 return
 
         try:
             read = reach.read(how, self.asked(vm_settings, key), early, lambda: self.password(name))
             land(read)
-        except Exception as error:  # noqa: BLE001 - a failure, or what its root sent, is that VM's, said as not read
+        except Exception as error:  # a failure, or what its root sent, is that VM's, said as not read
             read = {"failed": True, "msg": str(error) or type(error).__name__}
             land(read)
         # Through the hop, a connection that ended before the VM's sshd spoke is all ssh says of a VM that does not
@@ -1039,7 +1039,7 @@ def run(opts, loader=settings.load, reader=None, program="just") -> int:
     except KeyboardInterrupt:
         _SAID_AS[0] = program
         _end_for_an_interrupt(screen)
-    except Exception as error:  # noqa: BLE001 - said once, whatever failed, and the run's exit is the one for that
+    except Exception as error:  # said once, whatever failed, and the run's exit is the one for that
         if screen:
             screen.out.finish()
         print(f"{program} status: the run failed: {one_line(str(error), 2000)}", file=sys.stderr)

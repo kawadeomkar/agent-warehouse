@@ -123,9 +123,9 @@ environment where `python3` is not it.
 
 | Recipe | What it does |
 |---|---|
-| `just lint [<part>...]` | Every linter: the lock, YAML, Ansible, Python, the justfile, playbook syntax, pre-commit hooks |
+| `just lint [<part>...]` | Every linter: the lock, YAML, Ansible, Python, comments, the justfile, playbook syntax, pre-commit hooks |
 | &emsp;`--all-hooks` | hooks: run every pre-commit hook, the ones lint's other parts cover too |
-| &emsp;`<part>` | lock (uv.lock against pyproject.toml), yaml (yamllint --strict), ansible (ansible-lint, production profile), python (ruff check and format --check), just (just --fmt --check), syntax (--syntax-check on every playbook), hooks (the pre-commit hooks the others do not cover) |
+| &emsp;`<part>` | lock (uv.lock against pyproject.toml), yaml (yamllint --strict), ansible (ansible-lint, production profile), python (ruff check and format --check), comments (tools/comments: each comment of a kind a check reads, the new engine held to tests/unit/comments.json), just (just --fmt --check), syntax (--syntax-check on every playbook), hooks (the pre-commit hooks the others do not cover) |
 | `just test [<part>...]` | Lint, then every test: unit and Molecule (the local quality gate) |
 | &emsp;`--role ROLES` | Only these roles' scenarios, comma-separated: on its own it means the role part (just test --role common,claude_code) |
 | &emsp;`--shard SHARD` | Only the I-th of N shards of the unit tests, each group of tests whole, as CI splits them: on its own it means the unit part (just test unit --shard 2/3) |

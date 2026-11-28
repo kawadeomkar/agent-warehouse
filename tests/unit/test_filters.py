@@ -813,9 +813,9 @@ class TestSshConfigElsewhere:
 
 # ------------------------------------------------------------------------------- the template and its record ---
 
-import ast  # noqa: E402
+import ast
 
-import yaml  # noqa: E402
+import yaml
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 qm_config = proxmox_filters.qm_config

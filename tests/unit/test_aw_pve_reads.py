@@ -861,7 +861,7 @@ def _errors(fleet: Fleet, other: dict, tmp_path: Path) -> list[BaseException]:
         with Proxmox(fleet.base, pinned or pin.kept(fleet.pki["ca"]), token) as client:
             try:
                 getattr(client, read)(*args)
-            except Exception as error:  # noqa: BLE001 - each is what the test reads
+            except Exception as error:  # each is what the test reads
                 raised.append(error)
 
     caught(Token(fleet.token.id, Secret(CANARY)), "version")

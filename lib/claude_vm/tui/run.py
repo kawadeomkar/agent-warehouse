@@ -154,7 +154,7 @@ class Run(model.Run):
                 marked[turn[0]] = "running"
         elif state in ("running", "waiting") and self.play_batches.get(self.play, 1) < 2:
             # A play that is not serial takes every VM still in it through each task: between two, or with its own
-            # result in, a VM is still at the step until the step ends.
+            # result in, a VM is still at the step while the step goes on.
             still = set(self.play_hosts.get(self.play, [])) - set(gone)
             for vm, said in marked.items():
                 if vm in still and said in ("done", "skipped", "to come"):
@@ -438,7 +438,7 @@ class Run(model.Run):
         if self._flat() and self.current is not None and self.current.step is not None:
             where = self.current.step
         # A stage a run in parts has listed and not begun has no size yet - just test's unit, its tests uncounted - and
-        # a percentage that could not fall would read whole by its first stage's end: none until each has begun.
+        # a percentage that could not fall would read whole by its first stage's end: none before each has begun.
         if any(listed.planned and not listed.tasks for listed in stages):
             return f"{self.title} · {where}"
         expected = sum(self._whole(s) for s in stages)

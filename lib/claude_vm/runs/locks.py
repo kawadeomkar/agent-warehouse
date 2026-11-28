@@ -103,7 +103,7 @@ RECORD_MOST = 4096
 RUNNING = ("running", "cancelling")
 
 # The locks each job of this process took, by the job's folder's real path: each lock's file name, the descriptor that
-# holds it and how. Kept open until this process ends: nothing lets a run's locks go but take's all or none.
+# holds it and how. Kept open as long as this process lives: nothing lets a run's locks go but take's all or none.
 _TAKEN: dict[str, list[tuple[str, int, int]]] = {}
 # The descriptors of the fleet's lock `exclusive` holds and of the sections this process is in, each with the lock's
 # name, for as long as each block lasts.

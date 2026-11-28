@@ -36,11 +36,11 @@ if sys.version_info < FLOOR:
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "lib"))  # the controller's package (docs/architecture/custom-code.md §7.10)
 
-from claude_vm import plugin  # noqa: E402
+from claude_vm import plugin
 
 plugin.own(str(REPO / "lib"))  # this checkout's package, never another's that sys.path had first
 
-from claude_vm.cli import main  # noqa: E402
+from claude_vm.cli import main
 
 if __name__ == "__main__":
     # This file's own path in argv[0], whatever name it was started by: aw's checkout is worked out from it alone.

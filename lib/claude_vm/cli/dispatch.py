@@ -60,7 +60,7 @@ NO_VIRTUALENV = (
     "error: {python} is no virtualenv's Python, and aw runs only from a virtualenv, never a system-wide install: set"
     " PYTHON to a virtualenv's python, or leave it unset and aw makes this checkout's own"
 )
-# The top-level modules of the packages the engine needs, which an environment lacks until aw install has run there.
+# The top-level modules of the packages the engine needs, which an environment lacks before aw install has run there.
 NEEDS = ("ansible",)
 # The verbs that run in an environment that lacks them, each with why.
 WITHOUT_PACKAGES = {

@@ -783,7 +783,7 @@ def _run(
             stdout=stdout,
             stderr=stderr,
             env=_env(home, folder),
-            preexec_fn=preexec,  # noqa: PLW1509 - only signal, safe beside xdist's thread
+            preexec_fn=preexec,  # only signal, safe beside xdist's thread
         )
     try:
         _until(lambda: _report(folder / "out") is not None or process.poll() is not None, "the run's report", 60)
@@ -1351,7 +1351,7 @@ def test_a_ladder_that_cannot_be_built_leaves_no_job_and_no_directory(home, jobs
         capture_output=True,
         env=_env(home, tmp_path),
         timeout=60,
-        preexec_fn=harness._default_signals,  # noqa: PLW1509 - only signal, safe beside xdist's thread
+        preexec_fn=harness._default_signals,  # only signal, safe beside xdist's thread
     )
     assert ended.returncode == 1, ended.stderr
     assert b"Too many open files" in ended.stderr

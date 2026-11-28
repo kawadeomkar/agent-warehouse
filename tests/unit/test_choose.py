@@ -234,7 +234,7 @@ class _Display:
         self.said = []
 
     def display(self, msg, **_):
-        assert self._lock._is_owned()  # noqa: SLF001 - said under the lock prompt_until reads under
+        assert self._lock._is_owned()  # said under the lock prompt_until reads under
         self.said.append(msg)
 
 

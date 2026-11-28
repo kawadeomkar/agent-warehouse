@@ -329,7 +329,7 @@ def test_a_pytest_process_ended_by_a_kill_or_a_hangup_ends_its_run_whole(tmp_pat
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         start_new_session=True,
-        preexec_fn=_default_signals,  # noqa: PLW1509 - only signal, safe beside xdist's thread
+        preexec_fn=_default_signals,  # only signal, safe beside xdist's thread
     )
     held = []
     try:

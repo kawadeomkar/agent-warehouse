@@ -89,10 +89,21 @@ target-version = "py310"
 per-file-target-version = { "lib/**" = "py313" }
 src = [".", "lib"]
 # The tools that are Python with no .py, which ruff finds by extension only: just lint checks them as the rest.
-extend-include = ["tools/aw", "tools/live", "tools/mcp", "tools/settings", "tools/status"]
+extend-include = [
+    "tools/aw",
+    "tools/aw-mcp",
+    "tools/comments",
+    "tools/host",
+    "tools/live",
+    "tools/mcp",
+    "tools/settings",
+    "tools/status",
+]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "B", "UP"]
+# And the comment rule's four (docs/development/comments.md): no code left commented out (ERA001), a
+# type: ignore or noqa only with its code (PGH003, PGH004), and no noqa that suppresses nothing (RUF100).
+select = ["E", "F", "W", "I", "B", "UP", "ERA001", "PGH003", "PGH004", "RUF100"]
 # Ansible modules must keep the module-level DOCUMENTATION/EXAMPLES/RETURN strings
 # and import AnsibleModule after them.
 ignore = ["E402"]

@@ -22,8 +22,8 @@ SET_FACT = {"set_fact", "ansible.builtin.set_fact", "ansible.legacy.set_fact"}
 IMPORTS = {f"{prefix}import_{kind}" for prefix in ("", "ansible.builtin.") for kind in ("tasks", "role", "playbook")}
 
 
-from claude_vm.ansible.engine import FILE_PREFIX  # noqa: E402
-from claude_vm.run import recipes  # noqa: E402
+from claude_vm.ansible.engine import FILE_PREFIX
+from claude_vm.run import recipes
 
 RECIPES = sorted(recipes.RECIPES)
 

@@ -100,6 +100,11 @@ In the new engine a secret is a `Secret` (`lib/claude_vm/secret.py`), shown only
   behaviour it describes. Its reference pages are generated: edit their sources - which
   [docs/development/docs.md](docs/development/docs.md) lists - and run `just docs`, which the commit hook
   runs too.
+- **A comment of the new engine's is a pointer or a directive**: `# §16.6`, `# test: tests/unit/test_x.py::test_y`,
+  `# upstream: owner/repo#N`, or a tool's directive with its rule's code; a docstring says the contract in 5 lines at
+  most. Any other comment is prose, held to `tests/unit/comments.json`'s count, which only goes down; a workaround's
+  comment is refused everywhere. [Comments](docs/development/comments.md) has the kinds and where each content goes;
+  `just lint comments` runs the check.
 - **Idempotence** is not optional. A task that reports `changed` on a second run will fail CI.
 - **A pattern that holds a value to a shape ends at the end of the text**: `\Z`, or Python's `fullmatch`, never `$`,
   which also matches just before a newline that ends the text, so `'^[a-z]+$'` takes `"web\n"`. Ansible's `match`,

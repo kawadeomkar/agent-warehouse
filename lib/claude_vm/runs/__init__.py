@@ -102,7 +102,7 @@ def run(draft: Draft, body: Body) -> int:
     if away and starter.get("kind") != "mcp":
         starter = {"kind": "detach"}
     at_a_terminal = draft.attached and not away
-    # Held off until the ladder's handlers are set: in between, a signal would leave the job made, never ended.
+    # Held off while the ladder's handlers are not yet set: in between, a signal would leave the job made, never ended.
     found = signal.pthread_sigmask(signal.SIG_BLOCK, attached.TAKEN)
     try:
         made = jobs.create(

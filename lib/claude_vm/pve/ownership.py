@@ -74,7 +74,7 @@ __all__ = [
 # The kind of guest the fleet's members are: a Proxmox VM (card J3 adds the machine that is none).
 KIND = "vm"
 # The record's kind of a VM a golden image is built in, and of a golden image (pve/record.py's KINDS): the build VM
-# carries the first until the run writes the second on it, reads it back as a clone would, and converts (card E18).
+# carries the first, then the run writes the second on it, reads it back as a clone would, and converts (card E18).
 BUILD = "build"
 GOLDEN = "golden"
 # A VM's identity, its SSH host key's name: this prefix and its SMBIOS UUID (proxmox.ssh_host_key_alias).

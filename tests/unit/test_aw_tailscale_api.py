@@ -503,7 +503,7 @@ def test_no_error_of_the_client_against_the_fake_says_a_secret(
     def caught(client: Tailscale, call) -> None:
         try:
             call(client)
-        except Exception as error:  # noqa: BLE001 - each is what the test reads
+        except Exception as error:  # each is what the test reads
             raised.append(error)
 
     with fake.client() as client:

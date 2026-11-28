@@ -21,11 +21,11 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "lib"))  # the controller's package (docs/architecture/custom-code.md §7.10)
 
-from claude_vm import plugin  # noqa: E402
+from claude_vm import plugin
 
 plugin.own(str(REPO / "lib"))  # this checkout's package, never another's that sys.path had first
 
-from claude_vm.cli import mcp_serve  # noqa: E402
+from claude_vm.cli import mcp_serve
 
 if __name__ == "__main__":
     mcp_serve.main(sys.argv[1:])

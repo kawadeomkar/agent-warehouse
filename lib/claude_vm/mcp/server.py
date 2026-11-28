@@ -417,7 +417,7 @@ def tools(server: Server) -> list[Tool]:
 
     async def settings(
         name: str = "",
-        all: bool = False,  # noqa: A002
+        all: bool = False,
         changed: bool = False,
         host: str = "",
     ) -> CallToolResult:
@@ -529,14 +529,14 @@ def tools(server: Server) -> list[Tool]:
             lines.append(f"{job.id}  {job.state():8}  {began}  just {record.get('title', '')}")
         return text_result(f"{server.head()} · the jobs, newest first", "\n".join(lines) or "No jobs.")
 
-    async def job(ctx: Context, id: str, since: int = 0, wait_seconds: int | None = None) -> str:  # noqa: A002
+    async def job(ctx: Context, id: str, since: int = 0, wait_seconds: int | None = None) -> str:
         config = server.check(vault=False, changed=False)
         found = jobs.find(config.checkout, id)
         if found is None:
             raise ToolError(f"{id!r} is no job of this checkout's: jobs lists them")
         return await server.follow(found, max(since, 0), wait_seconds, ctx)
 
-    async def cancel(ctx: Context, id: str) -> str:  # noqa: A002
+    async def cancel(ctx: Context, id: str) -> str:
         config = server.check(vault=False, changed=False)
         found = jobs.find(config.checkout, id)
         if found is None:
@@ -771,7 +771,7 @@ def build(argv: list[str], environ: dict[str, str]) -> MCPServer:
     server = Server(config, refusal, environ)
     try:
         built = tools(server)
-    except Exception as error:  # noqa: BLE001 - a checkout's code that cannot make its tools is said, never an exit
+    except Exception as error:  # a checkout's code that cannot make its tools is said, never an exit
         said = f"This checkout's MCP server could not make its tools ({type(error).__name__}: {error})."
 
         async def status() -> str:

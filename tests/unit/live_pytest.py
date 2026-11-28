@@ -27,7 +27,7 @@ def _emit(**event):
     if not path or config is None or hasattr(config, "workerinput"):
         return
     if _run["out"] is None:
-        _run["out"] = open(path, "a", buffering=1)  # noqa: SIM115 - one file for the session, a line at a time
+        _run["out"] = open(path, "a", buffering=1)  # one file for the session, a line at a time
     _run["out"].write(json.dumps(event) + "\n")
 
 

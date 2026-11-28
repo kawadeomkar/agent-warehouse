@@ -205,7 +205,7 @@ INIT_QUESTIONS = (
     Step("vault", starts=["Put the answers into the vault's text"]),
 )
 # just lint's checks, as its parts name them.
-LINT = ("lock", "yaml", "ansible", "python", "just", "syntax", "hooks")
+LINT = ("lock", "yaml", "ansible", "python", "comments", "just", "syntax", "hooks")
 # What code.yml's rescue raises again outside just deploy: whatever stopped the window, which the block's rescue took.
 WINDOW_FAILURES = Causes(blocks=["Open the VM in the editor"])
 

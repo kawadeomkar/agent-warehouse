@@ -22,7 +22,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "lib"))  # the controller's package (docs/architecture/custom-code.md §7.10)
-from claude_vm.status import engine  # noqa: E402
+from claude_vm.status import engine
 
 
 def main(argv: list[str]) -> int:

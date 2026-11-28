@@ -195,10 +195,10 @@ scenario_roles := configure_roles + ' proxmox_template proxmox_vm'
 # their order of time on CI's runners (2026-11). test_justfile.py holds it to the scenarios.
 molecule_order := 'provision configure image system tailscale claude_code proxmox_vm common dev_tools vscode_server github_projects proxmox_template'
 # Hooks lint already runs itself, so its hooks part skips them, the
-# production-profile ansible-lint and ruff never running a second time
+# production-profile ansible-lint, ruff and tools/comments never running a second time
 # (ruff-format even rewriting files). gitleaks is in it because its hook scans
 # only what is staged, and CI scans the tree and the pushed commits separately.
-pre_commit_skip := 'yamllint,ansible-lint,ruff-check,ruff-format,gitleaks'
+pre_commit_skip := 'yamllint,ansible-lint,ruff-check,ruff-format,comments,gitleaks'
 # What init says when a word follows its options - a bare word, or an
 # answer as make took it, TOKEN_SECRET=... - without saying the word, which
 # may be the secret.
@@ -1103,8 +1103,8 @@ mcp ANY_BRANCH='' SCREEN='' BROWSER='' PROJECT_DIR='' REMOVE='' SHOW='' VAULT_PA
 # names. The justfile's own formatting is checked only by the just CI pins,
 # since another version may format it otherwise; lint says so when it skips.
 [arg('ALL_HOOKS', long='all-hooks', value='yes', help="hooks: run every pre-commit hook, the ones lint's other parts cover too")]
-[arg('PARTS', pattern='lock|yaml|ansible|python|just|syntax|hooks', help='lock (uv.lock against pyproject.toml), yaml (yamllint --strict), ansible (ansible-lint, production profile), python (ruff check and format --check), just (just --fmt --check), syntax (--syntax-check on every playbook), hooks (the pre-commit hooks the others do not cover)')]
-[doc('Every linter: the lock, YAML, Ansible, Python, the justfile, playbook syntax, pre-commit hooks')]
+[arg('PARTS', pattern='lock|yaml|ansible|python|comments|just|syntax|hooks', help='lock (uv.lock against pyproject.toml), yaml (yamllint --strict), ansible (ansible-lint, production profile), python (ruff check and format --check), comments (tools/comments: each comment of a kind a check reads, the new engine held to tests/unit/comments.json), just (just --fmt --check), syntax (--syntax-check on every playbook), hooks (the pre-commit hooks the others do not cover)')]
+[doc('Every linter: the lock, YAML, Ansible, Python, comments, the justfile, playbook syntax, pre-commit hooks')]
 [group('develop')]
 [no-exit-message]
 [positional-arguments]
@@ -1133,7 +1133,7 @@ lint ALL_HOOKS='' *PARTS:
     plan=
     # The checks in the order they run, the line broken after "just" so that no line reads as a just command; the
     # justfile's format only where it is checked, by the just CI pins - a step listed and never run reads as a stop.
-    for part in lock yaml ansible python just \
+    for part in lock yaml ansible python comments just \
       syntax hooks; do
       if [ "$part" = just ] && [ {{ quote(just_version()) }} != {{ quote(just_pin) }} ]; then continue; fi
       if runs "$part"; then plan="$plan $part"; fi
@@ -1150,6 +1150,7 @@ lint ALL_HOOKS='' *PARTS:
       check python "$bin/ruff" check .
       check python "$bin/ruff" format --check .
     fi
+    if runs comments; then check comments "$bin/python" -I tools/comments; fi
     if runs just; then
       if [ {{ quote(just_version()) }} = {{ quote(just_pin) }} ]; then
         check just {{ quote(just_executable()) }} --justfile {{ quote(justfile()) }} --fmt --check

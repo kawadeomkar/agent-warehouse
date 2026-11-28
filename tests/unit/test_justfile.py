@@ -580,7 +580,9 @@ def test_every_recipe_that_runs_ansible_stops_at_collections_that_are_not_the_pi
     assert _runs(tmp_path, "vagrant") == []
 
 
-@pytest.mark.parametrize("args", [["lint", "yaml"], ["lint", "python"], ["lint", "lock"], ["lint", "hooks"]])
+@pytest.mark.parametrize(
+    "args", [["lint", "yaml"], ["lint", "python"], ["lint", "comments"], ["lint", "lock"], ["lint", "hooks"]]
+)
 def test_lint_s_parts_that_load_no_playbook_need_no_collections(tmp_path: Path, args) -> None:
     result = _just(*args, settings=_linters(tmp_path, galaxy_rc=1))
     assert result.returncode == 0, _output(result)
@@ -1441,7 +1443,7 @@ def _interrupted(started: Path, *command: str) -> tuple[int, str]:
             text=True,
             start_new_session=True,
             # SIGINT not ignored, whatever started the suite.
-            preexec_fn=_default_signals,  # noqa: PLW1509 - only signal calls, safe beside xdist's thread
+            preexec_fn=_default_signals,  # only signal calls, safe beside xdist's thread
         )
         deadline = time.monotonic() + 30
         while not started.exists() and time.monotonic() < deadline:
@@ -2513,6 +2515,7 @@ LINTERS = {
     "yaml": ("yamllint", ["--strict", "."]),
     "ansible": ("ansible-lint", []),
     "python": ("ruff", ["format", "--check", "."]),
+    "comments": ("python", ["-I", "tools/comments"]),
     "syntax": ("ansible-playbook", ["--syntax-check", "deploy.yml"]),
     "hooks": ("pre-commit", ["run", "--all-files"]),
 }
@@ -2524,9 +2527,18 @@ def _linters(tmp_path: Path, galaxy_rc: int = 0) -> list[str]:
     # tools/check collections, before the parts that load the playbooks.
     _stand_in(tmp_path / "bin", "ansible-galaxy", rc=galaxy_rc)
     _stand_in(tmp_path / "uv-bin", "uv")
-    # The environment's Python, which runs tools/live in front of every check.
-    if not (tmp_path / "bin" / "python").exists():
-        (tmp_path / "bin" / "python").symlink_to(sys.executable)
+    # The environment's Python, which runs tools/live in front of every check: a stand-in for tools/comments alone,
+    # recording its arguments and failing where comments-fails is, since the tool would read the checkout's own files.
+    python = tmp_path / "bin" / "python"
+    if not python.exists():
+        record, fails = tmp_path / "python.args", tmp_path / "comments-fails"
+        python.write_text(
+            '#!/bin/sh\nif [ "${2:-}" = tools/comments ]; then\n'
+            f'  {{ for arg in "$@"; do printf "%s\\n" "$arg"; done; echo --end--; }} >> "{record}"\n'
+            f'  [ ! -e "{fails}" ]; exit\n'
+            f'fi\nexec "{sys.executable}" "$@"\n'
+        )
+        python.chmod(0o755)
     return [
         f"BIN={tmp_path / 'bin'}",
         f"UV={tmp_path / 'uv-bin' / 'uv'}",
@@ -2575,12 +2587,21 @@ def test_a_linter_that_fails_fails_lint(tmp_path: Path, part: str, tool: str, fi
     assert any(run[:1] == ([first] if first else []) for run in _runs(tmp_path, tool)), _runs(tmp_path, tool)
 
 
+@pytest.mark.parametrize("named", [True, False], ids=["named", "every-part"])
+def test_lint_s_comments_part_is_tools_comments_and_a_finding_fails_lint(tmp_path: Path, named: bool) -> None:
+    settings = _linters(tmp_path)
+    (tmp_path / "comments-fails").touch()
+    result = _just("lint", *(["comments"] if named else []), settings=settings)
+    assert result.returncode != 0, _output(result)
+    assert _runs(tmp_path, "python") == [["-I", "tools/comments"]]
+
+
 @pytest.mark.parametrize(
     ("given", "env", "skip"),
     [
-        ([], {}, "yamllint,ansible-lint,ruff-check,ruff-format,gitleaks"),
+        ([], {}, "yamllint,ansible-lint,ruff-check,ruff-format,comments,gitleaks"),
         (["--all-hooks"], {}, ""),
-        ([], {"SKIP": "gitleaks"}, "yamllint,ansible-lint,ruff-check,ruff-format,gitleaks"),
+        ([], {"SKIP": "gitleaks"}, "yamllint,ansible-lint,ruff-check,ruff-format,comments,gitleaks"),
     ],
 )
 def test_lint_s_hooks_skip_what_lint_runs_itself(tmp_path: Path, given, env, skip) -> None:

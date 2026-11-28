@@ -41,6 +41,8 @@ tools/aw                          aw, the new engine's program until 3.0 (§16):
                                   lib/claude_vm/cli/main.py; nothing of today's product runs it (test_aw_layout.py)
 tools/aw-mcp                      the agents' server over the program: today's MCP server, each read aw run as a child
                                   (lib/claude_vm/cli/mcp_serve.py, §16.3); nothing of today's product starts it
+tools/comments                    just lint comments and the commit hook: each comment of a kind a check reads, the new
+                                  engine's prose held to tests/unit/comments.json (docs/development/comments.md)
 tools/stale_scripts.py            just install: the locked packages whose commands start another Python, to reinstall
 tools/unit_durations.py           tests/unit/durations.json from a run's JUnit report: what the unit tests' shards balance by
 tools/molecule-lanes              just test molecule --jobs 4: the scenarios that many at a time, each in a log of its own
@@ -390,7 +392,8 @@ tests/
                                   each at a terminal of its own; vt.py, a small terminal they read back through;
                                   interrupts.py, SIGTERM and SIGHUP taken as a Ctrl-C in every pytest process) -
                                   and the wiki (test_docs.py); the new engine's tests, test_aw_*.py, marked engine,
-                                  with their kit, aw_kit.py, and their guards, test_aw_guards.py (§11.1)
+                                  with their kit, aw_kit.py, and their guards, test_aw_guards.py (§11.1);
+                                  comments.json, the count of prose tools/comments holds each new-engine file to
   molecule/                       shared fakes (§11.4): fake_pve_api.py, the PVE API and its guest agent;
                                   fake_qm.sh, fake_virt_customize.sh and fake_virt_cat.sh, the template's tools; fake_pve_cli.py,
                                   the host's commands tools/proxmox-access.sh runs; fake_github_api.py and

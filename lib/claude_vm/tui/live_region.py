@@ -509,7 +509,7 @@ class LiveRegion:
         self._title = None
         self._echo = None  # the terminal's settings before the echo went off, while it is off
         self._kept = None  # the same, while finish(kept=True) has left NOFLSH on for release() to put back
-        self._settle = 0.0  # until when, after a prompt, nothing is drawn
+        self._settle = 0.0  # the moment before which, after a prompt, nothing is drawn
         self.prompting = False
 
     # --- the screen -------------------------------------------------------------------------------------------

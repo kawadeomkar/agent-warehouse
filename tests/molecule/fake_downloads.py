@@ -14,12 +14,12 @@ import sys
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
-    def do_GET(self):  # noqa: N802 - http.server's name
+    def do_GET(self):  # http.server's name
         with open(os.path.join(ROOT, "requests"), "a", encoding="utf-8") as log:
             log.write(self.path + "\n")
         super().do_GET()
 
-    def log_message(self, format, *args):  # noqa: A002 - http.server's signature
+    def log_message(self, format, *args):  # http.server's signature
         pass
 
 

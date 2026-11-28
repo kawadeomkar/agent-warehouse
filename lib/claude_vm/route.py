@@ -36,7 +36,7 @@ _PATH = re.compile(r"[A-Za-z0-9_./+@,=-]{1,4096}")
 # macOS keeps a socket's path to 103 bytes, and ssh adds 17 while it binds one (a "." and 16 random characters).
 SOCKET_MOST = 86
 
-# The hard limits, in seconds, on each ssh run for the hop itself: an open that loses a race to another never returns
+# The hard limits, in seconds, on each ssh run for the hop itself: an open that another overtakes never returns
 # by itself, and a forward to an address that drops packets says nothing for minutes.
 LIMITS = {"check": 5, "stop": 5, "open": 20, "forward": 15, "config": 5, "resolve": 5}
 # The hop's own connection: a dead one ends within 60 s rather than hanging its clients - a keepalive after 15 s of
@@ -775,7 +775,7 @@ def route_settle(setting, hop: dict, limit=None, *, process_group=None, signalle
     except NotStarted:
         text, unanswered = "", "was not started, since the run is ending"
     except OSError as error:
-        # The ssh program, or the temporary file _asked reads its standard error from (no temporary folder usable): to
+        # The ssh program, or the file _asked reads its standard error from (no folder for one usable): to
         # today's callers an ssh that cannot be run, where nothing can be dialled anyway; to the new engine no answer.
         what = f"{error.strerror}: {error.filename}" if error.strerror and error.filename else error.strerror or error
         text, unanswered = "", f"could not be run ({what})"

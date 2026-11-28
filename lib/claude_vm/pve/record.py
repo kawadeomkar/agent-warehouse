@@ -59,7 +59,7 @@ from collections.abc import Mapping, Sequence
 from ..schema.patterns import full
 from ..text import one_line
 
-# The format this engine writes, and every format it reads. Until the engine's first release a field added to FIELDS
+# The format this engine writes, and every format it reads. Before the engine's first release a field added to FIELDS
 # is format 1's; after it, a change to what a block holds is a new number, which a program that does not read it
 # refuses and never rewrites.
 FORMAT = 1

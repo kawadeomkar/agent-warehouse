@@ -89,6 +89,7 @@ nav = [
   { "Development" = [
     { "Testing" = "development/testing.md" },
     { "This wiki" = "development/docs.md" },
+    { "Comments" = "development/comments.md" },
   ] },
 ]
 

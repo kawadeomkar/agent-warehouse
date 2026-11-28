@@ -94,7 +94,7 @@ REFUSAL_GRACE = 2.0
 # What the runner keeps of a cut is the bound's bytes, less the control characters and the spaces at the ends it drops.
 CUT_NEAR = 1024
 # The characters bash's printf %q puts a backslash before in printable text (its sh_backslash_quote's table), beside
-# a # first and a ~ first or after a : or =; and the two a C string's escape does.
+# a hash first, and a tilde first or after a colon or an equals sign; and the two a C string's escape does.
 SHELL_QUOTED = frozenset(" \t\n!\"$&'()*,;<>?[\\]^`{|}")
 C_QUOTED = frozenset('\\"')
 

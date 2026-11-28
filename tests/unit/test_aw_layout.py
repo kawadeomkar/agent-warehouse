@@ -108,7 +108,8 @@ def _is_new(path: Path) -> bool:
     rel = path.relative_to(REPO)
     if rel.parts[:2] == ("lib", "claude_vm") and len(rel.parts) > 2:
         return rel.parts[2] in NEW or rel.parts[2] == "secret.py"
-    return str(rel).startswith("tools/aw")
+    # tools/comments, the comment rule's check, is the new engine's too: it names the new engine's files.
+    return str(rel).startswith("tools/aw") or str(rel) == "tools/comments"
 
 
 def _today_texts() -> list[tuple[Path, str]]:

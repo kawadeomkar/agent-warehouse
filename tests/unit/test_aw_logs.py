@@ -304,7 +304,7 @@ def test_a_run_prunes_first_then_writes_its_log_and_names_it_in_its_record(jobs_
         capture_output=True,
         text=True,
         timeout=120,
-        preexec_fn=harness._default_signals,  # noqa: PLW1509 - only signal, safe beside xdist's thread
+        preexec_fn=harness._default_signals,  # only signal, safe beside xdist's thread
     )
     assert ran.returncode == 0, ran.stderr
     said = json.loads(ran.stdout.splitlines()[-1])

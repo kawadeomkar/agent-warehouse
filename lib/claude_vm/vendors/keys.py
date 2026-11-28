@@ -15,7 +15,7 @@ from __future__ import annotations
 import dataclasses
 from pathlib import Path
 
-# The checkout this module is part of, whose roles keep the key files until the cutover.
+# The checkout this module is part of, whose roles keep the key files to the cutover.
 REPO = Path(__file__).resolve().parents[3]
 
 

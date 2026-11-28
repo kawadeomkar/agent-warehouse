@@ -320,7 +320,7 @@ def runs_started(home: Path, state: Path, tmp_path: Path) -> Iterator[Callable[.
                 stdout=DEVNULL,
                 stderr=err,
                 env=environment(home, {"TMPDIR": str(temporary)}),
-                preexec_fn=harness._default_signals,  # noqa: PLW1509 - only signal, safe beside xdist's thread
+                preexec_fn=harness._default_signals,  # only signal, safe beside xdist's thread
             )
         run = Run(process, tmp_path, tag)
         started.append(run)

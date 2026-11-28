@@ -693,7 +693,7 @@ class Opening:
         found = which(candidates, self.host.environ, every)
         probe: dict[str, object] = {"which": found}
         if every:
-            # Each asked in which's order until one says what the row asks: pick_cli takes that first one, and no
+            # Each asked in which's order, up to one that says what the row asks: pick_cli takes that first one, and no
             # command after it is started at all.
             versions = []
             for path in found:

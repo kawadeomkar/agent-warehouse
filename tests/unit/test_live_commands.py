@@ -90,7 +90,7 @@ def test_a_command_passed_through_keeps_an_ignored_ctrl_c_and_says_one_it_cannot
     argv, env, state = kit.recipe_in_parts(tmp_path, [_part("says", says)])
     ignoring = subprocess.run(
         argv, env=env, cwd=tmp_path, capture_output=True, text=True, timeout=60, check=False,
-        preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_IGN),  # noqa: PLW1509 - no threads here
+        preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_IGN),  # no threads here
     )  # fmt: skip
     assert ignoring.returncode == 0 and ignoring.stdout == "ignored\n", ignoring
     defaults = kit.piped(argv, tmp_path, env)

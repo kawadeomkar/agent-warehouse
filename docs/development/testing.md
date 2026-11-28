@@ -5,8 +5,8 @@ What the suite runs, and how to run it. How it is built - the harness, each scen
 [CONTRIBUTING.md](https://github.com/kawadeomkar/agent-warehouse/blob/main/CONTRIBUTING.md).
 
 ```bash
-just lint                     # every linter: the lock, yamllint, ansible-lint (production), ruff, just --fmt --check, --syntax-check, the other pre-commit hooks
-just lint syntax              # one of them: lock, yaml, ansible, python, just, syntax or hooks
+just lint                     # every linter: the lock, yamllint, ansible-lint (production), ruff, tools/comments, just --fmt --check, --syntax-check, the other pre-commit hooks
+just lint syntax              # one of them: lock, yaml, ansible, python, comments, just, syntax or hooks
 just test                     # just lint, then everything below but the last two: the local quality gate
 just test unit                # pytest over tests/unit/, a worker per CPU (plain pytest: one test at a time), no network
 just test unit --shard 2/6    # one of six shards of those, as CI splits them: the tests that share a run together

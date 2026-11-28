@@ -34,8 +34,8 @@ checkout (`tools/env-run --collections`), and every recipe and `tools/env-run <t
 just install                         # sync the environment (yours, or this checkout's own, made with uv) to uv.lock + the Galaxy collections; --lock after editing a pin
 just init                            # once: just install + the git hook + the local config, asking for what a first deploy needs (--address pve.lan; --host nuc --address ... sets up another host)
 just vault                           # encrypt the vault while it is plaintext, edit it once it is encrypted
-just lint                            # uv lock --check, yamllint --strict, ansible-lint (production), ruff, just --fmt --check, --syntax-check, the other pre-commit hooks
-just lint syntax                     # some of them: lock, yaml, ansible, python, just, syntax, hooks
+just lint                            # uv lock --check, yamllint --strict, ansible-lint (production), ruff, tools/comments, just --fmt --check, --syntax-check, the other pre-commit hooks
+just lint syntax                     # some of them: lock, yaml, ansible, python, comments, just, syntax, hooks
 just test                            # lint, then every test: unit and every Molecule scenario — the CI gate
 just test unit                       # pytest over tests/unit/, a worker per CPU (pytest-xdist loadgroup)
 just test unit --shard 2/6           # one of the six shards CI runs (tests/unit/durations.json balances them)
@@ -1284,6 +1284,9 @@ including vars set inside a role's own Molecule scenario), task names in an incl
 prefixed with the file name (`- name: node | Install Node.js`), and every role variable needs both
 a `defaults/main.yml` entry and a `meta/argument_specs.yml` entry, with `no_log: true` if it can
 hold a secret and no `default:` of its own but where the role's default is an expression. Commits follow
-Conventional Commits; the body explains *why*. Pull request titles
+Conventional Commits; the body explains *why*. A comment of the new engine's is a `# §` pointer, a `# test:` or
+`# upstream:` pointer or a tool's directive with its code, and a docstring the contract in 5 lines: other prose is
+held to `tests/unit/comments.json`, and `tools/comments` (`just lint comments`) says where it goes
+([Comments](docs/development/comments.md)). Pull request titles
 start with the kind of change in brackets - `[feat]`, `[fix]`, `[cleanup]`, `[docs]`, `[test]`,
 `[ci]`, `[build]` - then a short imperative summary, never a `feat:` prefix.

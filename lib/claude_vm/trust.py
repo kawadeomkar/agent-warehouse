@@ -83,7 +83,7 @@ def _store_files() -> list[str | None]:
     if bundle:
         return [bundle]
     try:
-        import certifi  # noqa: PLC0415 - requests' own bundle, where requests is installed
+        import certifi  # requests' own bundle, where requests is installed
     except ImportError:
         return [None]
     return [None, certifi.where()]

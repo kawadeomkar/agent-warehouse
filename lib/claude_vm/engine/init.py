@@ -177,7 +177,7 @@ SECRET_MOST = 4096
 BY_HAND = "administrator"
 BY_ENGINE = "engine"
 OWN_NAMES = {"pool": access.POOL, "user": access.USER, "token": f"{access.USER}!{access.TOKEN}"}
-# The modes of init built by other cards, refused by name until each lands.
+# The modes of init built by other cards, refused by name: each card that builds one takes it out.
 NOT_YET = {"machines": "J14"}
 # What init --check refuses beside it: every value init writes, and the other modes.
 CHECK_REFUSES = (

@@ -92,7 +92,7 @@ def _opened(data: bytes, password_files: Iterable[str]) -> bytes | None:
             said = password(path)
             if said is not None:
                 return open_text(data, said)
-        except Exception:  # noqa: BLE001 - any refusal, a file that cannot be read among them: the next, as Ansible
+        except Exception:  # any refusal, a file that cannot be read among them: the next, as Ansible
             continue
     return None
 
@@ -113,7 +113,7 @@ class _Lenient:
 
             Loader.add_multi_constructor("!", lambda loader, suffix, node: None)
             cls.loader = Loader
-        return yaml.load(text, Loader=cls.loader)  # noqa: S506 - a SafeLoader, with tags read as None
+        return yaml.load(text, Loader=cls.loader)  # a SafeLoader, with tags read as None
 
 
 def lenient_yaml(text: str) -> object:
@@ -135,7 +135,7 @@ def names(path: Path, password_files: Iterable[str]) -> frozenset[str] | None:
             return None
     try:
         values = lenient_yaml(data.decode("utf-8"))
-    except Exception:  # noqa: BLE001 - not YAML: Ansible says so
+    except Exception:  # not YAML: Ansible says so
         return None
     return frozenset(str(name) for name in values) if isinstance(values, dict) else frozenset()
 

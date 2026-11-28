@@ -173,7 +173,7 @@ class Standin:
             stderr=subprocess.PIPE,
             text=True,
             process_group=0,
-            preexec_fn=harness._default_signals,  # noqa: PLW1509 - signal alone, safe beside xdist's thread
+            preexec_fn=harness._default_signals,  # signal alone, safe beside xdist's thread
         )
         self.started.append(process)
         return process

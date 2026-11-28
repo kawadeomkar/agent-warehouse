@@ -555,7 +555,7 @@ class Configuring:
         def change(now: record.Record | None) -> record.Record | None:
             if now is None or now.stage == stage:
                 return None
-            # The converged digest stays empty, and so unwritten, until F28 makes one.
+            # The converged digest stays empty, and so unwritten: F28 makes one.
             return dataclasses.replace(now, stage=stage)
 
         await self.call(record.write, self.host.client, owned, change)

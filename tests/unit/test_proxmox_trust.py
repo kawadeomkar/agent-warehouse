@@ -29,32 +29,32 @@ A_KEY = "-----BEGIN " + "PRIVATE KEY-----\nAAAA\n-----END " + "PRIVATE KEY-----\
 class _Proxmox(BaseHTTPRequestHandler):
     """Proxmox's answer to a request with no token."""
 
-    def do_GET(self):  # noqa: N802 - http.server's name
+    def do_GET(self):  # http.server's name
         self.send_response(401, "No ticket")
         self.end_headers()
 
-    def do_HEAD(self):  # noqa: N802 - http.server's name
+    def do_HEAD(self):  # http.server's name
         self.send_response(501, "method 'HEAD' not available")
         self.end_headers()
 
-    def log_message(self, format, *args):  # noqa: A002 - http.server's signature
+    def log_message(self, format, *args):  # http.server's signature
         pass
 
 
 class _Silent(_Proxmox):
     """Something in the host's place that says nothing to a request with no token: it sees which request carries one."""
 
-    def do_GET(self):  # noqa: N802 - http.server's name
+    def do_GET(self):  # http.server's name
         pass
 
-    def do_HEAD(self):  # noqa: N802 - http.server's name
+    def do_HEAD(self):  # http.server's name
         pass
 
 
 class _ProxmoxDelaying(_Proxmox):
     """pveproxy as it is: a GET with no token waits three seconds for its 401 (live, 2026-11-15)."""
 
-    def do_GET(self):  # noqa: N802 - http.server's name
+    def do_GET(self):  # http.server's name
         time.sleep(3)
         super().do_GET()
 

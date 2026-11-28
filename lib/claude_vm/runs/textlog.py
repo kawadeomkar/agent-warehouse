@@ -153,7 +153,7 @@ class TextLog:
         self.path = path
         self._held: int | None = held
         self._lock = threading.Lock()
-        # Each machine's name by the key its events name it by, a stand-in's until its join, then its identity's.
+        # Each machine's name by the key its events name it by, a stand-in's before its join, then its identity's.
         self.names: dict[str, str] = dict(names or {})
 
     @property

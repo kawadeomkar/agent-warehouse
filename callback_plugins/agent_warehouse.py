@@ -55,14 +55,14 @@ from ansible.utils.vars import merge_hash
 _LIB = str(Path(__file__).resolve().parents[1] / "lib")
 if _LIB not in sys.path:
     sys.path.insert(0, _LIB)  # the controller's package first (docs/architecture/custom-code.md §7.10)
-from claude_vm import plugin, text  # noqa: E402
+from claude_vm import plugin, text
 
 plugin.own(_LIB)
 
 
 # The filter the prompts use, so a prompt's block and a message's look the same.
 banner = text.banner
-from claude_vm.ansible import engine as live  # noqa: E402
+from claude_vm.ansible import engine as live
 
 WAITING_TAG = live.WAITING_TAG
 DEBUG_ACTIONS = live.DEBUG_ACTIONS
@@ -76,7 +76,7 @@ TOPICS = {
     "github_projects": "GitHub sign-in",
     "tailscale": "Tailscale sign-in",
 }
-from claude_vm.run.next_steps import COLOR, NEXT_STATS, next_steps  # noqa: E402
+from claude_vm.run.next_steps import COLOR, NEXT_STATS, next_steps
 
 
 class CallbackModule(DefaultCallback):
@@ -114,7 +114,7 @@ class CallbackModule(DefaultCallback):
         return False
 
     def _retry_once(self, result):
-        # One line per wait and host, not one per retry: the instruction above
+        # One line per wait and host, not one per try: the instruction above
         # it stays on the screen.
         key = (result.task._uuid, result.host.get_name())
         if key in self._waiting:
