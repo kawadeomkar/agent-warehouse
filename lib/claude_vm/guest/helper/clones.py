@@ -17,9 +17,11 @@ true to change nothing and say what would change.
   behind. A folder that exists is left as it is, whatever it holds: nothing removes a checkout. Every repository is
   tried, and each that failed is named with git's last line.
 - A name that is no folder name (a separator, a leading dot) is refused and nothing written for it.
-- A pull, only where asked and only of a checkout that was there before this run: none with local changes to what git
-  tracks, which is named and left; otherwise its default branch fetched, checked out and moved on by a fast-forward
-  alone, so that a commit of the person's own is never lost, and a branch that cannot fast-forward is named and left.
+- A pull, only where asked and only of a checkout that was there before this run, and only of the repository the folder
+  is: no link, its own work tree's top (never one around it), its origin the repository's clone_url or ssh_url as its
+  config holds it, its HEAD the default branch, and no local change to what git tracks; anything else is named and
+  left. The default branch is fetched and moved on by a fast-forward alone, so that a commit of the person's own is
+  never lost, and a branch that cannot fast-forward is named and left.
 - known_hosts gains each key line for github.com it lacks, and loses a line of github.com's alone of a type the keys
   name with another key, which is replaced; the file is written whole and renamed into place, 0600, its folder 0700.
 
@@ -116,26 +118,39 @@ def _submodules(git, repo, timeout):
     return None
 
 
+def _left(name, said):
+    return {"name": name, "rc": None, "said": said}, False
+
+
 def pull(git, repo, depth, timeout):
     """A checkout that was there before brought to its default branch's tip by a fast-forward alone: (None or what
-    stopped it, whether it moved)."""
+    stopped it, whether it moved). Only the repository the folder is itself, never one git finds around it or through a
+    link, whose origin is the repository's own URL as its config holds it, and which is on the default branch."""
     dest, name = repo["dest"], repo["name"]
-    failure, inside = git_run([git, "-C", dest, "rev-parse", "--is-inside-work-tree"], timeout)
-    if failure or inside.strip() != "true":
-        return {"name": name, "rc": None, "said": "its folder is no checkout"}, False
+    if os.path.islink(dest):
+        return _left(name, "its folder is a link")
+    failure, top = git_run([git, "-C", dest, "rev-parse", "--show-toplevel"], timeout)
+    if failure or os.path.realpath(top.strip()) != os.path.realpath(dest):
+        return _left(name, "its folder is no checkout of its own")
+    # As the config holds it: `remote get-url` would give it as an insteadOf rewrites it.
+    failure, origin = git_run([git, "-C", dest, "config", "--get", "remote.origin.url"], timeout)
+    if failure or origin.strip() not in repo["origins"]:
+        return _left(name, "its origin is not this repository")
+    failure, head = git_run([git, "-C", dest, "symbolic-ref", "-q", "HEAD"], timeout)
+    if failure or head.strip() != f"refs/heads/{repo['branch']}":
+        return _left(name, f"it is not on {repo['branch']}")
     failure, changes = git_run([git, "-C", dest, "status", "--porcelain", "--untracked-files=no"], timeout)
     if failure:
         return {"name": name, **failure}, False
     if changes.strip():
-        return {"name": name, "rc": None, "said": "it has local changes, which a pull would put at risk"}, False
+        return _left(name, "it has local changes, which a pull would put at risk")
     _, before = git_run([git, "-C", dest, "rev-parse", "HEAD"], timeout)
     fetch = [git, "-C", dest, "fetch", "--quiet", "origin", repo["branch"]]
     if depth > 0:
         fetch += ["--depth", str(depth)]
-    for argv in (fetch, [git, "-C", dest, "checkout", "--quiet", repo["branch"]]):
-        failure, _ = git_run(argv, timeout)
-        if failure:
-            return {"name": name, **failure}, False
+    failure, _ = git_run(fetch, timeout)
+    if failure:
+        return {"name": name, **failure}, False
     failure, _ = git_run([git, "-C", dest, "merge", "--ff-only", "--quiet", "FETCH_HEAD"], timeout)
     if failure:
         return {"name": name, "rc": failure["rc"], "said": f"not a fast-forward: {failure['said']}"}, False
@@ -160,7 +175,9 @@ def plan(repos, dest_dir, field):
             refused.append({"name": full_name, "rc": None, "said": f"the listing gives no {field} or branch"})
         else:
             dest = os.path.join(dest_dir, name)
-            requests.append({"name": full_name, "url": url, "dest": dest, "branch": repo["default_branch"]})
+            origins = [one for one in (repo.get("clone_url"), repo.get("ssh_url")) if one]
+            request = {"name": full_name, "url": url, "dest": dest, "branch": repo["default_branch"]}
+            requests.append({**request, "origins": origins})
     return requests, refused
 
 

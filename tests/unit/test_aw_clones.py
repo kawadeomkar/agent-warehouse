@@ -41,6 +41,7 @@ import shutil
 import stat
 import subprocess
 import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import certifi
@@ -671,6 +672,47 @@ def test_the_listing_refuses_a_bad_token_a_token_over_plain_http_and_another_sch
         check("ftp://example.com", "")
 
 
+def test_a_redirect_is_the_answer_and_the_token_never_reaches_where_it_points():
+    seen: list[dict] = []
+
+    class Elsewhere(BaseHTTPRequestHandler):
+        def do_GET(self):  # http.server's name
+            seen.append(dict(self.headers))
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"login": "octo"}).encode())
+
+        def log_message(self, *args):
+            pass
+
+    servers = [ThreadingHTTPServer(("127.0.0.1", 0), Elsewhere)]
+    other = f"http://127.0.0.1:{servers[0].server_address[1]}"
+
+    class Moved(Elsewhere):
+        def do_GET(self):  # http.server's name
+            self.send_response(302)
+            self.send_header("Location", f"{other}/user")
+            self.end_headers()
+
+    servers.append(ThreadingHTTPServer(("127.0.0.1", 0), Moved))
+    api = f"http://127.0.0.1:{servers[1].server_address[1]}"
+    for server in servers:
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        namespace = _listing_namespace()
+        headers = namespace["build_headers"]("tok")
+        status, _body, _link = namespace["get"](f"{api}/user", headers)
+        assert status == 302
+        with pytest.raises(namespace["Refused"], match="HTTP 302"):
+            namespace["resolve_listing"](api, "octo", "tok", headers, 100, False)
+    finally:
+        for server in servers:
+            server.shutdown()
+            server.server_close()
+    assert seen == []
+
+
 def test_a_branches_answer_that_fails_leaves_the_repository_to_clone():
     namespace, _ = _asking({})
     repo = {"full_name": "octo/fresh", "size": 0, "pushed_at": "2026-01-01T00:00:00Z"}
@@ -883,6 +925,86 @@ def test_a_pull_moves_a_checkout_by_a_fast_forward_alone(tmp_path, git_env):
         {"name": "octo/one", "rc": None, "said": "it has local changes, which a pull would put at risk"}
     ]
     assert (checkout / "file.txt").read_text() == "edited\n"
+
+
+def _head(path: Path) -> str:
+    return _cmd("rev-parse", "HEAD", cwd=path).strip()
+
+
+@pytest.mark.parametrize("case", ["detached", "branch", "outer", "origin", "rewritten", "link"])
+def test_a_pull_takes_only_the_repository_the_folder_is_on_its_default_branch(tmp_path, git_env, case):
+    repo = _source(tmp_path, "one")
+    source, projects = tmp_path / "sources" / "one", tmp_path / "projects"
+    checkout = projects / "one"
+    said = {
+        "detached": "it is not on main",
+        "branch": "it is not on main",
+        "outer": "its folder is no checkout of its own",
+        "origin": "its origin is not this repository",
+        "rewritten": "its origin is not this repository",
+        "link": "its folder is a link",
+    }[case]
+    if case == "outer":
+        # The projects folder in another work tree, a folder of that name in it plain: the outer one is never pulled.
+        _cmd("clone", "-q", repo["clone_url"], str(projects), cwd=tmp_path)
+        checkout.mkdir()
+        watched = projects
+    elif case == "link":
+        # A link at the checkout's place: what it points at, outside the projects folder, is never pulled.
+        elsewhere = tmp_path / "elsewhere"
+        _cmd("clone", "-q", repo["clone_url"], str(elsewhere), cwd=tmp_path)
+        projects.mkdir()
+        checkout.symlink_to(elsewhere)
+        watched = elsewhere
+    else:
+        _verb(_asked(tmp_path, [repo]))
+        watched = checkout
+        if case == "detached":
+            # A commit of the person's own on a detached HEAD: never left on no branch.
+            _cmd("checkout", "-q", "--detach", cwd=checkout)
+            (checkout / "mine.txt").write_text("mine\n")
+            _cmd("add", "mine.txt", cwd=checkout)
+            _cmd("commit", "-q", "-m", "mine", cwd=checkout)
+        elif case == "branch":
+            _cmd("checkout", "-q", "-b", "feat", cwd=checkout)
+        else:
+            # Another repository as its origin: by its URL as configured, never as an insteadOf rewrites it.
+            other = _source(tmp_path, "other")
+            _cmd("remote", "set-url", "origin", other["clone_url"], cwd=checkout)
+            if case == "rewritten":
+                _cmd("config", f"url.{repo['clone_url']}.insteadOf", other["clone_url"], cwd=checkout)
+            source = tmp_path / "sources" / "other"
+    before = _head(watched)
+    (source / "file.txt").write_text("moved\n")
+    _cmd("commit", "-q", "-am", "moved", cwd=source)
+    if case == "rewritten":
+        (tmp_path / "sources" / "one" / "file.txt").write_text("moved\n")
+        _cmd("commit", "-q", "-am", "moved", cwd=tmp_path / "sources" / "one")
+    done = _verb(_asked(tmp_path, [repo], pull=True))
+    assert (done["pulled"], done["not_pulled"]) == ([], [{"name": "octo/one", "rc": None, "said": said}])
+    assert _head(watched) == before
+    if case == "detached":
+        assert (checkout / "mine.txt").read_text() == "mine\n"
+    if case == "branch":
+        assert _cmd("symbolic-ref", "HEAD", cwd=checkout).strip() == "refs/heads/feat"
+
+
+def test_a_pull_runs_no_checkout(tmp_path, git_env):
+    # The branch checked out is the default, held before: fetched and moved on, never switched to.
+    repo = _source(tmp_path, "one")
+    _verb(_asked(tmp_path, [repo]))
+    source = tmp_path / "sources" / "one"
+    (source / "file.txt").write_text("1\n")
+    _cmd("commit", "-q", "-am", "more", cwd=source)
+    log = tmp_path / "git.log"
+    recording = tmp_path / "bin" / "git"
+    recording.parent.mkdir()
+    recording.write_text(f'#!/bin/sh\necho "$@" >> "{log}"\nexec "{shutil.which("git")}" "$@"\n')
+    recording.chmod(0o755)
+    done = _verb(_asked(tmp_path, [repo], pull=True), str(recording))
+    assert done["pulled"] == ["octo/one"]
+    commands = [line.split()[2] for line in log.read_text().splitlines()]
+    assert commands == ["rev-parse", "config", "symbolic-ref", "status", "rev-parse", "fetch", "merge", "rev-parse"]
 
 
 def test_known_hosts_gains_github_s_keys_once_and_a_stale_one_is_replaced(tmp_path, monkeypatch):
