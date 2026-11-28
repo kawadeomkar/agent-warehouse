@@ -1531,7 +1531,8 @@ it started, and its tasks file's first line read for the marker, one there that 
 else's, left and said), the plan, refused where it refuses, and its writes on the VM as its account, all in
 `code`'s own directory: that directory where anything goes into it (0755 where new), the plan's directories (the same,
 one there keeping its mode), the helpers it names (`playbooks/files/`, unchanged, 0644) and its files, each into a file
-beside it and renamed into place where its bytes or its mode differ. Last the registry's command, started to outlive the
+beside it and renamed into place where its bytes or its mode differ; every one of those paths is looked at first, and a
+link at any stops them all, as each write refuses a link at its own path. Last the registry's command, started to outlive the
 run (`runs/children.py`'s `outlive`), and the plan's report. No trust is set and no question of VS Code's, Zed's or
 Claude Code's answered. Every command on the VM is one of `READS` or `WRITES`, by name, a fixed script given its values
 as arguments, run by one function (`Opening.on_machine`); every command here one of `HERE`'s, by `Opening.here`. The

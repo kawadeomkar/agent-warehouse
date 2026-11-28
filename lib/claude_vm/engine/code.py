@@ -156,15 +156,18 @@ printf 'root\\t%s\\n' "$(realpath -e -- "$root" 2>/dev/null)"
 if [ -e "$ours" ]; then printf 'real\\t%s\\n' "$(realpath -e -- "$ours" 2>/dev/null)"; fi
 """
 # The directory $1, made with mode $2 where it is not there (its parents as mkdir -p makes them), one there keeping its
-# own: "there" or "made".
+# own: "there" or "made"; "link", and nothing made, where $1 is a link.
 DIRECTORY = """set -eu
+if [ -L "$1" ]; then echo link; exit 0; fi
 if [ -d "$1" ]; then echo there; exit 0; fi
 mkdir -p -m "$2" -- "$1"
 echo made
 """
 # The file $1 given standard input, mode $2: into a file beside it, made by mktemp (0600), then renamed into place,
-# so that no reader sees half of it; left where its bytes and its mode are those already: "unchanged" or "written".
+# so that no reader sees half of it; left where its bytes and its mode are those already: "unchanged" or "written";
+# "link", and nothing written, where $1 is a link.
 FILE = """set -eu
+if [ -L "$1" ]; then echo link; exit 0; fi
 umask 077
 tmp=$(mktemp "$1.XXXXXX")
 trap 'rm -f -- "$tmp"' EXIT
@@ -425,6 +428,25 @@ class Opening:
                 f"{words[0]} on {self.asked.name} could not be written: {_why(result)}.".replace("..", "."),
                 refused=False,
             )
+        if result.lines[-1:] == ("link",):
+            raise Failed(self._linked(words[0]), refused=False)
+
+    def _linked(self, path: str) -> str:
+        return (
+            f"{plain_text(path)} on {self.asked.name} is a link inside code's own directory: code writes only in a"
+            " directory of its own, never where a link leads, so nothing was written there. Remove the link."
+        )
+
+    async def no_links(self, paths: Sequence[str], where: str) -> None:
+        """Failed, before any of paths is written, where one is a link (RESOLVED's look, each of paths given after its
+        first two words)."""
+        found = await self.read("resolved", [paths[0], paths[0], *paths], where)
+        fields = [line.split("\t", 1) for line in found.lines]
+        if found.status != 0 or any(len(each) != 2 for each in fields):
+            raise self.ssh_failed(found, where)
+        links = [value for key, value in fields if key == "link"]
+        if links:
+            raise Failed(self._linked(links[0]), refused=False)
 
     # ------------------------------------------------------------ this computer's commands ----
 
@@ -760,7 +782,7 @@ class Opening:
             await self.write("directory", [settled["files_dir"], "0755"])
         self.step("directory", "done")
 
-    async def window(self, settled: Mapping[str, Any], plan: Mapping[str, Any]) -> None:
+    async def window(self, settled: Mapping[str, Any], plan: Mapping[str, Any], where: str) -> None:
         """The plan applied - its directories, the helpers it names and its files, in code's own directory - and the
         window opened by the registry's command, then what the plan says of it."""
         import asyncio
@@ -771,6 +793,11 @@ class Opening:
         self.step("window")
         files_dir = settled["files_dir"]
         writes = list(plan["vm_writes"])
+        helpers = [posixpath.join(files_dir, HELPERS, name) for name in HELPER_NAMES if name in plan["helpers"]]
+        # Every path the plan writes, looked at before the first is written: a link at any of them stops them all.
+        paths = [posixpath.join(files_dir, each["path"]) for each in writes] + helpers
+        if paths:
+            await self.no_links(paths, where)
         for each in writes:
             if each["kind"] == "directory":
                 await self.write("directory", [posixpath.join(files_dir, each["path"]), each["mode_if_new"]])
@@ -804,7 +831,7 @@ class Opening:
         await self.alias(route, rules, target, settled["root"])
         plan = await self.editor_here(target, settled, where)
         await self.directory(settled)
-        await self.window(settled, plan)
+        await self.window(settled, plan, where)
 
 
 async def window(ctx: Context, host: fleet.Host, asked: Asked, *, in_deploy: bool = False) -> bool:
