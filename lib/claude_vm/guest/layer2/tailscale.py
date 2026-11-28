@@ -1,53 +1,8 @@
-"""Tailscale's join on a machine: layer 2's step `vpn-join`, today's roles/tailscale/tasks/state.yml, connect.yml,
-settings.yml and report.yml in plain code (docs/architecture/engine.md §16.10). Layer 1's `tailscale` part installs
-the package where Tailscale is chosen (roles/tailscale/tasks/system.yml, playbooks/system.yml); this step joins it.
+"""Tailscale's join on a machine: layer 2's step `vpn-join` (docs/architecture/engine.md §16.10).
 
-Its settings: the rows `vpn` (Tailscale is managed only where it is `tailscale`), `tailscale_auth_method`,
-`tailscale_ssh`, `tailscale_accept_routes`, `tailscale_accept_dns`, `tailscale_advertise_tags`,
-`tailscale_login_server`, `tailscale_hostname` (the machine's name made one DNS label where none is set),
-`tailscale_up_args` and `vm_label` (the tag its lines name); the role's option `tailscale_marker_dir`, read by its name
-(fleet/passthrough.py), where the role's markers are; the store's `tailscale_auth_key`, a `Secret` or none; and what
-the run sets for itself (`RUN_SET`): the machine's name, the host its lines name, whether its Tailscale had a login
-before, which the VM's record keeps in Proxmox (G1's `joined`) and never the machine, and whether a sign-in follows in
-this run. The name and the record are required: a run that hands either not fails by name before the machine is
-read, as do, where Tailscale is chosen, a machine name that is no DNS label and the method key with no key.
-
-**The probe** reads, as root and changing nothing: what dpkg says of the package, the role's marker
-`tailscale-installed` and the node key of the login its join made, `tailscale-joined` (in `tailscale_marker_dir`,
-2.0's paths alone), and a Tailscale installed outside dpkg (`FOREIGN`); then, on a machine with the package where
-Tailscale is chosen, `tailscale status --json`, read again a second apart until it is neither `NoState` nor
-`Starting`, for `SETTLE_SECONDS` at most, a daemon that does not answer read again only where the Tailscale is the
-role's, and, where it runs, `tailscale debug prefs`. Every decision comes from those, never from human output.
-
-**The decisions** are `decide(found, wanted)`, connect.yml's and settings.yml's conditions in one function. Only a
-Tailscale the role's marker marks, or none at all, is the role's: one installed any other way is reported and left
-alone. The key is sent only from a settled `NeedsLogin` with no `HaveNodeKey`, on a VM whose record says it never had a
-login, and where the method takes the key (auto or key, with a key set) and tailscale would not refuse it itself (an
-OAuth client's secret with no tags); a node that has a login is never handed it: one Tailscale no longer accepts logs
-it out (tailscale#19501). Under the method key, a VM that had a login before and has none fails, naming why. A sign-in
-of the role's that ended after its run (the marker `pending`, a login now) is recorded as the role's. The settings of
-the role's own login alone, a `Running` node whose node key is the marker's, are held to the rows by one `tailscale
-set` naming only those that differ; tags are compared, never set.
-
-**The acts** are fixed commands of the runner, as root: `tailscale up --auth-key=file:/dev/stdin --timeout=<n>s` with
-the join's flags and the key on its standard input alone, sent once; the state read again, settled, after it; the
-marker written on its command's standard input (the node key, `pending` for a join that ran out of time, which
-tailscaled goes on with) or removed after a join that failed otherwise; and `tailscale set`. After an `up` that ends
-`Unreachable`, which may have run on the machine, the key is never sent again in the run: the state is read again, and
-a login there is recorded; with none, the step fails, and the next run decides from a settled state again.
-
-**What it returns**: the step's apply says whether it changed anything; `seen`, by the machine's key, where Tailscale
-is the VPN, whether the machine's Tailscale has had a login or has a sign-in under way, as connect.yml's
-`tailscale_login_seen` says it (any login on the Tailscale the role installed), which G9 writes into the VM's record,
-where the machine cannot change it. **Off** (`vpn` not `tailscale`) is left as it is: the probe reads the markers
-alone, and the step says, where the role installed Tailscale, that it is left unmanaged; nothing logs a node out or
-removes a package. **The report** is status/lines.py's `tailscale_report` line, what `aw
-status` says of the VPN too, with its NEXT STEPS record under `tailscale`.
-
-The key is on the run's redaction list before anything is read, revealed here in `_key` alone, for whether one is set
-and whether it is an OAuth client's, and no message, event, argument, file or difference carries it. Standard library;
-asyncio inside the coroutine that waits.
-"""
+Today's roles/tailscale/tasks/state.yml, connect.yml, settings.yml and report.yml in plain code: it reads the machine,
+decides by `decide(found, wanted)`, joins, holds the role's own login to the rows and reports; layer 1 installs the
+package."""
 
 from __future__ import annotations
 
@@ -64,9 +19,7 @@ from claude_vm.secret import Secret
 from claude_vm.ssh import runner
 from claude_vm.status.lines import tailscale_report
 
-# The settings this step reads, by name: the rows, the role's option, the store's secret, and what the run sets for
-# itself, each with its value where it sets none. The machine's name is required, and so is its record: read as
-# "never joined" where the run handed none, it would send the key to any node that says it has no login.
+# §16.10
 ROWS = (
     "vpn",
     "tailscale_auth_method",
@@ -84,29 +37,22 @@ SECRET = "tailscale_auth_key"
 RUN_SET = {"vm_name": None, "host_flag": "", "tailscale_joined_before": None, "tailscale_sign_in_follows": False}
 CHOSEN = "tailscale"
 METHODS = ("auto", "key", "web")
-# The role's markers in tailscale_marker_dir: the one install.yml writes first, and the node key of the role's login.
 INSTALLED = "tailscale-installed"
 JOINED = "tailscale-joined"
 PENDING = "pending"
-# A Tailscale dpkg does not know (Tailscale's static binaries, the snap): someone else's (roles/tailscale/vars).
 FOREIGN = ("/usr/sbin/tailscaled", "/usr/local/sbin/tailscaled", "/usr/local/bin/tailscaled", "/snap/bin/tailscale")
-# How long a state is waited for to settle, a read a second; how long a join waits for Running (roles/tailscale/vars).
 SETTLE_SECONDS = 30
 PAUSE = 1.0
 JOIN_SECONDS = 90
 UNSETTLED = ("NoState", "Starting")
 SIGNED_IN = ("Running", "NeedsMachineAuth")
-# The page of a machine's login in Tailscale's console.
 ADMIN = "https://login.tailscale.com/admin/machines"
-# One machine name: one DNS label, as Tailscale takes one (roles/tailscale/tasks/main.yml).
 LABEL = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?")
-# What tailscale says when a join's --timeout runs out: tailscaled goes on with it.
 TIMED_OUT = "timeout waiting for Tailscale service to enter a Running state"
 REFUSAL = re.compile(r"invalid key: .*")
 OAUTH_REFUSED = "oauth authkeys require --advertise-tags"
 CLIENT = "tskey-client-"
 
-# A read of tailscale's JSON, its last line ended as the runner takes one: $@ the read's words.
 READ_JSON = 'tailscale "$@"; status=$?; echo; exit "$status"'
 UP = ("tailscale", "up", "--auth-key=file:/dev/stdin")
 SET = ("tailscale", "set")
@@ -117,11 +63,8 @@ def _sh(script: str, *words: str) -> list[str]:
     return ["sh", "-c", script, "sh", *words]
 
 
-# The acts and reads, each a fixed command.
 STATUS = tuple(_sh(READ_JSON, "status", "--json"))
 PREFS = tuple(_sh(READ_JSON, "debug", "prefs"))
-# What dpkg says of the package, the role's markers and a Tailscale outside dpkg: $1 the markers' folder, then the
-# paths of FOREIGN.
 OWNERSHIP = """set -u
 dir=$1
 shift
@@ -131,7 +74,6 @@ if [ -f "$dir/tailscale-joined" ]; then printf 'joined '; head -n 1 "$dir/tailsc
 for path in "$@"; do if [ -e "$path" ]; then echo 'foreign yes'; fi; done
 true
 """
-# A marker written from standard input: $1 the markers' folder, $2 its name; into a file beside it, then renamed.
 MARK = """set -eu
 umask 022
 mkdir -p "$1"
@@ -160,9 +102,6 @@ def _failure(result: runner.Result) -> str:
     if isinstance(result, runner.Silent):
         return "it said nothing in its time"
     return _said(getattr(result, "why", ""))
-
-
-# ------------------------------------------------------------------ the settings ----
 
 
 @dataclasses.dataclass(frozen=True)
@@ -265,7 +204,7 @@ def wanted(ctx: Context) -> Wanted:
         raise Failed("vm_name is the machine's name, one line")
     held, client = _key(ctx.settings)
     if held is not None:
-        # Before anything is read or said: a machine's words may echo it.
+        # §16.10
         ctx.job.redact(held)
     chosen = _setting(ctx, "vpn") == CHOSEN
     method = str(_setting(ctx, "tailscale_auth_method"))
@@ -313,9 +252,6 @@ def wanted(ctx: Context) -> Wanted:
             "deploy", {"names": [name], "only": "configure"}, refused=False, host_flag=host
         ),
     )
-
-
-# ------------------------------------------------------------------ the state ----
 
 
 def _map(value: object) -> Mapping:
@@ -432,7 +368,6 @@ async def settle(ctx: Context, want: Wanted, found: Found) -> Found:
         result = await _run(ctx, STATUS)
         if isinstance(result, runner.Unreachable):
             raise Failed(f"{want.name} was not reached while Tailscale's state was read: {_failure(result)}")
-        # What tailscale said, as today's role words it (state.yml's tailscale_status_said), or how it ended.
         up, state = False, {}
         if isinstance(result, runner.Done):
             said = _said(result.said) or f"it exited {result.status}"
@@ -467,9 +402,6 @@ async def read(ctx: Context, want: Wanted) -> Found:
     if want.chosen and found.installed:
         found = await settle(ctx, want, found)
     return found
-
-
-# ------------------------------------------------------------------ the decisions ----
 
 
 def set_flags(found: Found, want: Wanted) -> list[str]:
@@ -524,9 +456,6 @@ def decide(found: Found, want: Wanted) -> Acts:
         join=join,
         flags=flags,
     )
-
-
-# ------------------------------------------------------------------ the report ----
 
 
 @dataclasses.dataclass(frozen=True)
@@ -622,9 +551,6 @@ def unmanaged(want: Wanted) -> str:
     )
 
 
-# ------------------------------------------------------------------ the step ----
-
-
 @dataclasses.dataclass(frozen=True)
 class State:
     """What the probe found, the settings as held, and what the run would do."""
@@ -653,7 +579,6 @@ class VpnJoin:
     async def apply(self, ctx: Context, state: State) -> bool:
         found, want, acts = state.found, state.want, state.acts
         if acts.case == "off":
-            # Left as it is, and its record too: nothing is seen where Tailscale is not the VPN.
             if found.marker and found.package:
                 self._say(ctx, unmanaged(want), "")
             return False
@@ -711,7 +636,7 @@ class VpnJoin:
             said=want.key.struck(said),
             health_before=before,
         )
-        # Read again, settled: never decided from what the up said alone, and never sent again in this run.
+        # §16.10
         found = await settle(ctx, want, found)
         if found.signed_in:
             await self._mark(ctx, want, found.node_key)
@@ -741,7 +666,7 @@ class VpnJoin:
 
     @staticmethod
     def _say(ctx: Context, said: str, left: str) -> None:
-        # Here alone, as github.py does: guest/ is imported where the engine is not.
+        # §16.10
         from claude_vm.engine import report
 
         report.say(ctx.job, ctx.machine, CHOSEN, said, left)

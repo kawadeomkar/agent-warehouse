@@ -18,7 +18,7 @@
   "lib/claude_vm/engine/aliases.py": 22,
   "lib/claude_vm/engine/certificate.py": 22,
   "lib/claude_vm/engine/code.py": 38,
-  "lib/claude_vm/engine/configure.py": 30,
+  "lib/claude_vm/engine/configure.py": 32,
   "lib/claude_vm/engine/confirm.py": 3,
   "lib/claude_vm/engine/controller_writes.py": 2,
   "lib/claude_vm/engine/create.py": 34,
@@ -68,7 +68,7 @@
   "lib/claude_vm/guest/states.py": 6,
   "lib/claude_vm/guest/system.py": 5,
   "lib/claude_vm/guest/variables.py": 24,
-  "lib/claude_vm/guest/wiring.py": 14,
+  "lib/claude_vm/guest/wiring.py": 17,
   "lib/claude_vm/pve/__init__.py": 1,
   "lib/claude_vm/pve/agent.py": 6,
   "lib/claude_vm/pve/answers.py": 25,
@@ -116,6 +116,6 @@
   "lib/claude_vm/vendors/tailscale.py": 14,
   "lib/claude_vm/vendors/transport.py": 48,
   "lib/claude_vm/vendors/trust.py": 5,
-  "tools/aw": 4,
+  "tools/aw": 7,
   "tools/aw-mcp": 3
 }

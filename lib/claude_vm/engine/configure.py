@@ -82,7 +82,7 @@ STEPS = (
 )
 DECLARED = Declared("deploy", (Stage(STAGE, "configure", steps=STEPS),))
 # The parts of a configure layer 2 runs, which card G9 builds: tailscale's package is layer 1's (system.PARTS), and is
-# installed with its join, by G9, so a configure leaves it until then.
+# installed with its join, by G9, so a configure leaves it to that card.
 LAYER_2 = ("claude_code", "github_projects", "tailscale")
 # The system play's parts a configure runs: every one but those whose part is layer 2's.
 SYSTEM_PARTS = tuple(part for part in system.PARTS if part not in LAYER_2)

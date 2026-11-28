@@ -513,7 +513,9 @@ SIGINT (Ansible's children alone, 16.8) reaches, so the body waits on the run's 
 SIGINT, which `uv` takes as a clean stop, then awaits its end within the grace: the run is `cancelled`, exit 130, never
 a `uv` killed in mid-sync at the grace's end. Before any job, `--version`, `--newer`, `--rollback` and `--without` are refused in one sentence:
 they are the installed program's, after 3.0 (H14, H15), and a checkout takes a newer version by `git pull` and then
-`aw install`; an installed program is refused as not built yet (H14). It installs no Galaxy collection.
+`aw install`; an installed program is refused as not built yet (H14). It installs no Galaxy collection, writes
+nothing but what the child writes (the environment and the checkout's hook) and the run's job, and imports `runs/` and
+`asyncio` inside the handler alone.
 `tests/unit/test_aw_install_checkout.py` holds it, with the launcher's two fixes and the floor, in checkouts the test
 makes with a stand-in `uv`.
 
@@ -4627,14 +4629,20 @@ then `tailscale status --json` a second apart until it is neither `NoState` nor 
 step as `tailscale_joined_before`, a setting it requires: a run that hands none fails by name before the machine is
 read), under a method that takes it and never an OAuth client's secret with no tags; under
 the method key, a VM that had a login and has none fails, naming why; a Tailscale or a login the role did not make is
-reported and left; only the role's own running login is held to the rows, by one `tailscale set`. The join is `tailscale
-up --auth-key=file:/dev/stdin` with the key on its standard input alone, sent once; the state is read again, settled,
-and the marker made to say what the join left (the node key, `pending` for a join still under way, none after a
-refusal, which is a report). After an `up` that ends `Unreachable` the key is never sent again in the run: a login read
-again is recorded, none fails the step, and the next run decides from a settled state. The step's `seen` says, by the
+reported and left; a node that has a login is never handed the key, since one Tailscale no longer accepts logs it out
+(tailscale#19501); a sign-in of the role's that ended after its run (the marker `pending`, a login now) is recorded as
+the role's; only the role's own running login is held to the rows, by one `tailscale set` naming only the settings
+that differ, its tags compared and never set. The join is `tailscale up --auth-key=file:/dev/stdin` with the key on
+its standard input alone, sent once; the state is read again, settled, and the marker made to say what the join left
+(the node key, `pending` for a join whose `--timeout` ran out, which `tailscaled` goes on with, none after a refusal,
+which is a report), each marker written from its command's standard input into a file beside it and then renamed.
+After an `up` that ends `Unreachable` the key is never sent again in the run: a login read again is recorded, none fails the step, and the next run decides from a settled state. The step's `seen` says, by the
 machine, whether its Tailscale has had a login, which G9 writes into the VM's record. Off, `vpn` not `tailscale`, is
 left as it is: the markers alone are read, nothing is logged out and no package removed. The key joins the run's
-redaction list before anything is read and is read in `_key` alone. `tests/unit/test_aw_tailscale.py` carries
+redaction list before anything is read, since a machine's words may echo it, and is read in `_key` alone. The step's
+report is `lib/claude_vm/status/lines.py`'s `tailscale_report` line, what `aw status` says of the VPN too; it imports
+`lib/claude_vm/engine/report.py` inside `_say` alone, as the other steps of layer 2 do, since `guest/` is imported
+where the engine is not. `tests/unit/test_aw_tailscale.py` carries
 `test_tailscale.py`'s cases against `tests/molecule/fake_tailscale.sh` on stand-in machines and greps every event,
 file and call for every canned key.
 

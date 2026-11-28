@@ -1,28 +1,8 @@
 """aw install's handler (card H18; docs/architecture/engine.md §16.3): in a checkout, the launcher's own work as a run.
 
-`install` has one home, the launcher's `install_env` at the checkout's top (the launcher's paragraph of §16.3): the
-locked packages synced into the environment `tools/env-run` finds, then git's pre-commit hook. In a checkout (D1's tell,
-fleet/paths.py's `kind`: a `justfile` and a `.git` at the program's root) this handler runs it as a run like any other,
-through `runs.run`, under the lock the verb's row names, the fleet's exclusively, so that it is refused, naming the run
-that holds it, while any other run that changes something lives, as today's `just install` is under the run lock; and
-the job it makes has its record and its text log. The run's one step is a child started through `runs/children.py`,
-which marks it with the job's ID: `/bin/sh <checkout>/aw --install-env`, and `--lock` where it was given, the
-launcher's one word of its own, which it refuses but from a child that carries that marker. Each line the child says
-is an event of the run, which its text log writes, and is said on the stream the child said it on, but in a detached
-run, whose output is its log already; the run's outcome is the child's: `succeeded`, or `failed` with EXITS' failed.
-A Ctrl-C, or a cancel's SIGINT, is sent on to the child's group, which is its own, so neither the terminal's nor the
-ladder's (Ansible's children alone) reaches it: uv stops as it does at a Ctrl-C, within the ladder's grace, and the run
-is `cancelled`.
-
-Before the run, and with no job made: `--version`, `--newer`, `--rollback` and `--without` are refused in a checkout,
-in one sentence: they are the installed program's, after 3.0 (H14, H15), and a checkout takes a newer version with
-`git pull` and then `aw install`. An installed program (its `release.json`) is brought to a release by H14's
-`installed`, which no program has before H14 exists: refused as not built, naming the card. `--detach` is C13's, from
-the row's `changes`, with nothing of this module's. Nothing here installs a Galaxy collection or writes anything but
-what the child writes: the environment, the checkout's hook and the run's job.
-
-Standard library, schema/ and fleet/paths.py at import; runs/ and asyncio inside the handler.
-"""
+It runs the launcher's `install_env` as one child under the fleet's lock, its lines the run's events and its end the
+run's outcome; the installed program's options are refused in a checkout before any job is made, and an installed
+program as not built yet (H14)."""
 
 from __future__ import annotations
 
@@ -44,16 +24,11 @@ if TYPE_CHECKING:
 
     from claude_vm.runs.attached import Context
 
-# The program's root, where fleet/paths.py tells a checkout from an installed release: the launcher it runs is there.
 PROGRAM_ROOT = Path(__file__).resolve().parents[3]
-# The shell that runs the launcher, by its path, as the launcher's own first line names it.
 SHELL = "/bin/sh"
-# The launcher's one word of its own, which only a child that carries a job's marker may give it.
 INSTALL_ENV = "--install-env"
-# The options of the installed program (H14, H15), each by the field the handler receives it by, as typed.
 INSTALLED = {"version": "--version", "newer": "--newer", "rollback": "--rollback", "without": "--without"}
 INSTALLED_CARDS = "cards H14 and H15"
-# How much of a line the child says is read at once, and so the longest one said as one event.
 CHUNK = 64 * 1024
 
 IN_A_CHECKOUT = (
@@ -131,9 +106,7 @@ def install(run: Any, **values: object) -> int:
         try:
             await asyncio.wait((ended, stopped), return_when=asyncio.FIRST_COMPLETED)
             if not ended.done():
-                # A Ctrl-C, or a cancel's SIGINT: the child's group is its own, which the terminal's never reaches and
-                # the ladder signals only for Ansible's children, so it is the body's to stop. uv takes SIGINT as a
-                # clean stop; its end is awaited within the ladder's grace, whose end kills what is left.
+                # §16.3
                 with contextlib.suppress(ProcessLookupError, PermissionError):
                     os.killpg(process.pid, signal.SIGINT)
             status = await ended
