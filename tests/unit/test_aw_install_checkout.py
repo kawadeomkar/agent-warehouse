@@ -22,12 +22,14 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import time
 from collections.abc import Iterator
 from pathlib import Path
 
+import harness
 import pytest
 from aw_kit import LAUNCHER, environment, run_launcher
 from harness import GIT_ENV, REPO
@@ -36,6 +38,7 @@ from claude_vm.cli import install, main
 from claude_vm.fleet import paths
 from claude_vm.runs import job as jobs
 from claude_vm.runs import locks
+from claude_vm.runs.attached import BY_CTRL_C, STOP_GRACE
 from claude_vm.schema.words import EXITS
 
 # git that reads no config of the developer's.
@@ -283,6 +286,79 @@ def test_a_failing_uv_fails_the_run_with_exit_status_two(home, tmp_path) -> None
     [made] = _jobs(home)
     assert made.read()["outcome"] == "failed"
     assert len(_uv_runs(tmp_path)) == 1 and not (checkout / ".git" / "hooks" / "pre-commit").exists()
+
+
+def _sleeping_uv(where: Path) -> dict[str, str]:
+    """A uv that writes its pid once it has begun, says one line and sleeps a minute; at a SIGINT it writes that it had
+    one and ends as uv does at a Ctrl-C, 130: the variable that names it, for env."""
+    uv = where / "uv-bin" / "uv"
+    uv.parent.mkdir(parents=True)
+    uv.write_text(
+        "#!/bin/sh\n"
+        f"trap 'echo interrupted > \"{where}/uv.stopped\"; exit 130' INT\n"
+        f'echo "$$" > "{where}/uv.pid"\n'
+        'echo "uv stand-in: $1"\n'
+        "sleep 60\n"
+    )
+    uv.chmod(0o755)
+    return {"UV": str(uv)}
+
+
+def _gone(pid: int, within: float = 10) -> bool:
+    end = time.monotonic() + within
+    while time.monotonic() < end:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def test_a_ctrl_c_stops_uv_at_once_and_the_run_is_cancelled(home, tmp_path) -> None:
+    # The child's group is its own, so a terminal's Ctrl-C, sent to the program's group, reaches uv only through the
+    # body (and C14's cancel is the same SIGINT): well inside the grace, never killed at its end.
+    checkout = _checkout(tmp_path, "stopped")
+    env = environment(home, {"PYTHON": sys.executable, **_sleeping_uv(tmp_path), **NO_GIT_CONFIG})
+    begun = tmp_path / "uv.pid"
+    with open(tmp_path / "err", "wb") as err:
+        process = subprocess.Popen(
+            [str(checkout / "aw"), "install"],
+            cwd=tmp_path,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=err,
+            env=env,
+            process_group=0,
+            preexec_fn=harness._default_signals,  # noqa: PLW1509 - only signal, safe beside xdist's thread
+        )
+    try:
+        end = time.monotonic() + 60
+        while not begun.exists() or not begun.read_text().strip():
+            assert process.poll() is None, (tmp_path / "err").read_text()
+            assert time.monotonic() < end, "the stand-in uv never began"
+            time.sleep(0.05)
+        uv = int(begun.read_text())
+        sent = time.monotonic()
+        os.killpg(process.pid, signal.SIGINT)
+        try:
+            status = process.wait(timeout=STOP_GRACE / 2)
+        except subprocess.TimeoutExpired:
+            pytest.fail(f"aw install did not end within {STOP_GRACE / 2} s of a Ctrl-C: uv was never stopped")
+        took = time.monotonic() - sent
+    finally:
+        if process.poll() is None:
+            harness._end(process)
+    said = (tmp_path / "err").read_text()
+    assert status == EXITS["cancelled"] == 130, said
+    assert took < STOP_GRACE / 3, took
+    # uv had the SIGINT, and ended of it, by itself.
+    assert (tmp_path / "uv.stopped").read_text() == "interrupted\n"
+    assert _gone(uv)
+    [made] = _jobs(home)
+    record = made.read()
+    assert (record["outcome"], record["why"], record["exit"]) == ("cancelled", BY_CTRL_C, 130)
+    assert "uv stand-in: sync" in Path(record["log"]).read_text()
 
 
 # ---------------------------------------------------------------- refused before the run ----

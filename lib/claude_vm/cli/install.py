@@ -10,6 +10,9 @@ which marks it with the job's ID: `/bin/sh <checkout>/aw --install-env`, and `--
 launcher's one word of its own, which it refuses but from a child that carries that marker. Each line the child says
 is an event of the run, which its text log writes, and is said on the stream the child said it on, but in a detached
 run, whose output is its log already; the run's outcome is the child's: `succeeded`, or `failed` with EXITS' failed.
+A Ctrl-C, or a cancel's SIGINT, is sent on to the child's group, which is its own, so neither the terminal's nor the
+ladder's (Ansible's children alone) reaches it: uv stops as it does at a Ctrl-C, within the ladder's grace, and the run
+is `cancelled`.
 
 Before the run, and with no job made: `--version`, `--newer`, `--rollback` and `--without` are refused in a checkout,
 in one sentence: they are the installed program's, after 3.0 (H14, H15), and a checkout takes a newer version with
@@ -23,9 +26,11 @@ Standard library, schema/ and fleet/paths.py at import; runs/ and asyncio inside
 
 from __future__ import annotations
 
+import contextlib
 import os
+import signal
 import sys
-from collections.abc import Mapping
+from collections.abc import Awaitable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TextIO
 
@@ -35,6 +40,7 @@ from claude_vm.schema.words import EXITS, Line
 
 if TYPE_CHECKING:
     from asyncio import StreamReader
+    from asyncio.subprocess import Process
 
     from claude_vm.runs.attached import Context
 
@@ -102,6 +108,8 @@ def install(run: Any, **values: object) -> int:
 
         from claude_vm.runs import children
 
+        if ctx.cancelled.is_set():
+            return EXITS["cancelled"]
         process = await children.start(
             ctx.job,
             argv,
@@ -116,8 +124,22 @@ def install(run: Any, **values: object) -> int:
         assert process.stdout is not None and process.stderr is not None
         out = None if away else sys.stdout
         err = None if away else sys.stderr
-        await asyncio.gather(_relay(ctx, process.stdout, out), _relay(ctx, process.stderr, err))
-        status = await process.wait()
+        relayed = asyncio.gather(_relay(ctx, process.stdout, out), _relay(ctx, process.stderr, err))
+        ended = asyncio.ensure_future(_ended(process, relayed))
+        stopped = asyncio.ensure_future(ctx.cancelled.wait())
+        try:
+            await asyncio.wait((ended, stopped), return_when=asyncio.FIRST_COMPLETED)
+            if not ended.done():
+                # A Ctrl-C, or a cancel's SIGINT: the child's group is its own, which the terminal's never reaches and
+                # the ladder signals only for Ansible's children, so it is the body's to stop. uv takes SIGINT as a
+                # clean stop; its end is awaited within the ladder's grace, whose end kills what is left.
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.killpg(process.pid, signal.SIGINT)
+            status = await ended
+        finally:
+            stopped.cancel()
+        if ctx.cancelled.is_set():
+            return EXITS["cancelled"]
         return EXITS["done"] if status == 0 else EXITS["failed"]
 
     draft = runs.Draft(
@@ -132,6 +154,12 @@ def install(run: Any, **values: object) -> int:
         logs=textlog.logs(home, run),
     )
     return runs.run(draft, body)
+
+
+async def _ended(process: Process, relayed: Awaitable[object]) -> int:
+    """The child's exit status, once both its streams are said to their end."""
+    await relayed
+    return await process.wait()
 
 
 async def _relay(ctx: Context, stream: StreamReader, shown: TextIO | None) -> None:

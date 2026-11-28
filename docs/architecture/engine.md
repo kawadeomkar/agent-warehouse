@@ -505,7 +505,10 @@ changes something lives, and its job has a record and a text log (16.8). The run
 `runs/children.py`, which marks it with the job's ID: the launcher by its path, under `/bin/sh`, with `--install-env`,
 and `--lock` where it was given; each line the child says is an event of the run and is said on the stream the child
 said it on (but in a detached run, whose output is its log), and the run ends as the child does, `succeeded` or `failed`
-with exit status 2. Before any job, `--version`, `--newer`, `--rollback` and `--without` are refused in one sentence:
+with exit status 2. The child's process group is its own, which neither a terminal's Ctrl-C nor the ladder's first
+SIGINT (Ansible's children alone, 16.8) reaches, so the body waits on the run's `cancelled` beside it and sends its group
+SIGINT, which `uv` takes as a clean stop, then awaits its end within the grace: the run is `cancelled`, exit 130, never
+a `uv` killed in mid-sync at the grace's end. Before any job, `--version`, `--newer`, `--rollback` and `--without` are refused in one sentence:
 they are the installed program's, after 3.0 (H14, H15), and a checkout takes a newer version by `git pull` and then
 `aw install`; an installed program is refused as not built yet (H14). It installs no Galaxy collection.
 `tests/unit/test_aw_install_checkout.py` holds it, with the launcher's two fixes and the floor, in checkouts the test
