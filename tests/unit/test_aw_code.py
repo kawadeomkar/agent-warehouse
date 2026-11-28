@@ -636,6 +636,8 @@ def test_code_s_directory_inside_a_checkout_is_refused_before_the_alias_and_any_
 def test_a_folder_that_is_not_there_is_refused_with_the_projects_there(made, tmp_path) -> None:
     machine = _ready(made)
     (machine.home / "projects" / "App").mkdir()
+    if (machine.home / "projects" / "app").exists():
+        pytest.skip("this file system folds case (macOS's default), so the stand-in's app is its App, a folder there")
     editors = Editors(tmp_path / "e", extension=True)
     said = _refused_before_any_write(made, machine, editors, "delta", "--project", "app", "--editor", "zed")
     assert "There is no project named app in" in said and "Did you mean App?" in said
