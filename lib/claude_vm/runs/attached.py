@@ -25,6 +25,11 @@ and a kill (docs/architecture/engine.md §16.8).
   person's answer ended it, and then returned a status other than 0 and 130 (destroy's no, exit 1): a body says it
   declined, and an exit status alone never makes it.
 - SIGKILL: nothing is written, and the job reads `lost` once its lock is free (runs/job.py).
+- A detached run's limit (runs/detached.py: `limit`, seconds on the loop's monotonic clock from the ladder's start):
+  the run stops as at a SIGTERM - the tree ended with SIGTERM, what ignores it killed SETTLE seconds after, the body
+  cancelled - but the process lives on to its end, the record says `failed` with the deadline as why, and it exits as
+  a failed run does. A stop asked before it (a Ctrl-C's, a cancel's) has its grace cut short there instead, and stays
+  the run's end.
 
 While the run lives, a child the terminal stopped for asking a question there (runs/children.py's asking: SIGTTIN or
 SIGTTOU, a passphrase, a host key to accept or a second factor asked by the `ssh` of a person's own ProxyJump, a
@@ -141,6 +146,9 @@ BY_CTRL_C_TWICE = "Ctrl-C twice"
 DONE = "done"
 # Why a machine the run began and never ended is, at a cancelled run's end (_end): its own end never came.
 UNENDED = "stopped: the run ended before this machine's own end"
+# Why a detached run ended at its limit, in its record, and the line it says then.
+BY_LIMIT = "the deadline: run_detached_limit's {limit} came"
+LIMITED = "aw: the run's limit of {limit} (run_detached_limit) came: it is stopped"
 # Who stopped a run, in its record's stop.
 BY_TERMINAL = "terminal"
 
@@ -511,6 +519,9 @@ class _Ladder:
         # The children the terminal stopped that were said and ended, and the task that looks for them.
         self.asked: set[children.Child] = set()
         self.watching: asyncio.Task | None = None
+        # A detached run's limit, in seconds, and whether the run was stopped at it.
+        self.limit: float | None = None
+        self.limited = False
 
     # ---------------------------------------------------------------- the handler, and what it starts ----
 
@@ -695,6 +706,20 @@ class _Ladder:
         self.end_tree(signal.SIGKILL)
         self.wake()
 
+    def at_the_limit(self) -> None:
+        """A detached run's limit reached: the run stops as at a SIGTERM, but lives on to write that it failed at its
+        deadline; where a stop was asked first, its grace is over now, and it stays the run's end."""
+        if self.closing or self.cut is not None or self.task is None or self.task.done():
+            return
+        if self.ctx.cancelled.is_set():
+            self.grace_over()
+            return
+        self.limited = True
+        self.cut = signal.SIGTERM
+        _say(LIMITED.format(limit=_span(self.limit or 0)))
+        self.end_tree(signal.SIGTERM)
+        self.wake()
+
     def wake(self) -> None:
         self.ctx.stopping.set()
         if not self.now.done():
@@ -809,6 +834,8 @@ class _Ladder:
     def _outcome(self) -> tuple[str, int, str, BaseException | None]:
         cancelled = EXITS["cancelled"]
         raised = self._raised()
+        if self.limited:
+            return "failed", EXITS["failed"], BY_LIMIT.format(limit=_span(self.limit or 0)), None
         if self.cut == signal.SIGINT:
             return "cancelled", cancelled, BY_CTRL_C_TWICE, None
         if self.cut is not None:
@@ -867,13 +894,14 @@ class _Ladder:
                 _say(f"aw: the run's directory could not be removed whole (job {self.job.id})")
         except (OSError, ValueError, RuntimeError) as error:
             _say(f"aw: the run's directory was left (job {self.job.id}): {plain_text(str(error))}")
-        if outcome == "cancelled":
+        if outcome == "cancelled" or self.limited:
             # A second Ctrl-C, a SIGTERM or a SIGHUP raises Abandoned wherever the loop's thread is, so a machine's own
             # handler may never have run: each machine begun and not ended is ended stopped at the stage it reached,
             # and none that has an end is given a second (a runner's, runs/fleet_run.py, is the one the record keeps).
+            # So is each at a detached run's limit, which fails it.
             for machine in self.job.unended():
                 try:
-                    self.job.emit("end", machine, UNENDED, outcome="cancelled")
+                    self.job.emit("end", machine, UNENDED, outcome=outcome)
                 except Exception as error:
                     _say(f"aw: the end of {machine} could not be written into job {self.job.id}'s record: {error}")
         try:
@@ -886,7 +914,7 @@ class _Ladder:
     async def _body(self, body: Body) -> int | None:
         return await body(self.ctx)
 
-    def run(self, body: Body, mask: set[signal.Signals] | None) -> int:
+    def run(self, body: Body, mask: set[signal.Signals] | None, limit: float | None = None) -> int:
         found = _terminal()
         # The body called inside its task: whatever it raises, even as it is called, is the run's to end on.
         self.task = self.loop.create_task(self._body(body))
@@ -904,6 +932,10 @@ class _Ladder:
                 # runs.run held the signals off from before the job was made: one that came meanwhile is the
                 # handler's now, and from here every one is.
                 signal.pthread_sigmask(signal.SIG_SETMASK, mask)
+            if limit:
+                # Counted on the loop's clock, the monotonic one, from here.
+                self.limit = limit
+                self.loop.call_later(limit, self._own, self.at_the_limit, "stop at the limit")
             self._drive(self.until_done)
             self._drive(self.settle)
             self._left()
@@ -943,6 +975,11 @@ class _Ladder:
         return status
 
 
+def _span(seconds: float) -> str:
+    """A limit as a person reads it: whole minutes as minutes, else seconds."""
+    return f"{seconds / 60:g} min" if seconds >= 60 and seconds % 60 == 0 else f"{seconds:g} s"
+
+
 def _never_began(job: jobs.Job, error: BaseException) -> None:
     """A run whose ladder could not be built: its directory removed and its job dropped, as a run that never began,
     with what the drop left said beside the error."""
@@ -953,7 +990,7 @@ def _never_began(job: jobs.Job, error: BaseException) -> None:
         error.add_note(left)
 
 
-def run(job: jobs.Job, body: Body, *, mask: set[signal.Signals] | None = None) -> int:
+def run(job: jobs.Job, body: Body, *, mask: set[signal.Signals] | None = None, limit: float | None = None) -> int:
     """body run in this process, on one asyncio loop, with a Context for job, which this process made; ended as the
     ladder says, and its exit status: 0, the status the body returned, or 130 for a run a person cancelled. A run ended
     by SIGHUP or SIGTERM dies of it, and an error the body did not handle is raised again, each once the record says
@@ -961,7 +998,7 @@ def run(job: jobs.Job, body: Body, *, mask: set[signal.Signals] | None = None) -
     ladder that cannot be built leaves no job and no directory. The run's thread is the main thread, the only one a
     signal's handler runs in. mask, where it is given, is the signal mask put back once the ladder's handlers are set:
     runs.run's, which held TAKEN off from before the job was made, so that a signal in between is the ladder's to
-    take."""
+    take. limit, a detached run's, is how many seconds it may last, None or 0 for no limit."""
     if job._held_here() is None:
         raise RuntimeError(f"job {job.id} is not this process's: only the run that made a job runs it")
     try:
@@ -969,4 +1006,4 @@ def run(job: jobs.Job, body: Body, *, mask: set[signal.Signals] | None = None) -
     except BaseException as error:
         _never_began(job, error)
         raise
-    return ladder.run(body, mask)
+    return ladder.run(body, mask, limit)

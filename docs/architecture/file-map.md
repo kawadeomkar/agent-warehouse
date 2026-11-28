@@ -39,6 +39,8 @@ tools/settings                    just settings: each setting's value and where 
 tools/mcp                         the MCP server just mcp registers with Claude Code: its tools the recipes (§7.12)
 tools/aw                          aw, the new engine's program until 3.0 (§16): this checkout's lib/ on the path, then
                                   lib/claude_vm/cli/main.py; nothing of today's product runs it (test_aw_layout.py)
+tools/aw-mcp                      the agents' server over the program: today's MCP server, each read aw run as a child
+                                  (lib/claude_vm/cli/mcp_serve.py, §16.3); nothing of today's product starts it
 tools/stale_scripts.py            just install: the locked packages whose commands start another Python, to reinstall
 tools/unit_durations.py           tests/unit/durations.json from a run's JUnit report: what the unit tests' shards balance by
 tools/molecule-lanes              just test molecule --jobs 4: the scenarios that many at a time, each in a log of its own
@@ -249,7 +251,8 @@ lib/claude_vm/cli/                aw, the program: the command line read against
                                   today's habits, deploy's question among them; before.py, RunWords, the run's own
                                   words; dispatch.py, a verb handed to its handler or refused; help.py, aw help's two
                                   levels from the table; reference.py, the command reference's tables from it;
-                                  mcp_backend.py, the agents' tools' schemas and command lines, from the table
+                                  mcp_backend.py, the agents' tools' schemas and command lines, from the table;
+                                  mcp_serve.py, the agents' server over the program, which tools/aw-mcp starts
 lib/claude_vm/engine/             the workflows, one module a verb, in place of the playbooks; record.py, a VM's record,
                                   typed, read from its notes and written there under Proxmox's digest; certificate.py,
                                   the API's certificate worked out with no credential: an anchor where the computer's
@@ -267,8 +270,10 @@ lib/claude_vm/engine/             the workflows, one module a verb, in place of 
                                   confirm.py, the one validator of the names that confirm a deletion; report.py, what a
                                   run says of a machine and, straight after, its NEXT STEPS record; aliases.py, the
                                   managed SSH config: each VM's alias written, validated and swapped, the Include added
-                                  once, the prune by origin; controller_writes.py, the one list of what the engine
-                                  writes on this computer outside the checkout
+                                  once, the prune by origin; code.py, code's handler: one VM's window, its alias
+                                  refreshed and the editor's plan applied in code's own directory on the VM;
+                                  controller_writes.py, the one list of what the engine writes on this computer outside
+                                  the checkout
 lib/claude_vm/pve/                the typed Proxmox VE client, and the one table of each call's privilege; client.py,
                                   Proxmox, the one class that sends the token, and its reads and writes; answers.py,
                                   each answer's frozen record and its parsing function; pin.py, the connection the token

@@ -26,9 +26,32 @@ env:
   PY_COLORS: "1"
   ANSIBLE_FORCE_COLOR: "1"
 
+# A pull request from a branch whose name starts with stack/ onto another such
+# branch (the area stack's above its lowest, each a draft on the one below it
+# and a part of the tree that the pull request from base-first carries whole)
+# runs no job, CI result included: that pull request's run is a batch's whole
+# run, and ten of the stack's opened at once held the account's runners for
+# over half an hour. So every job's if: is the gate below, joined after its own
+# condition where it has one (tests/unit/test_ci.py holds each job to it). It
+# reads both branches: a pull request to main from a branch named stack/...,
+# a fork's too, runs every job, since CI result is main's required check and a
+# skipped one passes; so does the stack's lowest, on main, were it pushed
+# again. And it reads where the head is: a fork's pull request is never
+# skipped, since a fork's stack/ onto a stack/ branch, its base changed to main
+# afterwards, starts no run (a base's change is an edited, which pull_request
+# does not take by default), and its skipped CI result would stand as passed.
+# types: is not widened for that: only the owner can push a stack/ branch of
+# the repository's own, and the owner may merge past the check anyway. A
+# filter under on: cannot do it: pull_request's branches and branches-ignore
+# name the base branch alone. github.head_ref and github.base_ref are empty
+# for every other event, so a push, the weekly run and a manual run run every
+# job as before.
 jobs:
   lint:
     name: Lint
+    if: >-
+      !(startsWith(github.head_ref, 'stack/') && startsWith(github.base_ref, 'stack/')
+      && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -121,6 +144,9 @@ jobs:
   # every test exactly once.
   unit:
     name: Unit tests (${{ matrix.shard }}/${{ strategy.job-total }})
+    if: >-
+      !(startsWith(github.head_ref, 'stack/') && startsWith(github.base_ref, 'stack/')
+      && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -146,6 +172,9 @@ jobs:
   # (tests/unit/test_ci.py holds the version to the floor).
   unit-oldest:
     name: Unit tests on Python 3.13 (1/6)
+    if: >-
+      !(startsWith(github.head_ref, 'stack/') && startsWith(github.base_ref, 'stack/')
+      && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -169,9 +198,16 @@ jobs:
   # never macos-latest, so that a new macOS is a change made here; and it
   # installs nothing but what the setup action and just install do. A test that
   # cannot run on one system is skipped there by a mark that says why. -n auto
-  # gives a worker per CPU the runner has: psutil is not in uv.lock.
+  # gives a worker per CPU the runner has: psutil is not in uv.lock. On Linux
+  # it pulls the guest helper's floor, Python 3.10's image, first, so that the
+  # helper's test of it runs (tests/unit/test_aw_guest_helper.py runs that
+  # image with no network and never pulls); macOS's runner has no docker, and
+  # the test skips there and says so.
   engine:
     name: Engine tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    if: >-
+      !(startsWith(github.head_ref, 'stack/') && startsWith(github.base_ref, 'stack/')
+      && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -186,6 +222,9 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           python-version: ${{ matrix.python }}
+      - name: Pull the guest helper's floor
+        if: runner.os == 'Linux'
+        run: docker pull python:3.10-slim
       - name: Engine tests
         run: just test engine
 
@@ -194,7 +233,9 @@ jobs:
   # dependency graph, which is enabled by default on public repositories.
   dependency-review:
     name: Dependency review
-    if: github.event_name == 'pull_request'
+    if: >-
+      github.event_name == 'pull_request' && !(startsWith(github.head_ref, 'stack/') && startsWith(github.base_ref, 'stack/')
+      && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -210,6 +251,9 @@ jobs:
   # scenario's. A lint failure still fails the run through CI result.
   molecule:
     name: Molecule (${{ matrix.role }})
+    if: >-
+      !(startsWith(github.head_ref, 'stack/') && startsWith(github.base_ref, 'stack/')
+      && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -229,6 +273,9 @@ jobs:
   # the Ubuntu image is. The other roles run on Ubuntu alone.
   debian:
     name: Molecule on Debian (${{ matrix.role }})
+    if: >-
+      !(startsWith(github.head_ref, 'stack/') && startsWith(github.base_ref, 'stack/')
+      && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -251,7 +298,10 @@ jobs:
   # allowed to fail the scheduled run - that failure is the notification.
   canary:
     name: Canary (unpinned Ubuntu image)
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: >-
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+      && !(startsWith(github.head_ref, 'stack/') && startsWith(github.base_ref, 'stack/')
+      && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -284,6 +334,9 @@ jobs:
 
   playbooks:
     name: Molecule (${{ matrix.name }})
+    if: >-
+      !(startsWith(github.head_ref, 'stack/') && startsWith(github.base_ref, 'stack/')
+      && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -320,10 +373,14 @@ jobs:
   # each job by name, it holds every job to the gate - a matrix entry added later
   # included - and lets jobs be split or renamed without a settings change. Not
   # the canary, which may fail on purpose. A cancelled or failed job fails it.
+  # always() runs it whatever its jobs did; the gate alone skips it, on a pull
+  # request of the repository's own from stack/ onto stack/, where no job runs.
   result:
     name: CI result
     needs: [lint, unit, unit-oldest, engine, dependency-review, molecule, debian, playbooks]
-    if: always()
+    if: >-
+      always() && !(startsWith(github.head_ref, 'stack/') && startsWith(github.base_ref, 'stack/')
+      && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

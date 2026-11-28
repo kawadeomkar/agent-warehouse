@@ -27,6 +27,9 @@ line does, the rest of the file byte for byte and its mode kept; never where `cl
 says the line to add. The person's file is read with its line endings as they are; the managed file, which the product
 writes, with every line ending read as LF, so a CRLF copy's blocks are still found.
 
+**`code`'s alias** (`one`, card G17) is its one VM's, written the same way from the read `code` made, before the
+window that goes through it: refused, nothing written, where it is not written.
+
 **A removal** (`remove`) takes each named block out, under the same lock, and nothing else; the `Include` stays.
 **The prune** (`refresh` with no names) reads the host's listing and its pool, and removes only what `ssh_config_prune`
 says: a block of this host's whose VM no longer exists, and one no alias may have; never another host's. What is the
@@ -65,6 +68,7 @@ from . import fleet, report, routes
 if TYPE_CHECKING:
     from ..runs.attached import Context
     from ..runs.job import Job
+    from ..ssh import runner
 
 # deploy --only ssh-config's one stage, as today's declaration labels it (runs/stages.py's DEPLOY): the host's work.
 STAGE = "aliases"
@@ -689,6 +693,32 @@ async def refresh(ctx: Context, host: fleet.Host, names: Sequence[str]) -> bool:
         await _prune(ctx, host, files, rules)
     ctx.emit("stage", None, STAGE, outcome="done")
     return True
+
+
+async def one(
+    ctx: Context,
+    host: fleet.Host,
+    route: routes.Route,
+    machine: fleet.Target,
+    reached: runner.Target,
+    rules: Rules,
+    workspace: str,
+) -> Alias:
+    """`code`'s alias (card G17): machine's alone, from the live read `code` made, written before its window opens,
+    which goes through it, and said as a write is: through the hop only where the route's Target for it takes it
+    (reached, from Route.targets), a jump of the person's own in claude_ssh_options in its place, with the lines that
+    give the hop the host's key where it goes through it. Refused, nothing written, where it is not written: the window
+    would have nothing to reach the VM through."""
+    files = Files.of(host.environ)
+    jump = route.proxy_jump if route.through and not rules.own_jump and reached.hop is not None else ""
+    alias = Alias(machine.name, machine.address, machine.user, machine.identity, jump, workspace)
+    done = await write(ctx.job, files, [alias], rules)
+    said_written(ctx, done, rules, files, [alias])
+    if machine.name not in done.written:
+        raise Refused(f"No alias was written for {machine.name}, so the editor would have nothing to reach it through")
+    if jump:
+        await _hop_key(ctx, route, files, rules)
+    return alias
 
 
 async def _prune(ctx: Context, host: fleet.Host, files: Files, rules: Rules) -> None:

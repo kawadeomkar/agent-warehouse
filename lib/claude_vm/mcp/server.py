@@ -8,6 +8,10 @@ Each recipe runs as `just` would at a terminal, but with stdin /dev/null, an env
 (environment.py), every justfile setting on the command line (recipes.py), and a session of its own with the signals
 at their defaults. One that only reads runs within the call; one that changes something is a job that outlives it
 (jobs.py), which the call follows (runs.py).
+
+A read's command line, its environment, its name in a sentence, the vault's refusal and each tool's schema are the
+backend's (Recipes, today's, by default): the new engine's entry builds the same Server with the program's in its
+place (docs/architecture/engine.md §16.3), and nothing here imports it.
 """
 
 # No `from __future__ import annotations` here: the SDK reads each tool's annotations, and a Resolve(...) names a
@@ -70,17 +74,45 @@ SESSION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
 READ_TIMEOUT = 600
 
 
+class Recipes:
+    """Today's backend, the justfile's recipes: what a Server asks of the backend it is given - a run's environment,
+    a read's command line, how a read is named, the vault's refusal, and a tool's schema - so that the program's, which
+    the new engine's entry gives, can stand in its place. Nothing here imports it."""
+
+    def env(self, config: Config, environ: dict[str, str]) -> dict[str, str]:
+        return run_env(config, environ)
+
+    def command(self, server: "Server", tool: str, arguments: dict[str, Any]) -> list[str]:
+        assert server.config is not None
+        return recipes.command(server.config, recipes.recipe_of(server.dumped(), tool), tool, arguments)
+
+    def said(self, tool: str) -> str:
+        return f"just {tool_recipe(tool)}"
+
+    def vault_refusal(self, config: Config) -> str:
+        return checkout.vault_refusal(config)
+
+    def parameters(self, server: "Server", tool: str, extra: str) -> tuple[dict, str] | None:
+        """tool's schema and description, from its recipe in just --dump; None where the justfile cannot be read."""
+        try:
+            recipe = recipes.recipe_of(server.dumped(), tool)
+        except ToolError:
+            return None
+        return recipes.schema(recipe, tool), recipes.describe(recipe, extra)
+
+
 class Server:
-    def __init__(self, config: Config | None, refusal: str, environ: dict[str, str]):
+    def __init__(self, config: Config | None, refusal: str, environ: dict[str, str], backend: Any = None):
         self.config = config
         self.refusal = refusal
         self.environ = environ
+        self.backend = Recipes() if backend is None else backend
         self.code = checkout.code(config.checkout) if config else ""
         self._dumped: dict | None = None
 
     def env(self) -> dict[str, str]:
         assert self.config is not None
-        return run_env(self.config, self.environ)
+        return self.backend.env(self.config, self.environ)
 
     def dumped(self) -> dict:
         """The justfile as just --dump gives it, read once."""
@@ -102,7 +134,7 @@ class Server:
             raise ToolError(self.refusal)
         for refusal in (
             checkout.changed_refusal(self.config, self.code) if changed else "",
-            checkout.vault_refusal(self.config) if vault else "",
+            self.backend.vault_refusal(self.config) if vault else "",
         ):
             if refusal:
                 raise ToolError(refusal)
@@ -118,7 +150,7 @@ class Server:
         config = self.config
         assert config is not None
         try:
-            argv = recipes.command(config, recipes.recipe_of(self.dumped(), tool), tool, arguments)
+            argv = self.backend.command(self, tool, arguments)
         except ValueError as error:
             raise ToolError(str(error)) from error
         began = time.monotonic()
@@ -138,7 +170,7 @@ class Server:
             with contextlib.suppress(ProcessLookupError, PermissionError):
                 os.killpg(process.pid, signal.SIGTERM)
             if isinstance(error, TimeoutError):
-                raise ToolError(f"just {tool_recipe(tool)} took over {READ_TIMEOUT} s, and was stopped") from error
+                raise ToolError(f"{self.backend.said(tool)} took over {READ_TIMEOUT} s, and was stopped") from error
             raise
         seconds = time.monotonic() - began
         return process.returncode or 0, out.decode(errors="replace"), err.decode(errors="replace"), seconds
@@ -152,7 +184,7 @@ class Server:
         except ValueError:
             report = None
         if not isinstance(report, dict):
-            first = f"{self.head()} · just {recipes.TOOLS[tool].recipe}: exit {rc} in {seconds:.0f} s, no report"
+            first = f"{self.head()} · {self.backend.said(tool)}: exit {rc} in {seconds:.0f} s, no report"
             raise ToolError(text_result(first, err + out))
         return report, err
 
@@ -701,13 +733,10 @@ def tools(server: Server) -> list[Tool]:
         meta = GATED if name in ("install", "destroy", "settings_set", "init") else None
         tool = Tool.from_function(fn, name=name, annotations=annotations, meta=meta, structured_output=structured)
         if server.config is not None:
-            try:
-                recipe = recipes.recipe_of(server.dumped(), name)
-            except ToolError:
-                recipe = None
-            if recipe is not None:
-                description = recipes.describe(recipe, description)
-                tool = tool.model_copy(update={"parameters": recipes.schema(recipe, name)})
+            made = server.backend.parameters(server, name, description)
+            if made is not None:
+                parameters, description = made
+                tool = tool.model_copy(update={"parameters": parameters})
         built.append(tool.model_copy(update={"description": description}))
     built.append(
         Tool.from_function(

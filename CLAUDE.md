@@ -988,9 +988,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - A child is started by `lib/claude_vm/runs/children.py`'s `start` alone, never `Popen`, `create_subprocess_exec`
       or another of Python's ways, but `settings edit`'s editor (`STARTERS`), in the foreground, holding no lock:
       marked with `AGENT_WAREHOUSE_JOB`, in a group or session of its own, every signal at its default, its standard
-      input named; one meant to outlive its run is `outlive`'s, unmarked. `close_fds` is always `True`, a lock's
-      descriptor is refused before a child starts, and nothing forks without an exec. `tests/unit/test_aw_children.py`
-      holds it, with scans of the new engine's code.
+      input named; one meant to outlive its run is `outlive`'s, and a detached run `start_detached`'s, unmarked.
+      `close_fds` is always `True`, a lock's descriptor is refused before a child starts, and nothing forks without an
+      exec. `tests/unit/test_aw_children.py` holds it, with scans of the new engine's code.
 - **Every `ssh` the new engine starts carries `BatchMode=yes` and names the machine by its identity.** Read
   [§16.6](docs/architecture/engine.md#166-ssh--the-runner-over-openssh) first. `lib/claude_vm/ssh/runner.py` builds
   every line from a `Target`, each value held first, its options ahead of the person's `vm_ssh_options`, which give

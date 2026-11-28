@@ -513,7 +513,7 @@ def test_a_line_after_the_script_that_is_no_python_is_never_compiled_or_said() -
     trailing = b"\nnever said carried file line = (\n"
     ran = _ran(bundle.command(sys.executable), bundle.script(["nosuch"], {}).encode() + trailing)
     assert (ran.returncode, ran.stdout) == (2, STARTED), ran
-    assert ran.stderr.decode() == 'helper: no verb "nosuch": the verbs are probe\n'
+    assert ran.stderr.decode() == 'helper: no verb "nosuch": the verbs are clones, probe\n'
 
 
 @pytest.mark.parametrize(
@@ -536,8 +536,8 @@ def test_no_whole_script_is_one_line_and_exit_2_with_nothing_executed(given: byt
 @pytest.mark.parametrize(
     ("entry", "asked", "said"),
     [
-        (["nosuch"], {}, 'helper: no verb "nosuch": the verbs are probe'),
-        (["bad\nverb"], {}, 'helper: no verb "bad\\nverb": the verbs are probe'),
+        (["nosuch"], {}, 'helper: no verb "nosuch": the verbs are clones, probe'),
+        (["bad\nverb"], {}, 'helper: no verb "bad\\nverb": the verbs are clones, probe'),
         (["probe", "more"], {}, "helper: probe takes no words"),
         (["probe"], ["user", "dev"], "helper: probe is asked for a JSON object"),
         (["probe"], None, "helper: probe is asked for a JSON object"),
@@ -648,7 +648,7 @@ def test_the_helper_runs_on_python_3_10(tmp_path) -> None:
     assert (echoed.returncode, echoed.stdout, echoed.stderr) == (0, STARTED + AFTER, b"")
     refused = _ran(on_floor, bundle.script(["nosuch"], {}).encode() + b"\nnever said = (\n", env)
     assert (refused.returncode, refused.stdout) == (2, STARTED)
-    assert refused.stderr.decode() == 'helper: no verb "nosuch": the verbs are probe\n'
+    assert refused.stderr.decode() == 'helper: no verb "nosuch": the verbs are clones, probe\n'
 
 
 def test_ruff_keeps_the_rules_that_write_past_the_floor_off_the_helper_s_folder() -> None:

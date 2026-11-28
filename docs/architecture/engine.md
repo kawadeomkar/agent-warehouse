@@ -627,6 +627,43 @@ refused with no child started; a value with a space one word, a word with a lead
 exactly typed and anchored; the descriptions the table's; the check before the printer; and a scan that no fate is
 written in the module.
 
+**The agents' server over the program: `cli/mcp_serve.py` and `tools/aw-mcp`.** The server's reads answered by `aw`
+run as a child, through one seam in today's `lib/claude_vm/mcp/server.py`: its `Server` takes a backend, today's
+`Recipes` by default, and asks it a read's command line, its environment, its name in a sentence, the vault's refusal
+and each tool's schema, so that `tools/mcp` and every 2.x registration run as before (the 2.x
+`tests/unit/test_mcp_server.py` and `tests/unit/test_mcp_hosts.py` hold it), while `tools/aw-mcp` builds the same
+`Server` with `Program`, this module's; nothing of `mcp/` imports the new side (16.1). Its configuration is the
+registered command's arguments alone: today's, read by `mcp/config.py`'s `parse` unchanged, and six of its own, each
+`--name=value`: `--program`, the executable `aw` every read runs; `--fleet-home`, given to each run as
+`AGENT_WAREHOUSE_HOME`; `--state`, the state folder, for the server's own reads of the jobs; `--vault-key-file`,
+given as `AGENT_WAREHOUSE_VAULT_KEY_FILE` (16.9), a path the server never opens; and `--config-home` and
+`--state-home`, the terminal's `XDG_CONFIG_HOME` and `XDG_STATE_HOME` where they are not the defaults, given as those
+two, since `fleet/paths.py` places the installed home's state folder and key by them: a run's state is then `--state`
+and its key the terminal's. The module names each variable only where a run's environment is given it, and opens no
+file, which a test holds by its syntax and on which the fleet scans' exceptions for it rest. A command line that lacks
+one of the first three, as 2.x's `just mcp` registered it, names one twice, or gives today's
+`--vault-password-file`, is the refusal each call is answered with, naming `aw mcp`: the server never exits at its
+start. A call that gives an argument its tool's schema has no property for is refused with `cli/mcp_backend.py`'s
+`command`'s sentence for it, before the SDK, which checks a call against the tool's function alone, would drop it;
+each tool's function takes its schema's properties exactly. A run's environment is today's allow list
+(`mcp/environment.py`) with those variables, never the session's: nothing of Ansible's,
+Python's, `just`'s or Claude Code's, no `LOG_DIR`, and no proxy (`HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY`, in either
+case), since any project's settings set the session's environment and a proxy named there would carry the run's every
+request, the token's among them: a run of the server's reaches the network as `network_proxy` says, and a proxy that
+needs a user and password is a terminal's alone. Its standard input is `/dev/null`, its session its own, its signals at
+their defaults. It lists the reads alone: `status`, `settings` and `hosts`, today's tools with their bodies unchanged
+and the table's schemas; `logs`, which takes the table's job; and `log`, which reads one job's text log through `aw
+logs <job>`, by the job's ID or by its log's name, whose job the list `aw logs` prints names (`job_of_log`), a part at
+a time as today's `log` does. Every result is today's `results.py`'s, under 40 000 characters with the note that text
+from the machines is data. The server process imports nothing of `engine/`, `pve/` or `fleet/`, nor Ansible.
+`tests/unit/test_aw_mcp_server.py` drives it over stdio with a stand-in `aw` that records what each run was given and
+prints the canned reports of `tests/unit/test_mcp_server.py`, and holds the same results for them: the tools and their
+schemas; the report with the head and the note; each run's words, its environment against every variable a session
+could set, `ANSIBLE_ARGS` and the proxies among them, its standard input, session and signals; `logs` and `log` by a
+job and by a name, a part at a time, and the names refused; a warning on standard error; a change to what the server
+runs; the refusals of a command line; the variables equal to the engine's own; and, in a process of its own, that
+building the server and answering each read loads none of the engine's modules.
+
 ## 16.4 `engine/` — the workflows, one module a verb
 
 `lib/claude_vm/engine/` is where the workflows go, one module a verb. Each says what a run of `deploy`, `destroy`,
@@ -1470,6 +1507,41 @@ of `tests/unit/test_host_keys.py` (but the 1.x file's move, not built), the comp
 read and the swap, the jump's rules against a route of the test's own, and against the fake: the same file
 `playbooks/ssh_config.yml` gives for the same fleet, the prune, a VM the fleet does not own, and a destroy that leaves
 no block of its VM and its key in place.
+
+**One VM's window: `code.py`.** `aw code <name>` (card G17) opens one VM in the editor over its alias: the window step
+of today's `playbooks/code.yml` in plain code, over today's pure decisions unchanged - the editor's plan as data
+(`editors/registry.py`'s `editor_open_plan`), the projects directory and `code`'s own directory (`sessions.py`), and the
+editors list (`claude_editors`, `cli/status_inputs.py`'s `EDITORS`). Refused before anything is written, each in one
+sentence, exit 1: an editor `code` cannot open; the managed SSH file off (`claude_ssh_config`); more than one name and
+a `--project` that is not one folder name (the schema's `code.2` and `check.project.2`); `--session`, naming card G18;
+then, from a live read that changes nothing (`fleet.requested`, `change=False`, and `fleet.refusal`): a VM not there or
+not the fleet's, a stopped one with the line that starts it, one with no address, one with no key filed; a home (the
+password database's, read as the VM's account) or `vm_projects_dir` that is not one plain absolute path; `code`'s own
+directory (`editor_files_dir`, else `<projects>/.agent-warehouse`) that is not one, is `/`, is the projects directory or
+the folder opened with the Claude terminal; a folder that is not there, said with what the projects directory holds;
+and `code`'s directory that is a link, or has one on the way below the projects directory, that resolves outside it
+(read as it resolves on the VM), or that is inside a checkout (a `.git` in a folder from the first below the projects
+directory down to it), wherever anything goes into it. Then, in this order - every read and refusal before the alias, so that a plan's
+refusal that says the alias is in place holds - the alias (`aliases.one`, written as `refresh` writes, refused where it
+is not), the editor found here (VS Code: `code` on `PATH`, its Remote - SSH extension installed through its own command
+line where `--list-extensions` lacks it, and its settings read, never written, for what `task.allowAutomaticTasks`
+does, where VS Code itself keeps them (the person's configuration folder, `fleet/paths.py`'s `config_home`, the one
+name of `XDG_CONFIG_HOME`); Zed: each `zeditor`, then `zed`, on `PATH` asked `--version` until one says Zed, which is taken and no command after
+it started, and its tasks file's first line read for the marker, one there that cannot be read taken as someone
+else's, left and said), the plan, refused where it refuses, and its writes on the VM as its account, all in
+`code`'s own directory: that directory where anything goes into it (0755 where new), the plan's directories (the same,
+one there keeping its mode), the helpers it names (`playbooks/files/`, unchanged, 0644) and its files, each into a file
+beside it and renamed into place where its bytes or its mode differ; every one of those paths is looked at first, and a
+link at any stops them all, as each write refuses a link at its own path. Last the registry's command, started to outlive the
+run (`runs/children.py`'s `outlive`), and the plan's report. No trust is set and no question of VS Code's, Zed's or
+Claude Code's answered. Every command on the VM is one of `READS` or `WRITES`, by name, a fixed script given its values
+as arguments, run by one function (`Opening.on_machine`); every command here one of `HERE`'s, by `Opening.here`. The
+steps are `deploy`'s editor stage's, but the sessions' (G18) and the notes' (G19); inside `deploy` (`window(...,
+in_deploy=True)`, which G10 composes) every failure is said under matter `editor` with the `code` line that opens it
+later - for a VM found stopped, under `vm`, the deploy that starts it - and the stage ends skipped, stopping nothing.
+`tests/unit/test_aw_code.py` holds it: the commands by name against what F30's stand-in machine was sent, Zed's and VS
+Code's windows through stand-ins of their commands that record how they were started, each refusal with nothing written
+and no editor started, and `tests/unit/test_code_live.py`'s cases at a terminal.
 
 **What the engine writes on this computer: `controller_writes.py`.** One row a place the new engine writes outside the
 checkout, in the form of today's `playbooks/vars/controller_writes.yml`: where (as a person reads it, or the function of
@@ -2784,7 +2856,12 @@ nowhere, since no run ever ends one. **A run's end ends `ssh`, `ansible` and `pr
 their defaults, its standard streams `/dev/null` and nothing else open; entered in no registry, so the run's end neither
 waits for it nor ends it; and left out, with what is under it, of every tree the ladder remembers and ends
 (`outliving()`). It is started by `subprocess` itself, never through asyncio, whose transport kills a child it still
-holds once the transport is closed or collected. Nothing ends it; a caller that wants its status polls it.
+holds once the transport is closed or collected. Nothing ends it; a caller that wants its status polls it. **A detached
+run** is `start_detached(argv, env, answer)`'s, the one child started before any job exists, by the starter of
+`--detach` (`detached.py`, below): unmarked, since it makes its own job and marks its own children, in a session of its
+own, its standard input `/dev/null`, the signals at their defaults, its standard output and error both `answer`, the
+pipe its starter reads, and nothing else open, a lock's descriptor refused by the lock's name before anything starts;
+entered in no registry, since it is no child of a run's.
 
 **A child the terminal stopped.** `watched(job)` gives the job's children still running and, beside them, `route.py`'s
 `ssh` still running in a process group of its own (`route.leading`: the hop's and its `ssh -G`, which the new engine
@@ -2965,6 +3042,7 @@ stays ignored. The ladder:
 | An error the body did not handle | the tree ended | `failed`, the error | the error raised again |
 | The body returns | what it still holds of its children ended | `succeeded` for 0, `cancelled` for 130, else `failed` with the status, or `declined` with the status and why where the body said so by `decline(why)` (destroy's no): an exit status alone never makes it | exits with the status |
 | SIGKILL | nothing | none: the job reads `lost` once its lock is free | killed |
+| A detached run's limit (`limit`, below) | as SIGTERM: the tree ended with SIGTERM, what ignores it killed after `SETTLE`, the body cancelled; a line says the limit came. Where a stop was asked first (a Ctrl-C's, a cancel's), its grace ends there instead, and the stop stays the run's end | `failed`, `the deadline: run_detached_limit's <limit> came`, exit 2; each machine begun and not ended `failed` at its stage | exits 2, as a failed run does |
 
 On every path but SIGKILL, every child of the registry has ended or been ended before the loop closes, since asyncio
 kills an `ansible-playbook` it still holds when its loop closes and leaves the playbook's detached task workers running;
@@ -3090,6 +3168,52 @@ and ended, its run ending with its body's own status: one that reads it (SIGTTIN
 first as `readpassphrase` does (SIGTTOU), and `route.py`'s `ssh`; and a run at a pseudo-terminal, its terminal its
 controlling one, whose child of kind `ssh`, in a group of its own in the run's session, asks nothing for three seconds
 starts no `ps`, counted by a stand-in first on its `PATH`.
+
+**A detached run: `detached.py`.** `--detach` is the parser's for every verb whose row says `changes` (16.3), `deploy`,
+`login`, `code`, `destroy`, `release`, `init` and `install`, and this module serves them all alike, with nothing of one
+verb's: a verb the table marks changing is detachable with no change here. There is no supervisor (T5): the run is the
+same program in a session of its own, which makes its own job, takes its own locks, writes its own record and keeps its
+own limit.
+
+- **The starter.** The command is parsed, held by the one check, and refused at once where it would be refused, by
+  `cli/main.py` and `cli/dispatch.py` as any command is, a fleet that is not there among it; then the dispatch hands it
+  to `start(program, verb, run, values, env)` in place of the verb's handler, which builds the run's command
+  (`argv_of`: this Python under `-I`, the program by the path `main` was handed, and the printer's words of the same
+  values with the run's own `-v` and `--set`, after `--detached-run` and, where it was given, `--attended 1`) and starts
+  it through `children.start_detached` (above). Its environment is the caller's, with the program as it was started
+  handed on (`printer.handed()`, `AGENT_WAREHOUSE_STARTED_AS`), so that the lines the run prints say it: the run is the
+  person's own command, as it would be at their terminal, so the proxy's variables (`HTTPS_PROXY`, `ALL_PROXY`,
+  `NO_PROXY` and their lower-case forms) reach it, the one place a proxy that needs a user and a password is given,
+  since `network_proxy` refuses one (16.9); the allow list of today's MCP server (`lib/claude_vm/mcp/environment.py`)
+  stays that server's own. `detach(argv, env)` then reads the pipe for `STARTING` seconds (60): each line the run says
+  before it is under way is said again on the starter's standard error as it came, made plain, so that a refusal at its
+  locks (which leaves no job), a refusal of its handler's and a line the printer would not write are all said; the line
+  `started <job id>` ends the read, and the starter prints the job's ID, then `aw logs <id> --follow` and
+  `aw cancel <id>`, each a whole line of the printer's printed by itself, and exits 0. A run that ends before it is
+  under way ends the starter with its own status, 1 where it said nothing and ended otherwise; with no `started` in
+  time, or at a Ctrl-C of the starter's, the run is ended with everything under it (`proc.end`, never its group
+  alone), and the starter says so and exits 1, or 130.
+- **The run.** `--detached-run` has the dispatch call `begin()` before the handler, and the handler's run goes through
+  `runs.run` as any run does, which reads `running()`: the job is made with the starter `detach` (an MCP server's own
+  where the server named itself) and `attached` false, whatever the verb gave; its locks are taken by the run itself
+  (C6), so a second run on its machine is refused while it lives and proceeds once it has ended; its text log is opened
+  (16.8's text log: `LOG_DIR`'s, or the job's own folder where `LOG_DIR` is empty or the verb gave none), the prune's
+  lines said before it, on the pipe; and then `under_way(job)` writes `started <id>` on a line of its own (a newline
+  first, which ends a line said without one, so that it never hides the word) and points its standard output and
+  error at that log, or `/dev/null` where it has none, so that nothing it says from then on reaches its starter, and a
+  starter that has gone is no reason to stop. The live view it draws writes to that log as to any stream that is no
+  terminal. From there it runs with no terminal: it asks nothing and takes each question's safe answer (`ask.py`), it
+  never changes a terminal's settings, so the echo of a shell it was started from stays the shell's, and it signs in and
+  opens pages only where `--attended 1` was given (16.3). It outlives its starter, the terminal its starter ran at, and
+  an MCP server; `cancel` stops it as Ctrl-C stops a run at a terminal; a SIGKILL leaves no exit record, and the job
+  reads `lost` once its lock is free.
+- **The limit.** The setting `run_detached_limit`, in minutes, 120 by the owner's decision and 0 for none, which a
+  verb gives `runs.Draft` as seconds (`limit_of`; `detached_limit` defaults to the setting's default, so a verb that
+  gives none is held to 120 minutes): the record's `deadline` says when by the computer's clock, and the run counts it
+  itself on the loop's monotonic clock from its ladder's start (`attached.run(..., limit=)`), which leaves out a time
+  the computer slept where the system's monotonic clock does (experiment 61 tries it across a closed lid). At it the
+  run stops as at a SIGTERM and its record says `failed`, the deadline as why (the ladder's table above). A run at a
+  terminal has no limit, as today.
 
 **A run over several machines: `fleet_run.py`.** `each(context, machines, body, most, names=...)` starts `body(machine)`
 for each machine, by the key its events name it by (its identity, or a VM's stand-in until its join), never more than
@@ -3917,7 +4041,8 @@ confirmation is the verb's own, not `engine/confirm.py`'s. `tests/unit/test_aw_h
 and never installed there, and the inputs of the system layer, which Ansible converges as a child with built-in modules
 only, and layer 2, the rest of the work, in plain code. It imports `ssh/`, `schema/`, `fleet/` and `runs/` (the one
 starter of a child, and the run's directory), and of `vendors/` the verified downloads, the vendored keys, the proxy's
-choice and the trust's refusal, which layer 2's install of Claude Code reads its release by; nothing of `engine/`, `cli/` or `control/`, and no pydantic. A plugin
+choice and the trust's refusal, which layer 2's install of Claude Code reads its release by, and the one transport,
+which layer 2's clones read GitHub's published SSH host keys by; nothing of `engine/`, `cli/` or `control/`, and no pydantic. A plugin
 of that Ansible child is the one code of the new engine that imports `ansible`. It lives under `guest/ansible/`, where
 the child's own configuration names it.
 
@@ -3934,9 +4059,12 @@ that. What comes before the mark's line, a password's line that `sudo -S` was ha
 dropped, never executed or said back: the mark's line is the whole of a line, and such a line holds a newline only at
 its end. What comes after the script is the verb's own standard input, which it reads on from where the bootstrap
 stopped (`sys.stdin.buffer`), never compiled with the script; no whole script is one line on standard error and exit
-status 2, nothing executed. Its one verb is `probe`, today's status probe unchanged, with its fixed list of reads; a
-verb it does not know, a word too many or an ask that is not a JSON object is one line on standard error and exit status
-2, nothing run. The sources are read by `sources()` alone, the one function of `lib/claude_vm/` outside `status/` that
+status 2, nothing executed. Its verbs are `probe`, today's status probe unchanged, with its fixed list of reads, and
+`clones` (`lib/claude_vm/guest/helper/clones.py`), the checkouts' writer of layer 2's clones, below; each script packs
+its own verb's sources alone (`sources(verb)`, `OWN` naming a verb of the helper's own files), so that the probe's,
+which `just status`'s rule holds to reads, carries no writer, and a verb whose module the script does not carry is
+refused. A verb it does not know, a word too many or an ask that is not a JSON object is one line on standard error and
+exit status 2, nothing run. The sources are read by `sources()` alone, the one function of `lib/claude_vm/` outside `status/` that
 names `playbooks/module_utils/`: the probe's three files stay there until the cutover, since today's Ansible modules
 import them as `module_utils`, and `sources()` finds them from the package's own place, two folders below the checkout's
 top, never the working directory. A release is a checkout of a signed tag, so it holds the same files; the cutover moves
@@ -4425,6 +4553,40 @@ sentences. The token joins the run's redaction list before anything is read, and
 difference carries it. `tests/unit/test_aw_github_credential.py` carries `test_github_auth.py`'s cases of the sign-in
 against `tests/molecule/fake_gh.sh` on stand-in machines, greps every event, file of the run and call of the stand-in
 `ssh` for every canned token, and holds that no sign-out is decided from a token's prefix.
+
+**The listing and the clones.** `lib/claude_vm/guest/layer2/clones.py`'s step `clones` is today's
+`roles/github_projects/tasks/clone.yml` and the two modules it runs, `github_repos.py` and `git_clone_many.py`, in plain
+code; the modules stay in the role until the cutover. The listing runs on the machine, where the token is: `LISTING`, a
+program for the machine's `python3` of the standard library alone, started with the store's token on its standard input
+where one is held, else with the token gh stored there, which `gh auth token` pipes into it on the machine, so that gh's
+token never leaves the machine and this computer makes no call to GitHub with one. It asks GitHub's API as
+`github_repos.py` did (the token's own account first; the account's every repository where the token is its, else its
+public ones; a next link followed only to the API's own scheme and host; no redirect followed; a token over plain http to
+loopback alone), and prints a line a repository, then the count, the account and whether a token listed. The selection
+is in the engine: `filter_repos`, `github_repos.py`'s copied whole (a test hands both the same listings), then
+`select`, the role's `vars/main.yml`: forks and archived ones out but where the machine's own list names them, empty
+ones out, a name with a leading dot never cloned and named, the exclude list out, and in, the machine's own list where
+its record keeps one (it replaces `github_projects`, and a name is only compared with the listing), else
+`github_projects`, else every one. A private repository is cloned only where git has a credential for it, over ssh,
+or over https with gh signed in and gh git's helper (made so by this run under `github_auth`, or by hand), never keyed
+off `github_auth` alone; otherwise it is skipped and named. The git identity is read first, each key on its own, and
+only under `github_auth`: a value of `git_user_name` or `git_user_email` is written; else the account's name and
+GitHub's noreply address, where the key is unset, so one set by hand stays; an organisation gives none, which NEXT
+STEPS' `github_identity` says. The checkouts are the helper's verb `clones`, run as the account: asked first to change
+nothing, the probe's and the check's read, then to make each missing clone in a partial folder renamed into place once
+whole, and under `github_projects_update_existing` to pull a checkout that was there by a fast-forward alone: only a
+folder that is no link, is its own work tree's top, has the repository as its origin in its config (host and
+owner/name compared in lower case, `.git` and the scheme's spelling aside, never as an `insteadOf` rewrites it), and is
+on the default branch with no local change, fetched with no depth; any other is left as it is and said in the report.
+Nothing removes a checkout.
+Over ssh, GitHub's published SSH host keys (the API's `/meta`, which takes no token) are read on this computer by the
+one transport, and the verb puts them in the account's `known_hosts`, replacing a stale line of github.com's. A
+repository not cloned or a checkout git failed to pull fails the step, each named with git's last line, the rest
+cloned. The
+token joins the run's redaction list before anything is read (`github.wanted`). `tests/unit/test_aw_clones.py`
+carries the cases of `test_github_repos.py`, `test_git_clone_many.py` and `test_vm_repos.py` against
+`tests/molecule/fake_github_api.py`, local bare repositories and stand-in machines, holds that the copy chooses what
+today's module chooses, and that a redirect is never followed with the token.
 
 **A person's keys.** The keys a machine accepts are the person's own, `vm_ssh_public_keys`, and layer 1 alone adds them:
 `common`'s keys tasks (`roles/common/tasks/keys.yml`) put each listed key on the account, every line of it made the
